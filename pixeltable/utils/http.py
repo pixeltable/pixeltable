@@ -1,7 +1,10 @@
+import http.cookiejar
 import logging
 import re
+import socket
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from http import HTTPStatus
@@ -9,7 +12,70 @@ from pathlib import Path
 from random import random
 from typing import Any
 
+import requests
+from requests.adapters import HTTPAdapter, Retry
+from tenacity import retry_if_exception
+from urllib3.connection import HTTPConnection
+
 _logger = logging.getLogger(__name__)
+
+# maximum number of connections kept open per host, sized for concurrent calls from multiple threads
+_POOL_MAXSIZE = 16
+# hosts whose pools are kept: the control plane and the sign-in service. With fewer, a call to one
+# evicts the other's pool, and the next call there opens a new connection.
+_POOL_HOSTS = 2
+
+
+def tcp_keepalive_options() -> list[tuple[int, int, int]]:
+    """Socket options that probe an idle connection: first after 60 s, then every 30 s, 5 times.
+
+    NAT gateways and firewalls drop an idle connection without telling either end, and a request then sent on it
+    waits out its read timeout. The probes keep such a connection alive, and fail one whose peer is gone.
+    """
+    options = [(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)]
+    # TCP_KEEPIDLE is Linux; macOS uses TCP_KEEPALIVE for the same purpose
+    keepidle = getattr(socket, 'TCP_KEEPIDLE', None) or getattr(socket, 'TCP_KEEPALIVE', None)
+    if keepidle is not None:
+        options.append((socket.IPPROTO_TCP, keepidle, 60))
+    if hasattr(socket, 'TCP_KEEPINTVL'):
+        options.append((socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 30))
+    if hasattr(socket, 'TCP_KEEPCNT'):
+        options.append((socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5))
+    return options
+
+
+class _KeepaliveAdapter(HTTPAdapter):
+    """Pools whose connections, direct or through a proxy, send keepalive probes (see tcp_keepalive_options)."""
+
+    def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
+        kwargs['socket_options'] = [*HTTPConnection.default_socket_options, *tcp_keepalive_options()]
+        super().init_poolmanager(*args, **kwargs)
+
+    def proxy_manager_for(self, proxy: str, **proxy_kwargs: Any) -> Any:
+        proxy_kwargs.setdefault('socket_options', [*HTTPConnection.default_socket_options, *tcp_keepalive_options()])
+        return super().proxy_manager_for(proxy, **proxy_kwargs)
+
+
+def new_session() -> requests.Session:
+    """Create a pooled session for calls to Pixeltable's hosted services."""
+    session = requests.Session()
+    # these services set no cookies; blocking the jar leaves the session without mutable state, so
+    # concurrent calls can share it
+    session.cookies.set_policy(http.cookiejar.DefaultCookiePolicy(allowed_domains=[]))
+    # retry only failures to establish a connection: those never reached the server, so even a POST is
+    # safe to resend. Nothing that may have reached it is retried, and a Retry-After is not waited out:
+    # honoring one would turn a 429 or 503 into a RetryError that hides the answer from the caller.
+    retries = Retry(total=2, connect=2, read=0, status=0, other=0, respect_retry_after_header=False, backoff_factor=0.2)
+    # the pooled connections sit idle in the long-lived daemon between commands
+    adapter = _KeepaliveAdapter(pool_connections=_POOL_HOSTS, pool_maxsize=_POOL_MAXSIZE, max_retries=retries)
+    session.mount('https://', adapter)
+    session.mount('http://', adapter)
+    return session
+
+
+SESSION = new_session()
+
+DOWNLOAD_USER_AGENT = 'Pixeltable/1.0 (https://pixeltable.com)'
 
 _RETRIABLE_ERROR_INDICATORS = (
     'rate limit',
@@ -63,6 +129,12 @@ def is_retryable_error(exc: Exception) -> tuple[bool, float | None]:
         retry_after = err_md[1]
         return err_md[0], retry_after if retry_after is not None and retry_after >= 0 else None
 
+    # Transport-level failures are retryable.
+    if isinstance(exc, (urllib.error.URLError, ConnectionError, TimeoutError)) and not isinstance(
+        exc, urllib.error.HTTPError
+    ):
+        return True, None
+
     # Check common rate limit keywords in exception message
     error_msg = str(exc).lower()
     if any(indicator in error_msg for indicator in _RETRIABLE_ERROR_INDICATORS):
@@ -70,6 +142,9 @@ def is_retryable_error(exc: Exception) -> tuple[bool, float | None]:
         return True, retry_delay if retry_delay is not None and retry_delay >= 0 else None
 
     return False, None
+
+
+retry_if_retryable_error = retry_if_exception(lambda exc: isinstance(exc, Exception) and is_retryable_error(exc)[0])
 
 
 def _extract_error_metadata(obj: Any) -> tuple[bool, float | None] | None:

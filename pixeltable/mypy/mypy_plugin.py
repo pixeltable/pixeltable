@@ -1,16 +1,18 @@
 from typing import Callable, ClassVar
 
 from mypy import nodes
-from mypy.nodes import GDEF, SymbolTableNode
+from mypy.nodes import GDEF, DictExpr, IndexExpr, NotParsed, OpExpr, StrExpr, SymbolTableNode, TypeInfo
 from mypy.plugin import (
     AnalyzeTypeContext,
     ClassDefContext,
     DynamicClassDefContext,
     FunctionContext,
+    FunctionSigContext,
     MethodSigContext,
     Plugin,
 )
 from mypy.plugins.common import add_attribute_to_class, add_method_to_class
+from mypy.traverser import has_str_expression
 from mypy.types import AnyType, FunctionLike, Instance, NoneType, Type, TypeOfAny
 
 import pixeltable as pxt
@@ -37,6 +39,12 @@ class PxtPlugin(Plugin):
         pxt.Document: 'builtins.str',
     }
     __FULLNAME_MAP: ClassVar[dict] = {f'{k.__module__}.{k.__name__}': v for k, v in __TYPE_MAP.items()}
+    # APIs that accept a schema dict; see `mark_schema_dict_values`. Methods are matched on their unqualified
+    # name, so that `Table` subclasses (`InsertableTable`, `TableProxy`, ...) are covered too.
+    __SCHEMA_FUNCTION_FULLNAMES: ClassVar[frozenset[str]] = frozenset(
+        f'{pxt.__name__}.globals.{name}' for name in ('create_table', 'create_view', 'create_snapshot')
+    )
+    __SCHEMA_METHOD_NAMES: ClassVar[frozenset[str]] = frozenset(('add_columns',))
 
     def get_function_hook(self, fullname: str) -> Callable[[FunctionContext], Type] | None:
         return adjust_uda_type
@@ -44,7 +52,7 @@ class PxtPlugin(Plugin):
     def get_type_analyze_hook(self, fullname: str) -> Callable[[AnalyzeTypeContext], Type] | None:
         if fullname in self.__FULLNAME_MAP:
             subst_name = self.__FULLNAME_MAP[fullname]
-            return lambda ctx: adjust_pxt_type(ctx, subst_name)
+            return lambda ctx: self.adjust_pxt_type(ctx, subst_name)
         if fullname == _REQUIRED_FULLNAME:
             return adjust_required_type
         return None
@@ -57,6 +65,13 @@ class PxtPlugin(Plugin):
     def get_method_signature_hook(self, fullname: str) -> Callable[[MethodSigContext], FunctionLike] | None:
         if fullname in (self.__ADD_COLUMN_FULLNAME, self.__ADD_COMPUTED_COLUMN_FULLNAME):
             return adjust_kwargs
+        if fullname.startswith(f'{pxt.__name__}.') and fullname.rsplit('.', 1)[-1] in self.__SCHEMA_METHOD_NAMES:
+            return mark_schema_dict_values
+        return None
+
+    def get_function_signature_hook(self, fullname: str) -> Callable[[FunctionSigContext], FunctionLike] | None:
+        if fullname in self.__SCHEMA_FUNCTION_FULLNAMES:
+            return mark_schema_dict_values
         return None
 
     def get_dynamic_class_hook(self, fullname: str) -> Callable[[DynamicClassDefContext], None] | None:
@@ -70,6 +85,26 @@ class PxtPlugin(Plugin):
         if fullname == self.__ITERATOR_FULLNAME:
             return adjust_iterator_methods
         return None
+
+    def adjust_pxt_type(self, ctx: AnalyzeTypeContext, subst_name: str) -> Type:
+        """
+        Replaces the special Pixeltable classes (such as pxt.Array) with their standard equivalents
+        (such as np.ndarray).
+        """
+        any_type = AnyType(TypeOfAny.special_form)
+        if subst_name == 'typing.Any':
+            return any_type
+
+        # `ctx.api.named_type()` resolves `subst_name` against the symbols visible to the file being analyzed, and
+        # raises an internal assertion when it cannot see one. That happens in a `TypeForm` position (eg a schema
+        # dict), where mypy re-parses a value expression as a type during the type-checking pass: `PIL.Image` is in
+        # the `PIL` package's symbol table only if the file being checked imports it, which a file naming
+        # `pxt.Image` generally does not. The plugin-level lookup resolves against the whole build instead, and
+        # reports a miss by returning None. Construct the `Instance` the way `named_type()` would.
+        sym = self.lookup_fully_qualified(subst_name)
+        if sym is None or not isinstance(sym.node, TypeInfo):
+            return any_type
+        return Instance(sym.node, [any_type] * len(sym.node.defn.type_vars))
 
 
 def plugin(version: str) -> type:
@@ -169,13 +204,30 @@ def adjust_uda_type(ctx: FunctionContext) -> Type:
     return ret_type
 
 
-def adjust_pxt_type(ctx: AnalyzeTypeContext, subst_name: str) -> Type:
+def mark_schema_dict_values(ctx: FunctionSigContext | MethodSigContext) -> FunctionLike:
     """
-    Replaces the special Pixeltable classes (such as pxt.Array) with their standard equivalents (such as np.ndarray).
+    Suppress a spurious `maybe-unrecognized-str-typeform` error on schema dicts.
+
+    A schema maps column names to a `TypeForm`, a `ColumnSpec` or an `Expr`. mypy pre-parses type expressions
+    only in assignment rvalues, `return` expressions and direct call arguments; a *dict value* is none of those,
+    so it reaches the type-checking pass unparsed. That pass refuses to parse any expression containing a string
+    literal (it cannot resolve forward references there) and reports it, even though the string is not a forward
+    reference: `Image[(300, 300), 'RGB']`, `Json[[{'a': Int}]]` and `tbl.col + 'x'` all trip it.
+
+    Marking those values as "parsed, not a type expression" makes that pass skip them. Each one then type-checks
+    by value instead, which still rejects a value that is not a valid schema entry.
     """
-    if subst_name == 'typing.Any':
-        return AnyType(TypeOfAny.special_form)
-    return ctx.api.named_type(subst_name, [])
+    for arg_group in ctx.args:
+        for arg in arg_group:
+            if isinstance(arg, DictExpr):
+                for _, value in arg.items:
+                    if (
+                        isinstance(value, StrExpr | IndexExpr | OpExpr)
+                        and value.as_type is NotParsed.VALUE
+                        and has_str_expression(value)
+                    ):
+                        value.as_type = None
+    return ctx.default_signature
 
 
 def adjust_kwargs(ctx: MethodSigContext) -> FunctionLike:

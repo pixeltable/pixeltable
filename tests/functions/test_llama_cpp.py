@@ -7,7 +7,7 @@ import pixeltable as pxt
 from ..utils import rerun_on_network_error, skip_test_if_no_config, skip_test_if_not_installed, validate_update_status
 from .tool_utils import stock_price, weather
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 @pytest.fixture(autouse=True)
@@ -27,7 +27,7 @@ class TestLlamaCpp:
         skip_test_if_not_installed('llama_cpp')
         from pixeltable.functions import llama_cpp
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
 
         t.add_computed_column(
             messages=[
@@ -100,7 +100,7 @@ class TestLlamaCpp:
             case _:
                 raise AssertionError(f'Not implemented: {model}')
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         messages = [{'role': 'user', 'content': t.prompt}]
         t.add_computed_column(
             response=llama_cpp.create_chat_completion(

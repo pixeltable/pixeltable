@@ -3,15 +3,14 @@
 
 import base64
 import datetime
+import gc
 import json
 import math
 import os
 import re
-import urllib.parse
-import urllib.request
 import uuid
 from pathlib import Path
-from typing import Any, Callable, NamedTuple
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -20,13 +19,14 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable import exprs, functions as pxtf
+from pixeltable import catalog, exprs, functions as pxtf
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.functions.video import legacy_frame_iterator
 
+from .conftest import SampleFileServer
 from .utils import (
-    CatalogMode,
+    DatabaseRoot,
     ReloadTester,
     assert_columns_eq,
     create_all_datatypes_tbl,
@@ -34,7 +34,6 @@ from .utils import (
     get_image_files,
     pxt_raises,
     reload_catalog,
-    rerun_on_network_error,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -224,7 +223,42 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             _ = t.where(t.c2 <= 2).select(self.value_exc(t.c2 - 1)).show()
 
-    def test_props(self, test_tbl: pxt.Table, img_tbl: pxt.Table, catalog_mode: CatalogMode) -> None:
+    @staticmethod
+    @pxt.udf
+    def raise_sync(x: int) -> int:
+        raise ValueError(f'sync {x}')
+
+    @staticmethod
+    @pxt.udf
+    async def raise_async(x: int) -> int:
+        raise ValueError(f'async {x}')
+
+    @staticmethod
+    @pxt.udf(resource_pool='rate-limits:test')
+    async def raise_rate_limited(x: int) -> int:
+        raise ValueError(f'rate-limited {x}')
+
+    @pytest.mark.db_roots('local', reason='inspects in-process DataRows')
+    @pytest.mark.parametrize('udf_name', ['raise_sync', 'raise_async', 'raise_rate_limited'])
+    def test_errored_rows_released(self, uses_db: None, udf_name: str) -> None:
+        """A row whose evaluation raised is garbage-collected after the insert.
+
+        The recorded exception's traceback references the row through the frame that caught it, so the row is part
+        of a reference cycle.
+        """
+
+        def num_errored_rows() -> int:
+            gc.collect()
+            return sum(1 for obj in gc.get_objects() if isinstance(obj, exprs.DataRow) and obj.has_exc())
+
+        baseline = num_errored_rows()
+        t = pxt.create_table('errored_rows', {'x': pxt.Int})
+        t.add_computed_column(y=getattr(self, udf_name)(t.x))
+        status = t.insert([{'x': i} for i in range(10)], on_error='ignore')
+        assert status.num_excs == 10
+        assert num_errored_rows() == baseline
+
+    def test_props(self, test_tbl: pxt.Table, img_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         t = test_tbl
         # errortype/-msg for computed column
         res = t.select(error=t.c8.errortype).collect()
@@ -237,23 +271,26 @@ class TestExprs:
         res = img_t.select(img_t.img.fileurl).collect().to_pandas()
         stored_urls = set(res.iloc[:, 0])
         assert len(stored_urls) == len(res)
-        if catalog_mode == 'local':
-            all_urls = {urllib.parse.urljoin('file:', urllib.request.pathname2url(path)) for path in get_image_files()}
-            assert stored_urls <= all_urls
-        else:
-            # over the proxy each fileurl is a fetchable daemon media URL, not the local source file
-            assert all(urllib.parse.urlparse(u).scheme in ('http', 'https') and '/media/' in u for u in stored_urls)
+        match db_root.id:
+            case 'local':
+                all_urls = {Path(path).as_uri() for path in get_image_files()}
+                assert stored_urls <= all_urls
+            case 'proxy':
+                # over the proxy each fileurl is a fetchable daemon media URL, not the local source file
+                assert all(u.startswith(('http://', 'https://')) and '/media/' in u for u in stored_urls), stored_urls
+            case 'cloud':
+                assert all(u.startswith('pxt://') and '/buckets/home/' in u for u in stored_urls), stored_urls
 
         # localpath
         res = img_t.select(img_t.img.localpath).collect().to_pandas()
         stored_paths = set(res.iloc[:, 0])
         assert len(stored_paths) == len(res)
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             all_paths = set(get_image_files())
             assert stored_paths <= all_paths
         else:
             # over the proxy each localpath is a fetched local copy, openable but not the original source file
-            assert all(os.path.exists(p) for p in stored_paths)
+            assert all(os.path.exists(p) for p in stored_paths), stored_paths
 
         # errortype/-msg for image column
         res = img_t.select(error=img_t.img.errortype).collect().to_pandas()
@@ -290,10 +327,10 @@ class TestExprs:
             _ = img_t.select(img_t.c9.errortype).show()
         assert 'only valid for' in str(excinfo.value)
 
-    def test_null_args(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_null_args(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         # create table with two columns
-        schema = {'c1': pxt.Float, 'c2': pxt.Float}
+        schema: dict[str, Any] = {'c1': pxt.Float | None, 'c2': pxt.Float | None}
         t = pxt.create_table(p('test'), schema)
 
         t.add_computed_column(c3=self.required_params_fn(t.c1, t.c2))
@@ -318,8 +355,8 @@ class TestExprs:
         t = test_tbl
 
         # Add nullable int and float columns
-        t.add_column(c2n=pxt.Int)
-        t.add_column(c3n=pxt.Float)
+        t.add_column(c2n=pxt.Int | None)
+        t.add_column(c3n=pxt.Float | None)
         t.where(t.c2 % 7 != 0).update({'c2n': t.c2, 'c3n': t.c3})
 
         _ = t.select(t.c2, t.c6.f3, t.c2 + t.c6.f3, (t.c2 + t.c6.f3) / (t.c6.f3 + 1)).collect()
@@ -482,12 +519,12 @@ class TestExprs:
             .collect()
         )
         assert res.schema == {
-            'pos': 'Required[Int]',
-            'neg': 'Required[Float]',
-            'dyn': 'Required[Float]',
-            'dyn_neg': 'Required[Float]',
-            'float_base': 'Required[Float]',
-            'json': 'Float',  # a json path is nullable, so the result is nullable
+            'pos': 'Int',
+            'neg': 'Float',
+            'dyn': 'Float',
+            'dyn_neg': 'Float',
+            'float_base': 'Float',
+            'json': 'Float | None',  # a json path is nullable, so the result is nullable
         }
         r = res[0]
         assert r['pos'] == 8 and isinstance(r['pos'], int)
@@ -731,11 +768,14 @@ class TestExprs:
             res['item_of_vartype_list'][i] == [res['c2'][i], res['c1'][i], res['c3'][i]] for i in range(len(res))
         )
 
-    def test_json_path_projection(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_json_path_projection(self, db_root: DatabaseRoot) -> None:
         # a projection ('*' or a slice) yields one positionally-aligned result per source element: a missing field,
         # a null element, or a non-list element under a further projection becomes null, never dropped. So parallel
         # projections stay the same length and line up by index, and nesting preserves structure at every level.
-        t = pxt.create_table(make_catalog_path('proj'), {'id': pxt.Int, 'dets': pxt.Json, 'matrix': pxt.Json})
+        t = pxt.create_table(
+            db_root.make_catalog_path('proj'),
+            {'id': pxt.Int | None, 'dets': pxt.Json | None, 'matrix': pxt.Json | None},
+        )
         t.insert(
             [
                 # missing field in the middle; a null element; nested lists with a null, an empty, and a non-list
@@ -773,14 +813,19 @@ class TestExprs:
         # on a typed source, a projection resolves to a nullable element type: a projection may not resolve for
         # every element, which is exactly what the aligned nulls above realize at runtime. (A strict schema won't
         # accept a missing field or null element, so the null values themselves are exercised on the untyped col.)
-        tt = pxt.create_table(make_catalog_path('proj_typed'), {'dets': pxt.Json[[{'l': pxt.String, 's': pxt.Float}]]})
+        tt = pxt.create_table(
+            db_root.make_catalog_path('proj_typed'), {'dets': pxt.Json[[{'l': pxt.String, 's': pxt.Float}]] | None}
+        )
         tt.insert([{'dets': [{'l': 'a', 's': 0.9}, {'l': 'b', 's': 0.1}]}])
         typed = tt.select(labels=tt.dets['*'].l, scores=tt.dets['*'].s).collect()
-        assert typed.schema == {'labels': 'Json[(String | None, ...)]', 'scores': 'Json[(Float | None, ...)]'}
+        assert typed.schema == {
+            'labels': 'Json[(String | None, ...)] | None',
+            'scores': 'Json[(Float | None, ...)] | None',
+        }
         assert list(typed['scores']) == [[0.9, 0.1]]
 
-    def test_json_path_types(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_json_path_types(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         spec = {
             'f1': str,
             'img': pxt.Image,
@@ -799,42 +844,51 @@ class TestExprs:
             'f4': ({'f4a': int, 'f4b': str}, ...),
             'f5': ({'f5a': int}, {'f5a': str}, {'f5a': float}, ...),
         }
-        t = pxt.create_table(p('test'), {'col': pxt.Json[spec]})
-        cases: tuple[tuple[Expr, type], ...] = (
-            (t.col.f1, pxt.String),
-            (t.col.f2.f2a, pxt.Int),
-            (t.col.f2.f2b[1], pxt.String),
-            (t.col.f2.f2b[-2], pxt.Video),  # negative index on fixed-shape array
-            (t.col.f2.f2b[3].f2b1, pxt.String),  # chained field/index access
-            (t.col.f2.f2c, pxt.Json[(int, bool, float, ...)]),
-            (t.col.f2.f2c[0], pxt.Int),
-            (t.col.f2.f2c[93], pxt.Float),  # variadic index access
-            (t.col.f2.f2d[93].f2d1, pxt.String),  # variadic index access with chained field access
-            (t.col.f3[-9], pxt.Array[(2, None, None, None), np.float32]),  # variadic negative index (common supertype)
-            (t.col.f3[-1], pxt.Array[(2, 4, None, None), np.float32]),  # in this case it could not reference index 0
-            (t.col.f2.f2b[1:3], pxt.Json[(str, pxt.Video)]),  # slice access on fixed-length tuple
-            (t.col.f2.f2b[1:], pxt.Json[(str, pxt.Video, {'f2b1': str})]),
-            (t.col.f2.f2b[:2], pxt.Json[(int, str)]),
-            (t.col.f2.f2b[1:][2].f2b1, pxt.String),  # chained slice access
-            (t.col.f2.f2c[1:], pxt.Json[(bool, float, ...)]),  # slice access on variadic tuple
-            (t.col.f2.f2c[91:], pxt.Json[(float, ...)]),
-            (t.col.f2.f2c[1:6], pxt.Json[(bool, float, ...)]),
-            (t.col.f2.f2c[:2], pxt.Json[(int, bool)]),
-            (t.col.f2.f2c[:91], pxt.Json[(int, bool, float, ...)]),
+        t = pxt.create_table(p('test'), {'col': pxt.Json[spec] | None})
+        cases: tuple[tuple[Expr, Any], ...] = (
+            (t.col.f1, pxt.String | None),
+            (t.col.f2.f2a, pxt.Int | None),
+            (t.col.f2.f2b[1], pxt.String | None),
+            (t.col.f2.f2b[-2], pxt.Video | None),  # negative index on fixed-shape array
+            (t.col.f2.f2b[3].f2b1, pxt.String | None),  # chained field/index access
+            (t.col.f2.f2c, pxt.Json[(int, bool, float, ...)] | None),
+            (t.col.f2.f2c[0], pxt.Int | None),
+            (t.col.f2.f2c[93], pxt.Float | None),  # variadic index access
+            (t.col.f2.f2d[93].f2d1, pxt.String | None),  # variadic index access with chained field access
+            (
+                t.col.f3[-9],
+                pxt.Array[(2, None, None, None), np.float32] | None,
+            ),  # variadic negative index (common supertype)
+            (
+                t.col.f3[-1],
+                pxt.Array[(2, 4, None, None), np.float32] | None,
+            ),  # in this case it could not reference index 0
+            (t.col.f2.f2b[1:3], pxt.Json[(str, pxt.Video)] | None),  # slice access on fixed-length tuple
+            (t.col.f2.f2b[1:], pxt.Json[(str, pxt.Video, {'f2b1': str})] | None),
+            (t.col.f2.f2b[:2], pxt.Json[(int, str)] | None),
+            (t.col.f2.f2b[1:][2].f2b1, pxt.String | None),  # chained slice access
+            (t.col.f2.f2c[1:], pxt.Json[(bool, float, ...)] | None),  # slice access on variadic tuple
+            (t.col.f2.f2c[91:], pxt.Json[(float, ...)] | None),
+            (t.col.f2.f2c[1:6], pxt.Json[(bool, float, ...)] | None),
+            (t.col.f2.f2c[:2], pxt.Json[(int, bool)] | None),
+            (t.col.f2.f2c[:91], pxt.Json[(int, bool, float, ...)] | None),
             # negative slice on variadic tuple
-            (t.col.f3[-9:], pxt.Json[[pxt.Array[(2, None, None, None), np.float32]]]),
-            (t.col.f4[7:14].f4a, pxt.Json[[int | None]]),  # dict resolution applied to list
+            (t.col.f3[-9:], pxt.Json[[pxt.Array[(2, None, None, None), np.float32]]] | None),
+            (t.col.f4[7:14].f4a, pxt.Json[[int | None]] | None),  # dict resolution applied to list
             # dict resolution applied to heterogeneous tuple
-            (t.col.f5[:].f5a, pxt.Json[(int | None, str | None, float | None, ...)]),
-            (t.col.f4['*'].f4b, pxt.Json[[str | None]]),  # special '*' operator
-            (t.col.f4.f4a, pxt.Json[[int | None]]),  # field access on a list projects without an explicit slice/'*'
+            (t.col.f5[:].f5a, pxt.Json[(int | None, str | None, float | None, ...)] | None),
+            (t.col.f4['*'].f4b, pxt.Json[[str | None]] | None),  # special '*' operator
+            (
+                t.col.f4.f4a,
+                pxt.Json[[int | None]] | None,
+            ),  # field access on a list projects without an explicit slice/'*'
             # attribute access on a json path that resolves to a non-JSON type dispatches to that type's UDFs
-            (t.col.img.width, pxt.Int),  # is_property UDF auto-invokes
-            (t.col.img.rotate(90), pxt.Image),  # is_method UDF
+            (t.col.img.width, pxt.Int | None),  # is_property UDF auto-invokes
+            (t.col.img.rotate(90), pxt.Image | None),  # is_method UDF
         )
         for expr, expected_type in cases:
             print(expr)
-            col_type = ts.ColumnType.from_python_type(expected_type, nullable_default=True, allow_builtin_types=False)
+            col_type = ts.ColumnType.from_python_type(expected_type, allow_builtin_types=False)
             assert expr.col_type == col_type, f'{expr!r}: expected `{col_type}`; got `{expr.col_type}`'
 
         error_cases: tuple[tuple[Expr, str | int | slice, str], ...] = (
@@ -865,7 +919,7 @@ class TestExprs:
 
         # top-level is dict
         res1 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5.map(lambda x: x + 1)).order_by(t.c2))
-        assert res1.schema['output'] == 'Json[(Float | None, ...)]'
+        assert res1.schema['output'] == 'Json[(Float | None, ...)] | None'
         for row in res1:
             assert row['output'] == [x + 1 for x in row['input']]
 
@@ -873,7 +927,7 @@ class TestExprs:
         res2 = reload_tester.run_query(
             t.select(input=t.c7, output=t.c7['*'].f5.map(lambda x: [x[3], x[2], x[1], x[0]])).order_by(t.c2)
         )
-        assert res2.schema['output'] == 'Json[(Json[(Json | None, Json | None, Json | None, Json | None)], ...)]'
+        assert res2.schema['output'] == 'Json[(Json[(Json | None, Json | None, Json | None, Json | None)], ...)] | None'
         for row in res2:
             assert row['output'] == [[d['f5'][3], d['f5'][2], d['f5'][1], d['f5'][0]] for d in row['input']]
 
@@ -881,13 +935,13 @@ class TestExprs:
         res3 = reload_tester.run_query(
             t.select(input=t.c6, output=t.c6.f5['*'].map(lambda x: x * t.c6.f5[1])).order_by(t.c2)
         )
-        assert res3.schema['output'] == 'Json[(Float | None, ...)]'
+        assert res3.schema['output'] == 'Json[(Float | None, ...)] | None'
         for row in res3:
             assert row['output'] == [x * row['input']['f5'][1] for x in row['input']['f5']]
 
         # mapper appears inside the anchor of a JsonPath: the subscript resolves to the mapped element type
         res4 = reload_tester.run_query(t.select(input=t.c6, output=t.c6.f5['*'].map(lambda x: x + 1)[0]).order_by(t.c2))
-        assert res4.schema['output'] == 'Float'
+        assert res4.schema['output'] == 'Float | None'
         for row in res4:
             assert row['output'] == row['input']['f5'][0] + 1
 
@@ -900,10 +954,10 @@ class TestExprs:
         validate_update_status(t.add_computed_column(out4=pxtf.map(t.c6.f5, lambda x: x + 1)[0]), 100)
         res_col = reload_tester.run_query(t.select(t.out1, t.out2, t.out3, t.out4).order_by(t.c2))
         assert res_col.schema == {
-            'out1': 'Json[(Float | None, ...)]',
-            'out2': 'Json[(Json[(Json | None, Json | None, Json | None, Json | None)], ...)]',
-            'out3': 'Json[(Float | None, ...)]',
-            'out4': 'Float',
+            'out1': 'Json[(Float | None, ...)] | None',
+            'out2': 'Json[(Json[(Json | None, Json | None, Json | None, Json | None)], ...)] | None',
+            'out3': 'Json[(Float | None, ...)] | None',
+            'out4': 'Float | None',
         }
         # the stored value exprs display in method form with the relative root shown as R (matching creation)
         md = t.get_metadata()['columns']
@@ -931,40 +985,40 @@ class TestExprs:
 
         # keep the elements greater than a constant
         res1 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5.filter(lambda x: x > 2)).order_by(t.c2))
-        assert res1.schema['output'] == 'Json'  # c6.f5 is an untyped Json list, so the element type is unknown
+        assert res1.schema['output'] == 'Json | None'  # c6.f5 is an untyped Json list, so the element type is unknown
         assert all(row['output'] == [x for x in row['input'] if x > 2] for row in res1)
 
         # predicate contains a global-scope dependency
         res2 = reload_tester.run_query(
             t.select(input=t.c6, output=t.c6.f5.filter(lambda x: x >= t.c6.f2)).order_by(t.c2)
         )
-        assert res2.schema['output'] == 'Json'
+        assert res2.schema['output'] == 'Json | None'
         assert all(row['output'] == [x for x in row['input']['f5'] if x >= row['input']['f2']] for row in res2)
 
         # source elements are dicts; the retained elements are the dicts themselves
         res3 = reload_tester.run_query(t.select(input=t.c7, output=t.c7.filter(lambda x: x.f2 > 0)).order_by(t.c2))
-        assert res3.schema['output'] == 'Json'
+        assert res3.schema['output'] == 'Json | None'
         assert all(row['output'] == [x for x in row['input'] if x['f2'] > 0] for row in res3)
 
         # a predicate that retains nothing yields an empty list
         res4 = reload_tester.run_query(
             t.select(input=t.c6.f5, output=t.c6.f5.filter(lambda x: x > 1000)).order_by(t.c2)
         )
-        assert res4.schema['output'] == 'Json'
+        assert res4.schema['output'] == 'Json | None'
         assert all(row['output'] == [] for row in res4)
 
         # filter appears inside the anchor of a JsonPath
         res5 = reload_tester.run_query(
             t.select(input=t.c6.f5, output=t.c6.f5.filter(lambda x: x > 2)[0]).order_by(t.c2)
         )
-        assert res5.schema['output'] == 'Json'
+        assert res5.schema['output'] == 'Json | None'
         assert all(row['output'] == next(x for x in row['input'] if x > 2) for row in res5)
 
         # test it as a computed column
         validate_update_status(t.add_computed_column(fout1=pxtf.filter(t.c6.f5, lambda x: x > 2)), 100)
         validate_update_status(t.add_computed_column(fout3=pxtf.filter(t.c7, lambda x: x.f2 > 0)), 100)
         res_col = reload_tester.run_query(t.select(t.fout1, t.fout3).order_by(t.c2))
-        assert res_col.schema == {'fout1': 'Json', 'fout3': 'Json'}
+        assert res_col.schema == {'fout1': 'Json | None', 'fout3': 'Json | None'}
         # the stored value exprs display in method form with the relative root shown as R (matching creation)
         md = t.get_metadata()['columns']
         assert md['fout1']['computed_with'] == 'c6.f5.filter(lambda R: R > 2)'
@@ -985,16 +1039,16 @@ class TestExprs:
 
         # keyless sort of a scalar list, ascending and descending
         res1 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5.sort()).order_by(t.c2))
-        assert res1.schema['output'] == 'Json'  # c6.f5 is an untyped Json list, so the element type is unknown
+        assert res1.schema['output'] == 'Json | None'  # c6.f5 is an untyped Json list, so the element type is unknown
         assert all(row['output'] == sorted(row['input']) for row in res1)
 
         res2 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5.sort(asc=False)).order_by(t.c2))
-        assert res2.schema['output'] == 'Json'
+        assert res2.schema['output'] == 'Json | None'
         assert all(row['output'] == sorted(row['input'], reverse=True) for row in res2)
 
         # keyed sort: order by a per-element key expr
         res3 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5.sort(key=lambda x: -x)).order_by(t.c2))
-        assert res3.schema['output'] == 'Json'
+        assert res3.schema['output'] == 'Json | None'
         assert all(row['output'] == sorted(row['input'], key=lambda x: -x) for row in res3)
 
         # key may be passed positionally (matching map()/filter() and the sort() repr), equivalent to key=
@@ -1005,7 +1059,7 @@ class TestExprs:
         res4 = reload_tester.run_query(
             t.select(input=t.c6, output=t.c6.f5.sort(key=lambda x: x * t.c6.f2, asc=False)).order_by(t.c2)
         )
-        assert res4.schema['output'] == 'Json'
+        assert res4.schema['output'] == 'Json | None'
         assert all(
             row['output'] == sorted(row['input']['f5'], key=lambda x: x * row['input']['f2'], reverse=True)
             for row in res4
@@ -1013,7 +1067,7 @@ class TestExprs:
 
         # source elements are dicts; the reordered elements are the dicts themselves
         res5 = reload_tester.run_query(t.select(input=t.c7, output=t.c7.sort(key=lambda x: x.f2)).order_by(t.c2))
-        assert res5.schema['output'] == 'Json'
+        assert res5.schema['output'] == 'Json | None'
         assert all(row['output'] == sorted(row['input'], key=lambda d: d['f2']) for row in res5)
 
         # test it as a computed column
@@ -1021,7 +1075,7 @@ class TestExprs:
         validate_update_status(t.add_computed_column(sout2=pxtf.sort(t.c6.f5, asc=False)), 100)
         validate_update_status(t.add_computed_column(sout3=pxtf.sort(t.c6.f5, key=lambda x: -x)), 100)
         res_col = reload_tester.run_query(t.select(t.sout1, t.sout2, t.sout3).order_by(t.c2))
-        assert res_col.schema == {'sout1': 'Json', 'sout2': 'Json', 'sout3': 'Json'}
+        assert res_col.schema == {'sout1': 'Json | None', 'sout2': 'Json | None', 'sout3': 'Json | None'}
         # both the keyless and keyed forms display as a method call, with the relative root shown as R
         md = t.get_metadata()['columns']
         assert md['sout1']['computed_with'] == 'c6.f5.sort()'
@@ -1036,10 +1090,10 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
-    def test_multi_json_mapper(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
-        p = make_catalog_path
+    def test_multi_json_mapper(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
         # Workflow with multiple JsonMapper instances
-        t = pxt.create_table(p('test'), {'id': pxt.Int, 'jcol': pxt.Json})
+        t = pxt.create_table(p('test'), {'id': pxt.Int | None, 'jcol': pxt.Json | None})
         t.add_computed_column(outputx=pxtf.map(t.jcol.x, lambda x: x + 1))
         t.add_computed_column(outputy=pxtf.map(t.jcol.y, lambda x: x + 2))
         t.add_computed_column(outputz=pxtf.map(t.jcol.z, lambda x: x + 3))
@@ -1054,9 +1108,9 @@ class TestExprs:
             t.insert([{'id': i, 'jcol': data}])
         res = reload_tester.run_query(t.select(t.outputx, t.outputy, t.outputz).order_by(t.id))
         assert res.schema == {
-            'outputx': 'Json[(Float | None, ...)]',
-            'outputy': 'Json[(Float | None, ...)]',
-            'outputz': 'Json[(Float | None, ...)]',
+            'outputx': 'Json[(Float | None, ...)] | None',
+            'outputy': 'Json[(Float | None, ...)] | None',
+            'outputz': 'Json[(Float | None, ...)] | None',
         }
         for i in range(8):
             assert res[i]['outputx'] == (None if (i & 1) == 0 else [2, 3, 4])
@@ -1065,9 +1119,9 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
-    def test_nested_chained_mappers(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
-        p = make_catalog_path
-        t = pxt.create_table(p('test'), {'j': pxt.Json, 'jj': pxt.Json})
+    def test_nested_chained_mappers(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'j': pxt.Json | None, 'jj': pxt.Json | None})
         t.insert([{'j': [1, -2, 3], 'jj': [[1, 2], [3]]}])
 
         # nested mapper: an inner map inside the outer map's function, applied to each inner list
@@ -1127,7 +1181,7 @@ class TestExprs:
         t = test_tbl
         t.add_computed_column(array_col=pxt.array([[t.c2, 1], [5, t.c2]]))
 
-        def selection_equals(expr: Expr, expected: list[np.ndarray]) -> bool:
+        def selection_equals(expr: Expr, expected: list[Any]) -> bool:
             actual = t.select(out=expr).order_by(t.c2).collect()['out']
             return all(np.array_equal(x, y) for x, y in zip(actual, expected))
 
@@ -1135,12 +1189,118 @@ class TestExprs:
         assert selection_equals(t.array_col[1], [np.array([5, i]) for i in range(100)])
         assert selection_equals(t.array_col[:, 0], [np.array([i, 5]) for i in range(100)])
 
+        assert selection_equals(t.array_col[0, 1], [1] * 100)
+
         with pytest.raises(AttributeError) as excinfo:
             t.array_col[1, 'string']
         assert 'Invalid array indices' in str(excinfo.value)
 
-    def test_in(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+        with pytest.raises(AttributeError) as excinfo:
+            t.array_col['a':'b']
+        assert 'Invalid array indices' in str(excinfo.value)
+
+        # a zero step is rejected here; numpy and slice.indices() would both raise ValueError on it
+        with pytest.raises(AttributeError) as excinfo:
+            t.array_col[::0]
+        assert 'Invalid array indices' in str(excinfo.value)
+
+        with pytest.raises(AttributeError) as excinfo:
+            t.array_col[0:2:0, 1]
+        assert 'Invalid array indices' in str(excinfo.value)
+
+    def test_array_index_type(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('test'),
+            {
+                # the middle dimension is a wildcard
+                'arr': pxt.Array[(2, None, 3), np.float32],
+                'strs': pxt.Array[(2,), np.str_],
+                'unshaped': pxt.Array[np.float32],
+            },
+        )
+        arr = np.arange(2 * 4 * 3, dtype=np.float32).reshape(2, 4, 3)
+        t.insert(arr=arr, strs=np.array(['a', 'b'], np.str_), unshaped=np.array([1.0, 2.0], np.float32))
+
+        # an int index drops its dimension; a slice retains it; uncovered dimensions are retained. A slice of a
+        # wildcard dimension stays a wildcard, because its length depends on the number of elements in that dimension.
+        expected_types = [
+            (t.arr[1], pxt.Array[(None, 3), np.float32]),
+            (t.arr[0:1], pxt.Array[(1, None, 3), np.float32]),
+            (t.arr[:, 1], pxt.Array[(2, 3), np.float32]),
+            (t.arr[:, 1:], pxt.Array[(2, None, 3), np.float32]),
+            (t.arr[1, ::2], pxt.Array[(None, 3), np.float32]),
+            (t.arr[0, 1], pxt.Array[(3,), np.float32]),
+            (t.arr[1, ::2, 0:2], pxt.Array[(None, 2), np.float32]),
+            # an index that drops every dimension yields the array's scalar dtype
+            (t.arr[0, 1, 2], pxt.Float),
+            (t.arr[-1, -1, -1], pxt.Float),
+            (t.strs[0], pxt.String),
+        ]
+        for expr, expected in expected_types:
+            assert expr.col_type == ts.ColumnType.normalize_type(expected), expr
+
+        # the declared shape of each result agrees with the shape of the value, with a wildcard matching any dimension
+        row = t.select(*(expr for expr, _ in expected_types)).collect()[0]
+        for (expr, _), val in zip(expected_types, row.values()):
+            if not isinstance(expr.col_type, ts.ArrayType):
+                continue
+            declared_shape = expr.col_type.shape
+            assert declared_shape is not None
+            assert len(val.shape) == len(declared_shape), expr
+            assert all(n is None or n == actual for n, actual in zip(declared_shape, val.shape)), expr
+
+        # scalar results are converted to Python scalars, so that they conform to the scalar column type
+        row = t.select(x=t.arr[0, 1, 2], y=t.arr[-1, -1, -1], s=t.strs[0], u=t.unshaped[0]).collect()[0]
+        assert row == {'x': 5.0, 'y': 23.0, 's': 'a', 'u': 1.0}
+        assert type(row['x']) is float
+        assert type(row['s']) is str
+
+        # the ndim of an unshaped array is unknown, so the index cannot be resolved to a scalar type
+        assert t.unshaped[0].col_type == ts.ColumnType.normalize_type(pxt.Array[np.float32])
+
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as excinfo:
+            _ = t.arr[0, 1, 2, 3]
+        assert 'Too many indices' in str(excinfo.value)
+
+        for bad_index in (2, -3, (0, 0, 3)):
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as excinfo:
+                _ = t.arr[bad_index]
+            assert 'out of bounds' in str(excinfo.value)
+
+        # an int index of a wildcard dimension cannot be bounds-checked, and fails at evaluation time instead
+        assert t.arr[0, 100].col_type == ts.ColumnType.normalize_type(pxt.Array[(3,), np.float32])
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as excinfo:
+            _ = t.select(t.arr[0, 100]).collect()
+        assert 'index 100 is out of bounds' in str(excinfo.value)
+
+    def test_array_index_null(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'id': pxt.Int, 'arr': pxt.Array[(2, 3), np.float32] | None})
+        arr = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], np.float32)
+        t.insert([{'id': 0, 'arr': arr}, {'id': 1, 'arr': None}])
+        t.add_computed_column(sliced=t.arr[0:1])
+        t.add_computed_column(element=t.arr[0, 1])
+
+        # indexing a null array yields null, for every index and for stored computed columns
+        exprs_to_check = [t.arr[1], t.arr[0:1], t.arr[:, 0], t.arr[0, 1], t.sliced, t.element]
+        assert all(e.col_type.nullable for e in exprs_to_check)
+        query = t.order_by(t.id).select(*exprs_to_check)
+        rows = reload_tester.run_query(query)
+        assert list(rows[0].values()) == [
+            pytest.approx(np.array([4.0, 5.0, 6.0])),
+            pytest.approx(np.array([[1.0, 2.0, 3.0]])),
+            pytest.approx(np.array([1.0, 4.0])),
+            2.0,
+            pytest.approx(np.array([[1.0, 2.0, 3.0]])),
+            2.0,
+        ]
+        assert all(v is None for v in rows[1].values())
+
+        reload_tester.run_reload_test()
+
+    def test_in(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = test_tbl
         user_cols = [t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7]
         # list of literals
@@ -1203,7 +1363,7 @@ class TestExprs:
         t = test_tbl
 
         # Convert int to float
-        validate_update_status(t.add_computed_column(c2_as_float=t.c2.astype(pxt.Float)))
+        validate_update_status(t.add_computed_column(c2_as_float=t.c2.astype(pxt.Float | None)))
         assert t.c2_as_float.col_type == ts.FloatType(nullable=False)
         data = t.select(t.c2, t.c2_as_float).collect()
         for row in data:
@@ -1212,7 +1372,7 @@ class TestExprs:
             assert row['c2'] == row['c2_as_float']
 
         # Compound expression
-        validate_update_status(t.add_computed_column(compound_as_float=(t.c2 + 1).astype(pxt.Float)))
+        validate_update_status(t.add_computed_column(compound_as_float=(t.c2 + 1).astype(pxt.Float | None)))
         assert t.compound_as_float.col_type == ts.FloatType(nullable=False)
         data = t.select(t.c2, t.compound_as_float).collect()
         for row in data:
@@ -1220,33 +1380,33 @@ class TestExprs:
             assert row['c2'] + 1 == row['compound_as_float']
 
         # Type conversion error
-        status = t.add_computed_column(c2_as_string=t.c2.astype(pxt.String), on_error='ignore')
+        status = t.add_computed_column(c2_as_string=t.c2.astype(pxt.String | None), on_error='ignore')
         assert status.num_excs == t.count()
         errormsgs = t.select(out=t.c2_as_string.errormsg).collect()['out']
         assert all('Expected string, got int' in msg for msg in errormsgs), errormsgs
 
         # Convert a nullable column
-        validate_update_status(t.add_column(c2n=pxt.Int))
+        validate_update_status(t.add_column(c2n=pxt.Int | None))
         t.where(t.c2 % 2 == 0).update({'c2n': t.c2})  # set even values; keep odd values as None
-        validate_update_status(t.add_computed_column(c2n_as_float=t.c2n.astype(pxt.Float)))
+        validate_update_status(t.add_computed_column(c2n_as_float=t.c2n.astype(pxt.Float | None)))
         assert t.c2n_as_float.col_type == ts.FloatType(nullable=True)
 
         # Cast nullable to required
-        status = t.add_computed_column(c2n_as_req_float=t.c2n.astype(pxt.Required[pxt.Float]), on_error='ignore')
+        status = t.add_computed_column(c2n_as_req_float=t.c2n.astype(pxt.Float), on_error='ignore')
         assert t.c2n_as_req_float.col_type == ts.FloatType(nullable=False)
         assert status.num_excs == t.count() // 2  # Just the odd values should error out
         errormsgs = [msg for msg in t.select(out=t.c2n_as_req_float.errormsg).collect()['out'] if msg is not None]
         assert len(errormsgs) == t.count() // 2
         assert all('Expected non-None value' in msg for msg in errormsgs), errormsgs
 
-    @pytest.mark.local('resolves images from client-local filesystem paths the daemon cannot see')
+    @pytest.mark.db_roots('local', reason='resolves images from client-local filesystem paths the daemon cannot see')
     def test_astype_str_to_img(self, uses_db: None) -> None:
         img_files = get_image_files()
         img_files = sorted(img_files[:5])
         # store relative paths in the table
         parent_dir = Path(img_files[0]).parent
         assert all(parent_dir == Path(img_file).parent for img_file in img_files)
-        t = pxt.create_table('astype_test', {'rel_path': pxt.String})
+        t = pxt.create_table('astype_test', {'rel_path': pxt.String | None})
         validate_update_status(t.insert({'rel_path': Path(f).name} for f in img_files), expected_rows=len(img_files))
 
         # create a computed image column constructed from the relative paths
@@ -1254,7 +1414,7 @@ class TestExprs:
 
         validate_update_status(
             t.add_computed_column(
-                img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.Image), stored=True
+                img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.Image | None), stored=True
             )
         )
         loaded_imgs = t.select(t.img).order_by(t.rel_path).collect()['img']
@@ -1264,17 +1424,17 @@ class TestExprs:
 
         # the same for a select list item
         loaded_imgs = (
-            t.select(img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.Image))
+            t.select(img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.Image | None))
             .order_by(t.rel_path)
             .collect()['img']
         )
         for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs, strict=True):
             assert np.array_equal(np.array(orig_img), np.array(retrieved_img))
 
-    def test_astype_str_to_img_data_url(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
-        t = pxt.create_table(p('astype_test'), {'url': pxt.String})
-        t.add_computed_column(img=t.url.astype(pxt.Image))
+    def test_astype_str_to_img_data_url(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('astype_test'), {'url': pxt.String | None})
+        t.add_computed_column(img=t.url.astype(pxt.Image | None))
         images = get_image_files(include_bad_image=True)[:5]  # bad image is at idx 0
         url_encoded_images = []
         for img in images:
@@ -1396,11 +1556,11 @@ class TestExprs:
 
         t.c2.apply(f8)
 
-    def test_nonmodule_function_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_nonmodule_function_errors(self, db_root: DatabaseRoot) -> None:
         # a function without a fully-qualified path (from apply() or defined in a notebook) can only be stored as a
         # pickled body; every persistence site must reject it with a clear message
-        p = make_catalog_path
-        t = pxt.create_table(p('base'), {'c2': pxt.Int, 's': pxt.String})
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('base'), {'c2': pxt.Int | None, 's': pxt.String | None})
         t.insert([{'c2': i, 's': str(i)} for i in range(10)])
         match = r'was created with `\.apply\(\)` or defined as a local'
 
@@ -1450,26 +1610,27 @@ class TestExprs:
         result = t.select(t.img, t.img.height, t.img.rotate(90)).show(n=100)
         _ = result._repr_html_()
 
-    @rerun_on_network_error()
-    def test_ext_imgs(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
-        t = pxt.create_table(p('img_test'), {'img': pxt.Image})
-        img_urls = [
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000034.jpg',
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000042.jpg',
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000049.jpg',
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000057.jpg',
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000061.jpg',
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000063.jpg',
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000064.jpg',
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000069.jpg',
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000071.jpg',
+    def test_ext_imgs(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('img_test'), {'name': pxt.String, 'img': pxt.Image})
+        images = [
+            (name, sample_file_server.url(f'docs/resources/images/{name}', db_root))
+            for name in (
+                '000000000030.jpg',
+                '000000000034.jpg',
+                '000000000042.jpg',
+                '000000000049.jpg',
+                '000000000057.jpg',
+                '000000000061.jpg',
+                '000000000063.jpg',
+                '000000000064.jpg',
+                '000000000069.jpg',
+                '000000000071.jpg',
+            )
         ]
-        t.insert({'img': url} for url in img_urls)
-        # this fails with an assertion
-        # TODO: fix it
-        # res = t.where(t.img.width < 600).collect()
+        t.insert({'name': name, 'img': url} for name, url in images)
+        res = t.where(t.img.width < 600).order_by(t.name).collect()
+        assert res['name'] == ['000000000049.jpg', '000000000064.jpg']
 
     def test_img_exprs(self, img_tbl: pxt.Table) -> None:
         t = img_tbl
@@ -1535,7 +1696,7 @@ class TestExprs:
         assert repr(sim1) == "img.similarity('red truck', 'img_idx1')"
         assert repr(sim2) == "img.similarity('red truck', 'img_idx2')"
 
-    @pytest.mark.local('TODO: convert')
+    @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_ids(
         self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr], multi_img_tbl_exprs: list[exprs.Expr]
     ) -> None:
@@ -1546,7 +1707,7 @@ class TestExprs:
             d[e.id] = e
         assert len(d) == len(test_tbl_exprs) + len(img_tbl_exprs) + len(multi_img_tbl_exprs)
 
-    @pytest.mark.local('TODO: convert')
+    @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_serialization(
         self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr], multi_img_tbl_exprs: list[exprs.Expr]
     ) -> None:
@@ -1558,7 +1719,44 @@ class TestExprs:
             e_deserialized = Expr.deserialize(e_serialized)
             assert e.equals(e_deserialized)
 
-    @pytest.mark.local('TODO: convert')
+    def test_kwarg_order_after_reload(self, db_root: DatabaseRoot) -> None:
+        """A FunctionCall's kwargs are stored as a jsonb object, whose key order Postgres does not preserve."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'x': pxt.Int | None})
+        expr = _kwarg_order_udf(t.x, gamma_delta=3, b=2, alpha=1)
+        t.add_computed_column(y=expr)
+        expected = '_kwarg_order_udf(x, gamma_delta=3, b=2, alpha=1)'
+        assert t.get_metadata()['columns']['y']['computed_with'] == expected
+
+        reload_catalog()
+        t = pxt.get_table(p('test'))
+        assert t.get_metadata()['columns']['y']['computed_with'] == expected
+
+    def test_dict_literal_key_order_after_reload(self, db_root: DatabaseRoot) -> None:
+        """A Literal's dict value is stored as a jsonb object, whose key order Postgres does not preserve."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'x': pxt.Int | None})
+        # the list under 'aaa' has no column references, so it becomes a Literal
+        t.add_computed_column(dumped=pxtf.json.dumps({'zzz': t.x, 'aaa': [{'yy': 1, 'b': {'long_key': 2, 'k': 3}}]}))
+        expected = "dumps({'zzz': x, 'aaa': [{'yy': 1, 'b': {'long_key': 2, 'k': 3}}]})"
+        assert t.get_metadata()['columns']['dumped']['computed_with'] == expected
+        t.insert(x=1)
+
+        reload_catalog()
+        t = pxt.get_table(p('test'))
+        assert t.get_metadata()['columns']['dumped']['computed_with'] == expected
+        t.insert(x=2)
+        assert t.order_by(t.x).collect()['dumped'] == [
+            '{"zzz": 1, "aaa": [{"yy": 1, "b": {"long_key": 2, "k": 3}}]}',
+            '{"zzz": 2, "aaa": [{"yy": 1, "b": {"long_key": 2, "k": 3}}]}',
+        ]
+
+    def test_dict_literal_key_order_in_tuple(self) -> None:
+        """A dict nested in a tuple keeps its key order through as_dict() and from_dict()."""
+        lit = Literal({'zzz': (1, {'yy': 1, 'b': 2}), 'aaa': {'long_key': 1, 'k': 2}})
+        assert json.dumps(Literal.from_dict(lit.as_dict()).val) == json.dumps(lit.val)
+
+    @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_print(
         self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr], multi_img_tbl_exprs: list[exprs.Expr]
     ) -> None:
@@ -1580,8 +1778,8 @@ class TestExprs:
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])
 
-    def test_window_fns(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_window_fns(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = test_tbl
         _ = t.select(pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3)).show(100)
 
@@ -1599,7 +1797,7 @@ class TestExprs:
         t.add_computed_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
 
         # ordering conflict between frame extraction and window fn
-        base_t = pxt.create_table(p('videos'), {'video': pxt.Video, 'c2': pxt.Int})
+        base_t = pxt.create_table(p('videos'), {'video': pxt.Video | None, 'c2': pxt.Int | None})
         v = pxt.create_view(p('frame_view'), base_t, iterator=legacy_frame_iterator(base_t.video))
         # compatible ordering
         _ = v.select(v.frame, pxtf.sum(v.frame_idx, group_by=base_t, order_by=v.pos)).show(100)
@@ -1607,7 +1805,7 @@ class TestExprs:
             # incompatible ordering
             _ = v.select(v.frame, pxtf.sum(v.c2, order_by=base_t, group_by=v.pos)).show(100)
 
-        schema = {'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Bool}
+        schema: dict[str, Any] = {'c2': pxt.Int | None, 'c3': pxt.Float | None, 'c4': pxt.Bool | None}
         new_t = pxt.create_table(p('insert_test'), schema)
         new_t.add_computed_column(c2_sum=pxtf.sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
@@ -1641,8 +1839,8 @@ class TestExprs:
         ).collect()
         assert all(json.loads(res['dumped_py'][i]) == res['json_col'][i] for i in range(len(res)))
 
-    def test_agg(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_agg(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = create_scalars_tbl(1000, path=p('scalars_tbl'))
         df = t.select().collect().to_pandas()
 
@@ -1664,6 +1862,18 @@ class TestExprs:
 
         r4 = t.group_by(t.c_bool, t.c_string).select(two='2').collect()
         assert len(r1) == len(r4)
+
+        # an output derived from a grouping expr is computed from the grouped value
+        grouped = t.where(t.c_int != None).group_by(t.c_int)
+        for i, res in enumerate(
+            (
+                grouped.select(t.c_int, succ=t.c_int + 1, out=int_sum).order_by(t.c_int).collect(),
+                grouped.select(t.c_int, succ=t.c_int + 1, out=pxtf.sum(_add_one(t.c_int))).order_by(t.c_int).collect(),
+                grouped.select(t.c_int, succ=t.c_int + 1).order_by(t.c_int).collect(),
+            )
+        ):
+            assert len(res) > 0, i
+            assert res['succ'] == [x + 1 for x in res['c_int']], i
 
         # we correctly apply a limit to the agg output
         r5 = t.group_by(t.c_bool).select(s=pxtf.sum(t.c_int)).collect()['s']
@@ -1892,7 +2102,7 @@ class TestExprs:
 
         assert "'group_by' is a reserved parameter name" in str(exc_info.value).lower()
 
-    @pytest.mark.local('asserts on Expr repr strings')
+    @pytest.mark.db_roots('local', reason='asserts on Expr repr strings')
     def test_repr(self, uses_db: None) -> None:
         t = create_all_datatypes_tbl()
         instances: list[tuple[exprs.Expr, str]] = [
@@ -1904,7 +2114,8 @@ class TestExprs:
             (t.c_int % 5, 'c_int % 5'),
             (t.c_int // (t.c_int - 5), 'c_int // (c_int - 5)'),
             # ArraySlice
-            (t.c_array[:5, 2], 'c_array[:5, 2]'),
+            (t.c_array[:5], 'c_array[:5]'),
+            (t.c_array[2], 'c_array[2]'),
             # ColumnPropertyRef
             (t.c_image.errormsg, 'c_image.errormsg'),
             # Comparison
@@ -1940,15 +2151,15 @@ class TestExprs:
             # MethodRef
             (t.c_image.resize((100, 100)), 'c_image.resize([100, 100])'),
             # TypeCast
-            (t.c_int.astype(pxt.Float), 'c_int.astype(Float)'),
+            (t.c_int.astype(pxt.Float | None), 'c_int.astype(Float | None)'),
         ]
         for e, expected_repr in instances:
             assert repr(e) == expected_repr
 
-    def test_string_operations(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+    def test_string_operations(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         # create table with two columns
-        p = make_catalog_path
-        schema = {'s1': pxt.String, 's2': pxt.String, 'i1': pxt.Int}
+        p = db_root.make_catalog_path
+        schema: dict[str, Any] = {'s1': pxt.String | None, 's2': pxt.String | None, 'i1': pxt.Int | None}
         t = pxt.create_table(p('test_str_concat'), schema)
         t.add_computed_column(s3=t.s1 + '-' + t.s2)
         t.add_computed_column(s4=t.s1 * 3)
@@ -1986,8 +2197,8 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
-    def test_base_table_col_refs(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_base_table_col_refs(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = test_tbl
         # Filter down to just 5 rows of the table.
         v = pxt.create_view(p('test_view'), t.where(t.c2 < 5))
@@ -2035,10 +2246,32 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'len\(\) of a Pixeltable expression'):
             len(t.c1)
 
+    def test_json_paths_case_sensitive(self, db_root: DatabaseRoot) -> None:
+        """JSON path components are data, not identifiers, so column name folding does not apply."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('t'), {'JsonCol': pxt.Json | None})
+        t.insert([{'jsoncol': {'someField': 1, 'somefield': 2}}])
+
+        res = t.select(exact=t.JSONCOL.someField, lowered=t.JSONCOL.somefield, uppered=t.JSONCOL.SOMEFIELD).collect()
+        assert res['exact'] == [1]
+        assert res['lowered'] == [2]
+        assert res['uppered'] == [None]
+
+        t.insert([{'jsoncol': {'café': 1}}])
+        res = t.select(t.JsonCol['café']).collect()
+        (name,) = res.schema.keys()
+        assert catalog.is_valid_identifier(name)
+        assert res[name] == [None, 1]
+
 
 @pxt.udf
 def udf1(x: int, y: str) -> str:
     return f'{x} {y}'
+
+
+@pxt.udf
+def _kwarg_order_udf(x: int, *, alpha: int, b: int, gamma_delta: int) -> int:
+    return x + alpha + b + gamma_delta
 
 
 @pxt.udf
@@ -2051,7 +2284,7 @@ def _add_two(x: int, y: int) -> int:
     return x + y
 
 
-@pytest.mark.local('exercises expr-eval slot GC internals')
+@pytest.mark.db_roots('local', reason='exercises expr-eval slot GC internals')
 def test_gc_bug_leaked_slot(uses_db: None) -> None:
     """Reproduce the GC bug where has_val doesn't distinguish 'not computed' from 'already GC'd'.
 
@@ -2073,7 +2306,7 @@ def test_gc_bug_leaked_slot(uses_db: None) -> None:
     5. U computed -> W scheduled
     6. W computed -> row complete. S still has has_val=True -> ASSERTION FIRES
     """
-    t = pxt.create_table('test_gc_leak', {'x': pxt.Int})
+    t = pxt.create_table('test_gc_leak', {'x': pxt.Int | None})
     t.insert({'x': i} for i in range(3))
 
     s = _add_one(t.x)

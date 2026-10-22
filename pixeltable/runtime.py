@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import inspect
 import logging
 import threading
 from contextlib import contextmanager
@@ -13,8 +14,9 @@ import sqlalchemy as sql
 from rich.progress import Progress
 from sqlalchemy import orm
 
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, telemetry
 from pixeltable.env import Env
+from pixeltable.service.management_client import resolve
 from pixeltable.utils import fault_injection
 
 if TYPE_CHECKING:
@@ -29,6 +31,13 @@ _logger = logging.getLogger(__name__)
 _thread_local = threading.local()
 
 _XACT_ISOLATION_LEVEL = 'REPEATABLE READ'
+
+# run_coro() runs one coroutine at a time, on a thread with an event loop that outlives the single call
+_N_RUN_CORO_WORKERS = 1
+_RUN_CORO_THREAD_PREFIX = 'pxt-run-coro'
+
+# how long close_threadpool_runtimes() waits for a worker
+_TEARDOWN_TIMEOUT_S = 30.0
 
 _T = TypeVar('_T')
 
@@ -48,6 +57,7 @@ class Runtime:
     isolation_level: str | None
     _progress: Progress | None
     _event_loop: asyncio.AbstractEventLoop | None  # event loop for this thread
+    _owns_event_loop: bool  # False for a loop we adopted (eg Jupyter's), which is not ours to close
     _run_coro_executor: concurrent.futures.ThreadPoolExecutor | None
     fault_manager: Any
 
@@ -71,6 +81,7 @@ class Runtime:
         self.isolation_level = None
         self._progress = None
         self._event_loop = None
+        self._owns_event_loop = False
         self._run_coro_executor = None
         self._clients = {}
         self.context_inherited = False
@@ -146,12 +157,15 @@ class Runtime:
                     excs.ErrorCode.SERVICE_NOT_FOUND,
                     f'No local proxy is running for {db!r}. Start it with: pxt localproxy start {db}',
                 )
-            return CatalogProxy(catalog_uri, ProxyClient.local(f'http://127.0.0.1:{info["port"]}'))
+            return CatalogProxy(catalog_uri, ProxyClient.local(f'http://127.0.0.1:{info["port"]}', db=catalog_uri.db))
 
         # Remote database: connect via TLS to the proxy endpoint.
-        api_key = Env.get().require_api_key(f'connect to hosted database {catalog_uri!r}')
+        # Either kind works: the sidecar picks its validation path by the credential's shape. Passed
+        # as a callable because this client is cached and the tunnel reconnects: reading it once
+        # would pin a session token that expires long before the process does.
+        purpose = f'connect to hosted database {catalog_uri!r}'
         host, port = Env.get().proxy_endpoint(catalog_uri.org, catalog_uri.db)
-        client = ProxyClient.remote(catalog_uri.org, catalog_uri.db, api_key, host=host, port=port)
+        client = ProxyClient.remote(catalog_uri.org, catalog_uri.db, lambda: resolve(purpose), host=host, port=port)
         return CatalogProxy(catalog_uri, client)
 
     @property
@@ -166,9 +180,11 @@ class Runtime:
             # multiple run_until_complete()
             running_loop = asyncio.get_running_loop()
             self._event_loop = running_loop
+            self._owns_event_loop = False
             _logger.debug('Patched running loop')
         except RuntimeError:
             self._event_loop = asyncio.new_event_loop()
+            self._owns_event_loop = True
             asyncio.set_event_loop(self._event_loop)
             # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
             self._event_loop.slow_callback_duration = 3600
@@ -185,14 +201,104 @@ class Runtime:
         self._clients[name] = client
         return client
 
+    async def close_clients(self) -> None:
+        """Gracefully close this runtime's clients and drop them.
+
+        Must be awaited on the event loop on which the clients were created, while it is still running:
+        - async clients are bound to that loop, and closing them there releases their sockets in order
+        - otherwise the sockets are left for GC to close on an already-closed loop, which raises
+
+        This is the only place that is allowed to remove entries from _clients, so that no client is ever dropped
+        without being closed first.
+        """
+
+        async def try_close(fn: Callable[..., Any], *args: Any) -> None:
+            # a failure is logged rather than raised, so that it doesn't keep the other close calls from running
+            try:
+                result = fn(*args)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as e:
+                _logger.debug(f'Error closing client: {e}')
+
+        for client in self._clients.values():
+            close = getattr(client, 'close', None)
+            if close is not None:
+                await try_close(close)
+                continue
+            # some SDK clients (e.g. mistralai.Mistral) have no close() and release their HTTP clients only on
+            # context manager exit: __aexit__() closes the async one, __exit__() the sync one
+            if hasattr(client, '__aexit__'):
+                await try_close(client.__aexit__, None, None, None)
+            if hasattr(client, '__exit__'):
+                await try_close(client.__exit__, None, None, None)
+        self._clients.clear()
+
+    def close(self) -> None:
+        """Close this runtime's clients and the runtimes of its run_coro() threads, plus the event loop if this
+        runtime created it."""
+        # close_threadpool_runtimes() submits to the executor and waits, which deadlocks when the caller is one of
+        # its own workers; a worker closes the runtime it created for itself, never this one
+        if self._run_coro_executor is not None and not threading.current_thread().name.startswith(
+            _RUN_CORO_THREAD_PREFIX
+        ):
+            executor = self._run_coro_executor
+            self._run_coro_executor = None
+            close_threadpool_runtimes(executor, _N_RUN_CORO_WORKERS)
+            executor.shutdown(wait=True)
+
+        loop = self._event_loop
+        self._event_loop = None
+
+        if loop is None or loop.is_closed():
+            # no loop of ours is left to close the clients on; a temporary one drives their close() and is
+            # correct for a client that was created outside any loop, which is how the sync clients arrive here
+            if len(self._clients) > 0:
+                tmp_loop = asyncio.new_event_loop()
+                try:
+                    tmp_loop.run_until_complete(self.close_clients())
+                finally:
+                    tmp_loop.close()
+        elif not self._owns_event_loop:
+            # an adopted loop keeps running and is not ours to tear down, but the clients are bound to it:
+            # hand the close to that loop rather than dropping them
+            if loop.is_running():
+                # deliberately not awaited: this call may be running on that very loop, where waiting deadlocks
+                asyncio.run_coroutine_threadsafe(self.close_clients(), loop)
+            else:
+                loop.run_until_complete(self.close_clients())
+        else:
+            try:
+                pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+                for t in pending:
+                    t.cancel()
+                if len(pending) > 0:
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                    assert all(t.done() for t in pending)
+                # after cancellation, so that no task is still using a client
+                loop.run_until_complete(self.close_clients())
+                loop.run_until_complete(loop.shutdown_asyncgens())
+                loop.run_until_complete(loop.shutdown_default_executor())
+            finally:
+                loop.close()
+
     def run_coro(self, coro: Coroutine[Any, Any, _T]) -> _T:
         """Run a coroutine synchronously in a separate thread with its own persistent event loop."""
         if self._run_coro_executor is None:
-            self._run_coro_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            self._run_coro_executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=_N_RUN_CORO_WORKERS, thread_name_prefix=_RUN_CORO_THREAD_PREFIX
+            )
+
+        hooks_ctx = telemetry.capture_context()
 
         def run(coro: Coroutine[Any, Any, _T]) -> _T:
             # this runs in the _run_coro_executor's thread, with its own Runtime instance
-            return get_runtime().event_loop.run_until_complete(coro)
+            hooks_token = telemetry.restore_context(hooks_ctx)
+            try:
+                return get_runtime().event_loop.run_until_complete(coro)
+            finally:
+                # the executor thread is persistent; exiting avoids unbounded context-stack growth
+                telemetry.exit_context(hooks_token)
 
         return self._run_coro_executor.submit(run, coro).result()
 
@@ -211,9 +317,6 @@ class Runtime:
             for_write: unused (TODO use or remove)
             isolation_level: if specified, the isolation level for the new transaction. Can only be set when starting
                 the outermost transaction.
-
-        TODO: repeatable read is not available in Cockroachdb; instead, run queries against a snapshot TVP
-        that avoids tripping over any pending ops
         """
         from pixeltable.env import Env
 
@@ -287,6 +390,38 @@ def get_runtime() -> Runtime:
     return runtime
 
 
+def close_threadpool_runtimes(executor: concurrent.futures.ThreadPoolExecutor, n_workers: int) -> None:
+    """Close the Runtime of every worker thread of the given executor, which was created with n_workers.
+
+    A worker thread that ran Pixeltable calls has a Runtime of its own, with an event loop and clients that
+    only that thread can close; ending the thread leaves them for GC. Returns once every worker has closed
+    its runtime, which for a busy one is after it finishes the work it is running.
+
+    Waits at most _TEARDOWN_TIMEOUT_S per step.
+    """
+    # one task per worker slot, each waiting at the barrier until all of them run:
+    # - no thread can take a second task, so the calls land on n_workers distinct threads.
+    # - in a thread pool with a thread count below the maximum, submitting one task per *existing* thread would
+    #   not reach those that are still busy (since they're busy, the pool simply starts up more threads for the cleanup
+    #   task)
+    barrier = threading.Barrier(n_workers)
+
+    def close_runtime() -> None:
+        try:
+            barrier.wait(timeout=_TEARDOWN_TIMEOUT_S)
+        except threading.BrokenBarrierError:
+            # the first timeout breaks the barrier for every waiter, so the others stop waiting here too
+            _logger.debug('Timed out waiting for the other workers of %r', executor)
+        get_runtime().close()
+
+    futures = [executor.submit(close_runtime) for _ in range(n_workers)]
+    for future in futures:
+        try:
+            future.result(timeout=_TEARDOWN_TIMEOUT_S)
+        except concurrent.futures.TimeoutError:
+            _logger.debug('Worker of %r did not close its runtime within %ss', executor, _TEARDOWN_TIMEOUT_S)
+
+
 def reset_runtime() -> None:
     """Reset the current thread's Runtime instance. Used for testing."""
     runtime = getattr(_thread_local, 'runtime', None)
@@ -301,15 +436,5 @@ def reset_runtime() -> None:
             # Invalidate all existing TableVersion instances to force reloading of metadata,
             for tbl_version in local_catalog._tbl_versions.values():
                 tbl_version.is_validated = False
-        if runtime._event_loop is not None:
-            # Don't close a loop we didn't create (e.g. Jupyter's)
-            try:
-                loop = runtime._event_loop
-                if not loop.is_running():
-                    loop.close()
-            except Exception:
-                pass
-        runtime._clients.clear()
-        if runtime._run_coro_executor is not None:
-            runtime._run_coro_executor.shutdown(wait=False)
+        runtime.close()
     _thread_local.runtime = Runtime()

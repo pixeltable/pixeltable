@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { search } from '@/api/client'
-import { loadExtraCatalogs } from '@/lib/catalogs'
 import { useDebounce } from '@/hooks/useDebounce'
-import { cn } from '@/lib/utils'
+import { cn, loadExtraCatalogs } from '@/lib/utils'
 import type { SearchResults } from '@/types'
 import {
   Search,
@@ -20,6 +19,7 @@ import {
   Zap,
   Loader2,
   AlertTriangle,
+  ChevronDown,
 } from 'lucide-react'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -47,13 +47,13 @@ const RESULT_META: Record<string, {
   color: string
   bg: string
 }> = {
-  directory:  { icon: Folder,  color: 'text-foreground',      bg: 'bg-k-yellow/10' },
-  table:      { icon: Table2,  color: 'text-muted-foreground',      bg: 'bg-blue-400/10' },
-  view:       { icon: Eye,     color: 'text-muted-foreground',    bg: 'bg-purple-400/10' },
-  snapshot:   { icon: Camera,  color: 'text-muted-foreground',    bg: 'bg-orange-400/10' },
+  directory:  { icon: Folder,  color: 'text-k-yellow',         bg: 'bg-k-yellow/10' },
+  table:      { icon: Table2,  color: 'text-blue-400',         bg: 'bg-blue-400/10' },
+  view:       { icon: Eye,     color: 'text-purple-400',       bg: 'bg-purple-400/10' },
+  snapshot:   { icon: Camera,  color: 'text-orange-400',       bg: 'bg-orange-400/10' },
   replica:    { icon: Copy,    color: 'text-muted-foreground', bg: 'bg-muted' },
-  column:     { icon: Hash,    color: 'text-muted-foreground',   bg: 'bg-emerald-400/10' },
-  computed:   { icon: Zap,     color: 'text-foreground',      bg: 'bg-k-yellow/10' },
+  column:     { icon: Hash,    color: 'text-emerald-400',      bg: 'bg-emerald-400/10' },
+  computed:   { icon: Zap,     color: 'text-k-yellow',         bg: 'bg-k-yellow/10' },
 }
 
 function getResultMeta(item: SearchResultItem) {
@@ -155,9 +155,74 @@ function unavailableSummary(unavailable: SearchResults['unavailable']): string {
   const catalogs = unavailable.filter(u => u.kind === 'catalog').map(u => u.path)
   const tables = unavailable.filter(u => u.kind === 'table')
   const parts: string[] = []
-  if (catalogs.length > 0) parts.push(`could not search ${catalogs.join(', ')}`)
-  if (tables.length > 0) parts.push(`could not read ${tables.length} table${tables.length === 1 ? '' : 's'}`)
-  return parts.join('; ')
+  if (catalogs.length > 0) {
+    parts.push(
+      catalogs.length === 1
+        ? `1 catalog skipped (${catalogs[0]})`
+        : `${catalogs.length} catalogs skipped`,
+    )
+  }
+  if (tables.length > 0) {
+    parts.push(
+      `${tables.length} table${tables.length === 1 ? '' : 's'} skipped (couldn’t load metadata)`,
+    )
+  }
+  return parts.join(' · ')
+}
+
+/** Short UI label; full exception stays in title / expand detail. */
+function shortUnavailableReason(error: string): string {
+  const e = error.toLowerCase()
+  if (e.includes('embedding') && (e.includes('requesterror') || e.includes('not a valid'))) {
+    return 'Invalid embedding function'
+  }
+  if (e.includes('sentencetransformer') || e.includes('get_embedding_dimension') || e.includes('embedding')) {
+    return 'Embedding / model error'
+  }
+  if (e.includes('modulenotfound') || e.includes('no module named')) {
+    return 'Missing dependency'
+  }
+  const typeMatch = error.match(/^([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Warning)?)\b/)
+  if (typeMatch) return typeMatch[1]
+  const first = error.split(/[:\n]/)[0]?.trim()
+  return first && first.length <= 48 ? first : 'Could not load metadata'
+}
+
+function UnavailableBanner({
+  unavailable,
+  expanded,
+  onToggle,
+}: {
+  unavailable: SearchResults['unavailable']
+  expanded: boolean
+  onToggle: () => void
+}) {
+  return (
+    <div className="my-2 rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-2 text-left text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+        <span className="flex-1 min-w-0">{unavailableSummary(unavailable)}</span>
+        <span className="text-[11px] text-muted-foreground shrink-0">
+          {expanded ? 'Hide details' : 'Show details'}
+        </span>
+        <ChevronDown className={cn('h-3 w-3 shrink-0 text-muted-foreground transition-transform', expanded && 'rotate-180')} />
+      </button>
+      {expanded && (
+        <ul className="mt-2 space-y-1.5 pl-5.5 max-h-40 overflow-y-auto">
+          {unavailable.map(u => (
+            <li key={`${u.kind}:${u.path}`} className="text-xs text-muted-foreground/80 min-w-0" title={u.error}>
+              <span className="font-mono text-foreground/80 break-all">{u.path}</span>
+              <span className="text-muted-foreground"> — {shortUnavailableReason(u.error)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 function SectionHeader({ label, count }: { label: string; count: number }) {
@@ -181,6 +246,7 @@ export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
   const [results, setResults] = useState<SearchResults | null>(null)
   const [loading, setLoading] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const [unavailableExpanded, setUnavailableExpanded] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const debouncedQuery = useDebounce(query, 200)
@@ -196,6 +262,7 @@ export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
   useEffect(() => {
     if (!debouncedQuery.trim()) { setResults(null); return }
     setLoading(true)
+    setUnavailableExpanded(false)
     search(debouncedQuery, loadExtraCatalogs())
       .then(setResults)
       .catch(console.error)
@@ -206,7 +273,7 @@ export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
 
   useEffect(() => {
     if (isOpen) setTimeout(() => inputRef.current?.focus(), 0)
-    else { setQuery(''); setResults(null) }
+    else { setQuery(''); setResults(null); setUnavailableExpanded(false) }
   }, [isOpen])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -305,35 +372,29 @@ export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
               </div>
             )}
 
-            {/* Whatever could not be searched; its matches are missing from the sections below */}
-            {!loading && results && results.unavailable.length > 0 && (
-              <div className="mb-2 rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                  <span>{unavailableSummary(results.unavailable)}</span>
-                </div>
-                {results.unavailable.map((u) => (
-                  <div key={u.path} className="mt-1 pl-5.5 text-xs text-muted-foreground/70 break-all">
-                    {u.path}: {u.error}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* No results */}
+            {/* No results — unavailable above empty state so skipped tables explain gaps */}
             {!loading && query && flattenedResults.length === 0 && (
-              <div className="py-12 text-center">
-                <Search className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-                <p className="text-sm text-muted-foreground">
-                  No results for "<span className="text-foreground font-medium">{query}</span>"
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Try a broader query or different terms
-                </p>
-              </div>
+              <>
+                {results && results.unavailable.length > 0 && (
+                  <UnavailableBanner
+                    unavailable={results.unavailable}
+                    expanded={unavailableExpanded}
+                    onToggle={() => setUnavailableExpanded(e => !e)}
+                  />
+                )}
+                <div className="py-12 text-center">
+                  <Search className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground">
+                    No results for "<span className="text-foreground font-medium">{query}</span>"
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Try a broader query or different terms
+                  </p>
+                </div>
+              </>
             )}
 
-            {/* Grouped results */}
+            {/* Grouped results — unavailable below so hits stay primary */}
             {!loading && flattenedResults.length > 0 && results && (
               <div className="animate-fade-in" style={{ animationDuration: '150ms' }}>
                 {results.directories.length > 0 && (
@@ -394,6 +455,14 @@ export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
                       })}
                     </div>
                   </div>
+                )}
+
+                {results.unavailable.length > 0 && (
+                  <UnavailableBanner
+                    unavailable={results.unavailable}
+                    expanded={unavailableExpanded}
+                    onToggle={() => setUnavailableExpanded(e => !e)}
+                  />
                 )}
               </div>
             )}

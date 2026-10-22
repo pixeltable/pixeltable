@@ -1,9 +1,9 @@
 [project]
 name = "pixeltable"
 dynamic = ["version"]
-description = "AI Data Infrastructure: Declarative, Multimodal, and Incremental"
+description = "The unified multimodal backend agents build with. Database, orchestration, and serving in one Python file."
 authors = [{ name = "Pixeltable, Inc.", email = "contact@pixeltable.com" }]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 readme = "README.md"
 license = "Apache-2.0"
 keywords = [
@@ -30,7 +30,6 @@ classifiers = [
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -40,9 +39,9 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "numpy>=1.25",
-    "pandas>=2.0",
-    "pillow>=9.3.0",
+    "numpy>=2.0",
+    "pandas>=2.2.3",
+    "pillow>=10.1",
     "pillow-heif>=0.15.0",
     "rich>=13.0",
     "toml>=0.10",
@@ -51,20 +50,21 @@ dependencies = [
     "cloudpickle>=2.2.1",
     "fasteners>=0.19",
     "psycopg[binary]>=3.1.18",
-    "sqlalchemy>=2.0.23",
+    "sqlalchemy>=2.0.40",
     "pgvector>=0.4.0",
-    "av>=10.0.0",
+    "av>=14.1",
+    "boto3>=1.36",
     "beautifulsoup4>=4.10",
     "lxml>=5.1",
     "requests>=2.31.0",
     "httpx>=0.27",
     "httpcore>=1.0.3",
     "pyyaml>=6.0.1",
-    "jinja2>=3.1.3",
+    "jinja2>=3.1.5",
     "tenacity>=8.2",
     "puremagic>=1.20",
     "ftfy>=6.2.0",
-    "pydantic>=2.7.4",
+    "pydantic>=2.11",
     "pyarrow>=19",
     "pixeltable-pgserver==0.5.0",
     "tzlocal>=5.0",
@@ -73,12 +73,14 @@ dependencies = [
     "pypdfium2>=4.30.0",
     "pathspec>=0.10.2",
     "psutil>=5.9",
+    "tqdm>=4.64",
+    "typing-extensions>=4.15",
 ]
 
 [project.optional-dependencies]
-# `pxt serve` hosts a user-defined FastAPI app and shells out to uvicorn; the daemon
+# `pxt service` hosts a user-defined FastAPI app and shells out to uvicorn; the daemon
 # behind `pxt ls`/`pxt describe`/etc. is stdlib-only and does not need this extra.
-serve = ["fastapi[standard]>=0.120.0"]
+serve = ["fastapi[standard]>=0.120.0,!=0.137.0,!=0.137.1"]
 # OpenTelemetry instrumentation. Core pixeltable carries no OTEL dependency; the instrumentation is a
 # separate distribution, opt-in via opentelemetry.instrumentation.pixeltable. The SDK and exporters live
 # here rather than in that package so it stays api-only, per contrib convention.
@@ -94,6 +96,8 @@ otel = [
 homepage = "https://pixeltable.com/"
 repository = "https://github.com/pixeltable/pixeltable"
 documentation = "https://docs.pixeltable.com/"
+changelog = "https://github.com/pixeltable/pixeltable/releases"
+issues = "https://github.com/pixeltable/pixeltable/issues"
 
 [project.scripts]
 pxt = "pixeltable_cli.client.main:main"
@@ -144,12 +148,14 @@ dev = [
     "types-pyyaml>=6.0.1,<7",
     "types-requests>=2.31.0",
     "types-sqlalchemy-utils~=1.1",
+    "types-tabulate>=0.9",
     "types-toml>=0.10",
     "types-tqdm~=4.64",
     "ruff>=0.14",
     "notebook>=7.5.6",
     "black>=26.3.1",
     "pixeltable-doctools @ git+https://github.com/pixeltable/pixeltable-doctools",
+    "preshed>=3.0.13 ; python_version < '3.14'",  # Pre-3.0.10 has no 3.13+ wheels; sdist builds break spaCy
     "pycocotools>=2.0.10",
     "ipykernel>=6.27.1,<7",
     "tabulate>=0.9",
@@ -162,22 +168,20 @@ dev = [
     "torchvision>=0.23",
     "torchcodec>=0.11",
     "soundfile>=0.13",
-    "openai>=2.33",
-    "anthropic>=0.53.0",
-    "together>=2.8",
+    "openai>=3.8",
+    "anthropic>=1.3",
+    "together>=2.32",
     "fal-client>=0.5.6",
-    "fireworks-ai>=0.17.6",
-    "mistralai>=2.0",
+    "fireworks-ai>=1.2",
+    "mistralai>=2.9",
     "replicate>=1.0.7 ; python_version < '3.14'",
-    "google-genai>=1.67.0",
-    "groq>=0.26.0",
-    "boto3==1.36.23",
-    "botocore==1.36.23",
+    "google-genai>=2.22",
+    "groq>=1.7",
     "spacy>=3.8.7,<3.9 ; python_version < '3.14'",
     "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
     "sentencepiece>=0.2.0",
     "tiktoken>=0.10",
-    "sentence-transformers>=5 ; python_version < '3.14'",
+    "sentence-transformers>=5.4 ; python_version < '3.14'",
     "transformers>=5.6.0",
     "timm>=1.0.11,<2",
     "datasets>=4.8.5",
@@ -187,7 +191,7 @@ dev = [
     # "whisperx>=3.8.5 ; python_version < '3.14'",
     "ollama>=0.6",
     "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
-    "mcp>=1.27.2",
+    "mcp>=2",
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
     # fiftyone is commented out, because even the most recent versions hardcode a dependency on an insecure version
     # of at least one library. We can re-enable it once they update their dependencies.
@@ -195,24 +199,23 @@ dev = [
     "lancedb>=0.30",
     "pylance>=6",
     "google-cloud-storage>=2.18.0",
-    "sqlalchemy-cockroachdb>=2.0.3",
     "psycopg2-binary>=2.9.11",
     "diffusers>=0.38",
     "accelerate>=1.10",
     "azure-storage-blob>=12.20.0",
     "azure-identity>=1.16.0",
-    "twelvelabs>=1.2.0",
+    "twelvelabs>=1.3.6",
     "voyageai>=0.3.7 ; python_version < '3.14'",
     "scenedetect>=0.6.0.1 ; python_version < '3.14' or sys_platform != 'win32'",
-    "runwayml>=4.12.0",
+    "runwayml>=5.2",
     "ipywidgets>=8.0.0",
     "mdformat>=1.0.0",
     "nbqa>=1.9.1",
     "snowflake-sqlalchemy>=1.7.0",
-    # fastapi powers `pxt serve` (user-defined services); the pxt daemon itself is stdlib-only
-    "fastapi[standard]>=0.120.0",
+    # fastapi powers `pxt service` (user-defined services); the pxt daemon itself is stdlib-only
+    "fastapi[standard]>=0.120.0,!=0.137.0,!=0.137.1",
     "imagehash>=4.3",
-    "scipy ; python_version < '3.14'",
+    "scipy>=1 ; python_version < '3.14'",
     "scipy>=1.17 ; python_version >= '3.14'",
 ]
 test = [
@@ -231,10 +234,16 @@ cuda-dev = [
     # Dependencies that require CUDA.
     "vllm>=0.24"
 ]
+cloud-dev = [
+    # Minimal set of dev dependencies needed to run the [cloud*] tests. This is a subset of `dev`.
+    "mistune",
+    "markitdown[pptx,docx,xlsx] ; python_version < '3.14'",
+    "spacy ; python_version < '3.14'",
+    "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+    "datasets",
+]
 storage-sdks = [
     # Used for CI configurations that need only the storage SDKs (in addition to basic dependencies).
-    "boto3==1.36.23",
-    "botocore==1.36.23",
     "google-cloud-storage>=2.18.0",
 ]
 
@@ -281,6 +290,7 @@ disallow_any_unimported = true
 check_untyped_defs = true
 disallow_incomplete_defs = true
 disallow_untyped_defs = true
+enable_incomplete_feature = ["TypeForm"]
 follow_imports = "silent"
 plugins = "pydantic.mypy, pixeltable.mypy"
 show_error_codes = true
@@ -288,24 +298,42 @@ strict_optional = false
 warn_return_any = true
 warn_unused_ignores = true
 
+# enforce strictness during model construction
+[tool.pydantic-mypy]
+init_forbid_extra = true
+
+# the CLI tests' application corpus needs to be copied into the test session's project; the import paths
+# in their test directory location don't resolve
+[[tool.mypy.overrides]]
+module = ["apps.*"]
+ignore_missing_imports = true
+
+[[tool.pixeltable.database]]
+# pixeltable/_version.py is gitignored, and the package reads __version__ out of it
+name = 'pxt://pixeltable:pxttest'
+include = ['pixeltable/_version.py']
+# no pod reads the documentation tree, and it is a quarter of what the archive would otherwise carry
+exclude = ['docs/**']
+system_dependencies = ["libiconv", "ffmpeg==6.1.1=gpl*"]
+memory_mb = 6144
+workers = 3
+cpu = 2.0
+disk_gb = 40
+uv_options = "--no-dev --group cloud-dev"
+
 [tool.pyright]
 typeCheckingMode = "off"
 extraPaths = ["packages/opentelemetry-instrumentation-pixeltable/src"]
 
 [tool.pytest.ini_options]
-# Restrict default (pathless) collection to the core test suite. CI invokes `pytest <markers>` with no path,
-# which would otherwise sweep in the separately-distributed packages/*/tests (e.g. the OpenTelemetry
-# instrumentation), whose dependencies are absent in the --no-dev minimal config. Those packages run via their
-# own CI config (see tool/ci_tool.py). Explicit path args on the command line override testpaths as usual.
 testpaths = ["tests"]
-addopts = '-v -m "not remote_api and not expensive and not very_expensive and not benchmark and not otel and not cloud_e2e" --strict-markers'
+addopts = '-v -m "not remote_api and not expensive and not very_expensive and not benchmark and not otel" --strict-markers'
 markers = [
     "expensive: marks tests as expensive to run",
-    "very_expensive: marks tests as very expensive to run",
+    "very_expensive: marks tests as very expensive to run, or as depending on an unreliable external service",
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
     "benchmark: marks tests as benchmark tests (excluded from regular test runs)",
-    "local: test runs only against the in-process catalog, not the proxy (arg: reason)",
-    "cloud_e2e: marks tests as cloud end-to-end tests requiring PIXELTABLE_API_KEY",
+    "db_roots: test runs only against specified database roots, e.g. @pytest.mark.db_roots('local', reason='...')",
     "otel: marks tests as requiring the otel extra (run on the otel CI leg)",
 ]
 filterwarnings = [
@@ -375,7 +403,7 @@ builtins-ignorelist = ["format", "input"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
-known-first-party = ["pixeltable_cli", "pixeltable"]
+known-first-party = ["pixeltable_cli", "pixeltable", "apps"]
 split-on-trailing-comma = false
 
 [tool.ruff.format]

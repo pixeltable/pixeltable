@@ -8,11 +8,30 @@ import type {
 
 const API_BASE = '/api';
 
+/** Daemon errors are `{ detail, error_code }` (see pixeltable_cli/server/http_server.py). */
+const ERROR_LABELS: Record<string, string> = {
+  MISSING_CREDENTIALS:
+    'No Pixeltable API key. Set PIXELTABLE_API_KEY or add api_key under [pixeltable] in your Pixeltable config file.',
+  INSUFFICIENT_PRIVILEGES: 'Not allowed to open this catalog.',
+  INVALID_PATH: 'Invalid path.',
+  PATH_NOT_FOUND: 'Not found.',
+  DIRECTORY_NOT_FOUND: 'Not found.',
+  TABLE_NOT_FOUND: 'Not found.',
+};
+
+function apiErrorMessage(body: { detail?: unknown; error?: unknown; error_code?: unknown }, status: number): string {
+  const code = typeof body.error_code === 'string' ? body.error_code : '';
+  const detail = typeof body.detail === 'string' ? body.detail : typeof body.error === 'string' ? body.error : '';
+  const label = ERROR_LABELS[code];
+  if (label) return label;
+  return detail || `HTTP ${status}`;
+}
+
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(error.error || `HTTP ${response.status}`);
+    const error = await response.json().catch(() => ({}));
+    throw new Error(apiErrorMessage(error, response.status));
   }
   return response.json();
 }
@@ -69,9 +88,13 @@ export async function search(query: string, additionalCatalogs?: string[]): Prom
 }
 
 export async function getPipeline(tablePath?: string): Promise<PipelineResponse> {
-  const url = tablePath !== undefined
-    ? `${API_BASE}/dashboard/tables/pipeline?path=${encodeURIComponent(tablePath)}`
-    : `${API_BASE}/dashboard/pipeline`;
+  if (tablePath === undefined || tablePath === '' || tablePath === 'local') {
+    return fetchJson<PipelineResponse>(`${API_BASE}/dashboard/pipeline`);
+  }
+  // Catalog root only (pxt://org:db) → full DAG; a table path → connected component.
+  const url = /^pxt:\/\/[^/]+$/.test(tablePath)
+    ? `${API_BASE}/dashboard/pipeline?path=${encodeURIComponent(tablePath)}`
+    : `${API_BASE}/dashboard/tables/pipeline?path=${encodeURIComponent(tablePath)}`;
   return fetchJson<PipelineResponse>(url);
 }
 
@@ -115,4 +138,3 @@ export async function getStatus(): Promise<SystemStatus> {
     },
   };
 }
-

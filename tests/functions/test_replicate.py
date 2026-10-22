@@ -2,10 +2,21 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
+from pixeltable.runtime import get_runtime, reset_runtime
 
 from ..utils import rerun_on_network_error, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
+
+
+class TestReplicateClient:
+    def test_client_closed_on_reset(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('replicate')
+        monkeypatch.setenv('REPLICATE_API_TOKEN', 'test-token')
+        client = get_runtime().get_client('replicate')
+        http_clients = [client._client, client._async_client]
+        reset_runtime()
+        assert all(c.is_closed for c in http_clients)
 
 
 @pytest.mark.remote_api
@@ -17,7 +28,7 @@ class TestReplicate:
         skip_test_if_no_client('replicate')
         from pixeltable.functions.replicate import run
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         t.add_computed_column(
             output=run(
                 input={'system_prompt': 'You are a helpful assistant.', 'prompt': t.input},
@@ -34,13 +45,13 @@ class TestReplicate:
         skip_test_if_no_client('replicate')
         from pixeltable.functions.replicate import run
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         t.add_computed_column(
             response=run(
                 input={'prompt': t.prompt, 'go_fast': True, 'megapixels': '1'}, ref='black-forest-labs/flux-schnell'
             )
         )
-        t.add_computed_column(image=t.response[0].astype(pxt.Image))
+        t.add_computed_column(image=t.response[0].astype(pxt.Image | None))
         validate_update_status(
             t.insert(prompt='Draw a pencil sketch of a friendly dinosaur playing tennis in a cornfield.'), 1
         )

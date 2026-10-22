@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from types import TracebackType
-from typing import Any, AsyncIterator, Iterator
+from typing import Any, AsyncIterator, Iterator, Self
 from uuid import UUID
-
-from typing_extensions import Self
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts

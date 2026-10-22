@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import dataclasses
 import functools
 import logging
@@ -7,9 +8,8 @@ import random
 import time
 import warnings
 from collections import OrderedDict, defaultdict
-from collections.abc import Collection, Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Mapping, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Collection, Iterator, Literal, Mapping, Sequence, TypeVar
 from uuid import UUID, uuid4
 
 import psycopg
@@ -18,8 +18,7 @@ import sqlalchemy.exc as sql_exc
 from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
-from pixeltable import exceptions as excs, exprs, func, telemetry
-from pixeltable.catalog import model
+from pixeltable import exceptions as excs, exprs, func, telemetry, telemetry_schemas
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -27,19 +26,22 @@ from pixeltable.types import ColumnSpec
 from pixeltable.utils import fault_injection
 from pixeltable.utils.exception_handler import run_cleanup
 from pixeltable.utils.fault_injection import FaultLocation
+from pixeltable.utils.object_stores import PXT_BUCKETS_DIR
 
 from .catalog_base import CatalogBase
 from .column import Column
 from .dir import Dir
-from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation, QColumnId
+from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation, fold_identifier
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
+from .model import IndexDefinition, TableSchemaChangeSet, prepare_model, prepare_model_updates
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table_path import TablePath, TableVersionPath
-from .table_version import TableVersion, TableVersionKey, TableVersionMd
+from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import DeleteTableMdOp, OpStatus, TableOp
+from .types import QColumnId, TableVersionKey, TableVersionMd
 from .update_status import UpdateStatus
 from .view import View
 
@@ -51,6 +53,10 @@ if TYPE_CHECKING:
 
 
 _logger = logging.getLogger(__name__)
+
+# pxt://<org>:<db>/buckets/... addresses a hosted database's storage buckets, so no new entry at the root of its
+# catalog may take this name; an entry created before the reservation keeps working
+_HOSTED_RESERVED_ROOT_NAME = PXT_BUCKETS_DIR
 
 
 def _unpack_row(row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api.DeclarativeBase]]) -> list[Any] | None:
@@ -74,6 +80,9 @@ def _unpack_row(row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api
     return result
 
 
+# if True, write transactions are prohibited
+_frozen: contextvars.ContextVar[bool] = contextvars.ContextVar('pxt_catalog_frozen', default=False)
+
 # -1: unlimited
 # for now, we don't limit the number of retries, because we haven't seen situations where the actual number of retries
 # grows uncontrollably
@@ -83,6 +92,15 @@ _MAX_RETRIES = -1
 _MAX_TBL_CACHE_SIZE = 1024
 
 T = TypeVar('T')
+
+
+def _validate_folded_names(tbl_md: schema.TableMd, schema_version_md: schema.SchemaVersionMd) -> None:
+    """Verify that the identifiers of a table about to be written are folded."""
+    assert tbl_md.name == fold_identifier(tbl_md.name), tbl_md.name
+    for idx_md in tbl_md.index_md.values():
+        assert idx_md.name == fold_identifier(idx_md.name), idx_md.name
+    for schema_col in schema_version_md.columns.values():
+        assert schema_col.name is None or schema_col.name == fold_identifier(schema_col.name), schema_col.name
 
 
 def _is_retryable_exc(e: BaseException) -> bool:
@@ -175,6 +193,10 @@ def retrying_read(op: Callable[[], T], *, read_tvps: Collection[TableVersionPath
     if get_runtime().in_xact:
         return op()
     return retry_loop(for_write=False, read_tvps=read_tvps)(op)()
+
+
+class ProhibitedWriteError(Exception):
+    """Raised by begin_xact() when _frozen == True."""
 
 
 class PendingTableOpsError(Exception):
@@ -354,6 +376,18 @@ class Catalog(CatalogBase):
             self._tbl_md_read_allowed = False
 
     @contextmanager
+    def freeze(self) -> Iterator[None]:
+        """Prevent write transactions in this thread.
+
+        Unaffected: reads and writes from other threads.
+        """
+        token = _frozen.set(True)
+        try:
+            yield
+        finally:
+            _frozen.reset(token)
+
+    @contextmanager
     def begin_xact(
         self,
         *,
@@ -387,6 +421,8 @@ class Catalog(CatalogBase):
         If convert_db_excs == True, converts DBAPIErrors into excs.Errors if possible.
         """
         assert for_write or not (write_tvps or write_tbl_ids), 'for_write must be True when write targets are specified'
+        if for_write and _frozen.get():
+            raise ProhibitedWriteError()
         read_tvps = read_tvps or []
         write_tvps = write_tvps or []
         read_tbl_ids = read_tbl_ids or []
@@ -406,7 +442,16 @@ class Catalog(CatalogBase):
                 pending_ops_tbl_id = None
 
             # one span per acquisition attempt; retries show up as sibling spans
-            xact_span = telemetry.span_start('pixeltable.catalog.begin_xact', attrs={'pxt.for_write': for_write})
+            xact_span = telemetry.span_start('pixeltable.catalog.begin_xact')
+            telemetry.add_attrs(
+                xact_span,
+                **telemetry_schemas.XactAttrs(
+                    for_write=for_write,
+                    attempt=num_retries,
+                    read_table_ids=[str(id) for id in read_tbl_ids] + [str(tvp.tbl_id) for tvp in read_tvps] or None,
+                    write_table_ids=[str(id) for id in write_tbl_ids] + [str(tvp.tbl_id) for tvp in write_tvps] or None,
+                ),
+            )
             attempt_exc: BaseException | None = None
             try:
                 self._in_write_xact = for_write
@@ -735,6 +780,7 @@ class Catalog(CatalogBase):
         if has_pending_ops:
             raise PendingTableOpsError(row.id)
 
+    @telemetry.spanned('pixeltable.catalog.acquire_write_lock', level=telemetry.DEBUG)
     def _acquire_write_lock(
         self, *, tbl_id: UUID, lock_mutable_tree: bool = False, check_pending_ops: bool = True
     ) -> set[UUID]:
@@ -746,6 +792,7 @@ class Catalog(CatalogBase):
         Returns the set of locked table IDs, which could be empty if the lock couldn't be acquired,
         e.g., tbl is a non-mutable table.
         """
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(table_id=str(tbl_id)))
         where_clause = schema.Table.id == tbl_id
         conn = get_runtime().conn
         row = conn.execute(sql.select(schema.Table).where(where_clause).with_for_update(nowait=True)).one_or_none()
@@ -835,7 +882,9 @@ class Catalog(CatalogBase):
         for tbl_id in self._roll_forward_ids:
             exc = self._finalize_pending_ops(tbl_id)
             if exc is not None:
-                raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'Table operation was aborted with\n{exc!s}') from exc
+                raise excs.InternalError(
+                    excs.ErrorCode.INTERNAL_ERROR, f'Table operation was aborted with\n{exc!s}'
+                ) from exc
 
     def _finalize_pending_ops(self, tbl_id: UUID) -> Exception | None:
         """
@@ -941,10 +990,18 @@ class Catalog(CatalogBase):
                         # cleared properly if an error occurs during op execution.
                         if tv is not None:
                             self.mark_modified_tv(tv.handle)
-                        if is_rollback:
-                            op.undo(tv)
-                        else:
-                            op.exec(tv)
+                        op_attrs = telemetry_schemas.CatalogAttrs(table_id=str(tbl_id))
+                        with telemetry.span(
+                            f'pixeltable.op.{type(op).__name__}.undo'
+                            if is_rollback
+                            else f'pixeltable.op.{type(op).__name__}',
+                            set_current=telemetry.current_span() is not None,
+                            **op_attrs,
+                        ):
+                            if is_rollback:
+                                op.undo(tv)
+                            else:
+                                op.exec(tv)
 
                         _logger.debug(f'Finalize pending ops({tbl_id}): op {op!s} done, updating status')
                         if self._set_pending_op_status(tbl_id, op, new_op_status, is_final_op=is_final_op):
@@ -953,10 +1010,16 @@ class Catalog(CatalogBase):
 
                 # this op runs outside of a transaction
                 fault_injection.process_fault(FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT)
-                if is_rollback:
-                    op.undo(tv)
-                else:
-                    op.exec(tv)
+                op_attrs = telemetry_schemas.CatalogAttrs(table_id=str(tbl_id))
+                with telemetry.span(
+                    f'pixeltable.op.{type(op).__name__}.undo' if is_rollback else f'pixeltable.op.{type(op).__name__}',
+                    set_current=telemetry.current_span() is not None,
+                    **op_attrs,
+                ):
+                    if is_rollback:
+                        op.undo(tv)
+                    else:
+                        op.exec(tv)
                 # no need to invalidate tv here: all operations that modify metadata (cached in tv) are executed
                 # inside a transaction and therefore wouldn't end up here
                 rollover_op_update = (op, new_op_status, is_final_op)
@@ -1081,6 +1144,7 @@ class Catalog(CatalogBase):
             )
         return pending_ops_stmt
 
+    @telemetry.spanned('pixeltable.catalog.set_pending_op_status', level=telemetry.DEBUG)
     def _set_pending_op_status(self, tbl_id: UUID, op: TableOp, new_status: OpStatus, *, is_final_op: bool) -> bool:
         """
         Updates the pending op status in the store. If is_final_op, sets table status to LIVE after additional checks.
@@ -1093,6 +1157,7 @@ class Catalog(CatalogBase):
         Returns True if no unresolved pending ops remain on the table, and the table's status was set to LIVE. False
         otherwise.
         """
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(table_id=str(tbl_id)))
         pending_ops_stmt = self._pending_table_ops_update_stmt(tbl_id, op, new_status, is_final_op=is_final_op)
         conn = get_runtime().conn
         rowcount = conn.execute(pending_ops_stmt).rowcount
@@ -1130,12 +1195,14 @@ class Catalog(CatalogBase):
 
         return True
 
+    @telemetry.spanned('pixeltable.catalog.read_pending_ops', level=telemetry.DEBUG)
     def _read_pending_table_ops(self, tbl_id: UUID) -> list[TableOp]:
         """
         Selects table's pending ops for update and returns them as TableOps in order.
 
         Must be called inside a transaction with the table selected for update.
         """
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(table_id=str(tbl_id)))
         conn = get_runtime().conn
         q = (
             sql.select(schema.PendingTableOp)
@@ -1217,6 +1284,7 @@ class Catalog(CatalogBase):
             yield view_tv
             yield from self._mutable_view_tvs(view_tv)
 
+    @telemetry.spanned('pixeltable.catalog.acquire_dir_xlock', level=telemetry.DEBUG)
     def _acquire_dir_xlock(
         self, *, parent_id: UUID | None = None, dir_id: UUID | None = None, dir_name: str | None = None
     ) -> None:
@@ -1330,6 +1398,7 @@ class Catalog(CatalogBase):
             else:
                 raise AssertionError(f'unexpected SchemaObject type: {type(src_obj).__name__}')
 
+    @telemetry.spanned('pixeltable.catalog.prepare_dir_op', level=telemetry.DEBUG)
     def _prepare_dir_op(
         self,
         add_dir_path: Path | None = None,
@@ -1392,6 +1461,8 @@ class Catalog(CatalogBase):
             if add_obj is not None and raise_if_exists:
                 add_path = add_dir_path.append(add_name)
                 raise excs.AlreadyExistsError(excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {add_path!r} already exists.')
+            if add_obj is None:
+                self._check_name_not_reserved(add_dir_path, add_name)
 
         drop_obj: SchemaObject | None = None
         if drop_dir is not None:
@@ -1408,6 +1479,26 @@ class Catalog(CatalogBase):
 
         add_dir_obj = Dir(add_dir.id) if add_dir is not None else None
         return add_obj, add_dir_obj, drop_obj
+
+    def _check_name_not_reserved(self, dir_path: Path, name: str) -> None:
+        """Refuse a new entry `name` in dir_path where a hosted database reserves that name.
+
+        Every creation and move reaches this through _prepare_dir_op(), every replacement through
+        _handle_path_collision(), and each directory that create_dir(parents=True) adds through _create_dir().
+        """
+        if not dir_path.is_root or fold_identifier(name) != _HOSTED_RESERVED_ROOT_NAME:
+            return
+        # paths reach a daemon without their pxt://<org>:<db>, so hosted means the process. Cloud gives every pod of
+        # a database, its daemon's included, PXTCLOUD_ORG and PXTCLOUD_DB; is_proxy_daemon is no sign of it, since a
+        # local daemon sets it too and must accept what the in-process catalog accepts
+        if Env.get().hosted_db() is None:
+            return
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_PATH,
+            f"'{_HOSTED_RESERVED_ROOT_NAME}' is reserved at the root of a hosted database: "
+            f"pxt://<org>:<db>/{_HOSTED_RESERVED_ROOT_NAME}/... addresses the database's storage buckets. "
+            'Choose another name.',
+        )
 
     def _get_dir_entry(
         self, dir_id: UUID, name: str, version: int | None = None, lock_entry: bool = False
@@ -1443,6 +1534,7 @@ class Catalog(CatalogBase):
 
         return None
 
+    @telemetry.spanned('pixeltable.catalog.get_schema_object', level=telemetry.DEBUG)
     def _get_schema_object(
         self,
         path: Path,
@@ -1460,6 +1552,7 @@ class Catalog(CatalogBase):
         - raise_if_not_exists is True and the path does not exist
         - expected is not None and the existing object has a different type
         """
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(path=str(path)))
         assert expected in (None, LocalTable, Dir), expected
 
         if path.is_root:
@@ -1523,11 +1616,10 @@ class Catalog(CatalogBase):
         path: Path,
         schema: dict[str, ColumnSpec],
         if_exists: IfExistsParam,
-        primary_key: list[str] | None,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         is_data_versioned: bool,
     ) -> tuple[LocalTable, bool]:
         """
@@ -1541,15 +1633,7 @@ class Catalog(CatalogBase):
         columns = [Column.create(name, spec) for name, spec in schema.items()]
 
         return self._create_table(
-            path,
-            columns,
-            if_exists,
-            primary_key,
-            comment,
-            custom_metadata,
-            media_validation,
-            create_default_idxs,
-            is_data_versioned,
+            path, columns, if_exists, comment, custom_metadata, media_validation, has_default_idxs, is_data_versioned
         )
 
     def _create_table(
@@ -1557,11 +1641,10 @@ class Catalog(CatalogBase):
         path: Path,
         columns: list[Column],
         if_exists: IfExistsParam,
-        primary_key: list[str] | None,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         is_data_versioned: bool,
         additional_idxs: list[IndexSpec] | None = None,
         explicit_tbl_id: UUID | None = None,
@@ -1572,8 +1655,6 @@ class Catalog(CatalogBase):
         # Therefore IfExistsParam.IGNORE is incompatible with explicit_tbl_id.
         assert explicit_tbl_id is None or if_exists != IfExistsParam.IGNORE
 
-        if primary_key is None:
-            primary_key = []
         if additional_idxs is None:
             additional_idxs = []
 
@@ -1594,11 +1675,10 @@ class Catalog(CatalogBase):
                 tbl_id,
                 path.name,
                 columns,
-                primary_key=primary_key,
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
-                create_default_idxs=create_default_idxs,
+                has_default_idxs=has_default_idxs,
                 is_data_versioned=is_data_versioned,
                 additional_idxs=additional_idxs,
             )
@@ -1626,7 +1706,7 @@ class Catalog(CatalogBase):
         sample_clause: 'SampleClause' | None,
         additional_columns: Mapping[str, ColumnSpec] | None,
         is_snapshot: bool,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         iterator: func.GeneratingFunctionCall | None,
         comment: str | None,
         custom_metadata: Any,
@@ -1645,7 +1725,7 @@ class Catalog(CatalogBase):
             sample_clause,
             additional_columns_,
             is_snapshot,
-            create_default_idxs,
+            has_default_idxs,
             iterator,
             comment,
             custom_metadata,
@@ -1662,7 +1742,7 @@ class Catalog(CatalogBase):
         sample_clause: 'SampleClause' | None,
         additional_columns: list[Column],
         is_snapshot: bool,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         iterator: func.GeneratingFunctionCall | None,
         comment: str | None,
         custom_metadata: Any,
@@ -1713,7 +1793,7 @@ class Catalog(CatalogBase):
                 predicate=where,
                 sample_clause=sample_clause,
                 is_snapshot=is_snapshot,
-                create_default_idxs=create_default_idxs,
+                has_default_idxs=has_default_idxs,
                 iterator_call=iterator,
                 comment=comment,
                 custom_metadata=custom_metadata,
@@ -1744,13 +1824,14 @@ class Catalog(CatalogBase):
         path: Path,
         columns: dict[str, ColumnSpec],
         display_name: str,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         media_validation: MediaValidation,
         comment: str | None,
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'pxt.Query | None',
-        embedding_idxs: dict[str, model.EmbeddingIndex],
+        idxs: list[IndexDefinition],
+        is_data_versioned: bool,
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 
@@ -1767,8 +1848,8 @@ class Catalog(CatalogBase):
         tbl_id = uuid4()
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
 
-        iterator, additional_cols, resolved_idxs = model.prepare_model(
-            tbl_handle, columns, display_name, iterator, base, embedding_idxs
+        iterator, additional_cols, resolved_idxs = prepare_model(
+            tbl_handle, columns, display_name, iterator, base, idxs, is_data_versioned
         )
 
         # If the table already exists, rebind to it and report that nothing was created.
@@ -1781,17 +1862,17 @@ class Catalog(CatalogBase):
                 path=path,
                 columns=additional_cols,
                 if_exists=IfExistsParam.ERROR,
-                primary_key=None,
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
-                create_default_idxs=create_default_idxs,
-                is_data_versioned=True,
+                has_default_idxs=has_default_idxs,
+                is_data_versioned=is_data_versioned,
                 additional_idxs=resolved_idxs,
                 explicit_tbl_id=tbl_id,
             )
 
         else:
+            assert is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
             return self._create_view(
                 path=path,
                 base=base._first_tbl,
@@ -1800,7 +1881,7 @@ class Catalog(CatalogBase):
                 sample_clause=base.sample_clause,
                 additional_columns=additional_cols,
                 is_snapshot=False,
-                create_default_idxs=create_default_idxs,
+                has_default_idxs=has_default_idxs,
                 iterator=iterator,
                 comment=comment,
                 custom_metadata=custom_metadata,
@@ -1810,13 +1891,21 @@ class Catalog(CatalogBase):
                 explicit_tbl_id=tbl_id,
             )
 
-    def update_from_model(self, change_sets: list[model.TableSchemaChangeSet]) -> None:
+    def update_from_model(self, change_sets: list[TableSchemaChangeSet]) -> None:
         """Update tables/views from declarative models.
 
         If the table does not exist, raises NotFoundError. If the model is incompatible with the existing table,
         raises RequestError.
 
         Requires that change_sets is ordered topologically, ie, base tables precede their views.
+
+        The change sets are applied in three passes:
+
+        1. Every table records its metadata changes. Each change is checked in isolation from the others.
+        2. Every changed table, and every mutable view that can reference one, verifies its schema state: whether all
+           dependencies are satisfied, and that there are no dependency cycles.
+        3. Every table's schema change is finalized. This includes populating new columns and indexes. Doing that at
+           the very end means that a rejected schema change costs no computation.
         """
         # fault point:
         # - the diff that produced updates was computed in an earlier read transaction
@@ -1852,106 +1941,55 @@ class Catalog(CatalogBase):
                 zip((tbl._tbl_version_path for tbl in tbls), (tbl._tbl_version.get() for tbl in tbls), change_sets)
             )
 
-            # validate all columns that get dropped, either explicitly or implicitly:
-            # - explicitly dropped columns
-            # - value columns of explicitly dropped indices
-            # - value columns of implicitly dropped indices (= the indexed column was dropped)
-            dropped_col_set: set[Column] = set()
-            for _, tv, change_set in tbl_info:
-                dropped_idxs = [tv.idxs_by_name[name] for name in change_set['dropped_idxs']]
-                for name in change_set['dropped_columns']:
-                    col = tv.cols_by_name[name]
-                    dropped_col_set.add(col)
-                    dropped_idxs.extend(tv.idxs_by_col.get(col.qid, []))
-                for idx_info in dropped_idxs:
-                    dropped_col_set.update([idx_info.val_col, idx_info.undo_col])
-
-            def dependent_str(c: Column) -> str:
-                """How a column that blocks a drop is named in the error, which is by index if it belongs to one."""
-                # all user-visible columns have a name
-                if c.name is not None:
-                    return c.name
-                tv = c.get_tbl()
-                idx_info = next((i for i in tv.idxs.values() if c.id == i.val_col.id), None)
-                assert idx_info is not None
-                return f'index {idx_info.name!r} on {tv.name!r}'
-
-            def check_column_dependents(
-                dropped: Column | TableVersion.IndexInfo, drop_target: Literal['index', 'column']
-            ) -> None:
-                col = dropped.val_col if isinstance(dropped, TableVersion.IndexInfo) else dropped
-                # we exclude dependents that themselves are being dropped
-                remaining_dependents = [
-                    c for c in self.get_column_dependents(col.get_tbl().id, col.id) if c not in dropped_col_set
-                ]
-                if len(remaining_dependents) > 0:
-                    # sorted() for a deterministic error message
-                    detail = ', '.join(sorted(dependent_str(c) for c in remaining_dependents))
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'{drop_target.capitalize()} {dropped.name!r} was removed from the model for '
-                        f'{col.get_tbl().name!r}, '
-                        f'but cannot be dropped because the following depend on it:\n{detail}\n'
-                        'Drop those first, or remove them from their models.',
-                    )
-
-            for _, tv, change_set in tbl_info:
-                for idx_name in change_set['dropped_idxs']:
-                    check_column_dependents(tv.idxs_by_name[idx_name], 'index')
-                for name in change_set['dropped_columns']:
-                    check_column_dependents(tv.cols_by_name[name], 'column')
-
-            # check for dependent view predicates
-            mutable_views = {view_tv.id: view_tv for _, tv, _ in tbl_info for view_tv in self._mutable_view_tvs(tv)}
-            # a column can appear in more than one view's predicate, so every referencing view is recorded
-            views_by_qid: dict[QColumnId, list[TableVersion]] = defaultdict(list)
-            for view_tv in mutable_views.values():
-                if view_tv.predicate is None:
-                    continue
-                for col_ref in view_tv.predicate.subexprs(expr_class=exprs.ColumnRef, traverse_matches=False):
-                    views_by_qid[col_ref.col_md.qcolid].append(view_tv)
-            dropped_cols_by_qid = {col.qid: col for col in dropped_col_set}
-            view_dependencies = [
-                (dropped_cols_by_qid[qid], view_tv)
-                for qid, view_tvs in views_by_qid.items()
-                if qid in dropped_cols_by_qid
-                for view_tv in view_tvs
-            ]
-            if len(view_dependencies) > 0:
-                # sort() for deterministic error message
-                view_dependencies.sort(key=lambda d: (d[0].qid.tbl_id, d[0].qid.col_id, d[1].name))
-                detail = '\n'.join(
-                    f'column: {col.name}, view: {view_tv.name}, predicate: {view_tv.predicate}'
-                    for col, view_tv in view_dependencies
-                )
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Cannot drop the following columns, because view predicates depend on them:\n{detail}',
-                )
-
-            # Apply per table in forward order (base tables first), so a view's new column can reference a base's
-            # new column: the view's resolution sees the base's already-mutated columns through tvp.columns().
+            # Record the metadata per table in forward order (base tables first), so a view's new column can
+            # reference a base's new column: the view's resolution sees the base's already-mutated columns through
+            # tvp.columns().
             updated_tbl_ids = {tvp.tbl_id for tvp, _, _ in tbl_info}
             applied_tbl_ids: set[UUID] = set()
+            # TableVersions that need to be validated: the changed tables and their mutable views. Schema changes are
+            # not completed and new columns are not populated until everything is validated.
+            validation_tvs: dict[UUID, TableVersion] = {}
             for tvp, tv, change_set in tbl_info:
                 # make sure we're doing this in base -> view order
                 pending_ancestor_ids = (set(tvp.tbl_ids[1:]) & updated_tbl_ids) - applied_tbl_ids
                 assert len(pending_ancestor_ids) == 0, f'{tv.name}: bases not yet applied: {pending_ancestor_ids}'
 
-                added_cols, added_idxs = model.prepare_model_updates(
-                    tvp, tv.display_str(), change_set['new_columns'], change_set['new_idxs']
+                added_cols, added_idxs, altered_exprs = prepare_model_updates(
+                    tvp,
+                    tv.display_str(),
+                    change_set['new_columns'],
+                    change_set['altered_columns'],
+                    change_set['new_idxs'],
                 )
+                altered_cols: list[tuple[Column, exprs.Expr]] = [
+                    (tv.cols_by_name[name], expr) for name, expr in altered_exprs.items()
+                ]
                 dropped_cols = [tv.cols_by_name[name] for name in change_set['dropped_columns']]
                 dropped_idx_ids = [tv.idxs_by_name[name].id for name in change_set['dropped_idxs']]
                 expected_schema_version = change_set['schema_versions'][change_set['tbl_id']]
                 _logger.info(
                     f'Applying model updates to {tv.name!r} (id={tv.id}, schema_versions={expected_schema_version}): '
-                    f'add columns {[col.name for col in added_cols]}, drop columns {change_set["dropped_columns"]}, '
+                    f'add columns {[col.name for col in added_cols]}, '
+                    f'alter columns {[col.name for col, _ in altered_cols]}, '
+                    f'drop columns {change_set["dropped_columns"]}, '
                     f'add indexes {[spec.idx_name for spec in added_idxs]}, '
                     f'drop indexes {change_set["dropped_idxs"]}'
                 )
-                tv.apply_schema_change(expected_schema_version, added_cols, dropped_cols, added_idxs, dropped_idx_ids)
+                tv.apply_schema_change_md(
+                    expected_schema_version, added_cols, altered_cols, dropped_cols, added_idxs, dropped_idx_ids
+                )
+                validation_tvs[tv.id] = tv
+                for view_tv in self._mutable_view_tvs(tv):
+                    validation_tvs[view_tv.id] = view_tv
                 applied_tbl_ids.add(tvp.tbl_id)
+
+            # Validate the schema consistency in all affected tables. Order by name for deterministic errors.
+            for tv in sorted(validation_tvs.values(), key=lambda tv: (tv.name, tv.id)):
+                tv.validate_column_dependencies()
+
+            # Finally materialize the schema changes, which include new column population and may be expensive.
+            for _, tv, _ in tbl_info:
+                tv.materialize_schema_change()
 
         try:
             update_fn()
@@ -2006,7 +2044,9 @@ class Catalog(CatalogBase):
     @retry_loop(for_write=False)
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> LocalTable | None:
         obj = self._get_schema_object(
-            path, expected=LocalTable, raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR)
+            path,
+            expected=LocalTable,  # type: ignore[type-abstract]
+            raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR),
         )
         if obj is None:
             _logger.info(f'Skipped table {path!r} (does not exist).')
@@ -2023,7 +2063,7 @@ class Catalog(CatalogBase):
         def drop_fn() -> None:
             tbl = self._get_schema_object(
                 path,
-                expected=LocalTable,
+                expected=LocalTable,  # type: ignore[type-abstract]
                 raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR and not force),
                 lock_parent=True,
                 lock_obj=False,
@@ -2162,6 +2202,8 @@ class Catalog(CatalogBase):
             for ancestor in path.ancestors():
                 ancestor_obj = self._get_schema_object(ancestor, expected=Dir)
                 assert ancestor_obj is not None or last_parent is not None
+                if ancestor_obj is None:
+                    self._check_name_not_reserved(ancestor.parent, ancestor.name)
                 last_parent = Dir._create(last_parent._id, ancestor.name) if ancestor_obj is None else ancestor_obj
             parent = last_parent
         else:
@@ -2193,7 +2235,9 @@ class Catalog(CatalogBase):
         drop_fn()
         self._roll_forward()
 
+    @telemetry.spanned('pixeltable.catalog.drop_dir', level=telemetry.DEBUG)
     def _drop_dir(self, dir_id: UUID, dir_path: Path, force: bool = False) -> None:
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(path=str(dir_path)))
         conn = get_runtime().conn
         if not force:
             # check for existing entries
@@ -2222,8 +2266,10 @@ class Catalog(CatalogBase):
         conn.execute(sql.delete(schema.Dir).where(schema.Dir.id == dir_id))
         _logger.info(f'Removed directory {dir_path!r}.')
 
+    @telemetry.spanned('pixeltable.catalog.get_view_ids', level=telemetry.DEBUG)
     def get_view_ids(self, tbl_id: UUID, for_update: bool = False) -> list[UUID]:
         """Return the ids of views that directly reference the given table"""
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(table_id=str(tbl_id)))
         conn = get_runtime().conn
         # check whether this table still exists
         q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(tbl_id=tbl_id))
@@ -2295,10 +2341,9 @@ class Catalog(CatalogBase):
             reload = False
 
             # live table; compare our cached TableMd.current_version/view_sn to what's stored
-            is_data_versioned = row.md.get('is_data_versioned', True)
             current_version = row.md['current_version']
             view_sn = row.md['view_sn']
-            if (is_data_versioned and current_version != tv.version) or view_sn != tv.tbl_md.view_sn:
+            if current_version != tv.version or view_sn != tv.tbl_md.view_sn:
                 _logger.debug(
                     f'reloading metadata for live table {key.tbl_id} '
                     f'(cached/current version: {tv.version}/{current_version}, '
@@ -2696,6 +2741,7 @@ class Catalog(CatalogBase):
 
         return TableVersionMd(tbl_md, version_md, schema_version_md)
 
+    @telemetry.spanned('pixeltable.catalog.write_tbl_md')
     def write_tbl_md(
         self,
         tbl_id: UUID,
@@ -2718,6 +2764,12 @@ class Catalog(CatalogBase):
 
         If inserting `version_md` or `schema_version_md` would be a primary key violation, an exception will be raised.
         """
+        telemetry.add_attrs(
+            telemetry.func_span(),
+            **telemetry_schemas.CatalogAttrs(
+                table_id=str(tbl_id), version=None if version_md is None else version_md.version
+            ),
+        )
         assert self._in_write_xact
         assert version_md is None or version_md.created_at > 0.0
         assert pending_ops is None or len(pending_ops) > 0
@@ -2739,6 +2791,7 @@ class Catalog(CatalogBase):
                         assert tbl_col_id in sch_col_ids, (tbl_md.tbl_id, tbl_col_id)
                         sch_col_ids.remove(tbl_col_id)
                 assert len(sch_col_ids) == 0, (tbl_md.tbl_id, sch_col_ids)
+                _validate_folded_names(tbl_md, schema_version_md)
             if pending_ops is not None:
                 assert tbl_md.pending_stmt is not None
                 assert all(op.tbl_id == str(tbl_id) for op in pending_ops)
@@ -2882,10 +2935,12 @@ class Catalog(CatalogBase):
         res = conn.execute(stmt)
         assert res.rowcount == 1, res.rowcount
 
+    @telemetry.spanned('pixeltable.catalog.delete_tbl_md')
     def delete_tbl_md(self, tbl_id: UUID) -> None:
         """
         Deletes all table metadata from the store for the given table UUID.
         """
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(table_id=str(tbl_id)))
         conn = get_runtime().conn
         _logger.info(f'delete_tbl_md({tbl_id})')
         status = conn.execute(sql.delete(schema.TableSchemaVersion).where(schema.TableSchemaVersion.tbl_id == tbl_id))
@@ -2926,8 +2981,13 @@ class Catalog(CatalogBase):
 
         return md
 
+    @telemetry.spanned('pixeltable.catalog.load_tbl_version')
     def _load_tbl_version(self, key: TableVersionKey, *, check_pending_ops: bool = True) -> TableVersion:
         """Creates TableVersion instance from stored metadata and registers it in _tbl_versions."""
+        telemetry.add_attrs(
+            telemetry.func_span(),
+            **telemetry_schemas.CatalogAttrs(table_id=str(key.tbl_id), version=key.effective_version),
+        )
         tv_md = self.load_tbl_md(key)
         tbl_md = tv_md.tbl_md
         version_md = tv_md.version_md
@@ -3097,6 +3157,8 @@ class Catalog(CatalogBase):
 
         # IfExistsParam.REPLACE or IfExistsParam.REPLACE_FORCE
         assert if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
+        # the replacement is a new entry: refuse a reserved name before dropping the existing one
+        self._check_name_not_reserved(path.parent, path.name)
 
         # check to ensure that dirs can only be replaced with dirs, and all table subtypes can replace each other
         if expected_obj_type == Dir and not isinstance(obj, Dir):
@@ -3178,10 +3240,10 @@ class Catalog(CatalogBase):
         select_list: list[sql.ColumnElement | Literal['*']] = ['*']
         conditions: list[sql.ColumnElement] = []
         for idx_info in tv.idxs.values():
-            if isinstance(idx_info.idx, index.BtreeIndex):
+            if isinstance(idx_info.idx, index.BtreeIndex) and idx_info.val_col is not None:
                 # condition is the invariant violation that we are checking for
                 # add it to where clause, and also to select clause for easier debugging
-                if idx_info.val_col.col_type.is_string_type():
+                if idx_info.col.col_type.is_string_type():
                     condition = (
                         sql.func.left(idx_info.col.sa_col, index.BtreeIndex.MAX_STRING_LEN) != idx_info.val_col.sa_col
                     )
@@ -3236,6 +3298,8 @@ class Catalog(CatalogBase):
             select_list.append('*')
             conditions.clear()
             for idx_info in tv.idxs.values():
+                if idx_info.val_col is None:
+                    continue
                 # condition is the invariant violation that we are checking for
                 # add it to where clause, and also to select clause for easier debugging
                 condition = idx_info.val_col.sa_col != None

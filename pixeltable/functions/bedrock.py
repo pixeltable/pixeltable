@@ -1,7 +1,7 @@
 """
 Pixeltable UDFs for AWS Bedrock AI models.
 In order to use them, you must
-first `pip install boto3` and configure your AWS credentials, as described in
+first configure your AWS credentials, as described in
 the [Working with Bedrock](https://docs.pixeltable.com/howto/providers/working-with-bedrock) tutorial.
 """
 
@@ -340,10 +340,6 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
     (set environment variable `BEDROCK_TEMP_LOCATION` or add `temp_location` to the `[bedrock]` section of
     your Pixeltable configuration file).
 
-    __Requirements:__
-
-    - `pip install boto3`
-
     Args:
         body: The prompt and inference parameters as a dictionary.
         model_id: The model identifier to invoke.
@@ -410,9 +406,7 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
         ...     ],
         ... }
         >>> tbl.add_computed_column(
-        ...     response=invoke_model(
-        ...         body, model_id='anthropic.claude-3-haiku-20240307-v1:0'
-        ...     )
+        ...     response=invoke_model(body, model_id='us.anthropic.claude-haiku-5-5')
         ... )
 
         Invoke Amazon Nova Lite with a video column:
@@ -450,15 +444,17 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
         ... )
         >>> tbl.add_computed_column(image=tbl.response['images'][0])
 
-        Invoke Amazon Nova Reel for video generation (auto-routes to async; requires `bedrock.temp_location`):
+        Invoke Luma Ray 2 for video generation (auto-routes to async; requires `bedrock.temp_location`).
+        Luma Ray 2 (`luma.ray-v2:0`) is available in `us-west-2`:
 
         >>> body = {
-        ...     'taskType': 'TEXT_VIDEO',
-        ...     'textToVideoParams': {'text': tbl.prompt},
-        ...     'videoGenerationConfig': {'durationSeconds': 6, 'fps': 24},
+        ...     'prompt': tbl.prompt,
+        ...     'aspect_ratio': '16:9',
+        ...     'duration': '5s',
+        ...     'resolution': '540p',
         ... }
         >>> tbl.add_computed_column(
-        ...     video=invoke_model(body, model_id='amazon.nova-reel-v1:1')
+        ...     video=invoke_model(body, model_id='luma.ray-v2:0')
         ... )
     """
     body = _apply_invoke_model_request_conversions(body, model_id)
@@ -514,10 +510,6 @@ async def converse(
     PIL images and media file paths in `messages[*].content[*].(image|video|audio).source.bytes`
     are converted to raw bytes automatically.
 
-    __Requirements:__
-
-    - `pip install boto3`
-
     Args:
         messages: Input messages.
         model_id: The model that will complete your prompt.
@@ -533,14 +525,12 @@ async def converse(
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `anthropic.claude-3-haiku-20240307-v1:0`
+        Add a computed column that applies the model `us.anthropic.claude-haiku-5-5`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> msgs = [{'role': 'user', 'content': [{'text': tbl.prompt}]}]
         ... tbl.add_computed_column(
-        ...     response=converse(
-        ...         msgs, model_id='anthropic.claude-3-haiku-20240307-v1:0'
-        ...     )
+        ...     response=converse(msgs, model_id='us.anthropic.claude-haiku-5-5')
         ... )
 
         Pass an image via the Converse API:
@@ -603,10 +593,6 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
     <https://docs.aws.amazon.com/bedrock/latest/userguide/titan-embedding-models.html>
     <https://docs.aws.amazon.com/nova/latest/userguide/modality-embedding.html>
     <https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-embed.html>
-
-    __Requirements:__
-
-    - `pip install boto3`
 
     Args:
         text: Input text to embed.

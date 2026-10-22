@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 import PIL.Image
+import psutil
 import pytest
 
 import pixeltable as pxt
@@ -23,7 +24,7 @@ from .utils import (
     validate_update_status,
 )
 
-pytestmark = pytest.mark.local('TODO: convert; document-splitter view/parsing')
+pytestmark = pytest.mark.db_roots('local', reason='TODO: convert; document-splitter view/parsing')
 
 
 def _check_pdf_metadata(rec: dict, sep1: str, metadata: list[str]) -> None:
@@ -57,7 +58,7 @@ class TestDocument:
         skip_test_if_not_installed('markitdown', 'mistune')
 
         file_paths = self.valid_doc_paths()
-        doc_t = pxt.create_table('docs', {'doc': pxt.Document})
+        doc_t = pxt.create_table('docs', {'doc': pxt.Document | None})
         status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_rows == len(file_paths)
         assert status.num_excs == 0
@@ -98,7 +99,7 @@ class TestDocument:
                 raise AssertionError(f'Unexpected extension {extension}, add corresponding check')
 
     def test_doc_splitter_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('docs', {'doc': pxt.Document})
+        t = pxt.create_table('docs', {'doc': pxt.Document | None})
 
         # test invalid separators, or combinations of separators
         invalid_separators = [
@@ -142,7 +143,7 @@ class TestDocument:
                 )
 
         pdf_file = next(f for f in self.valid_doc_paths() if f.endswith('.pdf'))
-        t = pxt.create_table('docs', {'doc': pxt.Document}, if_exists='replace')
+        t = pxt.create_table('docs', {'doc': pxt.Document | None}, if_exists='replace')
         _ = pxt.create_view('paragraphs', t, iterator=document_splitter(t.doc, separators='paragraph'))
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'not currently supported.+contact us'):
             t.insert(doc=pdf_file)
@@ -169,7 +170,12 @@ class TestDocument:
         else:
             assert extensions == {'.md', '.html', '.txt', '.pptx', '.docx', '.xlsx'}
 
-        doc_t = pxt.create_table('docs', {'doc': pxt.Document})
+        def open_doc_files() -> set[str]:
+            return {f.path for f in psutil.Process().open_files() if os.path.splitext(f.path)[1] in extensions}
+
+        open_doc_files_before = open_doc_files()
+
+        doc_t = pxt.create_table('docs', {'doc': pxt.Document | None})
         validate_update_status(doc_t.insert({'doc': p} for p in file_paths), expected_rows=len(file_paths))
 
         import tiktoken
@@ -258,13 +264,17 @@ class TestDocument:
 
             pxt.drop_table('chunks')
 
+        # Verify that document splitter does not leave open files behind
+        leaked_doc_files = open_doc_files() - open_doc_files_before
+        assert not leaked_doc_files, leaked_doc_files
+
     def test_doc_splitter_headings(self, uses_db: None) -> None:
         skip_test_if_not_installed('markitdown', 'spacy')
 
         file_paths = [
             p for p in self.valid_doc_paths() if not (p.endswith('.pdf') or p.endswith('.xml') or p.endswith('.txt'))
         ]
-        doc_t = pxt.create_table('docs', {'doc': pxt.Document})
+        doc_t = pxt.create_table('docs', {'doc': pxt.Document | None})
         status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_excs == 0
 
@@ -300,7 +310,7 @@ class TestDocument:
         skip_test_if_not_installed('spacy')
 
         file_paths = [path for path in self.valid_doc_paths() if path.endswith('pxtbrief.txt')]
-        doc_t = pxt.create_table('docs', {'doc': pxt.Document})
+        doc_t = pxt.create_table('docs', {'doc': pxt.Document | None})
         status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_excs == 0
 
@@ -379,7 +389,7 @@ class TestDocument:
 
     def test_doc_splitter_images(self, uses_db: None) -> None:
         file_paths = [p for p in get_documents() if p.endswith('.pdf')]
-        t = pxt.create_table('docs', {'doc': pxt.Document})
+        t = pxt.create_table('docs', {'doc': pxt.Document | None})
 
         chunks = pxt.create_view(
             'chunks',

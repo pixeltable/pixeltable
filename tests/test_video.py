@@ -1,5 +1,6 @@
 import math
 import os
+import platform
 import subprocess
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -20,7 +21,8 @@ from pixeltable.functions.video import (
 from pixeltable.utils import av as av_utils
 
 from .utils import (
-    MediaStore,
+    DatabaseRoot,
+    check_media_store_count,
     generate_test_video,
     get_audio_files,
     get_image_files,
@@ -35,7 +37,7 @@ from .utils import (
 
 class TestVideo:
     def _validate_videos(self, videos: list[str]) -> None:
-        t = pxt.create_table('validated_videos', schema={'v': pxt.Video}, if_exists='ignore')
+        t = pxt.create_table('validated_videos', schema={'v': pxt.Video | None}, if_exists='ignore')
         validate_update_status(t.insert(({'v': v} for v in videos), on_error='abort'), expected_rows=len(videos))
 
     def create_tbls(
@@ -47,7 +49,7 @@ class TestVideo:
     ) -> tuple[pxt.Table, pxt.Table]:
         pxt.drop_table(p(view_name), if_not_exists='ignore')
         pxt.drop_table(p(base_name), if_not_exists='ignore')
-        base_t = pxt.create_table(p(base_name), {'video': pxt.Video})
+        base_t = pxt.create_table(p(base_name), {'video': pxt.Video | None})
         iterator = legacy_frame_iterator if use_legacy_schema else frame_iterator
         view_t = pxt.create_view(p(view_name), base_t, iterator=iterator(base_t.video, fps=1))
         return base_t, view_t
@@ -81,27 +83,31 @@ class TestVideo:
         assert len(result) == total_num_rows
         return base_t, view_t
 
-    def test_basic(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    @pytest.mark.xfail(
+        platform.system() == 'Windows',
+        reason='PXT-1295: TestVideo.test_basic[proxy] consistently fails on Windows in CI',
+        strict=False,
+    )
+    def test_basic(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         video_filepaths = get_video_files()
 
         # computed images are not stored
         _, view = self.create_and_insert(False, video_filepaths, p=p)
-        assert MediaStore.count(view, default_output_dest=True) == 0
+        check_media_store_count(view, 0, db_root, default_output_dest=True)
 
         # computed images are stored
         tbl, view = self.create_and_insert(True, video_filepaths, p=p)
-        assert MediaStore.count(view, default_output_dest=True) == view.count()
+        check_media_store_count(view, view.count(), db_root, default_output_dest=True)
 
         # revert() also removes computed images
         tbl.insert({'video': path} for path in video_filepaths)
         tbl.revert()
-        assert MediaStore.count(view, default_output_dest=True) == view.count()
+        check_media_store_count(view, view.count(), db_root, default_output_dest=True)
 
-    @pytest.mark.local('TODO: convert; frame-iterator view')
+    @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
     @rerun_on_network_error()
     def test_query(self, uses_db: None) -> None:
-        skip_test_if_not_installed('boto3')
         video_filepaths = get_video_files()
         base_t, view_t = self.create_tbls()
         # also include an external file, to make sure that prefetching works
@@ -117,10 +123,10 @@ class TestVideo:
         res = view_t.where(view_t.video == url).collect()
         assert len(res) == len(all_rows[all_rows.url == url])
 
-    @pytest.mark.local('TODO: convert; frame-iterator view')
+    @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
     def test_fps(self, uses_db: None) -> None:
         path = get_video_files()[0]
-        videos = pxt.create_table('videos', {'video': pxt.Video})
+        videos = pxt.create_table('videos', {'video': pxt.Video | None})
         frames_all = pxt.create_view('frames_all', videos, iterator=frame_iterator(videos.video))
         frames_1_0 = pxt.create_view('frames_1_0', videos, iterator=frame_iterator(videos.video, fps=1))
         frames_0_5 = pxt.create_view('frames_0_5', videos, iterator=frame_iterator(videos.video, fps=1 / 2))
@@ -146,7 +152,7 @@ class TestVideo:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`fps` must be a positive number'):
             _ = pxt.create_view('invalid_fps', videos, iterator=frame_iterator(videos.video, fps=0))
 
-    @pytest.mark.local('TODO: convert; frame-iterator view')
+    @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
     def test_frame_iterator_seek(self, uses_db: None) -> None:
         """
         Test that we can seek to specific frames in the video iterator and get consistent results.
@@ -166,7 +172,7 @@ class TestVideo:
                 {'num_frames': 50},
                 {'num_frames': 10000},
             ):
-                videos = pxt.create_table('videos', {'video': pxt.Video}, if_exists='replace_force')
+                videos = pxt.create_table('videos', {'video': pxt.Video | None}, if_exists='replace_force')
                 view = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, **kwargs))
                 videos.insert(video=p)
                 # Load the first 20 frames sequentially
@@ -183,10 +189,10 @@ class TestVideo:
                         # Ensure we get the bitmap-identical frame
                         assert selected_frame == frames[pos]
 
-    @pytest.mark.local('TODO: convert; frame-iterator view')
+    @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
     def test_keyframes_only(self, uses_db: None) -> None:
         path = get_video_files()[0]
-        videos = pxt.create_table('videos', {'video': pxt.Video})
+        videos = pxt.create_table('videos', {'video': pxt.Video | None})
 
         # Test keyframes_only=True extracts all keyframes
         keyframes = pxt.create_view('keyframes', videos, iterator=frame_iterator(videos.video, keyframes_only=True))
@@ -207,7 +213,7 @@ class TestVideo:
                 'invalid', videos, iterator=frame_iterator(videos.video, keyframes_only=True, num_frames=10)
             )
 
-    @pytest.mark.local('TODO: convert; frame-iterator view')
+    @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
     def test_computed_cols(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
         base_t, view_t = self.create_tbls()
@@ -223,7 +229,7 @@ class TestVideo:
         base_t.insert({'video': p} for p in video_filepaths)
         _ = view_t.select(view_t.frame, view_t.c1, view_t.c2, view_t.c3, view_t.c4).collect()
 
-    @pytest.mark.local('TODO: convert; frame-iterator view')
+    @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
     def test_frame_attrs(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
         base_t, view_t = self.create_tbls(use_legacy_schema=False)
@@ -234,13 +240,15 @@ class TestVideo:
         default_attrs = set(view_t.get_metadata()['columns'].keys())
         assert default_attrs == {'frame', 'pos', 'frame_idx', 'pos_msec', 'pos_frame', 'video'}
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_get_metadata(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        base_t = pxt.create_table('video_tbl', {'video': pxt.Video})
+        base_t = pxt.create_table('video_tbl', {'video': pxt.Video | None})
         base_t.add_computed_column(metadata=base_t.video.get_metadata())
         validate_update_status(base_t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         result = base_t.where(base_t.metadata.size == 2234371).select(base_t.metadata).collect()['metadata'][0]
+        # av 18 no longer reports the stream's vendor_id; earlier versions do
+        assert result['streams'][0]['metadata'].pop('vendor_id', '[0][0][0][0]') == '[0][0][0][0]'
         assert result == {
             'bit_exact': False,
             'bit_rate': 967260,
@@ -266,7 +274,6 @@ class TestVideo:
                     'metadata': {
                         'language': 'und',
                         'handler_name': 'L-SMASH Video Handler',
-                        'vendor_id': '[0][0][0][0]',
                         'encoder': 'Lavc60.31.102 libx264',
                     },
                     'codec_context': {'name': 'h264', 'codec_tag': 'avc1', 'profile': 'High', 'pix_fmt': 'yuv420p'},
@@ -355,7 +362,7 @@ class TestVideo:
         def value(self) -> PIL.Image.Image:
             return self.img
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_make_video(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
         base_t, view_t = self.create_tbls()
@@ -399,10 +406,10 @@ class TestVideo:
         _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
 
     # TODO: Not working with VFR sample video or .mpg samples (PXT-986, PXT-987)
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
     def test_clip(self, mode: Literal['fast', 'accurate'], uses_db: None) -> None:
-        t = pxt.create_table('get_clip_test', {'video': pxt.Video}, media_validation='on_write')
+        t = pxt.create_table('get_clip_test', {'video': pxt.Video | None}, media_validation='on_write')
         video_filepaths = get_video_files(include_vfr=False, include_mpgs=False)
         t.insert({'video': p} for p in video_filepaths)
 
@@ -434,9 +441,9 @@ class TestVideo:
         )
         assert result_df['clip'].isnull().all(), result_df['clip']
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_clip_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('clip_err_test', {'video': pxt.Video})
+        t = pxt.create_table('clip_err_test', {'video': pxt.Video | None})
         t.insert({'video': p} for p in get_video_files(include_vfr=False, include_mpgs=False))
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='start_time must be non-negative'):
@@ -458,10 +465,10 @@ class TestVideo:
                 invalid_clip=t.video.clip(start_time=0.0, mode='fast', video_encoder_args={'crf': 18})
             ).collect()
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_extract_frame(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('video_tbl', {'video': pxt.Video})
+        t = pxt.create_table('video_tbl', {'video': pxt.Video | None})
         validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
 
         status = t.add_computed_column(frame_at_1s=t.video.extract_frame(timestamp=1.0))
@@ -501,17 +508,17 @@ class TestVideo:
         result_df = t.select(frame=t.video.extract_frame(timestamp=1000.0)).collect().to_pandas()
         assert result_df['frame'].isnull().all()
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_extract_frame_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('extract_frame_err_test', {'video': pxt.Video})
+        t = pxt.create_table('extract_frame_err_test', {'video': pxt.Video | None})
         t.insert({'video': p} for p in get_video_files())
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='timestamp must be non-negative'):
             _ = t.select(invalid=t.video.extract_frame(timestamp=-1.0)).collect()
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_extract_audio_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('extract_audio_err_test', {'video': pxt.Video})
+        t = pxt.create_table('extract_audio_err_test', {'video': pxt.Video | None})
         t.insert({'video': p} for p in get_video_files())
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='unsupported audio format'):
@@ -530,7 +537,7 @@ class TestVideo:
         assert all(s['segment_start_pts'] is not None for s in segments)
         assert all(s['segment_end_pts'] is not None for s in segments)
         assert all(s['segment_end'] > s['segment_start'] for s in segments)
-        t = pxt.create_table('validate_segments', {'segment': pxt.Video}, media_validation='on_write')
+        t = pxt.create_table('validate_segments', {'segment': pxt.Video | None}, media_validation='on_write')
         t.insert({'segment': s['video_segment']} for s in segments)
         duration_expr = t.segment.get_metadata().streams[0].duration_seconds
         result = t.select(duration=duration_expr).head(n=len(segments))  # make sure output is ordered chronologically
@@ -549,10 +556,10 @@ class TestVideo:
         pxt.drop_table('validate_segments')
 
     # TODO: Not working with VFR sample video or .mpg samples (PXT-986, PXT-987)
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
     def test_segment_video_duration(self, mode: Literal['fast', 'accurate'], uses_db: None) -> None:
-        t = pxt.create_table('test_segments', {'video': pxt.Video})
+        t = pxt.create_table('test_segments', {'video': pxt.Video | None})
         t.insert({'video': f} for f in get_video_files(include_vfr=False, include_mpgs=False))
 
         duration = t.video.get_metadata().streams[0].duration_seconds
@@ -581,10 +588,10 @@ class TestVideo:
             self._validate_segments(segments, total_duration)
 
     # TODO: Not working with .mpg samples (PXT-987)
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
     def test_segment_video_segment_times(self, mode: Literal['fast', 'accurate'], uses_db: None) -> None:
-        t = pxt.create_table('test_segments', {'video': pxt.Video})
+        t = pxt.create_table('test_segments', {'video': pxt.Video | None})
         t.insert([{'video': f} for f in get_video_files(include_mpgs=False)])
 
         duration = t.video.get_metadata().streams[0].duration_seconds
@@ -603,9 +610,9 @@ class TestVideo:
             eps = 1.0 if mode == 'fast' else 0.0
             self._validate_segments(segments, total_duration, durations=durations, eps=eps)
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_segment_video_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('test_segments', {'video': pxt.Video})
+        t = pxt.create_table('test_segments', {'video': pxt.Video | None})
         t.insert([{'video': f} for f in get_video_files()])
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='duration must be positive'):
@@ -627,12 +634,12 @@ class TestVideo:
         ):
             _ = t.select(invalid=t.video.segment_video(duration=1.0, segment_times=[1.0, 2.0])).collect()
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_concat_videos(self, uses_db: None) -> None:
         video_filepaths = get_video_files()[:3]  # Use first 3 videos
         from pixeltable.functions.video import concat_videos
 
-        t = pxt.create_table('concat_videos_test', {'video': pxt.Video})
+        t = pxt.create_table('concat_videos_test', {'video': pxt.Video | None})
         t.insert({'video': p} for p in video_filepaths)
 
         # basic test: reassemble segments into original video
@@ -652,7 +659,9 @@ class TestVideo:
         assert res_df['duration'].between(res_df['concat_duration'] - 0.1, res_df['concat_duration'] + 0.1).all()
 
         # assemble videos of different origin into a single video
-        u = pxt.create_table('concat_videos_test2', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
+        u = pxt.create_table(
+            'concat_videos_test2', {'v1': pxt.Video | None, 'v2': pxt.Video | None, 'v3': pxt.Video | None}
+        )
         u.insert([{'v1': video_filepaths[0], 'v2': video_filepaths[1], 'v3': video_filepaths[2]}])
         status = u.add_computed_column(concat=concat_videos([u.v1, u.v2, u.v3]))
         assert status.num_excs == 0
@@ -668,7 +677,7 @@ class TestVideo:
         res = u.where(u.v1 == None).select(u.concat).collect()
         assert res[0]['concat'] is None
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_concat_videos_mixed_formats(self, uses_db: None, tmp_path: Path) -> None:
         from pixeltable.functions.video import concat_videos
 
@@ -676,7 +685,9 @@ class TestVideo:
         no_audio = generate_test_video(tmp_path, duration=1.0, has_audio=False)
         with_audio = generate_test_video(tmp_path, duration=1.5, has_audio=True)
 
-        t = pxt.create_table('test_mixed_audio', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
+        t = pxt.create_table(
+            'test_mixed_audio', {'v1': pxt.Video | None, 'v2': pxt.Video | None, 'v3': pxt.Video | None}
+        )
         t.insert([{'v1': no_audio, 'v2': with_audio, 'v3': no_audio}])
         status = t.add_computed_column(concat=concat_videos([t.v1, t.v2, t.v3]))
         assert status.num_excs == 0
@@ -687,7 +698,9 @@ class TestVideo:
         short_video = generate_test_video(tmp_path, duration=0.2, has_audio=False)
         yuv422_video = generate_test_video(tmp_path, duration=0.5, pix_fmt='yuv422p', has_audio=False)
 
-        t = pxt.create_table('test_edge_cases', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
+        t = pxt.create_table(
+            'test_edge_cases', {'v1': pxt.Video | None, 'v2': pxt.Video | None, 'v3': pxt.Video | None}
+        )
         t.insert([{'v1': short_video, 'v2': yuv422_video, 'v3': no_audio}])
         status = t.add_computed_column(concat=concat_videos([t.v1, t.v2, t.v3]))
         assert status.num_excs == 0
@@ -702,15 +715,17 @@ class TestVideo:
         high_res = generate_test_video(tmp_path, duration=0.5, size='1920x1080', has_audio=False)
         mid_res = generate_test_video(tmp_path, duration=0.5, size='640x360', has_audio=False)
 
-        t = pxt.create_table('test_resolution', {'v1': pxt.Video, 'v2': pxt.Video, 'v3': pxt.Video})
+        t = pxt.create_table(
+            'test_resolution', {'v1': pxt.Video | None, 'v2': pxt.Video | None, 'v3': pxt.Video | None}
+        )
         t.insert([{'v1': low_res, 'v2': high_res, 'v3': mid_res}])
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='requires that all videos have the same resolution'):
             _ = t.add_computed_column(concat=concat_videos([t.v1, t.v2, t.v3]))
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_concat_videos_agg(self, uses_db: None) -> None:
         video_filepaths = get_video_files()[:3]
-        t = pxt.create_table('concat_agg_test', {'id': pxt.Int, 'video': pxt.Video})
+        t = pxt.create_table('concat_agg_test', {'id': pxt.Int | None, 'video': pxt.Video | None})
         t.insert({'id': i, 'video': p} for i, p in enumerate(video_filepaths))
 
         # split each video into segments, then reassemble with group_by
@@ -723,7 +738,7 @@ class TestVideo:
         assert len(result) == len(video_filepaths)
 
         # verify reassembled durations match the originals
-        u = pxt.create_table('concat_results', {'id': pxt.Int, 'video': pxt.Video})
+        u = pxt.create_table('concat_results', {'id': pxt.Int | None, 'video': pxt.Video | None})
         u.insert(list(result))
         u.add_computed_column(duration=u.video.get_duration())
         orig_durations = t.select(duration=t.video.get_duration()).order_by(t.id).collect()
@@ -733,7 +748,7 @@ class TestVideo:
         )
 
         # empty group: all-None videos should produce None
-        e = pxt.create_table('concat_empty', {'id': pxt.Int, 'video': pxt.Video, 'pos': pxt.Int})
+        e = pxt.create_table('concat_empty', {'id': pxt.Int | None, 'video': pxt.Video | None, 'pos': pxt.Int | None})
         e.insert(
             [
                 {'id': 0, 'video': video_filepaths[0], 'pos': 0},
@@ -746,13 +761,13 @@ class TestVideo:
         assert result[0]['video'] is not None  # id 0: has a video
         assert result[1]['video'] is None  # id 1: empty group returns None
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_concat_videos_agg_mixed_formats(self, uses_db: None, tmp_path: Path) -> None:
         # mixed audio
         no_audio = generate_test_video(tmp_path, duration=1.0, has_audio=False)
         with_audio = generate_test_video(tmp_path, duration=1.5, has_audio=True)
 
-        t = pxt.create_table('test_agg_mixed_audio', {'id': pxt.Int, 'video': pxt.Video})
+        t = pxt.create_table('test_agg_mixed_audio', {'id': pxt.Int | None, 'video': pxt.Video | None})
         t.insert([{'id': 0, 'video': no_audio}, {'id': 1, 'video': with_audio}, {'id': 2, 'video': no_audio}])
         concat_output = concat_videos_agg(t.id, t.video)
         result = t.select(output=concat_output, duration=concat_output.get_duration()).collect()
@@ -764,7 +779,7 @@ class TestVideo:
         low_res = generate_test_video(tmp_path, duration=0.5, size='176x144', has_audio=False)
         high_res = generate_test_video(tmp_path, duration=0.5, size='1920x1080', has_audio=False)
 
-        t2 = pxt.create_table('test_agg_resolution', {'id': pxt.Int, 'video': pxt.Video})
+        t2 = pxt.create_table('test_agg_resolution', {'id': pxt.Int | None, 'video': pxt.Video | None})
         t2.insert([{'id': 0, 'video': low_res}, {'id': 1, 'video': high_res}])
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='requires that all videos have the same resolution'):
             t2.select(concat_videos_agg(t2.id, t2.video)).collect()
@@ -833,7 +848,9 @@ class TestVideo:
         # Verify segments are valid videos by inserting them into a table with validation
         segments = s.select(url=s.video_segment.fileurl).collect()
         if len(segments) > 0:
-            validation_t = pxt.create_table('segment_validation', {'segment': pxt.Video}, media_validation='on_write')
+            validation_t = pxt.create_table(
+                'segment_validation', {'segment': pxt.Video | None}, media_validation='on_write'
+            )
             validation_t.insert([{'segment': row['url']} for row in segments], on_error='abort')
             pxt.drop_table('segment_validation')
 
@@ -842,7 +859,7 @@ class TestVideo:
         'segment_duration,mode',
         [(5.0, 'fast'), (5.0, 'accurate'), (10.0, 'fast'), (10.0, 'accurate'), (100.0, 'fast'), (100.0, 'accurate')],
     )
-    @pytest.mark.local('TODO: convert; video-splitter view')
+    @pytest.mark.db_roots('local', reason='TODO: convert; video-splitter view')
     def test_video_splitter_duration(
         self, segment_duration: float, mode: Literal['fast', 'accurate'], uses_db: None
     ) -> None:
@@ -851,7 +868,7 @@ class TestVideo:
         eps = 0.1 if mode == 'fast' else 0.0
         for min_segment_duration in [None, 0.0, segment_duration]:
             for overlap in overlaps:
-                t = pxt.create_table('videos', {'video': pxt.Video})
+                t = pxt.create_table('videos', {'video': pxt.Video | None})
                 t.insert([{'video': p} for p in video_filepaths])
                 s = pxt.create_view(
                     'segments',
@@ -868,33 +885,33 @@ class TestVideo:
                 pxt.drop_table('videos', force=True)
 
     # TODO: Not working with .mpg samples (PXT-987)
-    @pytest.mark.local('TODO: convert; video-splitter view')
+    @pytest.mark.db_roots('local', reason='TODO: convert; video-splitter view')
     @pytest.mark.parametrize('segment_times,mode', [([6.0, 11.0, 16.0], 'fast'), ([6.0, 11.0, 16.0], 'accurate')])
     def test_video_splitter_segment_times(
         self, segment_times: list[float], mode: Literal['fast', 'accurate'], uses_db: None
     ) -> None:
         eps = 0.1 if mode == 'fast' else 0.0
         video_filepaths = get_video_files(include_mpgs=False)
-        t = pxt.create_table('videos', {'video': pxt.Video})
+        t = pxt.create_table('videos', {'video': pxt.Video | None})
         t.insert({'video': p} for p in video_filepaths)
         s = pxt.create_view('segments', t, iterator=video_splitter(t.video, segment_times=segment_times, mode=mode))
         start_times = [0.0, *segment_times]
         durations = [start_times[i + 1] - start_times[i] for i in range(len(start_times) - 1)]
         self._validate_splitter_segments(t, s, 0.0, 0.0, expected_durations=durations, eps=eps)
 
-    @pytest.mark.local('TODO: convert; video-splitter view')
+    @pytest.mark.db_roots('local', reason='TODO: convert; video-splitter view')
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
     def test_video_splitter_empty_segment_times(self, mode: Literal['fast', 'accurate'], uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('videos', {'video': pxt.Video})
+        t = pxt.create_table('videos', {'video': pxt.Video | None})
         t.insert({'video': p} for p in video_filepaths)
         v = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[], mode=mode))
         res = v.select(video=v.video.fileurl, segment=v.video_segment.fileurl).collect()
         assert all(row['video'] == row['segment'] for row in res)
 
-    @pytest.mark.local('TODO: convert; video-splitter view')
+    @pytest.mark.db_roots('local', reason='TODO: convert; video-splitter view')
     def test_video_splitter_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('videos', {'video': pxt.Video})
+        t = pxt.create_table('videos', {'video': pxt.Video | None})
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Must specify either duration or segment_times'):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video))
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='duration must be a positive number'):
@@ -924,10 +941,10 @@ class TestVideo:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='overlap cannot be specified with segment_times'):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[1, 2], overlap=1))
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     @pytest.mark.skipif('t4' in os.environ.get('PXTTEST_CI_OS', ''), reason='Fonts not available on t4 CI instances')
     def test_overlay_text(self, uses_db: None, tmp_path: Path) -> None:
-        t = pxt.create_table('videos', {'video': pxt.Video})
+        t = pxt.create_table('videos', {'video': pxt.Video | None})
         t.add_computed_column(clip_5s=t.video.clip(start_time=0, duration=5))
 
         text = "Line 1\nLine2: 'quoted text'"
@@ -1162,11 +1179,11 @@ class TestVideo:
         # assert df['d'].eq(df['d_o4']).all()
         # assert df['d'].eq(df['d_o5']).all()
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_overlay_text_errors(self, uses_db: None, tmp_path: Path) -> None:
         import re
 
-        t = pxt.create_table('videos_errors', {'video': pxt.Video})
+        t = pxt.create_table('videos_errors', {'video': pxt.Video | None})
         t.insert([{'video': v} for v in get_video_files()])
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='font_size must be positive'):
@@ -1210,7 +1227,7 @@ class TestVideo:
             ('cxcywh', [80, 40, 160, 80]),  # center_x, center_y, width, height
         ],
     )
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     @pytest.mark.parametrize('encoder_args', [None, {'crf': '18'}])
     def test_crop(
         self,
@@ -1220,7 +1237,7 @@ class TestVideo:
         bbox: list[int],
         encoder_args: dict[str, Any] | None,
     ) -> None:
-        t = pxt.create_table('crop_test', {'video': pxt.Video})
+        t = pxt.create_table('crop_test', {'video': pxt.Video | None})
         videos = get_video_files()
         validate_update_status(t.insert({'video': f} for f in videos), expected_rows=len(videos))
 
@@ -1234,10 +1251,10 @@ class TestVideo:
         # validate output videos
         self._validate_videos(result['cropped'])
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_crop_with_column(self, uses_db: None) -> None:
         """Test crop() with bbox values from a table column."""
-        t = pxt.create_table('crop_column_test', {'video': pxt.Video, 'bbox': pxt.Json})
+        t = pxt.create_table('crop_column_test', {'video': pxt.Video | None, 'bbox': pxt.Json | None})
         videos = get_video_files()
         validate_update_status(
             t.insert({'video': f, 'bbox': [0, 0, 160, 80]} for f in videos), expected_rows=len(videos)
@@ -1252,9 +1269,9 @@ class TestVideo:
         assert all(md['streams'][0]['width'] == 160 for md in result['cropped_md'])
         assert all(md['streams'][0]['height'] == 80 for md in result['cropped_md'])
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_crop_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('crop_error_test', {'video': pxt.Video})
+        t = pxt.create_table('crop_error_test', {'video': pxt.Video | None})
         t.insert({'video': f} for f in get_video_files()[:1])
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='bbox must have exactly 4 non-negative integers'):
@@ -1293,7 +1310,7 @@ class TestVideo:
             t.select(t.video.crop([0, 50, 100, 50], bbox_format='xyxy')).collect()
 
     # TODO: Not working with VFR sample video or .mpg samples (PXT-986, PXT-987)
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_with_audio(self, uses_db: None) -> None:
         from pixeltable.functions.video import with_audio
 
@@ -1301,7 +1318,7 @@ class TestVideo:
         audio_filepaths = get_audio_files()
         num_rows = min(len(video_filepaths), len(audio_filepaths))
 
-        t = pxt.create_table('test_add_audio', {'video': pxt.Video, 'audio': pxt.Audio})
+        t = pxt.create_table('test_add_audio', {'video': pxt.Video | None, 'audio': pxt.Audio | None})
         validate_update_status(
             t.insert({'video': video_filepaths[i], 'audio': audio_filepaths[i]} for i in range(num_rows)),
             expected_rows=num_rows,
@@ -1344,11 +1361,11 @@ class TestVideo:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='audio_duration must be positive'):
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=-1.0))
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_resize(self, uses_db: None, tmp_path: Path) -> None:
         videos = get_video_files()
         videos.append(generate_test_video(tmp_path, duration=1.0, size='640x360'))
-        t = pxt.create_table('resize_test', {'video': pxt.Video})
+        t = pxt.create_table('resize_test', {'video': pxt.Video | None})
         t.insert([{'video': v} for v in videos])
 
         md = t.video.get_metadata()
@@ -1403,10 +1420,10 @@ class TestVideo:
         resized_videos = res['resized_w'] + res['resized_h'] + res['resized_s'] + res['resized_wh']
         self._validate_videos(resized_videos)
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_resize_errors(self, uses_db: None, tmp_path: Path) -> None:
         videos = get_video_files()
-        t = pxt.create_table('resize_err_test', {'video': pxt.Video})
+        t = pxt.create_table('resize_err_test', {'video': pxt.Video | None})
         validate_update_status(t.insert([{'video': v} for v in videos]))
 
         with pxt_raises(
@@ -1434,11 +1451,11 @@ class TestVideo:
         ):
             t.select(t.video.resize()).collect()
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     @pytest.mark.parametrize('audio_mode', ['drop', 'reverse', 'keep'])
     def test_reverse(self, audio_mode: Literal['drop', 'reverse', 'keep'], uses_db: None, tmp_path: Path) -> None:
         videos = get_video_files()
-        t = pxt.create_table('reverse_test', {'video': pxt.Video})
+        t = pxt.create_table('reverse_test', {'video': pxt.Video | None})
         validate_update_status(t.insert([{'video': v} for v in videos]))
 
         reversed = t.video.reverse(audio=audio_mode)
@@ -1467,10 +1484,10 @@ class TestVideo:
 
         self._validate_videos(result['reversed'])
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_scroll(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('scroll_test', {'video': pxt.Video})
+        t = pxt.create_table('scroll_test', {'video': pxt.Video | None})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         md = t.video.get_metadata()
@@ -1486,10 +1503,10 @@ class TestVideo:
         # validate output videos
         self._validate_videos(result['scrolled'])
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_scroll_errors(self, uses_db: None, tmp_path: Path) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('scroll_err_test', {'video': pxt.Video})
+        t = pxt.create_table('scroll_err_test', {'video': pxt.Video | None})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         with pxt_raises(
@@ -1510,15 +1527,15 @@ class TestVideo:
             t.select(t.video.scroll(w=160, x_speed=10, y_start=9999)).collect()
 
         # a viewport equal to the input dimensions leaves nothing to scroll
-        known_size = pxt.create_table('scroll_known_size', {'video': pxt.Video})
+        known_size = pxt.create_table('scroll_known_size', {'video': pxt.Video | None})
         validate_update_status(known_size.insert(video=generate_test_video(tmp_path, size='640x360')), expected_rows=1)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='equals input dimensions'):
             known_size.select(known_size.video.scroll(w=640, h=360, x_speed=10)).collect()
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_zoom(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('zoom_test', {'video': pxt.Video})
+        t = pxt.create_table('zoom_test', {'video': pxt.Video | None})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         md = t.video.get_metadata()
@@ -1548,10 +1565,10 @@ class TestVideo:
         # validate output videos
         self._validate_videos(result['zoomed_in'] + result['zoomed_out'] + result['zoomed_corner'])
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_zoom_errors(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('zoom_err_test', {'video': pxt.Video})
+        t = pxt.create_table('zoom_err_test', {'video': pxt.Video | None})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'start_scale must be >= 1\.0'):
@@ -1563,11 +1580,11 @@ class TestVideo:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'center must be'):
             t.select(t.video.zoom(center=[0.5, 1.5])).collect()
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     @pytest.mark.parametrize('fade_fn', [pxtf.video.fade_in, pxtf.video.fade_out])
     def test_fade(self, fade_fn: pxt.Function, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('fade_test', {'video': pxt.Video})
+        t = pxt.create_table('fade_test', {'video': pxt.Video | None})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         md = t.video.get_metadata()
@@ -1588,10 +1605,10 @@ class TestVideo:
 
         self._validate_videos(result['faded'])
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_fade_errors(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('fade_err_test', {'video': pxt.Video})
+        t = pxt.create_table('fade_err_test', {'video': pxt.Video | None})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'duration must be positive'):
@@ -1601,10 +1618,10 @@ class TestVideo:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'duration must be positive'):
             t.select(t.video.fade_out(duration=0)).collect()
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_speed(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('speed_test', {'video': pxt.Video})
+        t = pxt.create_table('speed_test', {'video': pxt.Video | None})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         md = t.video.get_metadata()
@@ -1627,10 +1644,10 @@ class TestVideo:
 
         self._validate_videos(result['fast'])
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_speed_errors(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('speed_err_test', {'video': pxt.Video})
+        t = pxt.create_table('speed_err_test', {'video': pxt.Video | None})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'factor must be positive'):
@@ -1638,10 +1655,10 @@ class TestVideo:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'factor must be positive'):
             t.select(t.video.speed(factor=-1.0)).collect()
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_mirror(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('mirror_test', {'video': pxt.Video})
+        t = pxt.create_table('mirror_test', {'video': pxt.Video | None})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         md = t.video.get_metadata()
@@ -1665,10 +1682,10 @@ class TestVideo:
 
         self._validate_videos(result['mx'] + result['my'])
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_rotate(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('rotate_test', {'video': pxt.Video})
+        t = pxt.create_table('rotate_test', {'video': pxt.Video | None})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         md = t.video.get_metadata()
@@ -1698,10 +1715,10 @@ class TestVideo:
 
         self._validate_videos(result['rotated'] + result2['expanded'])
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_grayscale(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('grayscale_test', {'video': pxt.Video})
+        t = pxt.create_table('grayscale_test', {'video': pxt.Video | None})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         md = t.video.get_metadata()
@@ -1716,11 +1733,11 @@ class TestVideo:
 
         self._validate_videos(result['gray'])
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     @pytest.mark.parametrize('x_sign,y_sign,axis', [(-1, 0, 'x'), (+1, 0, 'x'), (0, -1, 'y'), (0, +1, 'y')])
     def test_pan(self, x_sign: int, y_sign: int, axis: str, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('pan_test', {'video': pxt.Video})
+        t = pxt.create_table('pan_test', {'video': pxt.Video | None})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         md = t.video.get_metadata()
@@ -1746,10 +1763,10 @@ class TestVideo:
 
         self._validate_videos(result['panned'])
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_pan_by_column(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('pan_col_test', {'video': pxt.Video, 'pan_sign': pxt.Int})
+        t = pxt.create_table('pan_col_test', {'video': pxt.Video | None, 'pan_sign': pxt.Int | None})
         rows = [{'video': f, 'pan_sign': +1 if i % 2 == 0 else -1} for i, f in enumerate(video_filepaths)]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 
@@ -1765,17 +1782,17 @@ class TestVideo:
         assert all(row['panned_md']['streams'][0]['height'] == row['orig_h'] for row in result)
         assert all(row['panned_md']['streams'][0]['width'] < row['orig_w'] for row in result)
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_pan_errors(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('pan_err_test', {'video': pxt.Video})
+        t = pxt.create_table('pan_err_test', {'video': pxt.Video | None})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         # both signs zero degenerates to scroll() with x_speed=y_speed=0, which scroll rejects
         with pytest.raises(pxt.Error, match=r'at least one of `x_speed` or `y_speed` must be non-zero'):
             t.select(t.video.pan()).collect()
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_scene_detect(self, uses_db: None) -> None:
         skip_test_if_not_installed('scenedetect')
         video_filepaths = get_video_files()
@@ -1829,7 +1846,7 @@ class TestVideo:
             (pxtf.video.scene_detect_hash, {'threshold': 0.595, 'size': 24, 'lowpass': 3, 'min_scene_len': 15}),
         ]
         for udf, params in test_params:
-            t = pxt.create_table('videos', {'video': pxt.Video}, if_exists='replace')
+            t = pxt.create_table('videos', {'video': pxt.Video | None}, if_exists='replace')
             t.insert({'video': p} for p in video_filepaths)
             status = t.add_computed_column(scenes=udf(t.video, fps=2.0, **params))
             assert status.num_excs == 0
@@ -1857,7 +1874,46 @@ class TestVideo:
         )
         _ = v.collect()
 
-    @pytest.mark.local('reads Env default video encoder config')
+    def test_scene_detect_cut_at_scene_start(self, init_env: None) -> None:
+        skip_test_if_not_installed('scenedetect')
+        from scenedetect import FrameTimecode  # type: ignore[import-untyped]
+
+        from pixeltable.functions.video.scene_detect import _scene_detect
+
+        class StubDetector:
+            """Reports cuts at given positions in the sequence of sampled frames."""
+
+            frame_cuts: set[int]  # positions at which process_frame() reports a cut at the current frame
+            final_cuts: list[int]  # positions of the cuts that post_process() reports
+            timecodes: list[FrameTimecode]  # of the frames passed to process_frame()
+
+            def __init__(self, frame_cuts: set[int], final_cuts: list[int]) -> None:
+                self.frame_cuts = frame_cuts
+                self.final_cuts = final_cuts
+                self.timecodes = []
+
+            def process_frame(self, timecode: FrameTimecode, frame_img: Any) -> list[FrameTimecode]:
+                self.timecodes.append(timecode)
+                return [timecode] if len(self.timecodes) - 1 in self.frame_cuts else []
+
+            def post_process(self, timecode: FrameTimecode) -> list[FrameTimecode]:
+                return [self.timecodes[i] for i in self.final_cuts]
+
+        video = get_video_files()[0]
+
+        # scenedetect >= 0.7.2 reports a cut at the first frame of a video that starts faded out: the cut doesn't
+        # produce a zero-duration scene, and without other cuts the whole video is one scene
+        scenes = _scene_detect(video, 2.0, StubDetector(frame_cuts=set(), final_cuts=[0]))
+        assert len(scenes) == 1
+        assert scenes[0]['duration'] > 0.0
+
+        # the cut at the first frame is skipped; the cuts at the next two frames end the scenes that start at the first
+        # and second frame
+        scenes = _scene_detect(video, 2.0, StubDetector(frame_cuts={0, 1, 2}, final_cuts=[]))
+        assert len(scenes) == 2
+        assert all(s['duration'] > 0.0 for s in scenes)
+
+    @pytest.mark.db_roots('local', reason='reads Env default video encoder config')
     def test_default_video_codec(self, uses_db: None) -> None:
         result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, check=False)
         print(f'ffmpeg -version:\n{result.stdout}')
@@ -1865,10 +1921,10 @@ class TestVideo:
         default_encoder = Env.get().default_video_encoder
         assert default_encoder == 'libx264'
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_to_video(self, uses_db: None, tmp_path: Path) -> None:
         image_filepaths = get_image_files()[:3]
-        t = pxt.create_table('to_video_test', {'image': pxt.Image})
+        t = pxt.create_table('to_video_test', {'image': pxt.Image | None})
         validate_update_status(t.insert({'image': f} for f in image_filepaths), expected_rows=len(image_filepaths))
 
         # 5-second video at default fps
@@ -1886,10 +1942,10 @@ class TestVideo:
         self._validate_videos(t.select(t.vid).collect()['vid'])
         self._validate_videos(t.select(t.vid30).collect()['vid30'])
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_to_video_errors(self, uses_db: None) -> None:
         image_filepaths = get_image_files()[:1]
-        t = pxt.create_table('to_video_err', {'image': pxt.Image})
+        t = pxt.create_table('to_video_err', {'image': pxt.Image | None})
         validate_update_status(t.insert({'image': f} for f in image_filepaths), expected_rows=1)
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'duration must be positive'):
@@ -1901,14 +1957,14 @@ class TestVideo:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'fps must be positive'):
             t.select(t.image.to_video(duration=1.0, fps=-5)).collect()
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_mix_audio(self, uses_db: None, tmp_path: Path) -> None:
         # generate videos with audio so we have a known baseline
         video = generate_test_video(tmp_path, duration=3.0, has_audio=True)
         audio_filepaths = get_audio_files()
         assert len(audio_filepaths) > 0
 
-        t = pxt.create_table('mix_audio_test', {'video': pxt.Video, 'audio': pxt.Audio})
+        t = pxt.create_table('mix_audio_test', {'video': pxt.Video | None, 'audio': pxt.Audio | None})
         validate_update_status(t.insert([{'video': video, 'audio': audio_filepaths[0]}]), expected_rows=1)
 
         # basic mix: output duration should match the original video
@@ -1924,12 +1980,12 @@ class TestVideo:
         self._validate_videos(t.select(t.mixed).collect()['mixed'])
         self._validate_videos(t.select(t.delayed).collect()['delayed'])
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_mix_audio_errors(self, uses_db: None, tmp_path: Path) -> None:
         video = generate_test_video(tmp_path, duration=2.0, has_audio=True)
         audio_filepaths = get_audio_files()
 
-        t = pxt.create_table('mix_audio_err', {'video': pxt.Video, 'audio': pxt.Audio})
+        t = pxt.create_table('mix_audio_err', {'video': pxt.Video | None, 'audio': pxt.Audio | None})
         validate_update_status(t.insert([{'video': video, 'audio': audio_filepaths[0]}]), expected_rows=1)
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'audio_volume must be non-negative'):
@@ -1947,12 +2003,12 @@ class TestVideo:
 
         # silent video should raise a clear error
         silent_video = generate_test_video(tmp_path, duration=2.0, has_audio=False)
-        t2 = pxt.create_table('mix_audio_silent_err', {'video': pxt.Video, 'audio': pxt.Audio})
+        t2 = pxt.create_table('mix_audio_silent_err', {'video': pxt.Video | None, 'audio': pxt.Audio | None})
         validate_update_status(t2.insert([{'video': silent_video, 'audio': audio_filepaths[0]}]), expected_rows=1)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'requires a video with an audio stream'):
             t2.select(t2.video.mix_audio(t2.audio)).collect()
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_mix_audio_duration_modes(self, uses_db: None, tmp_path: Path) -> None:
         def make_audio(duration: float, name: str) -> str:
             out = tmp_path / f'{name}.m4a'
@@ -1979,7 +2035,8 @@ class TestVideo:
         short_audio = make_audio(1.0, 'short')
 
         t = pxt.create_table(
-            'mix_audio_durations', {'video': pxt.Video, 'long_audio': pxt.Audio, 'short_audio': pxt.Audio}
+            'mix_audio_durations',
+            {'video': pxt.Video | None, 'long_audio': pxt.Audio | None, 'short_audio': pxt.Audio | None},
         )
         validate_update_status(
             t.insert([{'video': video, 'long_audio': long_audio, 'short_audio': short_audio}]), expected_rows=1
@@ -2039,12 +2096,12 @@ class TestVideo:
 
         self._validate_videos([row[col] for col in ('longest', 'shortest', 'trimmed', 'padded', 'no_dropout')])
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_overlay_image(self, uses_db: None, tmp_path: Path) -> None:
         video_filepaths = get_video_files()
         image_filepaths = get_image_files()[:1]
 
-        t = pxt.create_table('overlay_image_test', {'video': pxt.Video, 'logo': pxt.Image})
+        t = pxt.create_table('overlay_image_test', {'video': pxt.Video | None, 'logo': pxt.Image | None})
         validate_update_status(
             t.insert([{'video': video, 'logo': image_filepaths[0]} for video in video_filepaths]),
             expected_rows=len(video_filepaths),
@@ -2095,18 +2152,18 @@ class TestVideo:
 
         # overlay should preserve audio when present
         video_with_audio = generate_test_video(tmp_path, duration=2.0, has_audio=True)
-        t2 = pxt.create_table('overlay_image_audio', {'video': pxt.Video, 'logo': pxt.Image})
+        t2 = pxt.create_table('overlay_image_audio', {'video': pxt.Video | None, 'logo': pxt.Image | None})
         validate_update_status(t2.insert([{'video': video_with_audio, 'logo': image_filepaths[0]}]), expected_rows=1)
         t2.add_computed_column(overlaid=t2.video.overlay_image(t2.logo))
         result_paths = t2.select(t2.overlaid).collect()['overlaid']
         assert all(av_utils.has_audio_stream(str(p)) for p in result_paths)
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_overlay_image_errors(self, uses_db: None, tmp_path: Path) -> None:
         video = generate_test_video(tmp_path, duration=2.0)
         image_filepaths = get_image_files()[:1]
 
-        t = pxt.create_table('overlay_image_err', {'video': pxt.Video, 'logo': pxt.Image})
+        t = pxt.create_table('overlay_image_err', {'video': pxt.Video | None, 'logo': pxt.Image | None})
         validate_update_status(t.insert([{'video': video, 'logo': image_filepaths[0]}]), expected_rows=1)
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'opacity must be between'):
@@ -2130,10 +2187,10 @@ class TestVideo:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'start_time must be less than end_time'):
             t.select(t.video.overlay_image(t.logo, start_time=2.0, end_time=2.0)).collect()
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_adjust_brightness(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('brightness_test', {'video': pxt.Video})
+        t = pxt.create_table('brightness_test', {'video': pxt.Video | None})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         md = t.video.get_metadata()
@@ -2169,16 +2226,16 @@ class TestVideo:
         self._validate_videos(dimmed_result['dimmed'])
         self._validate_videos(result['bright'])
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_adjust_brightness_errors(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('brightness_err', {'video': pxt.Video})
+        t = pxt.create_table('brightness_err', {'video': pxt.Video | None})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'factor must be non-negative'):
             t.select(t.video.adjust_brightness(factor=-0.5)).collect()
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_transition(self, uses_db: None, tmp_path: Path) -> None:
         from pixeltable.functions.video import transition
 
@@ -2186,7 +2243,7 @@ class TestVideo:
         v1 = generate_test_video(tmp_path, duration=3.0, size='640x360')
         v2 = generate_test_video(tmp_path, duration=3.0, size='640x360')
 
-        t = pxt.create_table('transition_test', {'v1': pxt.Video, 'v2': pxt.Video})
+        t = pxt.create_table('transition_test', {'v1': pxt.Video | None, 'v2': pxt.Video | None})
         validate_update_status(t.insert([{'v1': v1, 'v2': v2}]), expected_rows=1)
 
         # crossfade: output duration = 3 + 3 - 1 = 5 seconds
@@ -2210,7 +2267,7 @@ class TestVideo:
         # asymmetric audio: only v1 has audio
         v1_audio = generate_test_video(tmp_path, duration=2.0, size='640x360', has_audio=True)
         v2_silent = generate_test_video(tmp_path, duration=2.0, size='640x360', has_audio=False)
-        u = pxt.create_table('transition_audio1', {'v1': pxt.Video, 'v2': pxt.Video})
+        u = pxt.create_table('transition_audio1', {'v1': pxt.Video | None, 'v2': pxt.Video | None})
         validate_update_status(u.insert([{'v1': v1_audio, 'v2': v2_silent}]), expected_rows=1)
         u.add_computed_column(out=transition(u.v1, u.v2, duration=0.5))
         result = u.select(
@@ -2221,7 +2278,7 @@ class TestVideo:
         self._validate_videos([result[0]['out']])
 
         # asymmetric audio: only v2 has audio
-        u2 = pxt.create_table('transition_audio2', {'v1': pxt.Video, 'v2': pxt.Video})
+        u2 = pxt.create_table('transition_audio2', {'v1': pxt.Video | None, 'v2': pxt.Video | None})
         validate_update_status(u2.insert([{'v1': v2_silent, 'v2': v1_audio}]), expected_rows=1)
         u2.add_computed_column(out=transition(u2.v1, u2.v2, duration=0.5))
         result = u2.select(
@@ -2233,7 +2290,7 @@ class TestVideo:
 
         # no audio on either clip
         v2_silent2 = generate_test_video(tmp_path, duration=2.0, size='640x360', has_audio=False)
-        u3 = pxt.create_table('transition_noaudio', {'v1': pxt.Video, 'v2': pxt.Video})
+        u3 = pxt.create_table('transition_noaudio', {'v1': pxt.Video | None, 'v2': pxt.Video | None})
         validate_update_status(u3.insert([{'v1': v2_silent, 'v2': v2_silent2}]), expected_rows=1)
         u3.add_computed_column(out=transition(u3.v1, u3.v2, duration=0.5))
         result = u3.select(
@@ -2243,14 +2300,14 @@ class TestVideo:
         assert result[0]['out_duration'] == pytest.approx(result[0]['d1'] + result[0]['d2'] - 0.5, abs=0.3)
         self._validate_videos([result[0]['out']])
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_transition_errors(self, uses_db: None, tmp_path: Path) -> None:
         from pixeltable.functions.video import transition
 
         v1 = generate_test_video(tmp_path, duration=2.0, size='640x360')
         v2 = generate_test_video(tmp_path, duration=2.0, size='640x360')
 
-        t = pxt.create_table('transition_err', {'v1': pxt.Video, 'v2': pxt.Video})
+        t = pxt.create_table('transition_err', {'v1': pxt.Video | None, 'v2': pxt.Video | None})
         validate_update_status(t.insert([{'v1': v1, 'v2': v2}]), expected_rows=1)
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'duration must be positive'):
@@ -2263,7 +2320,7 @@ class TestVideo:
         # mismatched resolutions
         v_small = generate_test_video(tmp_path, duration=2.0, size='320x240')
         v_large = generate_test_video(tmp_path, duration=2.0, size='640x360')
-        u = pxt.create_table('transition_res_err', {'v1': pxt.Video, 'v2': pxt.Video})
+        u = pxt.create_table('transition_res_err', {'v1': pxt.Video | None, 'v2': pxt.Video | None})
         validate_update_status(u.insert([{'v1': v_small, 'v2': v_large}]), expected_rows=1)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'must have the same resolution'):
             u.select(transition(u.v1, u.v2, duration=0.5)).collect()
@@ -2271,15 +2328,15 @@ class TestVideo:
         # duration exceeds video2
         v_long = generate_test_video(tmp_path, duration=2.0, size='640x360')
         v_short = generate_test_video(tmp_path, duration=0.5, size='640x360')
-        u2 = pxt.create_table('transition_video2_err', {'v1': pxt.Video, 'v2': pxt.Video})
+        u2 = pxt.create_table('transition_video2_err', {'v1': pxt.Video | None, 'v2': pxt.Video | None})
         validate_update_status(u2.insert([{'v1': v_long, 'v2': v_short}]), expected_rows=1)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'transition duration.*exceeds duration'):
             u2.select(transition(u2.v1, u2.v2, duration=1.0)).collect()
 
-    @pytest.mark.local('pure UDF test')
+    @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_ffmpeg_filter(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('ffmpeg_filter_test', {'video': pxt.Video})
+        t = pxt.create_table('ffmpeg_filter_test', {'video': pxt.Video | None})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         md = t.video.get_metadata()

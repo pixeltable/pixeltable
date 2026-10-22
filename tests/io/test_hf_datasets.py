@@ -2,7 +2,7 @@ import io
 import pathlib
 import sysconfig
 from collections import namedtuple
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import numpy as np
 import PIL.Image
@@ -10,7 +10,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import CatalogMode, pxt_raises, rerun_on_network_error, skip_test_if_no_config, skip_test_if_not_installed
+from ..utils import DatabaseRoot, pxt_raises, rerun_on_network_error, skip_test_if_no_config, skip_test_if_not_installed
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -55,24 +55,24 @@ def _make_hf_dataset(num_rows: int) -> 'datasets.Dataset':
 class TestHfDatasetsBasic:
     """Network-free dual-mode (local + proxy) coverage of the HuggingFace import path."""
 
-    def test_import_basic(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
+    def test_import_basic(self, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         # a single dataset covering every supported feature kind
         t = pxt.io.import_huggingface_dataset(p('hf_basic'), _make_hf_dataset(num_rows=10))
         md_types = {name: col['type_'] for name, col in t.get_metadata()['columns'].items()}
         assert md_types == {
-            'idx': 'Int',
-            'text': 'String',
-            'flag': 'Bool',
-            'label': 'String',
-            'emb': 'Array[(None,), float32]',
-            'fixed': 'Array[(2,), float32]',
-            'meta': 'Json',
-            'img': 'Image',
+            'idx': 'Int | None',
+            'text': 'String | None',
+            'flag': 'Bool | None',
+            'label': 'String | None',
+            'emb': 'Array[(None,), float32] | None',
+            'fixed': 'Array[(2,), float32] | None',
+            'meta': 'Json | None',
+            'img': 'Image | None',
         }
         assert t.count() == 10
         res = t.order_by(t.idx).collect()
@@ -101,7 +101,7 @@ class TestHfDatasetsBasic:
 
         # a streaming dataset has no on-disk form to ship, so it works locally but is rejected over the proxy
         stream_ds = _make_hf_dataset(num_rows=5).to_iterable_dataset()
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             t3 = pxt.io.import_huggingface_dataset(p('hf_basic_stream'), stream_ds)
             assert t3.count() == 5
         else:
@@ -118,16 +118,16 @@ class TestHfDatasets:
     NUM_SAMPLES = 100
 
     # a streaming dataset has no on-disk form to ship, so it is rejected over the proxy (engine limitation)
-    def _skip_streaming_over_proxy(self, streaming: bool, catalog_mode: CatalogMode) -> None:
-        if streaming and catalog_mode != 'local':
+    def _skip_streaming_over_proxy(self, streaming: bool, db_root: DatabaseRoot) -> None:
+        if streaming and db_root.id != 'local':
             pytest.skip('streaming HuggingFace datasets are not supported over the proxy')
 
-    def test_import_hf_dataset(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_import_hf_dataset(self, db_root: DatabaseRoot) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('datasets')
         import datasets
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         test_cases = [
             # { # includes a timestamp. 20MB for specific slice
@@ -195,12 +195,12 @@ class TestHfDatasets:
             else:
                 raise AssertionError()
 
-    def test_insert_hf_dataset(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_insert_hf_dataset(self, db_root: DatabaseRoot) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('datasets')
         import datasets
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         test_cases = [
             # { # includes a timestamp. 20MB for specific slice
@@ -306,22 +306,20 @@ class TestHfDatasets:
             check_tup = DatasetTuple(**encoded_tup)
             assert check_tup in acc_dataset
 
-    def test_import_hf_dataset_invalid(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_import_hf_dataset_invalid(self, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Unsupported data source type'):
             pxt.io.import_huggingface_dataset(p('test'), {})
 
     @pytest.mark.parametrize('streaming', [False, True])
-    def test_import_images(
-        self, streaming: bool, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
-    ) -> None:
+    def test_import_images(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, catalog_mode)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         # Test that datasets with images load properly
         split = f'test[:{self.NUM_SAMPLES}]' if not streaming else 'test'
@@ -331,22 +329,20 @@ class TestHfDatasets:
         t = pxt.create_table(p('mnist'), source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'image', 'label'}
-        assert md['columns']['image']['type_'] == 'Image'
-        assert md['columns']['label']['type_'] == 'String'
+        assert md['columns']['image']['type_'] == 'Image | None'
+        assert md['columns']['label']['type_'] == 'String | None'
 
         res = t.select(t.image.localpath).collect()
         assert all(pathlib.Path(row['image_localpath']).exists() for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.very_expensive  # I/O intensive
-    def test_import_arrays(
-        self, streaming: bool, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
-    ) -> None:
+    def test_import_arrays(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, catalog_mode)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
         hf_dataset = datasets.load_dataset('Hani89/medical_asr_recording_dataset', split=split, streaming=streaming)
@@ -355,22 +351,20 @@ class TestHfDatasets:
         t = pxt.create_table(p('hfds'), source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'audio', 'sentence'}
-        assert md['columns']['audio']['type_'] == 'Json'
+        assert md['columns']['audio']['type_'] == 'Json | None'
 
         res = t.collect()
         assert all(isinstance(row['audio'], dict) for row in res)
         assert all(isinstance(row['audio']['array'], np.ndarray) for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
-    def test_import_audio_small(
-        self, streaming: bool, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
-    ) -> None:
+    def test_import_audio_small(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, catalog_mode)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         hf_dataset = datasets.load_dataset(
             'hf-internal-testing/librispeech_asr_dummy', 'clean', split='validation', streaming=streaming
@@ -378,7 +372,7 @@ class TestHfDatasets:
         t = pxt.create_table(p('audio_test'), source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
-        assert md['columns']['audio']['type_'] == 'Audio'
+        assert md['columns']['audio']['type_'] == 'Audio | None'
 
         res = t.collect()
         assert all(pathlib.Path(row['audio']).exists() for row in res)
@@ -386,15 +380,13 @@ class TestHfDatasets:
     # This dataset is too large not to use in streaming mode (124GB)
     # TODO: find dataset containing Audio that is not gigantic
     @pytest.mark.parametrize('streaming', [True])
-    def test_import_audio(
-        self, streaming: bool, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
-    ) -> None:
+    def test_import_audio(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, catalog_mode)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         hf_dataset = datasets.load_dataset(
             'openslr/librispeech_asr', split='train.clean.100', streaming=streaming
@@ -402,7 +394,7 @@ class TestHfDatasets:
         t = pxt.create_table(p('audio_test'), source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
-        assert md['columns']['audio']['type_'] == 'Audio'
+        assert md['columns']['audio']['type_'] == 'Audio | None'
 
         res = t.collect()
         assert all(pathlib.Path(row['audio']).exists() for row in res)
@@ -413,14 +405,12 @@ class TestHfDatasets:
     # @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.parametrize('streaming', [False])
     @pytest.mark.very_expensive  # I/O intensive
-    def test_import_list_of_dict(
-        self, streaming: bool, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
-    ) -> None:
+    def test_import_list_of_dict(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, catalog_mode)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         num_samples = 1000  # we need more samples to get non-Null prev_messages
         split = f'train[:{num_samples}]' if not streaming else 'train'
@@ -445,7 +435,7 @@ class TestHfDatasets:
             'community_question_score',
             'verifier_score',
         }
-        assert md['columns']['prev_messages']['type_'] == 'Json'
+        assert md['columns']['prev_messages']['type_'] == 'Json | None'
 
         res = t.where(t.prev_messages != None).collect()
         assert all(isinstance(row['prev_messages'], list) for row in res)
@@ -453,14 +443,12 @@ class TestHfDatasets:
 
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.very_expensive  # I/O intensive
-    def test_import_classlabel(
-        self, streaming: bool, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
-    ) -> None:
+    def test_import_classlabel(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, catalog_mode)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
         hf_dataset = datasets.load_dataset(
@@ -471,21 +459,19 @@ class TestHfDatasets:
         t = pxt.create_table(p('test'), source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'label', 'text'}
-        assert md['columns']['label']['type_'] == 'String'
+        assert md['columns']['label']['type_'] == 'String | None'
 
         res = t.collect()
         assert all(row['label'] in ['neg', 'pos'] for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.very_expensive  # I/O intensive
-    def test_import_sequence_of_float(
-        self, streaming: bool, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
-    ) -> None:
+    def test_import_sequence_of_float(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, catalog_mode)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         # Cohere Wikipedia has embeddings as Sequence(float32); 'mi': a relatively small dataset
         split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
@@ -497,7 +483,7 @@ class TestHfDatasets:
         t = pxt.create_table(p('test'), source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'c_id', 'emb', 'text', 'title', 'url'}
-        assert md['columns']['emb']['type_'] == 'Array[(None,), float32]'
+        assert md['columns']['emb']['type_'] == 'Array[(None,), float32] | None'
 
         res = t.collect()
         assert all(isinstance(row['emb'], np.ndarray) for row in res)
@@ -506,14 +492,12 @@ class TestHfDatasets:
 
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.very_expensive  # I/O intensive
-    def test_import_sequence_of_dict(
-        self, streaming: bool, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
-    ) -> None:
+    def test_import_sequence_of_dict(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, catalog_mode)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         # SQuAD has answers as {'text': List(string), 'answer_start': List(int32)}
         split = f'validation[:{self.NUM_SAMPLES}]' if not streaming else 'validation'
@@ -523,7 +507,7 @@ class TestHfDatasets:
         t = pxt.create_table(p('squad_test'), source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'answers', 'context', 'id', 'question', 'title'}
-        assert md['columns']['answers']['type_'] == 'Json'
+        assert md['columns']['answers']['type_'] == 'Json | None'
 
         res = t.collect()
         # answers should be a dict containing lists; however, the list of ints gets turned into an ndarray
@@ -535,19 +519,17 @@ class TestHfDatasets:
 
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.very_expensive  # I/O intensive
-    def test_import_nested_struct(
-        self, streaming: bool, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
-    ) -> None:
+    def test_import_nested_struct(self, streaming: bool, db_root: DatabaseRoot) -> None:
         """
         Test importing dataset with nested structures:
         - supporting_facts: Sequence({'title': string, 'sent_id': int32})
         - context: Sequence({'title': string, 'sentences': Sequence(string)})
         """
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, catalog_mode)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         # HotpotQA has complex nested structures
         split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
@@ -557,8 +539,8 @@ class TestHfDatasets:
         t = pxt.create_table(p('hotpotqa_test'), source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'id', 'question', 'answer', 'supporting_facts', 'context', 'level', 'type'}
-        assert md['columns']['supporting_facts']['type_'] == 'Json'
-        assert md['columns']['context']['type_'] == 'Json'
+        assert md['columns']['supporting_facts']['type_'] == 'Json | None'
+        assert md['columns']['context']['type_'] == 'Json | None'
 
         res = t.collect()
         assert all(isinstance(row['supporting_facts'], dict) for row in res)
@@ -570,15 +552,13 @@ class TestHfDatasets:
 
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.very_expensive  # I/O intensive
-    def test_import_arraynd(
-        self, streaming: bool, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
-    ) -> None:
+    def test_import_arraynd(self, streaming: bool, db_root: DatabaseRoot) -> None:
         """Test dataset with Array2D and Array3D features."""
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, catalog_mode)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
         hf_dataset = datasets.load_dataset('tanganke/nyuv2', split=split, streaming=streaming)
@@ -586,11 +566,11 @@ class TestHfDatasets:
             hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table(p('nyuv2_test'), source=hf_dataset)
         md = t.get_metadata()
-        assert md['columns']['image']['type_'] == 'Array[(3, 288, 384), float32]'
-        assert md['columns']['segmentation']['type_'] == 'Array[(288, 384), int64]'
-        assert md['columns']['depth']['type_'] == 'Array[(1, 288, 384), float32]'
-        assert md['columns']['normal']['type_'] == 'Array[(3, 288, 384), float32]'
-        assert md['columns']['noise']['type_'] == 'Array[(1, 288, 384), float32]'
+        assert md['columns']['image']['type_'] == 'Array[(3, 288, 384), float32] | None'
+        assert md['columns']['segmentation']['type_'] == 'Array[(288, 384), int64] | None'
+        assert md['columns']['depth']['type_'] == 'Array[(1, 288, 384), float32] | None'
+        assert md['columns']['normal']['type_'] == 'Array[(3, 288, 384), float32] | None'
+        assert md['columns']['noise']['type_'] == 'Array[(1, 288, 384), float32] | None'
 
         res = t.collect()
         assert set(res.schema.keys()) == {'image', 'segmentation', 'depth', 'normal', 'noise'}

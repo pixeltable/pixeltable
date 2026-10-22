@@ -3,6 +3,7 @@ from typing import Annotated, Any, Literal
 from pydantic import AfterValidator, BaseModel, Field
 
 from pixeltable_cli import utils
+from pixeltable_cli.types import DbChangeOp, GenerationReceipt
 
 
 def _validate_pxt_path(v: str | None) -> str | None:
@@ -17,10 +18,32 @@ def _validate_pxt_path(v: str | None) -> str | None:
 PxtPath = Annotated[utils.PxtPath, AfterValidator(_validate_pxt_path)]
 
 
+def _validate_db_uri(v: str) -> str:
+    parts = utils.split_pxt_uri(v)
+    if parts is None or parts.db is None or parts.path is not None:
+        raise ValueError(f'{v!r} does not name a hosted database; write pxt://org:db')
+    return v
+
+
+# the uri of a hosted database, checked here so that every db verb refuses a bad one the same way
+DbUri = Annotated[str, AfterValidator(_validate_db_uri)]
+
+
+# the verbs the daemon dispatches
+Method = Literal['GET', 'POST']
+
+
+class InFlightRequest(BaseModel):
+    method: Method
+    path: str
+    started_at: float
+
+
 class HealthResponse(BaseModel):
     ok: bool
     service: Literal['pxt'] = 'pxt'
-    pxt_version: str
+    # None where the served project is pixeltable itself, which its image does not install
+    pxt_version: str | None = None
     pid: int
     started_at: str
 
@@ -28,11 +51,15 @@ class HealthResponse(BaseModel):
     # verbatim on each /health call. The client computes the same fingerprint locally (without
     # importing pixeltable) and restarts the daemon on any mismatch, so the daemon never keeps
     # serving requests against a stale install or a stale snapshot of the environment.
-    pxt_install_dir: str
+    pxt_install_dir: str | None = None
     python_executable: str
     pixeltable_home: str
     pixeltable_pgdata: str
     pixeltable_config_file: str
+    project_root: str | None = None
+
+    # requests being served right now, oldest first
+    in_flight: list[InFlightRequest] = Field(default_factory=list)
 
     # PIXELTABLE_*-prefixed env vars at daemon-startup time. Values for keys naming a
     # credential are replaced with a sha256 prefix so /health doesn't leak secrets; the
@@ -64,6 +91,8 @@ class ErrorEntry(BaseModel):
     column: str
     errortype: str
     errormsg: str | None
+    defining_base: str | None  # for a column a view inherits, the path of the base that defines it
+    recomputable: bool  # False when the column's cells are in a snapshot, which never changes
 
 
 class ErrorsResponse(BaseModel):
@@ -110,6 +139,7 @@ class StatusResponse(BaseModel):
     pid: int
     started_at: str
     home: str | None
+    project_root: str | None = Field(default=None, description='Project root of the daemon, if any.')
     db_url: str | None = Field(default=None, description='Database URL with credentials redacted.')
     media_dir: str | None
     file_cache_dir: str | None
@@ -138,6 +168,11 @@ class ConfigEntry(BaseModel):
 class ConfigResponse(BaseModel):
     config_file: str
     entries: list[ConfigEntry]
+
+    # {env var name: hash of the value}
+    env_fingerprint: dict[str, str] = Field(default_factory=dict)
+    # all recognized env vars
+    env_var_names: list[str] = Field(default_factory=list)
 
 
 class CountResponse(BaseModel):
@@ -176,26 +211,129 @@ class RevertBody(BaseModel):
     steps: int = 1  # number of consecutive revert() calls
 
 
+class RecomputeBody(BaseModel):
+    path: str
+    columns: list[str]
+    errors_only: bool = False
+    cascade: bool = True
+
+
+class RecomputeResponse(BaseModel):
+    path: str
+    columns: list[str]  # <table>.<column> for each recomputed column, and for each dependent that cascaded
+    num_rows: int
+    num_computed_values: int
+    num_excs: int
+    cols_with_excs: list[str]
+
+
 class RevertResponse(BaseModel):
     path: str
     from_version: int
     to_version: int
 
 
+class SchemaCheckBody(BaseModel):
+    app_file: str  # absolute filesystem path to the application file on the daemon host
+
+
+class ServiceCheckBody(BaseModel):
+    app_file: str  # absolute filesystem path to the application file on the daemon host
+
+
 class SchemaDiffBody(BaseModel):
-    schema_file: str  # absolute filesystem path to the schema file on the daemon host
+    app_file: str  # absolute filesystem path to the application file on the daemon host
     catalog_dir: PxtPath
 
 
 class SchemaPruneBody(BaseModel):
-    schema_file: str  # absolute filesystem path to the schema file on the daemon host
+    app_file: str  # absolute filesystem path to the application file on the daemon host
     catalog_dir: PxtPath
 
 
 class SchemaUpdateBody(BaseModel):
-    schema_file: str  # absolute filesystem path to the schema file on the daemon host
+    app_file: str  # absolute filesystem path to the application file on the daemon host
     catalog_dir: PxtPath
     allow_destructive: bool = False
+
+
+class ServiceDiffBody(BaseModel):
+    app_file: str  # absolute filesystem path to the application file on the daemon host
+    target: PxtPath  # the catalog directory the services' models bind against
+    service_name: str | None = None  # the only service to compare; None compares all of them
+    otel: bool = False  # compares the instances against this tracing setting
+    keep_release: bool = False
+
+
+class ServicePruneBody(BaseModel):
+    app_file: str  # absolute filesystem path to the application file on the daemon host
+    target: PxtPath
+    dry_run: bool = False
+
+
+class ServiceUpdateBody(BaseModel):
+    app_file: str  # absolute filesystem path to the application file on the daemon host
+    target: PxtPath
+    service_name: str | None = None  # the only service to reconcile; None reconciles all of them
+    allow_destructive: bool = False
+    otel: bool = False
+    port: int | None = None  # the loopback port to serve on; None keeps the one a restarted service had
+    keep_release: bool = False
+    expected_generations: dict[str, int] | None = None
+    wait: bool = True
+
+
+class DbDiffBody(BaseModel):
+    db_uri: DbUri
+
+
+class DbUpdateBody(BaseModel):
+    db_uri: DbUri
+    allow_destructive: bool = False
+    expected_generation: int | None = None
+    wait: bool = True
+
+
+class DbBuildImageBody(BaseModel):
+    db_uri: DbUri
+    wait: bool = True
+
+
+class DbBuildImageResponse(BaseModel):
+    ops: list[DbChangeOp]
+    receipts: list[GenerationReceipt] = Field(default_factory=list)
+
+
+class ReceiptsBody(BaseModel):
+    db_uri: DbUri
+    receipts: list[GenerationReceipt]
+
+
+class ReceiptsResponse(BaseModel):
+    receipts: list[GenerationReceipt]
+
+
+class DbLifecycleBody(BaseModel):
+    db_uri: DbUri
+    wait: bool = True
+
+
+class DbLifecycleResponse(BaseModel):
+    receipt: GenerationReceipt
+    report: dict[str, Any] = Field(default_factory=dict)
+    worker_status: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ServiceStopBody(BaseModel):
+    project_root: str | None = None
+
+    # each one an address ('pxt://org:db/dir/ingest', 'dir/ingest') or a bare local service name
+    names: list[str]
+
+
+class ServiceRestartBody(BaseModel):
+    # each one an address ('pxt://org:db/dir/ingest', 'dir/ingest') or a bare local service name
+    names: list[str]
 
 
 class CwdBody(BaseModel):
@@ -204,3 +342,84 @@ class CwdBody(BaseModel):
 
 class CwdResponse(BaseModel):
     uri: str | None  # the session's working directory, or None when unset (catalog root)
+
+
+class LoginStartResponse(BaseModel):
+    """What the browser needs to approve, and what the next poll has to send back."""
+
+    client_id: str
+    device_code: str
+    user_code: str
+    verification_uri: str
+    interval: float
+    expires_in: float
+
+
+class LoginPollBody(BaseModel):
+    client_id: str
+    device_code: str
+
+
+class TrialOrg(BaseModel):
+    """A `pxt new` trial organization, without its API key or its claim link."""
+
+    org: str
+    org_id: str
+    db: str
+    expires_at: str  # ISO 8601, UTC; unclaimed, the organization is deleted then
+    expired: bool
+
+
+class TrialOrgWithClaimUrl(TrialOrg):
+    """A trial and its claim link, for a response that removes the trial's record, the link's only copy here."""
+
+    claim_url: str  # anyone who holds it can claim the organization
+
+
+class LoginPollResponse(BaseModel):
+    # 'granted'; the sign-in service's OAuth error code; or, after a grant, 'signed_out' or 'superseded' when
+    # the cache no longer has the granted session
+    status: str
+    email: str = ''
+    organization_id: str = ''
+    detail: str = ''  # the error_description of that answer
+    # the cached trial, replaced by the granted session
+    replaced_trial: TrialOrgWithClaimUrl | None = None
+
+
+class NewResponse(BaseModel):
+    trial: TrialOrg
+    created: bool  # False when the trial was already cached
+    # only when this request created the trial: anyone who holds it can claim the organization
+    claim_url: str | None = None
+    api_url: str  # where commands send the trial's key
+    warnings: list[str] = Field(default_factory=list)
+
+
+class WhoamiResponse(BaseModel):
+    api_url: str
+    email: str
+    organization_id: str
+    using: str  # 'api_key', 'session', 'trial' or 'none'
+    credential_source: str
+    accepted: bool
+    rejection: str = ''
+    # the control plane's reason for refusing the check's operation to an accepted credential, such as a
+    # key limited by its grants
+    note: str = ''
+    trial: TrialOrg | None = None
+
+
+class LogoutResponse(BaseModel):
+    signed_out: bool
+    # where to send a browser to end the sign-in behind the session, empty when there is none
+    browser_logout_url: str
+    warning: str = ''
+    trial: TrialOrgWithClaimUrl | None = None  # the trial removed from this machine
+
+
+class OrgCreateResponse(BaseModel):
+    org: dict[str, Any]  # the control plane's answer
+    # the organization the `pxt login` session was switched to; empty when it was not switched
+    session_organization_id: str = ''
+    warning: str = ''

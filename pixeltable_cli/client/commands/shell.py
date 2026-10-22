@@ -8,6 +8,8 @@ import shlex
 import sys
 import traceback
 
+from pixeltable_cli import models
+
 from ..parser import Parser
 from ..utils import display_path, get_request
 
@@ -24,7 +26,7 @@ def _prompt() -> str:
     """The REPL prompt: 'pxt <wd>> ' when the daemon has a working directory set, else the bare 'pxt> '.
     A daemon that can't be reached falls back to the bare prompt instead of ending the session."""
     try:
-        uri = get_request('/api/cwd')['uri']
+        uri = models.CwdResponse.model_validate(get_request('/api/cwd')).uri
     except (SystemExit, Exception):
         return _PROMPT
     if uri is None:

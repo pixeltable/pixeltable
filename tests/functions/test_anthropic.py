@@ -11,10 +11,11 @@ from ..utils import (
 )
 from .tool_utils import run_tool_invocations_test
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 @pytest.mark.remote_api
+@pytest.mark.very_expensive
 @rerun_on_network_error()
 class TestAnthropic:
     def test_messages(self, uses_db: None) -> None:
@@ -22,7 +23,7 @@ class TestAnthropic:
         skip_test_if_no_client('anthropic')
         from pixeltable.functions import anthropic
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         messages = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(output=anthropic.messages(messages=messages, model='claude-haiku-4-5', max_tokens=1024))
         t.add_computed_column(
@@ -30,12 +31,12 @@ class TestAnthropic:
                 messages=messages,
                 model='claude-haiku-4-5',
                 max_tokens=300,
+                # the sampling params (temperature, top_k, top_p) are not part of the messages API
                 model_kwargs={
                     'metadata': {'user_id': 'pixeltable'},
                     'stop_sequences': ['STOP'],
                     'system': 'You are an ordinary person walking down the street.',
-                    'temperature': 0.7,
-                    'top_k': 40,
+                    'service_tier': 'auto',
                 },
             )
         )
@@ -51,7 +52,7 @@ class TestAnthropic:
         from pixeltable.functions import anthropic
 
         def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
-            t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
+            t = pxt.create_table('test_tbl', {'prompt': pxt.String | None}, if_exists='replace')
             messages = [{'role': 'user', 'content': t.prompt}]
             t.add_computed_column(
                 response=anthropic.messages(

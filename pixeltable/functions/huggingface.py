@@ -9,8 +9,7 @@ UDFs).
 
 import itertools
 import threading
-from collections.abc import Iterator
-from typing import Any, Callable, Literal, TypedDict, TypeVar
+from typing import Any, Callable, Iterator, Literal, TypedDict, TypeVar
 
 import av
 import numpy as np
@@ -19,7 +18,7 @@ import PIL.Image
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from pixeltable import env
+from pixeltable import env, telemetry, telemetry_schemas
 from pixeltable.func import Batch
 from pixeltable.functions.util import normalize_image_mode, resolve_torch_device
 from pixeltable.utils.code import local_public_names
@@ -61,7 +60,7 @@ def sentence_transformer(
         ...     )
         ... )
     """
-    env.Env.get().require_package('sentence_transformers')
+    env.Env.get().require_package('sentence_transformers', min_version=[5, 4])
     device = resolve_torch_device('auto')
     from sentence_transformers import SentenceTransformer
 
@@ -75,6 +74,7 @@ def sentence_transformer(
 
 @sentence_transformer.conditional_return_type
 def _(model_id: str) -> ts.ArrayType:
+    env.Env.get().require_package('sentence_transformers', min_version=[5, 4])
     from sentence_transformers import SentenceTransformer
 
     model = _lookup_model(model_id, SentenceTransformer)
@@ -111,7 +111,7 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
         ...     )
         ... )
     """
-    env.Env.get().require_package('sentence_transformers')
+    env.Env.get().require_package('sentence_transformers', min_version=[5, 4])
     device = resolve_torch_device('auto')
     from sentence_transformers import CrossEncoder
 
@@ -438,7 +438,7 @@ def sam3_for_segmentation(
 
     __Requirements:__
 
-    - `pip install torch transformers`
+    - `pip install torch torchvision transformers`
     - `facebook/sam3` is a gated repository. Request access on its
         [model page](https://huggingface.co/facebook/sam3), then authenticate with
         `huggingface-cli login` (or set the `HF_TOKEN` environment variable) before calling this UDF.
@@ -491,6 +491,7 @@ def sam3_for_segmentation(
         ... )
     """
     env.Env.get().require_package('torch')
+    env.Env.get().require_package('torchvision')
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
@@ -686,7 +687,7 @@ class sam3_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
 
     __Requirements:__
 
-    - `pip install torch transformers`
+    - `pip install torch torchvision transformers`
     - `facebook/sam3` is a gated repository. Request access on its
         [model page](https://huggingface.co/facebook/sam3), then authenticate with
         `huggingface-cli login` (or set the `HF_TOKEN` environment variable) before using this iterator.
@@ -768,6 +769,7 @@ class sam3_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
         revision: str | None = None,
     ) -> None:
         env.Env.get().require_package('torch')
+        env.Env.get().require_package('torchvision')
         env.Env.get().require_package('transformers')
         from pixeltable.functions.video import frame_iterator
 
@@ -2224,15 +2226,28 @@ def _lookup_model(
     key = cache_key if cache_key is not None else (model_id, create, device, tuple(sorted(kwargs.items())))
     with _cache_lock:
         if key not in _model_cache:
-            if pass_device_to_create:
-                model = create(model_id, device=device, **kwargs)
-            else:
-                model = create(model_id, **kwargs)
-            if isinstance(model, nn.Module):
-                if not pass_device_to_create and device is not None:
-                    model.to(device)
-                model.eval()
-            _model_cache[key] = model
+            # set_current: a model loaded outside any operation (eg, by `.using()`) still gets a span
+            with telemetry.span(
+                'pixeltable.model.load',
+                set_current=True,
+                **telemetry_schemas.ModelLoadAttrs(model_id=model_id, device=device),
+            ) as load_span:
+                if pass_device_to_create:
+                    model = create(model_id, device=device, **kwargs)
+                else:
+                    model = create(model_id, **kwargs)
+                if isinstance(model, nn.Module):
+                    if not pass_device_to_create and device is not None:
+                        model.to(device)
+                    model.eval()
+                    telemetry.add_attrs(
+                        load_span,
+                        **telemetry_schemas.ModelLoadAttrs(
+                            param_count=sum(p.numel() for p in model.parameters()),
+                            size_bytes=sum(p.numel() * p.element_size() for p in model.parameters()),
+                        ),
+                    )
+                _model_cache[key] = model
         return _model_cache[key]
 
 
@@ -2240,7 +2255,8 @@ def _lookup_processor(model_id: str, create: Callable[[str], T], **kwargs: Any) 
     key = (model_id, create, tuple(sorted(kwargs.items())))
     with _cache_lock:
         if key not in _processor_cache:
-            _processor_cache[key] = create(model_id, **kwargs)
+            with telemetry.span('pixeltable.processor.load', **telemetry_schemas.ModelLoadAttrs(model_id=model_id)):
+                _processor_cache[key] = create(model_id, **kwargs)
         return _processor_cache[key]
 
 

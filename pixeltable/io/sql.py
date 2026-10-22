@@ -108,7 +108,7 @@ def import_sql(
         tbl_name: Pixeltable path of the destination table.
         schema_overrides: Optional per-column overrides applied on top of the inferred schema. Keys are column
             names; values accept any Pixeltable type spec recognized by `pxt.create_table` (eg, `pxt.Image`,
-            `pxt.Required[pxt.String]`).
+            `pxt.String | None`).
         primary_key: An optional column name or list of column names to use as the primary key(s) of the
             table. Only applies when a new table is created; ignored when appending to an existing table.
         comment: An optional comment; its meaning is user-defined. Only applies when a new table is created;
@@ -252,7 +252,7 @@ def _validate_append_compatibility(tbl: pxt.Table, tbl_name: str, schema: dict[s
                 excs.ErrorCode.COLUMN_NOT_FOUND,
                 f'SQL source column {col_name!r} does not match any column in destination table {tbl_name!r}.',
             )
-        src_type = ts.ColumnType.normalize_type(src_type_raw, nullable_default=True, allow_builtin_types=False)
+        src_type = ts.ColumnType.normalize_type(src_type_raw, allow_builtin_types=False)
         dest_type = existing_schema[col_name]
         if not dest_type.is_supertype_of(src_type, ignore_nullable=True):
             raise excs.RequestError(

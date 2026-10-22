@@ -4,7 +4,7 @@ import pixeltable as pxt
 
 from ..utils import rerun_on_network_error, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 @pytest.mark.remote_api
@@ -16,7 +16,7 @@ class TestTogether:
         skip_test_if_no_client('together')
         from pixeltable.functions.together import completions
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         t.add_computed_column(
             output=completions(prompt=t.input, model='Qwen/Qwen3.5-9B', model_kwargs={'stop': ['\n']})
         )
@@ -46,15 +46,18 @@ class TestTogether:
         skip_test_if_no_client('together')
         from pixeltable.functions.together import chat_completions
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         messages = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(
-            output=chat_completions(messages=messages, model='openai/gpt-oss-20b', model_kwargs={'stop': ['\n']})
+            output=chat_completions(messages=messages, model='Qwen/Qwen3.5-9B', model_kwargs={'stop': ['\n']})
         )
+        # TODO: the safety_model kwarg is untested: Together rejects every guard model id with
+        # invalid_safety_model, and this account's model list has none. Restore coverage once one is
+        # available, or deprecate the kwarg.
         t.add_computed_column(
             output_2=chat_completions(
                 messages=messages,
-                model='openai/gpt-oss-20b',
+                model='Qwen/Qwen3.5-9B',
                 model_kwargs={
                     'max_tokens': 300,
                     'stop': ['\n'],
@@ -64,7 +67,6 @@ class TestTogether:
                     'repetition_penalty': 1.1,
                     'logprobs': 1,
                     'n': 3,
-                    'safety_model': 'meta-llama/Llama-Guard-4-12B',
                     'response_format': {'type': 'json_object'},
                 },
             )
@@ -74,12 +76,13 @@ class TestTogether:
         assert len(result['output'][0]['choices'][0]['message']) > 0
         assert len(result['output_2'][0]['choices'][0]['message']) > 0
 
+    @pytest.mark.skip(reason='Together AI offers no serverless embedding models (as of 2026-10-07)')
     def test_embeddings(self, uses_db: None) -> None:
         skip_test_if_not_installed('together')
         skip_test_if_no_client('together')
         from pixeltable.functions.together import embeddings
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         t.add_computed_column(embed=embeddings(input=t.input, model='intfloat/multilingual-e5-large-instruct'))
         validate_update_status(t.insert(input='Together AI provides a variety of embeddings models.'), 1)
         assert len(t.collect()['embed'][0]) > 0
@@ -90,14 +93,14 @@ class TestTogether:
         skip_test_if_no_client('together')
         from pixeltable.functions.together import image_generations
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String, 'negative_prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None, 'negative_prompt': pxt.String | None})
         t.add_computed_column(
-            img=image_generations(t.input, model='black-forest-labs/FLUX.1-schnell', model_kwargs={'steps': 5})
+            img=image_generations(t.input, model='Rundiffusion/Juggernaut-Lightning-Flux', model_kwargs={'steps': 5})
         )
         t.add_computed_column(
             img_2=image_generations(
                 t.input,
-                model='black-forest-labs/FLUX.1-schnell',
+                model='Rundiffusion/Juggernaut-Lightning-Flux',
                 model_kwargs={
                     'steps': 5,
                     'width': 768,

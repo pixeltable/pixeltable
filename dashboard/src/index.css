@@ -10,60 +10,60 @@
     --kandinsky-yellow: 42 98% 48%;      /* #F1AE03 */
     --kandinsky-red: 9 97% 44%;          /* #DC2404 (via --destructive) */
 
-    /* Light Theme */
-    --background: 0 0% 98%;             /* #fafafa */
+    /* Light Theme — stepped surfaces so chrome / card / muted ladder */
+    --background: 0 0% 96%;             /* page chrome */
     --foreground: 0 0% 9%;              /* #171717 */
 
-    --card: 0 0% 100%;                  /* #ffffff */
+    --card: 0 0% 100%;                  /* elevated panels */
     --card-foreground: 0 0% 9%;
 
     --primary: var(--kandinsky-yellow);
     --primary-foreground: 0 0% 9%;
 
-    --secondary: 0 0% 96%;             /* #f5f5f5 */
+    --secondary: 0 0% 94%;
     --secondary-foreground: 0 0% 9%;
 
-    --muted: 0 0% 96%;                 /* #f5f5f5 */
+    --muted: 0 0% 93%;
     /* WCAG AA: bumped from 45% (#737373, ratio 4.46 on #fafafa — fails) to 38% (#616161, ~5.9). */
     /* To revert to the legacy weight, swap with --muted-foreground-legacy below. */
     --muted-foreground: 0 0% 38%;      /* #616161 */
     --muted-foreground-legacy: 0 0% 45%;
 
-    --accent: 0 0% 93%;                /* #ededed */
+    --accent: 0 0% 91%;
     --accent-foreground: 0 0% 9%;
 
     --destructive: var(--kandinsky-red);
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 87%;                /* #dedede */
-    --input: 0 0% 87%;
+    --border: 0 0% 82%;
+    --input: 0 0% 82%;
     --ring: var(--kandinsky-yellow);
 
     --radius: 0.5rem;
   }
 
   .dark {
-    --background: 0 0% 4%;              /* #0a0a0a */
+    --background: 0 0% 5%;
     --foreground: 0 0% 93%;             /* #ececec */
 
-    --card: 0 0% 7%;                    /* #111111 */
+    --card: 0 0% 8%;
     --card-foreground: 0 0% 93%;
 
     --primary-foreground: 0 0% 4%;
 
-    --secondary: 0 0% 9%;              /* #161616 */
+    --secondary: 0 0% 10%;
     --secondary-foreground: 0 0% 93%;
 
-    --muted: 0 0% 8%;                  /* #141414 */
+    --muted: 0 0% 11%;
     --muted-foreground: 0 0% 64%;      /* #a3a3a3 */
 
-    --accent: 0 0% 10%;                /* #1a1a1a */
+    --accent: 0 0% 13%;
     --accent-foreground: 0 0% 93%;
 
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 16%;                /* #282828 */
-    --input: 0 0% 17%;                 /* #2a2a2a */
+    --border: 0 0% 20%;
+    --input: 0 0% 20%;
   }
 
   html {

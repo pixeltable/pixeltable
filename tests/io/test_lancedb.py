@@ -1,15 +1,16 @@
 import datetime
 import io
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import PIL.Image
+import pytest
 
 import pixeltable as pxt
 
-from ..utils import pxt_raises, skip_test_if_not_installed
+from ..utils import DatabaseRoot, pxt_raises, skip_test_if_not_installed
 
 
 @pxt.udf
@@ -19,24 +20,25 @@ def udf_with_exc(i: int, val: int) -> int:
     return i
 
 
+@pytest.mark.db_roots('local', 'proxy', reason='lancedb dependencies are not installed on cloud tests')
 class TestLanceDb:
-    def test_export(self, make_catalog_path: Callable[[str], str], tmp_path: Path) -> None:
+    def test_export(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
         skip_test_if_not_installed('lance', 'lancedb')
         import lancedb  # type: ignore[import-untyped]
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         n_rows = 1000
         schema = {
-            'row_id': pxt.Int,
-            'c_int': pxt.Int,
-            'c_float': pxt.Float,
-            'c_bool': pxt.Bool,
-            'c_string': pxt.String,
-            'c_timestamp': pxt.Timestamp,
-            'c_date': pxt.Date,
-            'c_json': pxt.Json,
-            'c_array': pxt.Array[(10,), pxt.Float],
-            'c_image': pxt.Image,
+            'row_id': pxt.Int | None,
+            'c_int': pxt.Int | None,
+            'c_float': pxt.Float | None,
+            'c_bool': pxt.Bool | None,
+            'c_string': pxt.String | None,
+            'c_timestamp': pxt.Timestamp | None,
+            'c_date': pxt.Date | None,
+            'c_json': pxt.Json | None,
+            'c_array': pxt.Array[(10,), pxt.Float] | None,
+            'c_image': pxt.Image | None,
         }
         t = pxt.create_table(p('test_export'), schema)
 

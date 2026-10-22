@@ -10,6 +10,11 @@ on:
         description: 'Enable SSH debugging with tmate'
         required: false
         default: false
+      from_main:
+        type: boolean
+        description: 'Run tests from `main` instead of `release`'
+        required: false
+        default: false
 
 env:
   PXTTEST_IN_CI: 1
@@ -44,38 +49,41 @@ jobs:
       fail-fast: false
       matrix:
         # Test with a variety of different packages on ubuntu, with the minimum and maximum supported Python versions.
-        python-version: ["3.10", "3.13"]
+        python-version: ["3.11", "3.13"]
         package-configs:
           - ""
-          - "lancedb pylance mcp opencv-python scenedetect"
+          # Scheduled nightly checks out release and installs the latest tag. That client still
+          # imports streamablehttp_client, so it needs mcp 1.x. from_main installs this checkout.
+          # Drop the mcp 1.x leg once a release includes the mcp 2 client.
+          - "lancedb pylance '${{ inputs.from_main && 'mcp>=2' || 'mcp>=1.27.2,<2' }}' opencv-python scenedetect"
           - "anthropic fireworks-ai 'google-genai<1.72.0' groq jina mistralai openai replicate together"
-          - "fal-client reve runwayml twelvelabs voyageai"
+          - "fal-client runwayml twelvelabs voyageai"
           - "huggingface-hub llama-cpp-python openai-whisper"
-          - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
+          - "datasets openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
           - "pixeltable-yolox"
         os: [ubuntu-24.04]
         include:
           # transformers-based tests need to run on a larger runner.
-          - python-version: "3.10"
-            package-configs: "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm"
+          - python-version: "3.11"
+            package-configs: "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm spacy"
             os: ubuntu-large
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: "whisperx transformers timm"
             os: ubuntu-large
           # Test the basic pixeltable installation on other platforms.
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: ""
             os: macos-15
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: ""
             os: macos-15-intel
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: ""
             os: windows-2025
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: ""
             os: ubuntu-24.04-arm
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: ""
             os: ubuntu-small-t4
 
@@ -89,7 +97,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: release
+          ref: ${{ inputs.from_main && 'main' || 'release' }}
       - name: Set up tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
         uses: mxschmitt/action-tmate@v3
@@ -117,11 +125,19 @@ jobs:
         # cmake is needed for certain CI environments where it is not preinstalled.
         run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
       - name: Delete source tree
-        run: rm -rf pixeltable  # Ensure we use pypi pixeltable package for testing, not local source tree
+        run: rm -rf pixeltable pixeltable_cli  # Ensure we use installed packages for testing, not local source tree
       - name: Install dependencies
         run: |
+          # Pin pixeltable to the checkout: the commit itself for main, else the latest version tag at or before it
+          # (the release tag can sit past its version tag)
+          if [[ '${{ inputs.from_main }}' == 'true' ]]; then
+            PXT="git+https://github.com/pixeltable/pixeltable@$(git rev-parse HEAD)"
+          else
+            PXT="pixeltable==$(git describe --tags --abbrev=0 --match 'v[0-9]*' | sed 's/^v//')"
+          fi
           python -m pip install --upgrade pip
-          python -m pip install pixeltable ${{ matrix.package-configs }}
+          # Retried, since a new release can take a few minutes to reach every PyPI mirror
+          ./scripts/retry.sh 3 60 python -m pip install "$PXT" ${{ matrix.package-configs }}
           python -m pip install filelock pytest pytest-xdist pytest-rerunfailures pytest-benchmark
       - name: Install spaCy model
         if: ${{ contains(matrix.package-configs, 'spacy') }}
@@ -154,7 +170,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04]
-        python-version: ["3.10", "3.13"]
+        python-version: ["3.11", "3.13"]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -165,7 +181,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: release
+          ref: ${{ inputs.from_main && 'main' || 'release' }}
       - name: Set up tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
         uses: mxschmitt/action-tmate@v3
@@ -185,8 +201,7 @@ jobs:
           conda-remove-defaults: true
       - name: Install ollama
         run: |
-          curl -fsSL https://ollama.com/install.sh | sh
-          ollama serve &  # Start the ollama server if it didn't start via install.sh
+          ./scripts/retry.sh 3 30 ./scripts/install-ollama.sh
           sleep 10  # Wait for the ollama server to start
           # Pull the models used for testing now, with retries, to safeguard against connection issues
           ./scripts/retry.sh 3 30 ollama pull 'qwen3:0.6b'

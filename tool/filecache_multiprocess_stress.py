@@ -104,7 +104,9 @@ def _worker(worker_id: int, port: int, n_images: int, rows: int, rounds: int, n_
     errors: list[Exception | None] = [None] * n_threads
     try:
         tbls = [
-            pxt.create_table(f'stress_{worker_id}_{thread_id}', {'idx': pxt.Int, 'img': pxt.Image}, if_exists='replace')
+            pxt.create_table(
+                f'stress_{worker_id}_{thread_id}', {'idx': pxt.Int | None, 'img': pxt.Image | None}, if_exists='replace'
+            )
             for thread_id in range(n_threads)
         ]
 

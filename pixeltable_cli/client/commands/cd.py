@@ -1,3 +1,5 @@
+from pixeltable_cli import models
+
 from ..parser import Parser
 from ..utils import display_path, post_request, validate_path_arg
 
@@ -25,8 +27,8 @@ def run(argv: list[str]) -> None:
 
     # omitting the argument clears the working directory; root ('/') is equivalent to no working directory
     uri = args.uri if args.uri is not None else '/'
-    resp = post_request('/api/cwd', {'uri': validate_path_arg(uri)})
-    if resp['uri'] is None:
+    resp = models.CwdResponse.model_validate(post_request('/api/cwd', {'uri': validate_path_arg(uri)}))
+    if resp.uri is None:
         print('working directory cleared')
     else:
-        print(f'working directory: {display_path(resp["uri"])}')
+        print(f'working directory: {display_path(resp.uri)}')

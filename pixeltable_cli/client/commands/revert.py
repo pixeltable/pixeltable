@@ -1,8 +1,7 @@
-import json
+from pixeltable_cli import models
 
-from ..confirm import confirm_or_exit
 from ..parser import Parser
-from ..utils import post_request, validate_path_arg
+from ..utils import confirm_or_exit, post_request, validate_path_arg
 
 EPILOG = """\
 Examples:
@@ -35,8 +34,10 @@ def run(argv: list[str]) -> None:
 
     confirm_or_exit(f'revert {args.path} by {args.steps} version(s)? this is irreversible.', args.force)
 
-    resp = post_request('/api/tables/revert', {'path': validate_path_arg(args.path), 'steps': args.steps})
+    resp = models.RevertResponse.model_validate(
+        post_request('/api/tables/revert', {'path': validate_path_arg(args.path), 'steps': args.steps})
+    )
     if args.as_json:
-        print(json.dumps(resp, indent=2))
+        print(resp.model_dump_json(indent=2))
     else:
-        print(f'reverted {resp["path"]}: v{resp["from_version"]} -> v{resp["to_version"]}')
+        print(f'reverted {resp.path}: v{resp.from_version} -> v{resp.to_version}')

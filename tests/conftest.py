@@ -1,3 +1,8 @@
+import ctypes
+import functools
+import gc
+import hashlib
+import http.server
 import json
 import logging
 import os
@@ -5,8 +10,10 @@ import pathlib
 import platform
 import shutil
 import sys
+import threading
+import urllib.parse
 import uuid
-from typing import Callable, Iterator
+from typing import Any, Callable, Generator, Iterator, get_args
 
 import pytest
 import requests
@@ -25,19 +32,27 @@ from pixeltable.env import LOG_FMT_STR, Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.metadata.schema import base_metadata
 from pixeltable.runtime import get_runtime, reset_runtime
+from pixeltable.service import proxy_daemon
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.sql import add_option_to_db_url
 
 from .utils import (
+    CLOUD_DB_ROOT_URIS,
     IN_CI,
-    CatalogMode,
+    TESTS_DIR,
+    DatabaseRoot,
+    DbRootId,
     ReloadTester,
+    cloud_env_configured,
     create_all_datatypes_tbl,
     create_img_tbl,
     create_test_tbl,
     local_embedding,
+    new_db_uri,
     reload_catalog,
+    skip_test_if_not_installed,
+    validate_async_teardown,
 )
 
 _logger = logging.getLogger('pixeltable_test')
@@ -48,18 +63,6 @@ DO_RERUN: bool = True
 
 def pytest_addoption(parser: argparsing.Parser) -> None:
     parser.addoption('--no-rerun', action='store_true', default=False, help='Do not rerun any failed tests.')
-    parser.addoption(
-        '--cloud',
-        metavar='pxt://ORG:DB',
-        default=None,
-        help='Run tests against a cloud database, e.g. --cloud=pxt://pixeltable:clitest-e2e1',
-    )
-    parser.addoption(
-        '--keep-cloud-resources',
-        action='store_true',
-        default=False,
-        help='Leave the hosted database and service created by the cloud e2e tests in place, for inspection.',
-    )
 
 
 def pytest_configure(config: PytestConfig) -> None:
@@ -79,14 +82,13 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
     offenders: list[str] = []
     for item in items:
-        if 'uses_db' not in getattr(item, 'fixturenames', ()):
-            continue
-        marker = item.get_closest_marker('local')
-        if marker is None or not marker.args or not isinstance(marker.args[0], str) or not marker.args[0].strip():
-            offenders.append(item.nodeid)
+        if 'uses_db' in getattr(item, 'fixturenames', ()):
+            marker = item.get_closest_marker('db_roots')
+            if marker is None or marker.args != ('local',):
+                offenders.append(item.nodeid)
     if offenders:
         raise pytest.UsageError(
-            "tests using the 'uses_db' fixture must be marked @pytest.mark.local('<reason>'):\n  "
+            "tests using the 'uses_db' fixture must be marked @pytest.mark.db_roots('local', reason='...'):\n  "
             + '\n  '.join(offenders)
         )
 
@@ -94,9 +96,32 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 def pytest_runtest_setup(item: pytest.Item) -> None:
     current_test = os.environ.get('PYTEST_CURRENT_TEST')
     _logger.info(f'Running Pixeltable test: {current_test}')
-    pxtf.huggingface._model_cache.clear()
-    pxtf.huggingface._processor_cache.clear()
-    pxtf.vllm._model_cache.clear()
+    _clear_model_caches()
+
+
+def _clear_model_caches() -> None:
+    """Drop the models that earlier tests loaded and return their memory to the OS, so that the xdist worker that
+    runs the 'large_model' group doesn't accumulate them."""
+    caches: list[dict[Any, Any]] = [
+        pxtf.huggingface._model_cache,
+        pxtf.huggingface._processor_cache,
+        pxtf.llama_cpp._model_cache,
+        pxtf.vllm._model_cache,
+        pxtf.whisper._model_cache,
+        pxtf.whisperx._model_cache,
+        pxtf.whisperx._alignment_model_cache,
+        pxtf.whisperx._diarization_model_cache,
+        pxtf.yolox._model_cache,
+        pxtf.yolox._processor_cache,
+    ]
+    if not any(caches):
+        return
+    for cache in caches:
+        cache.clear()
+    gc.collect()
+    if platform.libc_ver()[0] == 'glibc':
+        # glibc keeps freed memory in the process's heap unless asked to return it
+        ctypes.CDLL('libc.so.6').malloc_trim(0)
 
 
 def pytest_runtest_teardown(item: pytest.Item) -> None:
@@ -104,6 +129,22 @@ def pytest_runtest_teardown(item: pytest.Item) -> None:
         _free_disk_space()
     current_test = os.environ.get('PYTEST_CURRENT_TEST')
     _logger.info(f'Finished Pixeltable test: {current_test}')
+
+
+_PHASE_REPORTS = pytest.StashKey[dict[str, pytest.TestReport]]()
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[None]
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
+    """Keep each phase's report on the item, for a fixture whose teardown depends on how the test went.
+
+    A wrapper=True hook hands back the report by returning it from the generator.
+    """
+    report = yield
+    item.stash.setdefault(_PHASE_REPORTS, {})[report.when] = report
+    return report  # noqa: B901
 
 
 def _set_up_external_db_schema(worker_id: int | str) -> str:
@@ -127,9 +168,61 @@ def _set_up_external_db_schema(worker_id: int | str) -> str:
     return schema_name
 
 
+# separates the test dbs of checkouts that share one PIXELTABLE_PGDATA
+_CHECKOUT_HASH = hashlib.sha256(str(pathlib.Path(__file__).resolve().parents[1]).encode()).hexdigest()[:8]
+
+
 def _worker_db_name(worker_id: int | str) -> str:
     """The db name used by both the pytest process and its proxy daemon."""
-    return f'test_{worker_id}'
+    return f'test_{_CHECKOUT_HASH}_{worker_id}'
+
+
+@pytest.fixture
+def project_dir(tmp_path: pathlib.Path) -> pathlib.Path:
+    """A directory that is a project root, for a test that writes an application or schema file into it.
+
+    A file is imported under a module path relative to its project root, so it has to sit under one.
+    """
+    (tmp_path / 'pixeltable.toml').write_text('', encoding='utf-8')
+    return tmp_path
+
+
+@pytest.fixture
+def project_env(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[pathlib.Path]:
+    """A project root for a test that loads an application file in process.
+
+    Config resolves one project root when it starts and holds it for the life of the process, so a test that
+    needs a different one sets the resolved value rather than starting over: reinitializing would also
+    rebuild the file cache and the catalog that other tests in the session depend on.
+    """
+    from pixeltable.config import Config
+
+    (tmp_path / 'pixeltable.toml').write_text('', encoding='utf-8')
+    monkeypatch.setattr(sys, 'path', [*sys.path, str(tmp_path)])
+    original = Config.get().project_root
+    Config.init(reinit=True, project_root=tmp_path)
+    yield tmp_path
+    Config.init(reinit=True, project_root=original)
+
+
+@pytest.fixture
+def private_home(tmp_path: pathlib.Path) -> Iterator[pathlib.Path]:
+    """A Pixeltable home and config file of the test's own, with no API key in the environment.
+
+    Config reads the home when it starts, so it is reinitialized here, and again afterwards with the
+    environment and project root it had before.
+    """
+    from pixeltable.config import Config
+
+    project_root = Config.get().project_root
+    home = tmp_path / 'pxt-home'
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv('PIXELTABLE_HOME', str(home))
+        mp.setenv('PIXELTABLE_CONFIG', str(home / 'config.toml'))
+        mp.delenv('PIXELTABLE_API_KEY', raising=False)
+        Config.init(reinit=True, project_root=project_root)
+        yield home
+    Config.init(reinit=True, project_root=project_root)
 
 
 @pytest.fixture(scope='session')
@@ -137,17 +230,24 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
 
     # Set the relevant env vars for the test db.
-    # We use a single shared pgserver instance, running in the "true" home directory ($PIXELTABLE_HOME/pgdata).
+    # We use a single shared pgserver instance, running in $PIXELTABLE_PGDATA or else the "true" home directory
+    # ($PIXELTABLE_HOME/pgdata).
     # Each worker gets its own test db in this instance, along with its own home directory for everything else
     # (file cache, media store, etc).
-    shared_home = pathlib.Path(os.environ.get('PIXELTABLE_HOME', str(pathlib.Path.home() / '.pixeltable')))
+    # an empty variable counts as unset, as in Config.lookup_env()
+    home_var = os.environ.get('PIXELTABLE_HOME', '')
+    shared_home = pathlib.Path(home_var) if home_var != '' else pathlib.Path.home() / '.pixeltable'
     home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
     os.environ['PIXELTABLE_HOME'] = home_dir
     os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.toml')
     os.environ['PIXELTABLE_DB'] = _worker_db_name(worker_id)
-    os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
-    os.environ['PIXELTABLE_API_URL'] = 'https://preprod-internal-api.pixeltable.com'
+    pgdata_var = os.environ.get('PIXELTABLE_PGDATA', '')
+    os.environ['PIXELTABLE_PGDATA'] = pgdata_var if pgdata_var != '' else str(shared_home / 'pgdata')
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
+    # Verbose logging, for this process and for every pixeltable process it spawns (the proxy daemon, the pxt CLI
+    # daemon)
+    os.environ['PIXELTABLE_LOG_LEVEL'] = 'DEBUG'
+    os.environ['PIXELTABLE_SQL_LOG_LEVEL'] = 'INFO'
     if IN_CI:
         # In CI, we use a separate Hugging Face cache directory for each worker since _clear_hf_caches()
         # deletes the cache between tests.
@@ -164,10 +264,11 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
         'PIXELTABLE_CONFIG',
         'PIXELTABLE_DB',
         'PIXELTABLE_PGDATA',
-        'PIXELTABLE_API_URL',
         'FIFTYONE_DATABASE_DIR',
         'HF_HOME',
         'PIXELTABLE_DB_CONNECT_STR',
+        'PIXELTABLE_LOG_LEVEL',
+        'PIXELTABLE_SQL_LOG_LEVEL',
     ):
         print(f'{var:25} = {os.environ.get(var)}')
 
@@ -181,7 +282,7 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
         # Config caches the home directory on first use, and Env._set_up() reads it from there. A test that
         # reached Config before this fixture ran would have cached the user's real home, which the Env rebuild
         # below would then adopt; re-read it now that PIXELTABLE_HOME points at this worker's directory.
-        Config.init({}, reinit=True)
+        Config.init(reinit=True, project_root=Config.get().project_root)
         # We need to call `Env._init_env()` with `reinit_db=True`. This is because if a previous test run was
         # interrupted (e.g., by an inopportune Ctrl-C), there may be residual DB artifacts that interfere with
         # initialization.
@@ -191,12 +292,10 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     stdout_handler.setFormatter(logging.Formatter(LOG_FMT_STR))
     pxt_logger = logging.getLogger('pixeltable')
-    pxt_logger.setLevel(logging.DEBUG)
     pxt_logger.addHandler(stdout_handler)
     test_logger = logging.getLogger('pixeltable_test')
     test_logger.setLevel(logging.DEBUG)
     test_logger.addHandler(stdout_handler)
-    logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
 
     yield
     FileCache.get().validate()
@@ -216,6 +315,8 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
                     engine.dispose()
         except Exception as e:
             _logger.warning(f'Failed to cleanup test schema {schema_name}: {e}')
+
+    validate_async_teardown()
 
 
 @pytest.fixture()
@@ -244,7 +345,7 @@ def _reset_catalog_state() -> None:
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
-    Config.init({}, reinit=True)
+    Config.init(reinit=True, project_root=Config.get().project_root)
     Env.get().default_time_zone = None
     Env.get().user = None
     reload_catalog()
@@ -277,15 +378,14 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
     post-test _validate_catalog_state() actually validates the store state at the end of the test.
 
     The db name is worker-scoped so parallel xdist workers don't share a catalog. start() is idempotent,
-    so the per-test make_catalog_path fixture only reloads the daemon's catalog rather than restarting the process.
+    so the per-test db_root fixture only reloads the daemon's catalog rather than restarting the process.
     """
     # the proxy daemon serves over HTTP via fastapi/uvicorn (the serve extra); a minimal install omits them
     pytest.importorskip('fastapi')
     pytest.importorskip('uvicorn')
-    from pixeltable.service import proxy_daemon
 
     db = _worker_db_name(worker_id)
-    proxy_daemon.start(db)
+    proxy_daemon.start(db, test_mode=True)
     try:
         yield db
     finally:
@@ -294,83 +394,122 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
         proxy_daemon.stop(db)
 
 
+_CLI_TESTS_DIR = pathlib.Path(__file__).parent / 'pixeltable_cli'
+
+
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
-    """Drive the catalog-backend axis: any test that (transitively) reaches catalog_mode runs against both
-    'local' and 'proxy', unless marked @pytest.mark.local, in which case it runs 'local' only.
+    """Drive the catalog-backend and data-versioning axes.
 
-    With --cloud, tests run against the cloud catalog instead of local/proxy.
+    db_root: any test that (transitively) reaches db_root runs against 'local', 'proxy', and its package's
+    hosted database; a db_roots marker overrides that list. The hosted roots are dropped unless the three
+    PIXELTABLE_ variables are set.
 
-    metafunc.fixturenames is the transitive fixture closure, so a test reaching make_catalog_path (directly
-    or via an adapted fixture like test_tbl) auto-forks with no per-test boilerplate. Tests that touch neither
-    catalog_mode nor make_catalog_path run once.
+    is_data_versioned: any test that (transitively) reaches is_data_versioned runs against both a
+    data-versioned and an operational table.
+
+    metafunc.fixturenames is the transitive fixture closure, so a test reaching db_root (directly
+    or via an adapted fixture like test_tbl) or is_data_versioned auto-forks with no per-test boilerplate.
+    Tests that touch neither axis run once.
     """
-    if 'catalog_mode' not in metafunc.fixturenames:
-        return
-    if metafunc.definition.get_closest_marker('local') is not None:
-        # local-only: don't fork the axis; catalog_mode defaults to 'local' and the nodeid stays unparametrized
-        return
-    if metafunc.config.getoption('--cloud', default=None) is not None:
-        metafunc.parametrize('catalog_mode', ['cloud'], indirect=True)
-    else:
-        metafunc.parametrize('catalog_mode', ['local', 'proxy'], indirect=True)
+    if 'is_data_versioned' in metafunc.fixturenames:
+        metafunc.parametrize('is_data_versioned', [True, False], ids=['data_versioned', 'operational'])
+
+    if 'db_root' in metafunc.fixturenames:
+        db_roots_marker = metafunc.definition.get_closest_marker('db_roots')
+        if db_roots_marker is not None:
+            params = db_roots_marker.args
+            if not set(params) <= set(get_args(DbRootId)):
+                raise pytest.UsageError(
+                    f'Invalid db_roots marker args. Must be a nonempty subset of {get_args(DbRootId)}; got: {params!r}'
+                )
+            if (
+                not isinstance(db_roots_marker.kwargs.get('reason'), str)
+                or not db_roots_marker.kwargs['reason'].strip()
+            ):
+                raise pytest.UsageError("db_roots marker must include a nonempty 'reason' kwarg")
+
+        else:
+            # each package's udfs live in a different project, so an unmarked test gets its own
+            # package's database
+            in_cli_package = metafunc.definition.path.is_relative_to(_CLI_TESTS_DIR)
+            params = ('local', 'proxy', 'cloud-cli' if in_cli_package else 'cloud')
+
+        if not cloud_env_configured():
+            # We short-circuit here rather than later via pytest.skip(), for performance reasons.
+            params = tuple(p for p in params if not p.startswith('cloud'))
+
+        if params != ('local',):
+            # If the only target is 'local', then don't parameterize at all; just leave the nodeid alone.
+            # Otherwise, use the db_root_id as a temporary value; it will get resolved into a proper
+            # DatabaseRoot when the fixture instantiates.
+            metafunc.parametrize('db_root', params, indirect=True)
+
+
+@pytest.fixture
+def served_project() -> pathlib.Path | None:
+    """The project a daemon should serve; the CLI package overrides this with its session project."""
+    return None
+
+
+@pytest.fixture(scope='session')
+def cloud_serving_db_uri() -> str:
+    """A disposable URI for the 'cloud-serving' tests in pixeltable_cli."""
+    return new_db_uri()
 
 
 @pytest.fixture(scope='function')
-def catalog_mode(request: pytest.FixtureRequest) -> CatalogMode:
-    """The catalog backend under test: 'local', 'proxy' (local daemon), or 'cloud' (cloud proxy via NLB).
-
-    The axis is assigned by pytest_generate_tests(); a test marked @pytest.mark.local isn't
-    parametrized and gets 'local' here. Request this alongside make_catalog_path() to gate assertions that only
-    make sense in one mode (e.g. inspecting the client-side LocalStore, which is empty over proxy/cloud).
+def db_root(
+    init_env: None, served_project: pathlib.Path | None, request: pytest.FixtureRequest
+) -> Iterator[DatabaseRoot]:
     """
-    return getattr(request, 'param', 'local')
-
-
-@pytest.fixture(scope='function')
-def make_catalog_path(
-    init_env: None, catalog_mode: CatalogMode, request: pytest.FixtureRequest
-) -> Iterator[Callable[[str], str]]:
-    """Parameterized variant of uses_db: runs a test against both the in-process catalog and a delegated
-    (proxied) catalog served by a local daemon.
+    Parameterized variant of uses_db: runs a test against any or all of:
+    - the in-process catalog
+    - a local proxy daemon instance
+    - a hosted database
 
     Yields a path-builder mapping a bare path to the active catalog: the identity for local, and the bare
     path prefixed with the daemon's pxt:// uri for proxy (with an empty path mapping to the catalog root).
     """
     _reset_catalog_state()
 
-    if catalog_mode == 'proxy':
-        from pixeltable.service import proxy_daemon
+    db_root_id = getattr(request, 'param', 'local')
 
-        db = request.getfixturevalue('proxy_daemon_db')
-        proxy_daemon.reinitialize(db)
-        prefix = f'pxt://local:{db}'
+    match db_root_id:
+        case 'local':
+            yield DatabaseRoot('local', '', '')
 
-        def p(path: str) -> str:
-            return f'{prefix}/{path}' if path else prefix
-    elif catalog_mode == 'cloud':
-        import uuid as _uuid
+        case 'proxy':
+            # the daemon is handed the project Config holds when it starts, and never re-reads it
+            if served_project is not None and Config.get().project_root != served_project:
+                Config.init(reinit=True, project_root=served_project)
+            db = request.getfixturevalue('proxy_daemon_db')
+            # the daemon resolves udf module paths against the one project it was started with, and tests in
+            # different packages serve different projects; start() reuses a daemon serving this test's project and
+            # replaces one serving another, so a test never inherits the project of whichever test ran before it
+            proxy_daemon.start(db, test_mode=True)
+            proxy_daemon.reinitialize(db)
+            base_uri = f'pxt://local:{db}'
+            yield DatabaseRoot('proxy', base_uri, base_uri)
+            reports = request.node.stash.get(_PHASE_REPORTS, {}).values()
+            if any(r.failed or (r.skipped and hasattr(r, 'wasxfail')) for r in reports):
+                # a request the client gave up on keeps running in the daemon, against the database that the next
+                # test's clean_db() truncates; stopping the daemon ends it, and the next proxy test starts another
+                proxy_daemon.stop(db)
 
-        db_uri = request.config.getoption('--cloud')
-        # If db_uri has a sub-path (e.g. pxt://org:db/tests), create it first.
-        uri_path = db_uri[len('pxt://') :].split('/', 1)
-        if len(uri_path) > 1 and uri_path[1]:
-            pxt.create_dir(db_uri, if_exists='ignore')
-        # Each test run gets its own namespace so tests don't collide.
-        run_id = _uuid.uuid4().hex[:8]
-        prefix = f'{db_uri}/test_{run_id}'
-        pxt.create_dir(prefix)
-
-        def p(path: str) -> str:
-            return f'{prefix}/{path}' if path else prefix
-    else:
-
-        def p(path: str) -> str:
-            return path
-
-    yield p
-
-    if catalog_mode == 'cloud':
-        pxt.drop_dir(prefix, force=True, if_not_exists='ignore')
+        case 'cloud' | 'cloud-cli' | 'cloud-serving':
+            base_uri = CLOUD_DB_ROOT_URIS.get(db_root_id)
+            if base_uri is None:
+                # fetched here rather than as a fixture parameter, so only a 'cloud-serving' test runs
+                # the CodeBuild that creates this database
+                base_uri = request.getfixturevalue('cloud_service_db')
+            test_dir = uuid.uuid4().hex
+            prefix = f'{base_uri}/test_{test_dir}'
+            _logger.info('Creating test directory in cloud catalog: %s', prefix)
+            pxt.create_dir(prefix)
+            try:
+                yield DatabaseRoot(db_root_id, base_uri, prefix)
+            finally:
+                pxt.drop_dir(prefix, force=True)
 
     _validate_catalog_state()
 
@@ -419,6 +558,7 @@ def _clear_hf_caches() -> None:
                     'openai/clip-vit-base-patch32',
                     'intfloat/e5-large-v2',
                     'sentence-transformers/all-mpnet-base-v2',
+                    'sentence-transformers/all-MiniLM-L6-v2',
                 )
                 for revision in repo.revisions
             ]
@@ -463,28 +603,85 @@ def clean_db(drop_md_tables: bool = False) -> None:
             if drop_md_tables:
                 # Drop existing metadata tables
                 conn.execute(text(f'DROP TABLE IF EXISTS {table_names} CASCADE'))
-            elif Env.get().is_using_cockroachdb:
-                # CockroachDB sometimes rejects TRUNCATE when other in-flight statements are
-                # dropping indexes on the same table; use DELETEs instead, in reverse FK
-                # dependency order (children before parents). dirs' self-referential FK is fine
-                # because FK constraints are checked at the end of each DELETE statement.
-                for tbl in reversed(base_metadata.sorted_tables):
-                    if tbl.name in existing_md_names:
-                        conn.execute(tbl.delete())
             else:
                 # Truncate existing metadata tables
                 conn.execute(text(f'TRUNCATE TABLE {table_names} CASCADE'))
         conn.commit()
 
 
+def _requested_is_data_versioned(request: pytest.FixtureRequest) -> bool:
+    """The `is_data_versioned` value requested by a dependent test, or True if it doesn't declare the axis.
+
+    Shared by the table-building fixtures below (`test_tbl` and friends): none of them request
+    `is_data_versioned` directly, since that would put it in every dependent test's fixture closure and fork
+    the entire suite. A test that also declares `is_data_versioned` gets the variant that parameter calls for;
+    every other test gets a data-versioned table.
+    """
+    return request.getfixturevalue('is_data_versioned') if 'is_data_versioned' in request.fixturenames else True
+
+
 @pytest.fixture(scope='function')
-def test_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
-    return create_test_tbl(make_catalog_path('test_tbl'))
+def test_tbl(db_root: DatabaseRoot, request: pytest.FixtureRequest) -> pxt.Table:
+    """The standard test table."""
+    return create_test_tbl(
+        db_root.make_catalog_path('test_tbl'), is_data_versioned=_requested_is_data_versioned(request)
+    )
 
 
 @pytest.fixture(scope='function')
 def reload_tester(init_env: None) -> ReloadTester:
     return ReloadTester()
+
+
+_SERVED_DIR = TESTS_DIR.parent  # repo root
+
+
+class _QuietHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *args: object) -> None:
+        pass
+
+
+class SampleFileServer:
+    """Handle on the HTTP server started by the `sample_file_server` fixture, which serves the repo tree."""
+
+    base_url: str
+
+    def __init__(self, base_url: str) -> None:
+        self.base_url = base_url
+
+    def url(self, path: str | pathlib.Path, db_root: DatabaseRoot | None = None) -> str:
+        """Return the http:// URL of `path`, given either as an absolute path in the repo or relative to its root."""
+        rel_path = pathlib.Path(path)
+        if rel_path.is_absolute():
+            assert rel_path.is_relative_to(_SERVED_DIR)
+            rel_path = rel_path.relative_to(_SERVED_DIR)
+
+        if db_root is not None and db_root.is_cloud:
+            # For cloud tests, we need to send an actual URL; Pixeltable cloud obviously can't see 127.0.0.1
+            base_url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/'
+        else:
+            base_url = self.base_url
+
+        return base_url + urllib.parse.quote(rel_path.as_posix())
+
+
+@pytest.fixture
+def sample_file_server() -> Iterator[SampleFileServer]:
+    """Serve the local sample files (`tests/data`, `docs/resources`, ...) over a localhost HTTP server.
+
+    Tests that need a file reachable by http:// URL (rather than a local path or file:// URL) can get one with
+    `sample_file_server.url(<path of the file>)`, exercising the same download path as an internet URL without the
+    latency and flakiness of fetching one. Requesting a path that isn't in the tree yields a genuine 404.
+    """
+    handler = functools.partial(_QuietHandler, directory=str(_SERVED_DIR))
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield SampleFileServer(f'http://127.0.0.1:{server.server_address[1]}/')
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 @pytest.fixture(scope='function')
@@ -507,8 +704,8 @@ def test_tbl_exprs(test_tbl: pxt.Table) -> list[exprs.Expr]:
         t.c8[0, 1:],
         t.c2.isin([1, 2, 3]),
         t.c2.isin(t.c6.f5),
-        t.c2.astype(pxt.Float),
-        (t.c2 + 1).astype(pxt.Float),
+        t.c2.astype(pxt.Float | None),
+        (t.c2 + 1).astype(pxt.Float | None),
         t.c2.apply(str),
         (t.c2 + 1).apply(str),
         t.c3.apply(str),
@@ -523,13 +720,18 @@ def test_tbl_exprs(test_tbl: pxt.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def all_datatypes_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
-    return create_all_datatypes_tbl(name=make_catalog_path('all_datatype_tbl'))
+def all_datatypes_tbl(db_root: DatabaseRoot, request: pytest.FixtureRequest) -> pxt.Table:
+    return create_all_datatypes_tbl(
+        name=db_root.make_catalog_path('all_datatype_tbl'), is_data_versioned=_requested_is_data_versioned(request)
+    )
 
 
 @pytest.fixture(scope='function')
-def img_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
-    return create_img_tbl(make_catalog_path('test_img_tbl'))
+def img_tbl(db_root: DatabaseRoot, request: pytest.FixtureRequest) -> pxt.Table:
+    # on cloud/proxy, limit the number of rows so that we're not sending a massive image set on every test that uses
+    # img_tbl. For local, use the full image set.
+    num_rows = 0 if db_root.id == 'local' else 20
+    return create_img_tbl(db_root.make_catalog_path('test_img_tbl'), num_rows, _requested_is_data_versioned(request))
 
 
 @pytest.fixture(scope='function')
@@ -553,13 +755,19 @@ def multi_img_tbl_exprs(multi_idx_img_tbl: pxt.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def small_img_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
-    return create_img_tbl(make_catalog_path('small_img_tbl'), num_rows=40)
+def small_img_tbl(db_root: DatabaseRoot, request: pytest.FixtureRequest) -> pxt.Table:
+    return create_img_tbl(
+        db_root.make_catalog_path('small_img_tbl'), num_rows=40, is_data_versioned=_requested_is_data_versioned(request)
+    )
 
 
 @pytest.fixture(scope='function')
-def indexed_img_tbl(make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> pxt.Table:
-    t = create_img_tbl(make_catalog_path('indexed_img_tbl'), num_rows=40)
+def indexed_img_tbl(db_root: DatabaseRoot, local_embed: pxt.Function, request: pytest.FixtureRequest) -> pxt.Table:
+    t = create_img_tbl(
+        db_root.make_catalog_path('indexed_img_tbl'),
+        num_rows=40,
+        is_data_versioned=_requested_is_data_versioned(request),
+    )
     t.add_embedding_index(
         'img', idx_name='img_idx0', metric='cosine', image_embed=local_embed, string_embed=local_embed
     )
@@ -567,8 +775,12 @@ def indexed_img_tbl(make_catalog_path: Callable[[str], str], local_embed: pxt.Fu
 
 
 @pytest.fixture(scope='function')
-def multi_idx_img_tbl(make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> pxt.Table:
-    t = create_img_tbl(make_catalog_path('multi_idx_img_tbl'), num_rows=4)
+def multi_idx_img_tbl(db_root: DatabaseRoot, local_embed: pxt.Function, request: pytest.FixtureRequest) -> pxt.Table:
+    t = create_img_tbl(
+        db_root.make_catalog_path('multi_idx_img_tbl'),
+        num_rows=4,
+        is_data_versioned=_requested_is_data_versioned(request),
+    )
     t.add_embedding_index(
         'img', idx_name='img_idx1', metric='cosine', image_embed=local_embed, string_embed=local_embed
     )
@@ -609,6 +821,8 @@ def clip_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:
 )
 def mpnet_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:
     if request.param:
+        # before requesting all_mpnet_embed, whose setup fails without the package
+        skip_test_if_not_installed('sentence_transformers')
         return request.getfixturevalue('all_mpnet_embed'), False
     return local_embedding.using(dim=512), True
 

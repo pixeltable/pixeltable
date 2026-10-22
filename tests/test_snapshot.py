@@ -6,6 +6,7 @@ import pytest
 import pixeltable as pxt
 
 from .utils import (
+    DatabaseRoot,
     ReloadTester,
     assert_resultset_eq,
     create_img_tbl,
@@ -50,7 +51,8 @@ class TestSnapshot:
         assert_resultset_eq(snap_query.collect(), orig_resultset)
 
         # verify head()
-        assert_resultset_eq(snap.select(*snap_select_list).head(), tbl.select(*tbl_select_list).head())
+        snap_head = snap.select(*snap_select_list).head()
+        assert_resultset_eq(snap_head, tbl.select(*tbl_select_list).head())
 
         # adding data to a base table doesn't change the snapshot
         rows = list(tbl.select(tbl.c1, tbl.c1n, tbl.c2, tbl.c3, tbl.c4, tbl.c5, tbl.c6, tbl.c7).collect())
@@ -59,6 +61,8 @@ class TestSnapshot:
         status = tbl.insert(rows)
         assert status.num_rows == len(rows)
         assert_resultset_eq(snap_query.collect(), orig_resultset)
+        # head() sorts by the snapshot's rowids, so the base's new rows cannot appear in it
+        assert_resultset_eq(snap.select(*snap_select_list).head(), snap_head)
 
         # update() doesn't affect the view
         status = tbl.update({'c3': tbl.c3 + 1.0})
@@ -80,18 +84,18 @@ class TestSnapshot:
         assert 'version is needed' in str(excinfo.value)
 
         # can't drop a table with snapshots
-        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match="the following depend on it: 'snap/snap1'"):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match=r"the following depend on it: '.*snap/snap1'"):
             pxt.drop_table(tbl_path)
 
         pxt.drop_table(snap_path)
         pxt.drop_table(tbl_path)
 
-    def test_basic(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_basic(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         pxt.create_dir(p('main'))
         pxt.create_dir(p('snap'))
-        tbl_path = p('main.tbl1')
-        snap_path = p('snap.snap1')
+        tbl_path = p('main/tbl1')
+        snap_path = p('snap/snap1')
 
         for reload_md in [False, True]:
             for has_filter in [False, True]:
@@ -117,7 +121,7 @@ class TestSnapshot:
         tbl = create_test_tbl(name=tbl_path)
         assert 'c1' in tbl.columns()
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match="Column 'c1' already exists in the base table"):
-            pxt.create_snapshot(p('snap2'), tbl, additional_columns={'c1': pxt.Int})
+            pxt.create_snapshot(p('snap2'), tbl, additional_columns={'c1': pxt.Int | None})
 
     def __test_create_if_exists(self, p: Callable[[str], str], sname: str, t: pxt.Table, s: pxt.Table) -> None:
         """Helper function for testing if_exists parameter while creating a snaphot.
@@ -143,7 +147,7 @@ class TestSnapshot:
         assert s12 == s
         assert s12._id == id_before
         # if_exists='replace' should drop the existing snapshot and create a new one
-        s12 = pxt.create_snapshot(sname, t, additional_columns={'s1': pxt.Int}, if_exists='replace')
+        s12 = pxt.create_snapshot(sname, t, additional_columns={'s1': pxt.Int | None}, if_exists='replace')
         assert s12 != s
         assert s12._id != id_before
         id_before = s12._id
@@ -173,7 +177,7 @@ class TestSnapshot:
         assert p('test_view_on_snapshot1') not in pxt.list_tables(p(''))
 
         # scenario 3: path exists but is not a snapshot
-        _ = pxt.create_table(p('not_snapshot'), {'c1': pxt.String}, if_exists='replace')
+        _ = pxt.create_table(p('not_snapshot'), {'c1': pxt.String | None}, if_exists='replace')
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='is an existing'):
             pxt.create_snapshot(p('not_snapshot'), t)
         # if_exists='ignore' should error when existing object is not a snapshot
@@ -186,18 +190,18 @@ class TestSnapshot:
         assert snap._tbl_path.is_snapshot()
 
         # scenario 4: snapshot exists but with a different base table
-        other_base = pxt.create_table(p('other_base'), {'c1': pxt.String}, if_exists='replace_force')
+        other_base = pxt.create_table(p('other_base'), {'c1': pxt.String | None}, if_exists='replace_force')
         _ = pxt.create_snapshot(p('snap_with_base'), t, if_exists='replace')
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='different base table'):
             _ = pxt.create_snapshot(p('snap_with_base'), other_base, if_exists='ignore')
 
-    def test_mixed_version_join(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_mixed_version_join(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         # A single query plan can reference the same physical column at two different versions: a table joined
         # with a snapshot of itself. Each version must resolve to its own value; if the two versions of a column
         # collapse into one, the snapshot columns return the live values and the join predicate t.id == snap.id
         # degenerates into a cross product.
-        t = pxt.create_table(p('mixed_version'), {'id': pxt.Int, 'v': pxt.Int})
+        t = pxt.create_table(p('mixed_version'), {'id': pxt.Int | None, 'v': pxt.Int | None})
         validate_update_status(t.insert([{'id': i, 'v': i} for i in range(5)]), expected_rows=5)
         snap = pxt.create_snapshot(p('mixed_version_snap'), t)
         # diverge the live table from the snapshot so the two versions of `v` hold different values
@@ -207,9 +211,9 @@ class TestSnapshot:
         assert res['live_v'] == [100, 101, 102, 103, 104]
         assert res['snap_v'] == [0, 1, 2, 3, 4]
 
-    def test_create_if_exists(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+    def test_create_if_exists(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         """Test the if_exists parameter while creating a snapshot."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = create_test_tbl(p('test_tbl'))
         v = pxt.create_view(p('test_view'), t)
         s1 = pxt.create_snapshot(p('test_snap_t'), t)
@@ -233,10 +237,8 @@ class TestSnapshot:
         assert s1._id == id_before['test_snap_t']
         assert s2._id == id_before['test_snap_v']
 
-    def test_errors(
-        self, test_tbl: pxt.Table, local_embed: pxt.Function, make_catalog_path: Callable[[str], str]
-    ) -> None:
-        p = make_catalog_path
+    def test_errors(self, test_tbl: pxt.Table, local_embed: pxt.Function, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         tbl = test_tbl
         snap_name = p('snap')
         snap = pxt.create_snapshot(snap_name, tbl)
@@ -250,11 +252,11 @@ class TestSnapshot:
 
         # adding column is not supported for snapshots
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot add columns to a snapshot.'):
-            snap.add_column(non_existing_col1=pxt.String)
+            snap.add_column(non_existing_col1=pxt.String | None)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot add columns to a snapshot.'):
             snap.add_computed_column(on_existing_col1=tbl.c2 + tbl.c3)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot add columns to a snapshot.'):
-            snap.add_columns({'non_existing_col1': pxt.String, 'non_existing_col2': pxt.String})
+            snap.add_columns({'non_existing_col1': pxt.String | None, 'non_existing_col2': pxt.String | None})
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot delete from a snapshot.'):
             _ = snap.delete()
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'{display_str}: Cannot update a snapshot.'):
@@ -272,12 +274,14 @@ class TestSnapshot:
             snap.add_embedding_index('img', image_embed=local_embed)
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot create default indexes on a snapshot'):
-            _ = pxt.create_view(p('default_snap'), tbl, is_snapshot=True, create_default_idxs=True)
+            _ = pxt.create_view(p('default_snap'), tbl, is_snapshot=True, has_default_idxs=True)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot add an index to a snapshot.'):
+            snap.add_btree_index('c2')
 
     @pytest.mark.parametrize('anonymous', [True, False])
-    def test_views_of_snapshots(self, anonymous: bool, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'a': pxt.Int})
+    def test_views_of_snapshots(self, anonymous: bool, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'a': pxt.Int | None})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
         assert t._get_version() == 1
@@ -304,9 +308,9 @@ class TestSnapshot:
         v2 = pxt.get_table(p('v2'))
         verify(s1, s2, v1, v2)
 
-    def test_snapshot_of_view_chain(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'a': pxt.Int})
+    def test_snapshot_of_view_chain(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'a': pxt.Int | None})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
         v1 = pxt.create_view(p('v1'), t)
@@ -329,12 +333,12 @@ class TestSnapshot:
         s = pxt.get_table(p('s'))
         verify(v1, v2, s)
 
-    def test_snapshot_of_live_view(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+    def test_snapshot_of_live_view(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         # A snapshot of a live view of a live base table pins both the view and its base table: inserts, updates,
         # and deletes on the base table flow through to the live view but leave the snapshot's rows and its
         # view-computed column unchanged.
-        p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'v': pxt.Int})
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'id': pxt.Int | None, 'v': pxt.Int | None})
         validate_update_status(t.insert({'id': i, 'v': i} for i in range(5)), expected_rows=5)
         v = pxt.create_view(p('v'), t, additional_columns={'doubled': t.v * 2})
         snap = pxt.create_snapshot(p('snap'), v)
@@ -369,10 +373,10 @@ class TestSnapshot:
         reload_tester.run_reload_test()
         verify_snap(pxt.get_table(p('snap')))
 
-    def test_base_column_access_via_snapshot(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_base_column_access_via_snapshot(self, db_root: DatabaseRoot) -> None:
         # A base-table column reached through a snapshot of a (mutable) view must resolve to the snapshot's base version
-        p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'val': pxt.Int})
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'id': pxt.Int | None, 'val': pxt.Int | None})
         validate_update_status(t.insert({'id': i, 'val': i} for i in range(5)), expected_rows=5)
         v = pxt.create_view(p('v'), t)  # mutable view; `val` is inherited from the base table
         snap = pxt.create_snapshot(p('snap'), v)
@@ -385,8 +389,8 @@ class TestSnapshot:
         assert sorted(row['val'] for row in snap.select(snap.val).head(n=100)) == snap_result
         assert snap.count() == 5
 
-    def test_multiple_snapshot_paths(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_multiple_snapshot_paths(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = create_test_tbl(p('test_tbl'))
         c4 = t.select(t.c4).order_by(t.c2).collect().to_pandas()['c4']
         orig_c3 = t.select(t.c3).order_by(t.c2).collect().to_pandas()['c3']
@@ -451,16 +455,14 @@ class TestSnapshot:
         s1, s2, s3, s4 = pxt.get_table(p('s1')), pxt.get_table(p('s2')), pxt.get_table(p('s3')), pxt.get_table(p('s4'))
         validate(t, v, s1, s2, s3, s4)
 
-    def test_drop_column_in_view_predicate(
-        self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester
-    ) -> None:
-        p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'c1': pxt.Int, 'c2': pxt.Int})
-        _ = pxt.create_snapshot(p('base_snap'), t, additional_columns={'s1': pxt.Int})
-        v1 = pxt.create_view(p('view1'), t.where(t.c1 % 2 == 0), additional_columns={'vc1': pxt.Int})  # uses c1
+    def test_drop_column_in_view_predicate(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None, 'c2': pxt.Int | None})
+        _ = pxt.create_snapshot(p('base_snap'), t, additional_columns={'s1': pxt.Int | None})
+        v1 = pxt.create_view(p('view1'), t.where(t.c1 % 2 == 0), additional_columns={'vc1': pxt.Int | None})  # uses c1
         v1s = pxt.create_snapshot(p('v1_snap'), v1, additional_columns={'v1s1': v1.c2 + v1.vc1})  # snapshot uses c2
         v2 = pxt.create_view(
-            p('view2'), v1.where((v1.c2 + v1.vc1) % 2 == 0), additional_columns={'vc2': pxt.Int}
+            p('view2'), v1.where((v1.c2 + v1.vc1) % 2 == 0), additional_columns={'vc2': pxt.Int | None}
         )  # uses c2
         v2s = pxt.create_snapshot(p('v2_snap'), v2, additional_columns={'v2s1': v2.c1 + v2.vc2})  # snapshot uses c1
 
@@ -474,7 +476,7 @@ class TestSnapshot:
             match="Cannot drop column 'c1' because the following views depend on it",
         ) as e:
             t.drop_column('c1')
-        assert 'view: view1, predicate: c1 % 2 == 0' in str(e.value).lower()
+        assert 'view1, predicate: c1 % 2 == 0' in str(e.value).lower()
         assert 'v2_snap' not in str(e.value).lower()  # v2_snap uses c1
         assert 'view_snap1' not in str(e.value).lower()
 
@@ -484,7 +486,7 @@ class TestSnapshot:
             match="Cannot drop column 'c2' because the following views depend on it",
         ) as e:
             t.drop_column('c2')
-        assert 'view: view2, predicate: (c2 + vc1) % 2 == 0' in str(e.value).lower()
+        assert 'view2, predicate: (c2 + vc1) % 2 == 0' in str(e.value).lower()
         assert 'v1_snap' not in str(e.value).lower()  # v1_snap uses c2
         assert 'view_snap2' not in str(e.value).lower()
 
@@ -494,30 +496,30 @@ class TestSnapshot:
             match="Cannot drop column 'vc1' because the following views depend on it",
         ) as e:
             v1.drop_column('vc1')
-        assert 'view: view2, predicate: (c2 + vc1) % 2 == 0' in str(e.value).lower()
+        assert 'view2, predicate: (c2 + vc1) % 2 == 0' in str(e.value).lower()
         assert 'v2_snap' not in str(e.value).lower()
         assert 'view_snap1' not in str(e.value).lower()
         assert 'view_snap2' not in str(e.value).lower()
 
-    def test_unstored_snapshot(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+    def test_unstored_snapshot(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         """Tests that a snapshot of a table with unstored columns is queryable."""
-        p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'c1': pxt.Int})
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None})
         t.add_computed_column(c2=(t.c1 + 1), stored=False)
         t.insert({'c1': i} for i in range(100))
         snap = pxt.create_snapshot(p('snap'), t)
         reload_tester.run_query(snap.order_by(t.c1))
         reload_tester.run_reload_test()
 
-    def test_rename_column(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'c1': pxt.Int, 'c2': pxt.Int})
+    def test_rename_column(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None, 'c2': pxt.Int | None})
 
-        s1 = pxt.create_snapshot(p('base_snap'), t, additional_columns={'s1': pxt.Int})
-        v1 = pxt.create_view(p('view_snap'), s1, additional_columns={'v1': pxt.Int})
+        s1 = pxt.create_snapshot(p('base_snap'), t, additional_columns={'s1': pxt.Int | None})
+        v1 = pxt.create_view(p('view_snap'), s1, additional_columns={'v1': pxt.Int | None})
 
-        v2 = pxt.create_view(p('view'), t, additional_columns={'v2': pxt.Int})
-        s2 = pxt.create_snapshot(p('snap_view'), v2, additional_columns={'s2': pxt.Int})
+        v2 = pxt.create_view(p('view'), t, additional_columns={'v2': pxt.Int | None})
+        s2 = pxt.create_snapshot(p('snap_view'), v2, additional_columns={'s2': pxt.Int | None})
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Cannot rename columns of a snapshot\.'):
             s1.rename_column('s1', 'new_s1')
@@ -537,11 +539,11 @@ class TestSnapshot:
     # TODO: Currently, comments and custom_metadata are not persisted for pure snapshots.
     # Should we consider snapshots as non-pure when these are provided?
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_snapshot_comment(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
-        p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'c': pxt.Int})
+    def test_snapshot_comment(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'c': pxt.Int | None})
         s1 = pxt.create_snapshot(
-            p('tbl_snapshot'), t, additional_columns={'d': pxt.Int}, comment='This is a test snapshot.'
+            p('tbl_snapshot'), t, additional_columns={'d': pxt.Int | None}, comment='This is a test snapshot.'
         )
         assert s1.get_metadata()['comment'] == 'This is a test snapshot.'
 
@@ -554,17 +556,17 @@ class TestSnapshot:
             pxt.create_snapshot(
                 p('tbl_snapshot_invalid'),
                 t,
-                additional_columns={'d': pxt.Int},
+                additional_columns={'d': pxt.Int | None},
                 comment={'comment': 'This is a test snapshot.'},  # type: ignore[arg-type]
             )
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_snapshot_custom_metadata(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
-        p = make_catalog_path
+    def test_snapshot_custom_metadata(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
+        p = db_root.make_catalog_path
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
-        t = pxt.create_table(p('tbl'), {'c': pxt.Int})
+        t = pxt.create_table(p('tbl'), {'c': pxt.Int | None})
         s1 = pxt.create_snapshot(
-            p('tbl_snapshot'), t, additional_columns={'d': pxt.Int}, custom_metadata=custom_metadata
+            p('tbl_snapshot'), t, additional_columns={'d': pxt.Int | None}, custom_metadata=custom_metadata
         )
         assert s1.get_metadata()['custom_metadata'] == custom_metadata
 
@@ -575,18 +577,16 @@ class TestSnapshot:
         # check that invalid JSON user metadata are rejected
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT):
             pxt.create_snapshot(
-                p('tbl_snapshot_invalid'), t, additional_columns={'d': pxt.Int}, custom_metadata={'key': set}
+                p('tbl_snapshot_invalid'), t, additional_columns={'d': pxt.Int | None}, custom_metadata={'key': set}
             )
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_snapshot_column_custom_metadata(
-        self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool
-    ) -> None:
-        p = make_catalog_path
+    def test_snapshot_column_custom_metadata(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
+        p = db_root.make_catalog_path
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
-        t = pxt.create_table(p('tbl'), {'c': pxt.Int})
+        t = pxt.create_table(p('tbl'), {'c': pxt.Int | None})
         s = pxt.create_snapshot(
-            p('tbl_snapshot'), t, additional_columns={'d': {'type': pxt.Int, 'custom_metadata': custom_metadata}}
+            p('tbl_snapshot'), t, additional_columns={'d': {'type': pxt.Int | None, 'custom_metadata': custom_metadata}}
         )
         assert s.get_metadata()['columns']['d']['custom_metadata'] == custom_metadata
 
@@ -599,15 +599,17 @@ class TestSnapshot:
             pxt.create_snapshot(
                 p('tbl_snapshot_invalid'),
                 t,
-                additional_columns={'d': {'type': pxt.Int, 'custom_metadata': {'key': set}}},
+                additional_columns={'d': {'type': pxt.Int | None, 'custom_metadata': {'key': set}}},
             )
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_snapshot_column_comment(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
-        p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'c': pxt.Int})
+    def test_snapshot_column_comment(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'c': pxt.Int | None})
         s = pxt.create_snapshot(
-            p('tbl_snapshot'), t, additional_columns={'d': {'type': pxt.Int, 'comment': 'This is a test column.'}}
+            p('tbl_snapshot'),
+            t,
+            additional_columns={'d': {'type': pxt.Int | None, 'comment': 'This is a test column.'}},
         )
         assert s.get_metadata()['columns']['d']['comment'] == 'This is a test column.'
 
@@ -620,16 +622,16 @@ class TestSnapshot:
             pxt.create_snapshot(
                 p('tbl_snapshot_invalid'),
                 t,
-                additional_columns={'d': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
+                additional_columns={'d': {'type': pxt.Int | None, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
 
     @pytest.mark.parametrize('load_order', ['base_first', 'snapshot_first'])
-    def test_load_snapshot_with_dropped_cols(self, make_catalog_path: Callable[[str], str], load_order: str) -> None:
+    def test_load_snapshot_with_dropped_cols(self, db_root: DatabaseRoot, load_order: str) -> None:
         """
         Create a table and take a snapshot. Then drop some columns.
         Validate that after loading both (in either order) everything works as intended.
         """
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         tbl = create_test_tbl(p('test'))
         pxt.create_snapshot(p('snap'), tbl)
 

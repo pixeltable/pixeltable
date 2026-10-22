@@ -2,10 +2,21 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
+from pixeltable.runtime import get_runtime, reset_runtime
 
 from ..utils import rerun_on_network_error, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
+
+
+class TestFalClient:
+    def test_client_closed_on_reset(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('fal_client')
+        monkeypatch.setenv('FAL_API_KEY', 'test-key')
+        # no public accessor exposes the SDK's httpx client, so this reads the private attribute that holds it
+        http_client = get_runtime().get_client('fal')._client
+        reset_runtime()
+        assert http_client.is_closed
 
 
 @pytest.mark.very_expensive
@@ -17,7 +28,7 @@ class TestFal:
         skip_test_if_no_client('fal')
         from pixeltable.functions.fal import run
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         t.add_computed_column(output=run(input={'prompt': t.prompt}, app='fal-ai/flux/schnell'))
         validate_update_status(t.insert(prompt='A friendly dinosaur playing tennis in a cornfield'), 1)
         results = t.collect()
@@ -30,9 +41,9 @@ class TestFal:
         skip_test_if_no_client('fal')
         from pixeltable.functions.fal import run
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         t.add_computed_column(response=run(input={'prompt': t.prompt}, app='fal-ai/flux/schnell'))
-        t.add_computed_column(image=t.response['images'][0]['url'].astype(pxt.Image))
+        t.add_computed_column(image=t.response['images'][0]['url'].astype(pxt.Image | None))
         validate_update_status(t.insert(prompt='A serene mountain landscape at sunset'), 1)
         results = t.collect()
         img = results['image'][0]
@@ -44,13 +55,13 @@ class TestFal:
         skip_test_if_no_client('fal')
         from pixeltable.functions.fal import run
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         t.add_computed_column(
             response=run(
                 input={'prompt': t.prompt, 'image_size': 'square_hd', 'num_inference_steps': 25}, app='fal-ai/fast-sdxl'
             )
         )
-        t.add_computed_column(image=t.response['images'][0]['url'].astype(pxt.Image))
+        t.add_computed_column(image=t.response['images'][0]['url'].astype(pxt.Image | None))
         validate_update_status(t.insert(prompt='A futuristic cityscape with flying cars'), 1)
         results = t.collect()
         img = results['image'][0]
@@ -63,7 +74,7 @@ class TestFal:
         skip_test_if_no_client('fal')
         from pixeltable.functions.fal import run
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         t.add_computed_column(response=run(input={'prompt': t.prompt, 'num_images': 2}, app='fal-ai/flux/schnell'))
         validate_update_status(t.insert(prompt='An abstract painting with vibrant colors'), 1)
         results = t.collect()

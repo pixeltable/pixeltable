@@ -47,6 +47,7 @@
             <outline text="method|pixeltable.Table.add_column" />
             <outline text="method|pixeltable.Table.add_columns" />
             <outline text="method|pixeltable.Table.add_computed_column" />
+            <outline text="method|pixeltable.Table.alter_computed_column" />
             <outline text="method|pixeltable.Table.drop_column" />
             <outline text="method|pixeltable.Table.rename_column" />
             <outline text="method|pixeltable.Table.recompute_columns" />
@@ -55,6 +56,7 @@
             <outline text="method|pixeltable.Table.batch_update" />
             <outline text="method|pixeltable.Table.delete" />
             <outline text="method|pixeltable.Table.compute" />
+            <outline text="method|pixeltable.Table.add_btree_index" />
             <outline text="method|pixeltable.Table.add_embedding_index" />
             <outline text="method|pixeltable.Table.drop_embedding_index" />
             <outline text="method|pixeltable.Table.drop_index" />
@@ -131,13 +133,18 @@
           </outline>
 
           <outline text="class|pixeltable.ColumnMetadata" />
+          <outline text="class|pixeltable.ConfigVar">
+            <outline text="method|pixeltable.ConfigVar.value" />
+          </outline>
           <outline text="class|pixeltable.DirContents" />
           <outline text="class|pixeltable.DirectoryNode" />
           <outline text="class|pixeltable.IndexMetadata" />
+          <outline text="class|pixeltable.Secret" />
           <outline text="class|pixeltable.TableMetadata" />
           <outline text="class|pixeltable.TableNode" />
           <outline text="class|pixeltable.TreeNode" />
           <outline text="class|pixeltable.UpdateStatus" />
+          <outline text="class|pixeltable.URI" />
           <outline text="class|pixeltable.VersionMetadata" />
         </outline>
         <outline text="class|pixeltable.types.ColumnSpec" />
@@ -469,9 +476,6 @@
         <outline text="module|pixeltable.functions.replicate">
           <outline text="udf|pixeltable.functions.replicate.run" />
         </outline>
-        <outline text="module|pixeltable.functions.reve">
-          <outline text="udf|pixeltable.functions.reve.create" />
-        </outline>
         <outline text="module|pixeltable.functions.runwayml">
           <outline text="udf|pixeltable.functions.runwayml.text_to_image" />
           <outline text="udf|pixeltable.functions.runwayml.text_to_video" />
@@ -506,6 +510,9 @@
           <outline text="udf|pixeltable.functions.yolox.yolox" />
           <outline text="udf|pixeltable.functions.yolox.yolo_to_coco" />
         </outline>
+        <outline text="class|pixeltable.functions.whisper.WhisperSegment" />
+        <outline text="class|pixeltable.functions.whisper.WhisperTranscription" />
+        <outline text="class|pixeltable.functions.whisper.WhisperWord" />
       </outline>
 
       <!-- Serving group -->
@@ -551,6 +558,16 @@
           <outline text="func|pixeltable.telemetry.span_end" />
           <outline text="func|pixeltable.telemetry.span" />
           <outline text="func|pixeltable.telemetry.emit" />
+          <outline text="func|pixeltable.telemetry.spanned" />
+          <outline text="func|pixeltable.telemetry.func_span" />
+          <outline text="func|pixeltable.telemetry.counter" />
+          <outline text="func|pixeltable.telemetry.histogram" />
+          <outline text="class|pixeltable.telemetry.Counter">
+            <outline text="method|pixeltable.telemetry.Counter.add" />
+          </outline>
+          <outline text="class|pixeltable.telemetry.Histogram">
+            <outline text="method|pixeltable.telemetry.Histogram.record" />
+          </outline>
         </outline>
         <outline text="module|opentelemetry.instrumentation.pixeltable">
           <outline text="func|opentelemetry.instrumentation.pixeltable.init" />

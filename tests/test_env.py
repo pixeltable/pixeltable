@@ -1,33 +1,52 @@
+import asyncio
+import os
+import subprocess
+import sys
+import uuid
+from pathlib import Path
 from typing import Iterator
 
+import numpy as np
+import PIL.Image
+import pydantic
 import pytest
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs
+from pixeltable import env, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.runtime import reset_runtime
+from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.local_store import LocalStore, TempStore
 
-from .utils import pxt_raises, skip_test_if_not_local
+from .utils import aux_db_name, pxt_raises, skip_test_if_not_local
 
-pytestmark = pytest.mark.local('exercises process-global Env/Config and runtime reset')
+pytestmark = pytest.mark.db_roots('local', reason='exercises process-global Env/Config and runtime reset')
 
 
 def _reset_env(reinit: bool, db_name: str | None) -> None:
-    """Reset the environment for testing. db_name=None restores the default test database."""
+    """Reset the environment for testing. db_name=None keeps whichever database is configured."""
     reset_runtime()
-    # Reload configs
-    config_overrides = {} if db_name is None else {'pixeltable.db': db_name}
-    Config.init(config_overrides=config_overrides, reinit=True)
+    if db_name is not None:
+        os.environ['PIXELTABLE_DB'] = db_name
+    Config.init(reinit=True)
     Env._init_env(reinit_db=reinit)
     FileCache.init()
 
 
 @pytest.fixture(autouse=True)
 def restore_env() -> Iterator[None]:
-    """Put the process back on its configured database once the test is done."""
+    """Put the process back on its configured database once the test is done.
+
+    PIXELTABLE_DB is how the suite gives each worker its own database, so the value it had on entry is
+    what has to come back; dropping it would move every later test to the default database.
+    """
+    configured_db = os.environ.get('PIXELTABLE_DB')
     yield
+    if configured_db is None:
+        os.environ.pop('PIXELTABLE_DB', None)
+    else:
+        os.environ['PIXELTABLE_DB'] = configured_db
     _reset_env(reinit=False, db_name=None)
 
 
@@ -38,7 +57,7 @@ class TestEnvReset:
         """Test basic env clear functionality."""
         skip_test_if_not_local('Env reset tests require a local (file-backed) Pixeltable database')
         # Set environment
-        dbname = 'test_basic_db'
+        dbname = aux_db_name('basic')
         _reset_env(reinit=True, db_name=dbname)
 
         env1 = Env.get()
@@ -46,7 +65,7 @@ class TestEnvReset:
         assert env1._db_name == dbname
 
         # Create a simple table
-        t = pxt.create_table('test_table', {'col1': pxt.String})
+        t = pxt.create_table('test_table', {'col1': pxt.String | None})
         t.insert([{'col1': 'test_data'}])
         assert t.count() == 1
 
@@ -63,13 +82,13 @@ class TestEnvReset:
     def test_switch_environments(self, uses_db: None) -> None:
         """Test switching between two environments."""
         skip_test_if_not_local('Env reset tests require a local (file-backed) Pixeltable database')
-        dbname1 = 'test_switch_environments_db1'
-        dbname2 = 'test_switch_environments_db2'
+        dbname1 = aux_db_name('switch1')
+        dbname2 = aux_db_name('switch2')
 
         # Environment 1
         _reset_env(reinit=True, db_name=dbname1)
 
-        t1 = pxt.create_table('table1', {'name': pxt.String})
+        t1 = pxt.create_table('table1', {'name': pxt.String | None})
         t1.insert([{'name': 'env1_data'}])
 
         # Switch to Environment 2
@@ -79,7 +98,7 @@ class TestEnvReset:
         assert env2._db_name == dbname2
 
         # Create different table in env2
-        t2 = pxt.create_table('table2', {'value': pxt.Int})
+        t2 = pxt.create_table('table2', {'value': pxt.Int | None})
         t2.insert([{'value': 42}])
 
         # Verify table1 doesn't exist in env2
@@ -103,7 +122,7 @@ class TestEnvReset:
     def test_metadata_persistence(self, uses_db: None) -> None:
         """Test that metadata persists across environment switches."""
         skip_test_if_not_local('Env reset tests require a local (file-backed) Pixeltable database')
-        metadata_db = 'test_metadata_persistence_db'
+        metadata_db = aux_db_name('metadata')
         # Environment 1 setup
         _reset_env(reinit=True, db_name=metadata_db)
 
@@ -112,9 +131,11 @@ class TestEnvReset:
         pxt.create_dir('analytics/reports')
 
         # Create tables with different features
-        t1 = pxt.create_table('users', {'user_id': pxt.Int, 'username': pxt.String, 'active': pxt.Bool})
+        t1 = pxt.create_table(
+            'users', {'user_id': pxt.Int | None, 'username': pxt.String | None, 'active': pxt.Bool | None}
+        )
 
-        t2 = pxt.create_table('analytics/reports/sales', {'sale_id': pxt.Int, 'amount': pxt.Float})
+        t2 = pxt.create_table('analytics/reports/sales', {'sale_id': pxt.Int | None, 'amount': pxt.Float | None})
 
         # Add computed column
         t2.add_computed_column(amount_doubled=t2.amount * 2)
@@ -155,28 +176,163 @@ class TestEnvReset:
         assert result[0]['amount_doubled'] == 300.0
 
 
-class TestApiKey:
-    def test_require_api_key(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv('PIXELTABLE_API_KEY', 'sk-test')
-        assert Env.get().require_api_key() == 'sk-test'
-        assert Env.get().require_api_key('create a database') == 'sk-test'
+class TestTmpDir:
+    def test_shared_home(self, uses_db: None) -> None:
+        """A process that starts on a shared home removes only the tmp files of processes that have exited."""
+        tmp_dir = Env.get().tmp_dir
+        in_use = TempStore.create_path(extension='.txt')
+        in_use.write_text('in use')
+        # no process can have this pid: it is above the Linux and macOS limits, and Windows pids are multiples of 4.
+        # (An exited child's pid won't do: on Windows, its process stays listed while a Popen holds its handle.)
+        stale = tmp_dir / str(2**31 - 1) / 'stale.txt'
+        stale.parent.mkdir()
+        stale.write_text('stale')
+        legacy = tmp_dir / f'{uuid.uuid4()}.txt'  # the layout before per-process directories
+        legacy.write_text('legacy')
 
-        monkeypatch.delenv('PIXELTABLE_API_KEY', raising=False)
-        monkeypatch.setattr(Config, 'get_string_value', lambda self, key, section='pixeltable': None)
-        with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='A Pixeltable API key is required\\. Set it with'):
-            Env.get().require_api_key()
-        with pxt_raises(
-            excs.ErrorCode.MISSING_CREDENTIALS, match='API key is required to create a database\\. Set it with'
-        ):
-            Env.get().require_api_key('create a database')
+        subprocess.run((sys.executable, '-c', 'import pixeltable as pxt\npxt.init()'), check=True)
+
+        assert in_use.read_text() == 'in use'
+        assert not stale.parent.exists()
+        assert not legacy.exists()
+
+    def test_insert_other_process_tmp_file(self, uses_db: None) -> None:
+        """A tmp file that another process wrote is persisted to the media dir, not stored by reference."""
+        src = Env.get().tmp_dir / str(2**31 - 1) / 'img.png'
+        src.parent.mkdir()
+        PIL.Image.new('RGB', (8, 8)).save(src)
+        t = pxt.create_table('tmp_files', {'img': pxt.Image})
+        t.insert([{'img': str(src)}])
+        path = LocalStore.file_url_to_path(t.select(url=t.img.fileurl).collect()[0]['url'])
+        assert path is not None and path.is_relative_to(Env.get().media_dir), path
+
+
+class TestHostedMediaDefault:
+    def test_home_bucket_default(self, uses_db: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """On a hosted db's pod, media that has no configured destination goes to the db's home bucket."""
+        monkeypatch.delenv('PIXELTABLE_INPUT_MEDIA_DEST', raising=False)
+        monkeypatch.delenv('PIXELTABLE_OUTPUT_MEDIA_DEST', raising=False)
+
+        # no hosted-db identity: the defaults stay as configured (here: unset, ie. the local media dir)
+        monkeypatch.delenv('PXTCLOUD_ORG', raising=False)
+        monkeypatch.delenv('PXTCLOUD_DB', raising=False)
+        _reset_env(reinit=False, db_name=None)
+        assert Env.get().hosted_db() is None
+        assert Env.get().default_input_media_dest is None
+        assert Env.get().default_output_media_dest is None
+
+        # identity present: both defaults are the home bucket
+        monkeypatch.setenv('PXTCLOUD_ORG', 'org1')
+        monkeypatch.setenv('PXTCLOUD_DB', 'db1')
+        _reset_env(reinit=False, db_name=None)
+        assert Env.get().hosted_db() == ('org1', 'db1')
+        assert Env.get().default_input_media_dest == 'pxt://org1:db1/buckets/home'
+        assert Env.get().default_output_media_dest == 'pxt://org1:db1/buckets/home'
+
+        # a user-configured default wins over the home bucket, per setting
+        monkeypatch.setenv('PIXELTABLE_OUTPUT_MEDIA_DEST', 's3://user-bucket/prefix')
+        _reset_env(reinit=False, db_name=None)
+        assert Env.get().default_input_media_dest == 'pxt://org1:db1/buckets/home'
+        assert Env.get().default_output_media_dest == 's3://user-bucket/prefix'
+        monkeypatch.delenv('PIXELTABLE_OUTPUT_MEDIA_DEST')
+
+        # so does the database's own entry in the project config
+        project_root = Config.get().project_root
+        project = tmp_path / 'project'
+        project.mkdir()
+        (project / 'pixeltable.toml').write_text(
+            "[[pixeltable.database]]\nname = 'pxt://org1:db1'\ndb_input_media_dest = 's3://entry-bucket/input/'\n"
+        )
+        reset_runtime()
+        Config.init(reinit=True, project_root=project)
+        Env._init_env(reinit_db=False)
+        assert Env.get().default_input_media_dest == 's3://entry-bucket/input/'
+        assert Env.get().default_output_media_dest == 'pxt://org1:db1/buckets/home'
+        Config.init(reinit=True, project_root=project_root)
+        _reset_env(reinit=False, db_name=None)
+
+    def test_pxtfs_media_dest_warns(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A media destination configured in the pxtfs:// spelling warns, at the line that set up Pixeltable, and
+        still applies. The pxt:// spelling, the home-bucket default and a daemon do not warn."""
+        monkeypatch.delenv('PIXELTABLE_INPUT_MEDIA_DEST', raising=False)
+        monkeypatch.setenv('PXTCLOUD_ORG', 'org1')
+        monkeypatch.setenv('PXTCLOUD_DB', 'db1')
+        monkeypatch.setenv('PIXELTABLE_OUTPUT_MEDIA_DEST', 'pxtfs://org1:db1/home/out')
+        with pytest.warns(excs.PixeltableDeprecationWarning) as record:
+            _reset_env(reinit=False, db_name=None)
+        # the record also holds unrelated warnings raised in the block, such as a ResourceWarning when GC collects a
+        # socket an earlier test on this worker left open
+        deprecations = [w for w in record if issubclass(w.category, excs.PixeltableDeprecationWarning)]
+        assert [str(w.message) for w in deprecations] == [
+            "output_media_dest 'pxtfs://org1:db1/home/out' uses the deprecated pxtfs:// spelling; write "
+            "'pxt://org1:db1/buckets/home/out' instead. Values already stored as pxtfs:// keep reading."
+        ]
+        assert deprecations[0].filename == __file__
+        assert Env.get().default_output_media_dest == 'pxtfs://org1:db1/home/out'
+        assert Env.get().default_input_media_dest == 'pxt://org1:db1/buckets/home'
+
+        # the suite turns a Pixeltable warning into an error, so each of these would raise if it warned
+        monkeypatch.setenv('PIXELTABLE_PROXY_DAEMON', '1')
+        _reset_env(reinit=False, db_name=None)
+        monkeypatch.delenv('PIXELTABLE_PROXY_DAEMON')
+        monkeypatch.setenv('PIXELTABLE_OUTPUT_MEDIA_DEST', 'pxt://org1:db1/buckets/home/out')
+        _reset_env(reinit=False, db_name=None)
+        assert Env.get().default_output_media_dest == 'pxt://org1:db1/buckets/home/out'
+
+    def test_local_media_dest_in_project(self, uses_db: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """A local media destination inside the project directory is not allowed."""
+        media_dir = tmp_path / 'media'
+        for dest in (media_dir.as_uri(), str(media_dir)):
+            monkeypatch.setenv('PIXELTABLE_OUTPUT_MEDIA_DEST', dest)
+            reset_runtime()
+            Config.init(reinit=True, project_root=tmp_path)
+            with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='output_media_dest .* is inside the project'):
+                Env._init_env(reinit_db=False)
+
+
+class TestDbConnectStr:
+    def test_cockroachdb_rejected(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A CockroachDB connect string is rejected as an unsupported DBMS."""
+        monkeypatch.setenv(
+            'PIXELTABLE_DB_CONNECT_STR', 'cockroachdb+psycopg://root@localhost:26257/pixeltable?sslmode=disable'
+        )
+        reset_runtime()
+        Config.init(reinit=True)
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='Unsupported DBMS cockroachdb'):
+            Env._init_env(reinit_db=False)
+        monkeypatch.undo()
+        _reset_env(reinit=False, db_name=None)
+
+
+class TestPgdataDir:
+    def test_pgdata_dir(self, uses_db: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """The embedded server runs in PIXELTABLE_PGDATA unless a config override names another directory."""
+        skip_test_if_not_local()
+        pgdata = Path(os.environ['PIXELTABLE_PGDATA'])
+        assert Env.get().pgdata_dir == pgdata
+
+        # a config override wins over the environment
+        monkeypatch.setenv('PIXELTABLE_PGDATA', str(tmp_path / 'unused'))
+        reset_runtime()
+        Config.init({'pixeltable.pgdata': str(pgdata)}, reinit=True)
+        Env._init_env(reinit_db=False)
+        assert Env.get().pgdata_dir == pgdata
+
+        # an external database has no data directory
+        monkeypatch.setenv('PIXELTABLE_DB_CONNECT_STR', Env.get().db_url)
+        _reset_env(reinit=False, db_name=None)
+        assert Env.get().pgdata_dir is None
+        monkeypatch.undo()
+        _reset_env(reinit=False, db_name=None)
 
 
 class TestProxyEndpoint:
     @pytest.mark.parametrize(
         ('cloud_host', 'expected'),
         [
-            (None, ('acme-main.pxt.run', 9000)),
-            ('dev.pxt.run', ('acme-main.dev.pxt.run', 9000)),
+            (None, ('acme-main.pxt.run', 443)),
+            ('dev.pxt.run', ('acme-main.dev.pxt.run', 443)),
+            ('pxt.run:9000', ('acme-main.pxt.run', 9000)),
             ('localhost:9443', ('acme-main.localhost', 9443)),
         ],
     )
@@ -197,5 +353,140 @@ class TestProxyEndpoint:
         self, cloud_host: str, error: str, init_env: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', cloud_host)
-        with pxt_raises(excs.ErrorCode.GENERIC_USER_ERROR, match=error):
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=error):
             Env.get().proxy_endpoint('acme', 'main')
+
+
+class _TestClient:
+    """Stands in for an async SDK client, recording how it was closed."""
+
+    closes: int
+    loop_was_open: bool | None  # whether the loop was still usable when close() ran
+
+    def __init__(self) -> None:
+        self.closes = 0
+        self.loop_was_open = None
+
+    async def call(self) -> None:
+        """Stands in for an API request."""
+        await asyncio.sleep(0)
+
+    async def close(self) -> None:
+        self.closes += 1
+        self.loop_was_open = not asyncio.get_running_loop().is_closed()
+
+
+# every client the factory below hands out; the ones created on another thread are reachable nowhere else
+_test_clients: list[_TestClient] = []
+
+
+@env.register_client('test_sdk', credential_param=None)
+def _() -> _TestClient:
+    client = _TestClient()
+    _test_clients.append(client)
+    return client
+
+
+class _ContextManagerClient:
+    """Stands in for an SDK client that has no close() and releases its HTTP clients on context manager exit."""
+
+    aexits: int
+    exits: int
+    aexit_error: Exception | None  # raised by __aexit__(), if set
+
+    def __init__(self) -> None:
+        self.aexits = 0
+        self.exits = 0
+        self.aexit_error = None
+
+    async def __aexit__(self, *args: object) -> None:
+        self.aexits += 1
+        if self.aexit_error is not None:
+            raise self.aexit_error
+
+    def __exit__(self, *args: object) -> None:
+        self.exits += 1
+
+
+@env.register_client('test_cm_sdk', credential_param=None)
+def _() -> _ContextManagerClient:
+    return _ContextManagerClient()
+
+
+@pxt.udf
+async def uses_client(n: int) -> int:
+    """Fetches the registered client, the way the udfs of an API integration do."""
+    await get_runtime().get_client('test_sdk').call()
+    return n + 1
+
+
+@pxt.udf
+async def client_embedding(text: str) -> pxt.Array[(4,), np.float32]:
+    """An embedding udf backed by an API client, as the hosted embedding services are."""
+    await get_runtime().get_client('test_sdk').call()
+    return np.full(4, float(len(text)), dtype=np.float32)
+
+
+class TestApiClients:
+    """The clients of an API integration are closed on the event loop they were created on."""
+
+    def test_closed_on_reset(self, uses_db: None) -> None:
+        t = pxt.create_table('clients', {'n': pxt.Int, 's': pxt.String})
+        t.add_computed_column(m=uses_client(t.n))
+        t.add_embedding_index('s', embedding=client_embedding)
+        n_clients = len(_test_clients)
+
+        t.insert([{'n': 1, 's': 'chartreuse'}])  # the plan runs on the calling thread
+        # the embedding of the search string is computed on a thread the runtime keeps for coroutines
+        assert t.order_by(t.s.similarity(string='chartreuse'), asc=False).limit(1).collect()['n'] == [1]
+        clients = _test_clients[n_clients:]
+        assert len(clients) == 2, 'expected a client per thread'
+
+        reset_runtime()
+
+        assert all((c.closes, c.loop_was_open) == (1, True) for c in clients)
+
+    def test_closed_with_running_loop(self, uses_db: None) -> None:
+        t = pxt.create_table('clients', {'n': pxt.Int})
+        t.add_computed_column(m=uses_client(t.n))
+        n_clients = len(_test_clients)
+
+        async def insert_from_a_running_loop() -> None:  # noqa: RUF029
+            # a live loop on the calling thread, as in a notebook cell, makes execution fan out to a thread
+            # and event loop of its own
+            t.insert([{'n': 1}])
+
+        asyncio.run(insert_from_a_running_loop())
+
+        assert t.collect()['m'] == [2]
+        clients = _test_clients[n_clients:]
+        assert len(clients) == 1
+        assert (clients[0].closes, clients[0].loop_was_open) == (1, True)
+
+    @pytest.mark.parametrize('aexit_fails', [False, True])
+    def test_exited_without_close(self, init_env: None, aexit_fails: bool) -> None:
+        client = get_runtime().get_client('test_cm_sdk')
+        if aexit_fails:
+            client.aexit_error = RuntimeError('aexit failed')
+        reset_runtime()
+        # a failing __aexit__() doesn't keep __exit__() from running
+        assert (client.aexits, client.exits) == (1, 1)
+
+
+class TestRequirePackage:
+    def test_version_floor(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A release older than the floor is rejected; a pre-release of that floor is accepted.
+
+        pydantic is always installed, so this is Env's version check rather than one integration. The recorded
+        version is read once; a fresh Env reads it again.
+        """
+        _reset_env(reinit=False, db_name=None)
+        monkeypatch.setattr(pydantic, '__version__', '1.2.3')
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'is 1\.2\.3, but version >=2 is required'):
+            Env.get().require_package('pydantic', [2])
+
+        _reset_env(reinit=False, db_name=None)
+        monkeypatch.setattr(pydantic, '__version__', '2.0.0rc1')
+        Env.get().require_package('pydantic', [2])
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'is 2\.0\.0, but version >=3 is required'):
+            Env.get().require_package('pydantic', [3])

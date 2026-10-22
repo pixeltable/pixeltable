@@ -1,5 +1,6 @@
-import json
 from typing import Any
+
+from pixeltable_cli import models
 
 from ..parser import Parser
 from ..utils import display_path, get_request, print_aligned, validate_path_arg
@@ -35,17 +36,24 @@ def run(argv: list[str]) -> None:
     # An empty path is sent as no path at all, so the daemon lists the session working directory
     # (the catalog root when none is set).
     path = validate_path_arg(args.path) if args.path != '' else None
-    resp = get_request(
-        '/api/dirs',
-        params={'path': path, 'tree': args.tree or None, 'details': args.long or None, 'counts': args.counts or None},
+    resp = models.LsResponse.model_validate(
+        get_request(
+            '/api/dirs',
+            params={
+                'path': path,
+                'tree': args.tree or None,
+                'details': args.long or None,
+                'counts': args.counts or None,
+            },
+        )
     )
 
     if args.as_json:
-        print(json.dumps(resp, indent=2))
+        print(resp.model_dump_json(indent=2))
         return
 
     if args.tree:
-        _print_tree(resp['tree'])
+        _print_tree(resp.tree)
         return
 
     headers = ['path', 'kind']
@@ -58,14 +66,14 @@ def run(argv: list[str]) -> None:
         right_align.update({len(headers) - 3, len(headers) - 2})
 
     rows: list[list[str]] = []
-    for e in resp['entries']:
-        row = [display_path(e['path']), e['kind']]
+    for e in resp.entries:
+        row = [display_path(e.path), e.kind]
         if args.counts:
-            row.append('' if e.get('num_rows') is None else str(e['num_rows']))
+            row.append('' if e.num_rows is None else str(e.num_rows))
         if args.long:
-            row.append('' if e.get('num_cols') is None else str(e['num_cols']))
-            row.append('' if e.get('last_version') is None else str(e['last_version']))
-            flags = e.get('flags')
+            row.append('' if e.num_cols is None else str(e.num_cols))
+            row.append('' if e.last_version is None else str(e.last_version))
+            flags = e.flags
             row.append(flags if flags is not None and flags != '' else '-')
         rows.append(row)
 

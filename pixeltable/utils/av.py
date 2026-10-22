@@ -5,11 +5,10 @@ from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Iterator, NoReturn
+from typing import Any, Iterator, NoReturn, Self
 
 import av
 import PIL.Image
-from typing_extensions import Self
 
 import pixeltable as pxt
 from pixeltable.env import Env

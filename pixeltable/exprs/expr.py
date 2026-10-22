@@ -7,15 +7,15 @@ import inspect
 import json
 import sys
 import typing
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, NoReturn, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, NoReturn, Self, TypeVar, overload
 from uuid import UUID
 
 import numpy as np
 import sqlalchemy as sql
 from deprecated import deprecated
-from typing_extensions import Self, _AnnotatedAlias
+from typing_extensions import TypeForm
 
-from pixeltable import catalog, exceptions as excs, func, type_system as ts
+from pixeltable import catalog, exceptions as excs, type_system as ts
 
 from .data_row import DataRow
 from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes, LogicalOperator, StringOperator
@@ -24,6 +24,16 @@ if TYPE_CHECKING:
     from pixeltable import exprs, func
 
     from .expr_dict import ExprDict
+
+
+class ValidationError:
+    @abc.abstractmethod
+    def catalog_error_msg(self) -> str:
+        """The error to display if this invalid Expr was deserialized from a stored catalog."""
+
+    @abc.abstractmethod
+    def protocol_error_msg(self) -> str:
+        """The error to display if this invalid Expr was deserialized from a proxy server request."""
 
 
 class ExprScope:
@@ -141,7 +151,12 @@ class Expr(abc.ABC):
         return None
 
     @property
-    def validation_error(self) -> str | None:
+    def is_column_ref(self) -> bool:
+        """Whether this expression refers to a single column, whether by identity or by name."""
+        return False
+
+    @property
+    def validation_error(self) -> ValidationError | None:
         """
         Subclasses can override this to indicate that validation has failed after a catalog load.
 
@@ -430,9 +445,22 @@ class Expr(abc.ABC):
 
     def validate_storable(self, context: str) -> None:
         """Raise if this expr references a Function that cannot be persisted."""
+        from pixeltable import func
+
         from .function_call import FunctionCall
 
         for fn_call in self.subexprs(FunctionCall):
+            if isinstance(fn_call.fn, func.InvalidFunction):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{context} uses a UDF this process cannot resolve: {fn_call.fn.error_msg}',
+                )
+            if isinstance(fn_call.fn, func.QueryTemplateFunction) and not fn_call.fn.queries_tables:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{context} calls `{fn_call.fn.display_name}()`, which queries a model rather than a table. '
+                    'A query over a model can only be stored once the model is bound to a table.',
+                )
             if not fn_call.fn.is_storable:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -508,8 +536,16 @@ class Expr(abc.ABC):
         """
         Try to turn a literal object into an Expr.
         """
+        from pixeltable.config import ConfigVar
+
         from .inline_expr import InlineDict, InlineList
         from .literal import Literal
+
+        if isinstance(o, ConfigVar):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'ConfigVars cannot be used in an expression. Use a literal value instead.',
+            )
 
         # Try to create a literal. We need to check for InlineList/InlineDict
         # first, to prevent them from inappropriately being interpreted as JsonType
@@ -659,7 +695,7 @@ class Expr(abc.ABC):
         else:
             return InPredicate(self, value_set_literal=value_set)
 
-    def astype(self, new_type: ts.ColumnType | type | _AnnotatedAlias) -> 'exprs.TypeCast':
+    def astype(self, new_type: ts.ColumnType | TypeForm) -> 'exprs.TypeCast':
         """
         Return a new expression that casts this expression to a different type.
 
@@ -681,7 +717,7 @@ class Expr(abc.ABC):
         from pixeltable.exprs import TypeCast
 
         # Interpret the type argument the same way we would if given in a schema
-        col_type = ts.ColumnType.normalize_type(new_type, nullable_default=True, allow_builtin_types=False)
+        col_type = ts.ColumnType.normalize_type(new_type, allow_builtin_types=False)
         if not self.col_type.nullable:
             # This expression is non-nullable; we can prove that the output is non-nullable, regardless of
             # whether new_type is given as nullable.
@@ -695,9 +731,7 @@ class Expr(abc.ABC):
         version='0.5.17',
         category=excs.PixeltableDeprecationWarning,
     )
-    def apply(
-        self, fn: Callable, *, col_type: ts.ColumnType | type | _AnnotatedAlias | None = None
-    ) -> 'exprs.FunctionCall':
+    def apply(self, fn: Callable, *, col_type: ts.ColumnType | type | None = None) -> 'exprs.FunctionCall':
         if col_type is not None:
             col_type = ts.ColumnType.normalize_type(col_type)
         function = self._make_applicator_function(fn, col_type)
@@ -705,6 +739,8 @@ class Expr(abc.ABC):
         return function(self)
 
     def __dir__(self) -> list[str]:
+        from pixeltable import func
+
         attrs = ['isin', 'astype', 'apply']
         attrs += [f.name for f in func.FunctionRegistry.get().get_type_methods(self.col_type.type_enum)]
         return attrs
@@ -721,7 +757,7 @@ class Expr(abc.ABC):
         if self.col_type.is_array_type():
             if not isinstance(index, tuple):
                 index = (index,)
-            if any(not isinstance(i, (int, slice)) for i in index):
+            if any(not _is_valid_array_index(i) for i in index):
                 raise AttributeError(f'Invalid array indices: {index}')
             return ArraySlice(self, index)
         raise AttributeError(f'Type {self.col_type} is not subscriptable')
@@ -978,6 +1014,8 @@ class Expr(abc.ABC):
                 parameter.
             col_type: The pixeltable result type of the new `Function`.
         """
+        from pixeltable import func
+
         if col_type is not None:
             # col_type is specified explicitly
             fn_type = col_type
@@ -1047,6 +1085,15 @@ class Expr(abc.ABC):
         return func.make_function(
             decorated_fn=lambda x: fn(x), return_type=fn_type, param_types=[self.col_type], function_name=fn.__name__
         )
+
+
+def _is_valid_array_index(index: object) -> bool:
+    if isinstance(index, slice):
+        if not all(el is None or isinstance(el, int) for el in (index.start, index.stop, index.step)):
+            return False
+        # numpy and slice.indices() both reject a zero step; caught here so it does not reach either
+        return index.step != 0
+    return isinstance(index, int)
 
 
 # A dictionary of result types of various stdlib functions that are

@@ -58,7 +58,7 @@ export interface TableMetadata {
   name: string;
   path: string;
   columns: Record<string, ColumnInfo>;
-  indices: Record<string, IndexInfo>;
+  indexes: Record<string, IndexInfo>;
   is_replica: boolean;
   is_view: boolean;
   is_snapshot: boolean;

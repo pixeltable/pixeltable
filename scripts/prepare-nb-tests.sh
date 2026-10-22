@@ -20,6 +20,8 @@ if ! nvidia-smi > /dev/null 2>&1; then
 fi
 
 # Notebooks that are skipped unless --include-very-expensive is passed
+# Almost all notebooks that use external services should be on this list. OpenAI integration is a notable exception as
+# it tends to be more reliable than others.
 VERY_EXPENSIVE_NOTEBOOKS=(
     img-detection-vs-segmentation   # Resource intensive
     img-image-to-image              # Resource intensive
@@ -27,14 +29,22 @@ VERY_EXPENSIVE_NOTEBOOKS=(
     video-generate-ai               # High dollar cost
     working-with-gemini             # High dollar cost
     working-with-fal                # [PXT-1233] fal.ai integration failing on CI
-    working-with-reve
     working-with-together           # Poor reliability
     working-with-replicate          # Unreliable
+    working-with-anthropic
+    working-with-bedrock
+    working-with-deepseek
+    working-with-fireworks
+    working-with-groq
+    working-with-jina
+    working-with-mistralai
+    working-with-nebius
+    working-with-openrouter
+    working-with-voyageai
 )
 
 # Notebooks that are skipped unless --include-expensive is passed: all notebooks that use HF models.
 EXPENSIVE_NOTEBOOKS=(
-    audio-podcast-chapters
     audio-transcriptions
     computed-columns
     data-import-huggingface
@@ -94,6 +104,15 @@ fi
 
 TARGET_DIR="$1"
 shift
+
+if [[ $DO_PIP_INSTALL == true ]]; then
+    # TODO(PXT-1427): the instrumentation package is available in the source checkout, but is not yet published
+    # on PyPI.
+    SKIP_NOTEBOOKS+=(observability)
+else
+    # whisperx is not in the dev env; this notebook gets it only from its %pip cell
+    SKIP_NOTEBOOKS+=(audio-podcast-chapters)
+fi
 
 echo "Target path: $TARGET_DIR"
 echo "Notebook paths: $@"

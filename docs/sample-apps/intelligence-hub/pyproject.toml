@@ -2,9 +2,9 @@
 name = "intelligence-hub"
 version = "0.1.0"
 description = "Pixeltable Intelligence Hub -- a complete automation pipeline replacing n8n/Zapier"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-    "pixeltable>=0.6.0",
+    "pixeltable>=0.7.4",
     "openai>=1.0",
     "python-dotenv",
     "requests",

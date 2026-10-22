@@ -1,5 +1,7 @@
 import json
 
+from pixeltable_cli import models
+
 from ..parser import Parser
 from ..utils import get_request, validate_path_arg
 
@@ -17,8 +19,10 @@ def run(argv: list[str]) -> None:
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
-    resp = get_request('/api/tables/history', params={'path': validate_path_arg(args.path), 'n': args.n})
-    versions = resp['versions']
+    resp = models.HistoryResponse.model_validate(
+        get_request('/api/tables/history', params={'path': validate_path_arg(args.path), 'n': args.n})
+    )
+    versions = resp.versions
 
     if args.as_json:
         print(json.dumps(versions, indent=2))

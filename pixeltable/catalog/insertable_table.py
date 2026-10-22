@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast, overload
 from uuid import UUID
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, telemetry, type_system as ts
+from pixeltable import exceptions as excs, telemetry, telemetry_schemas, type_system as ts
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.filecache import FileCache
@@ -14,10 +14,11 @@ from .column import Column
 from .globals import IndexSpec, MediaValidation, OnErrorParam
 from .local_table import LocalTable
 from .table_path import TableVersionPath
-from .table_version import TableVersion, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, TableOp, TableOpsBuilder
+from .types import TableVersionMd
 from .update_status import UpdateStatus
+from .utils import create_table_version_md
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -45,30 +46,14 @@ class InsertableTable(LocalTable):
         tbl_id: UUID,
         name: str,
         columns: list[Column],
-        primary_key: list[str],
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         is_data_versioned: bool,
         additional_idxs: list[IndexSpec],
     ) -> tuple[TableVersionMd, list[TableOp]]:
         cls._verify_schema(columns)
-        column_names = [col.name for col in columns]
-        for pk_col in primary_key:
-            if pk_col not in column_names:
-                raise excs.NotFoundError(
-                    excs.ErrorCode.COLUMN_NOT_FOUND, f'Primary key column {pk_col!r} not found in table schema.'
-                )
-            col = columns[column_names.index(pk_col)]
-            if col.col_type.nullable:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Primary key column {pk_col!r} cannot be nullable. '
-                    f'Declare it as `Required` instead: `pxt.Required[pxt.{col.col_type._to_base_str()}]`',
-                )
-            col.is_pk = True
-
         cols_by_name = {col.name: col for col in columns if col.name is not None}
         assert all(isinstance(spec.indexed_column, str) for spec in additional_idxs)
         resolved_idxs = [
@@ -76,14 +61,14 @@ class InsertableTable(LocalTable):
             for spec in additional_idxs
         ]
 
-        md = TableVersion.create_initial_md(
+        md = create_table_version_md(
             tbl_id,
             name,
             columns,
             comment,
             custom_metadata,
             media_validation,
-            create_default_idxs=create_default_idxs,
+            has_default_idxs=has_default_idxs,
             view_md=None,
             is_data_versioned=is_data_versioned,
             additional_idxs=resolved_idxs,
@@ -122,6 +107,7 @@ class InsertableTable(LocalTable):
         **kwargs: Any,
     ) -> UpdateStatus: ...
 
+    @telemetry.spanned('pixeltable.insert', set_current=True)
     def insert(
         self,
         source: TableDataSource | None = None,
@@ -143,20 +129,20 @@ class InsertableTable(LocalTable):
             source = [kwargs]
             kwargs = None
 
-        with telemetry.span('pixeltable.insert', set_current=True):
-            with telemetry.span('pixeltable.data_source.prepare'):
-                data_source = TableDataConduit.create(
-                    source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
-                )
-                data_source.add_table_info(self)
-                data_source.prepare_for_insert_into_table()
-
-            return self._insert_table_data_source(
-                data_source=data_source,
-                fail_on_exception=fail_on_exception,
-                print_stats=print_stats,
-                return_rows=return_rows,
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        with telemetry.span('pixeltable.data_source.prepare'):
+            data_source = TableDataConduit.create(
+                source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
             )
+
+        status = self._insert_table_data_source(
+            data_source=data_source,
+            fail_on_exception=fail_on_exception,
+            print_stats=print_stats,
+            return_rows=return_rows,
+        )
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(status))
+        return status
 
     def _insert_table_data_source(
         self,
@@ -170,18 +156,22 @@ class InsertableTable(LocalTable):
 
         start_ts = time.perf_counter()
         status = pxt.UpdateStatus()
+        query = data_source.pxt_query if isinstance(data_source, QueryTableDataConduit) else None
         with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+            for_write=True,
+            write_tvps=[self._tbl_version_path],
+            read_tvps=query._from_clause.tvps if query is not None else None,
+            read_tbl_ids=query.referenced_tbl_ids() if query is not None else None,
+            lock_mutable_tree=True,
         ):
+            data_source.add_table_info(self)
+            data_source.prepare_for_insert_into_table()
             # in on_error='abort' mode the exec raises the internal ExprEvalError on the first failing cell;
             # convert it to a user-facing Error (on_error='ignore' records per-cell errors and never raises)
             try:
-                if isinstance(data_source, QueryTableDataConduit):
+                if query is not None:
                     status += self._tbl_version.get().insert(
-                        source=None,
-                        query=data_source.pxt_query,
-                        print_stats=print_stats,
-                        fail_on_exception=fail_on_exception,
+                        source=None, query=query, print_stats=print_stats, fail_on_exception=fail_on_exception
                     )
                 else:
                     for row_batch in data_source.valid_row_batch():
@@ -229,6 +219,7 @@ class InsertableTable(LocalTable):
         FileCache.get().emit_eviction_warnings()
         return status
 
+    @telemetry.spanned('pixeltable.delete', set_current=True)
     def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:
         """Delete rows in this table.
 
@@ -245,10 +236,15 @@ class InsertableTable(LocalTable):
             >>> tbl.delete(tbl.a > 5)
         """
         self._validate_where(where)
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
-            return self._tbl_version.get().delete(where=where)
+            tv = self._tbl_version.get()
+            status = tv.delete(where=where)
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(status))
+            return status
 
     def _get_base_table(self) -> 'Table' | None:
         return None

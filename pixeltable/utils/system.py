@@ -1,6 +1,6 @@
 import builtins
 import logging
-import os
+import platform
 import sys
 
 import __main__
@@ -26,7 +26,7 @@ def set_file_descriptor_limit(preferred_limit: int) -> None:
     Note that there may be an OS-enforced upper bound on this limit, so this function may not always succeed in setting
     the preferred limit. It will log a warning and return normally in that case.
     """
-    if os.name == 'nt':
+    if platform.system() == 'Windows':
         _logger.info('Skipping FD limit adjustment for Windows')
         return
     import resource

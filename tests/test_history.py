@@ -1,10 +1,11 @@
 import datetime
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 import pytest
 
 import pixeltable as pxt
-from tests.utils import assert_version_metadata_eq, pxt_raises
+
+from .utils import DatabaseRoot, assert_version_metadata_eq, pxt_raises
 
 
 class TestHistory:
@@ -21,10 +22,8 @@ class TestHistory:
         print('============================================================')
 
     @pytest.mark.parametrize('variant', ['get_versions', 'history'])
-    def test_history(
-        self, variant: Literal['get_versions', 'history'], make_catalog_path: Callable[[str], str]
-    ) -> None:
-        p = make_catalog_path
+    def test_history(self, variant: Literal['get_versions', 'history'], db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
 
         def fn(tbl: pxt.Table, n: int | None = None) -> Any:
             return tbl.get_versions(n) if variant == 'get_versions' else tbl.history(n)
@@ -32,7 +31,7 @@ class TestHistory:
         t = pxt.create_table(
             p('test'),
             source=[{'c1': 1, 'c2': 'a'}, {'c1': 2, 'c2': 'b'}],
-            schema_overrides={'c1': pxt.Required[pxt.Int], 'c2': pxt.String},
+            schema_overrides={'c1': pxt.Int, 'c2': pxt.String | None},
             comment='some random table comment',
             primary_key=['c1'],
         )
@@ -59,7 +58,7 @@ class TestHistory:
 
         s = t.add_computed_column(c5=t.c1 + 20)
         self.pr_us(s, 'acc3')
-        s = t.add_columns({'c6': pxt.String, 'c7': pxt.Int, 'c8': pxt.Float})
+        s = t.add_columns({'c6': pxt.String | None, 'c7': pxt.Int | None, 'c8': pxt.Float | None})
         self.pr_us(s, 'ac1')
         s = t.insert(
             [
@@ -126,7 +125,7 @@ class TestHistory:
                 'user': None,
                 'change_type': 'schema',
                 'inserts': 0,
-                'updates': 2,
+                'updates': 0,
                 'deletes': 0,
                 'errors': 0,
                 'schema_change': 'Dropped: c4',
@@ -136,7 +135,7 @@ class TestHistory:
                 'user': None,
                 'change_type': 'schema',
                 'inserts': 0,
-                'updates': 2,
+                'updates': 0,
                 'deletes': 0,
                 'errors': 0,
                 'schema_change': 'Altered: c2 (renamed to c2_renamed)',
@@ -196,7 +195,7 @@ class TestHistory:
                 'user': None,
                 'change_type': 'schema',
                 'inserts': 0,
-                'updates': 3,
+                'updates': 0,
                 'deletes': 0,
                 'errors': 0,
                 'schema_change': 'Added: c6, c7, c8',

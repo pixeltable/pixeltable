@@ -3,8 +3,9 @@ from typing import Callable
 import pytest
 
 import pixeltable as pxt
+from pixeltable.env import Env
 
-from .utils import make_tbl, pxt_raises, reload_catalog
+from .utils import DatabaseRoot, make_tbl, pxt_raises, reload_catalog
 
 
 @pxt.udf
@@ -14,28 +15,43 @@ def _fail_on_neg(x: int) -> int:
     return x
 
 
+def _serve_as_hosted(monkeypatch: pytest.MonkeyPatch, hosted: bool) -> None:
+    """Make this process a hosted database's proxy daemon, whose catalog clients reach as pxt://<org>:<db>, or a
+    local process again."""
+    # Env loads PXTCLOUD_ORG and PXTCLOUD_DB into these fields; setting the variables instead would also send this
+    # process's media, and the deletes of every drop, to the database's home bucket, which needs Cloud credentials
+    env = Env.get()
+    monkeypatch.setattr(env, '_cloud_org', 'org1' if hosted else None)
+    monkeypatch.setattr(env, '_cloud_db', 'db1' if hosted else None)
+    if hosted:
+        monkeypatch.setenv('PIXELTABLE_PROXY_DAEMON', '1')
+    else:
+        monkeypatch.delenv('PIXELTABLE_PROXY_DAEMON', raising=False)
+    reload_catalog()
+
+
 class TestDirs:
-    def test_create(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_create(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         dirs = ['dir1', 'dir1/sub1', 'dir1/sub1/subsub1']
         for name in dirs:
             pxt.create_dir(p(name))
         # the created dirs are verified to exist at the expected paths by the get_dir_contents checks below
 
         # invalid names
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: 1dir'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*1dir'):
             pxt.create_dir(p('1dir'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: _dir1'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*_dir1'):
             pxt.create_dir(p('_dir1'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: dir 1'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*dir 1'):
             pxt.create_dir(p('dir 1'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: dir1..sub2'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*dir1..sub2'):
             pxt.create_dir(p('dir1..sub2'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: dir1.sub2.'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*dir1.sub2.'):
             pxt.create_dir(p('dir1.sub2.'))
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*dir1:sub2.'):
             pxt.create_dir(p('dir1:sub2.'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Versioned path not allowed here: .*dir1:120'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Versioned path not allowed here: .*dir1:120'):
             pxt.create_dir(p('dir1:120'))
 
         # existing dirs raise error by default
@@ -54,7 +70,7 @@ class TestDirs:
         with pxt_raises(pxt.ErrorCode.DIRECTORY_NOT_FOUND, match=r'does not exist. Create it first with:'):
             pxt.create_dir(p('dir2/sub2'))
         make_tbl(p('t2'))
-        with pxt_raises(pxt.ErrorCode.DIRECTORY_NOT_FOUND, match="Directory 't2' does not exist"):
+        with pxt_raises(pxt.ErrorCode.DIRECTORY_NOT_FOUND, match=r"Directory '.*t2' does not exist"):
             pxt.create_dir(p('t2/sub2'))
 
         # new client: force loading from store
@@ -76,8 +92,8 @@ class TestDirs:
         listing = pxt.get_dir_contents(p('dir1/sub1'), recursive=False)
         assert listing == {'dirs': [p('dir1/sub1/subsub1')], 'tables': []}
 
-    def test_get_dir_tree(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_get_dir_tree(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         for name in ['dir1', 'dir1/sub1', 'dir1/sub1/subsub1']:
             pxt.create_dir(p(name))
         t = make_tbl(p('dir1/t1'))
@@ -102,23 +118,22 @@ class TestDirs:
         t2 = {'name': 't2', 'path': 't2', 'kind': 'table', 'version': 0, 'error_count': 0, 'base': None}
         assert pxt.get_dir_tree(p('')) == [dir1, t2]
 
-    def test_get_dir_tree_error_count(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
-        t = pxt.create_table(p('errs'), {'x': pxt.Int})
+    def test_get_dir_tree_error_count(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('errs'), {'x': pxt.Int | None})
         t.add_computed_column(y=_fail_on_neg(t.x))
         t.insert([{'x': 1}, {'x': -1}, {'x': -2}, {'x': 3}], on_error='ignore')
 
-        # Two failing rows; pixeltable counts each error per affected column slot, so the reported
-        # count is 4 (= 2 rows x 2 slots: the computed column 'y' plus the row-level error slot).
+        # Two failing rows, one error in each
         tree = pxt.get_dir_tree(p(''))
         assert len(tree) == 1
         node = tree[0]
         assert node['kind'] == 'table'
-        assert node['error_count'] == 4
+        assert node['error_count'] == 2
 
-    def test_create_if_exists(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_create_if_exists(self, db_root: DatabaseRoot) -> None:
         """Test if_exists parameter of create_dir API"""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         dirs = ['dir1', 'dir1/sub1', 'dir1/sub1/subsub1']
         expected = [p(d) for d in dirs]
         id_before = {}
@@ -207,8 +222,8 @@ class TestDirs:
             pxt.drop_dir(p(dir_name), if_not_exists='invalid')  # type: ignore[arg-type]
         assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
 
-    def test_drop(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_drop(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         dirs = ['dir1', 'dir1/sub1', 'dir1/sub1/subsub1']
         for name in dirs:
             pxt.create_dir(p(name))
@@ -216,12 +231,12 @@ class TestDirs:
         make_tbl(p('dir1/t1'))
 
         # bad name
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: 1dir'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*1dir'):
             pxt.drop_dir(p('1dir'))
         # bad path
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: dir1..sub1'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*dir1..sub1'):
             pxt.drop_dir(p('dir1..sub1'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Versioned path not allowed here: .*dir1:120'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Versioned path not allowed here: .*dir1:120'):
             pxt.drop_dir(p('dir1:120'))
         # doesn't exist
         self._test_drop_if_not_exists(p, 'dir2')
@@ -241,14 +256,14 @@ class TestDirs:
         reload_catalog()
         assert pxt.list_dirs(p('dir1/sub1')) == []
 
-    def test_drop_force(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_drop_force(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         pxt.create_dir(p('dir1'))
         pxt.create_dir(p('dir2'))
         pxt.create_dir(p('dir1/subdir'))
         pxt.create_dir(p('dir1/subdir/subsub'))
 
-        t = pxt.create_table(p('dir1/subdir/tbl'), {'col': pxt.String})
+        t = pxt.create_table(p('dir1/subdir/tbl'), {'col': pxt.String | None})
         v = pxt.create_view(p('dir1/subdir/subsub/v1'), t)
         _ = pxt.create_view(p('dir1/v2'), t)
         _ = pxt.create_view(p('dir2/v3'), t)
@@ -261,8 +276,8 @@ class TestDirs:
         assert len(pxt.list_tables(p(''))) == 0
         assert len(pxt.list_dirs(p(''))) == 1
 
-    def test_move(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_move(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         pxt.create_dir(p('dir1'))
         pxt.create_dir(p('dir1/sub1'))
         make_tbl(p('dir1/sub1/t1'))
@@ -284,8 +299,34 @@ class TestDirs:
         reload_catalog()
         assert pxt.list_tables(p('dir2')) == [p('dir2/dir1/sub1/t2')]
 
-    def test_create_with_parents(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_case_insensitive_paths(self, db_root: DatabaseRoot) -> None:
+        """Directory and table paths fold, so a path resolves under any casing and the folded form is stored."""
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('MyDir'))
+        make_tbl(p('MyDir/MyTbl'))
+
+        assert pxt.list_dirs(p('')) == [p('mydir')]
+        assert pxt.list_tables(p('MYDIR')) == [p('mydir/mytbl')]
+        assert pxt.get_table(p('MyDir/MYTBL')) == pxt.get_table(p('mydir/mytbl'))
+
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"mydir' is an existing directory"):
+            pxt.create_dir(p('MYDIR'))
+
+        # a destination that differs only in case denotes the same path, so move() rejects it
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be identical'):
+            pxt.move(p('mydir'), p('MyDir'))
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be identical'):
+            pxt.move(p('mydir/mytbl'), p('MYDIR/MyTbl'))
+
+        pxt.move(p('MYDIR/MyTbl'), p('MyDir/Renamed'))
+        assert pxt.list_tables(p('mydir')) == [p('mydir/renamed')]
+
+        reload_catalog()
+        pxt.drop_dir(p('MYDIR'), force=True)
+        assert pxt.list_dirs(p('')) == []
+
+    def test_create_with_parents(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         all_dirs = ['dir1', 'dir1/dir2', 'dir1/dir2/dir3']
         pxt.create_dir(p('dir1/dir2/dir3'), parents=True)
         listing = pxt.list_dirs(p(''), recursive=True)
@@ -298,3 +339,155 @@ class TestDirs:
         listing = pxt.list_dirs(p(''), recursive=True)
         all_dirs.append('dir1/dir2/dir3/dir4')
         assert listing == [p(d) for d in all_dirs]
+
+    @pytest.mark.db_roots('local', 'proxy', reason="names the catalog root, which a cloud test's directory is not")
+    def test_buckets_not_reserved_locally(self, db_root: DatabaseRoot) -> None:
+        """A local catalog accepts a root entry named 'buckets', whether this process serves it or a local proxy
+        daemon does: only a hosted database reserves the name."""
+
+        def p(path: str) -> str:
+            return f'{db_root.base_uri}/{path}'.strip('/')
+
+        pxt.create_dir(p('dir1'))
+        t = make_tbl(p('dir1/t1'))
+        pxt.create_dir(p('buckets/sub1'), parents=True)
+        pxt.drop_dir(p('buckets'), force=True)
+        pxt.create_dir(p('buckets'))
+        pxt.create_dir(p('buckets'), if_exists='replace')
+        pxt.drop_dir(p('buckets'))
+        make_tbl(p('buckets'))
+        pxt.create_view(p('buckets'), t, if_exists='replace')
+        pxt.drop_table(p('buckets'))
+        pxt.move(p('dir1'), p('buckets'))
+        assert pxt.list_tables(p('Buckets')) == [p('buckets/t1')]
+
+    @pytest.mark.db_roots('local', reason='sets the proxy daemon flag on this process')
+    def test_buckets_not_reserved_by_the_daemon_flag(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A local proxy daemon sets PIXELTABLE_PROXY_DAEMON as a hosted one does, and accepts a root entry named
+        'buckets'; only a hosted database's identity reserves the name."""
+        monkeypatch.setenv('PIXELTABLE_PROXY_DAEMON', '1')
+        reload_catalog()
+        assert Env.get().is_proxy_daemon
+        assert Env.get().hosted_db() is None
+        pxt.create_dir('buckets')
+        pxt.create_dir('buckets', if_exists='replace')
+        assert pxt.list_dirs('') == ['buckets']
+
+        pxt.drop_dir('buckets')
+        _serve_as_hosted(monkeypatch, True)
+        assert Env.get().is_proxy_daemon
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match="'buckets' is reserved at the root of a hosted database"):
+            pxt.create_dir('buckets')
+
+    @pytest.mark.db_roots('local', reason="serves this process's catalog as a hosted one")
+    def test_buckets_reserved_when_hosted(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A hosted catalog refuses a new root entry named 'buckets' in any casing, since
+        pxt://<org>:<db>/buckets/... addresses its storage buckets."""
+        _serve_as_hosted(monkeypatch, True)
+        pxt.create_dir('dir1')
+        t = make_tbl('dir1/t1')
+        reserved = "'buckets' is reserved at the root of a hosted database"
+        for name in ('buckets', 'Buckets', 'BUCKETS'):
+            with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=reserved):
+                pxt.create_dir(name)
+            with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=reserved):
+                pxt.create_dir(f'{name}/sub1', parents=True)
+            with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=reserved):
+                make_tbl(name)
+            with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=reserved):
+                pxt.create_view(name, t)
+            with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=reserved):
+                pxt.move('dir1', name)
+            with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=reserved):
+                pxt.move('dir1/t1', name)
+        assert pxt.list_dirs('') == ['dir1']
+
+        # the name is reserved at the root only
+        pxt.create_dir('dir1/buckets')
+        pxt.move('dir1/t1', 'dir1/buckets/t1')
+        assert pxt.list_tables('dir1') == ['dir1/buckets/t1']
+
+    @pytest.mark.db_roots('local', reason='creates entries before this process serves its catalog as a hosted one')
+    def test_buckets_entries_from_before_the_reservation(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Root entries named 'buckets' that a hosted catalog already holds can still be listed, used, renamed and
+        dropped; only a new one is refused."""
+        reserved = "'buckets' is reserved at the root of a hosted database"
+        pxt.create_dir('buckets')
+        make_tbl('buckets/t1')
+        _serve_as_hosted(monkeypatch, True)
+        assert pxt.list_dirs('') == ['buckets']
+        assert pxt.list_tables('Buckets') == ['buckets/t1']
+        pxt.get_table('buckets/t1').insert(c1='x')
+        make_tbl('buckets/t2')
+        pxt.move('buckets/t2', 'buckets/t3')
+        assert sorted(pxt.list_tables('buckets')) == ['buckets/t1', 'buckets/t3']
+        pxt.create_dir('buckets', if_exists='ignore')
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='is an existing directory'):
+            pxt.create_dir('Buckets')
+        pxt.drop_dir('buckets', force=True)
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=reserved):
+            pxt.create_dir('buckets')
+
+        _serve_as_hosted(monkeypatch, False)
+        make_tbl('buckets')
+        _serve_as_hosted(monkeypatch, True)
+        assert pxt.get_table('buckets').count() == 0
+        pxt.move('buckets', 'renamed')
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=reserved):
+            pxt.move('renamed', 'Buckets')
+        assert pxt.list_tables('') == ['renamed']
+
+    @pytest.mark.db_roots('local', reason='creates entries before this process serves its catalog as a hosted one')
+    def test_buckets_entries_refuse_replacement(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A hosted catalog refuses if_exists='replace' and 'replace_force' on a root entry named 'buckets' it already
+        holds, and keeps that entry, since the replacement would be a new entry at the reserved name."""
+        reserved = "'buckets' is reserved at the root of a hosted database"
+        make_tbl('base')
+        make_tbl('buckets').insert(c1='x')
+        _serve_as_hosted(monkeypatch, True)
+        base = pxt.get_table('base')
+        tbl_id = pxt.get_table('buckets')._id
+        for if_exists in ('replace', 'replace_force'):
+            for name in ('buckets', 'Buckets'):
+                with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=reserved):
+                    pxt.create_table(name, {'x': pxt.Int}, if_exists=if_exists)
+                with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=reserved):
+                    pxt.create_view(name, base, if_exists=if_exists)
+                with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=reserved):
+                    pxt.create_snapshot(name, base, if_exists=if_exists)
+                with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=reserved):
+                    pxt.create_dir(name, if_exists=if_exists)
+        assert pxt.get_table('buckets')._id == tbl_id
+        assert pxt.get_table('buckets').count() == 1
+        assert pxt.create_table('buckets', {'x': pxt.Int}, if_exists='ignore')._id == tbl_id
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='is an existing table'):
+            pxt.create_table('buckets', {'x': pxt.Int})
+        pxt.drop_table('buckets')
+
+        _serve_as_hosted(monkeypatch, False)
+        pxt.create_dir('buckets')
+        make_tbl('buckets/t1')
+        _serve_as_hosted(monkeypatch, True)
+        dir_id = pxt.create_dir('buckets', if_exists='ignore')._id
+        for if_exists in ('replace', 'replace_force'):
+            for name in ('buckets', 'Buckets'):
+                with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=reserved):
+                    pxt.create_dir(name, if_exists=if_exists)
+                with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=reserved):
+                    pxt.create_dir(name, if_exists=if_exists, parents=True)
+                with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=reserved):
+                    pxt.create_table(name, {'x': pxt.Int}, if_exists=if_exists)
+        assert pxt.list_tables('buckets') == ['buckets/t1']
+        # 'replace' drops only an empty directory
+        pxt.drop_table('buckets/t1')
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=reserved):
+            pxt.create_dir('buckets', if_exists='replace')
+        assert pxt.create_dir('buckets', if_exists='ignore')._id == dir_id
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='is an existing directory'):
+            pxt.create_dir('buckets')
+
+        _serve_as_hosted(monkeypatch, False)
+        assert pxt.create_dir('buckets', if_exists='replace')._id != dir_id
+        pxt.drop_dir('buckets')
+        make_tbl('buckets')
+        assert pxt.create_table('buckets', {'x': pxt.Int}, if_exists='replace')._id != tbl_id

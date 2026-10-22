@@ -42,6 +42,6 @@ docker run -p 8000:8000 multimodal-api
 Once running, visit [http://localhost:8000/docs](http://localhost:8000/docs) for interactive API documentation.
 
 ## Development
-- Python 3.10+
+- Python 3.11+
 - Dependencies managed with `uv`
 - Configuration via environment variables (see `.env.example`)

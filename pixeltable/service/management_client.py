@@ -5,17 +5,23 @@ Callers pass a request model from management_protocol and get back the raw respo
 
 from __future__ import annotations
 
-import http.cookiejar
-from typing import Any
+import dataclasses
+import http.client
+from pathlib import Path
+from typing import Any, Final, Literal
 
 import requests
-from requests.adapters import HTTPAdapter, Retry
+from tenacity import Retrying, retry_if_exception_type, retry_if_result, stop_after_attempt, wait_exponential
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
-from pixeltable.env import Env
+from pixeltable.service import auth, session_cache
+from pixeltable.service.management_protocol import ManagementOperationType
+from pixeltable.utils.http import SESSION
 
 _DEFAULT_API_URL = 'https://internal-api.pixeltable.com'
+
+GET_USAGE: Final = 'get_usage'  # defined by the control plane alone; `pxt usage` reads its answer as a dict
 
 
 def api_url() -> str:
@@ -25,53 +31,235 @@ def api_url() -> str:
     return _DEFAULT_API_URL if url is None else url
 
 
-_LONG_OPS = frozenset({'create_db', 'update_runtime', 'delete_db'})
+_LONG_OPS = frozenset(
+    op.value
+    for op in (ManagementOperationType.UPDATE_DB, ManagementOperationType.DELETE_DB, ManagementOperationType.GET_LOGS)
+)
 
-# operations that don't change server state; can be sent multiple times
-_READ_OPS = frozenset({'list_orgs', 'list_dbs', 'get_db', 'list_services', 'get_service'})
+# operations that are safe to resend: reads, and submit_update, whose repeat returns the original receipts
+_IDEMPOTENT_OPS = frozenset(
+    op.value
+    for op in (
+        ManagementOperationType.LIST_ALL_SECRETS,
+        ManagementOperationType.LIST_ORGS,
+        ManagementOperationType.LIST_KEYS,
+        ManagementOperationType.LIST_DBS,
+        ManagementOperationType.GET_DB,
+        ManagementOperationType.LIST_SERVICE_INSTANCES,
+        ManagementOperationType.GET_SERVICE_INSTANCE,
+        ManagementOperationType.GET_LOGS,
+        ManagementOperationType.PREPARE_UPDATE,
+        ManagementOperationType.SUBMIT_UPDATE,
+        ManagementOperationType.GET_RECEIPTS,
+    )
+) | {GET_USAGE}
 
-# maximum number of connections kept open to the service, sized for concurrent calls from multiple threads
-_POOL_MAXSIZE = 16
+_IDEMPOTENT_ATTEMPTS = 3
+_IDEMPOTENT_BACKOFF = 2.0
+_RETRIED_STATUS_CODES = frozenset((502, 503, 504))
+
+# what a 403 says the credential is not permitted to do
+_PURPOSES = {
+    ManagementOperationType.GET_DB.value: 'read a database',
+    ManagementOperationType.LIST_DBS.value: 'list databases',
+    ManagementOperationType.DELETE_DB.value: 'delete a database',
+    ManagementOperationType.CREATE_SERVICE_INSTANCE.value: 'create a service',
+    ManagementOperationType.GET_SERVICE_INSTANCE.value: 'read a service',
+    ManagementOperationType.LIST_SERVICE_INSTANCES.value: 'list services',
+    ManagementOperationType.UPDATE_SERVICE_INSTANCE.value: 'update a service',
+    ManagementOperationType.REPORT_SERVICE_INSTANCE.value: 'report which project a service loaded',
+    ManagementOperationType.START_SERVICE_INSTANCE.value: 'start a service',
+    ManagementOperationType.STOP_SERVICE_INSTANCE.value: 'stop a service',
+    ManagementOperationType.RESTART_SERVICE_INSTANCE.value: 'restart a service',
+    ManagementOperationType.DELETE_SERVICE_INSTANCE.value: 'delete a service',
+    ManagementOperationType.START_DB.value: 'start a database',
+    ManagementOperationType.STOP_DB.value: 'stop a database',
+    ManagementOperationType.RESTART_DB.value: 'restart a database',
+    ManagementOperationType.UPDATE_DB.value: 'create or update a database',
+    ManagementOperationType.PREPARE_UPDATE.value: 'read a database',
+    ManagementOperationType.SUBMIT_UPDATE.value: 'create or update a database or its services',
+    ManagementOperationType.GET_RECEIPTS.value: 'read a database',
+    ManagementOperationType.RETRY.value: 'retry a failed update',
+    ManagementOperationType.GET_ARCHIVE.value: "download a database's project",
+    ManagementOperationType.GET_LOGS.value: 'read logs',
+    ManagementOperationType.CREATE_ORG.value: 'create an organization',
+    ManagementOperationType.LIST_ORGS.value: 'list organizations',
+    ManagementOperationType.SET_SECRET.value: 'set secrets',
+    ManagementOperationType.DELETE_SECRET.value: 'delete secrets',
+    ManagementOperationType.LIST_ALL_SECRETS.value: 'list secrets',
+    ManagementOperationType.CREATE_KEY.value: 'create keys',
+    ManagementOperationType.LIST_KEYS.value: 'list keys',
+    ManagementOperationType.UPDATE_KEY.value: 'update keys',
+    ManagementOperationType.DELETE_KEY.value: 'delete keys',
+    GET_USAGE: "read the organization's usage",
+}
 
 
-def _new_session() -> requests.Session:
-    """Create a pooled session for management API requests."""
-    session = requests.Session()
-    # the management API sets no cookies; blocking the jar leaves the session without mutable state, so
-    # concurrent calls can share it
-    session.cookies.set_policy(http.cookiejar.DefaultCookiePolicy(allowed_domains=[]))
-    # retry only failures to establish a connection: those never reached the server. allowed_methods
-    # gates read and status retries alone, so an empty set still leaves connect retries on, while
-    # keeping a POST from being replayed after the server may have already processed it.
-    retries = Retry(total=2, connect=2, read=0, status=0, other=0, allowed_methods=frozenset(), backoff_factor=0.2)
-    adapter = HTTPAdapter(pool_connections=1, pool_maxsize=_POOL_MAXSIZE, max_retries=retries)
-    session.mount('https://', adapter)
-    session.mount('http://', adapter)
-    return session
+@dataclasses.dataclass(frozen=True)
+class Credential:
+    kind: Literal['api_key', 'session', 'trial']  # API key or trial's key in header, session token in bearer
+    value: str
+    source: str
+
+    def header(self) -> dict[str, str]:
+        return {'Authorization': f'Bearer {self.value}'} if self.kind == 'session' else {'X-api-key': self.value}
 
 
-_SESSION = _new_session()
+def _api_key_source() -> str:
+    """Where Config found the API key, in the order it looks: pxt.init(), the environment, a config file."""
+    config = Config.get()
+    if config.is_overridden('api_key'):
+        return 'pxt.init()'
+    if isinstance(config.get_value_source('api_key'), Path):
+        return 'api_key in the Pixeltable config file'
+    return 'the PIXELTABLE_API_KEY environment variable'
 
 
-def _api_headers() -> dict[str, str]:
-    return {'Content-Type': 'application/json', 'X-api-key': Env.get().require_api_key()}
+def configured_credential() -> Credential | None:
+    """Return the API key, session or trial credential, depending on what's available."""
+    # an API key outranks a session or a trial
+    api_key = Config.get().get_string_value('api_key')
+    if api_key is not None:
+        return Credential('api_key', api_key, _api_key_source())
+    cached = session_cache.load_credential(api_url())
+    if cached is None:
+        return None
+    if isinstance(cached, session_cache.Trial):
+        return Credential('trial', cached.api_key, f'your `pxt new` trial for {api_url()}')
+    return Credential('session', cached.access_token, f'your `pxt login` session for {api_url()}')
 
 
-def api_call(request: Any) -> dict[str, Any]:
-    """Forward one request to the cloud management API and return the raw response dict."""
+def _no_credential(purpose: str) -> excs.Error:
+    return excs.AuthorizationError(
+        excs.ErrorCode.MISSING_CREDENTIALS,
+        f'A Pixeltable API key or sign-in is required to {purpose}.\n'
+        'Either run `pxt login`; or, with no account, run `pxt new` for a free trial database; '
+        'or set the `PIXELTABLE_API_KEY` environment variable to an existing key; '
+        'or put `api_key` in the `pixeltable` section of your user configuration file.\n'
+        'For details, see: https://docs.pixeltable.com/platform/configuration',
+    )
+
+
+def resolve(purpose: str) -> Credential:
+    """The credential to present for `purpose`, renewing a spent session token first."""
+    configured = configured_credential()
+    if configured is None:
+        raise _no_credential(purpose)
+    if configured.kind != 'session':
+        return configured
+    token = auth.access_token(api_url())
+    if token is None:
+        # signed out between the two reads
+        raise _no_credential(purpose)
+    return dataclasses.replace(configured, value=token)
+
+
+def _reason(resp: requests.Response) -> str:
+    """The control plane's reason for an error status, as a sentence without its final period."""
+    phrase = http.client.responses.get(resp.status_code, '')
+    # the control plane's error body is '<status phrase> : <details>', or the phrase alone
+    reason = resp.text.strip().removeprefix(f'{phrase} :').strip().rstrip('.')
+    return reason or phrase or f'HTTP {resp.status_code}'
+
+
+# X-Pixeltable-Error-Code values for refusals only the user can lift; their reason is written for the user and ends
+# with the fix. pixeltable_cli/client/utils.py keeps a copy.
+USER_ACTION_CODES = frozenset(('PAYMENT_REQUIRED', 'PLAN_LIMIT', 'STORE_FULL'))
+
+
+def _written_reason(resp: requests.Response) -> str:
+    """The control plane's reason, after the '<message> : ' its error body starts with."""
+    text = resp.text.strip()
+    _message, sep, reason = text.partition(' : ')
+    return (reason.strip() if sep != '' else text) or _reason(resp)
+
+
+def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) -> None:
+    """Raise for a 4xx other than 429, or for an error status with one of USER_ACTION_CODES.
+
+    For a 401 or a 403, the error says which credential the request sent. purpose is the verb phrase that
+    completes "is not permitted to", such as 'list organizations'.
+    """
+    code = resp.headers.get('X-Pixeltable-Error-Code')
+    if resp.status_code >= 400 and code in USER_ACTION_CODES:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_BAD_REQUEST,
+            _written_reason(resp),
+            provider='pixeltable_cloud',
+            status_code=resp.status_code,
+            provider_error_code=code,
+        )
+    if is_refusal(resp.status_code):
+        raise refusal(resp.status_code, _reason(resp), sent, purpose)
+
+
+def is_refusal(status_code: int) -> bool:
+    # a 429 throttles the request rather than refusing it, so a retry can succeed
+    return 400 <= status_code < 500 and status_code != 429
+
+
+def refusal(status_code: int, reason: str, sent: Credential, purpose: str) -> excs.Error:
+    """The error for a refusal status (see is_refusal); for a 401 or a 403, it says which credential was sent.
+
+    reason is a sentence without its final period. Shared with the database tunnel, so that a credential
+    refused there reads the same as one the control plane refused.
+    """
+    if status_code == 409:
+        return excs.ConcurrencyError(
+            excs.ErrorCode.CONCURRENT_MODIFICATION, f'Pixeltable Cloud refused this request: {reason}.'
+        )
+    if status_code not in (401, 403):
+        return excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_BAD_REQUEST,
+            f'Pixeltable Cloud refused this request: {reason}.',
+            provider='pixeltable_cloud',
+            status_code=status_code,
+        )
+    if status_code == 403:
+        # the control plane accepted the credential and refused the operation, so signing in again cannot help
+        holder = 'Your Pixeltable session' if sent.kind == 'session' else f'The API key from {sent.source}'
+        return excs.AuthorizationError(
+            excs.ErrorCode.INSUFFICIENT_PRIVILEGES, f'{holder} is valid but is not permitted to {purpose}: {reason}.'
+        )
+    if sent.kind == 'session':
+        message = f'Your Pixeltable session was rejected: {reason}. {auth.SIGN_IN_AGAIN}'
+    elif sent.kind == 'trial':
+        # claiming the organization may revoke the agent's key; unclaimed, it is deleted at expiry, its key with it
+        message = (
+            f'The API key from {sent.source} was rejected: {reason}. The organization may have been claimed: '
+            'ask its person to run `pxt login`. Otherwise, run `pxt logout`, then `pxt new`, to start another trial.'
+        )
+    else:
+        message = f'The API key from {sent.source} was rejected: {reason}.'
+    # PROVIDER_AUTH_ERROR, not PROVIDER_ERROR: a refused credential is not retryable, and retrying
+    # one only delays the error. A 401 is always the control plane's own decision -- it answers 503,
+    # never 401, when WorkOS is the thing that could not be reached.
+    return excs.ExternalServiceError(
+        excs.ErrorCode.PROVIDER_AUTH_ERROR, message, provider='pixeltable_cloud', status_code=status_code
+    )
+
+
+def api_call(request: Any, credential: Credential | None = None) -> dict[str, Any]:
+    """Forward one request to the cloud management API and return the raw response dict.
+
+    A given credential is sent instead of the configured one.
+    """
     op = getattr(request, 'operation_type', None)
     op_str = op.value if hasattr(op, 'value') else str(op) if op else ''
     timeout = 180 if op_str in _LONG_OPS else 30
-    body = request.model_dump_json()
-    try:
-        resp = _SESSION.post(api_url(), data=body, headers=_api_headers(), timeout=timeout)
-    except requests.exceptions.ConnectionError:
-        # a pooled connection closed by the peer while idle fails the call that next picks it up.
-        # Retrying gets a new connection, but is only safe for operations that a second delivery
-        # cannot change.
-        if op_str not in _READ_OPS:
-            raise
-        resp = _SESSION.post(api_url(), data=body, headers=_api_headers(), timeout=timeout)
+    # by_alias: a field the control plane names differently declares that name as its alias
+    body = request.model_dump_json(by_alias=True)
+    sent = resolve('reach Pixeltable Cloud') if credential is None else credential
+    headers = {'Content-Type': 'application/json', **sent.header()}
+    retrying = Retrying(
+        retry=retry_if_exception_type((requests.exceptions.ConnectionError, requests.exceptions.Timeout))
+        | retry_if_result(lambda r: r.status_code in _RETRIED_STATUS_CODES),
+        wait=wait_exponential(multiplier=_IDEMPOTENT_BACKOFF),
+        stop=stop_after_attempt(_IDEMPOTENT_ATTEMPTS if op_str in _IDEMPOTENT_OPS else 1),
+        retry_error_callback=lambda state: state.outcome.result(),
+    )
+    resp: requests.Response = retrying(SESSION.post, api_url(), data=body, headers=headers, timeout=timeout)
+    raise_if_refused(resp, sent, _PURPOSES.get(op_str, 'do this'))
     if resp.status_code not in (200, 201):
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,

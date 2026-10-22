@@ -1,9 +1,15 @@
 # type: ignore
 
 import logging
+import socket
+import sys
+import threading
 import types
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from pixeltable.utils.http import fetch_url, is_retryable_error, parse_duration_str, redact_url
+import pytest
+
+from pixeltable.utils.http import fetch_url, is_retryable_error, new_session, parse_duration_str, redact_url
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
@@ -151,3 +157,70 @@ class TestHttpUtils:
 
         assert 'https://example.com/media.jpg' in caplog.text
         assert all(secret not in caplog.text for secret in ('user', 'password', 'X-Amz-Signature', 'signature'))
+
+
+class TestSharedSession:
+    @pytest.mark.parametrize('method', ['GET', 'POST'])
+    @pytest.mark.parametrize('status', [429, 503])
+    def test_a_retry_after_answer_reaches_the_caller(self, method, status) -> None:
+        """A throttled or unavailable service's answer, not a RetryError that hides its status."""
+
+        class Handler(BaseHTTPRequestHandler):
+            def _answer(self) -> None:
+                self.send_response(status)
+                self.send_header('Retry-After', '1')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+
+            def do_GET(self) -> None:
+                self._answer()
+
+            def do_POST(self) -> None:
+                self._answer()
+
+            def log_message(self, *_args) -> None:
+                pass
+
+        server = HTTPServer(('127.0.0.1', 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            response = new_session().request(method, f'http://127.0.0.1:{server.server_address[1]}/', timeout=5)
+        finally:
+            server.shutdown()
+            server.server_close()
+
+        assert response.status_code == status
+
+    def test_a_pooled_connection_sends_keepalive_probes(self) -> None:
+        """NAT gateways drop an idle connection without telling either end, and the next request on it would wait
+        out its read timeout; the probes keep the connection alive, or fail it once its peer is gone."""
+
+        class Handler(BaseHTTPRequestHandler):
+            protocol_version = 'HTTP/1.1'  # so the connection stays open in the pool
+
+            def do_GET(self) -> None:
+                self.send_response(200)
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+
+            def log_message(self, *_args) -> None:
+                pass
+
+        server = HTTPServer(('127.0.0.1', 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        session = new_session()
+        try:
+            # streamed, so the response holds the pooled connection it came on
+            response = session.get(f'http://127.0.0.1:{server.server_address[1]}/', timeout=5, stream=True)
+            try:
+                sock = response.raw.connection.sock
+                assert sock.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE) != 0
+                keepidle = getattr(socket, 'TCP_KEEPIDLE', None) or getattr(socket, 'TCP_KEEPALIVE', None)
+                if keepidle is not None and sys.platform != 'win32':
+                    assert sock.getsockopt(socket.IPPROTO_TCP, keepidle) == 60
+            finally:
+                response.close()
+        finally:
+            session.close()
+            server.shutdown()
+            server.server_close()

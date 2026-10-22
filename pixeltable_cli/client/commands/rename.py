@@ -1,4 +1,4 @@
-import json
+from pixeltable_cli import models
 
 from ...utils import validate_path_shape
 from ..parser import Parser
@@ -32,9 +32,11 @@ def run(argv: list[str]) -> None:
     parent = args.path.rsplit('/', 1)[0] if '/' in args.path else ''
     dst = f'{parent}/{args.new_name}' if parent else args.new_name
 
-    resp = post_request('/api/move', {'path': args.path, 'new_path': dst, 'dry_run': args.dry_run})
+    resp = models.MoveResponse.model_validate(
+        post_request('/api/move', {'path': args.path, 'new_path': dst, 'dry_run': args.dry_run})
+    )
     if args.as_json:
-        print(json.dumps(resp, indent=2))
+        print(resp.model_dump_json(indent=2))
     else:
         verb = 'would rename' if args.dry_run else 'renamed'
-        print(f'{verb} {display_path(resp["path"])} -> {display_path(resp["new_path"])}')
+        print(f'{verb} {display_path(resp.path)} -> {display_path(resp.new_path)}')

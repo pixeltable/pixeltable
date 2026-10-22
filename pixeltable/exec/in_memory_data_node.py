@@ -24,6 +24,7 @@ class InMemoryDataNode(ExecNode):
     input_rows: list[dict[str, Any]]
     set_pk: bool  # if True, assign synthetic pks (input row position); needed for iterator expansion
     output_batch: DataRowBatch | None
+    _is_closed: bool
 
     # output_exprs is declared in the superclass, but we redeclare it here with a more specific type
     output_exprs: list[exprs.ColumnRef]
@@ -43,9 +44,12 @@ class InMemoryDataNode(ExecNode):
         self.input_rows = rows
         self.set_pk = set_pk
         self.output_batch = None
+        self._is_closed = False
 
     def _open(self) -> None:
         """Create row batch and populate with self.input_rows"""
+        assert not self._is_closed, 'InMemoryDataNode is not reusable'
+
         # input rows can only provide values for this table's columns
         user_cols_by_name = {
             col_ref.col.name: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)
@@ -87,6 +91,13 @@ class InMemoryDataNode(ExecNode):
                 assert col_info is not None
                 output_row[col_info.slot_idx] = None
             self.output_batch.add_row(output_row)
+
+    def _close(self) -> None:
+        # Release references to input rows and the last output batch. When images are present, this may free up
+        # a significant amount of memory.
+        self.input_rows = []
+        self.output_batch = None
+        self._is_closed = True
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         _logger.debug(f'InMemoryDataNode: created row batch with {len(self.output_batch)} rows')

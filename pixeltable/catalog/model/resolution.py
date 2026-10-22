@@ -1,0 +1,357 @@
+"""Resolution of a model's definitions into the catalog objects a table is created and altered from."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Literal, Mapping, NamedTuple, TypedDict
+from uuid import UUID
+
+from pixeltable import catalog, exceptions as excs, exprs, func, index
+from pixeltable.types import ColumnSpec
+
+from ..globals import MediaValidation, fold_mapping_keys
+from ..table_version_handle import TableVersionHandle
+
+if TYPE_CHECKING:
+    import pixeltable as pxt
+
+if TYPE_CHECKING:
+    from .definition import IndexDefinition
+
+
+def prepare_model(
+    tbl_handle: TableVersionHandle,
+    columns: dict[str, ColumnSpec],
+    display_name: str,
+    iterator: func.GeneratingFunctionCall | None,
+    base: 'pxt.Query | None',
+    idxs: list[IndexDefinition],
+    is_data_versioned: bool,
+) -> tuple[func.GeneratingFunctionCall | None, list[catalog.Column], list[catalog.IndexSpec]]:
+    """
+    Given model definitions in the form of columns, base, iterator, and index specifications, along with
+    the relevant metadata, assembles lists of additional columns and additional indices to be created in the table.
+    The outputs will be fully resolved (ColumnRefByNames replaced with actual ColumnRefs and the index-spec
+    dataclass instances replaced with actual instances of index.IndexBase).
+
+    Returns: a tuple of (rebound iterator, additional columns, additional idxs).
+    """
+    # This is where a model's definitions cross from the Python domain into the catalog's, and column names are folded.
+    columns = fold_mapping_keys(columns)
+
+    # View columns always go in a specific order:
+    # - iterator columns first
+    # - then columns from the base query's select_list
+    #     (but not if it's a select(*): then just inherit the base table's columns)
+    # - finally, the view's additional_columns.
+
+    # A registry of visible columns of the table (base table/query columns, iterator columns,
+    # and additional columns).
+    # A column of the table being created is the Column instance that will be given an id; an inherited one
+    # already has an id, and is identified by its metadata.
+    user_cols: dict[str, catalog.Column | catalog.ColumnVersionMd] = {}
+
+    # A substitution dictionary resolving ColumnRefByNames to actual ColumnRefs. It holds only the base tables'
+    # columns; the columns of the table being created have no ids yet, so references to those stay ColumnRefByName.
+    subst_dict: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
+
+    # Names of the columns of the table being created, accumulated as they are processed.
+    preceding_names: set[str] = set()
+
+    # First the iterator columns, if present.
+    if iterator is not None:
+        # Rebind the iterator, resolving its argument references against the base table.
+        assert base is not None
+        base_tbl_subst_dict = exprs.ExprDict[exprs.Expr](
+            (exprs.ColumnRefByName(col_md.name), exprs.ColumnRef(col_md))
+            for col_md in base._from_clause._first_tbl.column_md()
+        )
+        subst_args = [arg.substitute(base_tbl_subst_dict) for arg in iterator.args]
+        subst_kwargs = {k: v.substitute(base_tbl_subst_dict) for k, v in iterator.kwargs.items()}
+        subst_bound_args = {k: v.substitute(base_tbl_subst_dict) for k, v in iterator.bound_args.items()}
+        iterator = func.GeneratingFunctionCall(
+            iterator.it, subst_args, subst_kwargs, subst_bound_args, iterator.outputs, iterator.validation_error
+        )
+        # Build substitutions for the iterator's output columns.
+        for name, output in iterator.outputs.items():
+            catalog_col = catalog.Column.create(name, {'type': output.col_type, 'stored': output.is_stored})  # type: ignore[arg-type]
+            catalog_col.tbl_handle = tbl_handle
+            user_cols[name] = catalog_col
+            preceding_names.add(name)
+
+    if base is not None:
+        # Build substitutions for the base table/query's columns.
+        if base.select_list is None:
+            # select(*): all visible columns from the base table
+            for col_md in base._from_clause._first_tbl.column_md():
+                # Iterator column names take precedence over base table column names in the model namespace, so
+                # only update the substitution dicts if the name isn't already present.
+                if col_md.name not in user_cols:
+                    user_cols[col_md.name] = col_md
+                    subst_dict[exprs.ColumnRefByName(col_md.name)] = exprs.ColumnRef(col_md)
+        else:
+            # explicit select list: new columns will be created that represent the selected expressions.
+            for expr, select_name in base.select_list:
+                col_name: str | None
+                if select_name is not None:
+                    # The select list has an explicit name for this expression as a kwarg; use it.
+                    col_name = select_name
+                elif expr.is_column_ref:
+                    # It's an unnamed column reference; use the name of the referenced column as a fallback.
+                    col_name = expr.default_column_name()
+                else:
+                    # It's a compound expression with no explicit name. A name will be assigned when the table
+                    # is created, but it's anonymous to the TableModel.
+                    # TODO: Revisit this behavior. Should we be allowing unnamed compound expressions in the
+                    #     first place?
+                    col_name = None
+
+                if col_name is not None:
+                    # Column names that arrived via an explicit select list take precedence over iterator column
+                    # names in the model namespace, so here we always update the dicts.
+                    catalog_col = catalog.Column.create(col_name, expr.col_type)
+                    catalog_col.tbl_handle = tbl_handle
+                    user_cols[col_name] = catalog_col
+                    preceding_names.add(col_name)
+
+    # Process any additional columns specified in the view model body.
+    additional_cols: list[catalog.Column] = []
+    for name, spec in columns.items():
+        subst_spec = spec.copy()
+        if 'value' in subst_spec:
+            subst_spec['value'] = subst_spec['value'].substitute(subst_dict)
+            # whatever is still a ColumnRefByName has to name a column of this table that precedes this one, so that
+            # it has a value by the time this column is computed
+            unresolved = [
+                ref for ref in subst_spec['value'].subexprs(exprs.ColumnRefByName) if ref.name not in preceding_names
+            ]
+            if len(unresolved) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'Column {name!r} in {display_name} references columns that are not in '
+                    f"the model's scope: {[ref.name for ref in unresolved]}",
+                )
+
+        # subst_dict holds exactly the inherited base columns, we don't allow an explicitly named column to shadow one
+        if exprs.ColumnRefByName(name) in subst_dict:
+            assert base is not None
+            raise excs.AlreadyExistsError(
+                excs.ErrorCode.COLUMN_ALREADY_EXISTS,
+                f'Column {name!r} already exists in the base table {base._from_clause._first_tbl.tbl_name()!r}.',
+            )
+        catalog_col = catalog.Column.create(name, subst_spec)
+        catalog_col.tbl_handle = tbl_handle
+        additional_cols.append(catalog_col)
+        user_cols[name] = catalog_col
+        preceding_names.add(name)
+
+    return iterator, additional_cols, _resolve_model_idxs(idxs, user_cols, display_name, is_data_versioned)
+
+
+def _resolve_model_idxs(
+    idxs: list[IndexDefinition],
+    user_cols: Mapping[str, catalog.Column | catalog.ColumnVersionMd],
+    display_name: str,
+    is_data_versioned: bool,
+) -> list[catalog.IndexSpec]:
+    """Resolve each defined index against the model's visible columns.
+
+    The returned specs record the indexed column by name. These column names need to be substituted with
+    the corresponding catalog Columns.
+    """
+    # imported here rather than at module scope: definition imports this module
+    from .definition import BtreeIndex, EmbeddingIndex
+
+    resolved_idxs: list[catalog.IndexSpec] = []
+    for idx_spec in idxs:
+        idx_name: str | None = idx_spec.name if isinstance(idx_spec, EmbeddingIndex) else None
+        if not isinstance(idx_spec.column, exprs.ColumnRefByName):
+            idx_display_name = f'Index {idx_name!r}' if idx_name is not None else 'Index'
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA, f'{idx_display_name} in {display_name} has an invalid column reference.'
+            )
+        col_name = idx_spec.column.name
+        idx_display_name = f'Index {idx_name!r}' if idx_name is not None else f'Index on column {col_name!r}'
+        if col_name not in user_cols:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'{idx_display_name} in {display_name} references unknown column {col_name!r}.',
+            )
+        idx: index.IndexBase
+        if isinstance(idx_spec, EmbeddingIndex):
+            idx = index.EmbeddingIndex(
+                metric=idx_spec.metric,
+                precision=idx_spec.precision,
+                embed=idx_spec.embedding,
+                string_embed=idx_spec.string_embed,
+                image_embed=idx_spec.image_embed,
+                audio_embed=idx_spec.audio_embed,
+                video_embed=idx_spec.video_embed,
+                document_embed=idx_spec.document_embed,
+                column=user_cols[col_name],
+            )
+        else:
+            assert isinstance(idx_spec, BtreeIndex)
+            idx = index.BtreeIndex(uses_value_col=is_data_versioned)
+        resolved_idxs.append(catalog.IndexSpec(col_name, idx_name, idx))
+
+    return resolved_idxs
+
+
+class TableSchemaChangeSet(TypedDict):
+    """
+    Schema change operations applied to a single table.
+
+    Used for proxy communication of changes that need to be applied to a catalog table during update_all().
+    """
+
+    path: catalog.Path
+
+    # name -> (spec, origin). A 'base_query' column comes from the view's base query select() list and refers to
+    # the base table's columns; a 'model_body' column refers to the view's own visible columns.
+    new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
+    # name -> (spec, origin), for existing computed columns whose value expression is being replaced
+    altered_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
+    dropped_columns: list[str]
+    new_idxs: list[IndexDefinition]
+    dropped_idxs: list[str]
+
+    # tbl_id of the table to update, and {tbl_id: schema_version} for its version path, captured when the diff was
+    # computed.
+    tbl_id: UUID
+    schema_versions: dict[UUID, int]
+
+
+class ModelUpdates(NamedTuple):
+    """A model's declared changes, resolved as catalog abstractions. References may contain ColumnRefByName."""
+
+    # the columns to add, in declaration order
+    added_cols: list[catalog.Column]
+    # the indices to add, with the index-spec dataclass instances replaced by instances of index.IndexBase
+    added_idxs: list[catalog.IndexSpec]
+    # the new value expression of each altered column, keyed by column name
+    altered_exprs: dict[str, exprs.Expr]
+
+
+def resolve_model_value_expr(
+    tbl_path: catalog.TablePath, value_expr: exprs.Expr, origin: Literal['base_query', 'model_body']
+) -> exprs.Expr:
+    """Replace model column names with catalog column references visible at the declaration site."""
+    reference_path = tbl_path.base if origin == 'base_query' else tbl_path
+    assert reference_path is not None
+
+    if isinstance(reference_path, catalog.TableVersionPath):
+        subst = exprs.ExprDict[exprs.Expr](
+            (
+                exprs.ColumnRefByName(col.name),
+                exprs.ColumnRef(
+                    col.column_version_md(), perform_validation=col.media_validation == MediaValidation.ON_READ
+                ),
+            )
+            for col in reference_path.columns()
+        )
+        return value_expr.substitute(subst)
+
+    assert isinstance(reference_path, catalog.TableMdPath)
+
+    def column_ref(col_md: catalog.ColumnVersionMd) -> exprs.ColumnRef:
+        owner_path = reference_path
+        while owner_path.tbl_id != col_md.qcolid.tbl_id:
+            assert owner_path.base is not None
+            owner_path = owner_path.base
+        owner_col_md = owner_path.get_column_md(col_md.qcolid)
+        return exprs.ColumnRef(owner_col_md, perform_validation=owner_path.is_validate_on_read(owner_col_md))
+
+    subst = exprs.ExprDict[exprs.Expr](
+        (exprs.ColumnRefByName(col_md.name), column_ref(col_md))
+        for col_md in reference_path.column_md()
+        if col_md.name is not None
+    )
+    return value_expr.substitute(subst)
+
+
+def prepare_model_updates(
+    tvp: catalog.TableVersionPath,
+    display_name: str,
+    new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]],
+    altered_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]],
+    new_idxs: list[IndexDefinition],
+) -> ModelUpdates:
+    """
+    Given `new_columns`, `altered_columns` and `new_idxs` as declared by a model, resolves them into proper catalog
+    abstractions in preparation for catalog changes.
+
+    Each column in `new_columns` and `altered_columns` is a (spec, origin) pair. A 'base_query' column comes from
+    the view's base query `select()` list and is resolved against the base table's columns; a 'model_body' column is
+    resolved against the view's own visible columns.
+    """
+
+    user_cols: dict[str, catalog.Column] = {}
+    for col in tvp.columns():
+        user_cols[col.name] = col
+
+    tbl_handle = tvp.tbl_version
+
+    # Process base-query columns first, so a model-body column may reference a newly-projected base-query column.
+    ordered_names = [n for n, (_, origin) in new_columns.items() if origin == 'base_query'] + [
+        n for n, (_, origin) in new_columns.items() if origin != 'base_query'
+    ]
+
+    # substitute ColumnRefByName with ColumnRef for existing columns; references to added columns are left as
+    # ColumnRefByName, to be resolved once ids have been assigned
+    resolved_cols: list[catalog.Column] = []
+    preceding_names: set[str] = set()
+    for name in ordered_names:
+        spec, origin = new_columns[name]
+        resolved_spec = spec.copy()
+        if 'value' in resolved_spec:
+            resolved_spec['value'] = resolve_model_value_expr(tvp, resolved_spec['value'], origin)
+            # whatever is still a ColumnRefByName has to name a column that precedes this one in resolved_cols:
+            # anything else is either outside the model's scope or would be evaluated before it has a value
+            unresolved = [
+                ref for ref in resolved_spec['value'].subexprs(exprs.ColumnRefByName) if ref.name not in preceding_names
+            ]
+            if len(unresolved) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'Column {name!r} in {display_name} references columns that are not in '
+                    f"the model's scope: {[ref.name for ref in unresolved]}",
+                )
+
+        # a new column can only collide with an inherited one: a name already among this table's own columns
+        # wouldn't have been diffed as new
+        if name in user_cols:
+            assert tvp.base is not None
+            raise excs.AlreadyExistsError(
+                excs.ErrorCode.COLUMN_ALREADY_EXISTS,
+                f'Column {name!r} already exists in the base table {tvp.base.tbl_name()!r}.',
+            )
+
+        catalog_col = catalog.Column.create(name, resolved_spec)
+        catalog_col.tbl_handle = tbl_handle
+        resolved_cols.append(catalog_col)
+        preceding_names.add(name)
+        user_cols[name] = catalog_col
+
+    # Resolve each defined index against the model's visible columns.
+    resolved_idxs: list[catalog.IndexSpec] = []
+    for idx_spec in _resolve_model_idxs(new_idxs, user_cols, display_name, tvp.is_data_versioned()):
+        assert isinstance(idx_spec.indexed_column, str)
+        resolved_idxs.append(idx_spec._replace(indexed_column=user_cols[idx_spec.indexed_column]))
+
+    # Resolve altered columns. This may produce ColumnRefByName if the new expression references columns that this
+    # changeset adds.
+    altered_exprs: dict[str, exprs.Expr] = {}
+    for name, (spec, origin) in altered_columns.items():
+        resolved = resolve_model_value_expr(tvp, spec['value'], origin)
+        unresolved_names: list[str] = [
+            ref.name for ref in resolved.subexprs(exprs.ColumnRefByName) if ref.name not in new_columns
+        ]
+        if len(unresolved_names) > 0:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'Column {name!r} in {display_name} references columns that are not in '
+                f"the model's scope: {unresolved_names}",
+            )
+        altered_exprs[name] = resolved
+
+    return ModelUpdates(resolved_cols, resolved_idxs, altered_exprs)

@@ -1,6 +1,8 @@
 .DS_Store
 .benchmarks
-.claude
+.claude/*
+!.claude/commands/
+!.claude/skills/
 .coverage
 .idea
 .ipynb_checkpoints
@@ -20,13 +22,18 @@ __pycache__
 /target/
 /tests/target/
 
-# Generated type stubs
-pixeltable/catalog/model.pyi
+# Generated type stubs; the path differs by branch, and a stub left behind by another branch shadows the
+# module it stands in for
+pixeltable/**/*.pyi
 
 # Node.js
 node_modules/
 package-lock.json
+!.github/scripts/ts-functions/package-lock.json
 docs/release/package.json
 
 # Test sample app — lock file is regenerated fresh on each test run
 tests/cloud/sample_app/uv.lock
+
+# generated per test session: a pixeltable pin plus requirements.in
+tests/pixeltable_cli/requirements.txt

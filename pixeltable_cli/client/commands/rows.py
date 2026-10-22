@@ -1,5 +1,7 @@
 import json
 
+from pixeltable_cli import models
+
 from ..parser import Parser, parse_cols
 from ..utils import get_request, validate_path_arg
 
@@ -30,13 +32,15 @@ def run(argv: list[str]) -> None:
 
     cols = parse_cols(args.cols, ap)
     cols_csv = ','.join(cols) if cols is not None else None
-    resp = get_request('/api/tables/rows', params={'path': validate_path_arg(args.path), 'n': args.n, 'cols': cols_csv})
+    resp = models.RowsResponse.model_validate(
+        get_request('/api/tables/rows', params={'path': validate_path_arg(args.path), 'n': args.n, 'cols': cols_csv})
+    )
 
     if args.as_json:
-        print(json.dumps(resp['rows'], indent=2, default=str))
+        print(json.dumps(resp.rows, indent=2, default=str))
         return
 
-    columns = resp['columns']
+    columns = resp.columns
     print('\t'.join(columns))
-    for row in resp['rows']:
+    for row in resp.rows:
         print('\t'.join('' if row.get(c) is None else str(row[c]) for c in columns))

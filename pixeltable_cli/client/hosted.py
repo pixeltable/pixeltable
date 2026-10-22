@@ -1,25 +1,37 @@
-"""URI parsing, output formatting and state polling shared by the hosted-CLI commands
-(`pxt db`, `pxt service`, `pxt org`)."""
+"""URI parsing and output formatting shared by the hosted-CLI commands (`pxt db`, `pxt service`, `pxt org`)."""
 
 from __future__ import annotations
 
+import argparse
 import contextlib
+import hashlib
 import json
 import sys
 import time
-from collections.abc import Iterator
-from typing import Any
+import urllib.error
+import urllib.request
+from typing import Any, Callable, Iterator, NoReturn
 
+from pixeltable_cli import models
+from pixeltable_cli.types import GenerationReceipt
 from pixeltable_cli.utils import split_pxt_uri
 
-from .utils import get_request, print_aligned
+from .utils import (
+    EXIT_CHANGES_PENDING,
+    EXIT_ERROR,
+    RequestFailedError,
+    get_request,
+    post_request,
+    print_aligned,
+    print_next,
+)
 
-DB_POLL_INTERVAL = 5
-DB_POLL_TIMEOUT = 600
-SVC_POLL_INTERVAL = 5
-SVC_POLL_TIMEOUT = 300
-RUNTIME_POLL_INTERVAL = 10
-RUNTIME_POLL_TIMEOUT = 900
+RECEIPT_POLL_INTERVAL = 5.0
+RECEIPT_WAIT_TIMEOUT = 3 * 3600.0
+EXIT_INTERRUPTED = 130
+
+_ENDPOINT_TIMEOUT = 60.0
+_ENDPOINT_PROBE_TIMEOUT = 10.0
 
 
 def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
@@ -27,24 +39,21 @@ def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
     parts = split_pxt_uri(uri)
     if parts is None or parts.db is None or parts.path is not None:
         print(f'{prog}: error: URI must be pxt://org:db, got {uri!r}', file=sys.stderr)
-        sys.exit(2)
+        sys.exit(EXIT_ERROR)
     return parts.org, parts.db
 
 
 def resolve_db_uri(db_uri: str | None, prog: str = 'pxt') -> tuple[str, str]:
     """Parse pxt://org:db and return (org, db), defaulting to the configured pixeltable.db_uri. Exits on error."""
     if db_uri is None:
-        resp = get_request('/api/config')
-        entries = resp.get('entries', []) if isinstance(resp, dict) else []
-        configured = next(
-            (e.get('value') for e in entries if e.get('section') == 'pixeltable' and e.get('key') == 'db_uri'), None
-        )
+        resp = models.ConfigResponse.model_validate(get_request('/api/config'))
+        configured = next((e.value for e in resp.entries if (e.section, e.key) == ('pixeltable', 'db_uri')), None)
         if configured is None:
             print(
                 f'{prog}: error: no database URI given, and no db_uri is set in the Pixeltable config file',
                 file=sys.stderr,
             )
-            sys.exit(2)
+            sys.exit(EXIT_ERROR)
         db_uri = configured
     return parse_db_uri(db_uri, prog=prog)
 
@@ -58,28 +67,35 @@ def parse_org_uri(uri: str, prog: str = 'pxt') -> str:
     return parts.org
 
 
-def parse_base_uri(uri: str, prog: str = 'pxt') -> tuple[str, str, str]:
-    """Parse pxt://org:db[/<path>] and return (org, db, base_path). Exits on error."""
-    parts = split_pxt_uri(uri)
-    if parts is None or parts.db is None:
-        print(f'{prog}: error: --base-uri must be pxt://org:db[/<dir>], got {uri!r}', file=sys.stderr)
-        sys.exit(2)
-    return parts.org, parts.db, parts.path or ''
+def add_logs_args(parser: argparse.ArgumentParser) -> None:
+    """Add the options shared by `pxt db logs` and `pxt service logs`."""
+    parser.add_argument('--since', default='1h', help='how far back to read: 30s, 10m, 1h, 2d (default: 1h)')
+    parser.add_argument(
+        '--tail',
+        type=int,
+        default=200,
+        dest='limit',
+        help='the newest N lines in the window, at most 10000 (default: 200)',
+    )
+    parser.add_argument(
+        '--include-health', action='store_true', dest='include_health', help='keep the GET /health probe lines'
+    )
+    parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
 
-def parse_service_uri(uri: str, prog: str = 'pxt') -> tuple[str, str, str]:
-    """Parse pxt://org:db/services/<name> and return (org, db, svc_name). Exits on error."""
-    parts = split_pxt_uri(uri)
-    if parts is None or parts.db is None or parts.path is None or not parts.path.startswith('services/'):
-        print(f'{prog}: error: URI must be pxt://org:db/services/<name>, got {uri!r}', file=sys.stderr)
-        sys.exit(2)
-    svc_name = parts.path[len('services/') :]
-    if svc_name == '' or '/' in svc_name:
-        print(
-            f'{prog}: error: URI must be pxt://org:db/services/<name> with no extra path, got {uri!r}', file=sys.stderr
-        )
-        sys.exit(2)
-    return parts.org, parts.db, svc_name
+def print_logs(target: dict[str, str], args: argparse.Namespace) -> None:
+    """Print the log of target: {'org', 'db'} names a database's pod, {'service'} names a service."""
+    params = {**target, 'since': args.since, 'limit': args.limit, 'include_health': args.include_health}
+    resp = get_request('/api/logs', params)
+    records = resp.get('records', []) if isinstance(resp, dict) else []
+    if args.json_output:
+        print(json.dumps(records))
+        return
+    if len(records) == 0:
+        print(f'No log records in the last {args.since}.')
+        return
+    for r in records:
+        print(r['line'])
 
 
 def _fmt_age(age_s: int) -> str:
@@ -110,40 +126,74 @@ def _print_workers(workers: list[dict[str, Any]]) -> None:
     print_aligned(['POD ID', 'STATUS', 'READY', 'RESTARTS', 'AGE'], rows, right_align={2, 3}, indent='  ')
 
 
-def print_db(db: dict[str, Any]) -> None:
-    name = db.get('db_name') or db.get('db', '')
-    state = db.get('state', '')
-    location = db.get('location', '')
-    region = db.get('region', '')
-    endpoint = db.get('endpoint') or ''
-    print(f'{name}  state={state}  {location}/{region}  {endpoint}'.rstrip())
-    _print_workers(db.get('workers') or [])
+def _fmt_project(resources: dict[str, Any]) -> str | None:
+    """Describe a database's project by its file count and archive digest."""
+    fp = resources.get('fingerprint')
+    if fp is None:
+        return None
+    files = fp.get('files') or {}
+    # must match ProjectFingerprint.archive_digest() in pixeltable/utils/project.py;
+    # inlined to avoid importing from pixeltable here, which adds substantial load latency
+    digest = hashlib.sha256(json.dumps(files, sort_keys=True, separators=(',', ':')).encode()).hexdigest()[:8]
+    return f'{len(files)} files  archive {digest}'
 
 
-def print_service(svc: dict[str, Any]) -> None:
-    name = svc.get('service_name', '')
-    state = svc.get('state', '')
-    base = svc.get('base_path', '')
-    workers_max = svc.get('workers_max')
-    if workers_max is not None:
-        workers_str = f'workers={svc.get("workers_min", 1)}-{workers_max}'
-    else:
-        workers_str = f'workers={svc.get("workers_min", 1)}'
-    endpoint = svc.get('endpoint') or ''
-    print(f'{name}  state={state}  base={base}  {workers_str}  {endpoint}'.rstrip())
-    # Print route URLs from service_config
-    svc_config_str = svc.get('service_config')
-    if svc_config_str and endpoint:
-        try:
-            svc_cfg = json.loads(svc_config_str) if isinstance(svc_config_str, str) else svc_config_str
-            prefix = svc_cfg.get('prefix', '')
-            for route in svc_cfg.get('routes', []):
-                method = route.get('method', 'POST').upper()
-                path = route.get('path', '')
-                print(f'  {method}  {endpoint}{prefix}{path}')
-        except Exception:
-            pass
-    _print_workers(svc.get('workers') or [])
+_RESOURCE_ROWS: tuple[tuple[str, str, str], ...] = (
+    ('cpu', 'cpu', ''),
+    ('memory', 'memory_mb', ' MiB'),
+    ('disk', 'disk_gb', ' GiB'),
+    ('workers', 'workers', ''),
+)
+
+
+def print_db(report: dict[str, Any], workers: list[dict[str, Any]] | None = None) -> None:
+    """Print one database's report: its current resources, the desired ones where they differ, and its pods.
+
+    Whether a change is in progress comes from the current generation's phase, not from comparing the two.
+    """
+    current = report.get('current')
+    if current is None:
+        print(f'{report.get("db", "")}  absent')
+        return
+    print(f'{report.get("db", "")}  {current.get("state", "")}')
+
+    running = current.get('resources') or {}
+    target = report.get('target_resources') or {}
+    rows: list[tuple[str, str]] = []
+    for label, field, unit in _RESOURCE_ROWS:
+        now, want = running.get(field), target.get(field)
+        if now is None and want is None:
+            continue
+        text = f'{now}{unit}' if now is not None else '-'
+        if want is not None and want != now:
+            text += f'   desired {want}{unit}'
+        rows.append((label, text))
+
+    now_project, want_project = _fmt_project(running), _fmt_project(target)
+    if now_project is not None or want_project is not None:
+        text = now_project or '-'
+        if want_project is not None and want_project != now_project:
+            text += f'   desired {want_project}'
+        rows.append(('project', text))
+    if current.get('md_version') is not None:
+        rows.append(('md_version', str(current['md_version'])))
+    if running.get('default_bucket') is not None:
+        rows.append(('bucket', running['default_bucket']))
+
+    outcome = current.get('last_build_outcome')
+    if outcome is not None and outcome != 'SUCCEEDED':
+        rows.append(('build', outcome))
+    receipt = report.get('receipt')
+    if receipt is not None:
+        rows.append(('generation', describe_receipt(GenerationReceipt.model_validate(receipt))))
+    for label, field in (('error', 'last_build_error'), ('reason', 'failure_reason')):
+        if current.get(field) is not None:
+            rows.append((label, str(current[field])))
+
+    width = max((len(label) for label, _ in rows), default=0)
+    for label, text in rows:
+        print(f'  {label.ljust(width)}  {text}')
+    _print_workers(workers or [])
 
 
 def print_org(org: dict[str, Any]) -> None:
@@ -157,10 +207,13 @@ def print_org(org: dict[str, Any]) -> None:
 
 
 @contextlib.contextmanager
-def _spinner(label: str | None) -> Iterator[None]:
-    """Display a transient progress spinner showing label for the duration of the block; None displays nothing."""
+def spinner(label: str | None) -> Iterator[Callable[[str], None]]:
+    """Display a transient progress spinner showing label for the duration of the block; None displays nothing.
+
+    Yields a function that replaces the label.
+    """
     if label is None:
-        yield
+        yield lambda _: None
         return
 
     # imported lazily: rich is a heavy import, and a poll without a label never reaches this
@@ -174,66 +227,144 @@ def _spinner(label: str | None) -> Iterator[None]:
         redirect_stdout=False,
         redirect_stderr=False,
     ) as progress:
-        progress.add_task(label, total=None)
-        yield
+        task = progress.add_task(label, total=None)
+        yield lambda text: progress.update(task, description=text)
 
 
-def poll_state(
-    endpoint: str,
-    params: dict[str, str],
-    result_key: str,
-    pending_states: set[str],
-    interval: float,
-    timeout: float,
-    label: str | None,
-) -> dict[str, Any]:
-    """Poll a daemon route until the resource's 'state' leaves pending_states, or timeout seconds elapse.
+def describe_receipt(receipt: GenerationReceipt) -> str:
+    """One-line status of a generation."""
+    if receipt.observed:
+        state = 'done'
+    elif receipt.superseded:
+        state = 'replaced by a newer one'
+    elif receipt.failed:
+        state = f'FAILED: {receipt.failure_reason}'
+    elif receipt.outcome is not None:
+        state = f'unknown outcome {receipt.outcome}; upgrade Pixeltable'
+    elif receipt.error is not None:
+        state = f'retrying after error: {receipt.error.message}'
+    else:
+        state = receipt.progress
+    return f'{receipt.generation}  {state}'
 
-    Returns the last response read, or an empty dict if none succeeded. A failed read is retried until the
-    deadline, so a resource that is briefly unreachable mid-transition doesn't abort the wait.
+
+def print_receipt(receipt: GenerationReceipt) -> None:
+    """Print a generation's status and its warnings."""
+    print(f'{receipt.resource} generation {describe_receipt(receipt)}')
+    for warning in receipt.warnings:
+        print(f'  warning: {warning}')
+
+
+def await_receipts(
+    db_uri: str, receipts: list[GenerationReceipt], *, show: bool, status_command: str
+) -> list[GenerationReceipt]:
+    """Poll receipts until each settles, showing the progress of the first unsettled one, and return them.
+
+    Ctrl-C and RECEIPT_WAIT_TIMEOUT only stop the waiting; the change continues in Pixeltable Cloud. The timeout
+    exits with EXIT_CHANGES_PENDING. A poll that fails transiently is retried until the timeout; any other failed
+    poll exits with EXIT_ERROR.
     """
-    result: dict[str, Any] = {}
-    deadline = time.monotonic() + timeout
-    with _spinner(label):
-        while time.monotonic() < deadline:
-            time.sleep(interval)
+    if len(receipts) == 0:
+        print('pxt: Pixeltable Cloud accepted the change without a receipt to wait on', file=sys.stderr)
+        sys.exit(EXIT_ERROR)
+    current = receipts
+    poll_error: RequestFailedError | None = None
+    deadline = time.monotonic() + RECEIPT_WAIT_TIMEOUT
+    try:
+        with spinner(_waiting_label(current) if show else None) as set_label:
+            while not all(r.settled for r in current) and not any(r.unsuccessful for r in current):
+                if time.monotonic() >= deadline:
+                    break
+                set_label(_waiting_label(current, poll_error))
+                time.sleep(RECEIPT_POLL_INTERVAL)
+                try:
+                    resp = post_request(
+                        '/api/receipts',
+                        {'db_uri': db_uri, 'receipts': [r.model_dump(mode='json') for r in current]},
+                        raise_on_error=True,
+                    )
+                except RequestFailedError as e:
+                    if not e.transient:
+                        e.report()
+                        _exit_stopped_waiting(status_command, EXIT_ERROR)
+                    poll_error = e
+                    continue
+                poll_error = None
+                current = models.ReceiptsResponse.model_validate(resp).receipts
+    except KeyboardInterrupt:
+        _exit_stopped_waiting(status_command)
+    if not all(r.settled for r in current) and not any(r.unsuccessful for r in current):
+        print(
+            f'pxt: still in progress after {RECEIPT_WAIT_TIMEOUT / 3600:.0f}h: '
+            f'{_waiting_label(current, poll_error).rstrip(" .")}; the change continues in Pixeltable Cloud',
+            file=sys.stderr,
+        )
+        print_next(status_command, 'shows its progress')
+        sys.exit(EXIT_CHANGES_PENDING)
+    return current
+
+
+def exit_unless_observed(receipts: list[GenerationReceipt], *, retry_command: str) -> None:
+    """Exit with EXIT_ERROR and the reason, unless every receipt is observed."""
+    for receipt in receipts:
+        if receipt.failed:
+            print(
+                f'pxt: {receipt.resource} generation {receipt.generation} failed: {receipt.failure_reason}',
+                file=sys.stderr,
+            )
+            print_next(retry_command, 'tries it again as it is')
+            sys.exit(EXIT_ERROR)
+        if receipt.superseded:
+            print(
+                f'pxt: {receipt.resource} generation {receipt.generation} was replaced by a newer update before it '
+                'finished',
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_ERROR)
+        if receipt.outcome is not None and not receipt.observed:
+            print(
+                f'pxt: {receipt.resource} generation {receipt.generation} ended with unknown outcome '
+                f'{receipt.outcome}; upgrade Pixeltable to read it',
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_ERROR)
+
+
+def await_endpoint(endpoint: str, *, status_command: str) -> None:
+    """Poll a hosted service's endpoint until a request reaches its pod rather than the gateway.
+
+    A service's receipt is observed once its pod is ready, which can be moments before the gateway routes to it;
+    until then the gateway answers 502. Any status from the pod itself, including 404, means the route works. Ctrl-C
+    stops the wait as it does in await_receipts().
+    """
+    deadline = time.monotonic() + _ENDPOINT_TIMEOUT
+    try:
+        while True:
             try:
-                resp = get_request(endpoint, params)
-            except SystemExit:
-                raise
-            except Exception:
-                continue
-            result = resp.get(result_key, resp) if isinstance(resp, dict) else {}
-            if result.get('state') not in pending_states:
-                break
-    return result
+                with urllib.request.urlopen(f'{endpoint}/health', timeout=_ENDPOINT_PROBE_TIMEOUT):
+                    return
+            except urllib.error.HTTPError as e:
+                if e.code not in (502, 503, 504):
+                    return
+            except (urllib.error.URLError, TimeoutError):
+                pass
+            if time.monotonic() >= deadline:
+                print(f'pxt: {endpoint} did not answer within {_ENDPOINT_TIMEOUT:.0f}s', file=sys.stderr)
+                sys.exit(EXIT_ERROR)
+            time.sleep(RECEIPT_POLL_INTERVAL)
+    except KeyboardInterrupt:
+        _exit_stopped_waiting(status_command)
 
 
-def exit_unless_reached(result: dict[str, Any], expected_state: str, operation: str) -> None:
-    """Exit with 1 unless the operation reached expected_state."""
-    state = result.get('state')
-    if state == expected_state:
-        return
-    seen = 'no state was read' if state is None else f'last state: {state}'
-    print(f'pxt: {operation} did not complete ({seen})', file=sys.stderr)
-    sys.exit(1)
+def _exit_stopped_waiting(status_command: str, exit_code: int = EXIT_INTERRUPTED) -> NoReturn:
+    print('\npxt: stopped waiting; the change continues in Pixeltable Cloud', file=sys.stderr)
+    print_next(status_command, 'shows its progress')
+    sys.exit(exit_code)
 
 
-def poll_db(org: str, db: str, pending_states: set[str], label: str | None) -> dict[str, Any]:
-    """Poll a hosted database until its state leaves pending_states."""
-    return poll_state(
-        '/api/db', {'org': org, 'db': db}, 'database', pending_states, DB_POLL_INTERVAL, DB_POLL_TIMEOUT, label
-    )
-
-
-def poll_svc(org: str, db: str, svc_name: str, pending_states: set[str], label: str | None) -> dict[str, Any]:
-    """Poll a hosted service until its state leaves pending_states."""
-    return poll_state(
-        '/api/service',
-        {'org': org, 'db': db, 'service_name': svc_name},
-        'service',
-        pending_states,
-        SVC_POLL_INTERVAL,
-        SVC_POLL_TIMEOUT,
-        label,
-    )
+def _waiting_label(receipts: list[GenerationReceipt], poll_error: RequestFailedError | None = None) -> str:
+    pending = next((r for r in receipts if not r.settled), receipts[0])
+    label = f'{pending.resource} generation {describe_receipt(pending)}'
+    if poll_error is not None:
+        label += f' (could not read its progress: {poll_error}; retrying)'
+    return f'{label} ...'

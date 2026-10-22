@@ -12,6 +12,7 @@ level `router` singleton.
 from __future__ import annotations
 
 import http
+import ipaddress
 import json
 import logging
 import mimetypes
@@ -19,14 +20,17 @@ import sys
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, unquote, urlparse
 
 import pydantic
 
 from pixeltable import exceptions as excs
+from pixeltable.config import Config, env_var_name
+from pixeltable.service import management_client
 
-from .router import RawResponse, Request
+from .daemon_state import compare_env_values, config_fingerprint, state as daemon_state
+from .router import Method, RawResponse, Request
 from .routes import router
 
 _logger = logging.getLogger('pixeltable.pixeltable_cli')
@@ -40,6 +44,23 @@ _STATIC_DIR = Path(__file__).parent / 'static'
 # Resolve presence once at import time: the bundle does not appear or vanish during the
 # daemon's lifetime, so re-stat'ing per request would add a syscall to the hot path.
 _HAS_STATIC_BUNDLE = _STATIC_DIR.exists()
+
+
+# Header carrying the caller's env fingerprint: {env var name: hash of its value}, no values.
+_ENV_HEADER = 'x-pxt-env-fingerprint'
+
+
+def _changed_settings(names: list[str]) -> str:
+    """One line per changed setting: how the file or the environment holding it spells it, and where it is."""
+    config = Config.get()
+    keys = {env_var_name(ck.section, ck.key): ck for ck in config.env_keys()}
+    lines: list[str] = []
+    for name in names:
+        ck = keys.get(name)
+        lines.append(
+            f'  {config.describe_setting(ck.section, ck.key)}' if ck is not None else f'  {name}, no longer set'
+        )
+    return '\n'.join(lines)
 
 
 class _DaemonHandler(BaseHTTPRequestHandler):
@@ -69,10 +90,34 @@ class _DaemonHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         self._dispatch('POST')
 
-    def _dispatch(self, method: str) -> None:
+    def _dispatch(self, method: Method) -> None:
+        refusal = self._refusal(method)
+        if refusal is not None:
+            self._send_json({'detail': refusal[1]}, refusal[0])
+            return
+
+        # Users edit the config file directly, so pick up an edit here rather than at the next daemon
+        # restart. Doing it once per request means a request sees one consistent set of values.
         parsed = urlparse(self.path)
         url_path = unquote(parsed.path)
         query = parse_qs(parsed.query, keep_blank_values=True)
+
+        # /api/health does not need the config file
+        if url_path != '/api/health':
+            try:
+                if Config.reload_if_changed():
+                    _logger.info('Reloaded %s', Config.get().config_file)
+            except excs.Error as e:
+                self._send_json(
+                    {'detail': str(e), 'error_code': e.error_code.name, 'retryable': e.is_retryable}, e.http_status
+                )
+                return
+            except Exception as e:
+                self._send_json(
+                    {'detail': f'{type(e).__name__}: {e}', 'traceback': traceback.format_exc()},
+                    http.HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
 
         handler = router.match(method, url_path)
         if handler is None:
@@ -92,10 +137,19 @@ class _DaemonHandler(BaseHTTPRequestHandler):
         else:
             body_bytes = b''
         req = Request(query=query, body_bytes=body_bytes, headers={k.lower(): v for k, v in self.headers.items()})
+        if router.checks_env(method, url_path) and not self._env_values_agree(req):
+            return
+
+        # health and status requests finish instantly
+        request_id = (
+            None if url_path in ('/api/health', '/api/status') else daemon_state.begin_request(method, url_path)
+        )
         try:
             result = handler(req)
         except excs.Error as e:
-            self._send_json({'detail': str(e), 'error_code': e.error_code.name}, e.http_status)
+            self._send_json(
+                {'detail': str(e), 'error_code': _error_code(e), 'retryable': e.is_retryable}, e.http_status
+            )
             return
         except Exception as e:
             # log the full request target (self.path includes the query string) plus the resolved catalog
@@ -110,10 +164,79 @@ class _DaemonHandler(BaseHTTPRequestHandler):
             )
             return
 
+        finally:
+            if request_id is not None:
+                daemon_state.end_request(request_id)
+
         if isinstance(result, RawResponse):
             self._send_raw(result)
         else:
             self._send_json(_to_jsonable(result))
+
+    def _refusal(self, method: Method) -> tuple[http.HTTPStatus, str] | None:
+        """The status and reason for refusing a request that a web page may have forged, or None to serve it.
+
+        Any page in a browser on this machine can send requests to a loopback port. One that rebinds its own
+        host name to 127.0.0.1 sends that name as Host, and one on another origin cannot send a JSON body
+        without a CORS preflight, which only _DEV_ORIGINS pass.
+        """
+        allowed = cast('_QuietServer', self.server).allowed_hosts
+        if allowed is None:
+            return None
+        if (self.headers.get('Host') or '').lower() not in allowed:
+            return http.HTTPStatus.FORBIDDEN, f'this daemon only answers requests addressed to {" or ".join(allowed)}'
+        if method == 'POST' and self.headers.get_content_type() != 'application/json':
+            return http.HTTPStatus.UNSUPPORTED_MEDIA_TYPE, 'a request body must be sent as application/json'
+        return None
+
+    def _env_values_agree(self, req: Request) -> bool:
+        """Whether this daemon's config values are the ones it recorded and the caller expects."""
+        current = config_fingerprint()
+        changed = daemon_state.changed_env_vars(current)
+        if len(changed) > 0:
+            # api clients are built from these values and cached per worker thread, so serving with the new
+            # ones takes a new process
+            self._send_json(
+                {
+                    'detail': f'configuration has changed since the daemon started:\n{_changed_settings(changed)}\n\n'
+                    'The daemon reads configuration once at startup. '
+                    'Run `pxt daemon restart` to pick up the new configuration.',
+                    'error_code': 'STALE_CONFIG',
+                },
+                http.HTTPStatus.CONFLICT,
+            )
+            return False
+        return self._caller_env_values_agree(req, current)
+
+    def _caller_env_values_agree(self, req: Request, current: dict[str, str]) -> bool:
+        """Whether the caller's config values match this daemon's, sending a 409 naming the difference if not."""
+        header = req.headers.get(_ENV_HEADER)
+        if header is None:
+            return True
+        try:
+            caller: dict[str, str] = json.loads(header)
+        except json.JSONDecodeError:
+            return True  # an unparseable fingerprint is no evidence of disagreement
+        missing, differing = compare_env_values(caller, current)
+        if len(missing) == 0 and len(differing) == 0:
+            return True
+
+        detail: list[str] = []
+        if len(missing) > 0:
+            detail.append(f'  set here but not in the daemon: {", ".join(missing)}')
+        if len(differing) > 0:
+            detail.append(f'  set to a different value in the daemon: {", ".join(differing)}')
+        self._send_json(
+            {
+                'detail': 'the daemon started with a different environment:\n'
+                + '\n'.join(detail)
+                + '\n\nThe daemon reads the environment once at startup. '
+                'Run `pxt daemon restart` to pick up your environment.',
+                'error_code': 'STALE_CONFIG',
+            },
+            http.HTTPStatus.CONFLICT,
+        )
+        return False
 
     # Cap request body size. Localhost-only daemon, but a misbehaving local client could
     # otherwise pin a thread on a multi-GB read or exhaust memory in pydantic validation.
@@ -207,9 +330,17 @@ class _DaemonHandler(BaseHTTPRequestHandler):
             pass
 
 
+def _error_code(e: excs.Error) -> str:
+    """The code of an error response: a refusal only the user can lift keeps Pixeltable Cloud's own code."""
+    code = e.provider_error_code if isinstance(e, excs.ExternalServiceError) else None
+    return code if code is not None and code in management_client.USER_ACTION_CODES else e.error_code.name
+
+
 def _to_jsonable(result: Any) -> Any:
     if isinstance(result, pydantic.BaseModel):
         return result.model_dump(mode='json')
+    if isinstance(result, list):
+        return [_to_jsonable(item) for item in result]
     return result
 
 
@@ -218,6 +349,14 @@ class _QuietServer(ThreadingHTTPServer):
 
     daemon_threads = True
 
+    # SO_REUSEADDR lets a POSIX daemon rebind a port left in TIME_WAIT by its predecessor. On Windows it lets a
+    # second daemon take over a live daemon's port and its clients instead of failing to bind and deferring.
+    allow_reuse_address = sys.platform != 'win32'
+
+    # the accepted values of a request's Host header, in lowercase; None accepts any, for a daemon bound
+    # beyond loopback, which only a proxy that authenticates its callers may front
+    allowed_hosts: tuple[str, ...] | None = None
+
     def handle_error(self, request: Any, client_address: Any) -> None:
         exc = sys.exc_info()[1]
         if isinstance(exc, (BrokenPipeError, ConnectionResetError)):
@@ -225,13 +364,24 @@ class _QuietServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def bind(port: int) -> _QuietServer:
-    """Bind the listen socket. Raises OSError if the port is already taken."""
-    return _QuietServer(('127.0.0.1', port), _DaemonHandler)
+def bind(host: str, port: int) -> _QuietServer:
+    """Bind the listen socket. Raises OSError if the address is already taken."""
+    server = _QuietServer((host, port), _DaemonHandler)
+    bound_host, bound_port = str(server.server_address[0]), server.server_address[1]
+    if ipaddress.ip_address(bound_host).is_loopback:
+        names = {host.lower(), bound_host}
+        # localhost reaches 127.0.0.1 and no other loopback address
+        if bound_host == '127.0.0.1':
+            names.add('localhost')
+        server.allowed_hosts = tuple(sorted(f'{name}:{bound_port}' for name in names))
+    return server
 
 
 def run(server: _QuietServer) -> None:
     """Serve forever on a server bound by bind() (blocks the calling thread)."""
+    # before the first request: a request that reloads the config file would otherwise be the one to record
+    # the baseline, and would record the file's new values as the ones this process serves with
+    daemon_state.record_env_fingerprint()
     _logger.info('pxt daemon listening on http://%s:%s', *server.server_address)
     try:
         server.serve_forever()

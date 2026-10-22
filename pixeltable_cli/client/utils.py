@@ -6,28 +6,46 @@ stdlib plus psutil, so importing this on every `pxt` invocation stays cheap."""
 import http.client
 import json
 import os
+import platform
 import re
+import shlex
 import signal
+import socket
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any, NoReturn
 
 import psutil
+import pydantic
 
+from pixeltable_cli import types
 from pixeltable_cli.utils import (
     _IDENTITY_KEYS,
     _resolve_pixeltable_home,
+    env_fingerprint,
     get_port,
     identity,
     pidfile_path,
+    project_root,
     validate_path_shape,
 )
 
-_IS_WINDOWS = os.name == 'nt'
+_IS_WINDOWS = platform.system() == 'Windows'
+
+# shared exit codes for all commands
+EXIT_IN_AGREEMENT = 0
+EXIT_ERROR = 1
+EXIT_CHANGES_PENDING = 2
+EXIT_REFUSED = 3
+
+# management_client.USER_ACTION_CODES; this module does not import pixeltable
+USER_ACTION_CODES = frozenset(('PAYMENT_REQUIRED', 'PLAN_LIMIT', 'STORE_FULL'))
 
 
 def session_key() -> str:
@@ -62,14 +80,17 @@ def _daemon_log_path() -> str:
 
 
 def read_pidfile() -> int | None:
+    """The PID the daemon recorded, or None if the file is missing or holds no usable one."""
     try:
         with open(pidfile_path(), encoding='utf-8') as f:
-            return int(f.read().strip())
+            pid = int(f.read().strip())
     except (OSError, ValueError):
         return None
+    return pid if pid > 0 else None
 
 
 def fetch_health(timeout: float = 0.3) -> dict[str, Any] | None:
+    """What the daemon reports about itself, or None if nothing usable answered within timeout."""
     try:
         with urllib.request.urlopen(health_url(), timeout=timeout) as r:
             body = json.loads(r.read())
@@ -90,9 +111,29 @@ def is_running(timeout: float = 0.3) -> bool:
     return fetch_health(timeout) is not None
 
 
+def port_is_open(timeout: float = 0.3) -> bool:
+    """Report whether something accepts a connection on the daemon's port.
+
+    A daemon busy with a request answers the connection but not the request, which tells 'still there, working'
+    apart from 'gone'.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(timeout)
+        return sock.connect_ex(('127.0.0.1', get_port())) == 0
+
+
 def _identity_diff(client: dict[str, Any], daemon: dict[str, Any]) -> list[str]:
     """Return the list of identity keys whose values differ."""
     return [k for k in _IDENTITY_KEYS if client.get(k) != daemon.get(k)]
+
+
+def _serves_another_project(daemon: dict[str, Any]) -> bool:
+    """Report whether the daemon's project root differs from the one the working directory establishes.
+
+    A working directory that establishes no project asks for nothing, and leaves the daemon as it is.
+    """
+    root = project_root()
+    return root is not None and daemon.get('project_root') != root
 
 
 def spawn_detached() -> None:
@@ -115,15 +156,14 @@ def spawn_detached() -> None:
         # daemon's cwd to the pixeltable home (which holds no importable packages) and set
         # PYTHONSAFEPATH so the working directory is not prepended to sys.path at all (3.11+).
         env = {**os.environ, 'PYTHONSAFEPATH': '1'}
+        # a daemon starts in the Pixeltable home, which marks no project, so its command line carries the
+        # project it serves
+        root = project_root()
+        args = [sys.executable, '-m', 'pixeltable_cli.server.daemon']
+        if root is not None:
+            args += ['--project-root', root]
         with open(log_path, 'a', encoding='utf-8') as log:
-            subprocess.Popen(
-                [sys.executable, '-m', 'pixeltable_cli.server.daemon'],
-                stdout=log,
-                stderr=log,
-                cwd=_resolve_pixeltable_home(),
-                env=env,
-                **popen_kwargs,
-            )
+            subprocess.Popen(args, stdout=log, stderr=log, cwd=_resolve_pixeltable_home(), env=env, **popen_kwargs)
     except OSError as e:
         reason = e.strerror or e.__class__.__name__
         raise RuntimeError(f'pxt daemon log unavailable ({log_path}): {reason}') from None
@@ -145,14 +185,15 @@ def _tail_daemon_log(n_lines: int = 10) -> str:
     return '\n'.join(lines[-n_lines:]).rstrip()
 
 
-def _await_health(timeout: float) -> bool:
-    """Poll /api/health until it responds or the timeout elapses. Returns whether it came up."""
+def _await_health(timeout: float) -> dict[str, Any] | None:
+    """Poll /api/health until it responds or the timeout elapses. Returns what it reported, if anything."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if is_running():
-            return True
+        health = fetch_health()
+        if health is not None:
+            return health
         time.sleep(0.1)
-    return False
+    return None
 
 
 # A freshly-spawned daemon doesn't serve /api/health until it finishes importing pixeltable, which on a
@@ -162,9 +203,11 @@ def _await_health(timeout: float) -> bool:
 _STARTUP_HEALTH_TIMEOUT_SECS = 45.0
 
 
-def wait_for_health(timeout: float = _STARTUP_HEALTH_TIMEOUT_SECS) -> None:
-    if _await_health(timeout):
-        return
+def wait_for_health(timeout: float = _STARTUP_HEALTH_TIMEOUT_SECS) -> dict[str, Any]:
+    """Wait for the daemon to serve /api/health, and return what it reported. Raises if it never answers."""
+    health = _await_health(timeout)
+    if health is not None:
+        return health
     tail = _tail_daemon_log()
     msg = f'pxt daemon did not come up within {timeout}s'
     if tail != '':
@@ -196,8 +239,12 @@ def _pid_cmdline(pid: int) -> str | None:
     except OSError:
         pass
     if _IS_WINDOWS:
-        # No cheap stdlib argv source; the caller falls back to refusing to kill.
-        return None
+        # Windows has neither /proc nor ps; psutil reads the command line out of the process itself
+        try:
+            args = psutil.Process(pid).cmdline()
+        except (psutil.Error, OSError):
+            return None
+        return ' '.join(args) if len(args) > 0 else None
     # macOS/BSD (and Linux without a readable /proc entry): ask ps for the full command line.
     try:
         out = subprocess.run(
@@ -216,22 +263,15 @@ def _pid_is_our_daemon(pid: int) -> bool:
 
 
 def _pid_alive(pid: int) -> bool:
-    try:
-        # signal 0 is the 'are you there?' probe (doesn't kill, just raises if the PID is gone)
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        # PID exists but is owned by another user; treat as alive (we can't kill it anyway).
-        return True
-    except (OSError, SystemError):
-        # SystemError surfaces on Windows when os.kill(pid, 0) hits an internal CPython
-        # result-handling edge case for an unknown PID; treat the same as OSError ("gone").
-        return False
-    return True
+    assert pid > 0, pid
+    # On POSIX this is the os.kill(pid, 0) probe, counting a pid owned by another user as alive. Windows can't
+    # use that probe: signal 0 is CTRL_C_EVENT there, and when the event can't be sent, CPython 3.11 goes on to
+    # call TerminateProcess on the pid, killing the process it was only meant to probe.
+    return psutil.pid_exists(pid)
 
 
 def kill_and_wait(pid: int, timeout: float = 5.0) -> None:
+    assert pid > 0, pid
     # Wait on the PID itself (not /health) so a hung-but-alive daemon that still holds the
     # listen socket is detected and SIGKILLed; otherwise the next spawn would fail with
     # 'address already in use' because we returned early on the health probe.
@@ -253,44 +293,44 @@ def kill_and_wait(pid: int, timeout: float = 5.0) -> None:
         pass
 
 
+def _restart_if_mismatched(health: dict[str, Any]) -> None:
+    """Replace the daemon that reported health if it belongs to another install, environment or project."""
+    client_identity = identity()
+    diff = _identity_diff(client_identity, health)
+    if _serves_another_project(health):
+        diff = [*diff, 'project_root']
+    if len(diff) == 0:
+        return
+    # Identity mismatch: the daemon was launched against a different install or env snapshot than the
+    # client now sees (eg, after pip install -U pixeltable). Restart it ourselves rather than making
+    # the user do it: a non-None health response means fetch_health() already verified the responder is
+    # our daemon.
+    reported_pid = health.get('pid')
+    # Refuse to target the process if its pid doesn't look real
+    if not isinstance(reported_pid, int) or isinstance(reported_pid, bool) or reported_pid <= 0:
+        raise RuntimeError(f'daemon on port {get_port()} reported an invalid pid ({reported_pid!r}); not restarting it')
+    kill_and_wait(reported_pid)
+    spawn_detached()
+    new_health = wait_for_health()
+    # Cross-verify: the new responder must have a fresh PID and an identity that fully matches the client.
+    # Anything else means the restart did not actually swap in a daemon belonging to this install/env.
+    if new_health.get('pid') == reported_pid:
+        reason = f'new daemon kept the killed PID {reported_pid}'
+    else:
+        new_diff = _identity_diff(client_identity, new_health)
+        if _serves_another_project(new_health):
+            new_diff = [*new_diff, 'project_root']
+        if len(new_diff) > 0:
+            reason = f'new daemon still differs in: {", ".join(new_diff)}'
+        else:
+            reason = ''
+    if reason != '':
+        raise RuntimeError(f'pxt daemon restart did not produce a matching responder on port {get_port()}: {reason}')
+
+
 def ensure_running() -> str:
     health = fetch_health()
-    if health is not None:
-        client_identity = identity()
-        diff = _identity_diff(client_identity, health)
-        if len(diff) > 0:
-            # Identity mismatch: the daemon was launched against a different install or env snapshot than the
-            # client now sees (eg, after pip install -U pixeltable). Restart it ourselves rather than making
-            # the user do it: a non-None health response means fetch_health() already verified the responder is
-            # our daemon.
-            reported_pid = health.get('pid')
-            if not isinstance(reported_pid, int):
-                # a non-int pid can't be a real process id; refuse to target it for a restart rather than
-                # act on an untrustworthy health response
-                raise RuntimeError(
-                    f'daemon on port {get_port()} reported an invalid pid ({reported_pid!r}); not restarting it'
-                )
-            kill_and_wait(reported_pid)
-            spawn_detached()
-            wait_for_health()
-            # Cross-verify: the new responder must have a fresh PID and an identity that fully matches the client.
-            # Anything else means the restart did not actually swap in a daemon belonging to this install/env.
-            new_health = fetch_health()
-            if new_health is None:
-                reason = 'new daemon did not respond to /api/health'
-            elif new_health.get('pid') == reported_pid:
-                reason = f'new daemon kept the killed PID {reported_pid}'
-            else:
-                new_diff = _identity_diff(client_identity, new_health)
-                if len(new_diff) > 0:
-                    reason = f'new daemon still differs in: {", ".join(new_diff)}'
-                else:
-                    reason = ''
-            if reason != '':
-                raise RuntimeError(
-                    f'pxt daemon restart did not produce a matching responder on port {get_port()}: {reason}'
-                )
-    else:
+    if health is None:
         # Nothing is answering /api/health. Either no daemon is up, or one we started bound the
         # port and then wedged before serving health. The pidfile records the PID, but PIDs get
         # recycled and the file is only bookkeeping, so a live PID is not proof of ownership: only
@@ -298,22 +338,112 @@ def ensure_running() -> str:
         # daemon. An unconfirmed PID is treated as a stale pidfile and we just spawn.
         stale_pid = read_pidfile()
         if stale_pid is not None and _pid_alive(stale_pid) and _pid_is_our_daemon(stale_pid):
-            # It may just be slow to start, so give it a grace window before concluding it is
-            # hung; a daemon that comes up in the meantime is used as-is.
-            if _await_health(_STARTUP_GRACE_PERIOD_SECS):
-                return base_url()
-            kill_and_wait(stale_pid)
-        spawn_detached()
-        wait_for_health()
+            # It may just be slow to answer, so give it a grace window before concluding it is hung;
+            # a daemon that comes up in the meantime goes through the same checks as one that
+            # answered right away.
+            health = _await_health(_STARTUP_GRACE_PERIOD_SECS)
+            if health is None:
+                kill_and_wait(stale_pid)
+        if health is None:
+            spawn_detached()
+            # the daemon we spawn defers to one that already holds the port, so the responder is not
+            # necessarily the process we started
+            health = wait_for_health()
+    _restart_if_mismatched(health)
     return base_url()
+
+
+class RequestFailedError(Exception):
+    """A daemon request that failed; status is None when no response came back."""
+
+    status: int | None
+    retryable: bool | None
+    server_tb: str | None
+    # the daemon's error_code; without one, DAEMON_UNREACHABLE when no daemon answered, HTTP_<status> for a 4xx from its
+    # HTTP layer, and INTERNAL_ERROR otherwise
+    error_code: str
+    detail: str  # the reason, without the status
+    as_written: bool  # the message is the control plane's reason, printed without a prefix
+
+    def __init__(
+        self,
+        message: str,
+        status: int | None = None,
+        retryable: bool | None = None,
+        server_tb: str | None = None,
+        *,
+        error_code: str = 'INTERNAL_ERROR',
+        detail: str | None = None,
+        as_written: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.retryable = retryable
+        self.server_tb = server_tb
+        self.error_code = error_code
+        self.detail = detail or message
+        self.as_written = as_written
+
+    @classmethod
+    def from_response(cls, e: urllib.error.HTTPError) -> 'RequestFailedError':
+        """The error for a daemon's error response, from the fields of its JSON body."""
+        try:
+            parsed = json.loads(e.read() or b'null')
+        except ValueError:
+            parsed = None
+        body = parsed if isinstance(parsed, dict) else {}
+        detail = str(body.get('detail') or e.reason)
+        retryable = body.get('retryable')
+        error_code = body.get('error_code')
+        if not isinstance(error_code, str):
+            # the daemon's HTTP layer answers an unknown route, a refused host or an oversized body with no code
+            error_code = 'INTERNAL_ERROR' if e.code >= 500 else f'HTTP_{e.code}'
+        # a refusal only the user can lift: its reason is printed as the control plane wrote it
+        as_written = error_code in USER_ACTION_CODES
+        return cls(
+            detail if as_written else f'{e.code} {detail}',
+            e.code,
+            retryable=retryable if isinstance(retryable, bool) else None,
+            server_tb=body.get('traceback'),
+            error_code=error_code,
+            detail=detail,
+            as_written=as_written,
+        )
+
+    @property
+    def transient(self) -> bool:
+        """Whether resending the request may succeed.
+
+        The daemon's retryable flag when it gave one; otherwise True when no response came back, or for a server error.
+        """
+        if self.retryable is not None:
+            return self.retryable
+        return self.status is None or self.status >= 500
+
+    def report(self) -> None:
+        if json_requested():
+            print_error_document(self.error_code, self.detail, retryable=self.transient)
+            sys.stdout.flush()
+        print(str(self) if self.as_written else f'pxt: {self} [{self.error_code}]', file=sys.stderr)
+        if self.server_tb is not None:
+            # an unexpected daemon failure carries its traceback; show it so the user can report the error
+            print(f'\n--- daemon traceback ---\n{self.server_tb}', file=sys.stderr)
 
 
 def _request(method: str, path: str, body: dict[str, Any] | None = None, params: dict[str, Any] | None = None) -> Any:
     try:
+        return _send(method, path, body, params)
+    except RequestFailedError as e:
+        e.report()
+        sys.exit(1)
+
+
+def _send(method: str, path: str, body: dict[str, Any] | None, params: dict[str, Any] | None) -> Any:
+    try:
         base = ensure_running()
     except RuntimeError as e:
-        print(f'pxt: {e}', file=sys.stderr)
-        sys.exit(1)
+        # resending cannot start a daemon that just failed to
+        raise RequestFailedError(str(e), retryable=False, error_code='DAEMON_UNREACHABLE') from e
 
     url = f'{base}{path}'
     if params is not None:
@@ -324,7 +454,8 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None, params:
             # doseq=True expands list values into repeated params (?pk=a&pk=b).
             url += '?' + urllib.parse.urlencode(filtered, doseq=True)
 
-    headers: dict[str, str] = {'X-Pxt-Session': session_key()}
+    # the daemon compares the env fingerprint with its own and returns an error if the env has changed
+    headers: dict[str, str] = {'X-Pxt-Session': session_key(), 'X-Pxt-Env-Fingerprint': json.dumps(env_fingerprint())}
     data: bytes | None = None
     if body is not None:
         data = json.dumps(body).encode()
@@ -335,33 +466,52 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None, params:
         with urllib.request.urlopen(req) as r:
             return json.loads(r.read() or b'null')
     except urllib.error.HTTPError as e:
-        try:
-            parsed = json.loads(e.read() or b'null')
-            body = parsed if isinstance(parsed, dict) else {}
-        except ValueError:
-            body = {}
-        detail = body.get('detail') or e.reason
-        print(f'pxt: {e.code} {detail}', file=sys.stderr)
-        server_tb = body.get('traceback')
-        if server_tb is not None:
-            # an unexpected daemon failure carries its traceback; show it so the user can report the error
-            print(f'\n--- daemon traceback ---\n{server_tb}', file=sys.stderr)
-        sys.exit(1)
+        raise RequestFailedError.from_response(e) from e
     except urllib.error.URLError as e:
-        print(f'pxt: cannot reach daemon at {url}: {e.reason}', file=sys.stderr)
-        sys.exit(1)
+        raise RequestFailedError(f'cannot reach daemon at {url}: {e.reason}', error_code='DAEMON_UNREACHABLE') from e
     except http.client.HTTPException as e:
         # a truncated or malformed response, eg. the daemon writing headers and then dropping the connection
-        print(f'pxt: bad response from daemon at {url}: {type(e).__name__}: {e}', file=sys.stderr)
-        sys.exit(1)
+        raise RequestFailedError(f'bad response from daemon at {url}: {type(e).__name__}: {e}') from e
 
 
-def get_request(path: str, params: dict[str, Any] | None = None) -> Any:
+def get_request(path: str, params: dict[str, Any] | None = None, *, raise_on_error: bool = False) -> Any:
+    """GET path from the daemon and return its response; on an error, exit 1 unless raise_on_error is set."""
+    if raise_on_error:
+        return _send('GET', path, None, params)
     return _request('GET', path, params=params)
 
 
-def post_request(path: str, body: dict[str, Any]) -> Any:
+def post_request(path: str, body: dict[str, Any], *, raise_on_error: bool = False) -> Any:
+    """POST body to the daemon and return its response; on an error, exit 1 unless raise_on_error is set.
+
+    raise_on_error: raise RequestFailedError instead of exiting.
+    """
+    if raise_on_error:
+        return _send('POST', path, body, None)
     return _request('POST', path, body=body)
+
+
+def check_file(route: str, field: str, file: str, *, verb: str, as_json: bool) -> None:
+    """Print what the daemon at route reports about file, and exit 0 when it reports the file valid.
+
+    Sends the absolute path under field, since the daemon reads the file itself. Exit 1 is the error status
+    of every verb that takes a file.
+    """
+    path = Path(file)
+    if not path.is_file():
+        print(f'pxt {verb}: file not found: {file}', file=sys.stderr)
+        sys.exit(1)
+    report = types.CheckReport.model_validate(post_request(route, {field: str(path.resolve())}))
+    if as_json:
+        print(report.model_dump_json(indent=2))
+    else:
+        for warning in report.warnings:
+            print(f'warning: {warning}')
+        for error in report.errors:
+            print(f'error: {error}', file=sys.stderr)
+        if report.valid:
+            print(f'{report.file}: valid')
+    sys.exit(0 if report.valid else 1)
 
 
 def validate_path_arg(path: str) -> str:
@@ -399,3 +549,139 @@ def print_aligned(headers: list[str], rows: list[list[str]], right_align: set[in
     print(fmt(headers))
     for r in rows:
         print(fmt(r))
+
+
+def stdin_is_a_tty() -> bool:
+    """Like `sys.stdin.isatty()`, but on Windows distinguishes real consoles from NUL/other
+    character devices. msvcrt's `isatty` returns nonzero for any char device, so `subprocess.DEVNULL`
+    (which maps to NUL) is misreported as a TTY; GetConsoleMode() succeeds only on real consoles.
+    """
+    if not sys.stdin.isatty():
+        return False
+    if sys.platform != 'win32':
+        return True
+    import ctypes
+    from ctypes import wintypes
+
+    handle = ctypes.windll.msvcrt._get_osfhandle(sys.stdin.fileno())
+    mode = wintypes.DWORD()
+    return bool(ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode)))
+
+
+def plural(n: int, noun: str) -> str:
+    """Count and noun, with an s on the noun for every count but one."""
+    return f'{n} {noun}' if n == 1 else f'{n} {noun}s'
+
+
+# the command being run, as main.dispatch() received it, so a refusal can name the command that finishes the job
+invocation: list[str] | None = None
+
+
+def rerun_command(*flags: str) -> str | None:
+    """The command being run, with flags added before any '--', as a shell command line; None outside dispatch()."""
+    if invocation is None:
+        return None
+    end = invocation.index('--') if '--' in invocation else len(invocation)
+    return shlex.join(['pxt', *invocation[:end], *flags, *invocation[end:]])
+
+
+def print_next(command: str, effect: str) -> None:
+    print(f'next: {command}  # {effect}', file=sys.stderr)
+
+
+def json_requested() -> bool:
+    """Whether the command being run asked for --json output."""
+    return invocation is not None and '--json' in invocation
+
+
+def print_error_document(
+    error_code: str,
+    message: str,
+    *,
+    retryable: bool,
+    next_steps: list[dict[str, str]] | None = None,
+    retry_after: float | None = None,
+) -> None:
+    """Prints a failure as the one --json document on stdout: error_code, message, retryable, retry_after, next."""
+    doc: dict[str, Any] = {'error_code': error_code, 'message': message, 'retryable': retryable}
+    if retry_after is not None:
+        doc['retry_after'] = retry_after
+    if next_steps is not None:
+        doc['next'] = next_steps
+    print(json.dumps(doc, indent=2))
+
+
+def confirm_or_exit(prompt: str, force: bool, *, on_refusal: Callable[[], None] | None = None) -> None:
+    """Prompt for yes/no on stdin unless --force; exit with EXIT_REFUSED on anything but yes, or without a TTY.
+
+    See _refuse_unanswered() for the refusal without a TTY.
+    """
+    if force:
+        return
+    if not stdin_is_a_tty():
+        _refuse_unanswered(prompt, on_refusal=on_refusal)
+    sys.stderr.write(f'{prompt} [y/N] ')
+    sys.stderr.flush()
+    ans = sys.stdin.readline().strip().lower()
+    if ans not in ('y', 'yes'):
+        # a person said no, so no command is named to get past it
+        if on_refusal is not None:
+            on_refusal()
+        elif json_requested():
+            print_error_document('CONFIRMATION_DECLINED', f'declined: {prompt}', retryable=False)
+        _flush_stdout()
+        print('aborted', file=sys.stderr)
+        sys.exit(EXIT_REFUSED)
+
+
+def _refuse_unanswered(prompt: str, *, on_refusal: Callable[[], None] | None) -> NoReturn:
+    """Refuse a prompt no one can answer, with no TTY, naming the command to rerun with -f.
+
+    on_refusal runs first, for a caller that reports the refusal itself; otherwise, with --json, the refusal is an
+    error document on stdout.
+    """
+    message = f'refusing to proceed without --force/-f (no TTY for confirmation): {prompt}'
+    command = rerun_command('-f')
+    # the question says what the command does; what follows it, such as 'This is irreversible.', does not
+    effect = prompt.partition('?')[0]
+    if on_refusal is not None:
+        on_refusal()
+    elif json_requested():
+        steps = [] if command is None else [{'command': command, 'effect': effect}]
+        print_error_document('CONFIRMATION_REQUIRED', message, retryable=False, next_steps=steps)
+    _flush_stdout()
+    print(f'pxt: {message}', file=sys.stderr)
+    if command is not None:
+        print_next(command, effect)
+    sys.exit(EXIT_REFUSED)
+
+
+def refuse_destructive(prog: str, destructive: int, *, force: bool, on_refusal: Callable[[], None]) -> NoReturn:
+    """Refuse a plan whose destructive operations --allow-destructive did not permit, naming the command that does.
+
+    on_refusal reports the refused plan first.
+    """
+    on_refusal()
+    _flush_stdout()
+    print(
+        f'{prog}: refusing to apply {destructive} destructive operation(s) without --allow-destructive', file=sys.stderr
+    )
+    # add -f too when the confirmation that follows would refuse in turn
+    flags = ('--allow-destructive',) if force or stdin_is_a_tty() else ('--allow-destructive', '-f')
+    command = rerun_command(*flags)
+    if command is not None:
+        print_next(command, f'applies {destructive} destructive operation(s)')
+    sys.exit(EXIT_REFUSED)
+
+
+def _flush_stdout() -> None:
+    # stdout is block-buffered on a pipe; flush it before stderr emits the refusal line
+    try:
+        sys.stdout.flush()
+    except OSError:
+        pass
+
+
+def print_json_schema(adapter: pydantic.TypeAdapter) -> None:
+    # mode='serialization' for computed fields
+    print(json.dumps(adapter.json_schema(mode='serialization'), indent=2))

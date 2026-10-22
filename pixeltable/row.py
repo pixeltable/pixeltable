@@ -23,6 +23,8 @@ class Row(Mapping[str, Any]):
     The `errors` property holds error info (`{'errortype': ..., 'errormsg': ...}`) for each cell whose
     evaluation failed; the `index_values` property holds the values of embedding indexes defined on the
     row's table. Both are keyed by column or index name.
+
+    Keys are case-sensitive: every name is the folded (lower-case) spelling stored in the catalog.
     """
 
     _data: tuple[Any, ...]
@@ -151,7 +153,7 @@ class RowBatch(Sequence[Row]):
     @property
     def schema(self) -> dict[str, str]:
         """The batch's column names and types, in column order."""
-        return {name: t._to_str(as_schema=True) for name, t in self._col_types.items()}
+        return {name: repr(t) for name, t in self._col_types.items()}
 
     @property
     def column_names(self) -> list[str]:

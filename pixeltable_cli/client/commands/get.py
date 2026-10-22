@@ -1,24 +1,29 @@
 import json
+import sys
+
+from pixeltable_cli import models
 
 from ..parser import Parser, parse_cols
-from ..utils import get_request, validate_path_arg
+from ..utils import EXIT_ERROR, get_request, validate_path_arg
 
 EPILOG = """\
 Examples:
   pxt get my_dir/my_table 42                    # single-column PK, int value
   pxt get my_dir/my_table some_string_id        # single-column PK, string value
-  pxt get my_dir/my_table 42 abc                # composite PK (2 cols), in declared PK order
+  pxt get my_dir/my_table 42 abc                # composite PK (2 cols), in defined PK order
   pxt get my_dir/my_table 42 --cols id,text     # restrict to listed columns
   pxt get my_dir/my_table 42 --json
+  pxt get my_dir/my_table 01a092a5-d30a-779b-96b2-c8eaecac1657   # single-column PK, uuid value
 
 Notes:
-  PK values are coerced to int or float when they parse as numbers; otherwise they stay
-  as strings. There is no way to force a string PK that looks like a number; if your PK
-  column is typed as string but the value is '42', the server will reject the type mismatch.
+  pxt parses each PK value by its column type: a string column takes '42' as the
+  string '42', an int column as the number 42. For an int, float, or uuid column, a
+  value that does not parse produces an error. Lookup by a PK of another type, such as
+  a date or timestamp, is not supported yet and finds no row.
   Use 'pxt describe <table>' to see the primary_key columns and their order.
   Unstored computed columns are skipped by default; pass them explicitly via --cols to
   include them.
-  The table must have a primary key declared."""
+  The table must have a primary key defined."""
 
 
 def run(argv: list[str]) -> None:
@@ -37,19 +42,17 @@ def run(argv: list[str]) -> None:
         ap.error('PK values must not be empty or whitespace-only')
     cols = parse_cols(args.cols, ap)
     cols_csv = ','.join(cols) if cols is not None else None
-    # PK coercion (numeric strings -> int/float) happens on the server side; the URL only
-    # carries strings.
-    resp = get_request(
-        '/api/tables/row', params={'path': validate_path_arg(args.path), 'pk': args.pk, 'cols': cols_csv}
+    resp = models.GetResponse.model_validate(
+        get_request('/api/tables/row', params={'path': validate_path_arg(args.path), 'pk': args.pk, 'cols': cols_csv})
     )
 
     if args.as_json:
-        print(json.dumps(resp, indent=2, default=str))
-        return
-
-    if resp['row'] is None:
-        pk_pairs = ', '.join(f'{n}={v!r}' for n, v in zip(resp['pk_columns'], args.pk))
-        print(f'no row found for {{{pk_pairs}}}')
-        return
-    for k, v in resp['row'].items():
-        print(f'{k}\t{v}')
+        print(json.dumps(resp.model_dump(), indent=2, default=str))
+    elif resp.row is not None:
+        for k, v in resp.row.items():
+            print(f'{k}\t{v}')
+    if resp.row is None:
+        sys.stdout.flush()
+        pk_pairs = ', '.join(f'{n}={v!r}' for n, v in zip(resp.pk_columns, args.pk))
+        print(f'pxt: no row found for {{{pk_pairs}}} [ROW_NOT_FOUND]', file=sys.stderr)
+        sys.exit(EXIT_ERROR)

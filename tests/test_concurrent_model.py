@@ -1,11 +1,12 @@
 # ruff: noqa: F821
 # ruff: noqa: N806
 # ruff: noqa: E731
+# ruff: noqa: RUF012
 
 from __future__ import annotations
 
-import threading
-from typing import Callable
+import re
+from typing import Any, Callable
 
 import pytest
 
@@ -16,7 +17,7 @@ from pixeltable.utils.fault_injection import FaultLocation
 
 from .coordinator import MultiThreadedScenario
 from .fault_injection import BlockFault
-from .utils import dummy_embedding, pxt_raises
+from .utils import dummy_embedding, pxt_raises, run_workers
 
 ROOT = ''
 
@@ -47,27 +48,7 @@ def _run_with_concurrent_apply(
     )
 
 
-def _run_workers(target: Callable[[int], None], n_threads: int) -> list[tuple[int, BaseException]]:
-    """Run target(tid) on n_threads workers; return any exceptions raised."""
-    errors: list[tuple[int, BaseException]] = []
-    lock = threading.Lock()
-
-    def runner(tid: int) -> None:
-        try:
-            target(tid)
-        except BaseException as e:
-            with lock:
-                errors.append((tid, e))
-
-    threads = [threading.Thread(target=runner, args=(i,)) for i in range(n_threads)]
-    for th in threads:
-        th.start()
-    for th in threads:
-        th.join()
-    return errors
-
-
-@pytest.mark.local('fault-injection/concurrency test of update_all() vs concurrent schema change')
+@pytest.mark.db_roots('local', reason='fault-injection/concurrency test of update_all() vs concurrent schema change')
 class TestConcurrentModelUpdate:
     # ---------------------------------------------------------------------------------------------------------------
     # Group A: thread 0 ADDS a column/index while a concurrent change drifts the catalog.
@@ -79,8 +60,8 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         TM.create_all(ROOT)
         Base.insert([{'id': 1, 'value': 1.0}, {'id': 2, 'value': 2.0}])
@@ -88,16 +69,16 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
             x = value + 1
 
         if family == 'update_all':
             TMc = pxt.model_base()
 
             class BaseC(TMc, name='test_table'):
-                id: pxt.Required[pxt.Int]
-                value: pxt.Float
+                id: pxt.Int
+                value: pxt.Float | None
                 x = value + 100
 
             concurrent = lambda: TMc.update_all(ROOT)
@@ -113,7 +94,7 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
+            id: pxt.Int
 
         TM.create_all(ROOT)
 
@@ -121,14 +102,14 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         class NewTable(TM2, name='new_table'):
-            id: pxt.Required[pxt.Int]
+            id: pxt.Int
 
         # someone else creates new_table while the migration is in flight, so only the create fails
-        concurrent = lambda: pxt.create_table(f'{ROOT}new_table', {'id': pxt.Required[pxt.Int]})
+        concurrent = lambda: pxt.create_table(f'{ROOT}new_table', {'id': pxt.Int})
 
         with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=r"already migrated: 'test_table'"):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), concurrent)
@@ -142,8 +123,8 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            text: pxt.String
+            id: pxt.Int
+            text: pxt.String | None
 
         TM.create_all(ROOT)
         Base.insert([{'id': 1, 'text': 'one'}, {'id': 2, 'text': 'two'}])
@@ -151,17 +132,19 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            text: pxt.String
-            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
+            id: pxt.Int
+            text: pxt.String | None
+
+            __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))]
 
         if family == 'update_all':
             TMc = pxt.model_base()
 
             class BaseC(TMc, name='test_table'):
-                id: pxt.Required[pxt.Int]
-                text: pxt.String
-                ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=512))
+                id: pxt.Int
+                text: pxt.String | None
+
+                __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=512))]
 
             concurrent = lambda: TMc.update_all(ROOT)
         else:
@@ -183,8 +166,8 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         class View(TM, name='test_view', base=Base):
             vc1 = Base.value + 1
@@ -195,8 +178,8 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         class ViewV2(TM2, name='test_view', base=BaseV2):
             vc1 = BaseV2.value + 1
@@ -206,8 +189,8 @@ class TestConcurrentModelUpdate:
             TMc = pxt.model_base()
 
             class BaseC(TMc, name='test_table'):
-                id: pxt.Required[pxt.Int]
-                value: pxt.Float
+                id: pxt.Int
+                value: pxt.Float | None
                 x = value + 100
 
             concurrent = lambda: TMc.update_all(ROOT)
@@ -224,9 +207,9 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
-            extra: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
+            extra: pxt.Float | None
 
         TM.create_all(ROOT)
         Base.insert([{'id': 1, 'value': 1.0, 'extra': 10.0}, {'id': 2, 'value': 2.0, 'extra': 20.0}])
@@ -234,17 +217,17 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
-            extra: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
+            extra: pxt.Float | None
             x = extra + 1
 
         if family == 'update_all':
             TMc = pxt.model_base()
 
             class BaseC(TMc, name='test_table'):
-                id: pxt.Required[pxt.Int]
-                value: pxt.Float
+                id: pxt.Int
+                value: pxt.Float | None
 
             concurrent = lambda: TMc.update_all(ROOT, allow_destructive=True)
         else:
@@ -254,8 +237,8 @@ class TestConcurrentModelUpdate:
         with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=schema_changed('test_table')):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), concurrent)
 
-    @pytest.mark.parametrize('retyped_as', [pxt.String, pxt.Int], ids=['incompatible', 'compatible'])
-    def test_add_view_col_on_retyped_base_col(self, uses_db: None, fault_injection: None, retyped_as: type) -> None:
+    @pytest.mark.parametrize('retyped_as', [pxt.String | None, pxt.Int | None], ids=['incompatible', 'compatible'])
+    def test_add_view_col_on_retyped_base_col(self, uses_db: None, fault_injection: None, retyped_as: Any) -> None:
         """
         Scenario:
         - thread 0 adds a view column computed from a base column
@@ -268,8 +251,8 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         class View(TM, name='test_view', base=Base):
             vc1 = Base.id + 1
@@ -280,8 +263,8 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         class ViewV2(TM2, name='test_view', base=BaseV2):
             vc1 = BaseV2.id + 1
@@ -303,8 +286,8 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            text: pxt.String
+            id: pxt.Int
+            text: pxt.String | None
 
         TM.create_all(ROOT)
         Base.insert([{'id': 1, 'text': 'one'}, {'id': 2, 'text': 'two'}])
@@ -312,15 +295,16 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            text: pxt.String
-            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
+            id: pxt.Int
+            text: pxt.String | None
+
+            __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))]
 
         if family == 'update_all':
             TMc = pxt.model_base()
 
             class BaseC(TMc, name='test_table'):
-                id: pxt.Required[pxt.Int]
+                id: pxt.Int
 
             concurrent = lambda: TMc.update_all(ROOT, allow_destructive=True)
         else:
@@ -336,9 +320,9 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
-            x: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
+            x: pxt.Float | None
 
         TM.create_all(ROOT)
         Base.insert([{'id': 1, 'value': 1.0, 'x': 1.0}, {'id': 2, 'value': 2.0, 'x': 2.0}])
@@ -346,15 +330,15 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         if family == 'update_all':
             TMc = pxt.model_base()
 
             class BaseC(TMc, name='test_table'):
-                id: pxt.Required[pxt.Int]
-                value: pxt.Float
+                id: pxt.Int
+                value: pxt.Float | None
 
             concurrent = lambda: TMc.update_all(ROOT, allow_destructive=True)
         else:
@@ -370,9 +354,10 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            text: pxt.String
-            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
+            id: pxt.Int
+            text: pxt.String | None
+
+            __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=768), name='ix')]
 
         TM.create_all(ROOT)
         Base.insert([{'id': 1, 'text': 'one'}, {'id': 2, 'text': 'two'}])
@@ -380,15 +365,15 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            text: pxt.String
+            id: pxt.Int
+            text: pxt.String | None
 
         if family == 'update_all':
             TMc = pxt.model_base()
 
             class BaseC(TMc, name='test_table'):
-                id: pxt.Required[pxt.Int]
-                text: pxt.String
+                id: pxt.Int
+                text: pxt.String | None
 
             concurrent = lambda: TMc.update_all(ROOT, allow_destructive=True)
         else:
@@ -407,9 +392,9 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
-            x: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
+            x: pxt.Float | None
 
         TM.create_all(ROOT)
         Base.insert([{'id': 1, 'value': 1.0, 'x': 1.0}, {'id': 2, 'value': 2.0, 'x': 2.0}])
@@ -417,8 +402,8 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         t = Base.table
         with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=schema_changed('test_table')):
@@ -432,9 +417,9 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
-            x: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
+            x: pxt.Float | None
 
         class View(TM, name='test_view', base=Base):
             vc1 = Base.value + 1
@@ -445,8 +430,8 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         class ViewV2(TM2, name='test_view', base=BaseV2):
             vc1 = BaseV2.value + 1
@@ -455,9 +440,9 @@ class TestConcurrentModelUpdate:
             TMc = pxt.model_base()
 
             class BaseCM(TMc, name='test_table'):
-                id: pxt.Required[pxt.Int]
-                value: pxt.Float
-                x: pxt.Float
+                id: pxt.Int
+                value: pxt.Float | None
+                x: pxt.Float | None
 
             class ViewCM(TMc, name='test_view', base=BaseCM):
                 vc1 = BaseCM.value + 1
@@ -472,8 +457,9 @@ class TestConcurrentModelUpdate:
         # base table's schema version is unchanged and the CAS doesn't fire; the dependents check does.
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"Column 'x' was removed from the model for 'test_table', but cannot be dropped "
-            r'because the following depend on it:\ndep',
+            match=re.escape(
+                "Column 'dep' in 'test_view' would be left referencing column 'test_table.x', which no longer exists."
+            ),
         ):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT, allow_destructive=True), concurrent)
 
@@ -482,9 +468,10 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            text: pxt.String
-            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
+            id: pxt.Int
+            text: pxt.String | None
+
+            __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))]
 
         class View(TM, name='test_view', base=Base):
             vc1 = Base.id + 1
@@ -495,8 +482,8 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            text: pxt.String
+            id: pxt.Int
+            text: pxt.String | None
 
         class ViewV2(TM2, name='test_view', base=BaseV2):
             vc1 = BaseV2.id + 1
@@ -504,8 +491,10 @@ class TestConcurrentModelUpdate:
         v = View.table
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"Index 'ix' was removed from the model for 'test_table', but cannot be dropped "
-            r'because the following depend on it:\ndep',
+            match=re.escape(
+                "Column 'dep' in 'test_view' would be left referencing a column of 'test_table', "
+                'which no longer exists.'
+            ),
         ):
             _run_with_concurrent_apply(
                 lambda: TM2.update_all(ROOT, allow_destructive=True),
@@ -521,8 +510,8 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         TM.create_all(ROOT)
         Base.insert([{'id': 1, 'value': 1.0}])
@@ -530,8 +519,8 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
             x = value + 1
 
         with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=TABLE_GONE):
@@ -542,9 +531,9 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
-            x: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
+            x: pxt.Float | None
 
         TM.create_all(ROOT)
         Base.insert([{'id': 1, 'value': 1.0, 'x': 1.0}])
@@ -552,12 +541,12 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         def recreate() -> None:
             pxt.drop_table('test_table')
-            pxt.create_table('test_table', {'id': pxt.Required[pxt.Int], 'value': pxt.Float})
+            pxt.create_table('test_table', {'id': pxt.Int, 'value': pxt.Float | None})
 
         with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=TABLE_GONE):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT, allow_destructive=True), recreate)
@@ -568,8 +557,8 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         class View(TM, name='test_view', base=Base):
             vc1 = Base.value + 1
@@ -580,8 +569,8 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         class ViewV2(TM2, name='test_view', base=BaseV2):
             vc1 = BaseV2.value + 1
@@ -595,8 +584,8 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         TM.create_all(ROOT)
         Base.insert([{'id': 1, 'value': 1.0}])
@@ -604,15 +593,15 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
             x = value + 1
 
         class NewTable(TM2, name='new_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
-        create_new_table = lambda: pxt.create_table('new_table', {'id': pxt.Required[pxt.Int]})
+        create_new_table = lambda: pxt.create_table('new_table', {'id': pxt.Int})
         with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=r"'new_table' was created concurrently"):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), create_new_table)
         assert pxt.get_table('new_table').columns() == ['id']
@@ -628,8 +617,8 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         TM.create_all(ROOT)
         Base.insert([{'id': 1, 'value': 1.0}, {'id': 2, 'value': 2.0}])
@@ -637,16 +626,16 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
             x = value + 1
 
         if family == 'update_all':
             TMc = pxt.model_base()
 
             class BaseC(TMc, name='test_table'):
-                id: pxt.Required[pxt.Int]
-                value: pxt.Float
+                id: pxt.Int
+                value: pxt.Float | None
                 y = value + 2
 
             concurrent = lambda: TMc.update_all(ROOT)
@@ -664,8 +653,8 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         TM.create_all(ROOT)
         Base.insert([{'id': 1, 'value': 1.0}, {'id': 2, 'value': 2.0}])
@@ -673,8 +662,8 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
             doubled = value * 2
 
         t = Base.table
@@ -690,9 +679,9 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            x: pxt.Float
-            y: pxt.Float
+            id: pxt.Int
+            x: pxt.Float | None
+            y: pxt.Float | None
 
         TM.create_all(ROOT)
         Base.insert([{'id': 1, 'x': 1.0, 'y': 1.0}, {'id': 2, 'x': 2.0, 'y': 2.0}])
@@ -700,15 +689,15 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            y: pxt.Float
+            id: pxt.Int
+            y: pxt.Float | None
 
         if family == 'update_all':
             TMc = pxt.model_base()
 
             class BaseC(TMc, name='test_table'):
-                id: pxt.Required[pxt.Int]
-                x: pxt.Float
+                id: pxt.Int
+                x: pxt.Float | None
 
             concurrent = lambda: TMc.update_all(ROOT, allow_destructive=True)
         else:
@@ -725,12 +714,12 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class TableT(TM, name='table_t'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         class TableU(TM, name='table_u'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         TM.create_all(ROOT)
         TableT.insert([{'id': 1, 'value': 1.0}])
@@ -739,23 +728,23 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class TableT2(TM2, name='table_t'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
             x = value + 1
 
         class TableU2(TM2, name='table_u'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         TMc = pxt.model_base()
 
         class TableTc(TMc, name='table_t'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         class TableUc(TMc, name='table_u'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
             y = value + 2
 
         # thread 0 updates only table_t; the concurrent update_all touches only table_u.
@@ -768,8 +757,8 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         TM.create_all(ROOT)
         Base.insert([{'id': i, 'value': float(i)} for i in range(5)])
@@ -777,8 +766,8 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
             x = value + 1
 
         t = Base.table
@@ -796,8 +785,8 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         TM.create_all(ROOT)
         Base.insert([{'id': 1, 'value': 1.0}, {'id': 2, 'value': 2.0}])
@@ -805,15 +794,15 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
             x = value + 1
 
         TMc = pxt.model_base()
 
         class BaseC(TMc, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
             x = value + 1
 
         with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=schema_changed('test_table')):
@@ -830,9 +819,9 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
-            text: pxt.String
+            id: pxt.Int
+            value: pxt.Float | None
+            text: pxt.String | None
 
         TM.create_all(ROOT)
         Base.insert([{'id': 1, 'value': 1.0, 'text': 'one'}, {'id': 2, 'value': 2.0, 'text': 'two'}])
@@ -840,19 +829,20 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
-            text: pxt.String
+            id: pxt.Int
+            value: pxt.Float | None
+            text: pxt.String | None
             x = value + 1
 
         if family == 'update_all':
             TMc = pxt.model_base()
 
             class BaseC(TMc, name='test_table'):
-                id: pxt.Required[pxt.Int]
-                value: pxt.Float
-                text: pxt.String
-                ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
+                id: pxt.Int
+                value: pxt.Float | None
+                text: pxt.String | None
+
+                __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=768), name='ix')]
 
             concurrent = lambda: TMc.update_all(ROOT)
         else:
@@ -863,7 +853,7 @@ class TestConcurrentModelUpdate:
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), concurrent)
         md = pxt.get_table('test_table').get_metadata()
         assert 'x' not in md['columns']
-        assert 'ix' in md['indices']
+        assert 'ix' in md['indexes']
 
     # ---------------------------------------------------------------------------------------------------------------
     # Group E: genuine-race stress (no fault injection).
@@ -873,20 +863,20 @@ class TestConcurrentModelUpdate:
         """E1: N threads each run update_all() against a distinct table; every table gets its added column."""
         n_threads = 4
         for tid in range(n_threads):
-            pxt.create_table(f'table_{tid}', {'id': pxt.Required[pxt.Int], 'value': pxt.Float})
+            pxt.create_table(f'table_{tid}', {'id': pxt.Int, 'value': pxt.Float | None})
             pxt.get_table(f'table_{tid}').insert([{'id': 1, 'value': 1.0}])
 
         def worker(tid: int) -> None:
             TMi = pxt.model_base()
 
             class Model(TMi, name=f'table_{tid}'):
-                id: pxt.Required[pxt.Int]
-                value: pxt.Float
+                id: pxt.Int
+                value: pxt.Float | None
                 added = value + 1
 
             TMi.update_all(ROOT)
 
-        errors = _run_workers(worker, n_threads=n_threads)
+        errors = run_workers(worker, n_threads=n_threads)
         assert errors == [], f'errors: {errors[:3]}'
 
         for tid in range(n_threads):
@@ -897,8 +887,8 @@ class TestConcurrentModelUpdate:
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
 
         TM.create_all(ROOT)
         Base.insert([{'id': 1, 'value': 1.0}, {'id': 2, 'value': 2.0}])
@@ -906,12 +896,12 @@ class TestConcurrentModelUpdate:
         TM2 = pxt.model_base()
 
         class BaseV2(TM2, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            value: pxt.Float
+            id: pxt.Int
+            value: pxt.Float | None
             x = value + 1
 
         n_threads = 4
-        errors = _run_workers(lambda _tid: TM2.update_all(ROOT), n_threads=n_threads)
+        errors = run_workers(lambda _tid: TM2.update_all(ROOT), n_threads=n_threads)
         # a thread whose diff predates the winner's commit loses the CAS; one that diffs afterwards finds nothing to
         # do. Neither produces a duplicate-add error, and the first thread to reach the apply always commits.
         assert all(

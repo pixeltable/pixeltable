@@ -7,16 +7,19 @@ from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence
 from uuid import UUID
 
 import pydantic
+from typing_extensions import TypeForm
 
 import pixeltable.exceptions as excs
 from pixeltable import type_system as ts
 from pixeltable.utils import parse_local_file_path
+from pixeltable.utils.object_stores import warn_if_pxtfs_destination
 
 from ..exprs import ColumnRef
 from .globals import normalize_schema
 from .path import Path as CatalogPath
 from .table import Table
-from .table_path import TableMdPath, TablePathKey, TableVersionKey
+from .table_path import TableMdPath, TablePathKey
+from .types import TableVersionKey, TableVersionMd
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -25,12 +28,12 @@ if TYPE_CHECKING:
 
     from pixeltable import exprs
     from pixeltable.func.function import Function
+    from pixeltable.io.table_data_conduit import PydanticTableDataConduit
     from pixeltable.row import RowBatch
     from pixeltable.service.proxy_client import ProxyClient
     from pixeltable.types import ColumnSpec
 
     from ..globals import TableDataSource
-    from .globals import TableVersionMd
     from .table_metadata import TableMetadata, VersionMetadata
     from .update_status import UpdateStatus
 
@@ -179,10 +182,10 @@ class TableProxy(Table):
 
     def __repr__(self) -> str:
         # send the uri as a string: proxy_protocol drops org/db from wire Paths, which is exactly what describe needs
-        return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri})['str']
+        return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri_str})['str']
 
     def _repr_html_(self) -> str:
-        return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri})['html']
+        return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri_str})['html']
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset': ...
 
@@ -190,7 +193,7 @@ class TableProxy(Table):
 
     def add_columns(
         self,
-        schema: Mapping[str, type | ColumnSpec],
+        schema: Mapping[str, TypeForm | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         bound_args = self._dispatch_args(locals())
@@ -203,7 +206,7 @@ class TableProxy(Table):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: type | ColumnSpec,
+        **kwargs: TypeForm | ColumnSpec,
     ) -> UpdateStatus:
         self._check_single_column_kwarg('add_column', '`col_name=col_type`', kwargs)
         bound_args = self._dispatch_args(locals())
@@ -227,8 +230,19 @@ class TableProxy(Table):
         bound_args = self._dispatch_args(locals())
         self._check_single_column_kwarg('add_computed_column', '`col_name=col_type` or `col_name=expression`', kwargs)
         self._check_mutable('add columns to')
+        # the daemon validates the column, where none of the caller's code runs
+        warn_if_pxtfs_destination(next(iter(kwargs)), destination)
         bound_args['columns'] = bound_args.pop('kwargs')
         return self._dispatch('add_computed_column', bound_args)
+
+    def alter_computed_column(
+        self, *, recompute: bool = True, cascade: bool = True, **kwargs: exprs.Expr
+    ) -> UpdateStatus:
+        bound_args = self._dispatch_args(locals())
+        self._check_single_column_kwarg('alter_computed_column', '`col_name=expression`', kwargs)
+        self._check_mutable('alter columns of')
+        bound_args['columns'] = bound_args.pop('kwargs')
+        return self._dispatch('alter_computed_column', bound_args)
 
     def drop_column(self, column: str | ColumnRef, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
         bound_args = self._dispatch_args(locals())
@@ -240,13 +254,20 @@ class TableProxy(Table):
         self._check_mutable('rename columns of')
         self._dispatch('rename_column', bound_args)
 
-    def alter_column(self, column: str | ColumnRef, *, type_: type) -> None:
+    def alter_column(self, column: str | ColumnRef, *, type_: TypeForm) -> None:
         bound_args = self._dispatch_args(locals())
         self._check_mutable('alter columns of')
 
         # normalize type_ to a ColumnType so that it can be serialized
-        bound_args['type_'] = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
+        bound_args['type_'] = ts.ColumnType.normalize_type(type_, allow_builtin_types=False)
         self._dispatch('alter_column', bound_args)
+
+    def add_btree_index(
+        self, column: str | ColumnRef, *, idx_name: str | None = None, if_exists: Literal['error', 'ignore'] = 'error'
+    ) -> None:
+        bound_args = self._dispatch_args(locals())
+        self._check_mutable('add an index to')
+        self._dispatch('add_btree_index', bound_args)
 
     def add_embedding_index(
         self,
@@ -308,6 +329,7 @@ class TableProxy(Table):
         source: Sequence[dict[str, Any]] | Sequence[pydantic.BaseModel],
         /,
         *,
+        outputs: Sequence[str | ColumnRef] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
     ) -> RowBatch:
         # str/bytes are technically Sequences; reject them explicitly (with a clear message) rather than letting
@@ -322,8 +344,10 @@ class TableProxy(Table):
                 excs.ErrorCode.UNSUPPORTED_OPERATION, 'compute() requires a sequence of dicts or pydantic models'
             )
         self._validate_compute()
+        output_md = self._resolve_compute_outputs(outputs)
         rows = self._convert_local_paths(self._prepare_rows(list(source)))
-        return self._dispatch('compute', {'rows': rows, 'on_error': on_error})
+        output_names = None if output_md is None else [md.name for md in output_md]
+        return self._dispatch('compute', {'rows': rows, 'outputs': output_names, 'on_error': on_error})
 
     def _media_column_names(self) -> set[str]:
         return {
@@ -359,11 +383,13 @@ class TableProxy(Table):
         """
         Validate and normalize a non-empty list of dict/pydantic source rows for the hosted catalog:
         - pydantic models are validated and converted to dicts on the client (the model classes aren't
-          importable on the server)
+          importable on the server); the server's compute plan checks for required columns
         - plain dicts are sent as-is
         """
         if isinstance(source[0], pydantic.BaseModel):
-            source = self._pydantic_to_rows(source)
+            from pixeltable.io.table_data_conduit import PydanticTableDataConduit
+
+            source = self._pydantic_to_rows(PydanticTableDataConduit(source), check_required=False)
         rows: list[dict[str, Any]] = []
         for source_row in source:
             if not isinstance(source_row, dict):
@@ -373,12 +399,13 @@ class TableProxy(Table):
             rows.append(source_row)
         return rows
 
-    def _pydantic_to_rows(self, models: list[Any]) -> list[dict[str, Any]]:
+    def _pydantic_to_rows(
+        self, converter: PydanticTableDataConduit, *, check_required: bool = True
+    ) -> list[dict[str, Any]]:
         """Validate pydantic models against this table's schema and convert them to insertable dicts."""
-        from pixeltable.io.table_data_conduit import PydanticTableDataConduit
-
-        converter = PydanticTableDataConduit(models)
         converter.add_table_info(self)
+        if not check_required:
+            converter.reqd_col_names.clear()
         converter.prepare_for_insert_into_table()
         return converter.pxt_rows
 

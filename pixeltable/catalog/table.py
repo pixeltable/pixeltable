@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import abc
-from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence, overload
 
 import pandas as pd
-from typing_extensions import overload
+from typing_extensions import TypeForm
 
 from pixeltable import exceptions as excs
 
@@ -29,6 +28,7 @@ if TYPE_CHECKING:
     from ..globals import TableDataSource
     from .table_metadata import TableMetadata, VersionMetadata
     from .table_path import TablePath
+    from .types import ColumnVersionMd
     from .update_status import UpdateStatus
 
 
@@ -221,14 +221,16 @@ class Table(SchemaObject):
     @abc.abstractmethod
     def add_columns(
         self,
-        schema: Mapping[str, type | ColumnSpec],
+        schema: Mapping[str, TypeForm | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         """
         Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed
         columns, use [`add_computed_column()`][pixeltable.catalog.Table.add_computed_column] instead.
 
-        The format of the `schema` argument is a dict mapping column names to their types.
+        The format of the `schema` argument is a dict mapping column names to their types. A bare type such as
+        `pxt.Int` defines a non-nullable column; use `pxt.Int | None` to allow nulls. Note that a column added
+        to a table that already has rows must be nullable.
 
         Args:
             schema: A dictionary mapping column names to a `type` or a [`ColumnSpec`][pixeltable.ColumnSpec] dict.
@@ -254,7 +256,7 @@ class Table(SchemaObject):
             Add multiple columns to the table `my_table`:
 
             >>> tbl = pxt.get_table('my_table')
-            ... schema = {'new_col_1': pxt.Int, 'new_col_2': pxt.String}
+            ... schema = {'new_col_1': pxt.Int | None, 'new_col_2': pxt.String | None}
             ... tbl.add_columns(schema)
 
             It is also possible to specify column metadata using a dict:
@@ -262,11 +264,11 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... schema = {
             ...     'new_col_1': {
-            ...         'type': pxt.Image,
+            ...         'type': pxt.Image | None,
             ...         'stored': True,
             ...         'media_validation': 'on_write',
             ...     },
-            ...     'new_col_2': pxt.String,
+            ...     'new_col_2': pxt.String | None,
             ... }
             ... tbl.add_columns(schema)
         """
@@ -276,7 +278,7 @@ class Table(SchemaObject):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: type | ColumnSpec,
+        **kwargs: TypeForm | ColumnSpec,
     ) -> UpdateStatus:
         """
         Adds an ordinary (non-computed) column to the table.
@@ -301,13 +303,13 @@ class Table(SchemaObject):
         Examples:
             Add an int column:
 
-            >>> tbl.add_column(new_col=pxt.Int)
+            >>> tbl.add_column(new_col=pxt.Int | None)
 
             Add a column with column metadata using a dict:
 
             >>> tbl.add_column(
             ...     img_col={
-            ...         'type': pxt.Image,
+            ...         'type': pxt.Image | None,
             ...         'stored': True,
             ...         'media_validation': 'on_write',
             ...     }
@@ -315,14 +317,14 @@ class Table(SchemaObject):
 
             Alternatively, adding a column can also be expressed using `add_columns`:
 
-            >>> tbl.add_columns({'new_col': pxt.Int})
+            >>> tbl.add_columns({'new_col': pxt.Int | None})
 
             As well as with column metadata:
 
             >>> tbl.add_columns(
             ...     {
             ...         'img_col': {
-            ...             'type': pxt.Image,
+            ...             'type': pxt.Image | None,
             ...             'stored': True,
             ...             'media_validation': 'on_write',
             ...         }
@@ -437,7 +439,7 @@ class Table(SchemaObject):
         """
 
     @abc.abstractmethod
-    def alter_column(self, column: str | ColumnRef, *, type_: type) -> None:
+    def alter_column(self, column: str | ColumnRef, *, type_: TypeForm) -> None:
         """Alter the type of a column.
 
         Currently, the only supported change is widening a non-computed column from non-nullable to
@@ -452,10 +454,47 @@ class Table(SchemaObject):
             current type, or if the change cannot be performed for any other reason.
 
         Examples:
-            Make a previously required column nullable:
+            Make a previously non-nullable column nullable:
 
-            >>> tbl = pxt.create_table('my_table', {'col': pxt.Required[pxt.String]})
-            ... tbl.alter_column('col', type_=pxt.String)
+            >>> tbl = pxt.create_table('my_table', {'col': pxt.String})
+            ... tbl.alter_column('col', type_=pxt.String | None)
+        """
+
+    @abc.abstractmethod
+    def alter_computed_column(
+        self, *, recompute: bool = True, cascade: bool = True, **kwargs: 'exprs.Expr'
+    ) -> UpdateStatus:
+        """Change the value expression of a computed column.
+
+        The new expression must have the same column type as the current one. It can reference any column of this
+        table or of one of its ancestors, as long as there are no dependency cycles.
+
+        Args:
+            kwargs: Exactly one keyword argument of the form `col_name=expression`.
+            recompute: If `True`, the stored values of the column are recomputed. If `False`, they remain those
+                produced by the previous expression, and are stale until the column is recomputed with
+                [`recompute_columns()`][pixeltable.Table.recompute_columns].
+            cascade: If `True`, computed columns and views that transitively depend on this column are recomputed
+                as well; if `False`, they retain their current values. Only applies if `recompute` is `True`.
+
+        Returns:
+            An [`UpdateStatus`][pixeltable.UpdateStatus] describing the recompute; rows that raise during
+            evaluation are recorded as cell errors and counted in `num_excs`.
+
+        Raises:
+            Error: If the column does not exist, is not a computed column, belongs to a base table, or if the new
+            expression has a different column type or creates a dependency cycle.
+
+        Examples:
+            Change a computed column to use a different scaling factor:
+
+            >>> tbl = pxt.create_table('my_table', {'n': pxt.Int})
+            >>> tbl.add_computed_column(scaled=tbl.n * 2)
+            >>> tbl.alter_computed_column(scaled=tbl.n * 3)
+
+            Update the definition without recomputing the existing rows:
+
+            >>> tbl.alter_computed_column(scaled=tbl.n * 4, recompute=False)
         """
 
     @abc.abstractmethod
@@ -492,8 +531,8 @@ class Table(SchemaObject):
         Args:
             column: The name of, or reference to, the column to be indexed; must be a `String`, `Image`, `Audio`,
                 `Video`, `Document`, or `Array` column.
-            idx_name: An optional name for the index. If not specified, a name such as `'idx0'` will be generated
-                automatically. If specified, the name must be unique for this table and a valid pixeltable column name.
+            idx_name: An optional name for the index. If not specified, a unique name will be generated automatically.
+                If specified, the name must be unique for this table and a valid pixeltable column name.
                 When `idx_name` is omitted, duplicates are detected by the index definition (the embedding
                 function(s), `metric`, and `precision`) on the column: re-adding an index with an identical
                 definition is governed by `if_exists`.
@@ -569,6 +608,47 @@ class Table(SchemaObject):
         """
 
     @abc.abstractmethod
+    def add_btree_index(
+        self, column: str | ColumnRef, *, idx_name: str | None = None, if_exists: Literal['error', 'ignore'] = 'error'
+    ) -> None:
+        """
+        Add a B-tree index to the table. Once the index is created, it will be automatically kept up-to-date as new
+        rows are inserted into and existing rows are updated in the table.
+
+        A B-tree index accelerates equality and range comparisons (used in `where` clauses) and `order_by` on the
+        indexed column. Any non-boolean scalar column (`String`, `Int`, `Float`, `Timestamp`, `Date`) or non-computed
+        media column (`Image`, `Video`, `Audio`, `Document`) is supported; the index on a media column is over the
+        file URL. The column must be stored and, if a media column, must not be produced by a view iterator.
+
+        Only tables created with `has_default_idxs=False` (the default) accept explicit B-tree indexes. A table
+        created with `has_default_idxs=True` indexes its eligible columns automatically, and its B-tree indexes
+        cannot be managed separately from their respective columns.
+
+        Args:
+            column: The name of, or reference to, the column to be indexed; must be an indexable scalar or media
+                column (see above).
+            idx_name: An optional name for the index. If not specified, a unique name will be generated automatically.
+                If specified, the name must be unique for this table and a valid pixeltable column name.
+            if_exists: Directive for handling an existing B-tree index on the same column, or an existing index with
+                the same name. Must be one of `'error'`, `'ignore'`.
+
+        Raises:
+            Error: If the column already has a B-tree index and `if_exists='error'`, if `idx_name` is already in use
+                by another index, if the specified column does not exist, or if the column has a type that does not
+                support a B-tree index.
+
+        Examples:
+            Add an index to the `name` column of the table `my_table`:
+
+            >>> tbl = pxt.get_table('my_table')
+            >>> tbl.add_btree_index('name')
+
+            The column may also be specified by reference, and the index may be given an explicit name:
+
+            >>> tbl.add_btree_index(tbl.name, idx_name='name_idx')
+        """
+
+    @abc.abstractmethod
     def drop_embedding_index(
         self,
         *,
@@ -632,6 +712,9 @@ class Table(SchemaObject):
         Drop an index from the table. Either a column name or an index name (but not both) must be
         specified. If a column name or reference is specified, it must be a column containing exactly one index;
         otherwise the specific index name must be provided instead.
+
+        The B-tree indexes of a table created with `has_default_idxs=True` cannot be dropped: they are managed
+        automatically, together with the columns they index.
 
         Args:
             column: The name of, or reference to, the column from which to drop the index.
@@ -809,11 +892,15 @@ class Table(SchemaObject):
         source: Sequence[dict[str, Any]] | Sequence[pydantic.BaseModel],
         /,
         *,
+        outputs: Sequence[str | ColumnRef] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
     ) -> RowBatch:
         """
         Materialize the computed columns of this table for the given input rows and return the resulting rows
         without persisting them.
+
+        If `outputs` is specified, will compute only those columns and the dependent columns that they use. An input
+        row then needs to supply only the stored required columns used by `outputs`.
 
         If this table is a view, the input rows are applied to the view's insertable base table (i.e., the root of the
         view hierarchy) and the output rows are the resulting rows of the view, as if the input had been inserted into
@@ -824,8 +911,11 @@ class Table(SchemaObject):
         Args:
             source: Rows to compute, as a sequence of dictionaries or Pydantic model instances. Rows contain
                 values for the base table's columns (for a view) or this table's columns; each row must supply
-                values for every required (non-nullable, non-computed) column; the same rules as
-                [`insert()`][pixeltable.Table.insert] apply.
+                values for every required (non-nullable, non-computed) column used by `outputs`; otherwise the same
+                rules as [`insert()`][pixeltable.Table.insert] apply.
+
+            outputs: The columns to compute and return, as names or column references. Defaults to all columns
+                of the table.
 
             on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
                 invalid media file (such as a corrupt image).
@@ -838,8 +928,8 @@ class Table(SchemaObject):
 
         Returns:
             A [`RowBatch`][pixeltable.RowBatch] of output rows, in input row order (with an iterator's output
-            rows in iteration order). Each [`Row`][pixeltable.Row] contains a value for every column of the
-            table. [`Row.errors`][pixeltable.Row] holds `{'errortype': ..., 'errormsg': ...}` for each cell that raised,
+            rows in iteration order). Each [`Row`][pixeltable.Row] contains a value for every column in `outputs`.
+            [`Row.errors`][pixeltable.Row] holds `{'errortype': ..., 'errormsg': ...}` for each cell that raised,
             keyed by column or index name (only with `on_error='ignore'`).
 
         Raises:
@@ -847,6 +937,7 @@ class Table(SchemaObject):
 
                 - The table is a snapshot, a view of a snapshot, or a view defined with a sample clause.
                 - The table has been dropped.
+                - `outputs` is empty or contains a column that is not in the table.
                 - One of the input rows does not conform to the base table schema.
                 - An error occurs during processing of computed columns, and `on_error='abort'`.
 
@@ -856,6 +947,11 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... rows = tbl.compute([{'a': 1, 'b': 1}, {'a': 2, 'b': 2}])
             ... # rows == [{'a': 1, 'b': 1, 'c': 2}, {'a': 2, 'b': 2, 'c': 4}]
+
+            Compute and return only `c`:
+
+            >>> rows = tbl.compute([{'a': 1, 'b': 1}], outputs=['c'])
+            ... # rows == [{'c': 2}]
 
             Same with Pydantic model inputs:
 
@@ -910,16 +1006,32 @@ class Table(SchemaObject):
                 f'`where` argument must be a valid Pixeltable expression; got `{type(where)}`',
             )
 
-    def _validate_column_schema(self, schema: Mapping[str, type | ColumnSpec]) -> None:
+    def _validate_column_schema(self, schema: Mapping[str, TypeForm | ColumnSpec]) -> None:
         from .column import Column
 
         for name, spec in schema.items():
+            Column.validate_name(name)
             if isinstance(spec, dict):
                 Column._validate_column_spec(name, spec)
 
     def _validate_insert_source(self, source: TableDataSource | None) -> None:
         if source is not None and isinstance(source, Sequence) and len(source) == 0:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot insert an empty sequence.')
+
+    def _resolve_compute_outputs(self, outputs: Sequence[str | ColumnRef] | None) -> list[ColumnVersionMd] | None:
+        """Return the metadata of the compute() output columns named by `outputs`, in the given order."""
+        if outputs is None:
+            return None
+        if len(outputs) == 0:
+            raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, 'At least one output column must be specified')
+        result: list[ColumnVersionMd] = []
+        for output in outputs:
+            name = output if isinstance(output, str) else output.col_md.name
+            col_md = self._tbl_path.get_column_md_by_name(name)
+            if col_md is None:
+                raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {name}')
+            result.append(col_md)
+        return result
 
     def _validate_compute(self) -> None:
         """Raises if compute() is not supported for this table's path."""

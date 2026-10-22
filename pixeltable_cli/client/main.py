@@ -1,11 +1,15 @@
+import difflib
 import importlib
 import importlib.metadata
+import re
 import sys
-from collections.abc import Callable
+from typing import Callable
 
 # Single source of truth for both the top-level help message and shell-mode dispatch.
 # Each key names a module under pixeltable_cli.client.commands.* exposing run(argv: list[str]) -> None.
 COMMANDS: dict[str, str] = {
+    'init': 'write the project configuration here, making this the project root',
+    'skills': 'install the Pixeltable skill for coding agents in this directory (install)',
     'health': 'show daemon info',
     'cd': 'set or clear the working directory prepended to relative paths',
     'pwd': 'print the working directory',
@@ -25,16 +29,26 @@ COMMANDS: dict[str, str] = {
     'drop-dir': "remove a directory (use 'drop' for tables/views)",
     'rename': 'rename a table/view/dir in place',
     'mv': 'move a table/view/dir to a different directory',
+    'recompute': 'recompute one or more computed columns of a table',
     'revert': 'undo the last op(s) on a table',
-    'schema': 'reconcile a directory with a class-based schema file (diff/update/prune/example)',
+    'schema': 'reconcile a directory with a class-based schema file (diff/update/prune/check/example)',
     'shell': 'interactive REPL (avoids per-command Python startup)',
-    'serve': 'run a user-defined HTTP service (insert/update/delete/query)',
     'daemon': 'control the daemon (start/stop/restart/status)',
     'localproxy': 'manage local proxy daemons (create/start/stop/delete)',
     'dashboard': 'print and open the dashboard URL',
-    'db': 'manage hosted databases (create/list/status/start/stop/update/update-runtime/delete)',
-    'service': 'manage hosted services (create/update/list/status/start/stop/delete)',
-    'org': 'manage organizations (list/status)',
+    'db': 'manage hosted databases (diff/update/list/status/logs/start/stop/restart/retry/build-image/delete)',
+    'service': (
+        'run the services defined in an application file '
+        '(diff/update/run/prune/stop/restart/retry/list/logs/check/example)'
+    ),
+    'org': 'manage organizations (create/list/status)',
+    'secret': "manage an org's or a database's secrets (list/set/delete)",
+    'key': 'manage API keys and scoped runtime keys (list/create/update/delete)',
+    'usage': "show this month's usage of your organization against its plan",
+    'new': 'get a free Pixeltable Cloud database, no account needed',
+    'login': 'sign in to Pixeltable Cloud in a browser (no API key needed)',
+    'logout': 'forget the cached session or trial',
+    'whoami': 'show who this machine is signed in as',
 }
 
 
@@ -51,10 +65,23 @@ def _print_help() -> None:
     sys.stdout.write("\nUse 'pxt <command> --help' for subcommand options.\n")
 
 
+def _suggestions(cmd: str) -> list[str]:
+    """Commands an unknown command may have meant: each command with a subcommand of that name, or a close name."""
+    # a help line lists its command's subcommands in parentheses, as in 'manage hosted databases (diff/update/...)'
+    verb = re.compile(rf'[(/]{re.escape(cmd)}[/)]')
+    with_verb = [f'{name} {cmd}' for name, help_text in COMMANDS.items() if verb.search(help_text)]
+    return with_verb or difflib.get_close_matches(cmd, COMMANDS, n=3)
+
+
 def dispatch(cmd: str, argv: list[str]) -> None:
     if cmd not in COMMANDS:
         print(f'pxt: unknown command: {cmd}', file=sys.stderr)
+        for suggestion in _suggestions(cmd):
+            print(f'did you mean: pxt {suggestion}', file=sys.stderr)
         sys.exit(2)
+    from pixeltable_cli.client import utils
+
+    utils.invocation = [cmd, *argv]
     _resolve(cmd)(argv)
 
 

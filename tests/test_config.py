@@ -1,60 +1,103 @@
+import json
+import os
 import subprocess
 import sys
+import time
 from pathlib import Path
+from textwrap import dedent
+from typing import Iterator
+
+import pytest
 
 import pixeltable as pxt
+from pixeltable import exceptions as excs
+from pixeltable.catalog import Path as PxtPath
+from pixeltable.config import VAR_SECTION, Config
+from pixeltable.service.resources import ServiceResources
 
-from .utils import pxt_raises
+from .utils import get_image_files, pxt_raises
 
 
 class TestConfig:
+    @pytest.fixture(autouse=True)
+    def mutates_project_root(self) -> Iterator[None]:
+        """Allows a test to re-init config with a new project root without changing it permanently.
+
+        A test here reinitializes Config to create a project dir; the root outlives the test otherwise,
+        and every process the session starts later is handed it.
+        """
+        original = Config.get().project_root
+        yield
+        if Config.get().project_root != original:
+            Config.init(reinit=True, project_root=original)
+
     def test_config_errors(self, init_env: None, tmp_path: Path) -> None:
-        def spawn_cmd(cmd: str, expected_error_msg: str) -> None:
-            cmd = cmd.replace('\\', r'\\')  # Escape backslashes for Windows compatibility
+        def spawn_cmd(env_vars: dict[str, str], expected_error_msg: str, init_arg: str = '') -> None:
             result = subprocess.run(
-                (sys.executable, '-c', f'import pixeltable as pxt\n{cmd}'), capture_output=True, check=False
+                (sys.executable, '-c', f'import pixeltable as pxt\npxt.init({init_arg})'),
+                capture_output=True,
+                check=False,
+                env={**os.environ, **env_vars},
             )
-            print(f'======= stderr from command: {cmd} =======')
+            print(f'======= stderr with {env_vars} and pxt.init({init_arg}) =======')
             print(result.stderr.decode('utf-8'))
             assert result.returncode != 0
             assert expected_error_msg in result.stderr.decode('utf-8')
 
-        spawn_cmd(
-            'pxt.init({"pixeltable.not_a_config_var": "test"})',
-            'pixeltable.exceptions.RequestError: Unrecognized configuration variable: pixeltable.not_a_config_var',
-        )
-
         tmp = tmp_path / 'bad.toml'
         with open(tmp, 'w', encoding='utf-8') as fp:
             fp.write('This is neither a directory nor a valid TOML file.')
-        spawn_cmd(
-            f'pxt.init({{"pixeltable.home": "{tmp}"}})', f'pixeltable.exceptions.RequestError: Not a directory: {tmp}'
-        )
-        spawn_cmd(
-            f'pxt.init({{"pixeltable.config": "{tmp}"}})',
-            f'pixeltable.exceptions.RequestError: Could not read config file: {tmp}',
-        )
+        spawn_cmd({'PIXELTABLE_HOME': str(tmp)}, f'pixeltable.exceptions.RequestError: Not a directory: {tmp}')
+        spawn_cmd({'PIXELTABLE_CONFIG': str(tmp)}, f'pixeltable.exceptions.RequestError: {tmp} cannot be parsed:')
+
+        # Windows ignores the mode, and root reads a file whatever its mode
+        if os.name == 'posix' and os.geteuid() != 0:
+            tmp.chmod(0o000)
+            try:
+                spawn_cmd({'PIXELTABLE_CONFIG': str(tmp)}, f'pixeltable.exceptions.RequestError: {tmp} cannot be read:')
+            finally:
+                tmp.chmod(0o644)
 
         with open(tmp, 'w', encoding='utf-8') as fp:
             fp.write('[pixeltable]\nunknown_key = "value"')
         spawn_cmd(
-            f'pxt.init({{"pixeltable.config": "{tmp}"}})',
+            {'PIXELTABLE_CONFIG': str(tmp)},
             "pixeltable.exceptions.RequestError: Unrecognized option 'pixeltable.unknown_key' in config file:",
         )
 
         spawn_cmd(
-            'pxt.init({"pixeltable.verbosity": "eggs"})',
+            {'PIXELTABLE_VERBOSITY': 'eggs'},
             'pixeltable.exceptions.RequestError: Invalid value for configuration parameter '
             "'pixeltable.verbosity': eggs",
         )
 
+        # an override names its setting as 'section.key' and reaches the same lookup an env var does
+        spawn_cmd(
+            {},
+            f'pixeltable.exceptions.RequestError: Not a directory: {tmp}',
+            init_arg=f'{{"pixeltable.home": "{tmp.as_posix()}"}}',
+        )
+        spawn_cmd(
+            {},
+            'pixeltable.exceptions.RequestError: Unrecognized configuration variable: pixeltable.not_a_config_var',
+            init_arg='{"pixeltable.not_a_config_var": "test"}',
+        )
+
+        # a setting that applies to the whole instance cannot be given per process
+        spawn_cmd(
+            {},
+            'pixeltable.exceptions.RequestError: Cannot override pixeltable.file_cache_size_g: '
+            'it can only be set via the config file.',
+            init_arg='{"pixeltable.file_cache_size_g": 5}',
+        )
+
         pxt.init()
-        pxt.init()  # Ok to do a parameterless init() a second time
+        pxt.init()  # a second init() is a no-op
         with pxt_raises(
             pxt.ErrorCode.INVALID_STATE,
             match='Pixeltable has already been initialized; cannot specify new config values in the same session',
         ):
-            pxt.init({'pixeltable.home': '.'})  # Not ok to specify new config values after init()
+            pxt.init({'pixeltable.home': '.'})
 
     def test_dotted_section_lookup(self, tmp_path: Path) -> None:
         """Nested TOML tables like [openai.rate_limits] are stored as
@@ -62,12 +105,14 @@ class TestConfig:
         into that inner dict; a previous regression flattened the lookup and silently returned
         None, causing configured per-model rate limits to be ignored."""
 
-        def spawn_cmd_ok(cmd: str) -> None:
+        def spawn_cmd_ok(cmd: str, config_file: Path) -> None:
             # Config.init() initializes only the Config singleton (no catalog/DB), so we can
             # exercise it in a bare subprocess without setting up Postgres.
-            cmd = cmd.replace('\\', r'\\')
             result = subprocess.run(
-                (sys.executable, '-c', f'from pixeltable.config import Config\n{cmd}'), capture_output=True, check=False
+                (sys.executable, '-c', f'from pixeltable.config import Config\n{cmd}'),
+                capture_output=True,
+                check=False,
+                env={**os.environ, 'PIXELTABLE_CONFIG': str(config_file)},
             )
             assert result.returncode == 0, (
                 f'cmd failed:\nstdout:\n{result.stdout.decode("utf-8")}\nstderr:\n{result.stderr.decode("utf-8")}'
@@ -79,29 +124,691 @@ class TestConfig:
 
         # 1. single-dot dotted section: value is found in the nested table
         spawn_cmd_ok(
-            f'Config.init({{"pixeltable.config": "{tmp}"}})\n'
             'v = Config.get().get_int_value("gpt-4", section="openai.rate_limits")\n'
-            'assert v == 250, f"expected 250, got {v!r}"\n'
+            'assert v == 250, f"expected 250, got {v!r}"\n',
+            tmp,
         )
 
-        # 2. source-path tracking: get_value_source returns the file path the value came from
+        # 2. source-path tracking: get_value_source returns the file path the value came from. The subprocess
+        # reads the expected path from the environment; interpolating it into the source would make a Windows
+        # path's backslashes into escape sequences.
         spawn_cmd_ok(
-            f'Config.init({{"pixeltable.config": "{tmp}"}})\n'
+            'import os\n'
             'from pathlib import Path\n'
             's = Config.get().get_value_source("gpt-4", section="openai.rate_limits")\n'
-            f'assert s == Path("{tmp}"), f"expected source {tmp}, got {{s!r}}"\n'
+            'expected = Path(os.environ["PIXELTABLE_CONFIG"])\n'
+            'assert s == expected, f"expected source {expected}, got {s!r}"\n',
+            tmp,
         )
 
         # 3. multi-level nesting: parts[2:] descent loop is exercised
         spawn_cmd_ok(
-            f'Config.init({{"pixeltable.config": "{tmp}"}})\n'
             'v = Config.get().get_int_value("llama-3-70b", section="together.rate_limits.chat")\n'
-            'assert v == 100, f"expected 100, got {v!r}"\n'
+            'assert v == 100, f"expected 100, got {v!r}"\n',
+            tmp,
         )
 
         # 4. section exists but inner key missing: returns None (not an error)
         spawn_cmd_ok(
-            f'Config.init({{"pixeltable.config": "{tmp}"}})\n'
             'v = Config.get().get_int_value("gpt-5", section="openai.rate_limits")\n'
-            'assert v is None, f"expected None, got {v!r}"\n'
+            'assert v is None, f"expected None, got {v!r}"\n',
+            tmp,
         )
+
+    def test_env_var_names(self, tmp_path: Path) -> None:
+        """A setting is bound by its name uppercased, so only that spelling of a variable is read."""
+        config_file = tmp_path / 'config.toml'
+        config_file.write_text('[[pixeltable.database]]\nvars.declared_in_file = "from-the-file"\n')
+
+        def config_var_keys(env_vars: dict[str, str]) -> list[str]:
+            """The var names Config finds, resolved in a subprocess so the environment is exactly env_vars."""
+            code = (
+                'import json\n'
+                'from pixeltable.config import Config, VAR_SECTION\n'
+                'print(json.dumps(sorted(ck.key for ck in Config.get().config_keys() '
+                'if ck.section == VAR_SECTION)))'
+            )
+            result = subprocess.run(
+                (sys.executable, '-c', code),
+                capture_output=True,
+                check=True,
+                env={**os.environ, 'PIXELTABLE_CONFIG': str(config_file), **env_vars},
+            )
+            return json.loads(result.stdout.decode('utf-8').strip())
+
+        # a variable spelled as the name uppercased declares the var; any other spelling names nothing, and
+        # neither does a variable with no name after the prefix
+        assert config_var_keys({}) == ['declared_in_file']
+        assert config_var_keys({'PIXELTABLE_VAR_FROM_ENV': 'x'}) == ['declared_in_file', 'from_env']
+        if sys.platform != 'win32':
+            # Windows environment variable names are case-insensitive, so there this is the uppercase variable
+            assert config_var_keys({'PIXELTABLE_VAR_MiXeD': 'x'}) == ['declared_in_file']
+        assert config_var_keys({'PIXELTABLE_VAR_': 'x'}) == ['declared_in_file']
+
+        # a declared name must be lowercase, so that it maps to exactly one env var name
+        with pytest.raises(pxt.Error, match='Invalid config var name'):
+            pxt.ConfigVar('MiXeD', pxt.URI)
+        assert pxt.ConfigVar('from_env', pxt.URI).env_var == 'PIXELTABLE_VAR_FROM_ENV'
+
+        # a declared type must be one the stored reference can name, so that the metadata reads back
+        class MyUri(pxt.URI):
+            pass
+
+        with pytest.raises(pxt.Error, match="Invalid config var type 'MyUri': must be one of str, URI"):
+            pxt.ConfigVar('custom', MyUri)
+
+    @pytest.mark.skipif(sys.platform == 'win32', reason='environment variable names are case-insensitive on Windows')
+    def test_miscased_env_var(self, tmp_path: Path) -> None:
+        """A variable differing only in case from one that is read generates a warning."""
+        result = subprocess.run(
+            (sys.executable, '-W', 'always', '-c', 'from pixeltable.config import Config\nConfig.get()'),
+            capture_output=True,
+            check=True,
+            env={
+                **os.environ,
+                'PIXELTABLE_Home': str(tmp_path / 'nope'),
+                'PIXELTABLE_CONFIG': str(tmp_path / 'c.toml'),
+            },
+        )
+        stderr = result.stderr.decode('utf-8')
+        assert 'Ignoring PIXELTABLE_Home' in stderr, stderr
+        assert 'did you mean PIXELTABLE_HOME' in stderr, stderr
+        assert not (tmp_path / 'nope').exists(), 'the mis-cased variable was used as the home directory'
+
+    def test_project_discovery(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The project root is the nearest one at or above the working directory."""
+
+        def serving(cwd: Path) -> tuple[Path | None, Path | None]:
+            """What a process starting in cwd resolves: its project root and config file."""
+            monkeypatch.chdir(cwd)
+            Config.init(reinit=True)
+            return Config.get().project_root, Config.get().project_config_file
+
+        nested = tmp_path / 'proj' / 'ad_gen' / 'inner'
+        nested.mkdir(parents=True)
+
+        # a directory under no project config has no project root
+        assert serving(nested) == (None, None)
+
+        # a pyproject.toml that says nothing about Pixeltable is not a project config
+        (tmp_path / 'proj' / 'pyproject.toml').write_text('[project]\nname = "proj"\n')
+        assert serving(nested) == (None, None)
+
+        # one declaring [tool.pixeltable] is, and it configures every directory below it
+        (tmp_path / 'proj' / 'pyproject.toml').write_text('[project]\nname = "proj"\n\n[tool.pixeltable]\n')
+        assert serving(nested) == (tmp_path / 'proj', tmp_path / 'proj' / 'pyproject.toml')
+
+        # a config closer to the working directory wins
+        (tmp_path / 'proj' / 'ad_gen' / 'pixeltable.toml').write_text('')
+        assert serving(nested) == (tmp_path / 'proj' / 'ad_gen', tmp_path / 'proj' / 'ad_gen' / 'pixeltable.toml')
+
+        # a directory holding both is configured by its pixeltable.toml
+        (tmp_path / 'proj' / 'ad_gen' / 'pyproject.toml').write_text('[project]\nname = "x"\n\n[tool.pixeltable]\n')
+        assert serving(nested) == (tmp_path / 'proj' / 'ad_gen', tmp_path / 'proj' / 'ad_gen' / 'pixeltable.toml')
+
+        # a pyproject.toml that cannot be parsed might be the project config, so it is refused rather than
+        # resolved past
+        unparseable = tmp_path / 'unparseable'
+        unparseable.mkdir()
+        (unparseable / 'pyproject.toml').write_text('[tool.pixeltable\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'cannot be parsed'):
+            serving(unparseable)
+
+        # an explicit root is used as given; an explicit None means no project
+        Config.init(reinit=True, project_root=tmp_path / 'proj')
+        assert Config.get().project_root == tmp_path / 'proj'
+        monkeypatch.chdir(nested)
+        Config.init(reinit=True, project_root=None)
+        assert Config.get().project_root is None
+
+    def test_project_config_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A project config file that cannot be used names itself in the error."""
+        project = tmp_path / 'proj'
+        project.mkdir()
+        config_file = project / 'pixeltable.toml'
+
+        def load(project_text: str) -> None:
+            config_file.write_text(project_text)
+            Config.init(reinit=True, project_root=project)
+
+        # two entries for one database make its bindings ambiguous
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r"Duplicate `DatabaseConfig` name 'local'"):
+            load('[[pixeltable.database]]\n\n[[pixeltable.database]]\n')
+
+        # a file Pixeltable cannot parse
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'pixeltable\.toml'):
+            load('[[pixeltable.database]\n')
+
+        # a database entry holding something no database is configured with
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid `DatabaseConfig`'):
+            load("[[pixeltable.database]]\nnot_a_setting = 'x'\n")
+
+        # a runtime spec that conda could not install, and one that would carry a shell command
+        for spec, message in (('""', r'non-empty conda package specs'), ('"ffmpeg; rm -rf /"', r'invalid character')):
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=message):
+                load(f'[[pixeltable.database]]\nsystem_dependencies = [{spec}]\n')
+
+        # a python version that is not a version
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'`python_version` must be a version'):
+            load("[[pixeltable.database]]\npython_version = '3'\n")
+
+    def test_typed_option_values(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An option declaring a scalar type is read from the config file and validated against that type."""
+        home = tmp_path / 'home.toml'
+        monkeypatch.setenv('PIXELTABLE_CONFIG', str(home))
+
+        def load(home_text: str) -> Config:
+            home.write_text(home_text)
+            Config.init(reinit=True)
+            return Config.get()
+
+        config = load('[pixeltable]\ndb_pool_size = 1\ndb_pool_max_overflow = 0\n')
+        assert config.get_int_value('db_pool_size') == 1
+        assert config.get_int_value('db_pool_max_overflow') == 0
+
+        # a bool is refused for an int option, though isinstance() accepts it
+        for value, type_name in (("'five'", 'str'), ('true', 'bool'), ('1.5', 'float')):
+            with pxt_raises(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                match=rf"(?s)Invalid type for option 'pixeltable\.db_pool_size'.*expected `int`, got `{type_name}`",
+            ):
+                load(f'[pixeltable]\ndb_pool_size = {value}\n')
+
+        # in a project file the option is refused as an installation setting, not as a type error
+        project = tmp_path / 'proj'
+        project.mkdir()
+        (project / 'pixeltable.toml').write_text('[pixeltable]\ndb_pool_size = 1\n')
+        home.write_text('')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r"Cannot set 'pixeltable\.db_pool_size'"):
+            Config.init(reinit=True, project_root=project)
+
+    def test_project_root_after_reload(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The project root reaches Config through init(), and survives a reload."""
+        project = tmp_path / 'proj'
+        project.mkdir()
+        (project / 'pixeltable.toml').write_text('')
+        Config.init(reinit=True, project_root=project)
+
+        # a root for a Config that already has one is refused, rather than ignored
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'already been initialized'):
+            Config.init(project_root=tmp_path)
+        assert Config.get().project_root == project
+
+        # a reload re-reads the files, and keeps the root even though the working directory moved
+        elsewhere = tmp_path / 'elsewhere'
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        time.sleep(0.01)  # the stamp is (mtime, size), so a same-size rewrite needs a distinct mtime
+        (project / 'pixeltable.toml').write_text("[[pixeltable.database]]\nvars.after_reload = 'yes'\n")
+        assert Config.reload_if_changed()
+        assert Config.get().project_root == project
+        assert Config.get().get_string_value('after_reload', section=VAR_SECTION) == 'yes'
+
+    def test_project_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A config setting in the project is read, and wins over the home config."""
+        home = tmp_path / 'home.toml'
+        project = tmp_path / 'proj'
+        project.mkdir()
+
+        def load(home_text: str, project_text: str, *, in_pyproject: bool = False) -> Config:
+            home.write_text(home_text)
+            name = 'pyproject.toml' if in_pyproject else 'pixeltable.toml'
+            (project / name).write_text(project_text)
+            monkeypatch.setenv('PIXELTABLE_CONFIG', str(home))
+            Config.init(reinit=True, project_root=project)
+            return Config.get()
+
+        # a var bound only by the project is read, and get_value_source() names its file
+        config = load(
+            '',
+            dedent(
+                """
+                [[pixeltable.database]]
+                vars.media_dest = 's3://project/bucket'
+                """
+            ),
+        )
+        assert config.project_config_file == project / 'pixeltable.toml'
+        assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://project/bucket'
+        assert config.get_value_source('media_dest', section=VAR_SECTION) == project / 'pixeltable.toml'
+        assert pxt.ConfigVar('media_dest', pxt.URI).value() == 's3://project/bucket'
+
+        # the two files configure one database together; the project's binding wins per name
+        config = load(
+            dedent(
+                """
+                [[pixeltable.database]]
+                vars.media_dest = 's3://home/bucket'
+                vars.other_dest = 's3://home/other'
+                """
+            ),
+            dedent(
+                """
+                [[pixeltable.database]]
+                vars.media_dest = 's3://project/bucket'
+                """
+            ),
+        )
+        assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://project/bucket'
+        assert config.get_value_source('media_dest', section=VAR_SECTION) == project / 'pixeltable.toml'
+        assert config.get_string_value('other_dest', section=VAR_SECTION) == 's3://home/other'
+        assert config.get_value_source('other_dest', section=VAR_SECTION) == home
+
+        # an environment variable outranks both files
+        monkeypatch.setenv('PIXELTABLE_VAR_MEDIA_DEST', 's3://from/env')
+        assert Config.get().get_string_value('media_dest', section=VAR_SECTION) == 's3://from/env'
+        monkeypatch.delenv('PIXELTABLE_VAR_MEDIA_DEST')
+
+        # a setting that is not a database binding is project-settable too
+        config = load('', "[pixeltable]\ntime_zone = 'America/Anchorage'\n")
+        assert config.get_string_value('time_zone') == 'America/Anchorage'
+
+        # the same, declared in a pyproject.toml under [tool.pixeltable]
+        (project / 'pixeltable.toml').unlink()
+        config = load(
+            '',
+            dedent(
+                """
+                [project]
+                name = 'proj'
+
+                [[tool.pixeltable.database]]
+                vars.media_dest = 's3://from/pyproject'
+                """
+            ),
+            in_pyproject=True,
+        )
+        assert config.project_config_file == project / 'pyproject.toml'
+        assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://from/pyproject'
+        (project / 'pyproject.toml').unlink()
+
+        # a project file cannot set an installation setting; the message points at the home config
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r"Cannot set 'pixeltable.file_cache_size_g'"):
+            load('', '[pixeltable]\nfile_cache_size_g = 10.0\n')
+
+        # an edit to the project file is picked up
+        config = load('', "[[pixeltable.database]]\nvars.media_dest = 's3://before/edit'\n")
+        assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://before/edit'
+        time.sleep(0.01)  # the stamp is (mtime, size), so a same-size rewrite needs a distinct mtime
+        (project / 'pixeltable.toml').write_text("[[pixeltable.database]]\nvars.media_dest = 's3://after/edits'\n")
+        assert Config.reload_if_changed()
+        assert Config.get().get_string_value('media_dest', section=VAR_SECTION) == 's3://after/edits'
+
+    def test_secrets_in_database_entry_refused(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A secret is bound by its environment variable, so an entry naming one is a configuration error."""
+        config_file = tmp_path / 'config.toml'
+        config_file.write_text("[[pixeltable.database]]\nsecrets.openai_api_key = 'sk-x'\n")
+        monkeypatch.setenv('PIXELTABLE_CONFIG', str(config_file))
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='secrets'):
+            Config.init(reinit=True)
+
+    def test_database_entries(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The bindings a process reads come from the [[pixeltable.database]] entry for the local database."""
+        project = tmp_path / 'proj'
+        project.mkdir()
+
+        def load(text: str, project_text: str = '') -> Config:
+            config_file = tmp_path / 'config.toml'
+            config_file.write_text(text)
+            (project / 'pixeltable.toml').write_text(project_text)
+            monkeypatch.setenv('PIXELTABLE_CONFIG', str(config_file))
+            Config.init(reinit=True, project_root=project)
+            return Config.get()
+
+        # one entry per database: the local one binds the vars, and the project's hosted one sets system dependencies
+        config = load(
+            "[[pixeltable.database]]\nvars.media_dest = 's3://local/bucket'\n",
+            dedent(
+                """
+                [[pixeltable.database]]
+                name = 'pxt://myorg:prod'
+                vars.media_dest = 's3://prod/bucket'
+                system_dependencies = ['ffmpeg']
+                """
+            ),
+        )
+        assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://local/bucket'
+        local = config.get_database_config(PxtPath.parse('', allow_empty_path=True))
+        assert local is not None
+        assert local.vars == {'media_dest': 's3://local/bucket'}
+        prod = config.get_database_config(PxtPath.parse('pxt://myorg:prod', allow_empty_path=True))
+        assert prod is not None
+        assert prod.system_dependencies == ['ffmpeg']
+        assert config.get_database_config(PxtPath.parse('pxt://myorg:staging', allow_empty_path=True)) is None
+
+        # a single table where the array goes is one entry, which is how a file written earlier reads
+        config = load("[pixeltable.database]\nvars = { media_dest = 's3://single/bucket' }\n")
+        assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://single/bucket'
+
+        # the environment binds a var the entry does not
+        monkeypatch.setenv('PIXELTABLE_VAR_OTHER_DEST', 's3://from/env')
+        config = load("[[pixeltable.database]]\nvars.media_dest = 's3://local/bucket'\n")
+        assert config.get_string_value('other_dest', section=VAR_SECTION) == 's3://from/env'
+        assert config.get_value_source('media_dest', section=VAR_SECTION) == tmp_path / 'config.toml'
+
+        # two entries for one database, which would make the bindings ambiguous
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r"Duplicate `DatabaseConfig` name 'local'"):
+            load('[[pixeltable.database]]\n\n[[pixeltable.database]]\n')
+
+        # an entry holding something no database is configured with
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid `DatabaseConfig`'):
+            load("[[pixeltable.database]]\nnot_a_setting = 'x'\n")
+
+    def test_service_resources(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A hosted database entry sets its services' resources, each keyed by the service's path."""
+        home = tmp_path / 'home.toml'
+        project = tmp_path / 'proj'
+        project.mkdir()
+
+        def load(home_text: str, project_text: str) -> Config:
+            home.write_text(home_text)
+            (project / 'pixeltable.toml').write_text(project_text)
+            monkeypatch.setenv('PIXELTABLE_CONFIG', str(home))
+            Config.init(reinit=True, project_root=project)
+            return Config.get()
+
+        prod_uri = PxtPath.parse('pxt://myorg:prod', allow_empty_path=True)
+        config = load(
+            '',
+            dedent(
+                """
+                [[pixeltable.database]]
+                name = 'pxt://myorg:prod'
+                services.'search/api' = { cpu = 2.0, memory_mb = 4096 }
+                services.Ingest = { workers = 3, file_cache_gb = 4.0 }
+                """
+            ),
+        )
+        prod = config.get_database_config(prod_uri)
+        assert prod is not None
+        # a service at the root is keyed by its name, and paths are compared without case
+        assert prod.service_resources('') == {'ingest': ServiceResources(workers=3, file_cache_gb=4.0)}
+        assert prod.service_resources('Search') == {'api': ServiceResources(cpu=2.0, memory_mb=4096)}
+        assert prod.service_resources('other') == {}
+
+        # a hosted database is configured in its project only
+        with pxt_raises(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            match=r"Cannot configure 'pxt://myorg:prod' in .*home\.toml: .* the project's pixeltable\.toml",
+        ):
+            load("[[pixeltable.database]]\nname = 'pxt://myorg:prod'\nservices.ingest = { workers = 2 }\n", '')
+
+        for text, message in (
+            # a local service runs in-process, at whatever size its process has
+            ('[[pixeltable.database]]\nservices.api = { cpu = 1.0 }\n', r'`services` applies to a hosted database'),
+            (
+                "[[pixeltable.database]]\nname = 'pxt://myorg:prod'\nservices.api = { disk_gb = 10 }\n",
+                r'unknown settings: disk_gb',
+            ),
+            ("[[pixeltable.database]]\nname = 'pxt://myorg:prod'\nservices.api = { workers = 0 }\n", r'greater than 0'),
+            (
+                "[[pixeltable.database]]\nname = 'pxt://myorg:prod'\nservices.api = {}\nservices.API = {}\n",
+                r"'api' and 'API', which differ only in case",
+            ),
+            ("[[pixeltable.database]]\nname = 'pxt://myorg:prod'\nservices = ['api']\n", r'valid dictionary'),
+        ):
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=message):
+                load('', text)
+
+    def test_create_project_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        home = tmp_path / 'home.toml'
+        project = tmp_path / 'proj'
+        project.mkdir()
+
+        def load(project_text: str) -> Config:
+            home.write_text("[openai]\napi_key = 'sk-home'\n")
+            (project / 'pixeltable.toml').write_text(dedent(project_text))
+            monkeypatch.setenv('PIXELTABLE_CONFIG', str(home))
+            Config.init(reinit=True, project_root=project)
+            return Config.get()
+
+        prod_uri = PxtPath.parse('pxt://myorg:prod', allow_empty_path=True)
+        local_uri = PxtPath.parse('', allow_empty_path=True)
+        config = load(
+            """
+            [pixeltable]
+            output_media_dest = 's3://bucket/out'
+
+            [openai]
+            rate_limits = { gpt-4o = 100 }
+
+            [[pixeltable.database]]
+            name = 'pxt://myorg:prod'
+            vars.dest = 's3://bucket/media'
+            db_input_media_dest = 's3://bucket/in'
+            system_dependencies = ['ffmpeg']
+            services.api = { workers = 2 }
+
+            [[pixeltable.database]]
+            name = 'pxt://myorg:staging'
+            vars.dest = 's3://staging/media'
+            """
+        )
+        # the project's sections and the entry for the database; the home config's sections are left out
+        assert config.create_project_config(config.get_database_config(prod_uri)) == {
+            'pixeltable': {
+                'output_media_dest': 's3://bucket/out',
+                'database': [
+                    {
+                        'name': 'pxt://myorg:prod',
+                        'vars': {'dest': 's3://bucket/media'},
+                        'db_input_media_dest': 's3://bucket/in',
+                    }
+                ],
+            },
+            'openai': {'rate_limits': {'gpt-4o': 100}},
+        }
+
+        # a secret is hashed for the local database and refused for a hosted one
+        hosted = "\n[[pixeltable.database]]\nname = 'pxt://myorg:prod'\n"
+        local = []
+        for key in ('sk-project', 'sk-rotated'):
+            config = load(f"[openai]\napi_key = '{key}'\n\n[[pixeltable.database]]\nvars.dest = 's3://local'\n{hosted}")
+            local.append(config.create_project_config(config.get_database_config(local_uri)))
+        assert local[0]['pixeltable'] == {'database': [{'name': 'local', 'vars': {'dest': 's3://local'}}]}
+        assert local[0]['openai']['api_key'] != local[1]['openai']['api_key']
+        assert 'sk-project' not in str(local[0])
+        with pxt_raises(
+            excs.ErrorCode.INVALID_CONFIGURATION, match=r'pxt secret set pxt://myorg:prod OPENAI_API_KEY=<value>'
+        ):
+            config.create_project_config(config.get_database_config(prod_uri))
+
+        config = load(f"[otel]\nexporter_otlp_headers = 'Authorization=Basic abc'\n{hosted}")
+        with pxt_raises(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            match=r'pxt secret set pxt://myorg:prod OTEL_EXPORTER_OTLP_HEADERS=<value>',
+        ):
+            config.create_project_config(config.get_database_config(prod_uri))
+
+    def test_database_settings(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A database entry sets the media destinations and the OTLP endpoint and protocol of its database."""
+        for var in (
+            'PIXELTABLE_INPUT_MEDIA_DEST',
+            'PIXELTABLE_OUTPUT_MEDIA_DEST',
+            'OTEL_EXPORTER_OTLP_ENDPOINT',
+            'OTEL_EXPORTER_OTLP_PROTOCOL',
+            'PXTCLOUD_ORG',
+            'PXTCLOUD_DB',
+        ):
+            monkeypatch.delenv(var, raising=False)
+        config_file = tmp_path / 'config.toml'
+        monkeypatch.setenv('PIXELTABLE_CONFIG', str(config_file))
+        project = tmp_path / 'proj'
+        project.mkdir()
+
+        def load(text: str, project_text: str = '') -> Config:
+            config_file.write_text(text)
+            (project / 'pixeltable.toml').write_text(project_text)
+            Config.init(reinit=True, project_root=project)
+            return Config.get()
+
+        # the entry's values are read under the section and key each setting has always had
+        config = load(
+            dedent(
+                """
+                [[pixeltable.database]]
+                db_input_media_dest = 's3://local/input/'
+                db_output_media_dest = 's3://local/output/'
+                db_exporter_otlp_endpoint = 'https://otlp.local.example'
+                db_exporter_otlp_protocol = 'grpc'
+                vars.media_dest = 's3://local/bucket'
+                """
+            ),
+            dedent(
+                """
+                [[pixeltable.database]]
+                name = 'pxt://myorg:prod'
+                db_input_media_dest = 's3://prod/input/'
+                db_exporter_otlp_endpoint = 'https://otlp.prod.example'
+                vars.media_dest = 's3://prod/bucket'
+                """
+            ),
+        )
+        assert config.get_string_value('input_media_dest') == 's3://local/input/'
+        assert config.get_string_value('output_media_dest') == 's3://local/output/'
+        assert config.get_string_value('exporter_otlp_endpoint', section='otel') == 'https://otlp.local.example'
+        assert config.get_string_value('exporter_otlp_protocol', section='otel') == 'grpc'
+        assert config.get_value_source('input_media_dest') == config_file
+        assert config.describe_setting('pixeltable', 'input_media_dest') == (
+            f'[[pixeltable.database]].db_input_media_dest in {config_file}'
+        )
+
+        # on a hosted database's pod the process reads that database's entry, settings and bindings alike
+        monkeypatch.setenv('PXTCLOUD_ORG', 'myorg')
+        monkeypatch.setenv('PXTCLOUD_DB', 'prod')
+        assert config.get_string_value('input_media_dest') == 's3://prod/input/'
+        assert config.get_string_value('output_media_dest') is None
+        assert config.get_string_value('exporter_otlp_endpoint', section='otel') == 'https://otlp.prod.example'
+        assert config.get_string_value('exporter_otlp_protocol', section='otel') is None
+        assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://prod/bucket'
+        monkeypatch.delenv('PXTCLOUD_ORG')
+        monkeypatch.delenv('PXTCLOUD_DB')
+
+        # the entry outranks the environment variable and a pxt.init() override; a setting the entry leaves unset
+        # still comes from the environment
+        monkeypatch.setenv('PIXELTABLE_INPUT_MEDIA_DEST', 's3://from/env/')
+        monkeypatch.setenv('PIXELTABLE_OUTPUT_MEDIA_DEST', 's3://from/env/')
+        assert config.get_string_value('input_media_dest') == 's3://local/input/'
+        assert config.get_value_source('input_media_dest') == config_file
+        monkeypatch.setenv('PXTCLOUD_ORG', 'myorg')
+        monkeypatch.setenv('PXTCLOUD_DB', 'prod')
+        assert config.get_string_value('output_media_dest') == 's3://from/env/'
+        assert config.get_value_source('output_media_dest') == 'env'
+        monkeypatch.delenv('PXTCLOUD_ORG')
+        monkeypatch.delenv('PXTCLOUD_DB')
+        monkeypatch.delenv('PIXELTABLE_INPUT_MEDIA_DEST')
+        monkeypatch.delenv('PIXELTABLE_OUTPUT_MEDIA_DEST')
+        Config.init({'pixeltable.input_media_dest': 's3://from/init/'}, reinit=True)
+        assert Config.get().get_string_value('input_media_dest') == 's3://local/input/'
+        # a var named like a setting is a var, not that setting
+        Config.init(reinit=True)
+        assert Config.get().get_string_value('input_media_dest', section=VAR_SECTION) is None
+
+        # the entry outranks the section every database shares, which still applies where the entry is silent
+        config = load(
+            dedent(
+                """
+                [pixeltable]
+                input_media_dest = 's3://shared/input/'
+                output_media_dest = 's3://shared/output/'
+
+                [otel]
+                exporter_otlp_endpoint = 'https://otlp.shared.example'
+
+                [[pixeltable.database]]
+                db_input_media_dest = 's3://local/input/'
+                """
+            )
+        )
+        assert config.get_string_value('input_media_dest') == 's3://local/input/'
+        assert config.get_string_value('output_media_dest') == 's3://shared/output/'
+        assert config.get_string_value('exporter_otlp_endpoint', section='otel') == 'https://otlp.shared.example'
+
+        # only a db_<key> field of DatabaseConfig overrides a setting; the entry accepts no other one
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='db_verbosity'):
+            load('[[pixeltable.database]]\ndb_verbosity = 2\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='input_media_dest'):
+            load("[[pixeltable.database]]\ninput_media_dest = 's3://local/input/'\n")
+
+    def test_reload_if_changed(self, tmp_path: Path) -> None:
+        """The config file is re-read after it changes, which is how a running daemon picks up an edit."""
+        config_file = tmp_path / 'config.toml'
+        config_file.write_text('[pixeltable.database.vars]\nmedia_dest = "s3://first/bucket"\n')
+
+        media_dest = pxt.ConfigVar('media_dest', pxt.URI)
+
+        original_config = os.environ.get('PIXELTABLE_CONFIG')
+        os.environ['PIXELTABLE_CONFIG'] = str(config_file)
+        Config.init(reinit=True)
+        try:
+            assert media_dest.value() == 's3://first/bucket'
+            # an unchanged file is not re-read
+            assert not Config.reload_if_changed()
+
+            time.sleep(0.01)  # the stamp is (mtime, size), so a same-size rewrite needs a distinct mtime
+            config_file.write_text('[pixeltable.database.vars]\nmedia_dest = "s3://second/bucket"\n')
+            assert Config.reload_if_changed()
+            assert media_dest.value() == 's3://second/bucket'
+            assert not Config.reload_if_changed()
+
+            # an override is supplied by the process, so re-reading the file leaves it in place
+            Config.init({'openai.api_key': 'sk-override'}, reinit=True)
+            assert Config.get().get_string_value('api_key', section='openai') == 'sk-override'
+            time.sleep(0.01)
+            config_file.write_text('[pixeltable.database.vars]\nmedia_dest = "s3://third/bucket"\n')
+            assert Config.reload_if_changed()
+            assert media_dest.value() == 's3://third/bucket'
+            assert Config.get().get_string_value('api_key', section='openai') == 'sk-override'
+        finally:
+            if original_config is None:
+                os.environ.pop('PIXELTABLE_CONFIG', None)
+            else:
+                os.environ['PIXELTABLE_CONFIG'] = original_config
+            Config.init(reinit=True)
+
+    @pytest.mark.db_roots('local', reason='a local filesystem destination is rejected for a hosted table')
+    def test_config_var_destination_follows_rebinding(self, uses_db: None, tmp_path: Path) -> None:
+        """Rows written after a config var is rebound land where it now points.
+
+        The destination is stored as a reference and resolved when a file is written, so a rebinding takes
+        effect without a schema change and without reloading anything.
+        """
+        media_dir = tmp_path / 'media'
+        media_dir.mkdir()
+        # a name of a different length, and not a prefix of the other: rewriting the config below then
+        # changes its size, and reload detection compares (mtime, size) with mtime granularity that is
+        # coarse on some filesystems
+        other_dir = tmp_path / 'rebound'
+        other_dir.mkdir()
+        config_file = tmp_path / 'config.toml'
+        config_file.write_text(f'[pixeltable.database.vars]\nmedia_dest = "{media_dir.as_posix()}"\n')
+
+        original_config = os.environ.get('PIXELTABLE_CONFIG')
+        os.environ['PIXELTABLE_CONFIG'] = str(config_file)
+        Config.init(reinit=True)
+        try:
+            t = pxt.create_table('cached_md', {'img': pxt.Image | None}, if_exists='replace')
+            t.add_computed_column(thumb=t.img.rotate(90), destination=pxt.ConfigVar('media_dest', pxt.URI), stored=True)
+            # metadata names the variable rather than where it currently points
+            assert t.get_metadata()['columns']['thumb']['destination'] == '$media_dest'
+
+            t.insert(img=get_image_files()[0])
+            assert media_dir.as_uri() in t.select(url=t.thumb.fileurl).collect()[0]['url']
+
+            config_file.write_text(f'[pixeltable.database.vars]\nmedia_dest = "{other_dir.as_posix()}"\n')
+            assert Config.reload_if_changed()
+
+            # the declaration is unchanged, so the column still reads as the same variable
+            assert t.get_metadata()['columns']['thumb']['destination'] == '$media_dest'
+
+            # a row written now goes where the variable points now
+            t.insert(img=get_image_files()[1])
+            urls = t.select(url=t.thumb.fileurl).collect()['url']
+            assert sum(other_dir.as_uri() in url for url in urls) == 1
+            assert sum(media_dir.as_uri() in url for url in urls) == 1
+        finally:
+            if original_config is None:
+                os.environ.pop('PIXELTABLE_CONFIG', None)
+            else:
+                os.environ['PIXELTABLE_CONFIG'] = original_config
+            Config.init(reinit=True)

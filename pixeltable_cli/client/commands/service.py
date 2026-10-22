@@ -1,218 +1,717 @@
-"""`pxt service {create,update,list,status,start,stop,delete} <uri>` - manage hosted services."""
+"""`pxt service {diff,update,prune,stop,list,logs,example}` - run the services an application file defines."""
 
 from __future__ import annotations
 
-import argparse
 import json
+import sys
+from pathlib import Path
 
-from ..hosted import exit_unless_reached, parse_base_uri, parse_db_uri, parse_service_uri, poll_svc, print_service
+import pydantic
+
+from ...types import GenerationReceipt, Resolution, ServiceChangeOp, ServiceInstance, ServicePlan
+from ...utils import PxtPath, project_root, split_pxt_uri
+from ..hosted import add_logs_args, await_endpoint, await_receipts, describe_receipt, exit_unless_observed, print_logs
 from ..parser import Parser
-from ..utils import get_request, post_request
+from ..utils import (
+    EXIT_CHANGES_PENDING,
+    EXIT_ERROR,
+    EXIT_IN_AGREEMENT,
+    check_file,
+    confirm_or_exit,
+    get_request,
+    post_request,
+    print_json_schema,
+    refuse_destructive,
+)
 
-EPILOG = """\
-Examples:
-  pxt service create NAME --base-uri pxt://org:db
-  pxt service update pxt://org:db/services/NAME --workers 2
-  pxt service list pxt://org:db
-  pxt service status pxt://org:db/services/NAME
-  pxt service start pxt://org:db/services/NAME
-  pxt service stop pxt://org:db/services/NAME
-  pxt service delete pxt://org:db/services/NAME
+_EXAMPLE_APP = '''\
+"""Pixeltable application, written by 'pxt service example'.
+
+One file defines both: the models, which become the tables, and the services, which serve routes over them.
+The target given on the command line says which catalog directory those tables live in, so the same file
+can be applied to a development directory and a production one.
+
+    pxt schema update app.py TARGET        # create the tables the models define
+    pxt service update app.py TARGET       # serve this file's services against them
+
+A udf defined here is referenced by this file's path, so moving or renaming the file leaves the columns that
+call it unable to compute.
 """
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+from pixeltable.serving import FastAPIRouter
+
+TableModel = pxt.model_base()
+
+
+# a udf: a Python function the computed columns below can call
+@pxt.udf
+def excerpt(text: str, n: int = 12) -> str:
+    return text if len(text) <= n else f'{text[:n]}...'
+
+
+class Docs(TableModel, name='docs'):
+    id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)  # generated on insert; update matches rows by it
+    title: pxt.String
+    body: pxt.String | None
+    title_upper = pxtf.string.upper(title)  # a computed column: an assignment, not an annotation
+    summary = excerpt(title)  # a computed column over a udf this file defines
+
+
+# the router names the service; without name= it takes the name of the variable holding it
+ingest = FastAPIRouter(name='ingest')
+
+# POST /docs inserts a row and returns the generated key along with the computed columns
+ingest.add_insert_route(
+    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.id, Docs.title_upper, Docs.summary]
+)
+
+# POST /docs/update matches a row by its key and rewrites the rest
+ingest.add_update_route(Docs, path='/docs/update', inputs=[Docs.title], outputs=[Docs.id, Docs.title_upper])
+
+# POST /titles computes without storing a row
+ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
+'''
+
+_HOSTED = """
+Hosted databases:
+  TARGET may be a pxt:// uri, and the services then run in that database rather than on this machine.
+  'pxt db update' puts this project's code there first, and 'pxt schema update' creates the
+  tables; 'run' is local only, since it serves from the calling process.
+"""
+
+_OWN_APP = """
+Your own application:
+  A file may supply its own fastapi.FastAPI object rather than leave Pixeltable to build one, in which case it
+  defines one service, named after its module. All FastAPIRouters in that same file need to be included in
+  that application (via include_router()); they don't get turned into separate services. The file's models are bound
+  at TARGET before it serves, so a handler reaches them by name.
+"""
+
+_APP_FILE = """
+Project:
+  APP has to sit under a project root: the directory holding the project configuration, which is a
+  pixeltable.toml or a pyproject.toml with a [tool.pixeltable] section. 'pxt init' writes one.
+  Every local module path is relative to that root, so a udf this file defines is recorded as
+  <path from the root>.<name> -- which is how the serving process finds it again."""
+
+DIFF_EPILOG = f"""\
+Examples:
+  pxt service diff app.py my_dir            # what update would change; exit 2 if anything is pending
+  pxt service diff app.py my_dir ingest     # only the named service
+  pxt service diff app.py my_dir --json
+  pxt service diff app.py my_dir --otel     # also report tracing that is off but was asked for
+  pxt service diff app.py pxt://acme:main   # against a hosted database
+  pxt service diff --json-schema            # the schema of the --json output, on its own
+
+Tracing:
+  --otel emits OpenTelemetry traces from the services 'update' starts, and needs the instrumentation
+  package ('pip install pixeltable[otel]'). The setting belongs to the running service, not to the file:
+  a service already running without it restarts when 'update' is given the flag, and 'diff' reports that
+  as a pending change.
+{_OWN_APP}{_HOSTED}{_APP_FILE}"""
+
+UPDATE_EPILOG = f"""\
+Examples:
+  pxt service update app.py my_dir                       # start what is defined, stopped or not; restart what changed
+  pxt service update app.py my_dir ingest                # only the named service
+  pxt service update app.py my_dir ingest --port 8000    # serve it on port 8000
+  pxt service update app.py my_dir --allow-destructive   # also stop serving routes that changed or went away
+  pxt service update app.py my_dir --otel                # emit OpenTelemetry traces from what it starts
+  pxt service update app.py pxt://acme:main              # start them in a hosted database
+
+Ports:
+  A restarted service keeps its previous port, so its callers keep their address; a service that was not
+  running gets one from the OS. --port pins it instead, and fails if that port is taken. It takes one port,
+  so name the service too when the file defines more than one.
+
+Tracing:
+  --otel needs the instrumentation package ('pip install pixeltable[otel]'). The setting belongs to the
+  running service, not to the file: a service already running without it restarts to pick it up, and
+  dropping the flag restarts it again.
+{_OWN_APP}{_HOSTED}{_APP_FILE}"""
+
+RUN_EPILOG = f"""\
+Examples:
+  pxt service run app.py my_dir              # the only service the file defines, until interrupted
+  pxt service run app.py my_dir ingest       # the named one, when the file defines several
+  pxt service run app.py my_dir --port 9000
+  pxt service run app.py my_dir --otel       # emit OpenTelemetry traces from this process
+
+One service per process, as 'update' deploys them. Nothing is recorded: it runs for as long as this process
+does. Use 'update' to run it in the background, where 'list' and 'stop' can find it again.
+{_OWN_APP}{_HOSTED}{_APP_FILE}"""
+
+PRUNE_EPILOG = f"""\
+Examples:
+  pxt service prune app.py my_dir            # stop and forget the services the file does not define
+  pxt service prune app.py pxt://acme:main   # the same, in a hosted database
+
+A stopped service can be started again with 'pxt service update'.
+{_OWN_APP}{_HOSTED}{_APP_FILE}"""
+
+STOP_EPILOG = """\
+Examples:
+  pxt service stop ingest                  # a unique service name in the current project
+  pxt service stop my_dir/ingest           # the service of that name under my_dir
+  pxt service stop pxt://acme:main/ingest  # one in a hosted database
+  pxt service stop ingest reader
+
+Bare names match the current project, or all local services outside a project.
+Use TARGET/NAME for another project. Use /NAME for a service at the catalog root.
+"""
+
+RESTART_EPILOG = """\
+Examples:
+  pxt service restart ingest                  # a bare name, when only one target has a service of that name
+  pxt service restart my_dir/ingest           # the service of that name under my_dir
+  pxt service restart pxt://acme:main/ingest  # one in a hosted database
+  pxt service restart ingest reader
+
+A hosted service restarts on its current code; 'pxt service update' moves it onto the database's latest
+code.
+"""
+
+RETRY_EPILOG = """\
+Examples:
+  pxt service retry pxt://acme:main/ingest    # retry the failed update of a hosted service
+
+Rerunning 'pxt service update' also retries it.
+"""
+
+LIST_EPILOG = """\
+Examples:
+  pxt service list                    # every service running locally
+  pxt service list my_dir             # those bound at my_dir and below it
+  pxt service list pxt://acme:main    # those in a hosted database
+  pxt service list --json-schema      # the schema of the --json output, on its own
+"""
+
+CHECK_EPILOG = f"""\
+Examples:
+  pxt service check app.py                 # before deploying it anywhere
+  pxt service check app.py --json
+
+Exit codes:
+  0  the file is valid; warnings may still be printed
+  1  error: bad arguments, the file failed to import, or a udf it records cannot be read back
+
+Notes:
+  Checks what the file says on its own: it imports without modifying the catalog, it defines a
+  service and a model base, and every udf its columns call has a module path another
+  process resolves. Takes no TARGET, so it says nothing about what a target can serve;
+  'pxt service diff' answers that.
+{_OWN_APP}{_HOSTED}{_APP_FILE}"""
+
+LOGS_EPILOG = """\
+Examples:
+  pxt service logs ingest                          # a bare name, when only one target has a service of that name
+  pxt service logs my_dir/ingest                   # the service of that name under my_dir
+  pxt service logs pxt://acme:main/my_dir/ingest   # the one in a hosted database
+  pxt service logs pxt://acme:main/ingest --since 10m --tail 50
+  pxt service logs pxt://acme:main/ingest --json
+
+A hosted service's log merges the serving process's log records, requests included, with its console output,
+ordered by time. The console output has the traceback of a service that failed to start. A line appears in the
+log a few seconds after it is written. A service running on this machine logs to a local file instead, and
+'pxt service logs' reports the path of that file.
+"""
+
+VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'restart', 'retry', 'list', 'logs', 'check', 'example')
+
+
+_MARKERS: dict[Resolution, str] = {
+    'up_to_date': '=',
+    'create': '+',
+    'update_additive': '~',
+    'update_destructive': '~',
+    'blocked': '!',
+}
+_PENDING: dict[Resolution, str] = {
+    'up_to_date': 'up to date',
+    'create': 'will be started',
+    'update_additive': 'will be restarted',
+    'update_destructive': 'will be restarted (destructive)',
+    'blocked': 'blocked: the database has to change first',
+}
 
 
 def run(argv: list[str]) -> None:
-    parser = Parser(prog='pxt service', description='manage hosted services', epilog=EPILOG)
-    sub = parser.add_subparsers(dest='action', required=True)
+    if len(argv) == 0 or argv[0] in ('-h', '--help'):
+        print(
+            'usage: pxt service <verb> APP TARGET [options]\n\nverbs:\n'
+            '  diff     show the changes that update would make; exit 2 if any are pending\n'
+            '  update   start the services APP defines against TARGET, and restart the ones that changed\n'
+            '  run      serve one of them from this process instead, until interrupted\n'
+            '  prune    stop and forget the services at TARGET that APP does not define\n'
+            '  stop     stop the named services\n'
+            '  restart  restart the named services on their current code, with the current secrets\n'
+            '  retry    retry the failed update of the named hosted services\n'
+            '  list     what is running locally, and where\n'
+            '  logs     read the log of the named service\n'
+            '  check    validate the application file on its own (takes no TARGET)\n'
+            '  example  write a working application file to start from\n\n'
+            'APP is a Python file defining FastAPIRouter services; TARGET is the catalog directory their\n'
+            "models bind against. Run 'pxt service example' for a file to start from."
+        )
+        sys.exit(EXIT_IN_AGREEMENT if len(argv) > 0 else EXIT_ERROR)
 
-    p = sub.add_parser('create', help='create a service from a table in a hosted database')
-    p.add_argument('name', help='Service name (must match a [[pixeltable.service]] block in the config)')
-    p.add_argument(
-        '--base-uri',
-        required=True,
-        dest='base_uri',
-        metavar='URI',
-        help='pxt://org:db[/<dir>] - database and base path prefix for resolving relative table paths in routes',
+    verb = argv[0]
+    if verb not in VERBS:
+        print(f'pxt service: unknown verb: {verb} (available: {", ".join(VERBS)})', file=sys.stderr)
+        sys.exit(EXIT_ERROR)
+
+    if verb == 'example':
+        ap = Parser(prog='pxt service example', usage_exit_code=EXIT_ERROR)
+        ap.add_argument('--out', help='write to this file instead of standard output')
+        args = ap.parse_args(argv[1:])
+        _example(args.out)
+        return
+
+    if verb == 'check':
+        ap = Parser(prog='pxt service check', epilog=CHECK_EPILOG, usage_exit_code=EXIT_ERROR)
+        ap.add_argument('app', help='path to a Python file defining FastAPIRouter services')
+        ap.add_argument('--json', action='store_true', dest='as_json')
+        args = ap.parse_args(argv[1:])
+        check_file('/api/service/check', 'app_file', args.app, verb='service check', as_json=args.as_json)
+        return
+
+    if verb == 'stop':
+        ap = Parser(prog='pxt service stop', epilog=STOP_EPILOG, usage_exit_code=EXIT_ERROR)
+        ap.add_argument('names', nargs='+', help='service names, or TARGET/NAME to disambiguate')
+        ap.add_argument('--json', action='store_true', dest='as_json')
+        args = ap.parse_args(argv[1:])
+        _stop(args.names, as_json=args.as_json)
+        return
+
+    if verb in ('restart', 'retry'):
+        epilog = RESTART_EPILOG if verb == 'restart' else RETRY_EPILOG
+        ap = Parser(prog=f'pxt service {verb}', epilog=epilog, usage_exit_code=EXIT_ERROR)
+        ap.add_argument('names', nargs='+', help='service names, or TARGET/NAME to disambiguate')
+        ap.add_argument('--json', action='store_true', dest='as_json')
+        args = ap.parse_args(argv[1:])
+        _restart(args.names, as_json=args.as_json, verb=verb)
+        return
+
+    if verb == 'list' and argv[1:] == ['--json-schema']:
+        print_json_schema(pydantic.TypeAdapter(list[ServiceInstance]))
+        return
+
+    if verb == 'list':
+        ap = Parser(prog='pxt service list', epilog=LIST_EPILOG, usage_exit_code=EXIT_ERROR)
+        ap.add_argument('target', nargs='?', default=None, help='report only the services bound here and below')
+        ap.add_argument('--json', action='store_true', dest='as_json')
+        args = ap.parse_args(argv[1:])
+        _list(args.target, as_json=args.as_json)
+        return
+
+    if verb == 'logs':
+        ap = Parser(prog='pxt service logs', epilog=LOGS_EPILOG, usage_exit_code=EXIT_ERROR)
+        ap.add_argument('name', help='service name, or TARGET/NAME to disambiguate')
+        add_logs_args(ap)
+        args = ap.parse_args(argv[1:])
+        print_logs({'service': args.name}, args)
+        return
+
+    if verb == 'diff' and argv[1:] == ['--json-schema']:
+        print_json_schema(pydantic.TypeAdapter(ServicePlan))
+        return
+
+    epilogs = {'diff': DIFF_EPILOG, 'update': UPDATE_EPILOG, 'run': RUN_EPILOG, 'prune': PRUNE_EPILOG}
+    # a usage error exits EXIT_ERROR, not argparse's 2, which here means that changes are pending
+    ap = Parser(prog=f'pxt service {verb}', epilog=epilogs[verb], usage_exit_code=EXIT_ERROR)
+    ap.add_argument('app', help='path to a Python file defining services')
+    ap.add_argument('target', help='catalog directory the services bind against')
+    ap.add_argument('--json', action='store_true', dest='as_json')
+    if verb in ('update', 'prune'):
+        ap.add_argument('-f', '--force', action='store_true', help='skip confirmation')
+        ap.add_argument('-n', '--dry-run', action='store_true', dest='dry_run')
+    if verb == 'diff':
+        ap.add_argument('service', nargs='?', help='the service to compare; by default, every service')
+        ap.add_argument('--otel', action='store_true', help='compare the running services against tracing being on')
+    if verb == 'update':
+        ap.add_argument('service', nargs='?', help='the service to reconcile; by default, every service')
+        ap.add_argument('--otel', action='store_true', help='emit OpenTelemetry traces (requires `pixeltable[otel]`)')
+        ap.add_argument(
+            '--allow-destructive',
+            action='store_true',
+            dest='allow_destructive',
+            help='permit changes that stop serving a route callers may be using',
+        )
+        ap.add_argument(
+            '--port',
+            type=int,
+            help=(
+                'serve on this port; only valid if applied to a single service. If omitted and this command is '
+                'restarting a running service, the same port is used'
+            ),
+        )
+        ap.add_argument(
+            '--keep-release',
+            action='store_true',
+            dest='keep_release',
+            help=(
+                "keep a hosted service on its current code, which must match the project's, instead of moving it "
+                "onto the database's latest code"
+            ),
+        )
+    if verb == 'run':
+        ap.add_argument('service', nargs='?', help='the service to serve; required when the file defines more than one')
+        ap.add_argument('--host', default='127.0.0.1', help='bind address (default: 127.0.0.1)')
+        ap.add_argument('--port', type=int, default=8000, help='bind port (default: 8000)')
+        ap.add_argument('--otel', action='store_true', help='emit OpenTelemetry traces (requires `pixeltable[otel]`)')
+    args = ap.parse_args(argv[1:])
+
+    path = Path(args.app)
+    if not path.is_file():
+        print(
+            f'pxt service {verb}: application file not found: {args.app}\n'
+            "run 'pxt service example' for a file to start from",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_ERROR)
+    app_file = str(path.resolve())
+
+    if verb == 'diff':
+        _diff(app_file, args.target, service_name=args.service, as_json=args.as_json, otel=args.otel)
+    elif verb == 'prune':
+        _prune(app_file, args.target, as_json=args.as_json, force=args.force, dry_run=args.dry_run)
+    elif verb == 'run':
+        _run_foreground(
+            app_file,
+            args.target,
+            service_name=args.service,
+            host=args.host,
+            port=args.port,
+            as_json=args.as_json,
+            otel=args.otel,
+        )
+    else:
+        _update(
+            app_file,
+            args.target,
+            service_name=args.service,
+            as_json=args.as_json,
+            force=args.force,
+            dry_run=args.dry_run,
+            allow_destructive=args.allow_destructive,
+            otel=args.otel,
+            port=args.port,
+            keep_release=args.keep_release,
+        )
+
+
+def _example(out: str | None) -> None:
+    if out is None:
+        sys.stdout.write(_EXAMPLE_APP)
+        return
+    Path(out).write_text(_EXAMPLE_APP, encoding='utf-8')
+    print(f'wrote {out}')
+
+
+def _service_plan(
+    app_file: str, target: PxtPath, otel: bool = False, service_name: str | None = None, keep_release: bool = False
+) -> ServicePlan:
+    body = {
+        'app_file': app_file,
+        'target': target,
+        'service_name': service_name,
+        'otel': otel,
+        'keep_release': keep_release,
+    }
+    return ServicePlan.model_validate(post_request('/api/service/diff', body))
+
+
+def _diff(
+    app_file: str, target: PxtPath, *, service_name: str | None = None, as_json: bool, otel: bool = False
+) -> None:
+    plan = _service_plan(app_file, target, otel, service_name=service_name)
+    _print_plan(plan, as_json=as_json)
+    sys.exit(EXIT_IN_AGREEMENT if plan.in_agreement else EXIT_CHANGES_PENDING)
+
+
+def _update(
+    app_file: str,
+    target: PxtPath,
+    *,
+    service_name: str | None = None,
+    as_json: bool,
+    force: bool,
+    dry_run: bool,
+    allow_destructive: bool,
+    otel: bool = False,
+    port: int | None = None,
+    keep_release: bool = False,
+) -> None:
+    plan = _service_plan(app_file, target, otel, service_name=service_name, keep_release=keep_release)
+    if plan.in_agreement:
+        # report the same shape as a run that applied something, so a caller reading --json sees one form
+        for service in plan.services:
+            service.status = 'skipped'
+        _print_plan(plan, as_json=as_json)
+        sys.exit(EXIT_IN_AGREEMENT)
+    if dry_run:
+        _print_plan(plan, as_json=as_json)
+        sys.exit(EXIT_CHANGES_PENDING)
+
+    if port is not None:
+        starting = [d.name for d in plan.services if d.resolution != 'up_to_date' and d.status != 'refused']
+        if len(starting) > 1:
+            print(
+                f'pxt service update: --port takes one port, and this would start {len(starting)} services: '
+                f'{", ".join(sorted(starting))}.\nName the service to start, or leave --port off to keep each '
+                'service on its current port.',
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_ERROR)
+
+    s = plan.summary
+    if s.destructive > 0 and not allow_destructive:
+        # the daemon would refuse the apply; refusing here names the command that permits it
+        refuse_destructive(
+            'pxt service update', s.destructive, force=force, on_refusal=lambda: _print_plan(plan, as_json=as_json)
+        )
+    restarts = f', interrupting {s.restarts} running service(s)' if s.restarts > 0 else ''
+    confirm_or_exit(
+        f'start or restart {s.create + s.update_additive + s.update_destructive} service(s){restarts}?',
+        force,
+        on_refusal=lambda: _print_plan(plan, as_json=as_json),
     )
-    p.add_argument('--workers', type=int, default=1, help='Number of workers (default: 1)')
-    p.add_argument('--cpu', type=float, default=0.5, help='CPU cores per worker (default: 0.5)')
-    p.add_argument('--memory', type=int, default=512, dest='memory_mb', help='Memory per worker in MB (default: 512)')
-    p.add_argument('--disk', type=int, default=10, dest='disk_gb', help='Disk per worker in GB (default: 10)')
-    p.add_argument('--config', default=None, metavar='FILE', help='Path to an additional config file (TOML)')
-    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
-    p = sub.add_parser('update', help='update service routes or worker count')
-    p.add_argument('service_uri', help='Service URI: pxt://org:db/services/<name>')
-    p.add_argument('--workers', type=int, default=None, help='New minimum worker count')
-    p.add_argument('--cpu', type=float, default=None, help='CPU cores per worker')
-    p.add_argument('--memory', type=int, default=None, dest='memory_mb', help='Memory per worker in MB')
-    p.add_argument('--disk', type=int, default=None, dest='disk_gb', help='Disk per worker in GB')
-    p.add_argument('--config', default=None, metavar='FILE', help='Path to an additional config file (TOML)')
-    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
-
-    p = sub.add_parser('list', help='list services in a hosted database')
-    p.add_argument('db_uri', help='Database URI: pxt://org:db')
-    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
-
-    p = sub.add_parser('status', help='show status of a service')
-    p.add_argument('service_uri', help='Service URI: pxt://org:db/services/<name>')
-    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
-
-    p = sub.add_parser('start', help='start a service')
-    p.add_argument('service_uri', help='Service URI: pxt://org:db/services/<name>')
-    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
-
-    p = sub.add_parser('stop', help='stop a service')
-    p.add_argument('service_uri', help='Service URI: pxt://org:db/services/<name>')
-    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
-
-    p = sub.add_parser('delete', help='delete a service')
-    p.add_argument('service_uri', help='Service URI: pxt://org:db/services/<name>')
-    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
-
-    args = parser.parse_args(argv)
-
-    if args.action == 'create':
-        _create(args)
-    elif args.action == 'update':
-        _update(args)
-    elif args.action == 'list':
-        _list(args)
-    elif args.action == 'status':
-        _status(args)
-    elif args.action == 'start':
-        _start(args)
-    elif args.action == 'stop':
-        _stop(args)
-    elif args.action == 'delete':
-        _delete(args)
-
-
-def _create(args: argparse.Namespace) -> None:
-    # imported lazily to keep the other service subcommands free of the pixeltable import
-    from pixeltable import config as pxt_config
-    from pixeltable.serving._config import lookup_service_config
-
-    org, db, base_path = parse_base_uri(args.base_uri, prog='pxt service create')
-
-    if args.config is not None:
-        pxt_config.Config.init({}, additional_config_files=[args.config])
-    service_config = lookup_service_config(args.name).model_dump_json()
-
-    resp = post_request(
-        '/api/services',
-        {
-            'org': org,
-            'db': db,
-            'service_name': args.name,
-            'base_path': base_path,
-            'workers_min': args.workers,
-            'cpu': args.cpu,
-            'memory_mb': args.memory_mb,
-            'disk_gb': args.disk_gb,
-            'service_config': service_config,
-        },
+    applied = ServicePlan.model_validate(
+        post_request(
+            '/api/service/update',
+            {
+                'app_file': app_file,
+                'target': target,
+                'service_name': service_name,
+                'allow_destructive': allow_destructive,
+                'otel': otel,
+                'port': port,
+                'keep_release': keep_release,
+                'expected_generations': {d.name: d.generation for d in plan.services if d.generation is not None},
+                'wait': False,
+            },
+        )
     )
-    svc = resp.get('service', resp) if isinstance(resp, dict) else {}
-    if svc.get('state') in ('DEPLOYING', 'STARTING'):
-        svc = poll_svc(org, db, args.name, {'DEPLOYING', 'STARTING'}, f"Service '{args.name}' is deploying...")
-    if args.json_output:
-        print(json.dumps(svc))
+    db_uri = _hosted_db_uri(applied.target)
+    if db_uri is not None:
+        _await_hosted(applied, db_uri, as_json=as_json)
+    _print_plan(applied, as_json=as_json, applied=True)
+    for d in applied.services:
+        if db_uri is not None and d.receipt is not None and d.status in ('accepted', 'applied'):
+            exit_unless_observed([d.receipt], retry_command=f'pxt service retry {_service_uri(db_uri, d.receipt)}')
+    if applied.summary.blocked > 0:
+        # the database has to change before these services can serve, and this command does not change it
+        sys.exit(EXIT_ERROR)
+
+
+def _hosted_db_uri(target: str) -> str | None:
+    """pxt://org:db of a hosted target, or None for a local one."""
+    parts = split_pxt_uri(target)
+    return None if parts is None or parts.db is None else f'pxt://{parts.org}:{parts.db}'
+
+
+def _service_uri(db_uri: str, receipt: GenerationReceipt) -> str:
+    return '/'.join(part for part in (db_uri, receipt.base_path, receipt.service_name) if part)
+
+
+def _await_hosted(plan: ServicePlan, db_uri: str, *, as_json: bool) -> None:
+    """Wait on the receipts of the plan's hosted services, then until their endpoints answer."""
+    accepted = [d.receipt for d in plan.services if d.receipt is not None and d.status == 'accepted']
+    if len(accepted) == 0:
+        return
+    settled = {
+        (r.resource_id, r.generation): r
+        for r in await_receipts(db_uri, accepted, show=not as_json, status_command=f'pxt service list {db_uri}')
+    }
+    running = {(str(i.catalog_path), i.name): i for i in _running(db_uri)}
+    for d in plan.services:
+        if d.receipt is None or d.status != 'accepted':
+            continue
+        d.receipt = settled[d.receipt.resource_id, d.receipt.generation]
+        catalog_path = '/'.join(part for part in (db_uri, d.receipt.base_path) if part)
+        instance = running.get((catalog_path, d.name))
+        if instance is not None:
+            d.state, d.endpoint = instance.state, instance.endpoint
+        if not d.receipt.observed:
+            continue
+        d.status = 'applied'
+        for op in d.ops:
+            if op.status == 'accepted':
+                op.status = 'applied'
+        if d.endpoint:
+            await_endpoint(d.endpoint, status_command=f'pxt service list {db_uri}')
+
+
+def _run_foreground(
+    app_file: str, target: PxtPath, *, service_name: str | None, host: str, port: int, as_json: bool, otel: bool
+) -> None:
+    """Serve one of the file's services from this process, on one port, until interrupted.
+
+    One service per process, as `update` deploys them, so what runs here serves the same routes at the same
+    paths. Nothing is recorded and nothing is reconciled: the service runs for as long as this process
+    does. That is what makes it the mode for a container entrypoint or a dev loop.
+    """
+    if split_pxt_uri(target) is not None:
+        print(
+            f'pxt service run: {target!r} is hosted, and this command serves from this process.\n'
+            f"run it against a local directory, or start it in the database with 'pxt service update'",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_ERROR)
+
+    # this command runs the server itself, so unlike the rest of the client it needs pixeltable in-process
+    import uvicorn
+
+    from pixeltable.serving._app import create_app, init_instrumentation, instrument_app
+    from pixeltable.utils.app_module import load_app_module, services_by_name
+
+    if otel:
+        # before the first Pixeltable operation, so that loading the file is traced too
+        init_instrumentation()
+    if service_name is None:
+        services = services_by_name(load_app_module(app_file, subject='application file'), app_file)
+        if len(services) > 1:
+            defined = ', '.join(sorted(services))
+            print(
+                f'pxt service run: {app_file} defines more than one service: {defined}\nname the one to serve',
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_ERROR)
+        service_name = next(iter(services))
+    app, _, _ = create_app(app_file, service_name, target)
+    if otel:
+        instrument_app(app)
+    n_routes = len(app.routes)
+    display_host = 'localhost' if host in ('0.0.0.0', '::') else host
+    url = f'http://{display_host}:{port}'
+    if as_json:
+        print(json.dumps({'status': 'started', 'host': host, 'port': port, 'url': url, 'routes': n_routes}))
     else:
-        print_service(svc)
-    exit_unless_reached(svc, 'AVAILABLE', f'deploying service {args.name!r}')
+        print(f'Pixeltable is running on {url}\n  Routes: {n_routes}\n  API docs at {url}/docs')
+    uvicorn.run(app, host=host, port=port, log_config=None)
 
 
-def _update(args: argparse.Namespace) -> None:
-    # imported lazily to keep the other service subcommands free of the pixeltable import
-    from pixeltable import config as pxt_config, exceptions as excs
-    from pixeltable.serving._config import lookup_service_config
+def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_run: bool) -> None:
+    body = {'app_file': app_file, 'target': target}
+    planned = ServicePlan.model_validate(post_request('/api/service/prune', {**body, 'dry_run': True}))
+    if len(planned.ops) == 0:
+        if as_json:
+            print(planned.model_dump_json(indent=2))
+        else:
+            print('nothing to prune')
+        sys.exit(EXIT_IN_AGREEMENT)
 
-    org, db, svc_name = parse_service_uri(args.service_uri, prog='pxt service update')
+    if dry_run:
+        _print_ops(planned.ops, as_json=as_json, verb='would stop', count=len(planned.ops))
+        sys.exit(EXIT_CHANGES_PENDING)
 
-    additional_files = [args.config] if args.config is not None else []
-    pxt_config.Config.init({}, additional_config_files=additional_files)
-    try:
-        service_config = lookup_service_config(svc_name).model_dump_json()
-    except excs.NotFoundError:
-        service_config = None
-
-    resp = post_request(
-        '/api/service/update',
-        {
-            'org': org,
-            'db': db,
-            'service_name': svc_name,
-            'workers_min': args.workers,
-            'cpu': args.cpu,
-            'memory_mb': args.memory_mb,
-            'disk_gb': args.disk_gb,
-            'service_config': service_config,
-        },
+    refused = [op.model_copy(update={'status': 'refused'}) for op in planned.ops]
+    confirm_or_exit(
+        f'stop {len(planned.ops)} service(s)?',
+        force,
+        on_refusal=lambda: _print_ops(refused, as_json=as_json, verb='would stop', count=len(refused)),
     )
-    svc = resp.get('service', resp) if isinstance(resp, dict) else {}
-    if svc.get('state') == 'UPDATING':
-        svc = poll_svc(org, db, svc_name, {'UPDATING'}, f"Service '{svc_name}' is updating...")
-    if args.json_output:
-        print(json.dumps(svc))
-    else:
-        print_service(svc)
-    exit_unless_reached(svc, 'AVAILABLE', f'updating service {svc_name!r}')
+    pruned = ServicePlan.model_validate(post_request('/api/service/prune', body))
+    _print_ops(pruned.ops, as_json=as_json, verb='stopped')
 
 
-def _list(args: argparse.Namespace) -> None:
-    org, db = parse_db_uri(args.db_uri, prog='pxt service list')
-    resp = get_request('/api/services', {'org': org, 'db': db})
-    svcs = resp.get('services', []) if isinstance(resp, dict) else []
-    if args.json_output:
-        print(json.dumps(svcs))
-    elif not svcs:
-        print(f"No services in database '{db}'.")
-    else:
-        for svc in svcs:
-            print_service(svc)
+def _stop(names: list[str], *, as_json: bool) -> None:
+    ops = [
+        ServiceChangeOp.model_validate(op)
+        for op in post_request('/api/service/stop', {'names': names, 'project_root': project_root()})
+    ]
+    _print_ops(ops, as_json=as_json, verb='stopped')
 
 
-def _status(args: argparse.Namespace) -> None:
-    org, db, svc_name = parse_service_uri(args.service_uri, prog='pxt service status')
-    resp = get_request('/api/service', {'org': org, 'db': db, 'service_name': svc_name})
-    svc = resp.get('service', resp) if isinstance(resp, dict) else {}
-    if args.json_output:
-        print(json.dumps(svc))
-    else:
-        print_service(svc)
+def _restart(names: list[str], *, as_json: bool, verb: str) -> None:
+    ops = [ServiceChangeOp.model_validate(op) for op in post_request(f'/api/service/{verb}', {'names': names})]
+    _print_ops(ops, as_json=as_json, verb=f'{verb}ed' if verb == 'restart' else 'retried')
 
 
-def _start(args: argparse.Namespace) -> None:
-    org, db, svc_name = parse_service_uri(args.service_uri, prog='pxt service start')
-    resp = post_request('/api/service/start', {'org': org, 'db': db, 'service_name': svc_name})
-    svc = resp.get('service', resp) if isinstance(resp, dict) else {}
-    if svc.get('state') in ('STARTING', 'DEPLOYING'):
-        svc = poll_svc(org, db, svc_name, {'STARTING', 'DEPLOYING'}, f"Service '{svc_name}' is starting...")
-    if args.json_output:
-        print(json.dumps(svc))
-    else:
-        print_service(svc)
-    exit_unless_reached(svc, 'AVAILABLE', f'starting service {svc_name!r}')
+def _list(target: str | None, *, as_json: bool) -> None:
+    running = _running(target)
+    if as_json:
+        print(json.dumps([d.model_dump(mode='json') for d in running], indent=2))
+        return
+    if len(running) == 0:
+        print('no services running')
+        return
+    width = max(len(f'{d.catalog_path}/{d.name}'.lstrip('/')) for d in running)
+    for d in running:
+        pid_or_state = f'pid {d.pid}' if d.pid is not None else d.state
+        app_file = d.app_module.replace('.', '/') + '.py'
+        where = f'{d.catalog_path}/{d.name}'.lstrip('/')
+        size = (
+            ''
+            if d.workers is None
+            else f'  {d.workers} x {d.cpu} vCPU, {d.memory_mb} MB, {d.file_cache_gb} GB file cache'
+        )
+        print(f'{where:<{width}s}  {d.endpoint}  {pid_or_state}{size}  {app_file}')
+        if d.error is not None:
+            print(f'    {d.error}')
+        if d.receipt is not None and not d.receipt.observed:
+            print(f'    generation {describe_receipt(d.receipt)}')
+        for route in d.spec.routes:
+            served = ', '.join(route.outputs) if len(route.outputs) > 0 else '-'
+            accepted = ', '.join([*route.inputs, *(f'{n} (file)' for n in route.uploadfile_inputs)])
+            print(
+                f'    {route.method:<5s} {route.path:<24s} {route.route_type:<8s} in: {accepted or "-"}  out: {served}'
+            )
 
 
-def _stop(args: argparse.Namespace) -> None:
-    org, db, svc_name = parse_service_uri(args.service_uri, prog='pxt service stop')
-    resp = post_request('/api/service/stop', {'org': org, 'db': db, 'service_name': svc_name})
-    svc = resp.get('service', resp) if isinstance(resp, dict) else {}
-    if svc.get('state') == 'STOPPING':
-        svc = poll_svc(org, db, svc_name, {'STOPPING'}, f"Service '{svc_name}' is stopping...")
-    if args.json_output:
-        print(json.dumps(svc))
-    else:
-        print_service(svc)
-    exit_unless_reached(svc, 'STOPPED', f'stopping service {svc_name!r}')
+def _running(target: str | None = None) -> list[ServiceInstance]:
+    params = {} if target is None else {'target': target}
+    return [ServiceInstance.model_validate(d) for d in get_request('/api/service/list', params)]
 
 
-def _delete(args: argparse.Namespace) -> None:
-    org, db, svc_name = parse_service_uri(args.service_uri, prog='pxt service delete')
-    post_request('/api/service/delete', {'org': org, 'db': db, 'service_name': svc_name})
-    if args.json_output:
-        print(json.dumps({'deleted': svc_name}))
-    else:
-        print(f"Deleted service '{svc_name}'.")
+def _print_plan(plan: ServicePlan, *, as_json: bool, applied: bool = False) -> None:
+    if as_json:
+        print(plan.model_dump_json(indent=2))
+        return
+    for service in plan.services:
+        resolution = service.resolution
+        state = (service.status or _PENDING[resolution]) if applied else _PENDING[resolution]
+        line = f'{_MARKERS[resolution]} {service.name:<24s} {state}'
+        if service.endpoint is not None:
+            line += f'  {service.endpoint}'
+        print(line)
+        for op in service.ops:
+            print(f'    {op.description}  [{op.severity}]')
+        if service.route_detail is not None and resolution == 'blocked':
+            print(f'    {service.route_detail}')
+        if service.receipt is not None and applied:
+            print(f'    generation {describe_receipt(service.receipt)}')
+            for warning in service.receipt.warnings:
+                print(f'    warning: {warning}')
+        elif service.receipt is not None and not any(op.name == 'generation' for op in service.ops):
+            print(f'    the current generation {describe_receipt(service.receipt)}; this update replaces it')
+    for name in plan.extras:
+        print(f'! {name:<24s} extra (not defined); stop it with prune')
+
+    s = plan.summary
+    updates = s.update_additive + s.update_destructive
+    counts = f'{s.create} start, {updates} restart, {s.up_to_date} unchanged, {s.extras} extra'
+    if s.blocked > 0:
+        counts += f', {s.blocked} blocked'
+    print()
+    print(f'Plan: {counts}')
+
+
+def _print_ops(ops: list[ServiceChangeOp], *, as_json: bool, verb: str, count: int | None = None) -> None:
+    """Print each op, then the count of the services the verb names: by default the applied ones, or `count` for a
+    plan that applies none."""
+    if as_json:
+        print(json.dumps([op.model_dump(mode='json') for op in ops], indent=2))
+        return
+    for op in ops:
+        endpoint = op.details.get('endpoint', '')
+        suffix = f'  {endpoint}' if endpoint != '' else ''
+        reason = op.details.get('reason')
+        if reason is not None:
+            suffix += f'  {reason}'
+        print(f'{op.name:<24s} {op.status or verb}{suffix}')
+    print()
+    applied = sum(1 for op in ops if op.status == 'applied') if count is None else count
+    print(f'{verb}: {applied} service(s)')

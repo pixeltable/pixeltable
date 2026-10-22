@@ -1,0 +1,312 @@
+---
+title: 'Pixeltable Cloud'
+sidebarTitle: 'Pixeltable Cloud'
+description: 'Run the same application file against a hosted database'
+---
+
+The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same application file creates tables and starts HTTP on a hosted database. A `pxt login` session is enough for the first deployment, or, with no account, a `pxt new` trial ([Trial databases](/platform/cli#trial-databases)). You do not need an API key.
+
+## First deployment
+
+<Steps>
+  <Step title="Install Pixeltable and sign in">
+    Python 3.11+ on Linux, macOS, or Windows. `pxt login`, `pxt whoami`, and `pxt key` require Pixeltable 0.7.10 or later.
+
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate   # Windows: .venv\Scripts\activate
+    pip install -U 'pixeltable[serve]'
+    ```
+
+    With no account, run `pxt new` and skip `pxt login`. `pxt new` creates a trial organization and database `main`, and prints the `pxt://` URI and the later commands with that name filled in. Claim the trial at the URL `pxt new` prints, or it is deleted, normally 48 hours after `pxt new`. When this machine is already signed in, `pxt new` creates no trial. Run `pxt logout`, then `pxt new`, to drop a `pxt login` session and start a trial.
+
+    With an account:
+
+    ```bash
+    pxt login
+    pxt whoami
+    pxt org list
+    ```
+
+    `pxt login` shows a code to confirm in your browser. `pxt org list` prints each organization as `NAME  id=...`. Use that name in place of `org` in the `pxt://org:main` commands below. If `pxt whoami` prints `No organization yet` while `pxt org list` shows one, upgrade with `pip install -U 'pixeltable[serve]'` and run `pxt login` again.
+
+    If `pxt org list` prints `No orgs.`, create one. The name is unique across Pixeltable: lowercase letters, digits, and hyphens, starting and ending with a letter or digit, at most 29 characters.
+
+    ```bash
+    pxt org create NAME
+    ```
+
+    `pxt org create` provisions your first database, `main`, and switches your `pxt login` session to the new organization.
+  </Step>
+  <Step title="Prepare the application and Cloud target">
+    In a new directory, run:
+
+    ```bash
+    mkdir cloud-app && cd cloud-app
+    pxt init
+    pxt service example --out app.py
+    ```
+
+    In a notebook, `!cd` does not carry over to the next command. Use `%cd cloud-app` instead, so that `pxt init` makes that directory the project root.
+
+    `pxt service example` writes a working `app.py` with a `Docs` table and an `ingest` HTTP service. If you already completed the Quickstart, use that `app.py` instead.
+
+    Point the project at your `main` database. Replace `org` with your organization name:
+
+    ```bash
+    pxt db diff pxt://org:main --add-config-entry
+    ```
+
+    `--add-config-entry` appends an entry named `pxt://org:main` to the project configuration, after the local entry from `pxt init`. `pxt db diff` then prints what `pxt db update` will change, and exits 2 while changes are pending.
+  </Step>
+  <Step title="Upload the project, create tables, and start the service">
+    Run these commands from the project directory, in order:
+
+    ```bash
+    pxt db update pxt://org:main
+    pxt schema update app.py pxt://org:main
+    pxt service update app.py pxt://org:main
+    pxt service list pxt://org:main
+    ```
+
+    `pxt db update` and `pxt service update` ask for confirmation. Without a terminal to answer, as in a notebook or a script, add `-f`. The first `pxt db update` builds the image, which takes several minutes, and returns when the database is ready. If you interrupt it after it uploads the project, Pixeltable Cloud finishes the update anyway: `pxt db status pxt://org:main` shows its progress, and running `pxt db update` again reports it rather than starting another.
+
+    `pxt org create` already provisioned `main`. `pxt db update` uploads the project onto that database and updates its image and size. It does not insert rows and does not start app endpoints. `pxt schema update` creates the tables. It does not start the endpoints. `pxt service update` starts hosted endpoints. Do not use `pxt service run` for Cloud. That command only starts endpoints in your local terminal.
+
+    `pxt service list` prints the service URL and its routes. The host looks like `https://{org}-{db}.svc.pxt.run/<service>`. The control plane host is separate. Do not hardcode either hostname.
+  </Step>
+  <Step title="Insert a row and check the result">
+    The generated `app.py` defines a `docs` table with a computed `title_upper` column. Insert a row from Python:
+
+    ```python
+    import pixeltable as pxt
+
+    docs = pxt.get_table('pxt://org:main/docs')
+    docs.insert(title='Hello', body='world')
+    print(docs.select(docs.title, docs.title_upper).collect())
+    ```
+
+    The result includes `Hello` and `HELLO`. The insert computes `title_upper` on Cloud. Pixeltable prints `Connected to Pixeltable database at:` for the local database before that result. The insert still runs on the Cloud table. A local file path on a Cloud table uploads the file. The table also appears in the [Cloud dashboard](https://www.pixeltable.com/dashboard).
+  </Step>
+</Steps>
+
+A Cloud table path uses the URI plus `/table`, such as `pxt.get_table('pxt://org:main/docs')`. A local table uses dotted `namespace.table`, such as `pxt.get_table('my_app.docs')`. Run `pxt schema diff app.py pxt://org:main` to see pending schema changes. The same file can define `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document` columns: [media pipelines](/use-cases/media-processing), [RAG](/use-cases/multimodal-backend).
+
+## Get an API key
+
+API keys are optional for the CLI and Python workflow above. Create one for CI, background jobs, or a backend that calls a hosted HTTP service. If a browser frontend needs that service, have it call your backend. Keep the key out of browser code.
+
+The CLI reads the key from `PIXELTABLE_API_KEY`, or from `api_key` in the `[pixeltable]` section of the Pixeltable config file. The environment variable wins. Either one takes precedence over a `pxt login` session. [Configuration](/platform/configuration).
+
+After `pxt login`, create a key from the CLI:
+
+```bash
+pxt key create my-app
+```
+
+The CLI prints the secret once. `pxt key list` shows key names, and cannot show their secrets again. A key created without `--grant` acts as you. [Scoped service keys](/platform/cli#pxt-key) are in preview. You can also create a key under **API Keys** in the [Cloud dashboard](https://www.pixeltable.com/dashboard).
+
+### Call the hosted service
+
+Get the service URL from `pxt service list pxt://org:main`. Put the key in your backend's environment and send it in the `X-api-key` header:
+
+```bash
+export PIXELTABLE_API_KEY='your-key'
+SERVICE_URL='URL from pxt service list'
+curl -X POST "$SERVICE_URL/docs" \
+  -H "X-api-key: $PIXELTABLE_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "Hello from HTTP", "body": "world"}'
+```
+
+Cloud checks `X-api-key` first. A request that also sends `Authorization: Bearer` is authenticated as the API key.
+
+For the TypeScript client, follow [Call from a TypeScript app server](/howto/deployment/serving#call-from-a-typescript-app-server). That client sends `X-api-key` and exports `computeTitle()` for the generated app's `/titles` route.
+
+## Add provider secrets
+
+`PIXELTABLE_API_KEY` authenticates to Pixeltable Cloud. Provider keys, such as `OPENAI_API_KEY`, belong in Cloud **Secrets**. For a database that uses OpenAI:
+
+```bash
+pxt secret set pxt://org:main OPENAI_API_KEY=your-provider-key
+pxt db restart pxt://org:main
+pxt service restart pxt://org:main/ingest
+```
+
+The restarts let running table and service processes read the new value. You can also set secrets in the [Cloud dashboard](https://www.pixeltable.com/dashboard). [CLI secret commands](/platform/cli#pxt-secret).
+
+## What the database runs
+
+A hosted database runs three things that come from your project, and they move independently.
+
+- **The image** is the Python environment: your dependencies, the Python version, and any system packages. `pxt db update` rebuilds it only when that environment changed, which is the slow step. That version comes from the interpreter that runs `pxt db update`, unless the hosted `[[pixeltable.database]]` entry sets `python_version`.
+- **The project files** are your `app.py` and whatever else the entry selects. They are uploaded on their own, without a rebuild.
+- **The settings** are the hosted entry's `vars` and `db_*` settings, and sections such as `[openai]`, from
+  `pixeltable.toml` or from `[tool.pixeltable]` in `pyproject.toml`. `pxt db update` sends them without an upload or a
+  rebuild, and the database restarts with them.
+
+So editing a UDF costs an upload, adding a dependency to `pyproject.toml` costs a build, and a settings change costs
+only a restart. All three are `pxt db update`. It works out which happened.
+
+The image gets its packages from `uv.lock` or `requirements.txt`. Without either, `pxt db update` warns, and the image has Pixeltable only. That is enough for the generated `app.py`. List anything else `app.py` imports in one of those files.
+
+`[[pixeltable.database]]` in `pixeltable.toml` declares which files are selected, what the image includes, the CPU, memory, disk, and worker counts, and each service's resources. See the [cloud configuration reference](/platform/cli#cloud-configuration-reference).
+
+## What to run after a change
+
+| You changed | Run |
+|---|---|
+| A UDF body, a route, any `.py` the entry selects | `pxt db update pxt://org:main`, then `pxt service update app.py pxt://org:main` to move running services onto it |
+| A column or a table in `app.py` | `pxt db update pxt://org:main`, then `pxt schema update app.py pxt://org:main`, then `pxt service update app.py pxt://org:main` |
+| A dependency, the Python version, a system package | `pxt db update pxt://org:main`: the image rebuilds |
+| A setting in `pixeltable.toml` | `pxt db update pxt://org:main`, then `pxt service update app.py pxt://org:main` |
+| `cpu`, `memory_mb`, `disk_gb`, or `workers` | `pxt db update pxt://org:main`: one resize, pods restart once |
+| A service's `cpu`, `memory_mb`, `file_cache_gb`, or `workers` | `pxt service update app.py pxt://org:main`: a `workers` change adds or removes pods, any other change restarts them |
+| A secret | `pxt secret set pxt://org:main KEY=...`, then `pxt db restart pxt://org:main` and `pxt service restart pxt://org:main/ingest` |
+| Nothing, but the last update failed | `pxt db retry pxt://org:main` retries it; `pxt db build-image pxt://org:main` forces a rebuild |
+
+`pxt db diff pxt://org:main` prints what `update` would do without doing it.
+
+A command that reports an unsupported proxy protocol version means this Pixeltable and the database image disagree. When this Pixeltable is newer, run `pxt db build-image pxt://org:main` from the project, using the database URI from the failed command. The image installs the Pixeltable the project resolves: upgrade a lockfile pin first, and with no lockfile the build installs the current PyPI release. `pxt db restart` keeps the image the pods already run. When the database is newer, run `pip install --upgrade pixeltable`.
+
+For an older local proxy at `pxt://local:mydb`, run `pxt localproxy stop mydb`, then `pxt localproxy start mydb` from the updated Python environment. `start` alone keeps a healthy daemon running.
+
+## Operate it
+
+```bash
+pxt db status pxt://org:main     # state, resources, pods
+pxt db logs   pxt://org:main     # the database pod's log
+pxt service list pxt://org:main  # the services running there, and their URLs
+pxt service logs pxt://org:main/ingest
+pxt db restart pxt://org:main    # cycle the pods onto what they already run
+pxt db stop   pxt://org:main     # sleep: stops the pods, keeps the data
+pxt db start  pxt://org:main     # wake it again
+pxt db list                      # every hosted database you can reach
+```
+
+`pxt db delete pxt://org:db` deletes a database and its storage. The organization's default database, `main`, cannot be deleted. Full reference: [CLI](/platform/cli#cloud).
+
+## Network access
+
+On a network or in an agent sandbox that limits outbound traffic, allow all of these connections from the machine that runs `pxt`. Most commands use more than one:
+
+| Host | Port | Used by |
+|---|---|---|
+| `internal-api.pixeltable.com` | 443, HTTPS | `pxt login`, `pxt db`, `pxt secret`, `pxt key`, `pxt org`, `pxt service` |
+| `api.workos.com` | 443, HTTPS | `pxt login`, and renewing the session it starts |
+| `www.pixeltable.com`, `signin.pixeltable.com` | 443, HTTPS | `pxt new` |
+| `*.s3.amazonaws.com` | 443, HTTPS | `pxt db update`, to upload the project files |
+| `*.r2.cloudflarestorage.com` | 443, HTTPS | Media in the home bucket |
+| `*.svc.pxt.run` | 443, HTTPS | Requests to a hosted service, and `pxt service update` and `pxt service restart`, which wait for it to answer |
+| `*.pxt.run` | 443, TCP | Everything that uses tables: `pxt schema update`, `pxt service update`, `pxt ls`, `pxt.get_table()` |
+
+The connection to `{org}-{db}.pxt.run` is TLS on TCP port 443. It goes through the `http://` proxy that `HTTPS_PROXY` names, unless `NO_PROXY` lists the host. With any other kind of proxy, such as `socks5://`, or a proxy set only in the system settings, it connects directly. A network that blocks it still lets the other commands work, `pxt db update` included. A command that uses the tables fails: within about 40 s with `Cannot reach pxt://org:main: the TCP connection to org-main.pxt.run:443 timed out` where the network drops the connection, or after about 90 s with a connection error where it refuses it.
+
+To allow these hosts for a coding agent:
+
+- **Claude Code on the web**: edit the cloud environment, set **Network access** to **Custom**, and add each host to **Allowed domains**. `*.pxt.run` matches every database. Keep **Also include default list of common package managers** checked: that list already allows `*.r2.cloudflarestorage.com` and `*.amazonaws.com`.
+- **Codex cloud**: turn on **Allow Codex to access internet** for the environment, choose **Custom domains only** or **Package managers**, and add each host under **Additional allowed domains**. Codex does not document wildcards, so list the database's own host, such as `org-main.pxt.run`. If the environment limits HTTP methods, allow `POST` and `PUT`.
+- **GitHub Copilot cloud agent**: in the repository's **Settings > Copilot > Internet access**, add `pixeltable.com`, `workos.com`, `pxt.run`, `r2.cloudflarestorage.com` and `s3.amazonaws.com` to the custom allowlist. Each entry also allows its subdomains.
+
+Claude Code on the web sends all outbound traffic through an HTTP proxy and sets `HTTPS_PROXY` to it, so `pxt` needs no proxy settings of its own there.
+
+## Media on the home bucket
+
+Every Cloud database includes a managed Media Store at `pxt://org:main/buckets/home`. Hosted tables and services write there automatically. No `destination=`, no dest env vars.
+
+Set dest only for two cases:
+
+- **Local Pixeltable** writing into that same bucket: `pxt login` or `PIXELTABLE_API_KEY`, plus `PIXELTABLE_INPUT_MEDIA_DEST` / `PIXELTABLE_OUTPUT_MEDIA_DEST` (see [Cloud storage](/integrations/cloud-storage#pixeltable-cloud-home-bucket)).
+- **Your own bucket**: store `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (or GCS / Azure names) under **Secrets** or `pxt secret`, then point those dest env vars at `s3://`, `gs://`, or `wasbs://`. A single computed column can also set `destination=`:
+
+```python
+import pixeltable as pxt
+
+TableModel = pxt.model_base()
+
+
+class Images(TableModel, name='images'):
+    photo: pxt.Image
+    thumbnail = pxt.Column(
+        value=photo.resize((256, 256)),
+        destination='s3://my-bucket/thumbnails',
+    )
+```
+
+Or set `db_input_media_dest` / `db_output_media_dest` on the database's `[[pixeltable.database]]` entry to change the default for inserted or computed media. Details: [Cloud storage](/integrations/cloud-storage#default-destinations).
+
+## Open and share media
+
+The home bucket is private. A query from your machine downloads its media through signed URLs, so no bucket credentials reach the client. A service route returns a media column as a signed URL that lasts an hour. To hand a file to a person, a script, an app or a model:
+
+| Who opens the file | Use | Credential |
+|---|---|---|
+| A teammate in a browser | a link: **Copy link** on a file in **Storage** or the catalog | their Pixeltable sign-in |
+| A script | the same link, with `curl -L` | API key as `Authorization: Bearer` |
+| Your app's pages, a model API | URLs from `/sign` | API key, on your server only |
+
+A file's key is the part of its `fileurl` after `pxt://org:main/buckets/home/`, or after `pxtfs://org:main/home/` for media stored by earlier releases. Its link is:
+
+```
+https://storage.pixeltable.com/org/main/buckets/home/<key>
+```
+
+The link redirects to a signed URL that lasts an hour, and works for anyone signed in to the organization. A script sends a key:
+
+```bash
+curl -L -o photo.jpg \
+  -H "Authorization: Bearer $PIXELTABLE_API_KEY" \
+  "https://storage.pixeltable.com/org/main/buckets/home/<key>"
+```
+
+A link refuses `X-api-key` with 400: clients forward that header to the host the redirect names.
+
+### Sign URLs for an app
+
+An app backend signs up to 100 keys per call and puts the URLs in its pages:
+
+```python
+import os
+
+import requests
+
+import pixeltable as pxt
+
+t = pxt.get_table('pxt://org:main/images')
+rows = t.select(url=t.photo.fileurl).limit(20).collect()
+keys = [row['url'].split('/home/', 1)[1] for row in rows]
+
+resp = requests.post(
+    'https://storage.pixeltable.com/org/main/sign',
+    headers={'Authorization': f'Bearer {os.environ["PIXELTABLE_API_KEY"]}'},
+    json={'keys': keys, 'expires_in': 3600},
+    timeout=30,
+)
+resp.raise_for_status()
+signed = resp.json()  # {"urls": {key: url}, "expires_at": "2026-10-08T21:00:00.000Z"}
+```
+
+- `/sign` takes the key as `Authorization: Bearer` or `X-api-key`. A key granted `access:pxt://org:main` signs in that database only.
+- `expires_in` is 1 to 604800 seconds (7 days), 3600 by default. Sign again before `expires_at`.
+- A signed URL works for anyone who holds it until it expires. Revoking the key does not revoke URLs already issued, so keep lifetimes as short as the page needs.
+- For a model API, sign right before the call, with `expires_in` near 300, and pass the signed URL. The link would fail there: the model provider has no Pixeltable credential.
+- Images, video, audio, PDF, text and JSON open in the browser. Every other type, HTML and SVG included, downloads.
+
+## Local vs Cloud
+
+| | Local | Cloud |
+|---|---|---|
+| Hosted database | not needed | `pxt db update pxt://org:main` |
+| Tables | `pxt schema update app.py my_app` | `pxt schema update app.py pxt://org:main` |
+| HTTP | `pxt service update app.py my_app` | `pxt service update app.py pxt://org:main` |
+| Try a change | insert, `pxt dashboard`, `pxt schema diff app.py my_app` | insert from Python, `pxt schema diff app.py pxt://org:main` |
+| Media | local disk | `pxt://org:main/buckets/home` |
+
+<CardGroup cols={2}>
+  <Card title="Contact us" icon="envelope" href="mailto:contact@pixeltable.com">
+    Questions about your Cloud account.
+  </Card>
+  <Card title="Book a demo" icon="calendar" href="https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM">
+    Talk through a Cloud deployment.
+  </Card>
+</CardGroup>
