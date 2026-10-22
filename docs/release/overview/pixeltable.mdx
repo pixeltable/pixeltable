@@ -19,8 +19,6 @@ Each piece is fine on its own. The trouble is the joints. A video gets deleted f
 
 In most of these projects, the plumbing is most of the code, and it's where most of the bugs are.
 
-Pixeltable keeps its tables, model results and embeddings in its own Postgres, with pgvector for the index. Keep the database your app already runs for users and auth: Pixeltable handles the media and model work next to Supabase, Convex or a managed Postgres.
-
 ## The same app in Pixeltable
 
 Each of those systems becomes a few lines of `app.py`:

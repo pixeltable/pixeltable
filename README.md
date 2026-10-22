@@ -31,10 +31,6 @@ That replaces the stack most of us end up with: a bucket for the files, a databa
 database for search, an orchestrator for the model calls, an API on top, and the scripts that keep it all in sync.
 Here it's one file, `app.py`.
 
-Pixeltable keeps its tables, model results and embeddings in its own Postgres, with pgvector for the index. Keep
-the database your app already runs for users and auth: Pixeltable handles the media and model work next to
-Supabase, Convex or a managed Postgres.
-
 ## What it looks like
 
 A small video API: upload a video with an audio track, get a summary back, then search across everything you
