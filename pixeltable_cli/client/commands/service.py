@@ -16,12 +16,12 @@ from ..utils import (
     EXIT_CHANGES_PENDING,
     EXIT_ERROR,
     EXIT_IN_AGREEMENT,
-    EXIT_REFUSED,
     check_file,
     confirm_or_exit,
     get_request,
     post_request,
     print_json_schema,
+    refuse_destructive,
 )
 
 _EXAMPLE_APP = '''\
@@ -466,11 +466,15 @@ def _update(
             sys.exit(EXIT_ERROR)
 
     s = plan.summary
+    if s.destructive > 0 and not allow_destructive:
+        # the daemon would refuse the apply; refusing here names the command that permits it
+        refuse_destructive(
+            'pxt service update', s.destructive, force=force, on_refusal=lambda: _print_plan(plan, as_json=as_json)
+        )
     restarts = f', interrupting {s.restarts} running service(s)' if s.restarts > 0 else ''
     confirm_or_exit(
         f'start or restart {s.create + s.update_additive + s.update_destructive} service(s){restarts}?',
         force,
-        refused_exit_code=EXIT_REFUSED,
         on_refusal=lambda: _print_plan(plan, as_json=as_json),
     )
 
@@ -607,7 +611,6 @@ def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_ru
     confirm_or_exit(
         f'stop {len(planned.ops)} service(s)?',
         force,
-        refused_exit_code=EXIT_REFUSED,
         on_refusal=lambda: _print_ops(refused, as_json=as_json, verb='would stop', count=len(refused)),
     )
     pruned = ServicePlan.model_validate(post_request('/api/service/prune', body))

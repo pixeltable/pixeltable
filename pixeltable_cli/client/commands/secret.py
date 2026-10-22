@@ -10,7 +10,7 @@ from typing import Any
 from pixeltable_cli.utils import split_pxt_uri
 
 from ..parser import Parser
-from ..utils import get_request, post_request, print_aligned
+from ..utils import EXIT_ERROR, RequestFailedError, get_request, post_request, print_aligned, print_next
 
 EPILOG = """\
 Examples:
@@ -40,6 +40,11 @@ A process reads its secrets once, at startup, so a running one keeps the values 
 """
 
 _OVERRIDES_ORG_NOTE = 'overrides an organization secret'
+
+# the states in which a database or service has pods that have read their secrets; a service's failed roll keeps its
+# previous pods serving when it can
+_RUNNING = ('AVAILABLE', 'UPDATING')
+_SERVICE_RUNNING = (*_RUNNING, 'FAILED')
 
 
 def run(argv: list[str]) -> None:
@@ -135,13 +140,63 @@ def _list(args: argparse.Namespace) -> None:
 def _set(args: argparse.Namespace) -> None:
     org, db = _scope(args.uri, 'pxt secret set')
     secrets = _assignments(args.assignments)
-    for key, value in secrets.items():
-        post_request('/api/secrets', {'org': org, 'db': db, 'key': key, 'value': value})
-    _print_secrets(org, [{'key': key, 'db': db} for key in secrets], args.json_output, with_overrides=False)
+    _change(org, db, [('/api/secrets', {'org': org, 'db': db, 'key': k, 'value': v}) for k, v in secrets.items()], args)
 
 
 def _delete(args: argparse.Namespace) -> None:
     org, db = _scope(args.uri, 'pxt secret delete')
-    for key in args.keys:
-        post_request('/api/secrets/delete', {'org': org, 'db': db, 'key': key})
-    _print_secrets(org, [{'key': key, 'db': db} for key in args.keys], args.json_output, with_overrides=False)
+    _change(org, db, [('/api/secrets/delete', {'org': org, 'db': db, 'key': k}) for k in args.keys], args)
+
+
+def _change(org: str, db: str | None, requests: list[tuple[str, dict[str, Any]]], args: argparse.Namespace) -> None:
+    """Sends each change in turn and reports the keys changed, with the restarts they need, even when one fails."""
+    changed: list[str] = []
+    failure: RequestFailedError | None = None
+    for path, body in requests:
+        try:
+            post_request(path, body, raise_on_error=True)
+        except RequestFailedError as e:
+            failure = e
+            break
+        changed.append(body['key'])
+    if len(changed) > 0:
+        _print_secrets(org, [{'key': key, 'db': db} for key in changed], args.json_output, with_overrides=False)
+        _print_restarts(org, db)
+    if failure is not None:
+        failure.report()
+        sys.exit(EXIT_ERROR)
+
+
+def _print_restarts(org: str, db: str | None) -> None:
+    """Names a restart for each running database and service that reads the changed secrets.
+
+    A pod reads its secrets when it starts, so a running one keeps the old values until restarted; a stopped one
+    reads the new values when it next starts, so it needs nothing.
+    """
+    sys.stdout.flush()
+    try:
+        if db is None:
+            reports = get_request('/api/dbs', {'org': org}, raise_on_error=True).get('reports', [])
+        else:
+            # a database that does not exist yet has no pods to restart
+            resp = get_request('/api/db', {'org': org, 'db': db, 'missing_ok': True}, raise_on_error=True)
+            reports = [resp.get('report') or {}]
+        dbs = [r['db'] for r in reports if 'db' in r]
+        running = {r['db'] for r in reports if (r.get('current') or {}).get('state') in _RUNNING}
+        # a service runs in pods of its own, which stopping its database leaves running
+        services = {
+            d: get_request('/api/service/list', {'target': f'pxt://{org}:{d}'}, raise_on_error=True) for d in dbs
+        }
+    except RequestFailedError as e:
+        print(
+            f'pxt: could not list what reads these secrets ({e}); restart each running database and service',
+            file=sys.stderr,
+        )
+        return
+    for d in dbs:
+        if d in running:
+            print_next(f'pxt db restart pxt://{org}:{d}', 'restarts its tables, so they read the new values')
+        for service in services[d]:
+            if service['state'] in _SERVICE_RUNNING:
+                where = f'{service["catalog_path"]}/{service["name"]}'
+                print_next(f'pxt service restart {where}', 'restarts it, so it reads the new values')
