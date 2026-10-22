@@ -15,7 +15,7 @@ class SceneInfo(TypedDict):
     """One scene detected within a video: where it starts and how long it lasts."""
 
     start_time: float
-    """Scene start, in seconds from the start of the video."""
+    """Scene start, as the timestamp of the scene's first frame in seconds."""
     start_pts: int
     """Scene start, as a presentation timestamp (in the video stream's time base)."""
     duration: float

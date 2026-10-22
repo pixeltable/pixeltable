@@ -119,7 +119,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
     pos: int
     video_idx: int
     frames: Iterator[av.VideoFrame]
-    decoded_to_end: bool  # True once frames is exhausted
+    decoded_to_end: bool
     cur_frame: av.VideoFrame | None
     last_decoded_frame: av.VideoFrame | None
 
@@ -221,8 +221,8 @@ class frame_iterator(pxt.PxtIterator[Frame]):
                 assert self.next_extraction_time is not None
 
                 if next_frame is None:
-                    # cur_frame is the last frame of the video and is shown until the end of the video
-                    if self.next_extraction_time >= self.video_end_time():
+                    # cur_frame is shown until the end of the video; 1e-3 absorbs rounding in next_extraction_time
+                    if self.next_extraction_time >= self.video_end_time() - 1e-3:
                         raise StopIteration
                 else:
                     # The extraction time represents the idealized timestamp of the next frame we want to extract.

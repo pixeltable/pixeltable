@@ -50,8 +50,8 @@ def get_video_duration(path: str) -> float | None:
             return duration
 
         # use container duration if we don't have audio streams (which might be longer than the video stream)
-        # TODO: convert container.duration to a duration for containers that measure it from 0 (.flv, and Matroska
-        #     without DURATION tags)
+        # TODO: convert container.duration to a length for containers that report something else (.flv, and
+        #     Matroska without DURATION tags)
         if len(container.streams.audio) == 0 and container.duration is not None:
             return container.duration / 1_000_000
 
@@ -92,8 +92,8 @@ def get_audio_duration(path: str) -> float | None:
             return duration
 
         # use container duration if we have no video streams that might be longer than the audio
-        # TODO: convert container.duration to a duration for containers that measure it from 0 (Matroska without
-        #     DURATION tags)
+        # TODO: convert container.duration to a length for containers that report something else (Matroska
+        #     without DURATION tags)
         if len(container.streams.video) == 0 and container.duration is not None:
             return container.duration / 1_000_000
 

@@ -160,7 +160,7 @@ class TestVideo:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`fps` must be a positive number'):
             _ = pxt.create_view(p('invalid_fps'), videos, iterator=frame_iterator(videos.video, fps=0))
 
-    def test_frame_counts(self, db_root: DatabaseRoot) -> None:
+    def test_frame_counts(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
         p = db_root.make_catalog_path
         videos = pxt.create_table(p('videos'), {'video': pxt.Video | None, 'name': pxt.String})
         all_frames = pxt.create_view(p('all_frames'), videos, iterator=frame_iterator(videos.video))
@@ -170,8 +170,11 @@ class TestVideo:
         num_frames_50 = pxt.create_view(
             p('num_frames_50'), videos, iterator=frame_iterator(videos.video, num_frames=50)
         )
+        # in 1s.mp4, ten steps of 0.1 s add up to slightly less than the 1 s length of the video
+        fps_10 = pxt.create_view(p('fps_10'), videos, iterator=frame_iterator(videos.video, fps=10))
         paths = get_test_video_files() + get_video_files(extension='.mpg')
         videos.insert({'video': path, 'name': Path(path).name} for path in paths)
+        videos.insert(video=generate_color_video(tmp_path, [('red', 25)]), name='1s.mp4')
         for view, expected in (
             (
                 all_frames,
@@ -180,6 +183,7 @@ class TestVideo:
                     'test_462_frames.mp4': 462,
                     'v_shooting_01_01.mpg': 108,
                     'v_shooting_01_02.mpg': 141,
+                    '1s.mp4': 25,
                 },
             ),
             (
@@ -189,6 +193,7 @@ class TestVideo:
                     'test_462_frames.mp4': 7,
                     'v_shooting_01_01.mpg': 7,
                     'v_shooting_01_02.mpg': 7,
+                    '1s.mp4': 7,
                 },
             ),
             (
@@ -198,6 +203,17 @@ class TestVideo:
                     'test_462_frames.mp4': 50,
                     'v_shooting_01_01.mpg': 50,
                     'v_shooting_01_02.mpg': 50,
+                    '1s.mp4': 25,
+                },
+            ),
+            (
+                fps_10,
+                {
+                    'test_13_frames.mp4': 13,
+                    'test_462_frames.mp4': 185,
+                    'v_shooting_01_01.mpg': 37,
+                    'v_shooting_01_02.mpg': 48,
+                    '1s.mp4': 10,
                 },
             ),
         ):
