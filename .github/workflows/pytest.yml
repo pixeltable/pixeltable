@@ -220,6 +220,8 @@ jobs:
           export VIRTUAL_ENV="$CONDA_PREFIX"
           ./scripts/retry.sh 3 60 uv sync --active ${{ matrix.uv-options }}
       - name: Clean the uv cache
+        # Skipped on Windows: deleting ~70k cached files takes minutes there, and Windows runners don't need the space.
+        if: ${{ !startsWith(matrix.os, 'windows') }}
         run: uv cache clean
       - name: Set up credentials
         run: ./scripts/set-up-ci-credentials.sh
