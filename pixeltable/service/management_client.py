@@ -265,16 +265,15 @@ def api_call(request: Any, credential: Credential | None = None) -> dict[str, An
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
             f'Management API error {resp.status_code}: {resp.text}',
-            retry_after=_retry_after(resp),
+            retry_after=retry_after_seconds(resp),
             provider='pixeltable_cloud',
             status_code=resp.status_code,
         )
     return resp.json()
 
 
-def _retry_after(resp: requests.Response) -> float | None:
-    """Retry-After in seconds; None when absent, given as a date, which the control plane never sends, or not a
-    finite wait, which JSON cannot hold."""
+def retry_after_seconds(resp: requests.Response) -> float | None:
+    """Seconds from Retry-After, or None when the header is missing or not a finite number >= 0."""
     try:
         seconds = float(resp.headers['Retry-After'])
     except (KeyError, ValueError):

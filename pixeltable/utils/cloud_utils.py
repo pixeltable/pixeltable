@@ -13,7 +13,7 @@ import requests
 from pydantic import BaseModel
 
 from pixeltable import exceptions as excs
-from pixeltable.service.management_client import api_url, raise_if_refused, resolve
+from pixeltable.service.management_client import api_url, raise_if_refused, resolve, retry_after_seconds
 from pixeltable.service.pxtfs_protocol import (
     GetBucketCredentialsRequest,
     GetBucketCredentialsResponse,
@@ -62,10 +62,14 @@ def _post(
     return response
 
 
-def _cloud_error(failure: str, cause: object, status_code: int | None = None) -> excs.ExternalServiceError:
-    """The error for a request to Pixeltable Cloud that failed: '<failure>: <cause>'."""
+def _cloud_error(failure: str, cause: object, response: requests.Response | None = None) -> excs.ExternalServiceError:
+    """The error for a request to Pixeltable Cloud that failed: '<failure>: <cause>'; response, when it answered."""
     return excs.ExternalServiceError(
-        excs.ErrorCode.PROVIDER_ERROR, f'{failure}: {cause}', provider='pixeltable_cloud', status_code=status_code
+        excs.ErrorCode.PROVIDER_ERROR,
+        f'{failure}: {cause}',
+        provider='pixeltable_cloud',
+        status_code=None if response is None else response.status_code,
+        retry_after=None if response is None else retry_after_seconds(response),
     )
 
 
@@ -86,7 +90,7 @@ def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str | None = 
     try:
         response = _post(request)
         if response.status_code != 200:
-            raise _cloud_error('Failed to get bucket credentials', response.text, response.status_code)
+            raise _cloud_error('Failed to get bucket credentials', response.text, response)
         data = response.json()
         return GetBucketCredentialsResponse.model_validate(data)
     except requests.exceptions.RequestException as e:
@@ -105,7 +109,7 @@ def get_presigned_url_from_cloud(
     try:
         response = _post(request)
         if response.status_code != 200:
-            raise _cloud_error(failure, response.text, response.status_code)
+            raise _cloud_error(failure, response.text, response)
         data = response.json()
         return GetPresignedUrlResponse.model_validate(data).url
     except requests.exceptions.RequestException as e:
@@ -127,7 +131,7 @@ def get_presigned_urls_from_cloud(org: str, db: str, bucket: str, keys: list[str
     except requests.exceptions.RequestException as e:
         raise _cloud_error(failure, e) from e
     if response.status_code != 200:
-        raise _cloud_error(failure, response.text, response.status_code)
+        raise _cloud_error(failure, response.text, response)
     try:
         urls = _GetPresignedUrlsResponse.model_validate(response.json()).urls
     except ValueError:
