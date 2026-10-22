@@ -9,6 +9,7 @@ import asyncio
 import base64
 import io
 import json
+import logging
 import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -24,6 +25,7 @@ from pixeltable.config import Config
 from pixeltable.func import Tools
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.http import is_retryable_error
 from pixeltable.utils.image import default_format, to_base64, to_bytes
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageObjectAddress
@@ -32,6 +34,9 @@ if TYPE_CHECKING:
     from botocore.client import BaseClient
 
     from pixeltable.utils.s3_store import S3Store
+
+_logger = logging.getLogger(__name__)
+
 _ASYNC_INVOCATION_POLL_INTERVAL_SECS = 5.0
 
 _ASYNC_INVOCATION_TIMEOUT_SECS = 600.0
@@ -262,9 +267,15 @@ async def _bedrock_async_invocation(
                     f'Async invocation {invocation_id} timed out after {_ASYNC_INVOCATION_TIMEOUT_SECS}s',
                     provider='bedrock',
                 )
-            job: dict[str, Any] = await asyncio.to_thread(
-                _bedrock_client().get_async_invoke, invocationArn=invocation_arn
-            )
+            try:
+                job: dict[str, Any] = await asyncio.to_thread(
+                    _bedrock_client().get_async_invoke, invocationArn=invocation_arn
+                )
+            except Exception as exc:
+                if is_retryable_error(exc)[0]:
+                    _logger.debug(f'Polling async invocation {invocation_id} failed, will poll again: {exc}')
+                    continue
+                raise
             status: str = job['status']
             if status == 'Completed':
                 break
