@@ -10,7 +10,8 @@
 [**Documentation**](https://docs.pixeltable.com/) |
 [**CLI**](https://docs.pixeltable.com/platform/cli) |
 [**Cloud**](https://docs.pixeltable.com/cloud) |
-[**Discord**](https://discord.gg/QPyqFYx2UN)
+[**Discord**](https://discord.gg/QPyqFYx2UN) |
+[**Get Started**](https://www.pixeltable.com/get-started.md)
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml)
@@ -24,10 +25,6 @@ Install into your agent: [Agent Skill](https://github.com/pixeltable/pixeltable-
 [Cursor plugin](https://cursor.directory/plugins/pixeltable) ·
 [Claude plugin](https://claude.com/marketplace/plugins/pixeltable) ·
 [ChatGPT plugin](https://chatgpt.com/plugins/plugins_6aa9bce6481c81918d73be74740eed28)
-
-Reading this as an agent? Start at [get-started.md](https://www.pixeltable.com/get-started.md), then
-[skill.md](https://docs.pixeltable.com/skill.md) and
-[llms-full.txt](https://docs.pixeltable.com/llms-full.txt).
 
 Build AI apps on video, images, audio and documents in seconds. Your files live in tables, next to regular
 columns. The work you want done on them, like pulling the audio out of a video, transcribing it or embedding a
