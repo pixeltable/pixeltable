@@ -55,12 +55,22 @@ T = TypeVar('T', bound='genai.types.Operation')
 def _(api_key: str | None = None) -> 'genai.client.Client':
     from google import genai
 
+    class _ClosableClient(genai.client.Client):
+        """genai.client.Client.close() closes only the sync client and leaves client.aio open: the async client that
+        the UDFs use, with its httpx client and, once a request opens one, its aiohttp session. aclose() closes both."""
+
+        async def aclose(self) -> None:
+            try:
+                self.close()
+            finally:
+                await self.aio.aclose()
+
     try:
         if api_key is not None:
-            return genai.client.Client(api_key=api_key)
+            return _ClosableClient(api_key=api_key)
         # Vertex AI fall-through: rely on genai.client.Client to read its own env vars
         # (GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION)
-        return genai.client.Client()
+        return _ClosableClient()
     except Exception as e:
         raise excs.AuthorizationError(
             excs.ErrorCode.MISSING_CREDENTIALS,
@@ -175,13 +185,14 @@ async def generate_content(
         result = response.model_dump()
         # `model_dump()` (default mode) preserves `inline_data.data` as raw `bytes`; `mode='json'` would
         # url-safe-base64-encode which is suboptimal as we'd have to convert it back to binary to convert to PIL image.
-        for candidate in result.get('candidates', []):
+        # `model_dump()` keeps unset fields as None: a blocked prompt has no candidates, a candidate may have no parts.
+        for candidate in result.get('candidates') or []:
             content = candidate.get('content')
             if content is None:
                 continue
-            for part in content.get('parts', []):
+            for part in content.get('parts') or []:
                 blob = part.get('inline_data')
-                if blob is not None and blob.get('mime_type', '').startswith('image/') and blob.get('data'):
+                if blob is not None and (blob.get('mime_type') or '').startswith('image/') and blob.get('data'):
                     img = PIL.Image.open(io.BytesIO(blob['data']))
                     img.load()
                     blob['data'] = img
@@ -245,7 +256,12 @@ def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDic
 @pxt.udf
 def _gemini_response_to_pxt_tool_calls(response: dict) -> dict | None:
     pxt_tool_calls: dict[str, list[dict]] = {}
-    for part in response['candidates'][0]['content']['parts']:
+    # a response without candidates, content or parts (e.g., a blocked prompt) has no tool calls
+    candidates = response.get('candidates')
+    if not candidates:
+        return None
+    content = candidates[0].get('content') or {}
+    for part in content.get('parts') or []:
         tool_call = part.get('function_call')
         if tool_call is not None:
             tool_name = tool_call['name']
@@ -557,7 +573,7 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
     response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
     try:
         data = response.candidates[0].content.parts[0].inline_data.data
-    except (IndexError, AttributeError) as exc:
+    except (IndexError, AttributeError, TypeError) as exc:
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
             f'Gemini TTS returned unexpected response structure for model {model}.',
@@ -628,7 +644,7 @@ async def _(text: str, *, model: str, voices: dict[str, str], config: dict | Non
     response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
     try:
         data = response.candidates[0].content.parts[0].inline_data.data
-    except (IndexError, AttributeError) as exc:
+    except (IndexError, AttributeError, TypeError) as exc:
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
             f'Gemini multi-speaker TTS returned unexpected response structure for model {model}.',

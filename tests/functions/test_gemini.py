@@ -2,7 +2,9 @@ import logging
 import random
 import time
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock, Mock, patch
 
 import numpy as np
 import PIL.Image
@@ -10,6 +12,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable.runtime import get_runtime, reset_runtime
 
 from ..utils import (
     ensure_s3_pytest_resources_access,
@@ -25,7 +28,98 @@ from ..utils import (
 )
 from .tool_utils import run_tool_invocations_test
 
+if TYPE_CHECKING:
+    from google.genai import types
+
 _logger = logging.getLogger('pixeltable_test')
+
+
+class TestGeminiLocal:
+    """Tests that need no credentials or network, kept out of TestGemini so that its class markers don't deselect
+    them.
+
+    They cover what live calls can't produce on demand. One kind is responses that Gemini returns only in edge
+    cases: a blocked prompt, a candidate without content or parts, a blob without a MIME type. The other is a
+    deterministic check that the runtime closes the client's async resources. The session-teardown leak check sees
+    an unclosed client only while something keeps it alive, since the SDK closes a client when it's
+    garbage-collected.
+    """
+
+    @pytest.mark.parametrize('close_fails', [False, True])
+    # google-genai subclasses aiohttp.ClientSession for the session it opens
+    @pytest.mark.filterwarnings('ignore:Inheritance class AiohttpClientSession:DeprecationWarning')
+    def test_client_closed_on_reset(self, close_fails: bool, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('google.genai')
+        monkeypatch.setenv('GEMINI_API_KEY', 'test-key')
+        # the test keeps a reference to the client, as the traceback of a failed call does: the SDK closes a client
+        # that is garbage-collected while a loop runs, which would hide the leak
+        client = get_runtime().get_client('gemini')
+        if close_fails:
+            # a failure to close the sync client doesn't keep the async one open
+            monkeypatch.setattr(client, 'close', Mock(side_effect=RuntimeError('close failed')))
+        # no public accessors expose the SDK's async HTTP clients, so this reads the private attributes. The aiohttp
+        # session opens on the first request, on the runtime's loop; _get_aiohttp_session() opens it the same way.
+        http_client = client._api_client._async_httpx_client
+        aiohttp_session = get_runtime().event_loop.run_until_complete(client._api_client._get_aiohttp_session())
+        reset_runtime()
+        assert http_client.is_closed
+        assert aiohttp_session.closed
+
+    @pytest.mark.parametrize('outcome', ['blocked', 'no_content', 'no_parts', 'no_mime_type'])
+    def test_response_without_content(self, outcome: str, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A blocked prompt has no candidates, a candidate may have no content or content without parts, and a blob
+        may have no MIME type. Each is returned as is, without tool calls."""
+        skip_test_if_not_installed('google.genai')
+        from google.genai import types
+
+        from pixeltable.functions import gemini
+
+        response = self._mock_response(outcome, monkeypatch)
+        result = gemini.generate_content.exec(['Say something.'], {'model': 'gemini-test'})
+        assert result == response.model_dump()
+        assert gemini._gemini_response_to_pxt_tool_calls.exec([result], {}) is None
+        if outcome == 'blocked':
+            assert result['prompt_feedback']['block_reason'] == types.BlockedReason.SAFETY
+
+    def test_speech_blocked(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('google.genai')
+        from pixeltable.functions import gemini
+
+        self._mock_response('blocked', monkeypatch)
+        # generate_speech() is polymorphic, so this calls the single-voice overload's function directly
+        single_voice = gemini.generate_speech.py_fns[0]
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='unexpected response structure'):
+            get_runtime().run_coro(single_voice('Say something.', model='gemini-test', voice='Kore'))
+
+    def _mock_response(self, outcome: str, monkeypatch: pytest.MonkeyPatch) -> 'types.GenerateContentResponse':
+        """Makes the gemini client return a response of the given shape, and returns that response."""
+        from google.genai import types
+
+        from pixeltable.functions import gemini
+
+        candidates = {
+            'blocked': None,
+            'no_content': [types.Candidate(finish_reason=types.FinishReason.SAFETY)],
+            'no_parts': [
+                types.Candidate(content=types.Content(role='model'), finish_reason=types.FinishReason.MAX_TOKENS)
+            ],
+            'no_mime_type': [
+                types.Candidate(
+                    content=types.Content(role='model', parts=[types.Part(inline_data=types.Blob(data=b'x'))])
+                )
+            ],
+        }[outcome]
+        prompt_feedback = (
+            types.GenerateContentResponsePromptFeedback(block_reason=types.BlockedReason.SAFETY)
+            if outcome == 'blocked'
+            else None
+        )
+        response = types.GenerateContentResponse(candidates=candidates, prompt_feedback=prompt_feedback)
+        client = SimpleNamespace(
+            aio=SimpleNamespace(models=SimpleNamespace(generate_content=AsyncMock(return_value=response)))
+        )
+        monkeypatch.setattr(gemini, '_genai_client', lambda: client)
+        return response
 
 
 @pytest.mark.remote_api
