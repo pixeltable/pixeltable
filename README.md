@@ -37,8 +37,8 @@ Here it's one file, `app.py`.
 
 ## What it looks like
 
-A small video API: upload a video, get a summary back, then search across everything you uploaded. This is all of
-`app.py`:
+A small video API: upload a video with an audio track, get a summary back, then search across everything you
+uploaded. This is all of `app.py`:
 
 ```python
 import pixeltable as pxt

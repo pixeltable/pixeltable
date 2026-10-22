@@ -37,11 +37,7 @@ The full file is in the [README](https://github.com/pixeltable/pixeltable#what-i
 
 Every computed column refers to the columns it reads, so Pixeltable knows what to run and, after a change, what to rerun. That's the part you'd otherwise build by hand.
 
-New uploads only cost new work. Add 100 videos today and those 100 get processed. The thousands from last week aren't touched.
-
-Say the summaries are too long. You edit the prompt in `app.py` and run `pxt schema diff app.py my_app`, which tells you the summary column will change and that existing values won't be recomputed. `pxt schema update` applies it, and once `pxt service update` restarts the service, new uploads get the new prompt. When you like the results, `pxt recompute my_app/videos summary` redoes the old summaries and the index entries built from them. The transcripts stay as they are, so you don't pay for Whisper twice.
-
-Failed model calls and table versions follow the same bookkeeping. [When computed columns run](/overview/how-it-works#when-computed-columns-run) has the details.
+New uploads only cost new work, and a better prompt reruns only the summaries, not the transcripts you already paid for. Prompt changes, failed model calls and table versions all follow the same bookkeeping. [When computed columns run](/overview/how-it-works#when-computed-columns-run) has the details.
 
 The same `app.py` runs on [Pixeltable Cloud](/cloud). `pxt db update` uploads the project to a hosted database, then the same two commands take its `pxt://` URI in place of `my_app`, so moving isn't a rewrite.
 
