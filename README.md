@@ -140,9 +140,17 @@ If you don't want a schema, Pixeltable is the wrong tool. Coming from Pinecone, 
 - [Video and image pipelines: frames, transcripts, detections](https://docs.pixeltable.com/use-cases/media-processing)
 - [Agents whose tool calls are rows you can query later](https://docs.pixeltable.com/use-cases/agentic-workflows)
 
-To start from a full app, `uvx pixeltable-new myapp` copies a chat agent over your documents, and
-`uvx pixeltable-new myapp --video` copies video search. Both live in the
-[starter kit](https://github.com/pixeltable/pixeltable-starter-kit).
+Rather not start from a blank file?
+
+```bash
+pxt service example --out app.py   # a working app: a table, computed columns and HTTP routes
+pxt schema example                 # prints every construct a schema can use
+pxt new                            # a free Cloud database, no account needed
+```
+
+The `pxt new` database lasts about 48 hours unless you claim it with the link it prints. For complete apps, the
+[starter kit](https://github.com/pixeltable/pixeltable-starter-kit) has a chat agent over your documents and a
+video search app.
 
 ## Install
 
@@ -163,12 +171,14 @@ without HTTP.
 
 ```bash
 npx skills add pixeltable/pixeltable-skill
+# or, from the root of your repo, with only Python:
+pxt skills install
 ```
 
 The skill teaches your agent to write `app.py` the way it's written above. One file helps here: the agent writes the
-whole backend, and you review one diff instead of changes across four systems. The plugins are linked at the top.
-There's an MCP server for the docs, your local catalog and your Cloud org:
-[pick one here](https://docs.pixeltable.com/overview/building-pixeltable-with-llms#choose-a-pixeltable-mcp-server).
+whole backend, and you review one diff instead of changes across four systems.
+[AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms) covers setup for each tool,
+the plugins and the MCP servers.
 
 ## Contributing
 
