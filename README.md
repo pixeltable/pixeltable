@@ -94,8 +94,9 @@ curl -X POST http://127.0.0.1:PORT/search -H 'Content-Type: application/json' -d
 Each column says what it reads from, so Pixeltable knows what to run and in what order. In practice:
 
 - Upload 100 more videos and only those 100 get processed.
-- Change the summary prompt and new uploads use it. `pxt recompute my_app/videos summary` redoes the old
-  summaries without touching the transcripts you already paid for.
+- Change the summary prompt, run `pxt schema update` and `pxt service update` again, and new uploads use it.
+  `pxt recompute my_app/videos summary` then redoes the old summaries without touching the transcripts you already
+  paid for.
 - Bulk-load from Python with `on_error='ignore'` and a failed model call leaves its error on that row instead of
   stopping the batch. `pxt recompute my_app/videos transcript --errors-only` reruns just those rows.
 - Every change to a table is versioned. `pxt history` shows it, `pxt revert` undoes it.
