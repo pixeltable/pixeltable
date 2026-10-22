@@ -26,14 +26,19 @@ Install into your agent: [Agent Skill](https://github.com/pixeltable/pixeltable-
 [Claude plugin](https://claude.com/marketplace/plugins/pixeltable) ·
 [ChatGPT plugin](https://chatgpt.com/plugins/plugins_6aa9bce6481c81918d73be74740eed28)
 
-Build AI apps on video, images, audio and documents in seconds. Your files live in tables, next to regular
-columns. The work you want done on them, like pulling the audio out of a video, transcribing it or embedding a
-summary, is a column too. Insert a row and Pixeltable runs that work, stores the results and keeps the search index
-up to date.
+Build AI apps on video, images, audio and documents in seconds. A table holds references to your files next to
+regular columns: a path or URL you insert stays where it is, and files you upload or Pixeltable produces go to its
+media store, on local disk or in [your own S3, GCS or Azure bucket](https://docs.pixeltable.com/integrations/cloud-storage). The work you want done on them, like
+pulling the audio out of a video, transcribing it or embedding a summary, is a column too. Insert a row and
+Pixeltable runs that work, stores the results and indexes them, with no embed-and-upsert job to run. Change a
+prompt later and only the summaries rerun; the transcripts you already paid for stay.
 
 That replaces the stack most of us end up with: a bucket for the files, a database for the metadata, a vector
 database for search, an orchestrator for the model calls, an API on top, and the scripts that keep it all in sync.
 Here it's one file, `app.py`.
+
+Keep the database your app already runs for users and auth. Pixeltable handles the media and model work next to
+Supabase, Convex or a managed Postgres.
 
 ## What it looks like
 
@@ -79,7 +84,8 @@ api.add_query_route(path='/search', query=search)
 
 ```bash
 pip install 'pixeltable[serve]' openai
-export OPENAI_API_KEY=sk-...        # before the first pxt command, or run pxt daemon restart
+# the first pxt command starts a local database daemon, which reads your environment once
+export OPENAI_API_KEY=sk-...        # set it first, or run pxt daemon restart after
 pxt init                            # makes this folder a project
 pxt schema update app.py my_app     # creates the table and its index
 pxt service update app.py my_app    # starts the service and prints its URL
@@ -93,9 +99,13 @@ curl -X POST http://127.0.0.1:PORT/search -H 'Content-Type: application/json' -d
 # {"rows": [{"video": "...", "summary": "..."}]}
 ```
 
-Each computed column says what it reads from, so Pixeltable knows what to run and in what order. In practice:
+Each column you compute says which columns it reads, so Pixeltable knows what to run and in what order. In practice:
 
 - Upload 100 more videos and only those 100 get processed.
+- Insert 10,000 videos and the process doing the insert runs the model calls: the service for a route, your Python
+  process for a script. It keeps many requests in flight and stays under the provider's rate limits, read from the
+  provider's responses where it reports them or set in `config.toml` (600 requests a minute by default). On
+  Pixeltable Cloud you set CPU, memory and worker counts in the project config.
 - Change the summary prompt, run `pxt schema update` and `pxt service update` again, and new uploads use it.
   `pxt recompute my_app/videos summary` then redoes the old summaries without touching the transcripts you already
   paid for.
@@ -108,8 +118,8 @@ Each computed column says what it reads from, so Pixeltable knows what to run an
 ## Why we built it
 
 We kept seeing that same stack in every multimodal AI project, and each piece is fine on its own. The trouble is in
-between: a sync script that hopes the bucket and the database still match, an orchestrator that reruns everything
-unless someone writes the bookkeeping for what changed. Most of the code was plumbing, and so were most of the bugs.
+between: a sync script that hopes the bucket and the database still match, and a vector database still serving
+embeddings of last week's summaries. Most of the code was plumbing, and so were most of the bugs.
 
 We're database people (Pixeltable comes from the creators of Apache Parquet and Impala), so our answer was to move
 the work into the database. The engine tracks what depends on what, so recomputing the right rows is its job, not
@@ -123,19 +133,19 @@ goes away is the plumbing you rebuild every time you want to try a better prompt
 
 | You need to | Usually | With Pixeltable |
 |---|---|---|
-| Store video, images, audio, PDFs | A bucket plus a metadata table | `pxt.Video`, `pxt.Image`, `pxt.Audio`, `pxt.Document` columns |
-| Call models on them | An orchestrator or a queue, plus scripts | Computed columns that run on insert |
-| Search them | A vector database you keep in sync | An embedding index on a column |
-| Split documents, sample frames | A preprocessing job | A view with one row per chunk or frame |
-| Serve the result | A FastAPI app you write | `FastAPIRouter` routes in the same file |
-| Undo a bad change | Restore a backup | `pxt revert` |
+| Store video, images, audio, PDFs | A bucket plus a metadata table | A column of type video, image, audio or document; the row holds a reference to the file and its results (`pxt.Video`, `pxt.Image`, `pxt.Audio`, `pxt.Document`) |
+| Call models on them | An orchestrator or a queue, plus scripts | A column whose value is a model call, run on every new row and stored (a computed column) |
+| Search them | A vector database you keep in sync | An index on that column, built and updated by the table (`pxt.EmbeddingIndex`) |
+| Split documents, sample frames | A preprocessing job | A table derived from the first, one row per chunk or frame, updated as rows come and go (a view) |
+| Serve the result | A FastAPI app you write | Routes declared next to the tables (`FastAPIRouter`) |
+| Undo a bad change | Restore a backup | Go back to an earlier version of the table (`pxt revert`) |
 
 If you don't want a schema, Pixeltable is the wrong tool. Coming from Pinecone, Postgres, LangGraph or Airflow?
 [Migrate](https://docs.pixeltable.com/howto/coming-from) shows what each one becomes.
 
 ## What you can build
 
-- [RAG that stays in sync with your documents](https://docs.pixeltable.com/use-cases/multimodal-backend)
+- [RAG over documents, with no re-chunk or re-embed scripts when you add or remove documents](https://docs.pixeltable.com/use-cases/multimodal-backend)
 - [Video and image pipelines: frames, transcripts, detections](https://docs.pixeltable.com/use-cases/media-processing)
 - [Agents whose tool calls are rows you can query later](https://docs.pixeltable.com/use-cases/agentic-workflows)
 
@@ -163,9 +173,10 @@ to your first POST. Rather start in a notebook? The
 TypeScript. [Self-hosting](https://docs.pixeltable.com/howto/deployment/overview) covers your own FastAPI app and
 running without HTTP.
 
-**Pixeltable Cloud** runs the same `app.py` on a hosted database. The
-[Cloud guide](https://docs.pixeltable.com/cloud) goes from `pxt login` to a running service. No account yet? `pxt new`
-gives you a free Cloud database for about 48 hours, and prints a link to keep it.
+**Pixeltable Cloud** is for running this in production: the same `app.py` on a hosted database, with media in a
+managed bucket and CPU, memory and worker counts set in the project config. The
+[Cloud guide](https://docs.pixeltable.com/cloud) goes from `pxt login` to a running service. To try it with no
+account, `pxt new` gives you a free Cloud database for about 48 hours and prints a link to keep it.
 
 ## Using a coding agent?
 

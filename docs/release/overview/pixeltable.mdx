@@ -3,7 +3,7 @@ title: 'Why Pixeltable?'
 description: 'What Pixeltable replaces in a multimodal AI stack, why we built it, and when to use something else.'
 ---
 
-Pixeltable is an open-source Python framework for AI apps that work on video, images, audio and documents. Your files live in tables, next to ordinary columns. The work you want done on them, like sampling frames, transcribing audio, calling a model or embedding the result, is a column too. Insert a row and Pixeltable runs that work, stores what it produces and updates the search index. The whole backend, from tables to HTTP routes, sits in one Python file, `app.py`.
+Pixeltable is an open-source Python library for AI apps that work on video, images, audio and documents. A table holds references to your files next to ordinary columns: a path or URL you insert stays where it is, and files you upload or Pixeltable produces go to its media store, on local disk or in your own bucket ([Cloud storage](/integrations/cloud-storage)). The work you want done on them, like sampling frames, transcribing audio, calling a model or embedding the result, is a column too. Insert a row and Pixeltable runs that work, stores what it produces and indexes it, with no embed-and-upsert job to run. The whole backend, from tables to HTTP routes, sits in one Python file, `app.py`.
 
 ## The stack it replaces
 
@@ -18,6 +18,8 @@ Take a video search app. Users upload videos, each one gets transcribed and summ
 Each piece is fine on its own. The trouble is the joints. A video gets deleted from the bucket and its row stays behind. The DAG reruns every video because it can't tell which ones changed, unless you write that bookkeeping yourself. The vector database keeps serving embeddings of last week's summaries. And the first time you want to try a better prompt, you write a backfill script and hope it touches the right rows.
 
 In most of these projects, the plumbing is most of the code, and it's where most of the bugs are.
+
+Keep the database your app already runs for users and auth. Pixeltable handles the media and model work next to Supabase, Convex or a managed Postgres.
 
 ## The same app in Pixeltable
 
@@ -45,7 +47,7 @@ The same `app.py` runs on [Pixeltable Cloud](/cloud). `pxt db update` uploads th
 
 We're database people: Pixeltable comes from the creators of Apache Parquet and Impala. When we looked at multimodal AI projects, we kept finding the same thing. The models were the interesting part, and the team spent most of its time on data plumbing.
 
-Lovable and Bolt made web apps easy to build by putting a small surface over a hard problem. We wanted that for developers working with video, images, audio and documents, so we moved the work into the database. The engine tracks what depends on what, so it works out which rows to recompute. The first version of an app and its tenth revision are the same kind of work: edit `app.py`, run `pxt schema update`, then `pxt service update`.
+Lovable and Bolt made web apps something one person can build, by putting a small surface over a hard problem. We wanted that for developers working with video, images, audio and documents, so we moved the work into the database. The engine tracks what depends on what, so it works out which rows to recompute. The first version of an app and its tenth revision are the same kind of work: edit `app.py`, run `pxt schema update`, then `pxt service update`.
 
 One file also helps when a coding agent writes the code. The agent writes the whole backend in `app.py`, and you review one diff instead of a change in every system. [AI coding agents](/overview/building-pixeltable-with-llms) covers the skill and the MCP servers.
 
@@ -67,7 +69,7 @@ If you try Pixeltable and leave, your data comes with you. Media can live in you
 
 <CardGroup cols={3}>
   <Card title="RAG and live APIs" icon="file-lines" href="/use-cases/multimodal-backend">
-    Documents split into chunks, an embedding index, and a search route that stays in sync.
+    Documents split into chunks, an embedding index, and a search route, with no re-embed job when you add or remove documents.
   </Card>
   <Card title="Agents" icon="robot" href="/use-cases/agentic-workflows">
     Tool calls are columns, so every call is a row you can query later.
