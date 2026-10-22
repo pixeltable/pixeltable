@@ -633,7 +633,7 @@ def confirm_or_exit(prompt: str, force: bool, *, on_refusal: Callable[[], None] 
             on_refusal()
         elif json_requested():
             print_error_document('CONFIRMATION_DECLINED', f'declined: {prompt}', retryable=False)
-        _flush_stdout()
+        flush_stdout()
         print('aborted', file=sys.stderr)
         sys.exit(EXIT_REFUSED)
 
@@ -653,7 +653,7 @@ def _refuse_unanswered(prompt: str, *, on_refusal: Callable[[], None] | None) ->
     elif json_requested():
         steps = [] if command is None else [{'command': command, 'effect': effect}]
         print_error_document('CONFIRMATION_REQUIRED', message, retryable=False, next_steps=steps)
-    _flush_stdout()
+    flush_stdout()
     print(f'pxt: {message}', file=sys.stderr)
     if command is not None:
         print_next(command, effect)
@@ -666,7 +666,7 @@ def refuse_destructive(prog: str, destructive: int, *, force: bool, on_refusal: 
     on_refusal reports the refused plan first.
     """
     on_refusal()
-    _flush_stdout()
+    flush_stdout()
     print(
         f'{prog}: refusing to apply {destructive} destructive operation(s) without --allow-destructive', file=sys.stderr
     )
@@ -678,7 +678,7 @@ def refuse_destructive(prog: str, destructive: int, *, force: bool, on_refusal: 
     sys.exit(EXIT_REFUSED)
 
 
-def _flush_stdout() -> None:
+def flush_stdout() -> None:
     # stdout is block-buffered on a pipe; flush it before stderr emits the refusal line
     try:
         sys.stdout.flush()

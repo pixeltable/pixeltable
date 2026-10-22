@@ -41,7 +41,7 @@ _TIMEOUT_S = 30.0
 _TRIAL_TIMEOUT_S = 90.0
 
 # The hosts `pxt new` may reach over http. It sends an access token and receives an API key, which must
-# not cross a network in cleartext.
+# not cross a network in cleartext. pxt feedback (pixeltable_cli/client/commands/feedback.py) copies this rule.
 _LOOPBACK_HOSTS = ('localhost', '127.0.0.1', '::1')
 
 

@@ -14,11 +14,12 @@ import urllib.parse
 from typing import NoReturn
 
 from ..parser import Parser
-from ..utils import EXIT_ERROR, EXIT_REFUSED, print_error_document
+from ..utils import EXIT_ERROR, EXIT_REFUSED, flush_stdout, print_error_document
 
 DEFAULT_SITE_URL = 'https://www.pixeltable.com'
 _FEEDBACK_PATH = '/api/v1/feedback'
-# the hosts a report may go to over http, as `pxt new` allows
+# the site and the hosts a report may go to over http, as pixeltable/service/trial.py allows `pxt new`; copied, since
+# importing pixeltable would cost this command seconds
 _LOOPBACK_HOSTS = ('localhost', '127.0.0.1', '::1')
 
 KINDS = ('bug', 'gap', 'docs')
@@ -63,7 +64,7 @@ What it sends, and only with --send:
 Exit codes:
   0  previewed, or sent
   1  error: the report was not sent, or not confirmed as sent
-  2  usage: no --kind, or a text that is empty or longer than {MAX_MESSAGE_CHARS} characters
+  2  usage: no --kind, or a text that is empty, longer than {MAX_MESSAGE_CHARS} characters, or holds a control character
   3  refused: DO_NOT_TRACK is set"""
 
 
@@ -124,9 +125,13 @@ def _feedback_url(as_json: bool) -> str:
     if '\\' in site:
         # urllib3 ends a URL's host at a backslash and urlsplit does not, so the preview could name another host
         _fail('PIXELTABLE_SITE_URL contains a backslash', 'INVALID_CONFIGURATION', as_json)
-    parts = urllib.parse.urlsplit(site)
-    if not (parts.scheme == 'https' or (parts.scheme == 'http' and parts.hostname in _LOOPBACK_HOSTS)):
-        # the URL itself is not printed: it may hold credentials
+    # the URL itself is not printed: it may hold credentials
+    try:
+        parts = urllib.parse.urlsplit(site)
+        hostname = parts.hostname
+    except ValueError:
+        _fail('PIXELTABLE_SITE_URL is not a valid URL', 'INVALID_CONFIGURATION', as_json)
+    if not (parts.scheme == 'https' or (parts.scheme == 'http' and hostname in _LOOPBACK_HOSTS)):
         _fail('PIXELTABLE_SITE_URL must use https, except on localhost', 'INVALID_CONFIGURATION', as_json)
     return site + _FEEDBACK_PATH
 
@@ -191,14 +196,14 @@ def _send(url: str, fields: dict[str, str | None], as_json: bool) -> str | None:
     try:
         # a redirect would take the report to a host not named in the preview
         resp = requests.post(url, json=fields, timeout=_SEND_TIMEOUT_SECS, allow_redirects=False)
-    except requests.ReadTimeout:
-        _unconfirmed('ReadTimeout', as_json)
     except requests.RequestException as e:
+        if _may_have_arrived(e):
+            _unconfirmed(type(e).__name__, as_json)
         _fail(f'could not send ({type(e).__name__})', 'FEEDBACK_NOT_SENT', as_json, retryable=True)
     if resp.status_code == 429:
-        # seconds only: Retry-After may also be an HTTP date
+        # seconds only: Retry-After may also be an HTTP date; isdigit() alone takes '²'
         wait = resp.headers.get('Retry-After', '').strip()
-        retry_after = int(wait) if wait.isdigit() else None
+        retry_after = int(wait) if wait.isascii() and wait.isdigit() else None
         message = 'not sent (rate limited)' + ('' if retry_after is None else f'; try again in {retry_after} s')
         _fail(f'{message}.', 'RATE_LIMITED', as_json, retryable=True, retry_after=retry_after)
     if resp.status_code >= 500:
@@ -212,9 +217,27 @@ def _send(url: str, fields: dict[str, str | None], as_json: bool) -> str | None:
     return report_id if isinstance(report_id, str) else None
 
 
+def _may_have_arrived(e: Exception) -> bool:
+    """Whether the body may have reached the site: the failure came after the connection opened."""
+    import requests
+    from urllib3.exceptions import MaxRetryError, NewConnectionError
+
+    if isinstance(e, (requests.ReadTimeout, requests.exceptions.ChunkedEncodingError)):
+        return True
+    if isinstance(e, (requests.ConnectTimeout, requests.exceptions.ProxyError, requests.exceptions.SSLError)):
+        return False
+    if isinstance(e, requests.ConnectionError):
+        # a refused or unresolved connection comes as a MaxRetryError of a NewConnectionError; a connection dropped
+        # after the send, as a ProtocolError
+        cause = e.args[0] if len(e.args) > 0 else None
+        return not (isinstance(cause, MaxRetryError) and isinstance(cause.reason, NewConnectionError))
+    return False
+
+
 def _unconfirmed(cause: str, as_json: bool) -> NoReturn:
-    # the site answers 5xx when Slack does not confirm the post, and a timeout can follow a post that arrived
-    _fail(f'not confirmed as sent ({cause}); it may have arrived', 'FEEDBACK_UNCONFIRMED', as_json, retryable=True)
+    # the site answers 5xx when Slack does not confirm the post, and a timeout can follow a post that arrived; a resend
+    # may duplicate the report, so this is not retryable
+    _fail(f'not confirmed as sent ({cause}); it may have arrived', 'FEEDBACK_UNCONFIRMED', as_json)
 
 
 def _fail(
@@ -228,10 +251,6 @@ def _fail(
 ) -> NoReturn:
     if as_json:
         print_error_document(error_code, message, retryable=retryable, retry_after=retry_after)
-    # stdout is block-buffered on a pipe; flush the preview before stderr emits the refusal line
-    try:
-        sys.stdout.flush()
-    except OSError:
-        pass
+    flush_stdout()
     print(f'pxt feedback: {message}', file=sys.stderr)
     sys.exit(exit_code)

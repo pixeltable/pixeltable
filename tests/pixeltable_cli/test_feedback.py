@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 import requests
+from urllib3.exceptions import MaxRetryError, NewConnectionError, ProtocolError
 
 from pixeltable_cli.client import utils
 from pixeltable_cli.client.commands import feedback
@@ -163,8 +164,9 @@ class TestFeedback:
             # requests would connect to evil.example, while the preview would name www.pixeltable.com
             ('https://evil.example\\@www.pixeltable.com', 'PIXELTABLE_SITE_URL contains a backslash'),
             ('http://user:pw@feedback.example', 'PIXELTABLE_SITE_URL must use https, except on localhost'),
+            ('https://[feedback.example', 'PIXELTABLE_SITE_URL is not a valid URL'),
         ],
-        ids=['backslash', 'cleartext'],
+        ids=['backslash', 'cleartext', 'malformed'],
     )
     def test_site_refused(
         self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, site: str, problem: str
@@ -237,8 +239,10 @@ class TestFeedback:
             ({}, 'not sent (rate limited).'),
             # an HTTP date is not seconds
             ({'Retry-After': 'Wed, 21 Oct 2026 07:28:00 GMT'}, 'not sent (rate limited).'),
+            # a digit to str.isdigit(), not to int()
+            ({'Retry-After': '\u00b2'}, 'not sent (rate limited).'),
         ],
-        ids=['header', 'body only', 'date'],
+        ids=['header', 'body only', 'date', 'superscript'],
     )
     def test_rate_limited(
         self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, headers: dict[str, str], printed: str
@@ -253,18 +257,31 @@ class TestFeedback:
     @pytest.mark.parametrize(
         ('answer', 'printed', 'error_code', 'retryable'),
         [
-            # the site answers 503 when Slack did not confirm the post
+            # the site answers 503 when Slack did not confirm the post; a resend may duplicate it
             (
                 _response(503, {'error_code': 'FEEDBACK_UNAVAILABLE', 'message': 'down'}),
                 'not confirmed as sent (HTTP 503); it may have arrived',
                 'FEEDBACK_UNCONFIRMED',
-                True,
+                False,
             ),
             (
                 requests.ReadTimeout('timed out'),
                 'not confirmed as sent (ReadTimeout); it may have arrived',
                 'FEEDBACK_UNCONFIRMED',
-                True,
+                False,
+            ),
+            # the connection closed after the body went out
+            (
+                requests.ConnectionError(ProtocolError('Connection aborted.', ConnectionResetError())),
+                'not confirmed as sent (ConnectionError); it may have arrived',
+                'FEEDBACK_UNCONFIRMED',
+                False,
+            ),
+            (
+                requests.exceptions.ChunkedEncodingError('incomplete read'),
+                'not confirmed as sent (ChunkedEncodingError); it may have arrived',
+                'FEEDBACK_UNCONFIRMED',
+                False,
             ),
             # the server's message may quote the text, so it is not printed
             (
@@ -280,7 +297,8 @@ class TestFeedback:
                 False,
             ),
             (
-                requests.ConnectionError(f'refused: {_MESSAGE}'),
+                # as requests raises a refused connection
+                requests.ConnectionError(MaxRetryError(None, _URL, NewConnectionError(None, f'refused: {_MESSAGE}'))),
                 'could not send (ConnectionError)',
                 'FEEDBACK_NOT_SENT',
                 True,
@@ -292,7 +310,7 @@ class TestFeedback:
                 True,
             ),
         ],
-        ids=['unavailable', 'timeout', 'invalid', 'redirect', 'no connection', 'rate limited'],
+        ids=['unavailable', 'timeout', 'dropped', 'cut short', 'invalid', 'redirect', 'refused', 'rate limited'],
     )
     def test_send_failure(
         self,
