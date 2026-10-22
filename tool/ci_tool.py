@@ -119,17 +119,8 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
     if trigger == 'pull_request':
         # On every push to a PR we run only the slim tests. It is strictly a subset of what the merge queue runs.
         slim_pytest = DEFAULT_PYTEST + ' ' + ' '.join(SLIM_TESTS)
-        # With pytest-xdist[psutil], `-n auto` counts physical cores, which is 2 on the 4-vCPU windows-2025 runner.
-        # Appending `-n logical` (the last -n wins) uses all 4 vCPUs on the Windows leg, the slowest PR check.
         configs.extend(
-            MatrixConfig(
-                'slim',
-                'py',
-                platform,
-                '3.11',
-                pytest_options=slim_pytest + (' -n logical' if platform.startswith('windows') else ''),
-            )
-            for platform in ALL_PLATFORMS
+            MatrixConfig('slim', 'py', platform, '3.11', pytest_options=slim_pytest) for platform in ALL_PLATFORMS
         )
         # Also exercise the newest supported Python on the main platform
         configs.append(MatrixConfig('slim', 'py', MAIN_PLATFORM, '3.14', pytest_options=slim_pytest))
