@@ -129,7 +129,7 @@ jobs:
           name: abnormal-termination-logs-${{ matrix.os }}
           path: |
             pxt-home/logs
-            pxt-home/pgdata/log
+            pxt-home/pgdata.log
 
   performance-tests:
     if: ${{ github.event_name != 'pull_request' }}  # TEMPORARY
