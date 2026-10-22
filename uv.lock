@@ -6074,7 +6074,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.10" },
-    { name = "av", specifier = ">=14.4" },
+    { name = "av", specifier = ">=15.1" },
     { name = "beautifulsoup4", specifier = ">=4.10" },
     { name = "boto3", specifier = ">=1.36" },
     { name = "cloudpickle", specifier = ">=2.2.1" },

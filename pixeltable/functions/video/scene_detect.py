@@ -76,7 +76,8 @@ def scene_detect_adaptive(
         - `start_pts` (int): The pts of the start of the scene.
         - `duration` (float): The duration of the scene in seconds.
 
-        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
+        The scenes are ordered chronologically and cover the whole video: each scene ends where the next one
+        starts, and the last scene ends at the end of the video.
 
     Examples:
         Detect scene cuts with default parameters:
@@ -177,7 +178,8 @@ def scene_detect_content(
         - `start_pts` (int): The pts of the start of the scene.
         - `duration` (float): The duration of the scene in seconds.
 
-        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
+        The scenes are ordered chronologically and cover the whole video: each scene ends where the next one
+        starts, and the last scene ends at the end of the video.
 
     Examples:
         Detect scene cuts with default parameters:
@@ -278,7 +280,8 @@ def scene_detect_threshold(
         - `start_pts` (int): The pts of the start of the scene.
         - `duration` (float): The duration of the scene in seconds.
 
-        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
+        The scenes are ordered chronologically and cover the whole video: each scene ends where the next one
+        starts, and the last scene ends at the end of the video.
 
     Examples:
         Detect fade-to-black transitions with default parameters:
@@ -361,7 +364,8 @@ def scene_detect_histogram(
         - `start_pts` (int): The pts of the start of the scene.
         - `duration` (float): The duration of the scene in seconds.
 
-        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
+        The scenes are ordered chronologically and cover the whole video: each scene ends where the next one
+        starts, and the last scene ends at the end of the video.
 
     Examples:
         Detect scene cuts with default parameters:
@@ -444,7 +448,8 @@ def scene_detect_hash(
         - `start_pts` (int): The pts of the start of the scene.
         - `duration` (float): The duration of the scene in seconds.
 
-        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
+        The scenes are ordered chronologically and cover the whole video: each scene ends where the next one
+        starts, and the last scene ends at the end of the video.
 
     Examples:
         Detect scene cuts with default parameters:

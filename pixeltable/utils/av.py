@@ -28,8 +28,12 @@ def get_stream_duration(stream: av.stream.Stream) -> float | None:
     duration_tag = stream.metadata.get('DURATION')
     if duration_tag is None:
         return None
-    hours, minutes, seconds = duration_tag.split(':')
-    end_time = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+    try:
+        hours, minutes, seconds = duration_tag.split(':')
+        end_time = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+    except ValueError:
+        # an unreadable tag counts as missing
+        return None
     return end_time - float((stream.start_time or 0) * stream.time_base)
 
 

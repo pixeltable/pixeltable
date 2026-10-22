@@ -166,10 +166,40 @@ class TestVideo:
         all_frames = pxt.create_view(p('all_frames'), videos, iterator=frame_iterator(videos.video))
         # in test_13_frames.mp4, the last of the 7 extraction times falls after the start of the last frame
         num_frames_7 = pxt.create_view(p('num_frames_7'), videos, iterator=frame_iterator(videos.video, num_frames=7))
-        videos.insert({'video': path, 'name': Path(path).name} for path in get_test_video_files())
+        # in the .mpg files, the header duration ends before the last frame
+        num_frames_50 = pxt.create_view(
+            p('num_frames_50'), videos, iterator=frame_iterator(videos.video, num_frames=50)
+        )
+        paths = get_test_video_files() + get_video_files(extension='.mpg')
+        videos.insert({'video': path, 'name': Path(path).name} for path in paths)
         for view, expected in (
-            (all_frames, {'test_13_frames.mp4': 13, 'test_462_frames.mp4': 462}),
-            (num_frames_7, {'test_13_frames.mp4': 7, 'test_462_frames.mp4': 7}),
+            (
+                all_frames,
+                {
+                    'test_13_frames.mp4': 13,
+                    'test_462_frames.mp4': 462,
+                    'v_shooting_01_01.mpg': 108,
+                    'v_shooting_01_02.mpg': 141,
+                },
+            ),
+            (
+                num_frames_7,
+                {
+                    'test_13_frames.mp4': 7,
+                    'test_462_frames.mp4': 7,
+                    'v_shooting_01_01.mpg': 7,
+                    'v_shooting_01_02.mpg': 7,
+                },
+            ),
+            (
+                num_frames_50,
+                {
+                    'test_13_frames.mp4': 13,
+                    'test_462_frames.mp4': 50,
+                    'v_shooting_01_01.mpg': 50,
+                    'v_shooting_01_02.mpg': 50,
+                },
+            ),
         ):
             res = view.group_by(view.name).select(view.name, num_frames=pxtf.count(view.pos)).collect()
             assert {row['name']: row['num_frames'] for row in res} == expected

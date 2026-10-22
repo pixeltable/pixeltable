@@ -199,6 +199,9 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         return frame_start
 
     def __next__(self) -> Frame:
+        # the extraction times span the header duration, which can end before the last frame (seen in .mpg files)
+        if self.num_frames is not None and self.pos == self.num_frames:
+            raise StopIteration
         while True:
             if self.cur_frame is None:
                 raise StopIteration
