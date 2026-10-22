@@ -84,7 +84,7 @@ class ColumnRef(Expr):
         self.perform_validation = perform_validation
         if self.perform_validation:
             self.components = [ColumnRef(col_md, perform_validation=False)]
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     @property
     def column_md(self) -> catalog.ColumnVersionMd:

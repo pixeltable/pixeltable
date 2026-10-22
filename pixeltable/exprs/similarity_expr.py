@@ -41,7 +41,7 @@ class SimilarityExpr(Expr):
         self.idx_name = idx_name
         self.qcol_id = qcol_id
         self.table_version_key = table_version_key
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def __repr__(self) -> str:
         idx_str = f'{self.idx_name!r}' if self.idx_name is not None else '<no index>'
@@ -104,9 +104,9 @@ class SimilarityExpr(Expr):
 
     @property
     def _bind_name(self) -> str:
-        assert self.id is not None
+        assert self._expr_id is not None
         # 'pxt_system:' for system binds, 'pxt:<identifier>' for user Variable binds: keep the two namespaces disjoint
-        return f'pxt_system:sim_{self.id}'
+        return f'pxt_system:sim_{self._expr_id}'
 
     def prepare(self, args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         super().prepare(args, bound_args)

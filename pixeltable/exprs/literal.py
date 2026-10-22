@@ -42,7 +42,7 @@ class Literal(Expr):
             # Tuples are stored as a list
             val = list(val)
         self.val = val
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def default_column_name(self) -> str | None:
         return 'Literal'

@@ -43,7 +43,7 @@ class StringOp(Expr):
                         f'but operands have types `{op1.col_type}` and `{op2.col_type}`',
                     )
 
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     @property
     def _op1(self) -> Expr:

@@ -33,7 +33,7 @@ class ColumnPropertyRef(Expr):
         super().__init__(ts.StringType(nullable=True))
         self.components = [col_ref]
         self.prop = prop
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def default_column_name(self) -> str | None:
         return str(self).replace('.', '_')

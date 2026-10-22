@@ -182,19 +182,19 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="No module named 'no_such_module'"):
             pxt.list_functions('no_such_module')
 
-    def test_call_udf(self, db_root: DatabaseRoot) -> None:
+    def test_eval_udf(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
-        assert pxt.call_udf(pxtf.string.upper, 'abc') == 'ABC'
+        assert pxt.eval_udf(pxtf.string.upper, 'abc') == 'ABC'
         # a None argument for a non-nullable parameter skips the call, as in a computed column
-        assert pxt.call_udf(pxtf.string.upper, None) is None
-        assert pxt.call_udf(pxtf.image.resize, PIL.Image.new('RGB', (10, 20)), (4, 6)).size == (4, 6)
+        assert pxt.eval_udf(pxtf.string.upper, None) is None
+        assert pxt.eval_udf(pxtf.image.resize, PIL.Image.new('RGB', (10, 20)), (4, 6)).size == (4, 6)
         image_path = get_image_files()[0]
-        assert pxt.call_udf(pxtf.image.width, image_path) == PIL.Image.open(image_path).width
-        assert pxt.call_udf(pxtf.video.get_duration, video=get_video_files()[0]) > 0
-        assert pxt.call_udf(doubled, 21) == 42
-        assert pxt.call_udf(pxtf.image.resize.using(size=(3, 4)), PIL.Image.new('RGB', (10, 20))).size == (3, 4)
+        assert pxt.eval_udf(pxtf.image.width, image_path) == PIL.Image.open(image_path).width
+        assert pxt.eval_udf(pxtf.video.get_duration, video=get_video_files()[0]) > 0
+        assert pxt.eval_udf(doubled, 21) == 42
+        assert pxt.eval_udf(pxtf.image.resize.using(size=(3, 4)), PIL.Image.new('RGB', (10, 20))).size == (3, 4)
         with pytest.raises(ValueError, match='bad value: 1'):
-            pxt.call_udf(failing_udf, 1)
+            pxt.eval_udf(failing_udf, 1)
 
         t = pxt.create_table(p('test'), {'name': pxt.String, 'n': pxt.Int})
         t.insert([{'name': 'a', 'n': 1}, {'name': 'b', 'n': 5}])
@@ -203,14 +203,14 @@ class TestFunction:
         def names_above(n: int) -> pxt.Query:
             return t.where(t.n > n).select(t.name)
 
-        assert pxt.call_udf(names_above, 2) == [{'name': 'b'}]
+        assert pxt.eval_udf(names_above, 2) == [{'name': 'b'}]
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='not columns'):
-            pxt.call_udf(pxtf.string.upper, t.name)
+            pxt.eval_udf(pxtf.string.upper, t.name)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='aggregate function'):
-            pxt.call_udf(pxtf.sum, 1)  # type: ignore[arg-type]
+            pxt.eval_udf(pxtf.sum, 1)  # type: ignore[arg-type]
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='expected a UDF'):
-            pxt.call_udf(len, 'abc')  # type: ignore[arg-type]
+            pxt.eval_udf(len, 'abc')  # type: ignore[arg-type]
 
     def test_stored_udf(self, db_root: DatabaseRoot) -> None:
         # a udf without a fully-qualified path (forced here via _force_stored) can't be persisted into a

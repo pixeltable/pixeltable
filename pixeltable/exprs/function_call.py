@@ -227,7 +227,7 @@ class FunctionCall(Expr):
         self.aggregator = None
         self.current_partition_vals = None
 
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def _create_rowid_refs(self, tbl: catalog.Table) -> list[Expr]:
         path = tbl._tbl_path

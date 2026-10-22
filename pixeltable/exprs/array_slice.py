@@ -24,7 +24,7 @@ class ArraySlice(Expr):
         super().__init__(arr.col_type.subscript_type(index))
         self.components = [arr]
         self.index = index
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def __repr__(self) -> str:
         index_strs: list[str] = []

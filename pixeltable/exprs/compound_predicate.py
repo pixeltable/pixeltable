@@ -28,7 +28,7 @@ class CompoundPredicate(Expr):
             for operand in operands:
                 self._merge_operand(operand)
 
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def __repr__(self) -> str:
         if self.operator == LogicalOperator.NOT:

@@ -84,7 +84,7 @@ class TestGlobals:
         assert len(t.where(pxtf.coalesce(t.reviewed, t.predicted) == 'cat').collect()) == 1
 
         assert_type_eq(pxtf.coalesce(None, 2).col_type, pxt.Int)
-        assert pxt.call_udf(pxtf.coalesce, None, 2) == 2
+        assert pxt.eval_udf(pxtf.coalesce, None, 2) == 2
 
         with pxt_raises(pxt.ErrorCode.INVALID_TYPE, match=r'no common supertype: String \| None, Image \| None'):
             pxtf.coalesce(t.reviewed, t.img)

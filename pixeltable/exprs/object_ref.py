@@ -27,7 +27,7 @@ class ObjectRef(Expr):
         super().__init__(ts.JsonType())  # JsonType: this could be anything
         self._scope = scope
         self.owner = owner
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         # We have no components, so we can't rely on the default behavior here (otherwise, all ObjectRef
@@ -44,7 +44,7 @@ class ObjectRef(Expr):
         return self._scope
 
     def _equals(self, other: ObjectRef) -> bool:
-        return self.id == other.id
+        return self._expr_id == other._expr_id
 
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None
@@ -54,4 +54,4 @@ class ObjectRef(Expr):
         pass
 
     def __repr__(self) -> str:
-        return f'ObjectRef({self.owner}, {self.id}, {self.owner.id})'
+        return f'ObjectRef({self.owner}, {self._expr_id}, {self.owner._expr_id})'

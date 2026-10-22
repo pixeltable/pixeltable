@@ -37,7 +37,7 @@ class InPredicate(Expr):
             self.components = [lhs.copy()]
             self.value_list = self._normalize_value_set(value_set_literal)
 
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     @property
     def _lhs(self) -> Expr:

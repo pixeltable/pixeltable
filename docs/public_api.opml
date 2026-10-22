@@ -35,7 +35,7 @@
           <outline text="func|pixeltable.udf" />
           <outline text="func|pixeltable.uda" />
           <outline text="func|pixeltable.query" />
-          <outline text="func|pixeltable.call_udf" />
+          <outline text="func|pixeltable.eval_udf" />
           <outline text="func|pixeltable.iterator" />
           <outline text="func|pixeltable.tools" />
           <outline text="func|pixeltable.tool" />

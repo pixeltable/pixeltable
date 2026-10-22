@@ -9,12 +9,12 @@ T = TypeVar('T', bound='Expr')
 
 class ExprSet(Generic[T]):
     """
-    An ordered set that also supports indexed lookup (by slot_idx and Expr.id). Exprs are uniquely identified by
-    Expr.id.
+    An ordered set that also supports indexed lookup (by slot_idx and Expr._expr_id). Exprs are uniquely identified by
+    Expr._expr_id.
     """
 
-    exprs: dict[int, T]  # key: Expr.id
-    expr_offsets: dict[int, int]  # key: Expr.id, value: offset into self.exprs.keys()
+    exprs: dict[int, T]  # key: Expr._expr_id
+    expr_offsets: dict[int, int]  # key: Expr._expr_id, value: offset into self.exprs.keys()
     exprs_by_idx: dict[int, T]  # key: slot_idx
 
     def __init__(self, elements: Iterable[T] | None = None):
@@ -27,12 +27,12 @@ class ExprSet(Generic[T]):
 
     def add(self, expr: T) -> int:
         """Returns offset corresponding to iteration order"""
-        offset = self.expr_offsets.get(expr.id)
+        offset = self.expr_offsets.get(expr._expr_id)
         if offset is not None:
             return offset
         offset = len(self.exprs)
-        self.exprs[expr.id] = expr
-        self.expr_offsets[expr.id] = offset
+        self.exprs[expr._expr_id] = expr
+        self.expr_offsets[expr._expr_id] = offset
         if expr.slot_idx is not None:
             self.exprs_by_idx[expr.slot_idx] = expr
         return offset
@@ -43,7 +43,7 @@ class ExprSet(Generic[T]):
                 self.add(e)
 
     def __contains__(self, item: T) -> bool:
-        return item.id in self.exprs
+        return item._expr_id in self.exprs
 
     def __len__(self) -> int:
         return len(self.exprs)
@@ -52,13 +52,13 @@ class ExprSet(Generic[T]):
         return iter(self.exprs.values())
 
     def __getitem__(self, index: object) -> T | None:
-        """Indexed lookup by slot_idx or Expr.id."""
+        """Indexed lookup by slot_idx or Expr._expr_id."""
         assert isinstance(index, (int, Expr))
         if isinstance(index, int):
             # return expr with matching slot_idx
             return self.exprs_by_idx.get(index)
         else:
-            return self.exprs.get(index.id)
+            return self.exprs.get(index._expr_id)
 
     def issuperset(self, other: ExprSet[T]) -> bool:
         return self.exprs.keys() >= other.exprs.keys()
@@ -78,7 +78,7 @@ class ExprSet(Generic[T]):
         return self.union(other)
 
     def difference(self, *others: Iterable[T]) -> ExprSet[T]:
-        id_diff = set(self.exprs.keys()).difference(e.id for other_set in others for e in other_set)
+        id_diff = set(self.exprs.keys()).difference(e._expr_id for other_set in others for e in other_set)
         return ExprSet(self.exprs[id] for id in id_diff)
 
     def __sub__(self, other: ExprSet[T]) -> ExprSet[T]:

@@ -19,7 +19,7 @@ class TypeCast(Expr):
     def __init__(self, underlying: Expr, new_type: ts.ColumnType):
         super().__init__(new_type)
         self.components: list[Expr] = [underlying]
-        self.id: int | None = self._create_id()
+        self._expr_id: int | None = self._create_id()
 
     def _equals(self, other: 'TypeCast') -> bool:
         # `TypeCast` has no properties beyond those captured by `Expr`.

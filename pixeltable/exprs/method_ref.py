@@ -32,7 +32,7 @@ class MethodRef(Expr):
             # This has to be an `AttributeError`, or tab-completion won't work properly in ipython.
             raise AttributeError(f'Unknown method (of type {base_expr.col_type}): {method_name}')
         self.components = [base_expr]
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def _as_dict(self) -> dict:
         return {'method_name': self.method_name, **super()._as_dict()}
@@ -50,7 +50,7 @@ class MethodRef(Expr):
         return result
 
     def _equals(self, other: 'MethodRef') -> bool:
-        return self.base_expr.id == other.base_expr.id and self.method_name == other.method_name
+        return self.base_expr._expr_id == other.base_expr._expr_id and self.method_name == other.method_name
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('method_name', self.method_name)]

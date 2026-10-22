@@ -81,7 +81,7 @@ class Expr(abc.ABC):
     # - set by the subclass's __init__()
     # - produced by _create_id()
     # - not expected to survive a serialize()/deserialize() roundtrip
-    id: int | None
+    _expr_id: int | None
 
     # whether col_type contributes to the id; a subclass sets this to False if two of its instances that compare
     # equal can differ in col_type
@@ -98,7 +98,7 @@ class Expr(abc.ABC):
     def __init__(self, col_type: ts.ColumnType):
         self.col_type = col_type
         self.components = []
-        self.id = None
+        self._expr_id = None
         self.slot_idx = None
 
     def dependencies(self) -> list[Expr]:
@@ -215,13 +215,13 @@ class Expr(abc.ABC):
             # but different types being considered the same expression, e.g. str(int(4)) == "4"
             hasher.update(repr(self.col_type).encode('utf-8'))
         for expr in self.components:
-            hasher.update(str(expr.id).encode('utf-8'))
+            hasher.update(str(expr._expr_id).encode('utf-8'))
         # truncate to machine's word size
         return int(hasher.hexdigest(), 16) & sys.maxsize
 
     def __hash__(self) -> int:
-        assert self.id is not None
-        return self.id
+        assert self._expr_id is not None
+        return self._expr_id
 
     @classmethod
     def list_equals(cls, a: list[Expr], b: list[Expr]) -> bool:
@@ -270,7 +270,7 @@ class Expr(abc.ABC):
         for i in range(len(self.components)):
             self.components[i] = self.components[i].substitute(spec)
         result = self.maybe_literal()
-        result.id = result._create_id()
+        result._expr_id = result._create_id()
         return result
 
     @classmethod

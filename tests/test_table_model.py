@@ -3559,7 +3559,7 @@ class TestTableModel:
         assert_type_eq(customers.total.col_type, pxt.Float | None)
         assert customers.order_by(customers.customer).select(customers.total).collect()['total'] == [3.5, None]
 
-    def test_call_udf_model_query(self, db_root: DatabaseRoot) -> None:
+    def test_eval_udf_model_query(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         root = p('')
 
@@ -3574,11 +3574,11 @@ class TestTableModel:
             return Notes.where(Notes.id > id).order_by(Notes.id).select(Notes.label)  # type: ignore[arg-type, operator]
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'call `bind_all\(\)`'):
-            pxt.call_udf(labels_after, 0)
+            pxt.eval_udf(labels_after, 0)
 
         TableModel.create_all(root)
         pxt.get_table(p('notes')).insert([{'id': 1, 'label': 'a'}, {'id': 2, 'label': 'b'}, {'id': 3, 'label': 'c'}])
-        assert pxt.call_udf(labels_after, 1) == ['b', 'c']
+        assert pxt.eval_udf(labels_after, 1) == ['b', 'c']
 
     @pytest.mark.db_roots('local', reason='monkeypatches a UDF in-process')
     def test_update_all_narrowed_udf_return_type(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:

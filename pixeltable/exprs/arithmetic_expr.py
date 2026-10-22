@@ -54,7 +54,7 @@ class ArithmeticExpr(Expr):
                 f'{self}: {operator} requires numeric types, but right operand has type `{op2.col_type}`',
             )
 
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     @property
     def _op1(self) -> Expr:

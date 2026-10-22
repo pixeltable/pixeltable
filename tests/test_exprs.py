@@ -1667,7 +1667,7 @@ class TestExprs:
         # would use that index. So these exressions should be equivalent.
         sim1 = t1.img.similarity(string='red truck')
         sim2 = t1.img.similarity(string='red truck', idx='img_idx0')
-        assert sim1.id == sim2.id
+        assert sim1._expr_id == sim2._expr_id
         assert sim1.serialize() == sim2.serialize()
 
         # Test repr
@@ -1680,7 +1680,7 @@ class TestExprs:
         ):
             sim1 = t1.img.similarity('red truck')
             sim2 = t1.img.similarity('red truck', idx='img_idx0')
-            assert sim1.id == sim2.id
+            assert sim1._expr_id == sim2._expr_id
             assert sim1.serialize() == sim2.serialize()
 
         t2 = multi_idx_img_tbl
@@ -1689,7 +1689,7 @@ class TestExprs:
         # So similarity expressions using different indexes should differ.
         sim1 = t2.img.similarity(string='red truck', idx='img_idx1')
         sim2 = t2.img.similarity(string='red truck', idx='img_idx2')
-        assert sim1.id != sim2.id
+        assert sim1._expr_id != sim2._expr_id
         assert sim1.serialize() != sim2.serialize()
 
         # Test repr
@@ -1703,8 +1703,8 @@ class TestExprs:
         skip_test_if_not_installed('transformers')
         d: dict[int, exprs.Expr] = {}
         for e in test_tbl_exprs + img_tbl_exprs + multi_img_tbl_exprs:
-            assert e.id is not None
-            d[e.id] = e
+            assert e._expr_id is not None
+            d[e._expr_id] = e
         assert len(d) == len(test_tbl_exprs) + len(img_tbl_exprs) + len(multi_img_tbl_exprs)
 
     @pytest.mark.db_roots('local', reason='TODO: convert')
@@ -2250,12 +2250,17 @@ class TestExprs:
         """JSON path components are data, not identifiers, so column name folding does not apply."""
         p = db_root.make_catalog_path
         t = pxt.create_table(p('t'), {'JsonCol': pxt.Json | None})
-        t.insert([{'jsoncol': {'someField': 1, 'somefield': 2}}])
+        t.insert([{'jsoncol': {'someField': 1, 'somefield': 2, 'id': 'msg_0', 'usage': {'id': 7}}}])
 
         res = t.select(exact=t.JSONCOL.someField, lowered=t.JSONCOL.somefield, uppered=t.JSONCOL.SOMEFIELD).collect()
         assert res['exact'] == [1]
         assert res['lowered'] == [2]
         assert res['uppered'] == [None]
+
+        # a key named like an expression attribute is still a field
+        res = t.select(top=t.JsonCol.id, nested=t.JsonCol.usage.id).collect()
+        assert res['top'] == ['msg_0']
+        assert res['nested'] == [7]
 
         t.insert([{'jsoncol': {'café': 1}}])
         res = t.select(t.JsonCol['café']).collect()

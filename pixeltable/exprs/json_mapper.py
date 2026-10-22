@@ -66,7 +66,7 @@ class JsonMapper(Expr):
         self.op = op
         self.asc = asc
         self.components.append(JsonMapperDispatch(src_expr, target_expr, op))
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def __repr__(self) -> str:
         if self.op == JsonMapper.Operator.FILTER:
@@ -167,7 +167,7 @@ class JsonMapperDispatch(Expr):
         # Intentionally create the id now, before adding the scope anchor; this ensures that JsonMapperDispatch
         # instances will be recognized as equal so long as they have the same src, target and op.
         # TODO: Might this cause problems after certain substitutions?
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
         scope_anchor = ObjectRef(self.target_expr_scope, self)
         self.components.append(scope_anchor)

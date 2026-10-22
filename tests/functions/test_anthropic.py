@@ -51,7 +51,7 @@ class TestAnthropic:
         assert len(results['output2'][0]['content'][0]['text']) > 0
         assert results['text'][0] == results['output'][0]['content'][0]['text']
 
-        reply = pxt.call_udf(
+        reply = pxt.eval_udf(
             anthropic.messages,
             messages=[{'role': 'user', 'content': 'Reply with one word.'}],
             model='claude-haiku-4-5',

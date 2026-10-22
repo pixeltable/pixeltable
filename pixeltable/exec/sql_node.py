@@ -42,7 +42,7 @@ def combine_order_by_clauses(clauses: Iterable[OrderByClause]) -> OrderByClause 
     for clause in clauses:
         combined: OrderByClause = []
         for item1, item2 in zip(result, clause):
-            if item1.expr.id != item2.expr.id:
+            if item1.expr._expr_id != item2.expr._expr_id:
                 return None
             if item1.asc is not None and item2.asc is not None and item1.asc != item2.asc:
                 return None

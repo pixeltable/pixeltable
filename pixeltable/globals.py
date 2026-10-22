@@ -1113,8 +1113,8 @@ def list_functions(
     return func.FunctionList.collect(module, on_type, search, kind)
 
 
-def call_udf(fn: func.Function, /, *args: Any, **kwargs: Any) -> Any:
-    """Call a UDF on Python values and return its result, without a table.
+def eval_udf(fn: func.Function, /, *args: Any, **kwargs: Any) -> Any:
+    """Evaluate a UDF on Python values and return its result, without a table.
 
     The arguments and the result are Python values, as a UDF body sees them: an image is a `PIL.Image.Image`, and
     a video, audio or document is a local file path. A media argument can also be a file path or URL, except for a
@@ -1126,7 +1126,7 @@ def call_udf(fn: func.Function, /, *args: Any, **kwargs: Any) -> Any:
     `bind_all()`.
 
     Args:
-        fn: The UDF or query function to call. An aggregate function needs rows and cannot be called this way.
+        fn: The UDF or query function to evaluate. An aggregate function needs rows and cannot be evaluated this way.
         args: The positional arguments.
         kwargs: The keyword arguments.
 
@@ -1134,9 +1134,9 @@ def call_udf(fn: func.Function, /, *args: Any, **kwargs: Any) -> Any:
         The UDF's result.
 
     Examples:
-        Call a provider UDF to test a prompt:
+        Try a prompt with a provider UDF:
 
-        >>> reply = pxt.call_udf(
+        >>> reply = pxt.eval_udf(
         ...     pxtf.openai.chat_completions,
         ...     messages=[{'role': 'user', 'content': 'Say hello'}],
         ...     model='gpt-4o-mini',
@@ -1145,22 +1145,22 @@ def call_udf(fn: func.Function, /, *args: Any, **kwargs: Any) -> Any:
         Rotate an image:
 
         >>> img = PIL.Image.open('photo.jpg')
-        >>> rotated = pxt.call_udf(pxtf.image.rotate, img, 90)
+        >>> rotated = pxt.eval_udf(pxtf.image.rotate, img, 90)
     """
     if not isinstance(fn, func.Function):
         raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT, f'call_udf(): expected a UDF, got `{type(fn).__name__}`'
+            excs.ErrorCode.INVALID_ARGUMENT, f'eval_udf(): expected a UDF, got `{type(fn).__name__}`'
         )
     if isinstance(fn, func.AggregateFunction):
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'call_udf(): {fn.name}() is an aggregate function, which needs rows; use it in a query',
+            f'eval_udf(): {fn.name}() is an aggregate function, which needs rows; use it in a query',
         )
     args, kwargs = _local_media_args(fn, args, kwargs)
     call = fn(*args, **kwargs)
     if len(list(call.subexprs(exprs.ColumnRef))) > 0:
         raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT, 'call_udf(): the arguments must be Python values, not columns'
+            excs.ErrorCode.INVALID_ARGUMENT, 'eval_udf(): the arguments must be Python values, not columns'
         )
     row_builder = exprs.RowBuilder(output_exprs=[call], columns=[], input_exprs=[])
     row = row_builder.make_row()

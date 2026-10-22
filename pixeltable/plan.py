@@ -28,7 +28,7 @@ def _get_combined_ordering(
     """Returns an ordering that's compatible with both o1 and o2, or an empty list if no such ordering exists"""
     result: list[tuple[exprs.Expr, bool]] = []
     for (e1, asc1), (e2, asc2) in zip(o1, o2):
-        if e1.id != e2.id:
+        if e1._expr_id != e2._expr_id:
             return []
         if asc1 is not None and asc2 is not None and asc1 != asc2:
             return []
@@ -168,7 +168,7 @@ class Analyzer:
             self.group_by_clause = []
 
         # check that select list only contains aggregate output
-        grouping_expr_ids = {e.id for e in self.group_by_clause}
+        grouping_expr_ids = {e._expr_id for e in self.group_by_clause}
         is_agg_output = [self._determine_agg_status(e, grouping_expr_ids)[0] for e in self.select_list]
         if is_agg_output.count(False) > 0:
             raise excs.RequestError(
@@ -209,7 +209,7 @@ class Analyzer:
         Returns:
             (<is output>, <is input>)
         """
-        if e.id in grouping_expr_ids:
+        if e._expr_id in grouping_expr_ids:
             return True, True
         elif _is_agg_fn_call(e):
             for c in e.components:
@@ -801,13 +801,13 @@ class Planner:
 
         json_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=json_filter, traverse_matches=False))
         json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef)]
-        json_ref_ids = {e.id for e in json_refs}
+        json_ref_ids = {e._expr_id for e in json_refs}
         json_path_anchors = [
             e.anchor
             for e in json_candidates
             if isinstance(e, exprs.JsonPath)
             and isinstance(e.anchor, exprs.ColumnRef)
-            and e.anchor.id not in json_ref_ids
+            and e.anchor._expr_id not in json_ref_ids
         ]
         array_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False))
         array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef)]
@@ -1111,7 +1111,7 @@ class Planner:
     @classmethod
     def _is_contained_in(cls, l1: Iterable[exprs.Expr], l2: Iterable[exprs.Expr]) -> bool:
         """Returns True if l1 is contained in l2"""
-        return {e.id for e in l1} <= {e.id for e in l2}
+        return {e._expr_id for e in l1} <= {e._expr_id for e in l2}
 
     @classmethod
     def _add_prefetch_node(
