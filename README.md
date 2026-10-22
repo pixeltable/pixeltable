@@ -19,10 +19,6 @@
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 [![Python](https://img.shields.io/pypi/pyversions/pixeltable)](https://pypi.org/project/pixeltable/)
 
-[![Open in Cursor][cursor-badge]][cursor-prompt]
-[![Open in Claude][claude-badge]][claude-prompt]
-[![Open in ChatGPT][chatgpt-badge]][chatgpt-prompt]
-
 Install into your agent: [Agent Skill](https://github.com/pixeltable/pixeltable-skill) ·
 [MCP server](https://github.com/pixeltable/mcp-server-pixeltable-developer) ·
 [Cursor plugin](https://cursor.directory/plugins/pixeltable) ·
@@ -185,10 +181,3 @@ the plugins and the MCP servers.
 Bug reports and PRs are welcome: [CONTRIBUTING.md](https://github.com/pixeltable/pixeltable/blob/main/CONTRIBUTING.md).
 Questions go to [Discord](https://discord.gg/QPyqFYx2UN) or
 [GitHub Discussions](https://github.com/pixeltable/pixeltable/discussions). Pixeltable is Apache 2.0.
-
-[cursor-badge]: https://img.shields.io/badge/Open_in-Cursor-000000
-[claude-badge]: https://img.shields.io/badge/Open_in-Claude-D97757
-[chatgpt-badge]: https://img.shields.io/badge/Open_in-ChatGPT-10A37F
-[cursor-prompt]: https://cursor.com/link/prompt?text=Build+a+multimodal+AI+data+app+with+Pixeltable.+Follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md.
-[claude-prompt]: https://claude.ai/new?q=Build+a+multimodal+AI+data+app+with+Pixeltable.+Follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md.
-[chatgpt-prompt]: https://chatgpt.com/?prompt=Build+a+multimodal+AI+data+app+with+Pixeltable.+Follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md.
