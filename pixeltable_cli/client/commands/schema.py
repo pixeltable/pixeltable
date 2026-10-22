@@ -12,11 +12,11 @@ from ..utils import (
     EXIT_CHANGES_PENDING,
     EXIT_ERROR,
     EXIT_IN_AGREEMENT,
-    EXIT_REFUSED,
     check_file,
     confirm_or_exit,
     post_request,
     print_json_schema,
+    refuse_destructive,
 )
 
 # a working schema file: written verbatim by 'pxt schema example', and shown indented in every verb's epilog,
@@ -436,12 +436,7 @@ def _prune(app_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool, d
     def report_refusal() -> None:
         _prune_output(with_drops('refused'), as_json=as_json, verb='would drop')
 
-    confirm_or_exit(
-        f'drop {len(extras)} table(s) not defined by the schema?',
-        force,
-        refused_exit_code=EXIT_REFUSED,
-        on_refusal=report_refusal,
-    )
+    confirm_or_exit(f'drop {len(extras)} table(s) not defined by the schema?', force, on_refusal=report_refusal)
 
     pruned = SchemaPlan.model_validate(
         post_request('/api/schema/prune', {'app_file': app_file, 'catalog_dir': catalog_dir})
@@ -498,15 +493,14 @@ def _decide_update(app_file: str, catalog_dir: PxtPath, *, as_json: bool, force:
     destructive = plan.summary.destructive
     if destructive == 0:
         return
-    if not allow_destructive:
+
+    def report_refusal() -> None:
         _set_statuses(plan, destructive='refused', other='skipped')
         _diff_output(plan, as_json=as_json)
-        print(
-            f'pxt schema update: refusing to apply {destructive} destructive operation(s) without --allow-destructive',
-            file=sys.stderr,
-        )
-        sys.exit(EXIT_REFUSED)
-    confirm_or_exit(f'apply {destructive} destructive operation(s)?', force, refused_exit_code=EXIT_REFUSED)
+
+    if not allow_destructive:
+        refuse_destructive('pxt schema update', destructive, force=force, on_refusal=report_refusal)
+    confirm_or_exit(f'apply {destructive} destructive operation(s)?', force, on_refusal=report_refusal)
 
 
 def _update_output(plan: SchemaPlan, *, as_json: bool) -> None:

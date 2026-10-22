@@ -16,12 +16,12 @@ from ..utils import (
     EXIT_CHANGES_PENDING,
     EXIT_ERROR,
     EXIT_IN_AGREEMENT,
-    EXIT_REFUSED,
     check_file,
     confirm_or_exit,
     get_request,
     post_request,
     print_json_schema,
+    refuse_destructive,
 )
 
 _EXAMPLE_APP = '''\
@@ -466,11 +466,15 @@ def _update(
             sys.exit(EXIT_ERROR)
 
     s = plan.summary
+    if s.destructive > 0 and not allow_destructive:
+        # the daemon would refuse the apply; refusing here names the command that permits it
+        refuse_destructive(
+            'pxt service update', s.destructive, force=force, on_refusal=lambda: _print_plan(plan, as_json=as_json)
+        )
     restarts = f', interrupting {s.restarts} running service(s)' if s.restarts > 0 else ''
     confirm_or_exit(
         f'start or restart {s.create + s.update_additive + s.update_destructive} service(s){restarts}?',
         force,
-        refused_exit_code=EXIT_REFUSED,
         on_refusal=lambda: _print_plan(plan, as_json=as_json),
     )
 
@@ -600,15 +604,14 @@ def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_ru
         sys.exit(EXIT_IN_AGREEMENT)
 
     if dry_run:
-        _print_ops(planned.ops, as_json=as_json, verb='would stop')
+        _print_ops(planned.ops, as_json=as_json, verb='would stop', count=len(planned.ops))
         sys.exit(EXIT_CHANGES_PENDING)
 
     refused = [op.model_copy(update={'status': 'refused'}) for op in planned.ops]
     confirm_or_exit(
         f'stop {len(planned.ops)} service(s)?',
         force,
-        refused_exit_code=EXIT_REFUSED,
-        on_refusal=lambda: _print_ops(refused, as_json=as_json, verb='would stop'),
+        on_refusal=lambda: _print_ops(refused, as_json=as_json, verb='would stop', count=len(refused)),
     )
     pruned = ServicePlan.model_validate(post_request('/api/service/prune', body))
     _print_ops(pruned.ops, as_json=as_json, verb='stopped')
@@ -696,7 +699,9 @@ def _print_plan(plan: ServicePlan, *, as_json: bool, applied: bool = False) -> N
     print(f'Plan: {counts}')
 
 
-def _print_ops(ops: list[ServiceChangeOp], *, as_json: bool, verb: str) -> None:
+def _print_ops(ops: list[ServiceChangeOp], *, as_json: bool, verb: str, count: int | None = None) -> None:
+    """Print each op, then the count of the services the verb names: by default the applied ones, or `count` for a
+    plan that applies none."""
     if as_json:
         print(json.dumps([op.model_dump(mode='json') for op in ops], indent=2))
         return
@@ -708,4 +713,5 @@ def _print_ops(ops: list[ServiceChangeOp], *, as_json: bool, verb: str) -> None:
             suffix += f'  {reason}'
         print(f'{op.name:<24s} {op.status or verb}{suffix}')
     print()
-    print(f'{verb}: {sum(1 for op in ops if op.status == "applied")} service(s)')
+    applied = sum(1 for op in ops if op.status == 'applied') if count is None else count
+    print(f'{verb}: {applied} service(s)')

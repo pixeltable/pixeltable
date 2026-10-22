@@ -300,7 +300,7 @@ class ServiceChangeOp(ChangeOp):
         )
 
     @classmethod
-    def delete_service(cls, name: str, endpoint: str | None, status: OpStatus) -> ServiceChangeOp:
+    def delete_service(cls, name: str, endpoint: str | None, status: OpStatus | None) -> ServiceChangeOp:
         served = '' if endpoint is None else f' at {endpoint}'
         return cls(
             target='service',

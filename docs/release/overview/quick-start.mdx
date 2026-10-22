@@ -1,42 +1,50 @@
 ---
 title: 'Quickstart'
-description: 'Install, write one application file, create tables, POST an insert'
+description: 'From an empty folder to a POST that returns computed columns, with one Python file.'
 ---
 
-Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoints live in one file. When you insert a row, computed columns run automatically.
-
-## Install
-
-<Tabs>
-  <Tab title="venv">
-    ```bash
-    python -m venv .venv
-    source .venv/bin/activate   # Windows: .venv\Scripts\activate
-    pip install 'pixeltable[serve]'
-    ```
-  </Tab>
-  <Tab title="uv">
-    ```bash
-    uv venv --python 3.12
-    source .venv/bin/activate   # Windows: .venv\Scripts\activate
-    uv pip install 'pixeltable[serve]'
-    ```
-  </Tab>
-</Tabs>
-
-`[serve]` pulls in FastAPI and uvicorn, which `pxt service` needs. Skip `[serve]` and `pxt service update` if you insert from Python; `pip install pixeltable` is enough. `pxt schema example --brief` writes models only. [Self-hosting](/howto/deployment/overview).
-
-## Write the file, create tables, start the endpoints
+You'll install Pixeltable, write one file, create its table, start its service and POST a row. The example calls no model, so you need no API key and no account. You need Python 3.11 or later, on Linux, macOS or Windows.
 
 <Steps>
-  <Step title="Write the file">
-    `pxt service example` writes a working application file: models and a `FastAPIRouter` in one place.
+  <Step title="Install Pixeltable">
+    Make a folder for the project, with a virtual environment in it:
 
+    <Tabs>
+      <Tab title="venv">
+        ```bash
+        mkdir my-app
+        cd my-app
+        python -m venv .venv
+        source .venv/bin/activate   # Windows: .venv\Scripts\activate
+        pip install 'pixeltable[serve]'
+        ```
+      </Tab>
+      <Tab title="uv">
+        ```bash
+        mkdir my-app
+        cd my-app
+        uv venv --python 3.12
+        source .venv/bin/activate   # Windows: .venv\Scripts\activate
+        uv pip install 'pixeltable[serve]'
+        ```
+      </Tab>
+    </Tabs>
+
+    The package installs the `pxt` command. The `[serve]` extra adds FastAPI and uvicorn, which `pxt service` uses to serve your routes. If you only plan to insert from Python, `pip install pixeltable` is enough and you can skip the service steps below.
+  </Step>
+  <Step title="Make the folder a project">
+    ```bash
+    pxt init
+    ```
+
+    This writes `pixeltable.toml`, which makes `my-app` the project root. Pixeltable records each function you write for your columns by its module path from that root, `app.excerpt` for the one in the next step, so it can import the function again when it computes your columns.
+  </Step>
+  <Step title="Write app.py">
     ```bash
     pxt service example --out app.py
     ```
 
-    `pxt service example` writes this application file.
+    That writes a working app. Without its comments, it's this:
 
     ```python
     import pixeltable as pxt
@@ -52,10 +60,10 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
 
 
     class Docs(TableModel, name='docs'):
-        id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)  # a generated key: provided automatically on insert
+        id = pxt.Column(value=pxtf.uuid.uuid7(), primary_key=True)
         title: pxt.String
         body: pxt.String | None
-        title_upper = pxtf.string.upper(title)      # an assignment: computed on insert and on update
+        title_upper = pxtf.string.upper(title)
         summary = excerpt(title)
 
 
@@ -63,101 +71,117 @@ Python 3.11+ on Linux, macOS, or Windows. Tables, computed columns, and endpoint
     ingest.add_insert_route(
         Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.id, Docs.title_upper, Docs.summary]
     )
-    ingest.add_update_route(  # POST /docs/update takes id plus the new values
-        Docs, path='/docs/update', inputs=[Docs.title], outputs=[Docs.id, Docs.title_upper]
-    )
+    ingest.add_update_route(Docs, path='/docs/update', inputs=[Docs.title], outputs=[Docs.id, Docs.title_upper])
     ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
     ```
 
-    `title: pxt.String` is a value you insert. `title_upper = ...` is computed on insert and on update. `id` is a `uuid7()` primary key: filled on insert, required for `pxt get` and the errors view. The same file can hold `pxt.Image`, `pxt.Video`, `pxt.Audio`, or `pxt.Document`: [media pipelines](/use-cases/media-processing), [RAG](/use-cases/multimodal-backend).
+    `Docs` is a table named `docs`. A line with a colon is a column you insert: every row needs a `title`, and `body` can be left out because its type allows `None`. A line with `=` is a computed column. Pixeltable fills in `title_upper` and `summary` on every insert, and again when an update changes `title`. `summary` calls `excerpt()`, an ordinary Python function that `@pxt.udf` lets a column call. `id` is a key Pixeltable generates on insert, and the update route uses it to find the row.
+
+    `ingest` is a service with three routes over `Docs`. `POST /docs` inserts a row and returns its key and computed columns. `POST /docs/update` changes a row's title. `POST /titles` computes `title_upper` for a title and stores nothing.
   </Step>
-  <Step title="Create tables, then start the endpoints">
+  <Step title="Create the table">
     ```bash
-    pxt init
+    pxt schema update app.py my_app
+    ```
+
+    ```text
+    created   my_app/docs
+    ```
+
+    `my_app`, the last argument, is a catalog directory, and `pxt schema update` creates it along with the `docs` table. It isn't a folder on disk.
+
+    The first `pxt` command that needs the catalog starts the Pixeltable daemon, a background process that runs the local database. It keeps running after you close the terminal, and it reads your environment once, when it starts: export API keys before your first `pxt` command, or run `pxt daemon restart` after. The data lives in Pixeltable's home directory, outside `my-app`. [Infrastructure](/howto/deployment/infrastructure) has the layout.
+  </Step>
+  <Step title="Start the service">
+    ```bash
+    pxt service update app.py my_app
+    ```
+
+    It asks before it starts anything. Type `y`:
+
+    ```text
+    start or restart 1 service(s)? [y/N] y
+    + ingest                   applied  http://127.0.0.1:54140
+        route 'POST /docs' will be added  [additive]
+        route 'POST /docs/update' will be added  [additive]
+        route 'POST /titles' will be added  [additive]
+
+    Plan: 1 start, 0 restart, 0 unchanged, 0 extra
+    ```
+
+    The service runs in the background, on a port Pixeltable picks: `54140` here, something else for you. `pxt service list` prints the URL and the routes again whenever you need them. In a script or in CI, where nothing can answer the prompt, add `-f`.
+  </Step>
+  <Step title="POST a row">
+    Use your port in place of `54140`:
+
+    ```bash
+    curl -X POST http://127.0.0.1:54140/docs \
+      -H 'Content-Type: application/json' \
+      -d '{"title": "Hello", "body": "world"}'
+    ```
+
+    ```json
+    {"id":"01a161d3-f18e-74e7-94a0-75bddaea7f0a","title_upper":"HELLO","summary":"Hello"}
+    ```
+
+    You sent `title` and `body`. Before it answered, Pixeltable stored the row, generated its `id`, and computed `title_upper` and `summary`. `pxt rows my_app/docs` shows the row, `pxt dashboard` opens a local UI over the catalog, and in Python `pxt.get_table('my_app.docs').collect()` returns it.
+  </Step>
+  <Step title="Change a column">
+    This is the loop you'll repeat most. In `app.py`, cut the excerpt at 3 characters:
+
+    ```python
+    class Docs(TableModel, name='docs'):
+        ...
+        summary = excerpt(title, n=3)
+    ```
+
+    See what that changes:
+
+    ```bash
+    pxt schema diff app.py my_app
+    ```
+
+    ```text
+    ~ my_app/docs              update
+        ~ the value expression of computed column 'summary' will be updated; existing values will not be recomputed  safe
+
+    Plan: 0 create, 1 update, 0 unchanged, 0 extra  |  0 destructive
+    ```
+
+    `pxt schema update` changes the table, and `pxt service update` restarts the service so it picks up the new definition. Until you restart it, the service answers inserts with HTTP 409.
+
+    ```bash
     pxt schema update app.py my_app
     pxt service update app.py my_app
     ```
 
-    `pxt init` marks this directory as a project root. `pxt schema update` errors if you have not run it in this directory or a parent. `my_app`, the last argument, is a catalog inside Pixeltable, not a folder beside `app.py`. `pxt schema update` creates that catalog and its tables. It does not start the endpoints. Run it before `pxt service update`, which starts the endpoints and does not create tables.
-  </Step>
-  <Step title="Insert a row">
-    Send a row with HTTP POST. Pixeltable computes `title_upper` during that insert. `pxt service list` prints the URL (the port is assigned):
+    New rows get the 3-character excerpt, like `Wor...` for `World`. The `Hello` row keeps its old one until you recompute it:
 
     ```bash
-    pxt service list
-    # my_app/ingest  http://127.0.0.1:<port>  pid 12345  app.py
-    curl -X POST http://127.0.0.1:<port>/docs \
-      -H 'Content-Type: application/json' \
-      -d '{"title": "Hello", "body": "world"}'
+    pxt recompute my_app/docs summary
     ```
+
+    That reruns `summary` on every existing row, along with anything computed from it, and leaves the other columns alone. It asks before it starts, since on a column that calls a model, a recompute costs real money.
+  </Step>
+  <Step title="Stop when you're done">
+    ```bash
+    pxt service stop my_app/ingest
+    pxt daemon stop
+    ```
+
+    The first command stops the service, and the second stops the daemon. The table and its rows stay. `pxt service update app.py my_app` starts the service again, on a new port.
   </Step>
 </Steps>
 
-## The CLI
-
-`pxt` ships with the package. The first `pxt schema` or `pxt service` command starts a background process on `127.0.0.1:22089`, and that process keeps running after you close the terminal. `pxt health` confirms it.
-
-| Command | What it does |
-|---|---|
-| `pxt init` | Mark this directory as a project root |
-| `pxt service example --out app.py` | Write a working file: models plus routes |
-| `pxt schema example --out app.py` | Schema only. `--brief` writes a small set of classes; without it, every DSL construct |
-| `pxt schema update FILE my_app` | Create and migrate the tables `FILE` declares under last argument `my_app` |
-| `pxt service update FILE my_app` | Start the services `FILE` declares against those tables |
-| `pxt service list` | What is running, and the URL |
-| `pxt ls my_app` | Tables under the namespace |
-| `pxt rows my_app/docs` | Peek stored cells |
-| `pxt dashboard` | Local UI on the background process |
-
-`pxt schema` and `pxt service` both have `diff`, `update`, and `prune` subcommands. Full flags: [CLI](/platform/cli).
-
-Tables live under `~/.pixeltable` (`pgdata`, `media`, `file_cache`). That path is not the project directory. Project layout and `pixeltable.toml`: [Infrastructure](/howto/deployment/infrastructure).
-
-## Same file, other first runs
-
-<Tabs>
-  <Tab title="Cloud">
-    To run this same file on Pixeltable Cloud, sign in with `pxt login`, or set `PIXELTABLE_API_KEY`. The environment variable, or `api_key` in the config file, takes precedence over a `pxt login` session. `pxt org create` provisions `main`. Add this entry to the project file before `pxt db update`. Without it, the command errors. `pxt db update` uploads the project onto that database. `pxt schema update` creates tables. `pxt service update` starts hosted endpoints. Try changes by inserting from the [Cloud dashboard](https://www.pixeltable.com/dashboard) and running `pxt schema diff`.
-
-    ```toml
-    [[pixeltable.database]]
-    name = 'pxt://org:main'
-    ```
-
-    ```bash
-    pxt db update pxt://org:main
-    pxt schema update app.py pxt://org:main
-    pxt service update app.py pxt://org:main
-    ```
-
-    [Pixeltable Cloud](/cloud).
-  </Tab>
-  <Tab title="Starter kit">
-    [`uvx pixeltable-new`](https://github.com/pixeltable/pixeltable-new) copies a full app. The default copied app uses namespace `agent` as the last argument to `pxt schema update`. `--video` copies video search and uses `videointel`.
-
-    ```bash
-    uvx pixeltable-new myapp
-    cd myapp
-    uv sync
-    pxt schema update app.py agent
-    pxt service update app.py agent
-    ```
-
-    [Starter kit](/resources/starter-kit).
-  </Tab>
-</Tabs>
-
-<Note>
-This quickstart uses a `TableModel` in `app.py` and creates the tables with `pxt schema update`. Notebooks and tests can still call `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`. The skill writes that `TableModel`. If the agent writes `create_table` in app code, names the file `schema.py`, or writes the removed command `pxt serve`, the installed skill is stale: this page wins. Reinstall: `npx skills add pixeltable/pixeltable-skill`, or `pxt skills install -f`.
-</Note>
-
 ## Next
+
+You now have the whole loop: edit `app.py`, run `pxt schema update`, then `pxt service update`. The README's [video example](https://github.com/pixeltable/pixeltable#what-it-looks-like) is the same pattern with model calls: a video column, then columns for its audio, transcript and summary. To call a real model, add a column like the ones in [RAG and live APIs](/use-cases/multimodal-backend) or [Media pipelines](/use-cases/media-processing). For complete apps, browse [awesome-pixeltable-apps](https://github.com/pierrebrunelle/awesome-pixeltable-apps).
 
 <CardGroup cols={2}>
   <Card title="How it works" icon="layer-group" href="/overview/how-it-works">
-    What `pxt schema` and `pxt service` do, including `diff`, `update`, and `prune`.
+    What each line of `app.py` means, and what `diff`, `update` and `prune` do with it.
   </Card>
-  <Card title="Cloud" icon="cloud" href="/cloud">
-    The same `app.py`. `pxt db update`, then `pxt schema update` and `pxt service update` against `pxt://org:main`.
+  <Card title="Pixeltable Cloud" icon="cloud" href="/cloud">
+    The same `app.py` on a hosted database, from `pxt login` to a running service.
   </Card>
 </CardGroup>

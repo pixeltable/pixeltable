@@ -204,7 +204,7 @@ def query(
 
 
 def query(*args: Any, **kwargs: Any) -> Any:
-    """Decorator that turns a function returning a parameterized query into a function that runs the query.
+    """Turn a function that returns a parameterized query into a function that runs the query.
 
     The decorated function builds the query from its parameters. A call to the resulting function in an expression,
     such as a computed column, runs the query for each row, with that row's values as the arguments.
