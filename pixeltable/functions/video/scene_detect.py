@@ -77,7 +77,8 @@ def scene_detect_adaptive(
         - `duration` (float): The duration of the scene in seconds.
 
         The scenes are ordered chronologically and cover the whole video: each scene ends where the next one
-        starts, and the last scene ends at the end of the video.
+        starts, and the last scene ends at the end of the video. If the file records neither frame durations nor
+        a stream duration, the end of the video is estimated from its frame rate.
 
     Examples:
         Detect scene cuts with default parameters:
@@ -179,7 +180,8 @@ def scene_detect_content(
         - `duration` (float): The duration of the scene in seconds.
 
         The scenes are ordered chronologically and cover the whole video: each scene ends where the next one
-        starts, and the last scene ends at the end of the video.
+        starts, and the last scene ends at the end of the video. If the file records neither frame durations nor
+        a stream duration, the end of the video is estimated from its frame rate.
 
     Examples:
         Detect scene cuts with default parameters:
@@ -281,7 +283,8 @@ def scene_detect_threshold(
         - `duration` (float): The duration of the scene in seconds.
 
         The scenes are ordered chronologically and cover the whole video: each scene ends where the next one
-        starts, and the last scene ends at the end of the video.
+        starts, and the last scene ends at the end of the video. If the file records neither frame durations nor
+        a stream duration, the end of the video is estimated from its frame rate.
 
     Examples:
         Detect fade-to-black transitions with default parameters:
@@ -365,7 +368,8 @@ def scene_detect_histogram(
         - `duration` (float): The duration of the scene in seconds.
 
         The scenes are ordered chronologically and cover the whole video: each scene ends where the next one
-        starts, and the last scene ends at the end of the video.
+        starts, and the last scene ends at the end of the video. If the file records neither frame durations nor
+        a stream duration, the end of the video is estimated from its frame rate.
 
     Examples:
         Detect scene cuts with default parameters:
@@ -449,7 +453,8 @@ def scene_detect_hash(
         - `duration` (float): The duration of the scene in seconds.
 
         The scenes are ordered chronologically and cover the whole video: each scene ends where the next one
-        starts, and the last scene ends at the end of the video.
+        starts, and the last scene ends at the end of the video. If the file records neither frame durations nor
+        a stream duration, the end of the video is estimated from its frame rate.
 
     Examples:
         Detect scene cuts with default parameters:
