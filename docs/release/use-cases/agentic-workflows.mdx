@@ -61,8 +61,18 @@ tools = pxt.tools(pxtf.parallel.search, pxtf.parallel.fetch)
 
 The built-in [Parallel UDFs](/sdk/latest/parallel) use [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp).
 Search uses Fast mode without an account or API key. Set `PARALLEL_API_KEY` to use an existing account's limits.
-Only tools in the application's list are available to the model. The model supplies a tool's arguments, so a
-conversation ID reaches the service only on a direct call, where a column supplies it:
+Only tools in the application's list are available to the model. The model supplies a tool's arguments, including
+`session_id`, which Parallel uses as its free-tier rate-limit key and logs. A value over 100 characters fails the
+row. Either let the model group its own calls, or bind the argument so it never reaches the tool list:
+
+```python
+tools = pxt.tools(
+    pxt.tool(pxtf.parallel.search.using(session_id=None), name='search'),
+    pxt.tool(pxtf.parallel.fetch.using(session_id=None), name='fetch'),
+)
+```
+
+`None` sends no ID. A direct call takes the ID from a column:
 
 ```python
 class Research(TableModel, name='research'):

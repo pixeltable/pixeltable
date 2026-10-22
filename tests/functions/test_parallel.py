@@ -152,6 +152,8 @@ def test_tool_dispatch_and_choices(uses_db: None, mcp_server: _McpServer) -> Non
     # Scripted model responses exercise the production dispatcher without an inference API call.
     tools = pxt.tools(parallel.search, parallel.fetch)
     assert tools.choice(tool='fetch').tool == 'fetch'
+    # a published tool exposes every parameter, session_id included, so the model can group its own calls
+    assert 'session_id' in tools.ser_model()[0]['parameters']['properties']
     t = pxt.create_table('parallel_test', {'response': pxt.Json})
     t.add_computed_column(output=openai.invoke_tools(tools, t.response))
     restricted = pxt.tools(parallel.fetch)
@@ -181,6 +183,18 @@ def test_tool_dispatch_and_choices(uses_db: None, mcp_server: _McpServer) -> Non
     t.insert(response={'choices': [{'message': {'content': 'No tool requested.'}}]})
     assert len(mcp_server.calls) == 1
     assert t.collect()[0]['restricted'] == {'fetch': None}
+
+
+def test_tools_without_session_id(uses_db: None, mcp_server: _McpServer) -> None:
+    # binding the parameter keeps the conversation ID with the application, as the agentic-workflows page shows
+    tools = pxt.tools(pxt.tool(parallel.search.using(session_id=None), name='search'))
+    assert 'session_id' not in tools.ser_model()[0]['parameters']['properties']
+    t = pxt.create_table('parallel_test', {'response': pxt.Json})
+    t.add_computed_column(output=openai.invoke_tools(tools, t.response))
+    call = {'function': {'name': 'search', 'arguments': json.dumps({'query': 'current Pixeltable release'})}}
+    t.insert(response={'choices': [{'message': {'tool_calls': [call]}}]})
+    assert t.collect()[0]['output'] == {'search': [_SEARCH_RESPONSE]}
+    assert 'session_id' not in mcp_server.calls[0]['arguments']
 
 
 def test_bound_conversation_tools(uses_db: None, mcp_server: _McpServer) -> None:

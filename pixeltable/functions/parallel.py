@@ -8,11 +8,12 @@ back to anonymous requests.
 
 These UDFs run only when called. Include them explicitly in `pxt.tools()` to let a model use them. Pass a
 `session_id` to group the calls a conversation makes; Pixeltable does not infer conversation boundaries from rows
-or keep a shared conversation ID.
+or keep a shared conversation ID. A published tool exposes `session_id` like any other parameter, so a model can
+set it; bind it with `.using(session_id=...)` to keep the ID under the application's control.
 """
 
 import json
-from typing import Any, TypedDict, cast
+from typing import Any, NotRequired, TypedDict, cast
 from urllib.parse import urlsplit
 
 import pixeltable as pxt
