@@ -18,6 +18,9 @@ If a sentence does not change what the reader types, runs, or gets on insert, it
 2. **Distinctness.** A short definition only when the reader must not mix two things up (annotation vs assignment; `schema update` vs `service update`).
 3. **Effects.** What happens when you act. `pxt schema update` creates tables. It does not start HTTP.
 
+State a negation only where readers really mix two things up, and once per page. A run of "X does A. It does not B."
+sentences, or a chain of one-line definitions with no reason, reads machine-written.
+
 Do not define a thing as a mysterious entity and then add effects. If we know the effects, that is the whole idea.
 
 ## One name per idea
@@ -35,6 +38,8 @@ If two phrases produce the same practice, they are the same belief. Keep one.
 | `pxt schema update` | Creates tables. Does not start HTTP |
 | `pxt service update` | Starts HTTP. Does not create tables |
 | `pxt db update` | Hosted database only: image, secrets, capacity. Does not insert rows or start app HTTP |
+| Change a computed column | `pxt schema update`, then `pxt service update`, then `pxt recompute` for existing rows |
+| The background process that runs the local database | daemon (`pxt daemon`) |
 
 On user-facing pages the **command is the subject**. Declare / Experiment / Serve / Pack are an internal map only. Never write "It is not Experiment." Never write "Pack, declare, then serve." "Apply" is not a command: write `pxt schema update`. "TARGET" is a CLI metavar: on first-run pages say "last argument" (`my_app`, `agent`, or `pxt://org:db`). Do not write "an application's contract."
 
@@ -78,8 +83,16 @@ One next action, or a fork with distinct effects (local HTTP vs `pxt://`). Do no
 
 Prefer Mintlify components over a mermaid flowchart for three layers: `Columns` of `Card`s, `FileTree`, `Steps`, `Tabs`, `AccordionGroup`. Use mermaid only when the edges themselves are the idea.
 
+## Test what you print
+
+Every command, flag, output sample and behavior claim on a page comes from a run against the current PyPI release.
+When a step can't run (no API key, no Cloud account), say so in the PR. Counts match their lists: "four systems"
+next to a list of five is a defect.
+
 ## Standing bans
 
 - No em dashes (U+2014). Use a period, a colon, or a comma. Empty placeholders use ASCII `-`. This applies to MDX, notebooks, READMEs, the site, the skill, and the kit.
 - No Convex product nouns.
+- No emoji headings, `**Bold lead** - claim` bullet walls, slogan triplets, "not just X, it's Y", or adjective stacks
+  (seamless, powerful, comprehensive).
 - Pixeltable words: `TableModel`, catalog, same file. Name the command, not Declare / Experiment / Serve / Pack.
