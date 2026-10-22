@@ -359,6 +359,10 @@ class RequestFailedError(Exception):
     status: int | None
     retryable: bool | None
     server_tb: str | None
+    # the daemon's error_code; without one, DAEMON_UNREACHABLE when no daemon answered, HTTP_<status> for a 4xx from its
+    # HTTP layer, and INTERNAL_ERROR otherwise
+    error_code: str
+    detail: str  # the reason, without the status
     as_written: bool  # the message is the control plane's reason, printed without a prefix
 
     def __init__(
@@ -367,27 +371,60 @@ class RequestFailedError(Exception):
         status: int | None = None,
         retryable: bool | None = None,
         server_tb: str | None = None,
+        *,
+        error_code: str = 'INTERNAL_ERROR',
+        detail: str | None = None,
         as_written: bool = False,
     ) -> None:
         super().__init__(message)
         self.status = status
         self.retryable = retryable
         self.server_tb = server_tb
+        self.error_code = error_code
+        self.detail = detail or message
         self.as_written = as_written
+
+    @classmethod
+    def from_response(cls, e: urllib.error.HTTPError) -> 'RequestFailedError':
+        """The error for a daemon's error response, from the fields of its JSON body."""
+        try:
+            parsed = json.loads(e.read() or b'null')
+        except ValueError:
+            parsed = None
+        body = parsed if isinstance(parsed, dict) else {}
+        detail = str(body.get('detail') or e.reason)
+        retryable = body.get('retryable')
+        error_code = body.get('error_code')
+        if not isinstance(error_code, str):
+            # the daemon's HTTP layer answers an unknown route, a refused host or an oversized body with no code
+            error_code = 'INTERNAL_ERROR' if e.code >= 500 else f'HTTP_{e.code}'
+        # a refusal only the user can lift: its reason is printed as the control plane wrote it
+        as_written = error_code in USER_ACTION_CODES
+        return cls(
+            detail if as_written else f'{e.code} {detail}',
+            e.code,
+            retryable=retryable if isinstance(retryable, bool) else None,
+            server_tb=body.get('traceback'),
+            error_code=error_code,
+            detail=detail,
+            as_written=as_written,
+        )
 
     @property
     def transient(self) -> bool:
         """Whether resending the request may succeed.
 
-        True if the daemon was unreachable, or reported the error retryable; an unexpected daemon error carries no
-        such flag, and counts as transient when its status is a server error.
+        The daemon's retryable flag when it gave one; otherwise True when no response came back, or for a server error.
         """
-        if self.status is None:
-            return True
-        return self.retryable if self.retryable is not None else self.status >= 500
+        if self.retryable is not None:
+            return self.retryable
+        return self.status is None or self.status >= 500
 
     def report(self) -> None:
-        print(str(self) if self.as_written else f'pxt: {self}', file=sys.stderr)
+        if json_requested():
+            print_error_document(self.error_code, self.detail, retryable=self.transient)
+            sys.stdout.flush()
+        print(str(self) if self.as_written else f'pxt: {self} [{self.error_code}]', file=sys.stderr)
         if self.server_tb is not None:
             # an unexpected daemon failure carries its traceback; show it so the user can report the error
             print(f'\n--- daemon traceback ---\n{self.server_tb}', file=sys.stderr)
@@ -409,8 +446,8 @@ def _send(method: str, path: str, body: dict[str, Any] | None, params: dict[str,
     try:
         base = ensure_running()
     except RuntimeError as e:
-        print(f'pxt: {e}', file=sys.stderr)
-        sys.exit(1)
+        # resending cannot start a daemon that just failed to
+        raise RequestFailedError(str(e), retryable=False, error_code='DAEMON_UNREACHABLE') from e
 
     url = f'{base}{path}'
     if params is not None:
@@ -433,30 +470,18 @@ def _send(method: str, path: str, body: dict[str, Any] | None, params: dict[str,
         with urllib.request.urlopen(req) as r:
             return json.loads(r.read() or b'null')
     except urllib.error.HTTPError as e:
-        try:
-            parsed = json.loads(e.read() or b'null')
-            body = parsed if isinstance(parsed, dict) else {}
-        except ValueError:
-            body = {}
-        detail = body.get('detail') or e.reason
-        retryable = body.get('retryable')
-        # a refusal only the user can lift: its reason is printed as the control plane wrote it
-        as_written = body.get('error_code') in USER_ACTION_CODES
-        raise RequestFailedError(
-            detail if as_written else f'{e.code} {detail}',
-            e.code,
-            retryable=retryable if isinstance(retryable, bool) else None,
-            server_tb=body.get('traceback'),
-            as_written=as_written,
-        ) from e
+        raise RequestFailedError.from_response(e) from e
     except urllib.error.URLError as e:
-        raise RequestFailedError(f'cannot reach daemon at {url}: {e.reason}') from e
+        raise RequestFailedError(f'cannot reach daemon at {url}: {e.reason}', error_code='DAEMON_UNREACHABLE') from e
     except http.client.HTTPException as e:
         # a truncated or malformed response, eg. the daemon writing headers and then dropping the connection
         raise RequestFailedError(f'bad response from daemon at {url}: {type(e).__name__}: {e}') from e
 
 
-def get_request(path: str, params: dict[str, Any] | None = None) -> Any:
+def get_request(path: str, params: dict[str, Any] | None = None, *, raise_on_error: bool = False) -> Any:
+    """GET path from the daemon and return its response; on an error, exit 1 unless raise_on_error is set."""
+    if raise_on_error:
+        return _send('GET', path, None, params)
     return _request('GET', path, params=params)
 
 

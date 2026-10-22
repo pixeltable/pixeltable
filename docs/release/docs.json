@@ -328,6 +328,12 @@
             ]
           },
           {
+            "group": "Observability",
+            "pages": [
+              "integrations/langfuse"
+            ]
+          },
+          {
             "group": "Infrastructure",
             "pages": [
               "integrations/cloud-storage"

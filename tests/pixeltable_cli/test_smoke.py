@@ -4,7 +4,9 @@ Each class focuses on one cli command. Methods bundle related scenarios so a sin
 table can serve multiple assertions (JSON + text + flag variants) without re-creating it.
 """
 
+import http.client
 import importlib.metadata
+import io
 import json
 import os
 import pathlib
@@ -13,6 +15,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from email.message import Message
 from textwrap import dedent
 from typing import Any, Callable
 
@@ -109,6 +112,103 @@ class TestDbRetryDeletion:
         code, _, err = self._run(monkeypatch, receipt, capsys)
         assert code == 1
         assert 'failed: the tenant role is still in use' in err
+        assert f'next: pxt db retry {self._URI}  # tries it again as it is' in err
+
+
+class TestErrorCode:
+    def test_daemon_error(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        """A daemon error keeps its error_code: at the end of the text line, and in the --json document."""
+        missing = db_root.make_catalog_path('cli_code_missing/t')
+        r = cli('count', missing, check=False)
+        assert r.returncode == 1
+        assert r.stdout == ''
+        assert r.stderr.rstrip().endswith('[DIRECTORY_NOT_FOUND]'), r.stderr
+
+        r = cli('count', missing, '--json', check=False)
+        assert r.returncode == 1
+        assert r.json['error_code'] == 'DIRECTORY_NOT_FOUND'
+        assert r.json['retryable'] is False
+        assert 'cli_code_missing' in r.json['message']
+
+
+@pytest.mark.db_roots('local', reason='the daemon is faked; no request leaves the process')
+class TestRequestFailures:
+    """A failed request names its cause in error_code, in text and in the --json document."""
+
+    _URL = 'http://127.0.0.1:1/api/ls'
+
+    @pytest.mark.parametrize(
+        ('failure', 'error_code', 'retryable'),
+        [
+            (urllib.error.URLError('Connection refused'), 'DAEMON_UNREACHABLE', True),
+            (
+                urllib.error.HTTPError(_URL, 500, 'Internal Server Error', Message(), io.BytesIO(b'not json')),
+                'INTERNAL_ERROR',
+                True,
+            ),
+            (
+                urllib.error.HTTPError(_URL, 404, 'Not Found', Message(), io.BytesIO(b'{"detail": "not found"}')),
+                'HTTP_404',
+                False,
+            ),
+            (http.client.RemoteDisconnected('closed'), 'INTERNAL_ERROR', True),
+            # the daemon did not start, so resending cannot help
+            (RuntimeError('the daemon did not start'), 'DAEMON_UNREACHABLE', False),
+        ],
+    )
+    def test_error_code(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        failure: Exception,
+        error_code: str,
+        retryable: bool,
+    ) -> None:
+        def fail(*args: Any, **kwargs: Any) -> Any:
+            raise failure
+
+        if isinstance(failure, RuntimeError):
+            monkeypatch.setattr(utils, 'ensure_running', fail)
+        else:
+            monkeypatch.setattr(utils, 'ensure_running', lambda: 'http://127.0.0.1:1')
+            monkeypatch.setattr(urllib.request, 'urlopen', fail)
+        monkeypatch.setattr(utils, 'invocation', ['ls', '--json'])
+        with pytest.raises(SystemExit) as exc:
+            utils.get_request('/api/ls')
+        assert exc.value.code == 1
+        out, err = capsys.readouterr()
+        assert err.rstrip().endswith(f'[{error_code}]'), err
+        doc = json.loads(out)
+        assert (doc['error_code'], doc['retryable']) == (error_code, retryable)
+
+
+@pytest.mark.db_roots('local', reason='prints only; no request is sent')
+class TestNoWait:
+    def test_names_the_status_command_in_any_mode(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--no-wait names `pxt db status` on stderr, with --json too, where stdout holds only the document."""
+        receipt = GenerationReceipt(kind='database', resource_id='db-uuid', generation=4, db='main')
+        accepted = {'receipt': receipt.model_dump(mode='json'), 'report': {'db': 'main'}, 'worker_status': []}
+        monkeypatch.setattr(db_cmd, 'post_request', lambda path, body, **kwargs: accepted)
+        db_cmd.run(['restart', 'pxt://acme:main', '--no-wait', '--json'])
+        out, err = capsys.readouterr()
+        assert json.loads(out) == {'db': 'main'}
+        assert err == 'next: pxt db status pxt://acme:main  # shows its progress\n'
+
+
+@pytest.mark.db_roots('local', reason='parses arguments only; no request is sent')
+class TestDbUsage:
+    @pytest.mark.parametrize(
+        'argv',
+        [['frobnicate'], ['diff', 'my_dir'], ['status', 'pxt://acme'], ['update', 'pxt://acme:main', '--nope'], []],
+    )
+    def test_usage_exits_1(self, argv: list[str], capsys: pytest.CaptureFixture[str]) -> None:
+        """A usage error exits 1, since 2 means changes pending (diff) or a change still under way (the waits)."""
+        with pytest.raises(SystemExit) as exc:
+            db_cmd.run(argv)
+        assert exc.value.code == 1
+        assert 'error' in capsys.readouterr().err
 
 
 @pytest.mark.db_roots('local', reason='the daemon is faked, so no catalog is reached')
@@ -1501,13 +1601,18 @@ class TestPathValidator:
         assert 'empty components' in r.stderr
 
     @pytest.mark.parametrize(
-        'argv',
-        [('db', 'diff', 'pxt://acme:main/'), ('org', 'status', 'pxt://acme/'), ('secret', 'list', 'pxt://acme:main/')],
+        ('argv', 'exit_code'),
+        [
+            # pxt db exits 1 on a usage error, since 2 means changes pending
+            (('db', 'diff', 'pxt://acme:main/'), 1),
+            (('org', 'status', 'pxt://acme/'), 2),
+            (('secret', 'list', 'pxt://acme:main/'), 2),
+        ],
     )
-    def test_hosted_uri_rejects_trailing_slash(self, cli: PxtRunner, argv: tuple[str, ...]) -> None:
+    def test_hosted_uri_rejects_trailing_slash(self, cli: PxtRunner, argv: tuple[str, ...], exit_code: int) -> None:
         """A database or organization URI has no path, so a trailing '/' is refused before any request."""
         r = cli(*argv, check=False)
-        assert r.returncode == 2
+        assert r.returncode == exit_code
         assert 'URI must be' in r.stderr
 
     def test_path_commands_reject_bad_shape(self, cli: PxtRunner) -> None:

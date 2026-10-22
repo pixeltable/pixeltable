@@ -24,19 +24,23 @@ from ..hosted import (
     spinner,
 )
 from ..parser import Parser
+from ..project_config import add_database_entry
 from ..utils import (
     EXIT_CHANGES_PENDING,
+    EXIT_ERROR,
     EXIT_IN_AGREEMENT,
     confirm_or_exit,
     get_request,
     post_request,
     print_json_schema,
+    print_next,
     refuse_destructive,
 )
 
 EPILOG = """\
 Examples:
   pxt db diff pxt://org:db     # what update would change; exit 2 if anything is pending
+  pxt db diff pxt://org:db --add-config-entry   # first append the database's entry to the project configuration
   pxt db diff --json-schema    # the schema of the --json output, on its own
   pxt db update pxt://org:db   # apply it: the artifacts, then capacity
   pxt db update pxt://org:db --no-wait   # submit it and return without waiting
@@ -57,6 +61,8 @@ The uri selects the matching [[pixeltable.database]] entry in the project config
   [[pixeltable.database]]
   name = 'pxt://org:db'      # what 'pxt db update pxt://org:db' looks for
 
+--add-config-entry on diff or update appends this entry to the project configuration, unless it is
+already there.
 The entry says which of the project's files the database gets (include/exclude), what goes into
 the image (system_dependencies, python_version), and what the database runs on (cpu, memory_mb,
 disk_gb, workers). 'diff' compares the entry against the database; 'update' applies the difference.
@@ -70,8 +76,18 @@ Exit status of diff and update: 0 in agreement, 2 changes pending, 3 refused, 1 
 """
 
 
+class _Parser(Parser):
+    """A usage error exits 1, since 2 means changes pending (diff) or a change still under way (the waits).
+
+    add_subparsers() makes each verb's parser of this class too.
+    """
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, usage_exit_code=EXIT_ERROR, **kwargs)
+
+
 def run(argv: list[str]) -> None:
-    parser = Parser(prog='pxt db', description='manage hosted databases', epilog=EPILOG)
+    parser = _Parser(prog='pxt db', description='manage hosted databases', epilog=EPILOG)
     sub = parser.add_subparsers(dest='action', required=True)
 
     if argv == ['diff', '--json-schema']:
@@ -89,6 +105,13 @@ def run(argv: list[str]) -> None:
         p = sub.add_parser(verb, help=f'{"show" if verb == "diff" else "apply"} what the project defines')
         p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
         p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+        p.add_argument(
+            '--add-config-entry',
+            action='store_true',
+            dest='add_config_entry',
+            help='append a [[pixeltable.database]] entry for the URI to the project configuration, unless it is '
+            'already there',
+        )
         if verb == 'update':
             p.add_argument('-f', '--force', action='store_true', help='skip confirmation')
             p.add_argument('-n', '--dry-run', action='store_true', dest='dry_run')
@@ -207,7 +230,7 @@ def _change_lifecycle(args: argparse.Namespace) -> None:
         print(json.dumps(report))
     else:
         print_db(report, workers)
-        _print_receipts(db_uri, settled, waited=args.wait)
+    _print_receipts(db_uri, settled, waited=args.wait, show=not args.json_output)
     exit_unless_observed(settled, retry_command=f'pxt db retry {db_uri}')
 
 
@@ -217,15 +240,39 @@ def _db_uri(args: argparse.Namespace, prog: str) -> str:
     return f'pxt://{org}:{db}'
 
 
+def _add_config_entry(args: argparse.Namespace, db_uri: str) -> str | None:
+    """Under --add-config-entry, append db_uri's entry to the project configuration, and return the file's path.
+
+    Returns None without --add-config-entry, or when the project configuration already has the entry.
+    """
+    if not args.add_config_entry:
+        return None
+    try:
+        config_file = add_database_entry(db_uri)
+    except RuntimeError as e:
+        print(f'pxt db {args.action}: {e}', file=sys.stderr)
+        sys.exit(EXIT_ERROR)
+    if config_file is None:
+        return None
+    print(f'added {db_uri} to {config_file.name}', file=sys.stderr if args.json_output else sys.stdout)
+    return str(config_file)
+
+
 def _diff(args: argparse.Namespace) -> None:
-    plan = DbPlan.model_validate(post_request('/api/db/diff', {'db_uri': _db_uri(args, 'pxt db diff')}))
+    db_uri = _db_uri(args, 'pxt db diff')
+    entry_added_to = _add_config_entry(args, db_uri)
+    plan = DbPlan.model_validate(post_request('/api/db/diff', {'db_uri': db_uri}))
+    plan.entry_added_to = entry_added_to
     _print_plan(plan, as_json=args.json_output)
     sys.exit(EXIT_IN_AGREEMENT if plan.in_agreement else EXIT_CHANGES_PENDING)
 
 
 def _update(args: argparse.Namespace) -> None:
-    body: dict[str, Any] = {'db_uri': _db_uri(args, 'pxt db update')}
+    db_uri = _db_uri(args, 'pxt db update')
+    entry_added_to = _add_config_entry(args, db_uri)
+    body: dict[str, Any] = {'db_uri': db_uri}
     plan = DbPlan.model_validate(post_request('/api/db/diff', body))
+    plan.entry_added_to = entry_added_to
     if plan.in_agreement:
         _print_plan(plan, as_json=args.json_output)
         sys.exit(EXIT_IN_AGREEMENT)
@@ -261,6 +308,7 @@ def _update(args: argparse.Namespace) -> None:
     }
     with spinner(None if args.json_output else f'Submitting the update of {plan.db_uri} ...'):
         applied = DbPlan.model_validate(post_request('/api/db/update', update))
+    applied.entry_added_to = entry_added_to
     applied.receipts = _await(plan.db_uri, applied.receipts, args)
     if args.wait and all(r.observed for r in applied.receipts):
         for op in applied.ops:
@@ -269,16 +317,20 @@ def _update(args: argparse.Namespace) -> None:
         applied.resolution = 'up_to_date'
         applied.state = (_db_report(plan.db_uri)[0].get('current') or {}).get('state')
     _print_plan(applied, as_json=args.json_output, applied=True)
-    if not args.json_output:
-        _print_receipts(plan.db_uri, applied.receipts, waited=args.wait)
+    _print_receipts(plan.db_uri, applied.receipts, waited=args.wait, show=not args.json_output)
     exit_unless_observed(applied.receipts, retry_command=f'pxt db retry {plan.db_uri}')
 
 
-def _print_receipts(db_uri: str, receipts: list[GenerationReceipt], *, waited: bool) -> None:
-    for receipt in receipts:
-        print_receipt(receipt)
+def _print_receipts(db_uri: str, receipts: list[GenerationReceipt], *, waited: bool, show: bool) -> None:
+    """Prints the receipts if show; under --no-wait, also names the command that follows the change, in any mode."""
+    if show:
+        for receipt in receipts:
+            print_receipt(receipt)
     if not waited and len(receipts) > 0:
-        print(f'\nThe change continues in Pixeltable Cloud; run `pxt db status {db_uri}` to check its progress.')
+        if show:
+            print('\nThe change continues in Pixeltable Cloud.')
+        sys.stdout.flush()
+        print_next(f'pxt db status {db_uri}', 'shows its progress')
 
 
 def _await(db_uri: str, receipts: list[GenerationReceipt], args: argparse.Namespace) -> list[GenerationReceipt]:
@@ -343,7 +395,8 @@ def _delete(args: argparse.Namespace) -> None:
         print(f"Deleted database '{db}'.")
     else:
         print(f"Deleting database '{db}'; its name stays taken until its teardown finishes.")
-        _print_receipts(db_uri, settled, waited=args.wait)
+    if not deleted:
+        _print_receipts(db_uri, settled, waited=args.wait, show=not args.json_output)
 
 
 def _build_image(args: argparse.Namespace) -> None:
@@ -369,4 +422,5 @@ def _build_image(args: argparse.Namespace) -> None:
             statuses.get('image') or '', 'reused the existing image'
         )
         print(f'{db_uri}: {archive}, {image}.')
+    _print_receipts(db_uri, settled, waited=args.wait, show=False)
     exit_unless_observed(settled, retry_command=f'pxt db retry {db_uri}')

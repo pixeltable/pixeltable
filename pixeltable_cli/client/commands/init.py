@@ -3,11 +3,9 @@
 import json
 import pathlib
 import sys
-import tomllib
-
-from pixeltable_cli.utils import PROJECT_CONFIG_FILE, find_project_root
 
 from ..parser import Parser
+from ..project_config import find_project_config, write_project_config
 from ..utils import EXIT_ERROR, EXIT_REFUSED
 
 EPILOG = """\
@@ -23,6 +21,7 @@ What it writes:
 
   vars supply the values of the config vars a schema declares. A hosted database is a second
   entry, identified by its uri, which also records what goes into its image ('pxt db update').
+  'pxt db diff <uri> --add-config-entry' appends that entry.
   In a directory with a pyproject.toml, the same entry is appended there as
   [[tool.pixeltable.database]] rather than writing a second file.
   A directory that already has a project configuration is reported, and left as it is.
@@ -42,23 +41,6 @@ Exit codes:
 # the shared set has no name for this one: init reports whether the directory is a project root
 EXIT_OK = 0
 
-_PYPROJECT = 'pyproject.toml'
-
-# what a fresh project configuration holds: the local database, and the bindings that go on it
-_DATABASE_ENTRY = """\
-{header}
-# The local database. vars supply the values of the config vars a schema declares; a hosted
-# database is a second entry, named by its uri.
-# vars.media_dest = 's3://bucket/prefix'
-"""
-_PROJECT_CONFIG = f"""\
-# Pixeltable project configuration. This file makes its directory the project root, which every
-# local module path is relative to.
-
-{_DATABASE_ENTRY.format(header='[[pixeltable.database]]')}"""
-_PYPROJECT_CONFIG = f"""
-{_DATABASE_ENTRY.format(header='[[tool.pixeltable.database]]')}"""
-
 
 def run(argv: list[str]) -> None:
     ap = Parser(prog='pxt init', epilog=EPILOG, usage_exit_code=EXIT_ERROR)
@@ -67,7 +49,7 @@ def run(argv: list[str]) -> None:
 
     root = pathlib.Path.cwd()
     try:
-        existing = _find_project_config(root)
+        existing = find_project_config(root)
     except RuntimeError as e:
         print(f'pxt init: {e}', file=sys.stderr)
         sys.exit(EXIT_ERROR)
@@ -83,44 +65,12 @@ def run(argv: list[str]) -> None:
         )
         sys.exit(EXIT_REFUSED)
 
-    config_file = _write_project_config(root)
-    _report(root, config_file, created=True, as_json=args.as_json)
-
-
-def _find_project_config(start: pathlib.Path) -> pathlib.Path | None:
-    """The configuration file of the nearest project root at or above start. Returns None if there is none."""
-    root = find_project_root(start)
-    if root is None:
-        return None
-    config_file = root / PROJECT_CONFIG_FILE
-    return config_file if config_file.is_file() else root / _PYPROJECT
-
-
-def _write_project_config(root: pathlib.Path) -> pathlib.Path:
-    """Write the project configuration in root, and return the file holding it."""
-    pyproject = root / _PYPROJECT
     try:
-        if pyproject.is_file():
-            try:
-                with open(pyproject, 'rb') as fp:
-                    tomllib.load(fp)
-            except tomllib.TOMLDecodeError as e:
-                print(
-                    f'pxt init: {pyproject} is not valid TOML, so the project configuration cannot be added '
-                    f'to it: {e}\nFix the file, or remove it to configure the project with '
-                    f'{PROJECT_CONFIG_FILE} instead.',
-                    file=sys.stderr,
-                )
-                sys.exit(EXIT_ERROR)
-            with open(pyproject, 'a', encoding='utf-8') as fp:
-                fp.write(_PYPROJECT_CONFIG)
-            return pyproject
-        config_file = root / PROJECT_CONFIG_FILE
-        config_file.write_text(_PROJECT_CONFIG, encoding='utf-8')
-        return config_file
-    except OSError as e:
-        print(f'pxt init: the project configuration in {root} could not be written: {e}', file=sys.stderr)
+        config_file = write_project_config(root)
+    except RuntimeError as e:
+        print(f'pxt init: {e}', file=sys.stderr)
         sys.exit(EXIT_ERROR)
+    _report(root, config_file, created=True, as_json=args.as_json)
 
 
 def _report(root: pathlib.Path, config_file: pathlib.Path, *, created: bool, as_json: bool) -> None:
