@@ -37,7 +37,8 @@ That replaces the stack most of us end up with: a bucket for the files, a databa
 database for search, an orchestrator for the model calls, an API on top, and the scripts that keep it all in sync.
 Here it's one file, `app.py`.
 
-Keep the database your app already runs for users and auth. Pixeltable handles the media and model work next to
+Pixeltable keeps its tables, model results and embeddings in its own Postgres, with pgvector for the index. Keep
+the database your app already runs for users and auth: Pixeltable handles the media and model work next to
 Supabase, Convex or a managed Postgres.
 
 ## What it looks like
@@ -84,7 +85,7 @@ api.add_query_route(path='/search', query=search)
 
 ```bash
 pip install 'pixeltable[serve]' openai
-# the first pxt command starts a local database daemon, which reads your environment once
+# the first pxt command starts a local daemon that runs Pixeltable's Postgres and reads your environment once
 export OPENAI_API_KEY=sk-...        # set it first, or run pxt daemon restart after
 pxt init                            # makes this folder a project
 pxt schema update app.py my_app     # creates the table and its index
@@ -104,8 +105,9 @@ Each column you compute says which columns it reads, so Pixeltable knows what to
 - Upload 100 more videos and only those 100 get processed.
 - Insert 10,000 videos and the process doing the insert runs the model calls: the service for a route, your Python
   process for a script. It keeps many requests in flight and stays under the provider's rate limits, read from the
-  provider's responses where it reports them or set in `config.toml` (600 requests a minute by default). On
-  Pixeltable Cloud you set CPU, memory and worker counts in the project config.
+  provider's responses where it reports them or set in `config.toml` (600 requests a minute per provider if you
+  set nothing), and it retries rate-limited requests with backoff. On Pixeltable Cloud you set CPU, memory and
+  worker counts in the project config.
 - Change the summary prompt, run `pxt schema update` and `pxt service update` again, and new uploads use it.
   `pxt recompute my_app/videos summary` then redoes the old summaries without touching the transcripts you already
   paid for.
@@ -125,8 +127,8 @@ We're database people (Pixeltable comes from the creators of Apache Parquet and 
 the work into the database. The engine tracks what depends on what, so recomputing the right rows is its job, not
 yours.
 
-It won't make your models better. Media is still big, model calls still fail and evaluation is still on you. What
-goes away is the plumbing you rebuild every time you want to try a better prompt. The longer version is on
+It won't make your models better. Media is still big, model calls still fail and evaluation is still on you. It
+removes the plumbing you rebuild every time you want to try a better prompt. The longer version is on
 [Why Pixeltable](https://docs.pixeltable.com/overview/pixeltable).
 
 ## How it's different
@@ -176,7 +178,8 @@ running without HTTP.
 **Pixeltable Cloud** is for running this in production: the same `app.py` on a hosted database, with media in a
 managed bucket and CPU, memory and worker counts set in the project config. The
 [Cloud guide](https://docs.pixeltable.com/cloud) goes from `pxt login` to a running service. To try it with no
-account, `pxt new` gives you a free Cloud database for about 48 hours and prints a link to keep it.
+account, `pxt new` gives you a free Cloud database for about 48 hours and prints a link to keep it. Plans and
+prices are on the [pricing page](https://www.pixeltable.com/pricing).
 
 ## Using a coding agent?
 
@@ -186,8 +189,8 @@ npx skills add pixeltable/pixeltable-skill
 pxt skills install
 ```
 
-The skill teaches your agent to write `app.py` the way it's written above. One file helps here: the agent writes the
-whole backend, and you review one diff instead of a change in every system.
+The skill teaches your agent to write `app.py` the way it's written above. With one file, the agent writes the whole
+backend and you review one diff instead of a change in every system.
 [AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms) covers setup for each tool,
 the plugins and the MCP servers.
 
