@@ -313,21 +313,43 @@ After `.collect()`, use `to_pydantic()`. After `return_rows=True`, use `model_va
 
 ```json
 {
-  "id": "abc123",
-  "job_url": "http://127.0.0.1:<port>/_pxt/jobs/abc123"
+  "id": "<job id>",
+  "job_url": "<the URL that polls this job>"
 }
 ```
 
-Poll `job_url` (`pxt service list` prints the base URL):
+Poll `job_url`:
 
 ```bash
-curl http://127.0.0.1:<port>/_pxt/jobs/abc123
+curl "<job_url>"
 # {"status": "pending"}
 # {"status": "done", "result": {...}}
 # {"status": "error", "error": "...", "error_detail": {...}}
 ```
 
-Poll through your application server with the same Cloud key when hosted. Cloud returns an HTTPS `job_url`. The polling path is in the generated schema, so polling is a typed call on the same [TypeScript client](#call-from-a-typescript-app-server): `pixeltable.GET('/_pxt/jobs/{job_id}', { params: { path: { job_id: id } } })`. A failed job's `error_detail` has the same shape as an HTTP error's `detail`, so the same retry rule applies.
+Poll through your application server with the same Cloud key when hosted. Cloud returns an HTTPS `job_url`. The polling route is in the generated schema, so polling is also a typed call on the same [TypeScript client](#call-from-a-typescript-app-server). A failed job's `error_detail` has the same shape as an HTTP error's `detail`, so the same retry rule applies.
+
+Treat the job id and `job_url` as opaque: their form can change between releases.
+
+Each router with background routes has its own polling route. An application can include at most one unnamed
+router with background routes; give the others distinct names with `FastAPIRouter(name=...)`. Use the
+returned `job_url` to poll, including any prefixes added by your app or the hosted service. Regenerate client
+types when an upgrade or a router name change alters the polling routes in your OpenAPI schema.
+
+A background job runs in the memory of the service instance that accepted it. Like a synchronous request, it
+does not survive the loss of that instance. A local `pxt service` answers polls the same way a hosted service
+does:
+
+| Answer | Meaning |
+| --- | --- |
+| 200 `pending` | the job has not finished; poll again after the `Retry-After` interval |
+| 200 `done` or `error` | the job finished; the result is kept 10 minutes, or 1 minute after the first poll that returns it |
+| 404 | the id is unknown, or the result has expired |
+| 410 | the service instance that ran the job stopped (a restart, a redeploy or a crash); the job may not have finished, or may have finished without a poll returning its result, so resubmitting an insert, update or delete can repeat a write |
+| 503 with `Retry-After` | the instance is at its limit of unfinished jobs or is shutting down, or the instance that runs the job did not answer; retry after the interval |
+
+When a hosted service redeploys or scales down, a stopping instance first finishes its running jobs, for up to
+about 5 minutes. It keeps each finished result until a poll returns it, or for 30 seconds after the job finished.
 
 `background` cannot combine with `return_fileresponse`.
 

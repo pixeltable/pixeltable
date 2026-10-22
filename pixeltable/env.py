@@ -566,7 +566,7 @@ class Env:
             if configured_name:
                 validate_db_name(configured_name)
             folded_name = fold_identifier(configured_name) if configured_name else 'pixeltable'
-            self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
+            self._pgdata_dir = Path(config.lookup_env('pixeltable', 'pgdata', str(config.home / 'pgdata')))
             self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
             self._set_local_db(folded_name)
             # Legacy database (with an unfolded name) fallback
@@ -1009,6 +1009,11 @@ class Env:
                 info = make_pool_info()
                 self._resource_pool_info[pool_id] = info
             return info
+
+    @property
+    def pgdata_dir(self) -> Path | None:
+        """Data directory of the embedded Postgres server; None when Pixeltable uses an external database."""
+        return self._pgdata_dir
 
     @property
     def media_dir(self) -> Path:
