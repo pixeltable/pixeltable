@@ -54,12 +54,19 @@ A page settles one question: what to type, what command to run, what happens on 
 
 Everyone else is a pointer, not a second copy.
 
-## README
+## README and overview pages
 
-`README.md` is written for a developer deciding whether to try Pixeltable, so it may also say why: what the
-stack looked like before, why we built it, and when Pixeltable is the wrong tool. Its commands and code still follow
-this guide. Rules that keep a coding agent on track (stale skill, notebook vs app, port discovery) belong in the
-skill and `get-started.md`; the README points to them in its coding-agent section.
+`README.md`, Why Pixeltable (`overview/pixeltable.mdx`), Quickstart (`overview/quick-start.mdx`) and How it works
+(`overview/how-it-works.mdx`) are written for a developer deciding whether to try Pixeltable. On these pages:
+
+- They may say why: what the stack looked like before, why we built it, and when Pixeltable is the wrong tool.
+- The subject can be "you", "we" or Pixeltable, and a step can give its reason ("run them in that order, since a
+  service needs its tables to exist") instead of a negation pair.
+- The Quickstart may show one change loop (`pxt schema diff`, `update`, `pxt recompute`) after the first POST.
+
+Their commands, code and names still follow this guide. Rules that keep a coding agent on track (stale skill,
+notebook vs app, port discovery) belong in the skill and `get-started.md`; these pages point to
+[AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms) instead.
 
 ## Next cards
 
