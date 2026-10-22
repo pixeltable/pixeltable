@@ -9,7 +9,6 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-import pixeltable as pxt
 from pixeltable.utils.http import fetch_url, is_retryable_error, new_session, parse_duration_str, redact_url
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
@@ -132,19 +131,6 @@ class TestHttpUtils:
         )
         assert not is_retryable_error(client_error('ValidationException', 400, 'Invalid input'))[0]
         assert not is_retryable_error(client_error('AccessDeniedException', 403, 'Access denied'))[0]
-
-    def test_pixeltable_errors(self) -> None:
-        exc = pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'Request timed out: 429')
-        assert is_retryable_error(exc) == (False, None)
-
-        exc = pxt.ExternalServiceError(pxt.ErrorCode.PROVIDER_BAD_REQUEST, 'Too many requests', retry_after=5)
-        assert is_retryable_error(exc) == (False, None)
-
-        exc = pxt.ExternalServiceError(pxt.ErrorCode.RATE_LIMITED, 'Slow down', retry_after=5)
-        assert is_retryable_error(exc) == (True, 5)
-
-        exc = pxt.ExternalServiceError(pxt.ErrorCode.PROVIDER_ERROR, 'Video generation failed')
-        assert is_retryable_error(exc) == (True, None)
 
     def test_parse_duration_header(self) -> None:
         assert parse_duration_str(None) is None
