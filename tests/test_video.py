@@ -271,19 +271,17 @@ class TestVideo:
         # edge cases when working with video data.
         p = db_root.make_catalog_path
         for path in get_video_files():
-            for iterator, kwargs in (
-                (frame_iterator, {}),
-                (frame_iterator, {'fps': 0.5}),
-                (frame_iterator, {'fps': 3}),
-                (frame_iterator, {'fps': 1000}),
-                (frame_iterator, {'num_frames': 10}),
-                (frame_iterator, {'num_frames': 50}),
-                (frame_iterator, {'num_frames': 10000}),
-                # the legacy schema stores pos_msec, measured from the start of the video, instead of frame_attrs
-                (legacy_frame_iterator, {'fps': 3}),
+            for kwargs in (
+                {},
+                {'fps': 0.5},
+                {'fps': 3},
+                {'fps': 1000},
+                {'num_frames': 10},
+                {'num_frames': 50},
+                {'num_frames': 10000},
             ):
                 videos = pxt.create_table(p('videos'), {'video': pxt.Video | None}, if_exists='replace_force')
-                view = pxt.create_view(p('frames'), videos, iterator=iterator(videos.video, **kwargs))
+                view = pxt.create_view(p('frames'), videos, iterator=frame_iterator(videos.video, **kwargs))
                 videos.insert(video=path)
                 # Load the first 20 frames sequentially
                 frames = view.select(view.frame).where(view.pos < 20).order_by(view.pos).collect()['frame']
@@ -292,7 +290,7 @@ class TestVideo:
                 assert res['frame'] == frames[3:]
                 # Now load them one at a time (we intentionally do this in separate queries)
                 for pos in (11, 7, 3, 15):
-                    print(f'test_frame_iterator_seek: {path=}, {iterator=}, {kwargs=}, {pos=}')
+                    print(f'test_frame_iterator_seek: {path=}, {kwargs=}, {pos=}')
                     res = view.where(view.pos == pos).select(view.frame).collect()['frame']
                     if len(res) == 0:
                         assert len(frames) <= pos

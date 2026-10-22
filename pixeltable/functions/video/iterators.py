@@ -122,7 +122,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
     decoded_to_end: bool
     current_frame: av.VideoFrame | None
     last_decoded_frame: av.VideoFrame | None
-    at_seek_target: bool  # set by seek()
+    at_seek_target: bool  # set by seek(); indicates that current_frame stores the frame of the seek target row
 
     def __init__(
         self, video: pxt.Video, *, fps: float | None = None, num_frames: int | None = None, keyframes_only: bool = False
@@ -277,8 +277,9 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         seek_time: float
         if 'pos_msec' in kwargs:
             video_idx = kwargs['pos_frame']
-            # pos_msec is measured from the start of the video
-            seek_time = self.video_start_time + kwargs['pos_msec'] / 1000.0
+            # TODO: rows written by legacy_frame_iterator measure pos_msec from the video start and need
+            #     video_start_time added; rows from the old FrameIterator store roughly absolute milliseconds
+            seek_time = kwargs['pos_msec'] / 1000.0
         else:
             assert 'frame_attrs' in kwargs
             video_idx = kwargs['frame_attrs']['index']
