@@ -54,6 +54,13 @@ A page settles one question: what to type, what command to run, what happens on 
 
 Everyone else is a pointer, not a second copy.
 
+## README
+
+`README.md` is written for a developer deciding whether to try Pixeltable, so it may also say why: what the
+stack looked like before, why we built it, and when Pixeltable is the wrong tool. Its commands and code still follow
+this guide. Rules that keep a coding agent on track (stale skill, notebook vs app, port discovery) belong in the
+skill and `get-started.md`; the README points to them in its coding-agent section.
+
 ## Next cards
 
 One next action, or a fork with distinct effects (local HTTP vs `pxt://`). Do not list five cards that reopen the same doubt.
