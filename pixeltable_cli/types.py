@@ -300,7 +300,7 @@ class ServiceChangeOp(ChangeOp):
         )
 
     @classmethod
-    def delete_service(cls, name: str, endpoint: str | None, status: OpStatus) -> ServiceChangeOp:
+    def delete_service(cls, name: str, endpoint: str | None, status: OpStatus | None) -> ServiceChangeOp:
         served = '' if endpoint is None else f' at {endpoint}'
         return cls(
             target='service',
@@ -862,6 +862,11 @@ class DbPlan(pydantic.BaseModel):
         default_factory=list,
         description='for an update, the receipts of the submitted change; for a diff, the receipt of the current '
         'generation if it is in progress or failed',
+    )
+    entry_added_to: str | None = pydantic.Field(
+        default=None,
+        description='the config file where --add-config-entry appended the database entry; null without the flag, '
+        'or if the entry was already there',
     )
 
     @classmethod

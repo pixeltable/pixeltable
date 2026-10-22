@@ -17,7 +17,15 @@ from pixeltable_cli import models
 from pixeltable_cli.types import GenerationReceipt
 from pixeltable_cli.utils import split_pxt_uri
 
-from .utils import EXIT_CHANGES_PENDING, EXIT_ERROR, RequestFailedError, get_request, post_request, print_aligned
+from .utils import (
+    EXIT_CHANGES_PENDING,
+    EXIT_ERROR,
+    RequestFailedError,
+    get_request,
+    post_request,
+    print_aligned,
+    print_next,
+)
 
 RECEIPT_POLL_INTERVAL = 5.0
 RECEIPT_WAIT_TIMEOUT = 3 * 3600.0
@@ -32,7 +40,7 @@ def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
     parts = split_pxt_uri(uri)
     if parts is None or parts.db is None or parts.path is not None:
         print(f'{prog}: error: URI must be pxt://org:db, got {uri!r}', file=sys.stderr)
-        sys.exit(2)
+        sys.exit(EXIT_ERROR)
     return parts.org, parts.db
 
 
@@ -46,7 +54,7 @@ def resolve_db_uri(db_uri: str | None, prog: str = 'pxt') -> tuple[str, str]:
                 f'{prog}: error: no database URI given, and no db_uri is set in the Pixeltable config file',
                 file=sys.stderr,
             )
-            sys.exit(2)
+            sys.exit(EXIT_ERROR)
         db_uri = configured
     return parse_db_uri(db_uri, prog=prog)
 
@@ -338,10 +346,10 @@ def await_receipts(
     if not all(r.settled for r in current) and not any(r.unsuccessful for r in current):
         print(
             f'pxt: still in progress after {RECEIPT_WAIT_TIMEOUT / 3600:.0f}h: '
-            f'{_waiting_label(current, poll_error).rstrip(" .")}\n'
-            f'The change continues in Pixeltable Cloud; run `{status_command}` to check its progress.',
+            f'{_waiting_label(current, poll_error).rstrip(" .")}; the change continues in Pixeltable Cloud',
             file=sys.stderr,
         )
+        print_next(status_command, 'shows its progress')
         sys.exit(EXIT_CHANGES_PENDING)
     return current
 
@@ -351,10 +359,10 @@ def exit_unless_observed(receipts: list[GenerationReceipt], *, retry_command: st
     for receipt in receipts:
         if receipt.failed:
             print(
-                f'pxt: {receipt.resource} generation {receipt.generation} failed: {receipt.failure_reason}\n'
-                f'Run `{retry_command}` to try it again, or change it and update again.',
+                f'pxt: {receipt.resource} generation {receipt.generation} failed: {receipt.failure_reason}',
                 file=sys.stderr,
             )
+            print_next(retry_command, 'tries it again as it is')
             sys.exit(EXIT_ERROR)
         if receipt.superseded:
             print(
@@ -399,11 +407,8 @@ def await_endpoint(endpoint: str, *, status_command: str) -> None:
 
 
 def _exit_stopped_waiting(status_command: str, exit_code: int = EXIT_INTERRUPTED) -> NoReturn:
-    print(
-        f'\npxt: stopped waiting; the change continues in Pixeltable Cloud. '
-        f'Run `{status_command}` to check its progress.',
-        file=sys.stderr,
-    )
+    print('\npxt: stopped waiting; the change continues in Pixeltable Cloud', file=sys.stderr)
+    print_next(status_command, 'shows its progress')
     sys.exit(exit_code)
 
 

@@ -4,17 +4,29 @@
 import argparse
 import copy
 import logging
+import os
+import signal
+import threading
+import time
 from pathlib import Path
+from types import FrameType
 from typing import TYPE_CHECKING, Any
+
+import uvicorn
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.service.db import report_instance_fingerprint
 from pixeltable.serving._app import create_app, init_instrumentation, instrument_app
+from pixeltable.serving._fastapi import FastAPIRouter
 from pixeltable.utils.project import ProjectFingerprint
 
 if TYPE_CHECKING:
     import fastapi
+
+# how long a stopping pod waits for its background jobs after SIGTERM; the pod's terminationGracePeriodSeconds has to
+# cover its preStop sleep plus this wait
+_DRAIN_S = 300.0
 
 
 def _add_gateway_openapi_security(app: 'fastapi.FastAPI') -> None:
@@ -44,6 +56,41 @@ def _add_gateway_openapi_security(app: 'fastapi.FastAPI') -> None:
     app.openapi = hosted_openapi  # type: ignore[method-assign]
 
 
+class _DrainingServer(uvicorn.Server):
+    """A uvicorn server that, on the first SIGTERM, waits for the routers' background jobs before shutting down.
+
+    It keeps serving during the wait, so clients can still poll the jobs. A drain_s of 0 disables the wait.
+    """
+
+    routers: list[FastAPIRouter]
+    drain_s: float
+    _drain_started: bool
+
+    def __init__(self, config: uvicorn.Config, routers: list[FastAPIRouter], drain_s: float) -> None:
+        super().__init__(config)
+        self.routers = routers
+        self.drain_s = drain_s
+        self._drain_started = False
+
+    def handle_exit(self, sig: int, frame: FrameType | None) -> None:
+        # a signal handler: it runs on the main thread, which may hold a router's _jobs_lock, so it takes no lock
+        if sig == signal.SIGTERM and self.drain_s > 0 and not self._drain_started:
+            self._drain_started = True
+            threading.Thread(target=self._drain, args=(sig,), name='pxt-serve-drain', daemon=True).start()
+            return
+        super().handle_exit(sig, frame)
+
+    def _drain(self, sig: int) -> None:
+        deadline = time.monotonic() + self.drain_s
+        # stop admission on all routers before waiting: a job admitted after its router's wait returned would be lost
+        for router in self.routers:
+            router._start_drain()
+        for router in self.routers:
+            router._wait_drained(deadline)
+        # uvicorn's handle_exit() only records the signal and sets should_exit; both are safe on this thread
+        super().handle_exit(sig, None)
+
+
 def _serve(
     db_uri: str,
     app_file: str,
@@ -56,8 +103,6 @@ def _serve(
     otel: bool,
 ) -> None:
     """Pod entry point: serve one service of the unpacked project and report what loaded."""
-    import uvicorn
-
     if not project_dir.is_dir():
         raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'no project was unpacked at {project_dir}')
     if not fingerprint_file.is_file():
@@ -69,7 +114,7 @@ def _serve(
     if otel:
         # before the first Pixeltable operation, so that loading the file is traced too
         init_instrumentation()
-    app, _ = create_app(str(project_dir / app_file), service_name, base_path)
+    app, _, routers = create_app(str(project_dir / app_file), service_name, base_path)
     _add_gateway_openapi_security(app)
     asgi_app = instrument_app(app) if otel else app
     report_instance_fingerprint(db_uri, service_name, fingerprint, base_path)
@@ -79,9 +124,20 @@ def _serve(
     # root_path: the docs page fetches openapi.json by url, and a background route hands back a job url to
     # poll, so both need the whole prefix the gateway stripped, base_path included
     root_path = f'/{service_name}' if base_path == '' else f'/{base_path}/{service_name}'
-    uvicorn.run(
+    # the address of this pod for the other pods of the service
+    pod_ip = os.environ.get('PXTCLOUD_POD_IP')
+    if pod_ip is not None:
+        instance_addr = f'[{pod_ip}]:{port}' if ':' in pod_ip else f'{pod_ip}:{port}'
+        # the pods of a service share the database's API key, the secret for their job ids
+        api_key = Config.get().get_string_value('api_key')
+        if api_key is None:
+            raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, 'a pod needs PIXELTABLE_API_KEY')
+        for router in routers:
+            router._configure_job_forwarding(instance_addr, api_key, root_path)
+    config = uvicorn.Config(
         asgi_app, host=host, port=port, log_level=log_level, log_config=None, root_path=root_path, proxy_headers=False
     )
+    _DrainingServer(config, routers, _DRAIN_S).run()
 
 
 if __name__ == '__main__':

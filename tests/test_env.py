@@ -19,7 +19,7 @@ from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 
-from .utils import pxt_raises, skip_test_if_not_local
+from .utils import aux_db_name, pxt_raises, skip_test_if_not_local
 
 pytestmark = pytest.mark.db_roots('local', reason='exercises process-global Env/Config and runtime reset')
 
@@ -57,7 +57,7 @@ class TestEnvReset:
         """Test basic env clear functionality."""
         skip_test_if_not_local('Env reset tests require a local (file-backed) Pixeltable database')
         # Set environment
-        dbname = 'test_basic_db'
+        dbname = aux_db_name('basic')
         _reset_env(reinit=True, db_name=dbname)
 
         env1 = Env.get()
@@ -82,8 +82,8 @@ class TestEnvReset:
     def test_switch_environments(self, uses_db: None) -> None:
         """Test switching between two environments."""
         skip_test_if_not_local('Env reset tests require a local (file-backed) Pixeltable database')
-        dbname1 = 'test_switch_environments_db1'
-        dbname2 = 'test_switch_environments_db2'
+        dbname1 = aux_db_name('switch1')
+        dbname2 = aux_db_name('switch2')
 
         # Environment 1
         _reset_env(reinit=True, db_name=dbname1)
@@ -122,7 +122,7 @@ class TestEnvReset:
     def test_metadata_persistence(self, uses_db: None) -> None:
         """Test that metadata persists across environment switches."""
         skip_test_if_not_local('Env reset tests require a local (file-backed) Pixeltable database')
-        metadata_db = 'test_metadata_persistence_db'
+        metadata_db = aux_db_name('metadata')
         # Environment 1 setup
         _reset_env(reinit=True, db_name=metadata_db)
 
@@ -300,6 +300,28 @@ class TestDbConnectStr:
         Config.init(reinit=True)
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='Unsupported DBMS cockroachdb'):
             Env._init_env(reinit_db=False)
+        monkeypatch.undo()
+        _reset_env(reinit=False, db_name=None)
+
+
+class TestPgdataDir:
+    def test_pgdata_dir(self, uses_db: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """The embedded server runs in PIXELTABLE_PGDATA unless a config override names another directory."""
+        skip_test_if_not_local()
+        pgdata = Path(os.environ['PIXELTABLE_PGDATA'])
+        assert Env.get().pgdata_dir == pgdata
+
+        # a config override wins over the environment
+        monkeypatch.setenv('PIXELTABLE_PGDATA', str(tmp_path / 'unused'))
+        reset_runtime()
+        Config.init({'pixeltable.pgdata': str(pgdata)}, reinit=True)
+        Env._init_env(reinit_db=False)
+        assert Env.get().pgdata_dir == pgdata
+
+        # an external database has no data directory
+        monkeypatch.setenv('PIXELTABLE_DB_CONNECT_STR', Env.get().db_url)
+        _reset_env(reinit=False, db_name=None)
+        assert Env.get().pgdata_dir is None
         monkeypatch.undo()
         _reset_env(reinit=False, db_name=None)
 

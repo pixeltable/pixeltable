@@ -11,13 +11,16 @@ from pixeltable.utils.app_module import load_app_module, module_routers, service
 if TYPE_CHECKING:
     import fastapi
 
+    from pixeltable.serving import FastAPIRouter
     from pixeltable_cli.types import ServiceSpec
 
 _logger = logging.getLogger(__name__)
 
 
-def create_app(app_file: str, name: str, base_path: str = '') -> tuple['fastapi.FastAPI', 'ServiceSpec']:
-    """Create or return the FastAPI app derived from app_file, plus its spec."""
+def create_app(
+    app_file: str, name: str, base_path: str = ''
+) -> tuple['fastapi.FastAPI', 'ServiceSpec', list['FastAPIRouter']]:
+    """Create or return the FastAPI app derived from app_file, plus its spec and the routers in app_file."""
     Env.get().require_package('fastapi')
     import fastapi
 
@@ -42,11 +45,11 @@ def create_app(app_file: str, name: str, base_path: str = '') -> tuple['fastapi.
     spec = service_spec(name, service, routers)
     _logger.info(f'serving {name!r} from {app_file}')
     if not isinstance(service, FastAPIRouter):
-        return service, spec
+        return service, spec, routers
 
     app = fastapi.FastAPI(title=name)
     app.include_router(service)
-    return app, spec
+    return app, spec, routers
 
 
 _OTEL_NOT_INSTALLED = (

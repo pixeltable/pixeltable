@@ -11,6 +11,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -46,6 +47,7 @@ PROJECT_EXTRAS = tuple(_requirements_in())
 EXIT_IN_AGREEMENT = 0
 EXIT_ERROR = 1
 EXIT_CHANGES_PENDING = 2
+EXIT_REFUSED = 3
 
 # a publish that rebuilds the image waits on CodeBuild, far longer than the default cli timeout allows
 APPLY_TIMEOUT = 2400.0
@@ -77,6 +79,12 @@ class PxtResult:
             # a command that failed wrote its reason to stderr, and parsing '' would discard it
             raise AssertionError(f'pxt produced no output (rc={self.returncode}): {self.stderr.strip()}')
         return json.loads(self.stdout)
+
+    @property
+    def next_commands(self) -> list[list[str]]:
+        """The commands the 'next:' lines on stderr name, as argv, each without its trailing '# ...' comment."""
+        lines = [line.removeprefix('next: ') for line in self.stderr.splitlines() if line.startswith('next: ')]
+        return [shlex.split(line, comments=True) for line in lines]
 
 
 @pytest.fixture(scope='session', autouse=True)
@@ -203,9 +211,9 @@ _RUN_TIMEOUT_SECS = 300
 _WHEEL_SUBDIR = 'wheels'
 
 
-def db_diff(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> dict[str, Any]:
+def db_diff(cli: PxtRunner, project: pathlib.Path, db_uri: str, *flags: str) -> dict[str, Any]:
     """What `pxt db diff` reports, its exit status under 'returncode'."""
-    r = cli('db', 'diff', db_uri, '--json', cwd=project, check=False)
+    r = cli('db', 'diff', db_uri, '--json', *flags, cwd=project, check=False)
     assert r.returncode in (EXIT_IN_AGREEMENT, EXIT_CHANGES_PENDING), r.stderr
     return {**r.json, 'returncode': r.returncode}
 

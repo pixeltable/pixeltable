@@ -3,6 +3,7 @@
 
 import base64
 import datetime
+import gc
 import json
 import math
 import os
@@ -221,6 +222,41 @@ class TestExprs:
         # error in agg.value()
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             _ = t.where(t.c2 <= 2).select(self.value_exc(t.c2 - 1)).show()
+
+    @staticmethod
+    @pxt.udf
+    def raise_sync(x: int) -> int:
+        raise ValueError(f'sync {x}')
+
+    @staticmethod
+    @pxt.udf
+    async def raise_async(x: int) -> int:
+        raise ValueError(f'async {x}')
+
+    @staticmethod
+    @pxt.udf(resource_pool='rate-limits:test')
+    async def raise_rate_limited(x: int) -> int:
+        raise ValueError(f'rate-limited {x}')
+
+    @pytest.mark.db_roots('local', reason='inspects in-process DataRows')
+    @pytest.mark.parametrize('udf_name', ['raise_sync', 'raise_async', 'raise_rate_limited'])
+    def test_errored_rows_released(self, uses_db: None, udf_name: str) -> None:
+        """A row whose evaluation raised is garbage-collected after the insert.
+
+        The recorded exception's traceback references the row through the frame that caught it, so the row is part
+        of a reference cycle.
+        """
+
+        def num_errored_rows() -> int:
+            gc.collect()
+            return sum(1 for obj in gc.get_objects() if isinstance(obj, exprs.DataRow) and obj.has_exc())
+
+        baseline = num_errored_rows()
+        t = pxt.create_table('errored_rows', {'x': pxt.Int})
+        t.add_computed_column(y=getattr(self, udf_name)(t.x))
+        status = t.insert([{'x': i} for i in range(10)], on_error='ignore')
+        assert status.num_excs == 10
+        assert num_errored_rows() == baseline
 
     def test_props(self, test_tbl: pxt.Table, img_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         t = test_tbl
