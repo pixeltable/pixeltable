@@ -141,9 +141,9 @@ pxt schema example                 # prints every construct a schema can use
 pxt new                            # a free Cloud database, no account needed
 ```
 
-The `pxt new` database lasts about 48 hours unless you claim it with the link it prints. For complete apps, the
-[starter kit](https://github.com/pixeltable/pixeltable-starter-kit) has a chat agent over your documents and a
-video search app.
+The `pxt new` database lasts about 48 hours unless you claim it with the link it prints. For complete apps, browse
+[awesome-pixeltable-apps](https://github.com/pierrebrunelle/awesome-pixeltable-apps): each one opens in GitHub
+Codespaces.
 
 ## Install
 
