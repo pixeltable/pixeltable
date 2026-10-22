@@ -8,6 +8,7 @@ import json
 import os
 import platform
 import re
+import shlex
 import signal
 import socket
 import subprocess
@@ -18,7 +19,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import psutil
 import pydantic
@@ -358,6 +359,10 @@ class RequestFailedError(Exception):
     status: int | None
     retryable: bool | None
     server_tb: str | None
+    # the daemon's error_code; without one, DAEMON_UNREACHABLE when no daemon answered, HTTP_<status> for a 4xx from its
+    # HTTP layer, and INTERNAL_ERROR otherwise
+    error_code: str
+    detail: str  # the reason, without the status
     as_written: bool  # the message is the control plane's reason, printed without a prefix
 
     def __init__(
@@ -366,27 +371,60 @@ class RequestFailedError(Exception):
         status: int | None = None,
         retryable: bool | None = None,
         server_tb: str | None = None,
+        *,
+        error_code: str = 'INTERNAL_ERROR',
+        detail: str | None = None,
         as_written: bool = False,
     ) -> None:
         super().__init__(message)
         self.status = status
         self.retryable = retryable
         self.server_tb = server_tb
+        self.error_code = error_code
+        self.detail = detail or message
         self.as_written = as_written
+
+    @classmethod
+    def from_response(cls, e: urllib.error.HTTPError) -> 'RequestFailedError':
+        """The error for a daemon's error response, from the fields of its JSON body."""
+        try:
+            parsed = json.loads(e.read() or b'null')
+        except ValueError:
+            parsed = None
+        body = parsed if isinstance(parsed, dict) else {}
+        detail = str(body.get('detail') or e.reason)
+        retryable = body.get('retryable')
+        error_code = body.get('error_code')
+        if not isinstance(error_code, str):
+            # the daemon's HTTP layer answers an unknown route, a refused host or an oversized body with no code
+            error_code = 'INTERNAL_ERROR' if e.code >= 500 else f'HTTP_{e.code}'
+        # a refusal only the user can lift: its reason is printed as the control plane wrote it
+        as_written = error_code in USER_ACTION_CODES
+        return cls(
+            detail if as_written else f'{e.code} {detail}',
+            e.code,
+            retryable=retryable if isinstance(retryable, bool) else None,
+            server_tb=body.get('traceback'),
+            error_code=error_code,
+            detail=detail,
+            as_written=as_written,
+        )
 
     @property
     def transient(self) -> bool:
         """Whether resending the request may succeed.
 
-        True if the daemon was unreachable, or reported the error retryable; an unexpected daemon error carries no
-        such flag, and counts as transient when its status is a server error.
+        The daemon's retryable flag when it gave one; otherwise True when no response came back, or for a server error.
         """
-        if self.status is None:
-            return True
-        return self.retryable if self.retryable is not None else self.status >= 500
+        if self.retryable is not None:
+            return self.retryable
+        return self.status is None or self.status >= 500
 
     def report(self) -> None:
-        print(str(self) if self.as_written else f'pxt: {self}', file=sys.stderr)
+        if json_requested():
+            print_error_document(self.error_code, self.detail, retryable=self.transient)
+            sys.stdout.flush()
+        print(str(self) if self.as_written else f'pxt: {self} [{self.error_code}]', file=sys.stderr)
         if self.server_tb is not None:
             # an unexpected daemon failure carries its traceback; show it so the user can report the error
             print(f'\n--- daemon traceback ---\n{self.server_tb}', file=sys.stderr)
@@ -404,8 +442,8 @@ def _send(method: str, path: str, body: dict[str, Any] | None, params: dict[str,
     try:
         base = ensure_running()
     except RuntimeError as e:
-        print(f'pxt: {e}', file=sys.stderr)
-        sys.exit(1)
+        # resending cannot start a daemon that just failed to
+        raise RequestFailedError(str(e), retryable=False, error_code='DAEMON_UNREACHABLE') from e
 
     url = f'{base}{path}'
     if params is not None:
@@ -428,30 +466,18 @@ def _send(method: str, path: str, body: dict[str, Any] | None, params: dict[str,
         with urllib.request.urlopen(req) as r:
             return json.loads(r.read() or b'null')
     except urllib.error.HTTPError as e:
-        try:
-            parsed = json.loads(e.read() or b'null')
-            body = parsed if isinstance(parsed, dict) else {}
-        except ValueError:
-            body = {}
-        detail = body.get('detail') or e.reason
-        retryable = body.get('retryable')
-        # a refusal only the user can lift: its reason is printed as the control plane wrote it
-        as_written = body.get('error_code') in USER_ACTION_CODES
-        raise RequestFailedError(
-            detail if as_written else f'{e.code} {detail}',
-            e.code,
-            retryable=retryable if isinstance(retryable, bool) else None,
-            server_tb=body.get('traceback'),
-            as_written=as_written,
-        ) from e
+        raise RequestFailedError.from_response(e) from e
     except urllib.error.URLError as e:
-        raise RequestFailedError(f'cannot reach daemon at {url}: {e.reason}') from e
+        raise RequestFailedError(f'cannot reach daemon at {url}: {e.reason}', error_code='DAEMON_UNREACHABLE') from e
     except http.client.HTTPException as e:
         # a truncated or malformed response, eg. the daemon writing headers and then dropping the connection
         raise RequestFailedError(f'bad response from daemon at {url}: {type(e).__name__}: {e}') from e
 
 
-def get_request(path: str, params: dict[str, Any] | None = None) -> Any:
+def get_request(path: str, params: dict[str, Any] | None = None, *, raise_on_error: bool = False) -> Any:
+    """GET path from the daemon and return its response; on an error, exit 1 unless raise_on_error is set."""
+    if raise_on_error:
+        return _send('GET', path, None, params)
     return _request('GET', path, params=params)
 
 
@@ -547,31 +573,113 @@ def plural(n: int, noun: str) -> str:
     return f'{n} {noun}' if n == 1 else f'{n} {noun}s'
 
 
-def confirm_or_exit(
-    prompt: str, force: bool, *, refused_exit_code: int = 2, on_refusal: Callable[[], None] | None = None
-) -> None:
-    """Prompt for yes/no on stdin; refuse non-tty unless --force. Both refusals exit with refused_exit_code.
+# the command being run, as main.dispatch() received it, so a refusal can name the command that finishes the job
+invocation: list[str] | None = None
 
-    on_refusal runs just before the non-tty refusal exits, for a caller that reports the refusal itself.
+
+def rerun_command(*flags: str) -> str | None:
+    """The command being run, with flags added before any '--', as a shell command line; None outside dispatch()."""
+    if invocation is None:
+        return None
+    end = invocation.index('--') if '--' in invocation else len(invocation)
+    return shlex.join(['pxt', *invocation[:end], *flags, *invocation[end:]])
+
+
+def print_next(command: str, effect: str) -> None:
+    print(f'next: {command}  # {effect}', file=sys.stderr)
+
+
+def json_requested() -> bool:
+    """Whether the command being run asked for --json output."""
+    return invocation is not None and '--json' in invocation
+
+
+def print_error_document(
+    error_code: str,
+    message: str,
+    *,
+    retryable: bool,
+    next_steps: list[dict[str, str]] | None = None,
+    retry_after: float | None = None,
+) -> None:
+    """Prints a failure as the one --json document on stdout: error_code, message, retryable, retry_after, next."""
+    doc: dict[str, Any] = {'error_code': error_code, 'message': message, 'retryable': retryable}
+    if retry_after is not None:
+        doc['retry_after'] = retry_after
+    if next_steps is not None:
+        doc['next'] = next_steps
+    print(json.dumps(doc, indent=2))
+
+
+def confirm_or_exit(prompt: str, force: bool, *, on_refusal: Callable[[], None] | None = None) -> None:
+    """Prompt for yes/no on stdin unless --force; exit with EXIT_REFUSED on anything but yes, or without a TTY.
+
+    See _refuse_unanswered() for the refusal without a TTY.
     """
     if force:
         return
     if not stdin_is_a_tty():
-        if on_refusal is not None:
-            on_refusal()
-        # stdout is block-buffered on a pipe; flush it before stderr emits the refusal line
-        try:
-            sys.stdout.flush()
-        except OSError:
-            pass
-        print(f'pxt: refusing to proceed without --force/-f (no TTY for confirmation): {prompt}', file=sys.stderr)
-        sys.exit(refused_exit_code)
+        _refuse_unanswered(prompt, on_refusal=on_refusal)
     sys.stderr.write(f'{prompt} [y/N] ')
     sys.stderr.flush()
     ans = sys.stdin.readline().strip().lower()
     if ans not in ('y', 'yes'):
+        # a person said no, so no command is named to get past it
+        if on_refusal is not None:
+            on_refusal()
+        elif json_requested():
+            print_error_document('CONFIRMATION_DECLINED', f'declined: {prompt}', retryable=False)
+        _flush_stdout()
         print('aborted', file=sys.stderr)
-        sys.exit(refused_exit_code)
+        sys.exit(EXIT_REFUSED)
+
+
+def _refuse_unanswered(prompt: str, *, on_refusal: Callable[[], None] | None) -> NoReturn:
+    """Refuse a prompt no one can answer, with no TTY, naming the command to rerun with -f.
+
+    on_refusal runs first, for a caller that reports the refusal itself; otherwise, with --json, the refusal is an
+    error document on stdout.
+    """
+    message = f'refusing to proceed without --force/-f (no TTY for confirmation): {prompt}'
+    command = rerun_command('-f')
+    # the question says what the command does; what follows it, such as 'This is irreversible.', does not
+    effect = prompt.partition('?')[0]
+    if on_refusal is not None:
+        on_refusal()
+    elif json_requested():
+        steps = [] if command is None else [{'command': command, 'effect': effect}]
+        print_error_document('CONFIRMATION_REQUIRED', message, retryable=False, next_steps=steps)
+    _flush_stdout()
+    print(f'pxt: {message}', file=sys.stderr)
+    if command is not None:
+        print_next(command, effect)
+    sys.exit(EXIT_REFUSED)
+
+
+def refuse_destructive(prog: str, destructive: int, *, force: bool, on_refusal: Callable[[], None]) -> NoReturn:
+    """Refuse a plan whose destructive operations --allow-destructive did not permit, naming the command that does.
+
+    on_refusal reports the refused plan first.
+    """
+    on_refusal()
+    _flush_stdout()
+    print(
+        f'{prog}: refusing to apply {destructive} destructive operation(s) without --allow-destructive', file=sys.stderr
+    )
+    # add -f too when the confirmation that follows would refuse in turn
+    flags = ('--allow-destructive',) if force or stdin_is_a_tty() else ('--allow-destructive', '-f')
+    command = rerun_command(*flags)
+    if command is not None:
+        print_next(command, f'applies {destructive} destructive operation(s)')
+    sys.exit(EXIT_REFUSED)
+
+
+def _flush_stdout() -> None:
+    # stdout is block-buffered on a pipe; flush it before stderr emits the refusal line
+    try:
+        sys.stdout.flush()
+    except OSError:
+        pass
 
 
 def print_json_schema(adapter: pydantic.TypeAdapter) -> None:
