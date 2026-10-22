@@ -28,7 +28,7 @@ If two phrases produce the same practice, they are the same belief. Keep one.
 |------|------|
 | The Python file that declares tables and routes | application file (`app.py`) |
 | Stored column vs computed column | annotation vs assignment |
-| Where tables live | catalog (local directory or `pxt://` URI) |
+| Where tables live | catalog directory (`my_app`) or `pxt://` URI |
 | The HTTP process | service (`pxt service`) |
 | Local first run | `pxt schema update`, then `pxt service update`, then insert or POST |
 | Cloud first run | `pxt db update`, then schema, then service, against `pxt://` |
@@ -59,14 +59,18 @@ Everyone else is a pointer, not a second copy.
 `README.md`, Why Pixeltable (`overview/pixeltable.mdx`), Quickstart (`overview/quick-start.mdx`) and How it works
 (`overview/how-it-works.mdx`) are written for a developer deciding whether to try Pixeltable. On these pages:
 
-- They may say why: what the stack looked like before, why we built it, and when Pixeltable is the wrong tool.
+- The README and Why Pixeltable may say why: what the stack looked like before, why we built it, and when Pixeltable
+  is the wrong tool.
 - The subject can be "you", "we" or Pixeltable, and a step can give its reason ("run them in that order, since a
   service needs its tables to exist") instead of a negation pair.
-- The Quickstart may show one change loop (`pxt schema diff`, `update`, `pxt recompute`) after the first POST.
+- The Quickstart may show one change loop after the first POST: `pxt schema diff`, `pxt schema update`,
+  `pxt service update`, then `pxt recompute`.
+- What reruns, how failures are stored and how versions work live in How it works. The README keeps a short list,
+  and the other pages link there.
 
 Their commands, code and names still follow this guide. Rules that keep a coding agent on track (stale skill,
-notebook vs app, port discovery) belong in the skill and `get-started.md`; these pages point to
-[AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms) instead.
+notebook vs app, port discovery) belong in the skill, `get-started.md` and `resources/ai-skills.mdx`; the README
+points to [AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms) instead.
 
 ## Next cards
 

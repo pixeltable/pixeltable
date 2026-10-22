@@ -37,7 +37,7 @@ You'll install Pixeltable, write one file, create its table, start its service a
     pxt init
     ```
 
-    This writes `pixeltable.toml`, which makes `my-app` the project root. Pixeltable records each function you write for your columns by its module path from that root, `app.excerpt` for the one in the next step, so the background processes that compute your columns can import it again. It's also why renaming `app.py` later breaks the columns that call its functions.
+    This writes `pixeltable.toml`, which makes `my-app` the project root. Pixeltable records each function you write for your columns by its module path from that root, `app.excerpt` for the one in the next step, so it can import the function again when it computes your columns.
   </Step>
   <Step title="Write app.py">
     ```bash
@@ -88,9 +88,9 @@ You'll install Pixeltable, write one file, create its table, start its service a
     created   my_app/docs
     ```
 
-    `my_app`, the last argument, is a directory in Pixeltable's catalog, and `pxt schema update` creates it along with the `docs` table. It isn't a folder on disk. Run the same command with `my_app_dev` and you get a second, separate copy of the table.
+    `my_app`, the last argument, is a catalog directory, and `pxt schema update` creates it along with the `docs` table. It isn't a folder on disk.
 
-    The first `pxt` command that needs the catalog starts a background process that runs the local database, and it keeps running after you close the terminal. The data lives in Pixeltable's home directory, outside `my-app`. [Infrastructure](/howto/deployment/infrastructure) has the layout.
+    The first `pxt` command that needs the catalog starts the Pixeltable daemon, a background process that runs the local database. It keeps running after you close the terminal, and it reads your environment once, when it starts: export API keys before your first `pxt` command, or run `pxt daemon restart` after. The data lives in Pixeltable's home directory, outside `my-app`. [Infrastructure](/howto/deployment/infrastructure) has the layout.
   </Step>
   <Step title="Start the service">
     ```bash
@@ -124,10 +124,10 @@ You'll install Pixeltable, write one file, create its table, start its service a
     {"id":"01a161d3-f18e-74e7-94a0-75bddaea7f0a","title_upper":"HELLO","summary":"Hello"}
     ```
 
-    You sent `title` and `body`. Before it answered, Pixeltable stored the row, generated its `id`, and computed `title_upper` and `summary`. `pxt rows my_app/docs` shows the row, `pxt dashboard` opens a local UI over the catalog, and in Python `pxt.get_table('my_app/docs').collect()` returns it.
+    You sent `title` and `body`. Before it answered, Pixeltable stored the row, generated its `id`, and computed `title_upper` and `summary`. `pxt rows my_app/docs` shows the row, `pxt dashboard` opens a local UI over the catalog, and in Python `pxt.get_table('my_app.docs').collect()` returns it.
   </Step>
   <Step title="Change a column">
-    This is the loop you'll repeat most. In `app.py`, make the summary shorter:
+    This is the loop you'll repeat most. In `app.py`, cut the excerpt at 3 characters:
 
     ```python
     class Docs(TableModel, name='docs'):
@@ -148,14 +148,14 @@ You'll install Pixeltable, write one file, create its table, start its service a
     Plan: 0 create, 1 update, 0 unchanged, 0 extra  |  0 destructive
     ```
 
-    Apply it, then restart the service so it picks up the new table definition. Until you restart it, the service answers inserts with HTTP 409.
+    `pxt schema update` changes the table, and `pxt service update` restarts the service so it picks up the new definition. Until you restart it, the service answers inserts with HTTP 409.
 
     ```bash
     pxt schema update app.py my_app
     pxt service update app.py my_app
     ```
 
-    New rows get the shorter summary, like `Wor...` for `World`. The `Hello` row keeps its old one until you recompute it:
+    New rows get the 3-character excerpt, like `Wor...` for `World`. The `Hello` row keeps its old one until you recompute it:
 
     ```bash
     pxt recompute my_app/docs summary
@@ -169,7 +169,7 @@ You'll install Pixeltable, write one file, create its table, start its service a
     pxt daemon stop
     ```
 
-    The first command stops the service, and the second stops the background process that runs the local database. The table and its rows stay. `pxt service update app.py my_app` starts the service again, on a new port.
+    The first command stops the service, and the second stops the daemon. The table and its rows stay. `pxt service update app.py my_app` starts the service again, on a new port.
   </Step>
 </Steps>
 

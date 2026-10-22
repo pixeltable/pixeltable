@@ -37,7 +37,8 @@ Here it's one file, `app.py`.
 
 ## What it looks like
 
-A small video API. Upload a video, get a summary back, then search across everything you uploaded.
+A small video API: upload a video, get a summary back, then search across everything you uploaded. This is all of
+`app.py`:
 
 ```python
 import pixeltable as pxt
@@ -78,20 +79,21 @@ api.add_query_route(path='/search', query=search)
 
 ```bash
 pip install 'pixeltable[serve]' openai
-export OPENAI_API_KEY=sk-...
-pxt init                            # writes pixeltable.toml
+export OPENAI_API_KEY=sk-...        # before the first pxt command, or run pxt daemon restart
+pxt init                            # makes this folder a project
 pxt schema update app.py my_app     # creates the table and its index
-pxt service update app.py my_app    # starts the API and prints its URL
+pxt service update app.py my_app    # starts the service and prints its URL
 ```
 
 ```bash
+# PORT is the one pxt service update printed
 curl -F video=@talk.mp4 http://127.0.0.1:PORT/videos
 # {"summary": "..."}
 curl -X POST http://127.0.0.1:PORT/search -H 'Content-Type: application/json' -d '{"query": "pricing"}'
 # {"rows": [{"video": "...", "summary": "..."}]}
 ```
 
-Each column says what it reads from, so Pixeltable knows what to run and in what order. In practice:
+Each computed column says what it reads from, so Pixeltable knows what to run and in what order. In practice:
 
 - Upload 100 more videos and only those 100 get processed.
 - Change the summary prompt, run `pxt schema update` and `pxt service update` again, and new uploads use it.
@@ -101,18 +103,21 @@ Each column says what it reads from, so Pixeltable knows what to run and in what
   stopping the batch. `pxt recompute my_app/videos transcript --errors-only` reruns just those rows.
 - Every change to a table is versioned. `pxt history` shows it, `pxt revert` undoes it.
 
+[How it works](https://docs.pixeltable.com/overview/how-it-works) explains the rules behind each of these.
+
 ## Why we built it
 
 We kept seeing that same stack in every multimodal AI project, and each piece is fine on its own. The trouble is in
 between: a sync script that hopes the bucket and the database still match, an orchestrator that reruns everything
-because it can't tell what changed. Most of the code was plumbing, and so were most of the bugs.
+unless someone writes the bookkeeping for what changed. Most of the code was plumbing, and so were most of the bugs.
 
 We're database people (Pixeltable comes from the creators of Apache Parquet and Impala), so our answer was to move
-the work into the database. A transform is a column. The engine tracks what depends on what, so recomputing the
-right rows is its job, not yours.
+the work into the database. The engine tracks what depends on what, so recomputing the right rows is its job, not
+yours.
 
 It won't make your models better. Media is still big, model calls still fail and evaluation is still on you. What
-goes away is the plumbing you rebuild every time you want to try a better prompt.
+goes away is the plumbing you rebuild every time you want to try a better prompt. The longer version is on
+[Why Pixeltable](https://docs.pixeltable.com/overview/pixeltable).
 
 ## How it's different
 
@@ -139,10 +144,9 @@ Rather not start from a blank file?
 ```bash
 pxt service example --out app.py   # a working app: a table, computed columns and HTTP routes
 pxt schema example                 # prints every construct a schema can use
-pxt new                            # a free Cloud database, no account needed
 ```
 
-The `pxt new` database lasts about 48 hours unless you claim it with the link it prints. For complete apps, browse
+For complete apps, browse
 [awesome-pixeltable-apps](https://github.com/pierrebrunelle/awesome-pixeltable-apps): each one opens in GitHub
 Codespaces.
 
@@ -155,11 +159,13 @@ pip install 'pixeltable[serve]'
 Python 3.11 or later. The [quickstart](https://docs.pixeltable.com/overview/quick-start) goes from an empty folder
 to your first POST. Rather start in a notebook? The
 [10-minute tour](https://docs.pixeltable.com/overview/ten-minute-tour) needs no CLI.
-[Self-hosting](https://docs.pixeltable.com/howto/deployment/overview) covers Docker, your own FastAPI app and running
-without HTTP.
+[HTTP serving](https://docs.pixeltable.com/howto/deployment/serving) covers uploads and calling your routes from
+TypeScript. [Self-hosting](https://docs.pixeltable.com/howto/deployment/overview) covers your own FastAPI app and
+running without HTTP.
 
 **Pixeltable Cloud** runs the same `app.py` on a hosted database. The
-[Cloud guide](https://docs.pixeltable.com/cloud) goes from `pxt login` to a running service.
+[Cloud guide](https://docs.pixeltable.com/cloud) goes from `pxt login` to a running service. No account yet? `pxt new`
+gives you a free Cloud database for about 48 hours, and prints a link to keep it.
 
 ## Using a coding agent?
 
@@ -170,7 +176,7 @@ pxt skills install
 ```
 
 The skill teaches your agent to write `app.py` the way it's written above. One file helps here: the agent writes the
-whole backend, and you review one diff instead of changes across four systems.
+whole backend, and you review one diff instead of a change in every system.
 [AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms) covers setup for each tool,
 the plugins and the MCP servers.
 

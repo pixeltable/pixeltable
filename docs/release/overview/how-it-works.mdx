@@ -8,14 +8,14 @@ The [Quickstart](/overview/quick-start) gets one app running. This page explains
 
 ## One file, two commands
 
-`app.py` declares two kinds of things. `TableModel` classes describe tables. `FastAPIRouter` objects describe services, the HTTP routes over those tables. Two commands turn the file into something running:
+`app.py` declares two kinds of things. `TableModel` classes describe tables. `FastAPIRouter` objects describe services: named sets of HTTP routes over those tables. Two commands turn the file into something running:
 
 ```bash
 pxt schema update app.py my_app    # create or migrate the tables
 pxt service update app.py my_app   # start or restart the services
 ```
 
-Run them in that order, since a service needs its tables to exist. Both take the same last argument, `my_app`, the catalog directory the tables live in.
+Run them in that order, since a service needs its tables to exist. Both take the same last argument, `my_app`, the catalog directory that holds the tables and services (`my_app/docs`, `my_app/ingest`).
 
 ## Tables and columns
 
@@ -30,26 +30,26 @@ class Docs(TableModel, name='docs'):
 
 A line with a colon is an annotation: a column you insert. Every row needs a `title`, and an insert without one fails. `body` can be left out because its type includes `None`. Media types work the same way: give a `pxt.Video`, `pxt.Image`, `pxt.Audio` or `pxt.Document` column a local path or a URL, and Pixeltable keeps track of the file, downloading and caching it when it's a URL.
 
-A line with `=` is an assignment: a computed column. Pixeltable evaluates it for each row and stores the result. It can call a built-in function like `pxtf.string.upper()`, a model provider like `openai.chat_completions()`, or your own Python function marked with `@pxt.udf`. Pixeltable records your function by its module path from the project root, `app.excerpt` here, so if you rename `app.py`, the columns that call it can't compute until the name matches again.
+A line with `=` is an assignment: a computed column. Pixeltable evaluates it for each row and stores the result. It can call a built-in function like `pxtf.string.upper()`, a model provider like `openai.chat_completions()`, or your own Python function marked with `@pxt.udf` ([UDFs](/platform/udfs-in-pixeltable)). Pixeltable records your function by its module path from the project root, `app.excerpt` here, so if you rename `app.py`, the columns that call it can't compute until the name matches again. A cast sets a computed column's type: `.astype(pxt.String)` fails the insert when the value is `None`, so use `.astype(pxt.String | None)` when it can be missing.
 
 `pxt.Column(...)` covers what a plain annotation or assignment can't say: a primary key, as with `id`, a column computed on read with `stored=False`, or a `destination=` bucket for the media a column produces.
 
 ## When computed columns run
 
-Each assignment names the columns it reads, so Pixeltable knows what depends on what. That decides what runs:
+Each assignment refers to the columns it reads, so Pixeltable knows what depends on what. That decides what runs:
 
 - An insert computes the new rows. Rows already in the table aren't touched, so loading 100 more videos costs 100 videos of work.
 - An update recomputes what depends on the columns you changed. Change a row's `title` and Pixeltable recomputes its `title_upper` and `summary`.
 - A new computed column is computed for every row already in the table.
 - A changed expression applies to new rows. `pxt schema diff` says that existing values will not be recomputed, and `pxt schema update` prints the command that does it: `pxt recompute my_app/docs summary`. That reruns `summary` on every row, plus the columns, views and indexes built from it. `--no-cascade` leaves the dependent columns alone.
 
-When a computed column fails, for example because a model call errors out, what happens depends on where the insert came from. Through a service route, the insert stops, no row is stored and the caller gets the error. From Python, `insert(..., on_error='ignore')` stores the row anyway and keeps the error on the failed column, in `docs.summary.errortype` and `docs.summary.errormsg`. `pxt errors my_app/docs` lists those rows (it needs a primary key to name them), and `pxt recompute my_app/docs summary --errors-only` reruns only them.
+When a computed column fails, for example because a model call errors out, the insert stops by default: no row is stored and the caller gets the error. Through a service route, that's the only behavior. From Python, `insert(..., on_error='ignore')` stores the row anyway and keeps the error on the failed column, in `docs.summary.errortype` and `docs.summary.errormsg`. `pxt errors my_app/docs` lists those rows (it needs a primary key to name them), and `pxt recompute my_app/docs summary --errors-only` reruns only them.
 
-Every insert, update, recompute and schema change makes a new version of the table. `pxt history my_app/docs` lists the versions and `pxt revert my_app/docs` undoes the last one, data and schema together.
+Every insert, update, recompute and schema change makes a new version of the table. `pxt history my_app/docs` lists the versions and `pxt revert my_app/docs` undoes the last one, data and schema together ([Version control](/platform/version-control)).
 
 ## Views and iterators
 
-A model with `base=` is a view of another table. It has its base's columns plus its own, and it updates when rows arrive in the base. Add an iterator and each base row becomes many view rows:
+A `TableModel` class with `base=` is a view of another table. It has its base's columns plus its own, and it updates when rows arrive in the base. Add an iterator and each base row becomes many view rows:
 
 ```python
 class Videos(TableModel, name='videos'):
@@ -64,7 +64,7 @@ Insert a video into `videos` and `frames` gets one row per second of it, each wi
 
 ## Indexes
 
-Indexes go on the model, in `__indexes__`, so `pxt schema update` creates and drops them along with the table:
+Indexes go on the `TableModel` class, in `__indexes__`, so `pxt schema update` creates and drops them along with the table:
 
 ```python
 embed = openai.embeddings.using(model='text-embedding-3-small')
@@ -101,7 +101,7 @@ A `FastAPIRouter` is one service, named by `name=`. Each route turns a POST into
 | `add_delete_route()` | deletes the row with that primary key |
 | `add_query_route()` | runs a `@pxt.query` function and returns its rows |
 
-`pxt service update app.py my_app` runs each service as its own background process, on a port it picks, and `pxt service list` shows the URLs. A service reads its table definitions when it starts. After `pxt schema update` changes a table, the service answers HTTP 409 until `pxt service update` restarts it, on the same port. Adding a route is a safe change. Changing or removing one needs `--allow-destructive`, because something may still be calling it.
+`pxt service update app.py my_app` runs each service as its own background process, on a port it picks, and `pxt service list` shows the URLs. A service reads its table definitions when it starts. After `pxt schema update` changes a table, the service answers HTTP 409 until `pxt service update` restarts it, on the same port. Adding a route is additive. Changing or removing one needs `--allow-destructive`, because something may still be calling it.
 
 `pxt service run app.py my_app` serves in your terminal instead, in the foreground, which is what a container entrypoint wants. File uploads, background jobs, mounting the routes on your own FastAPI app and calling them from TypeScript are in [HTTP serving](/howto/deployment/serving). To skip HTTP entirely and insert from Python, see [Self-hosting](/howto/deployment/overview).
 
@@ -109,11 +109,11 @@ A `FastAPIRouter` is one service, named by `name=`. Each route turns a POST into
 
 The catalog is where your tables live. Locally, that's a Postgres database and a media folder that Pixeltable manages in its home directory, `~/.pixeltable` unless you set `PIXELTABLE_HOME` ([Infrastructure](/howto/deployment/infrastructure)).
 
-Tables sit in directories. `pxt schema update app.py my_app` creates `my_app` and puts every table in `app.py` under it: `my_app/docs`, `my_app/videos`. Apply the same file to `my_app_dev` and you get an independent copy, which is a good place to try a change first.
+Tables sit in directories. `pxt schema update app.py my_app` creates `my_app` and puts every table in `app.py` under it: `my_app/docs`, `my_app/videos`. Run `pxt schema update app.py my_app_dev` and you get a second set of the same tables, empty, which is a good place to try a change first.
 
-`pxt ls my_app`, `pxt describe my_app/docs` and `pxt rows my_app/docs` show what's there, and `pxt dashboard` opens a local UI. From Python, `pxt.get_table('my_app/docs')` returns the table.
+`pxt ls my_app`, `pxt describe my_app/docs` and `pxt rows my_app/docs` show what's there, and `pxt dashboard` opens a local UI. From Python, `pxt.get_table('my_app.docs')` returns the table.
 
-Put a `pxt://org:db` URI in place of `my_app` and the same file runs against a hosted database on Pixeltable Cloud. [Pixeltable Cloud](/cloud) goes from `pxt login` to a running service.
+On Pixeltable Cloud, `pxt db update pxt://org:db` uploads the project to a hosted database, and then the same two commands take that URI in place of `my_app`. [Pixeltable Cloud](/cloud) goes from `pxt login` to a running service.
 
 ## diff, update and prune
 
@@ -125,7 +125,7 @@ Put a `pxt://org:db` URI in place of `my_app` and the same file runs against a h
 | `update` | carries out the plan: creates and migrates tables, or starts and restarts services |
 | `prune` | drops the tables, or stops the services, that are under the last argument but no longer in `app.py` |
 
-`pxt schema update` applies additive changes, like a new column, right away. A change that loses data, like dropping a column, needs `--allow-destructive`, and without it `update` exits `3` and changes nothing. A change Pixeltable can't make in place, like a new type for an existing column, shows up as `UNSUPPORTED` in the plan, and `update` refuses it until you change the file or the table. `update` only touches the tables `app.py` declares. Tables you've removed from the file stay until `prune` drops them, and `prune` asks first.
+`pxt schema update` applies safe changes, like a new column, right away. A change that loses data, like dropping a column, needs `--allow-destructive`, and without it `update` exits `3` and changes nothing. A change Pixeltable can't make in place, like a new type for an existing column, shows up as `UNSUPPORTED` in the plan, and `update` refuses it until you change the file or the table. `update` only touches the tables `app.py` declares. Tables you've removed from the file stay until `prune` drops them, and `prune` asks first.
 
 Because `diff` reports through its exit code, `pxt schema diff app.py my_app` doubles as a CI check that a catalog matches the file. Every flag is in the [CLI reference](/platform/cli#schema-management).
 

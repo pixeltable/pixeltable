@@ -31,29 +31,27 @@ Each of those systems becomes a few lines of `app.py`:
 | The FastAPI app | A `FastAPIRouter` with an insert route and a search route |
 | The sync scripts | Nothing to write. Inserting a row runs everything that depends on it |
 
-The full file is in the [README](https://github.com/pixeltable/pixeltable#what-it-looks-like). Two commands run it: `pxt schema update app.py my_app` creates the table and its index, and `pxt service update app.py my_app` starts the routes. The [Quickstart](/overview/quick-start) walks through both with a smaller file.
+The full file is in the [README](https://github.com/pixeltable/pixeltable#what-it-looks-like). Two commands run it: `pxt schema update app.py my_app` creates the table and its index, and `pxt service update app.py my_app` starts the service. The [Quickstart](/overview/quick-start) walks through both with a smaller file.
 
 ## What a change costs
 
-Every computed column names the columns it reads, so Pixeltable knows what to run and, after a change, what to rerun. That's the part you'd otherwise build by hand.
+Every computed column refers to the columns it reads, so Pixeltable knows what to run and, after a change, what to rerun. That's the part you'd otherwise build by hand.
 
 New uploads only cost new work. Add 100 videos today and those 100 get processed. The thousands from last week aren't touched.
 
-Say the summaries are too long. You edit the prompt in `app.py` and run `pxt schema diff app.py my_app`, which tells you the summary column will change and that existing values won't be recomputed. `pxt schema update` applies it, and once `pxt service update` restarts the routes, new uploads get the new prompt. When you like the results, `pxt recompute my_app/videos summary` redoes the old summaries and the index entries built from them. The transcripts stay as they are, so you don't pay for Whisper twice.
+Say the summaries are too long. You edit the prompt in `app.py` and run `pxt schema diff app.py my_app`, which tells you the summary column will change and that existing values won't be recomputed. `pxt schema update` applies it, and once `pxt service update` restarts the service, new uploads get the new prompt. When you like the results, `pxt recompute my_app/videos summary` redoes the old summaries and the index entries built from them. The transcripts stay as they are, so you don't pay for Whisper twice.
 
-A model call fails on a few rows of a bulk load from Python? With `on_error='ignore'`, Pixeltable stores the error on those rows (`transcript.errortype`, `transcript.errormsg`) and keeps going. `pxt recompute my_app/videos transcript --errors-only` reruns just those rows.
+Failed model calls and table versions follow the same bookkeeping. [When computed columns run](/overview/how-it-works#when-computed-columns-run) has the details.
 
-Every insert, update and recompute is a new version of the table. `pxt history my_app/videos` lists them, and `pxt revert my_app/videos` undoes the last one, including a recompute you regret.
-
-The same `app.py` runs on [Pixeltable Cloud](/cloud) with a `pxt://` URI in place of `my_app`, so moving to a hosted database isn't a rewrite.
+The same `app.py` runs on [Pixeltable Cloud](/cloud). `pxt db update` uploads the project to a hosted database, then the same two commands take its `pxt://` URI in place of `my_app`, so moving isn't a rewrite.
 
 ## Why we built it
 
 We're database people: Pixeltable comes from the creators of Apache Parquet and Impala. When we looked at multimodal AI projects, we kept finding the same thing. The models were the interesting part, and the team spent most of its time on data plumbing.
 
-Lovable and Bolt made web apps easy to build by putting a small surface over a hard problem. We wanted that for developers working with video, images, audio and documents, so we moved the work into the database. A transform is a column. The engine tracks what depends on what, so it works out which rows to recompute. The first version of an app and its tenth revision are the same kind of work: edit `app.py`, run `pxt schema update`.
+Lovable and Bolt made web apps easy to build by putting a small surface over a hard problem. We wanted that for developers working with video, images, audio and documents, so we moved the work into the database. The engine tracks what depends on what, so it works out which rows to recompute. The first version of an app and its tenth revision are the same kind of work: edit `app.py`, run `pxt schema update`, then `pxt service update`.
 
-One file also helps when a coding agent writes the code. The agent writes the whole backend in `app.py`, and you review one diff instead of changes across four systems. [AI coding agents](/overview/building-pixeltable-with-llms) covers the skill and the MCP servers.
+One file also helps when a coding agent writes the code. The agent writes the whole backend in `app.py`, and you review one diff instead of a change in every system. [AI coding agents](/overview/building-pixeltable-with-llms) covers the skill and the MCP servers.
 
 The longer version is in [Making Multimodal More Lovable](https://www.pixeltable.com/blog/making-multimodal-more-lovable).
 
