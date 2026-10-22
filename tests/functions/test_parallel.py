@@ -1,11 +1,13 @@
 import asyncio
 import json
+import pathlib
 import uuid
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
 import pixeltable as pxt
+from pixeltable.config import Config
 from pixeltable.functions import openai, parallel
 
 from ..utils import pxt_raises, reload_catalog
@@ -33,13 +35,7 @@ _SEARCH_RESPONSE = {
 _FETCH_RESPONSE = {
     'extract_id': 'extract_fixture',
     'results': [
-        {
-            'url': _SOURCE_URL,
-            'title': 'A source',
-            'publish_date': '2026-01-15',
-            'excerpts': ['A source excerpt.'],
-            'full_content': None,
-        }
+        {'url': _SOURCE_URL, 'title': 'A source', 'publish_date': '2026-01-15', 'excerpts': ['A source excerpt.']}
     ],
     'errors': [],
     'warnings': None,
@@ -92,7 +88,7 @@ class _McpServer:
 
 
 @pytest.fixture
-def mcp_server(monkeypatch: pytest.MonkeyPatch, private_home: Any) -> _McpServer:
+def mcp_server(monkeypatch: pytest.MonkeyPatch, private_home: pathlib.Path) -> _McpServer:
     monkeypatch.delenv('PARALLEL_API_KEY', raising=False)
     server = _McpServer()
     original = httpx2.AsyncClient
@@ -180,7 +176,6 @@ def test_tool_dispatch_and_choices(uses_db: None, mcp_server: _McpServer) -> Non
 
     t.insert(response={'choices': [{'message': {'content': 'No tool requested.'}}]})
     assert len(mcp_server.calls) == 1
-    assert len(mcp_server.calls) == 1
     assert t.collect()[0]['restricted'] == {'fetch': None}
 
 
@@ -220,6 +215,18 @@ def test_configured_key(uses_db: None, mcp_server: _McpServer, monkeypatch: pyte
     t.add_computed_column(sources=parallel.search(t.query))
     t.insert(query='test query')
     assert all(r.headers['authorization'] == 'Bearer test-parallel-key' for r in mcp_server.requests)
+
+
+def test_key_from_config_section(uses_db: None, mcp_server: _McpServer, private_home: pathlib.Path) -> None:
+    # the other path the module documents: `api_key` in the config file's `parallel` section, with no env var set
+    private_home.mkdir(parents=True, exist_ok=True)
+    (private_home / 'config.toml').write_text('[parallel]\napi_key = "test-config-key"\n', encoding='utf-8')
+    Config.init(reinit=True, project_root=Config.get().project_root)
+    t = pxt.create_table('parallel_test', {'query': pxt.String})
+    t.add_computed_column(sources=parallel.search(t.query))
+    t.insert(query='test query')
+    assert mcp_server.requests
+    assert all(r.headers['authorization'] == 'Bearer test-config-key' for r in mcp_server.requests)
 
 
 @pytest.mark.parametrize('status', [401, 403])

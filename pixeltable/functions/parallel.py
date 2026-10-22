@@ -1,18 +1,16 @@
 """
 Web search and page extraction through [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp).
 
-Install with `pip install 'pixeltable[parallel]'`. Search uses Fast mode without an account or API key, subject to
-the service's anonymous usage limits. Set `PARALLEL_API_KEY`, or `api_key` in the `parallel` configuration section,
-to use an existing Parallel account. A configured key is used as supplied; authentication errors do not fall back
-to anonymous requests.
+In order to use these UDFs, you must first `pip install mcp`. Search uses Fast mode without an account or API key,
+subject to the service's anonymous usage limits. Set `PARALLEL_API_KEY`, or `api_key` in the `parallel` configuration
+section, to use an existing Parallel account. A configured key is used as supplied; authentication errors do not fall
+back to anonymous requests.
 
-These UDFs run only when called. Include them explicitly in `pxt.tools()` to let a model use them. Applications
-that group calls into a conversation should bind their own stable, opaque `session_id` with `using()` and reuse
-it for related searches and fetches. Start a new ID for a new conversation. Pixeltable does not infer conversation
-boundaries from rows or keep a shared conversation ID.
+These UDFs run only when called. Include them explicitly in `pxt.tools()` to let a model use them. Pass a
+`session_id` to group the calls a conversation makes; Pixeltable does not infer conversation boundaries from rows
+or keep a shared conversation ID.
 """
 
-import asyncio
 import json
 from typing import Any, TypedDict, cast
 from urllib.parse import urlsplit
@@ -20,6 +18,7 @@ from urllib.parse import urlsplit
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.env import Env, register_client
+from pixeltable.func.mcp import mcp_session
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
@@ -35,20 +34,12 @@ class _ParallelClient:
 
     async def call(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
         Env.get().require_package('mcp', [2])
-        import httpx2
         import mcp
-        from mcp.client.streamable_http import streamable_http_client
 
         # Each request owns its transport; the cached client holds no mutable conversation state or open sockets.
         try:
-            async with asyncio.timeout(_REQUEST_TIMEOUT):
-                async with (
-                    httpx2.AsyncClient(headers=self.headers, timeout=_REQUEST_TIMEOUT) as http_client,
-                    streamable_http_client(_MCP_URL, http_client=http_client) as (read_stream, write_stream),
-                    mcp.ClientSession(read_stream, write_stream, read_timeout_seconds=_REQUEST_TIMEOUT) as session,
-                ):
-                    await session.initialize()
-                    result = await session.call_tool(tool, arguments)
+            async with mcp_session(_MCP_URL, headers=self.headers, timeout=_REQUEST_TIMEOUT) as session:
+                result = await session.call_tool(tool, arguments)
         except ExceptionGroup as group:
             # AnyIO wraps transport errors; expose the underlying diagnostic to computed-column error reporting.
             error: BaseException = group
@@ -87,7 +78,9 @@ def _session_args(session_id: str | None) -> dict[str, str]:
     return {'session_id': session_id}
 
 
-class ParallelSearchResult(TypedDict):
+class ParallelPageResult(TypedDict):
+    """One source page, as both `search` and `fetch` report it."""
+
     url: str
     title: str | None
     publish_date: str | None
@@ -96,20 +89,24 @@ class ParallelSearchResult(TypedDict):
 
 class ParallelSearchResponse(TypedDict):
     search_id: str
-    results: list[ParallelSearchResult]
+    results: list[ParallelPageResult]
     warnings: list[dict] | None
     session_id: str
 
 
-@pxt.udf(is_deterministic=False)
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:parallel')
 async def search(query: str, *, session_id: str | None = None) -> ParallelSearchResponse:
     """Search the web and return source URLs, titles and relevant excerpts.
 
     Uses Parallel Search MCP in Fast mode by default, without an account or API key.
 
+    Request throttling:
+    Applies the rate limit set in the config (section `parallel`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
+
     Args:
         query: The information to find, including any source or freshness requirements.
-        session_id: Application-owned conversation ID. Bind the same ID for related search and fetch calls;
+        session_id: Application-owned conversation ID. Pass the same ID for related search and fetch calls;
             omit it for standalone requests. Use a new opaque ID for a new conversation.
 
     Returns:
@@ -146,15 +143,7 @@ async def search(query: str, *, session_id: str | None = None) -> ParallelSearch
     return cast(ParallelSearchResponse, await get_runtime().get_client('parallel').call('web_search', arguments))
 
 
-class ParallelFetchResult(TypedDict):
-    url: str
-    title: str | None
-    publish_date: str | None
-    excerpts: list[str] | None
-    full_content: str | None
-
-
-class ParallelFetchError(TypedDict):
+class ParallelFetchFailure(TypedDict):
     url: str
     error_type: str
     http_status_code: int | None
@@ -163,20 +152,24 @@ class ParallelFetchError(TypedDict):
 
 class ParallelFetchResponse(TypedDict):
     extract_id: str
-    results: list[ParallelFetchResult]
-    errors: list[ParallelFetchError]
+    results: list[ParallelPageResult]
+    errors: list[ParallelFetchFailure]
     warnings: list[dict] | None
     session_id: str
 
 
-@pxt.udf(is_deterministic=False)
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:parallel')
 async def fetch(url: str, *, objective: str | None = None, session_id: str | None = None) -> ParallelFetchResponse:
     """Fetch relevant excerpts from a web page with Parallel Search MCP.
+
+    Request throttling:
+    Applies the rate limit set in the config (section `parallel`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     Args:
         url: An HTTP or HTTPS page URL.
         objective: Information to extract, up to 200 characters. Omit for general page excerpts.
-        session_id: Application-owned conversation ID; reuse the ID from related searches.
+        session_id: Application-owned conversation ID; pass the ID used by the related searches.
 
     Returns:
         A dictionary with the following entries:
@@ -188,7 +181,6 @@ async def fetch(url: str, *, objective: str | None = None, session_id: str | Non
             - `title` (`str | None`): the page title
             - `publish_date` (`str | None`): the publication date, as `YYYY-MM-DD`
             - `excerpts` (`list[str] | None`): passages relevant to `objective`
-            - `full_content` (`str | None`): the page as Markdown; this UDF requests excerpts, so it is `None`
 
         - `errors` (`list`): one entry if the page could not be fetched, otherwise empty, with
 
@@ -214,12 +206,10 @@ async def fetch(url: str, *, objective: str | None = None, session_id: str | Non
         ...     tbl.page.results[0].excerpts, tbl.page.errors[0].error_type
         ... ).collect()
 
-        Bind the application's conversation ID before exposing tools to a model:
+        Group a row's search and fetch under the conversation ID stored alongside it:
 
-        >>> search = parallel.search.using(session_id=conversation_id)
-        >>> fetch = parallel.fetch.using(session_id=conversation_id)
-        >>> tools = pxt.tools(
-        ...     pxt.tool(search, name='search'), pxt.tool(fetch, name='fetch')
+        >>> tbl.add_computed_column(
+        ...     page=parallel.fetch(tbl.url, session_id=tbl.conversation)
         ... )
     """
     try:
