@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, Mapping, NamedTuple, TypedDict
 from uuid import UUID
 
-from pixeltable import catalog, exceptions as excs, exprs, func, index, type_system as ts
+from pixeltable import catalog, exceptions as excs, exprs, func, index
 from pixeltable.types import ColumnSpec
 
 from ..globals import MediaValidation, fold_mapping_keys
@@ -209,9 +209,9 @@ class TableSchemaChangeSet(TypedDict):
     # name -> (spec, origin). A 'base_query' column comes from the view's base query select() list and refers to
     # the base table's columns; a 'model_body' column refers to the view's own visible columns.
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
-    # name -> (spec, origin), for existing computed columns whose value expression is being replaced
+    # name -> (spec, origin), for existing computed columns with a new value expression and data columns with a new
+    # type
     altered_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
-    widened_columns: dict[str, ts.ColumnType]  # data columns that become nullable, by name
     dropped_columns: list[str]
     new_idxs: list[IndexDefinition]
     dropped_idxs: list[str]
@@ -343,6 +343,8 @@ def prepare_model_updates(
     # changeset adds.
     altered_exprs: dict[str, exprs.Expr] = {}
     for name, (spec, origin) in altered_columns.items():
+        if 'value' not in spec:
+            continue
         resolved = resolve_model_value_expr(tvp, spec['value'], origin)
         unresolved_names: list[str] = [
             ref.name for ref in resolved.subexprs(exprs.ColumnRefByName) if ref.name not in new_columns

@@ -1119,23 +1119,9 @@ class TableVersion:
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
     def alter_column(self, col: Column, type_: ts.ColumnType) -> None:
-        """Alter the type of a column. Currently only supports widening a value column to nullable."""
-        assert self.is_mutable
-        assert not col.is_computed
-        assert not col.is_pk
-        if type_ == col.col_type:
-            # no-op
-            return
-
-        valid_change = type_.matches(col.col_type) and not col.col_type.nullable and type_.nullable
-        if not valid_change:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Column {col.name!r} type cannot be changed from {col.col_type} to {type_}',
-            )
-
+        """Change the type of a data column as a new schema version."""
         old_type = col.col_type
-        self.widen_columns([(col, type_)])
+        self.alter_col_type_in_version(col, type_)
         self.bump_version(bump_schema_version=True)
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(
@@ -1143,35 +1129,18 @@ class TableVersion:
             f'{self.version}'
         )
 
-    def widen_columns(self, cols: Sequence[tuple[Column, ts.ColumnType]]) -> None:
-        """Make data columns nullable in this version's in-memory schema, without writing the metadata.
-
-        Raises if a non-nullable column depends on one of them: its type would change with the nullable input.
-        """
-        if len(cols) == 0:
-            return
+    def alter_col_type_in_version(self, col: Column, type_: ts.ColumnType) -> None:
+        """Change the type of a data column within the current schema version, without writing the metadata."""
         assert self.is_mutable
+        assert not col.is_computed and not col.is_pk
+        # the only supported change makes the column nullable
+        assert not col.col_type.nullable and type_ == col.col_type.copy(nullable=True)
         cat = get_runtime().catalog
-        for col, col_type in cols:
-            assert not col.is_computed and not col.is_pk
-            assert col_type.nullable and not col.col_type.nullable and col_type.matches(col.col_type)
-            blockers = sorted(
-                dependent.qualified_name
-                for dependent in cat.get_column_dependents(self.id, col.id)
-                if dependent.name is not None and not dependent.col_type.nullable
-            )
-            if len(blockers) > 0:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Column {col.name!r} cannot become nullable: non-nullable columns depend on it: '
-                    f'{", ".join(blockers)}',
-                )
         cat.mark_modified_tv(self.handle)
-        # the expressions that reference these columns keep the old column types
+        # the expressions that reference col keep its old type
         cat.invalidate_after_xact(self)
-        for col, col_type in cols:
-            col.col_type = col_type
-            self._schema_version_md.columns[col.id].col_type = col_type.as_dict()
+        col.col_type = type_
+        self._schema_version_md.columns[col.id].col_type = type_.as_dict()
 
     def _alter_value_expr_in_version(self, col: Column, new_value_expr: exprs.Expr) -> None:
         """Replace a computed column's value expression within the current schema version."""
@@ -1518,14 +1487,10 @@ class TableVersion:
                 result += insert_status.to_cascade()
         return result
 
-    def insert_new_rows(
-        self, batch: list[dict[Column, exprs.Expr]], error_if_exists: bool, return_rows: bool
-    ) -> UpdateStatus:
+    def insert_new_rows(self, batch: list[dict[Column, exprs.Expr]], return_rows: bool) -> UpdateStatus:
         """Insert the rows of batch whose primary key is not in the table, leaving the existing rows untouched.
 
-        Args:
-            batch: one dict per row, each mapping Columns, including all primary key columns, to LiteralExprs
-            error_if_exists: if True, raise without inserting anything when a row's key is already in the table
+        Each row of batch maps Columns, including all primary key columns, to Literals.
         """
         from pixeltable.exec import SqlNode
 
@@ -1536,17 +1501,6 @@ class TableVersion:
         # restricts the lookup to the rows visible at the current version
         stmt = SqlNode.create_from_clause(self.path, stmt)
         existing = {tuple(row) for row in get_runtime().conn.execute(stmt)}
-        if error_if_exists and len(existing) > 0:
-            existing_keys = [key for key in key_vals if key in existing]
-            key_strs = [
-                '(' + ', '.join(f'{col.name}={val!r}' for col, val in zip(pk_cols, key)) + ')'
-                for key in existing_keys[:5]
-            ]
-            more = f' and {len(existing_keys) - 5} more' if len(existing_keys) > 5 else ''
-            raise excs.RequestError(
-                excs.ErrorCode.CONSTRAINT_VIOLATION,
-                f'batch_update(): {len(existing)} row(s) already exist: {", ".join(key_strs)}{more}',
-            )
         new_rows = [
             {col.name: val_expr.val for col, val_expr in row.items()}
             for key, row in zip(key_vals, batch)

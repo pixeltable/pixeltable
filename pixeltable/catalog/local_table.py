@@ -796,6 +796,20 @@ class LocalTable(Table):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter the type of primary key column {col.name!r}'
                 )
+            if new_col_type == col.col_type:
+                return
+            if col.col_type.nullable or new_col_type != col.col_type.copy(nullable=True):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Column {col.name!r} type cannot be changed from {col.col_type} to {new_col_type}',
+                )
+            dependents = self._non_nullable_dependents(col.name)
+            if len(dependents) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Column {col.name!r} cannot become nullable: non-nullable columns depend on it: '
+                    f'{", ".join(dependents)}',
+                )
             self._tbl_version.get().alter_column(col, new_col_type)
 
         do_alter_column()
@@ -1180,17 +1194,19 @@ class LocalTable(Table):
         self,
         rows: Iterable[dict[str, Any]],
         cascade: bool = True,
-        if_not_exists: Literal['error', 'ignore', 'insert'] | None = None,
+        if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
         return_rows: bool = False,
-        if_exists: Literal['update', 'ignore', 'error'] | None = None,
+        if_exists: Literal['update', 'ignore'] = 'update',
     ) -> UpdateStatus:
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
-        if if_not_exists is not None and if_exists is not None:
+        if if_exists == 'ignore' and if_not_exists != 'insert':
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT, 'batch_update(): specify `if_not_exists` or `if_exists`, not both'
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f"batch_update(): if_exists='ignore' requires if_not_exists='insert'; with "
+                f'if_not_exists={if_not_exists!r}, the call would change nothing',
             )
         # rows that are only inserted may contain media, as in insert()
-        insert_only = if_exists in ('ignore', 'error')
+        insert_only = if_exists == 'ignore'
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
@@ -1211,10 +1227,10 @@ class LocalTable(Table):
             rowids: list[tuple[int, ...]] = []
             if len(pk_col_names) == 0 and not has_rowid:
                 raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'Table must have primary key for batch update')
-            if has_rowid and if_exists is not None:
+            if has_rowid and insert_only:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
-                    f'batch_update(): `if_exists` cannot be combined with {_ROWID_COLUMN_NAME}, which addresses '
+                    f"batch_update(): if_exists='ignore' cannot be combined with {_ROWID_COLUMN_NAME}, which addresses "
                     'existing rows only',
                 )
 
@@ -1242,13 +1258,13 @@ class LocalTable(Table):
 
             tv = self._tbl_version.get()
             if insert_only:
-                result = tv.insert_new_rows(row_updates, error_if_exists=if_exists == 'error', return_rows=return_rows)
+                result = tv.insert_new_rows(row_updates, return_rows=return_rows)
             else:
                 result = tv.batch_update(
                     row_updates,
                     rowids,
-                    error_if_not_exists=if_exists is None and if_not_exists in (None, 'error'),
-                    insert_if_not_exists=if_exists == 'update' or if_not_exists == 'insert',
+                    error_if_not_exists=if_not_exists == 'error',
+                    insert_if_not_exists=if_not_exists == 'insert',
                     cascade=cascade,
                     return_rows=return_rows,
                 )

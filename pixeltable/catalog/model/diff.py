@@ -239,17 +239,17 @@ def _alter_column_change(
     existing_props: _ColumnProperties,
     col_md: ColumnMetadata,
     altered: list[str],
-    tbl_path: catalog.TablePath,
-    existing_md: TableMetadata,
+    existing: catalog.Table,
 ) -> SchemaChangeOp:
     """The op for a column whose properties differ. The supported changes are a new value expression for a computed
     column, and a data column becoming nullable."""
     if altered == ['type'] and not col_md['is_computed'] and not col_md['is_primary_key']:
-        existing_type = tbl_path.get_column_md_by_name(col_name).col_type
-        model_type = col_type_from_spec(spec)
-        if model_type.nullable and not existing_type.nullable and model_type.matches(existing_type):
-            blockers = _non_nullable_dependents(col_name, col_md, tbl_path, existing_md)
-            if len(blockers) == 0:
+        existing_col_md = existing._tbl_path.get_column_md_by_name(col_name)
+        assert existing_col_md is not None
+        existing_type = existing_col_md.col_type
+        if not existing_type.nullable and col_type_from_spec(spec) == existing_type.copy(nullable=True):
+            dependents = existing._non_nullable_dependents(col_name)
+            if len(dependents) == 0:
                 return SchemaChangeOp(
                     target='column',
                     name=col_name,
@@ -269,7 +269,7 @@ def _alter_column_change(
                 existing={'type': existing_props.type},
                 description=(
                     f'column {col_name!r} cannot become nullable: non-nullable columns depend on it: '
-                    f'{", ".join(repr(name) for name in blockers)}'
+                    f'{", ".join(dependents)}'
                 ),
             )
 
@@ -306,23 +306,6 @@ def _alter_column_change(
             stored=col_md['is_stored'],
         ),
     )
-
-
-def _non_nullable_dependents(
-    col_name: str, col_md: ColumnMetadata, tbl_path: catalog.TablePath, existing_md: TableMetadata
-) -> list[str]:
-    """Return the table's non-nullable columns that depend on col_name, directly or through other columns."""
-    found: set[str] = set()
-    frontier = {(col_md['defined_in'], col_name)}
-    while len(frontier) > 0:
-        new_names = {
-            name
-            for name, md in existing_md['columns'].items()
-            if name not in found and any(tuple(dep) in frontier for dep in md['depends_on'] or [])
-        }
-        found |= new_names
-        frontier = {(existing_md['columns'][name]['defined_in'], name) for name in new_names}
-    return sorted(name for name in found if not tbl_path.get_column_md_by_name(name).col_type.nullable)
 
 
 def _value_expr_dict(
@@ -556,11 +539,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         altered.append(prop)
                 if len(altered) == 0:
                     continue
-                ops.append(
-                    _alter_column_change(
-                        col_name, spec, model_props, existing_props, col_md, altered, tbl_path, existing_md
-                    )
-                )
+                ops.append(_alter_column_change(col_name, spec, model_props, existing_props, col_md, altered, existing))
 
             # Additive/destructive column and index changes.
             for col_name in sorted(model_cols - existing_cols):
@@ -736,10 +715,10 @@ def format_diff(name: str, diff: TableDiff) -> list[str]:
         # If any computed column's expression changed, include the recompute notice
         if any(c.details.stored for c in value_alters):
             detail.append('  existing values will not be recomputed; use `pxt recompute` to do so.')
-    widened = [c for c in supported_alters if 'value' not in c.model]
-    if len(widened) > 0:
+    type_alters = [c for c in supported_alters if 'value' not in c.model]
+    if len(type_alters) > 0:
         detail.append('  the following columns will become nullable:')
-        for c in widened:
+        for c in type_alters:
             detail.append(f'    {c.name!r}: {c.existing["type"]} -> {c.model["type"]}')
 
     new_cols = by('column', op='add')

@@ -18,7 +18,7 @@ import sqlalchemy.exc as sql_exc
 from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
-from pixeltable import exceptions as excs, exprs, func, telemetry, telemetry_schemas
+from pixeltable import exceptions as excs, exprs, func, telemetry, telemetry_schemas, type_system as ts
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -1968,10 +1968,12 @@ class Catalog(CatalogBase):
                 pending_ancestor_ids = (set(tvp.tbl_ids[1:]) & updated_tbl_ids) - applied_tbl_ids
                 assert len(pending_ancestor_ids) == 0, f'{tv.name}: bases not yet applied: {pending_ancestor_ids}'
 
-                # before the new columns are resolved, since a column reference takes the type of its column
-                tv.widen_columns(
-                    [(tv.cols_by_name[name], col_type) for name, col_type in change_set['widened_columns'].items()]
-                )
+                # a data column's new type comes first: a column reference resolved below takes the type of its column
+                for name, (spec, _) in change_set['altered_columns'].items():
+                    if 'value' not in spec:
+                        col_type = spec['type']
+                        assert isinstance(col_type, ts.ColumnType)
+                        tv.alter_col_type_in_version(tv.cols_by_name[name], col_type)
                 added_cols, added_idxs, altered_exprs = prepare_model_updates(
                     tvp,
                     tv.display_str(),
@@ -1988,7 +1990,7 @@ class Catalog(CatalogBase):
                 _logger.info(
                     f'Applying model updates to {tv.name!r} (id={tv.id}, schema_versions={expected_schema_version}): '
                     f'add columns {[col.name for col in added_cols]}, '
-                    f'alter columns {[col.name for col, _ in altered_cols]}, '
+                    f'alter columns {list(change_set["altered_columns"])}, '
                     f'drop columns {change_set["dropped_columns"]}, '
                     f'add indexes {[spec.idx_name for spec in added_idxs]}, '
                     f'drop indexes {change_set["dropped_idxs"]}'

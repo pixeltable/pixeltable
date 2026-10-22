@@ -74,6 +74,19 @@ class TestAlterColumn:
         assert t.order_by(t.id).select(t.a).collect()['a'] == [1, None]
         assert v.order_by(v.id).select(v.b).collect()['b'] == [2, None]
 
+        # a non-nullable computed column of a view blocks the change
+        v.add_computed_column(next_id=v.id + 1)
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r"'id' cannot become nullable: non-nullable columns depend on it: test_view\.next_id",
+        ):
+            t.alter_column('id', type_=pxt.Int | None)
+
+        # an iterator emits no rows for a null argument, so the columns of a component view don't block it
+        videos = pxt.create_table(p('videos'), {'video': pxt.Video})
+        pxt.create_view(p('frames'), videos, iterator=pxtf.video.frame_iterator(videos.video, fps=1.0))
+        videos.alter_column('video', type_=pxt.Video | None)
+
     def test_alter_column_same_type(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         t = pxt.create_table(
             db_root.make_catalog_path('test_tbl'), {'c1': pxt.Int | None}, _is_data_versioned=is_data_versioned

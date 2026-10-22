@@ -3500,10 +3500,12 @@ class TestTableModel:
         assert diff.resolution == 'unsupported'
         (label_op,) = [op for op in diff.ops if op.name == 'label']
         assert (
-            label_op.description == "column 'label' cannot become nullable: non-nullable columns depend on it: 'shout'"
+            label_op.description
+            == "column 'label' cannot become nullable: non-nullable columns depend on it: notes.shout"
         )
 
-        # a non-nullable column of a view outside the models depends on extra: the update refuses and changes nothing
+        # a non-nullable column of a view outside the models depends on extra: unsupported, and the update changes
+        # nothing
         v = pxt.create_view(p('notes_view'), t)
         v.add_computed_column(extra_len=pxtf.string.len(v.extra))
 
@@ -3519,13 +3521,13 @@ class TestTableModel:
             kind = meta.kind
             loud = pxtf.string.upper(note)
 
-        assert ViewBlockedModel.get_model_diff(root)['notes'].resolution == 'update_additive'
-        with pxt_raises(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=re.escape(
-                "Column 'extra' cannot become nullable: non-nullable columns depend on it: notes_view.extra_len"
-            ),
-        ):
+        diff = ViewBlockedModel.get_model_diff(root)['notes']
+        assert diff.resolution == 'unsupported'
+        (extra_op,) = [op for op in diff.ops if op.name == 'extra']
+        assert extra_op.description == (
+            "column 'extra' cannot become nullable: non-nullable columns depend on it: notes_view.extra_len"
+        )
+        with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match='cannot be updated'):
             ViewBlockedModel.update_all(root)
         assert_type_eq(pxt.get_table(p('notes')).extra.col_type, pxt.String)
 

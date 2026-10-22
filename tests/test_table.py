@@ -3161,47 +3161,53 @@ class TestTable:
         t.insert([{'id': 1, 'name': 'a'}, {'id': 2, 'name': 'b'}])
         tags = {r['id']: r['tag'] for r in t.select(t.id, t.tag).collect()}
 
-        # 'ignore': new keys are inserted; existing rows and their computed columns stay unchanged
-        status = t.batch_update([{'id': 1, 'name': 'x'}, {'id': 3, 'name': 'c'}], if_exists='ignore', return_rows=True)
+        # if_exists='ignore': new keys are inserted; existing rows and their computed columns stay unchanged
+        status = t.batch_update(
+            [{'id': 1, 'name': 'x'}, {'id': 3, 'name': 'c'}],
+            if_exists='ignore',
+            if_not_exists='insert',
+            return_rows=True,
+        )
         assert status.num_rows == 1
         assert status.rows is not None and [r['id'] for r in status.rows] == [3]
         assert t.where(t.id == 1).select(t.name, t.tag).collect()[0] == {'name': 'a', 'tag': tags[1]}
         assert t.count() == 3
-        assert t.batch_update([{'id': 2, 'name': 'y'}], if_exists='ignore').num_rows == 0
+        status = t.batch_update(
+            [{'id': 2, 'name': 'y'}, {'id': 4, 'name': 'd'}], if_exists='ignore', if_not_exists='insert'
+        )
+        assert status.num_rows == 1
 
-        # 'error': an existing key aborts the whole batch
-        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match=r'1 row\(s\) already exist: \(id=2\)'):
-            t.batch_update([{'id': 2, 'name': 'y'}, {'id': 4, 'name': 'd'}], if_exists='error')
-        assert t.where(t.id == 4).count() == 0
-        assert t.batch_update([{'id': 4, 'name': 'd'}], if_exists='error').num_rows == 1
+        # with another if_not_exists, if_exists='ignore' would change nothing
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="requires if_not_exists='insert'"):
+            t.batch_update([{'id': 8, 'name': 'h'}], if_exists='ignore')
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="requires if_not_exists='insert'"):
+            t.batch_update([{'id': 8, 'name': 'h'}], if_exists='ignore', if_not_exists='ignore')
 
         # a deleted row no longer exists
         t.where(t.id == 4).delete()
-        t.batch_update([{'id': 4, 'name': 'd2'}], if_exists='ignore')
+        t.batch_update([{'id': 4, 'name': 'd2'}], if_exists='ignore', if_not_exists='insert')
         assert t.where(t.id == 4).select(t.name).collect()['name'] == ['d2']
 
-        # 'update': an upsert, which recomputes the updated row
-        t.batch_update([{'id': 1, 'name': 'a2'}, {'id': 5, 'name': 'e'}], if_exists='update')
+        # the default if_exists='update' with if_not_exists='insert' is an upsert, which recomputes the updated row
+        t.batch_update([{'id': 1, 'name': 'a2'}, {'id': 5, 'name': 'e'}], if_not_exists='insert')
         row = t.where(t.id == 1).select(t.name, t.tag).collect()[0]
         assert row['name'] == 'a2' and row['tag'] != tags[1]
         assert t.count() == 5
 
-        # the insert-only modes accept media; the update modes still refuse it
+        # rows that are only inserted accept media; an update still refuses it
         img = get_image_files()[0]
-        t.batch_update([{'id': 6, 'name': 'f', 'img': img}], if_exists='ignore')
+        t.batch_update([{'id': 6, 'name': 'f', 'img': img}], if_exists='ignore', if_not_exists='insert')
         assert t.where(t.id == 6).select(t.img).collect()[0]['img'] is not None
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'img' is a media column"):
             t.batch_update([{'id': 7, 'name': 'g', 'img': img}], if_not_exists='insert')
 
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='not both'):
-            t.batch_update([{'id': 8, 'name': 'h'}], if_not_exists='insert', if_exists='ignore')
         if is_data_versioned:
             with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='_rowid'):
-                t.batch_update([{'name': 'z', '_rowid': (1,)}], if_exists='ignore')
+                t.batch_update([{'name': 'z', '_rowid': (1,)}], if_exists='ignore', if_not_exists='insert')
 
             # a view sees the inserted rows; views of operational tables are not supported yet (PXT-1101)
             v = pxt.create_view(p('test_view'), t)
-            t.batch_update([{'id': 1, 'name': 'x'}, {'id': 9, 'name': 'i'}], if_exists='ignore')
+            t.batch_update([{'id': 1, 'name': 'x'}, {'id': 9, 'name': 'i'}], if_exists='ignore', if_not_exists='insert')
             assert v.where(v.id == 9).count() == 1
 
         # a composite key
@@ -3212,7 +3218,9 @@ class TestTable:
             _is_data_versioned=is_data_versioned,
         )
         pairs.insert([{'a': 1, 'b': 'x', 'v': 1}])
-        pairs.batch_update([{'a': 1, 'b': 'x', 'v': 9}, {'a': 1, 'b': 'y', 'v': 2}], if_exists='ignore')
+        pairs.batch_update(
+            [{'a': 1, 'b': 'x', 'v': 9}, {'a': 1, 'b': 'y', 'v': 2}], if_exists='ignore', if_not_exists='insert'
+        )
         assert pairs.order_by(pairs.b).select(pairs.b, pairs.v).collect()['v'] == [1, 2]
 
     def test_update_return_rows(
