@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Iterator, Literal, TypedDict
 
 import av
-import pandas as pd
 import PIL.Image
 from av.container import InputContainer
 
@@ -108,6 +107,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
     # Video info
     container: InputContainer
     video_time_base: Fraction
+    video_framerate: Fraction | None
     video_start_time: float
     video_duration: float | None
 
@@ -118,7 +118,10 @@ class frame_iterator(pxt.PxtIterator[Frame]):
     # state
     pos: int
     video_idx: int
+    frames: Iterator[av.VideoFrame]
+    decoded_to_end: bool  # True once frames is exhausted
     cur_frame: av.VideoFrame | None
+    last_decoded_frame: av.VideoFrame | None
 
     def __init__(
         self, video: pxt.Video, *, fps: float | None = None, num_frames: int | None = None, keyframes_only: bool = False
@@ -132,25 +135,13 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         self.keyframes_only = keyframes_only
 
         self.video_time_base = self.container.streams.video[0].time_base
+        self.video_framerate = self.container.streams.video[0].average_rate
 
         start_time = self.container.streams.video[0].start_time or 0
         self.video_start_time = float(start_time * self.video_time_base)
 
-        duration_pts: int | None = self.container.streams.video[0].duration
-        if duration_pts is not None:
-            self.video_duration = float(duration_pts * self.video_time_base)
-        else:
-            # As a backup, try to calculate duration from DURATION metadata field
-            metadata = self.container.streams.video[0].metadata
-            duration_field = metadata.get('DURATION')  # A string like "00:01:23"
-            if duration_field is not None:
-                assert isinstance(duration_field, str)
-                self.video_duration = pd.to_timedelta(duration_field).total_seconds()
-            else:
-                # TODO: Anything we can do here? Other methods of determining the duration are expensive and
-                #     not so appropriate for an iterator initializer.
-                self.video_duration = None
-
+        self.video_duration = av_utils.get_stream_duration(self.container.streams.video[0])
+        # TODO: determine the duration when the headers don't record it, without scanning the whole file
         if self.video_duration is None and self.num_frames is not None:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'Could not determine duration of video: {video}'
@@ -167,7 +158,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         if self.num_frames is not None:
             # Divide the video duration into num_frames evenly spaced intervals. The extraction times are the midpoints
             # of those intervals.
-            self.extraction_step = (self.video_duration - self.video_start_time) / self.num_frames
+            self.extraction_step = self.video_duration / self.num_frames
             self.next_extraction_time = self.video_start_time + self.extraction_step / 2
         elif self.fps is not None:
             self.extraction_step = 1 / self.fps
@@ -180,13 +171,32 @@ class frame_iterator(pxt.PxtIterator[Frame]):
             f'FrameIterator: path={self.video_path} fps={self.fps} num_frames={self.num_frames} '
             f'keyframes_only={self.keyframes_only}'
         )
+        self.last_decoded_frame = None
+        self.frames = self.container.decode(video=0)
+        self.decoded_to_end = False
         self.cur_frame = self.next_frame()
 
     def next_frame(self) -> av.VideoFrame | None:
-        try:
-            return next(self.container.decode(video=0))
-        except EOFError:
-            return None
+        frame = next(self.frames, None)
+        if frame is None:
+            self.decoded_to_end = True
+        else:
+            self.last_decoded_frame = frame
+        return frame
+
+    def video_end_time(self) -> float:
+        """Return the end of the video, in seconds. Requires that the last frame has been decoded."""
+        assert self.decoded_to_end and self.last_decoded_frame is not None
+        # FFmpeg reports 0 for an unknown frame duration
+        if self.last_decoded_frame.duration > 0:
+            return float((self.last_decoded_frame.pts + self.last_decoded_frame.duration) * self.video_time_base)
+        frame_start = float(self.last_decoded_frame.pts * self.video_time_base)
+        # the header duration can be an estimate that ends before the last frame starts (seen in .mpg files)
+        if self.video_duration is not None and self.video_start_time + self.video_duration > frame_start:
+            return self.video_start_time + self.video_duration
+        if self.video_framerate is not None and self.video_framerate > 0:
+            return frame_start + float(1 / self.video_framerate)
+        return frame_start
 
     def __next__(self) -> Frame:
         while True:
@@ -208,9 +218,8 @@ class frame_iterator(pxt.PxtIterator[Frame]):
                 assert self.next_extraction_time is not None
 
                 if next_frame is None:
-                    # cur_frame is the last frame of the video. If it is before the next extraction time, then we
-                    # have reached the end of the video.
-                    if cur_frame_time < self.next_extraction_time:
+                    # cur_frame is the last frame of the video and is shown until the end of the video
+                    if self.next_extraction_time >= self.video_end_time():
                         raise StopIteration
                 else:
                     # The extraction time represents the idealized timestamp of the next frame we want to extract.
@@ -277,12 +286,21 @@ class frame_iterator(pxt.PxtIterator[Frame]):
 
         # Subtlety: The offset passed in to seek() is not the pts, but rather the pts adjusted for the video start time.
         seek_offset = math.floor((seek_time - self.video_start_time) / self.video_time_base)
-        self.container.seek(seek_offset, backward=True, stream=self.container.streams.video[0])
+        self._decode_from(seek_offset, seek_time)
+        if self.cur_frame is None:
+            # container.seek() can end up past the last frame (seen in .flv files)
+            self._decode_from(0, seek_time)
+        assert self.cur_frame is not None and abs(float(self.cur_frame.pts * self.video_time_base) - seek_time) < 1e-3
 
+    def _decode_from(self, seek_offset: int, seek_time: float) -> None:
+        """Seek the container to seek_offset and decode up to the first frame at or after seek_time."""
+        self.container.seek(seek_offset, backward=True, stream=self.container.streams.video[0])
+        # the old generator may be exhausted or have frames from before the seek
+        self.frames = self.container.decode(video=0)
+        self.decoded_to_end = False
         self.cur_frame = self.next_frame()
         while self.cur_frame is not None and float(self.cur_frame.pts * self.video_time_base) < seek_time - 1e-3:
             self.cur_frame = self.next_frame()
-        assert self.cur_frame is None or abs(float(self.cur_frame.pts * self.video_time_base) - seek_time) < 1e-3
 
     @classmethod
     def validate(cls, bound_args: dict[str, Any]) -> None:
