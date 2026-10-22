@@ -20,12 +20,6 @@
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 [![Python](https://img.shields.io/pypi/pyversions/pixeltable)](https://pypi.org/project/pixeltable/)
 
-Install into your agent: [Agent Skill](https://github.com/pixeltable/pixeltable-skill) ·
-[MCP server](https://github.com/pixeltable/mcp-server-pixeltable-developer) ·
-[Cursor plugin](https://cursor.directory/plugins/pixeltable) ·
-[Claude plugin](https://claude.com/marketplace/plugins/pixeltable) ·
-[ChatGPT plugin](https://chatgpt.com/plugins/plugins_6aa9bce6481c81918d73be74740eed28)
-
 Build AI apps on video, images, audio and documents in seconds. A table holds references to your files next to
 regular columns: a path or URL you insert stays where it is, and files you upload or Pixeltable produces go to its
 media store, on local disk or in [your own S3, GCS or Azure bucket](https://docs.pixeltable.com/integrations/cloud-storage). The work you want done on them, like
@@ -189,10 +183,16 @@ npx skills add pixeltable/pixeltable-skill
 pxt skills install
 ```
 
-The skill teaches your agent to write `app.py` the way it's written above. With one file, the agent writes the whole
-backend and you review one diff instead of a change in every system.
-[AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms) covers setup for each tool,
-the plugins and the MCP servers.
+The [skill](https://github.com/pixeltable/pixeltable-skill) teaches your agent to write `app.py` the way it's written
+above. With one file, the agent writes the whole backend and you review one diff instead of a change in every system.
+
+Rather install a plugin? The same skill ships as one for [Claude](https://claude.com/marketplace/plugins/pixeltable),
+[Cursor](https://cursor.directory/plugins/pixeltable) and
+[ChatGPT](https://chatgpt.com/plugins/plugins_6aa9bce6481c81918d73be74740eed28). To let the agent look at your tables
+while it works, add the [developer MCP server](https://github.com/pixeltable/mcp-server-pixeltable-developer). It runs
+on your machine, with tools to inspect tables, run queries and use a Python REPL against your local or Cloud
+database. [AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms) covers setup for each
+tool and the hosted MCP servers for the docs and your Cloud org.
 
 ## Contributing
 
