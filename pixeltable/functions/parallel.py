@@ -114,6 +114,14 @@ def _session_args(session_id: str | None) -> dict[str, str]:
     return {'session_id': session_id}
 
 
+def _validated_queries(search_queries: list[str]) -> list[str]:
+    if len(search_queries) == 0 or any(not query.strip() for query in search_queries):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, 'search_queries must contain at least one non-empty query.'
+        )
+    return search_queries
+
+
 class ParallelPageResult(TypedDict):
     """One source page, as both `search` and `fetch` report it."""
 
@@ -121,6 +129,8 @@ class ParallelPageResult(TypedDict):
     title: str | None
     publish_date: str | None
     excerpts: list[str] | None
+    # present only on a fetch that asked for the whole page
+    full_content: NotRequired[str | None]
 
 
 class ParallelSearchResponse(TypedDict):
@@ -131,7 +141,9 @@ class ParallelSearchResponse(TypedDict):
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:parallel')
-async def search(query: str, *, session_id: str | None = None) -> ParallelSearchResponse:
+async def search(
+    query: str, *, search_queries: list[str] | None = None, session_id: str | None = None
+) -> ParallelSearchResponse:
     """Search the web and return source URLs, titles and relevant excerpts.
 
     Uses Parallel Search MCP in Fast mode by default, without an account or API key.
@@ -142,6 +154,8 @@ async def search(query: str, *, session_id: str | None = None) -> ParallelSearch
 
     Args:
         query: The information to find, including any source or freshness requirements.
+        search_queries: Keyword queries of three to six words each, which may use search operators; two or three
+            work best. The service ranks sources against them and against `query`. Defaults to `query` itself.
         session_id: Application-owned conversation ID. Pass the same ID for related search and fetch calls;
             omit it for standalone requests. Use a new opaque ID for a new conversation.
 
@@ -169,13 +183,22 @@ async def search(query: str, *, session_id: str | None = None) -> ParallelSearch
 
         >>> tbl.select(tbl.sources.results[0].excerpts).collect()
 
+        Search with keyword queries of their own:
+
+        >>> tbl.add_computed_column(
+        ...     sources=parallel.search(
+        ...         tbl.question, search_queries=tbl.keyword_queries
+        ...     )
+        ... )
+
         Make search available to an LLM using the existing tool-calling API:
 
         >>> tools = pxt.tools(parallel.search)
     """
     if not query.strip():
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'query must not be empty.')
-    arguments = {'objective': query, 'search_queries': [query], **_session_args(session_id)}
+    queries = [query] if search_queries is None else _validated_queries(search_queries)
+    arguments = {'objective': query, 'search_queries': queries, **_session_args(session_id)}
     return cast(ParallelSearchResponse, await get_runtime().get_client('parallel').call('web_search', arguments))
 
 
@@ -195,7 +218,15 @@ class ParallelFetchResponse(TypedDict):
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:parallel')
-async def fetch(url: str, *, objective: str | None = None, session_id: str | None = None) -> ParallelFetchResponse:
+async def fetch(
+    url: str,
+    *,
+    objective: str | None = None,
+    search_queries: list[str] | None = None,
+    full_content: bool | None = None,
+    allow_live_fetch: bool | None = None,
+    session_id: str | None = None,
+) -> ParallelFetchResponse:
     """Fetch relevant excerpts from a web page with Parallel Search MCP.
 
     Request throttling:
@@ -205,6 +236,12 @@ async def fetch(url: str, *, objective: str | None = None, session_id: str | Non
     Args:
         url: An HTTP or HTTPS page URL.
         objective: Information to extract, up to 200 characters. Omit for general page excerpts.
+        search_queries: Keyword queries of three to six words each, which focus the excerpts alongside `objective`;
+            pass the queries of the search that produced `url`.
+        full_content: Return the whole page as markdown instead of excerpts. A long page can run to tens of
+            thousands of tokens. Defaults to the service's setting, which returns excerpts.
+        allow_live_fetch: Whether to fetch the page from its source. `False` restricts the request to Parallel's
+            cached copy, which responds faster but can be out of date. Defaults to the service's setting, `True`.
         session_id: Application-owned conversation ID; pass the ID used by the related searches.
 
     Returns:
@@ -217,6 +254,7 @@ async def fetch(url: str, *, objective: str | None = None, session_id: str | Non
             - `title` (`str | None`): the page title
             - `publish_date` (`str | None`): the publication date, as `YYYY-MM-DD`
             - `excerpts` (`list[str] | None`): passages relevant to `objective`
+            - `full_content` (`str | None`): the whole page as markdown, if `full_content` asked for it
 
         - `errors` (`list`): one entry if the page could not be fetched, otherwise empty, with
 
@@ -260,6 +298,12 @@ async def fetch(url: str, *, objective: str | None = None, session_id: str | Non
     arguments: dict[str, Any] = {'urls': [url], **_session_args(session_id)}
     if objective is not None:
         arguments['objective'] = objective
+    if search_queries is not None:
+        arguments['search_queries'] = _validated_queries(search_queries)
+    if full_content is not None:
+        arguments['full_content'] = full_content
+    if allow_live_fetch is not None:
+        arguments['allow_live_fetch'] = allow_live_fetch
     return cast(ParallelFetchResponse, await get_runtime().get_client('parallel').call('web_fetch', arguments))
 
 

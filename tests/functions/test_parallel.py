@@ -327,6 +327,40 @@ def test_fetch_partial_error(uses_db: None, mcp_server: _McpServer) -> None:
     assert mcp_server.calls[0]['arguments']['objective'] == 'Find the title'
 
 
+def test_search_queries(uses_db: None, mcp_server: _McpServer) -> None:
+    # the service ranks sources against keyword queries, which default to the objective itself
+    queries = ['pixeltable computed columns', 'pixeltable incremental recomputation']
+    t = pxt.create_table('parallel_test', {'query': pxt.String})
+    t.add_computed_column(sources=parallel.search(t.query, search_queries=queries))
+    t.insert(query='How do computed columns work?')
+    assert mcp_server.calls[0]['arguments'] == {'objective': 'How do computed columns work?', 'search_queries': queries}
+
+
+def test_fetch_full_content(uses_db: None, mcp_server: _McpServer) -> None:
+    payload = {
+        'extract_id': 'extract_fixture',
+        'results': [
+            {
+                'url': _SOURCE_URL,
+                'title': 'A source',
+                'publish_date': None,
+                'excerpts': None,
+                'full_content': '# A source\n\nThe whole page.',
+            }
+        ],
+        'errors': [],
+        'warnings': None,
+        'session_id': 'session_fixture',
+    }
+    mcp_server.result = {'content': [], 'structuredContent': payload}
+    t = pxt.create_table('parallel_test', {'url': pxt.String})
+    t.add_computed_column(page=parallel.fetch(t.url, full_content=True, allow_live_fetch=False))
+    t.insert(url=_SOURCE_URL)
+    assert mcp_server.calls[0]['arguments'] == {'urls': [_SOURCE_URL], 'full_content': True, 'allow_live_fetch': False}
+    # the whole page is a declared response field, reachable by JSON path like the excerpts are
+    assert t.select(content=t.page.results[0].full_content).collect()[0]['content'].startswith('# A source')
+
+
 def test_invalid_arguments(uses_db: None, mcp_server: _McpServer) -> None:
     t = pxt.create_table('parallel_test', {'value': pxt.String})
     for i, (expr, message) in enumerate(
@@ -335,6 +369,8 @@ def test_invalid_arguments(uses_db: None, mcp_server: _McpServer) -> None:
             (parallel.fetch('file:///etc/passwd'), 'HTTP or HTTPS URL'),
             (parallel.fetch('https://example.org', objective='x' * 201), 'at most 200'),
             (parallel.search('query', session_id=''), '1 to 100'),
+            (parallel.search('query', search_queries=[]), 'at least one non-empty query'),
+            (parallel.fetch('https://example.org', search_queries=[' ']), 'at least one non-empty query'),
         ]
     ):
         t.add_computed_column(**{f'result_{i}': expr})
