@@ -117,8 +117,7 @@ We're database people (Pixeltable comes from the creators of Apache Parquet and 
 the work into the database. The engine tracks what depends on what, so recomputing the right rows is its job, not
 yours.
 
-It won't make your models better. Media is still big, model calls still fail and evaluation is still on you. It
-removes the plumbing you rebuild every time you want to try a better prompt. The longer version is on
+It won't make your models better. Media is still big, model calls still fail and evaluation is still on you. The longer version is on
 [Why Pixeltable](https://docs.pixeltable.com/overview/pixeltable).
 
 ## How it's different
