@@ -11,7 +11,7 @@
 [**CLI**](https://docs.pixeltable.com/platform/cli) |
 [**Cloud**](https://docs.pixeltable.com/cloud) |
 [**Discord**](https://discord.gg/QPyqFYx2UN) |
-[**Get Started**](https://www.pixeltable.com/get-started.md)
+[**For agents**](https://www.pixeltable.com/get-started.md)
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml)
