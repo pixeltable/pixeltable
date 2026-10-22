@@ -3,20 +3,40 @@
   <img alt="Pixeltable" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/_logo/pxt-light.svg" width="40%">
 </picture>
 
-**Build AI apps on video, images, audio and documents in one Python file.**
+# The backend agents build with
+### Multimodal database, orchestration, and serving in one file
 
-[Quickstart](https://docs.pixeltable.com/overview/quick-start) ·
-[Docs](https://docs.pixeltable.com/) ·
-[Discord](https://discord.gg/QPyqFYx2UN)
+[**Quickstart**](https://docs.pixeltable.com/overview/quick-start) |
+[**Documentation**](https://docs.pixeltable.com/) |
+[**CLI**](https://docs.pixeltable.com/platform/cli) |
+[**Cloud**](https://docs.pixeltable.com/cloud) |
+[**Discord**](https://discord.gg/QPyqFYx2UN)
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
+[![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml)
+[![nightly status](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml)
+[![stress-tests status](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml)
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 [![Python](https://img.shields.io/pypi/pyversions/pixeltable)](https://pypi.org/project/pixeltable/)
-[![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml)
 
-Pixeltable is an open-source Python framework. Your files live in tables, next to regular columns. The work you
-want done on them, like pulling the audio out of a video, transcribing it or embedding a summary, is a column too.
-Insert a row and Pixeltable runs that work, stores the results and keeps the search index up to date.
+[![Open in Cursor][cursor-badge]][cursor-prompt]
+[![Open in Claude][claude-badge]][claude-prompt]
+[![Open in ChatGPT][chatgpt-badge]][chatgpt-prompt]
+
+Install into your agent: [Agent Skill](https://github.com/pixeltable/pixeltable-skill) ·
+[MCP server](https://github.com/pixeltable/mcp-server-pixeltable-developer) ·
+[Cursor plugin](https://cursor.directory/plugins/pixeltable) ·
+[Claude plugin](https://claude.com/marketplace/plugins/pixeltable) ·
+[ChatGPT plugin](https://chatgpt.com/plugins/plugins_6aa9bce6481c81918d73be74740eed28)
+
+Reading this as an agent? Start at [get-started.md](https://www.pixeltable.com/get-started.md), then
+[skill.md](https://docs.pixeltable.com/skill.md) and
+[llms-full.txt](https://docs.pixeltable.com/llms-full.txt).
+
+Build AI apps on video, images, audio and documents in seconds. Your files live in tables, next to regular
+columns. The work you want done on them, like pulling the audio out of a video, transcribing it or embedding a
+summary, is a column too. Insert a row and Pixeltable runs that work, stores the results and keeps the search index
+up to date.
 
 That replaces the stack most of us end up with: a bucket for the files, a database for the metadata, a vector
 database for search, an orchestrator for the model calls, an API on top, and the scripts that keep it all in sync.
@@ -136,9 +156,8 @@ to your first POST. Rather start in a notebook? The
 [Self-hosting](https://docs.pixeltable.com/howto/deployment/overview) covers Docker, your own FastAPI app and running
 without HTTP.
 
-**Pixeltable Cloud** runs the same `app.py` on a hosted database. It's in Limited Beta: email
-[contact@pixeltable.com](mailto:contact@pixeltable.com) if you'd like access. Setup is in the
-[Cloud guide](https://docs.pixeltable.com/cloud).
+**Pixeltable Cloud** runs the same `app.py` on a hosted database. The
+[Cloud guide](https://docs.pixeltable.com/cloud) goes from `pxt login` to a running service.
 
 ## Using a coding agent?
 
@@ -147,16 +166,19 @@ npx skills add pixeltable/pixeltable-skill
 ```
 
 The skill teaches your agent to write `app.py` the way it's written above. One file helps here: the agent writes the
-whole backend, and you review one diff instead of changes across four systems. There are also plugins for
-[Claude](https://claude.com/marketplace/plugins/pixeltable), [Cursor](https://cursor.directory/plugins/pixeltable)
-and [ChatGPT](https://chatgpt.com/plugins/plugins_6aa9bce6481c81918d73be74740eed28), and
-[MCP servers](https://docs.pixeltable.com/overview/building-pixeltable-with-llms#choose-a-pixeltable-mcp-server)
-for the docs, your local catalog and your Cloud org.
-
-If you're an agent reading this, start at [get-started.md](https://www.pixeltable.com/get-started.md).
+whole backend, and you review one diff instead of changes across four systems. The plugins are linked at the top.
+There's an MCP server for the docs, your local catalog and your Cloud org:
+[pick one here](https://docs.pixeltable.com/overview/building-pixeltable-with-llms#choose-a-pixeltable-mcp-server).
 
 ## Contributing
 
 Bug reports and PRs are welcome: [CONTRIBUTING.md](https://github.com/pixeltable/pixeltable/blob/main/CONTRIBUTING.md).
 Questions go to [Discord](https://discord.gg/QPyqFYx2UN) or
 [GitHub Discussions](https://github.com/pixeltable/pixeltable/discussions). Pixeltable is Apache 2.0.
+
+[cursor-badge]: https://img.shields.io/badge/Open_in-Cursor-000000
+[claude-badge]: https://img.shields.io/badge/Open_in-Claude-D97757
+[chatgpt-badge]: https://img.shields.io/badge/Open_in-ChatGPT-10A37F
+[cursor-prompt]: https://cursor.com/link/prompt?text=Build+a+multimodal+AI+data+app+with+Pixeltable.+Follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md.
+[claude-prompt]: https://claude.ai/new?q=Build+a+multimodal+AI+data+app+with+Pixeltable.+Follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md.
+[chatgpt-prompt]: https://chatgpt.com/?prompt=Build+a+multimodal+AI+data+app+with+Pixeltable.+Follow+https%3A%2F%2Fpixeltable.com%2Fget-started.md.
