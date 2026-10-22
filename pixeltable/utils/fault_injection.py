@@ -19,6 +19,7 @@ class FaultLocation(Enum):
     IO_EXPORT_ICEBERG_BEFORE_SWAP = auto()
     IO_EXPORT_ICEBERG_APPEND = auto()
     SCHEDULER_RATE_LIMITS_AEXEC = auto()
+    SCHEDULER_REQUEST_RATE_AEXEC = auto()
     TEST = auto()
 
 

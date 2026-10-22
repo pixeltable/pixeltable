@@ -340,6 +340,10 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
     (set environment variable `BEDROCK_TEMP_LOCATION` or add `temp_location` to the `[bedrock]` section of
     your Pixeltable configuration file).
 
+    Request throttling:
+    Applies the rate limit set in the config (section `bedrock.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
+
     Args:
         body: The prompt and inference parameters as a dictionary.
         model_id: The model identifier to invoke.
@@ -510,6 +514,10 @@ async def converse(
     PIL images and media file paths in `messages[*].content[*].(image|video|audio).source.bytes`
     are converted to raw bytes automatically.
 
+    Request throttling:
+    Applies the rate limit set in the config (section `bedrock.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
+
     Args:
         messages: Input messages.
         model_id: The model that will complete your prompt.
@@ -594,6 +602,10 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
     <https://docs.aws.amazon.com/nova/latest/userguide/modality-embedding.html>
     <https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-embed.html>
 
+    Request throttling:
+    Applies the rate limit set in the config (section `bedrock.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
+
     Args:
         text: Input text to embed.
         model_id: The embedding model identifier. Supported models:
@@ -620,8 +632,6 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
         ...     ),
         ... )
     """
-    from botocore.exceptions import ClientError
-
     body: dict[str, Any]
     if 'nova' in model_id:
         body = {
@@ -651,26 +661,19 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
         'accept': 'application/json',
     }
 
-    try:
-        response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
-        response_bytes = await asyncio.to_thread(response['body'].read)
-        response_body = json.loads(response_bytes)
-        if 'nova' in model_id:
-            return np.array(response_body['embeddings'][0]['embedding'], dtype=np.float32)
-        elif 'cohere.embed' in model_id:
-            return np.array(response_body['embeddings']['float'][0], dtype=np.float32)
-        else:
-            return np.array(response_body['embedding'], dtype=np.float32)
-    except ClientError as e:
-        raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_ERROR, f'Failed to generate embedding: {e}', provider='bedrock'
-        ) from e
+    response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
+    response_bytes = await asyncio.to_thread(response['body'].read)
+    response_body = json.loads(response_bytes)
+    if 'nova' in model_id:
+        return np.array(response_body['embeddings'][0]['embedding'], dtype=np.float32)
+    elif 'cohere.embed' in model_id:
+        return np.array(response_body['embeddings']['float'][0], dtype=np.float32)
+    else:
+        return np.array(response_body['embedding'], dtype=np.float32)
 
 
 @embed.overload
 async def _(image: PIL.Image.Image, *, model_id: str, dimensions: int | None = None) -> pxt.Array[(None,), np.float32]:
-    from botocore.exceptions import ClientError
-
     body: dict[str, Any]
     if 'nova' in model_id:
         body = {
@@ -699,20 +702,22 @@ async def _(image: PIL.Image.Image, *, model_id: str, dimensions: int | None = N
         'accept': 'application/json',
     }
 
-    try:
-        response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
-        response_bytes = await asyncio.to_thread(response['body'].read)
-        response_body = json.loads(response_bytes)
-        if 'nova' in model_id:
-            return np.array(response_body['embeddings'][0]['embedding'], dtype=np.float32)
-        elif 'cohere.embed-v4' in model_id:
-            return np.array(response_body['embeddings']['float'][0], dtype=np.float32)
-        else:
-            return np.array(response_body['embedding'], dtype=np.float32)
-    except ClientError as e:
-        raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_ERROR, f'Failed to generate embedding: {e}', provider='bedrock'
-        ) from e
+    response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
+    response_bytes = await asyncio.to_thread(response['body'].read)
+    response_body = json.loads(response_bytes)
+    if 'nova' in model_id:
+        return np.array(response_body['embeddings'][0]['embedding'], dtype=np.float32)
+    elif 'cohere.embed-v4' in model_id:
+        return np.array(response_body['embeddings']['float'][0], dtype=np.float32)
+    else:
+        return np.array(response_body['embedding'], dtype=np.float32)
+
+
+@invoke_model.resource_pool
+@converse.resource_pool
+@embed.resource_pool
+def _(model_id: str) -> str:
+    return f'request-rate:bedrock:{model_id}'
 
 
 @embed.conditional_return_type

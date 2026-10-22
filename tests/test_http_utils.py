@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
+import pixeltable as pxt
 from pixeltable.utils.http import fetch_url, is_retryable_error, new_session, parse_duration_str, redact_url
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
@@ -111,6 +112,39 @@ class TestHttpUtils:
             'x-trace-id': '122506435189331138',
         }
         assert is_retryable_error(exc) == (True, 11382)
+
+    def test_aws_client_error(self) -> None:
+        from botocore.exceptions import ClientError
+
+        def client_error(code: str, status: int, msg: str, headers: dict | None = None) -> ClientError:
+            response = {
+                'Error': {'Code': code, 'Message': msg},
+                'ResponseMetadata': {'HTTPStatusCode': status, 'HTTPHeaders': headers or {}},
+            }
+            return ClientError(response, 'StartAsyncInvoke')
+
+        assert is_retryable_error(client_error('ThrottlingException', 429, 'Please slow down')) == (True, None)
+        assert is_retryable_error(client_error('Throttling', 400, 'Please slow down')) == (True, None)
+        assert is_retryable_error(client_error('ServiceUnavailableException', 503, 'Unavailable')) == (True, None)
+        assert is_retryable_error(client_error('ThrottlingException', 429, 'Slow down', {'retry-after': '7'})) == (
+            True,
+            7,
+        )
+        assert not is_retryable_error(client_error('ValidationException', 400, 'Invalid input'))[0]
+        assert not is_retryable_error(client_error('AccessDeniedException', 403, 'Access denied'))[0]
+
+    def test_pixeltable_errors(self) -> None:
+        exc = pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'Request timed out: 429')
+        assert is_retryable_error(exc) == (False, None)
+
+        exc = pxt.ExternalServiceError(pxt.ErrorCode.PROVIDER_BAD_REQUEST, 'Too many requests', retry_after=5)
+        assert is_retryable_error(exc) == (False, None)
+
+        exc = pxt.ExternalServiceError(pxt.ErrorCode.RATE_LIMITED, 'Slow down', retry_after=5)
+        assert is_retryable_error(exc) == (True, 5)
+
+        exc = pxt.ExternalServiceError(pxt.ErrorCode.PROVIDER_ERROR, 'Video generation failed')
+        assert is_retryable_error(exc) == (True, None)
 
     def test_parse_duration_header(self) -> None:
         assert parse_duration_str(None) is None

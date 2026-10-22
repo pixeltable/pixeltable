@@ -7,7 +7,6 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from http import HTTPStatus
 from pathlib import Path
 from random import random
 from typing import Any
@@ -16,6 +15,8 @@ import requests
 from requests.adapters import HTTPAdapter, Retry
 from tenacity import retry_if_exception
 from urllib3.connection import HTTPConnection
+
+from pixeltable import exceptions as excs
 
 _logger = logging.getLogger(__name__)
 
@@ -93,12 +94,27 @@ _RETRY_AFTER_PATTERNS = (
     r'wait (\d+(?:\.\d+)?)\s*seconds?',
     r'retry-after:\s*(\d+(?:\.\d+)?)',
 )
-_RETRIABLE_HTTP_STATUSES: dict[str, int] = {
-    'TOO_MANY_REQUESTS': HTTPStatus.TOO_MANY_REQUESTS.value,
-    'SERVICE_UNAVAILABLE': HTTPStatus.SERVICE_UNAVAILABLE.value,
-    'REQUEST_TIMEOUT': HTTPStatus.REQUEST_TIMEOUT.value,
-    'GATEWAY_TIMEOUT': HTTPStatus.GATEWAY_TIMEOUT.value,
-}
+_RETRIABLE_ERROR_CODES = frozenset(
+    code.upper()
+    for code in (
+        '408',
+        '429',
+        '503',
+        '504',
+        'REQUEST_TIMEOUT',
+        'TOO_MANY_REQUESTS',
+        'SERVICE_UNAVAILABLE',
+        'GATEWAY_TIMEOUT',
+        'Throttling',
+        'ThrottlingException',
+        'ThrottledException',
+        'RequestThrottledException',
+        'TooManyRequestsException',
+        'ProvisionedThroughputExceededException',
+        'RequestLimitExceeded',
+        'SlowDown',
+    )
+)
 
 
 def redact_url(url: str) -> str:
@@ -116,7 +132,10 @@ def is_retryable_error(exc: Exception) -> tuple[bool, float | None]:
     """
     Attempts to guess if the exception indicates a retryable error.
     If that is the case, returns True and the retry delay in seconds.
+    A Pixeltable `Error` is classified by its error code alone.
     """
+    if isinstance(exc, excs.Error):
+        return exc.is_retryable, exc.retry_after if exc.is_retryable else None
 
     # Check for HTTP status TOO_MANY_REQUESTS in various exception classes.
     # We look for attributes that contain status codes, instead of checking the type of the exception,
@@ -148,17 +167,30 @@ retry_if_retryable_error = retry_if_exception(lambda exc: isinstance(exc, Except
 
 
 def _extract_error_metadata(obj: Any) -> tuple[bool, float | None] | None:
-    is_retryable: bool | None = None
-    retry_delay: float | None = None
-    for attr in ['status', 'code', 'status_code']:
-        if hasattr(obj, attr):
-            is_retryable = getattr(obj, attr) in _RETRIABLE_HTTP_STATUSES.values()
-            is_retryable |= str(getattr(obj, attr)).upper() in _RETRIABLE_HTTP_STATUSES
+    """
+    Extract retry information from an arbitrary response or exception object.
 
-    if hasattr(obj, 'headers'):
-        retry_delay = _extract_retry_delay_from_headers(obj.headers)
-        if retry_delay is not None:
-            is_retryable = True
+    When possible, returns a tuple of is_retryable and an optional retry_delay. Otherwise None.
+    """
+    codes: list[Any]
+    headers: Any
+    if isinstance(obj, dict):
+        error = obj.get('Error')
+        metadata = obj.get('ResponseMetadata')
+        if not isinstance(error, dict) or not isinstance(metadata, dict):
+            return None
+        codes = [metadata.get('HTTPStatusCode'), error.get('Code')]
+        headers = metadata.get('HTTPHeaders')
+    else:
+        codes = [getattr(obj, attr) for attr in ('status', 'code', 'status_code') if hasattr(obj, attr)]
+        headers = getattr(obj, 'headers', None)
+
+    is_retryable: bool | None = None
+    if len(codes) > 0:
+        is_retryable = any(str(code).upper() in _RETRIABLE_ERROR_CODES for code in codes)
+    retry_delay = _extract_retry_delay_from_headers(headers)
+    if retry_delay is not None:
+        is_retryable = True
 
     return (is_retryable, retry_delay) if is_retryable is not None else None
 

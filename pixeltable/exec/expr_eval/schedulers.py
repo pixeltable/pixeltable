@@ -325,7 +325,7 @@ class RequestRateScheduler(Scheduler):
         self.total_errors = 0
 
         # try to get the rate limit from the config
-        elems = resource_pool.split(':')
+        elems = resource_pool.split(':', maxsplit=2)
         section: str
         key: str
         if len(elems) == 2:
@@ -410,6 +410,7 @@ class RequestRateScheduler(Scheduler):
                     for row, result in zip(request.rows, batch_result):
                         row[request.fn_call.slot_idx] = result
                 else:
+                    fault_injection.process_fault(FaultLocation.SCHEDULER_REQUEST_RATE_AEXEC)
                     result = await pxt_fn.aexec(*request.args, **request.kwargs)
                     request.row[request.fn_call.slot_idx] = result
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
