@@ -3,9 +3,11 @@
 import importlib.metadata
 import io
 import json
+import pathlib
 import platform
 import shlex
 import sys
+import urllib.parse
 from typing import Any
 
 import pytest
@@ -131,6 +133,30 @@ class TestFeedback:
         assert kwargs['allow_redirects'] is False
         assert capsys.readouterr().out == 'Sent to the Pixeltable team (reference fb_123).\n'
 
+    def test_what_requests_sends_is_what_the_preview_shows(
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+    ) -> None:
+        """The host and port the preview names are the request's, and a netrc login is not attached."""
+        netrc = tmp_path / 'netrc'
+        netrc.write_text('default login someone password secret\n')
+        monkeypatch.setenv('NETRC', str(netrc))
+        monkeypatch.setenv('PIXELTABLE_SITE_URL', 'https://user:pw@feedback.example:8443')
+        feedback.run(['--kind', 'gap', _MESSAGE, '--json'])
+        destination = json.loads(capsys.readouterr().out)['destination']
+        posted = _serve(monkeypatch, _response(202, {'id': 'fb_2'}))
+        feedback.run(['--kind', 'gap', _MESSAGE, '--send'])
+        url, kwargs = posted[0]
+
+        def prepared(**auth: Any) -> requests.PreparedRequest:
+            # as requests.post() prepares it: a session that reads the environment
+            return requests.Session().prepare_request(requests.Request('POST', url, json=kwargs['json'], **auth))
+
+        sent = prepared(auth=kwargs['auth'])
+        assert destination == 'feedback.example:8443' == urllib.parse.urlsplit(sent.url).netloc.rpartition('@')[2]
+        assert 'Authorization' not in sent.headers
+        # the netrc file is read when no auth is given
+        assert 'Authorization' in prepared().headers
+
     def test_longest_body_fits_the_site_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The limit counts code points; requests escapes each emoji as a surrogate pair, 12 bytes, within 64 KB."""
         message = '\U0001f600' * 4000
@@ -165,8 +191,17 @@ class TestFeedback:
             ('https://evil.example\\@www.pixeltable.com', 'PIXELTABLE_SITE_URL contains a backslash'),
             ('http://user:pw@feedback.example', 'PIXELTABLE_SITE_URL must use https, except on localhost'),
             ('https://[feedback.example', 'PIXELTABLE_SITE_URL is not a valid URL'),
+            # urlsplit drops the newline, so the preview would name www.pixeltable.com.evil.example
+            (
+                'https://www.pixeltable.com\n.evil.example',
+                'PIXELTABLE_SITE_URL contains a space or a control character',
+            ),
+            ('https://www.pixeltable.com .evil.example', 'PIXELTABLE_SITE_URL contains a space or a control character'),
+            ('https://', 'PIXELTABLE_SITE_URL names no host'),
+            # a Cyrillic e, which the preview shows as www.pixeltable.com and requests sends to an xn-- name
+            ('https://www.pix\u0435ltable.com', 'PIXELTABLE_SITE_URL must name its host in ASCII (xn-- for an IDN)'),
         ],
-        ids=['backslash', 'cleartext', 'malformed'],
+        ids=['backslash', 'cleartext', 'malformed', 'newline', 'space', 'no host', 'look-alike'],
     )
     def test_site_refused(
         self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, site: str, problem: str

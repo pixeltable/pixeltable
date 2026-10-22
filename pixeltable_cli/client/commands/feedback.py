@@ -122,15 +122,24 @@ def run(argv: list[str]) -> None:
 
 def _feedback_url(as_json: bool) -> str:
     site = (os.environ.get('PIXELTABLE_SITE_URL') or DEFAULT_SITE_URL).rstrip('/')
+    # The preview must name the host the socket reaches. The URL itself is not printed: it may hold credentials.
     if '\\' in site:
-        # urllib3 ends a URL's host at a backslash and urlsplit does not, so the preview could name another host
+        # urllib3 ends a URL's host at a backslash and urlsplit does not
         _fail('PIXELTABLE_SITE_URL contains a backslash', 'INVALID_CONFIGURATION', as_json)
-    # the URL itself is not printed: it may hold credentials
+    if any(ord(ch) <= 0x20 or ord(ch) == 0x7F for ch in site):
+        # urlsplit drops a tab or a newline that requests sends percent-encoded
+        _fail('PIXELTABLE_SITE_URL contains a space or a control character', 'INVALID_CONFIGURATION', as_json)
     try:
         parts = urllib.parse.urlsplit(site)
         hostname = parts.hostname
     except ValueError:
         _fail('PIXELTABLE_SITE_URL is not a valid URL', 'INVALID_CONFIGURATION', as_json)
+    if not hostname:
+        _fail('PIXELTABLE_SITE_URL names no host', 'INVALID_CONFIGURATION', as_json)
+    if not hostname.isascii():
+        # requests connects to the IDNA A-label, which a look-alike letter such as U+0435 hides in the preview;
+        # stdlib and requests encode some names differently, so the preview cannot show it either
+        _fail('PIXELTABLE_SITE_URL must name its host in ASCII (xn-- for an IDN)', 'INVALID_CONFIGURATION', as_json)
     if not (parts.scheme == 'https' or (parts.scheme == 'http' and hostname in _LOOPBACK_HOSTS)):
         _fail('PIXELTABLE_SITE_URL must use https, except on localhost', 'INVALID_CONFIGURATION', as_json)
     return site + _FEEDBACK_PATH
@@ -195,7 +204,11 @@ def _send(url: str, fields: dict[str, str | None], as_json: bool) -> str | None:
 
     try:
         # a redirect would take the report to a host not named in the preview
-        resp = requests.post(url, json=fields, timeout=_SEND_TIMEOUT_SECS, allow_redirects=False)
+        # an auth of its own keeps requests from attaching a netrc login, which the preview does not show; proxies
+        # from the environment still apply
+        resp = requests.post(
+            url, json=fields, timeout=_SEND_TIMEOUT_SECS, allow_redirects=False, auth=lambda request: request
+        )
     except requests.RequestException as e:
         if _may_have_arrived(e):
             _unconfirmed(type(e).__name__, as_json)
