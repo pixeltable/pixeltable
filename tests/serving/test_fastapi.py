@@ -22,6 +22,7 @@ import pytest
 import sqlalchemy as sql
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 import pixeltable.functions.json as pxt_json
 from pixeltable.env import Env
 from pixeltable.functions.video import frame_iterator
@@ -1567,9 +1568,14 @@ class TestFastAPI:
         def all_texts_scalar() -> pxt.Query:
             return t.select(t.text).order_by(t.id)
 
+        @pxt.query(return_scalar=True)
+        def id_total(min_id: int) -> pxt.Query:
+            return t.where(t.id >= min_id).select(pxtf.sum(t.id))
+
         router = FastAPIRouter()
         router.add_query_route(path='/texts', query=all_texts)
         router.add_query_route(path='/texts-scalar', query=all_texts_scalar)
+        router.add_query_route(path='/id-total', query=id_total)
         client = make_test_client(router)
 
         # return_scalar=False (default): dict-per-row wrapped in {'rows': [...]}
@@ -1581,6 +1587,16 @@ class TestFastAPI:
         resp = client.post('/texts-scalar', json={})
         assert resp.status_code == 200, resp.text
         assert resp.json() == ['t0', 't1', 't2']
+
+        # return_scalar=True over an aggregation without group_by(): the value itself
+        resp = client.post('/id-total', json={'min_id': 1})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == 3
+        resp = client.post('/id-total', json={'min_id': 10})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() is None
+        response = client.get('/openapi.json').json()['paths']['/id-total']['post']['responses']['200']
+        assert response['content']['application/json']['schema']['anyOf'] == [{'type': 'integer'}, {'type': 'null'}]
 
     def test_add_query_route_one_row(self, db_root: DatabaseRoot) -> None:
         """one_row=True returns a flat JSON object (or bare scalar with return_scalar=True).

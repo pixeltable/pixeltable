@@ -539,6 +539,42 @@ class TestFunction:
         t = pxt.get_table(name)
         validate_update_status(t.insert(rows))
 
+    def test_query_ungrouped_aggregate(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
+        t.insert([{'c1': i, 'c2': i + 0.5} for i in range(10)])
+
+        @pxt.query(return_scalar=True)
+        def total_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).select(pxtf.sum(t.c2))
+
+        @pxt.query(return_scalar=True)
+        def values_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).select(t.c2)
+
+        @pxt.query(return_scalar=True)
+        def counts_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).group_by(t.c1).select(pxtf.count(t.c1))
+
+        # an aggregate without group_by() returns its one value; sum() over no rows returns None
+        assert_type_eq(total_below.signature.return_type, pxt.Float | None)
+        assert_type_eq(values_below.signature.return_type, pxt.Json[[pxt.Float]])
+        assert_type_eq(counts_below.signature.return_type, pxt.Json[[pxt.Int]])
+
+        t.add_computed_column(total=total_below(t.c1))
+        t.add_computed_column(values=values_below(t.c1))
+        assert_type_eq(t.total.col_type, pxt.Float | None)
+        res = reload_tester.run_query(t.select(t.c1, t.total, t.values).order_by(t.c1))
+        assert res['total'] == [None, *[sum(j + 0.5 for j in range(i)) for i in range(1, 10)]]
+        assert res['values'][3] == [0.5, 1.5, 2.5]
+        assert t.select(n=counts_below(t.c1)).order_by(t.c1).collect()['n'][3] == [1, 1, 1]
+
+        reload_tester.run_reload_test()
+        t = pxt.get_table(p('test'))
+        assert_type_eq(t.total.col_type, pxt.Float | None)
+        t.insert([{'c1': 10, 'c2': 10.5}])
+        assert t.where(t.c1 == 10).select(t.total).collect()['total'] == [sum(j + 0.5 for j in range(10))]
+
     def test_query_bound_limit_offset(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int | None})
@@ -604,7 +640,7 @@ class TestFunction:
             return t.select(s=pxtf.sum(t.x + k))
 
         res = params.order_by(params.k).select(r=shifted_sum(params.k)).collect()
-        assert res['r'] == [[10], [14]]
+        assert res['r'] == [10, 14]
 
         @pxt.query
         def sum_with_param(k: int) -> pxt.Query:

@@ -24,6 +24,7 @@ from .utils import (
     DatabaseRoot,
     assert_resultset_eq,
     assert_table_metadata_eq,
+    assert_type_eq,
     btree_idxs,
     capture_console_output,
     dummy_embedding,
@@ -3406,6 +3407,36 @@ class TestTableModel:
         t = pxt.get_table(p('test_table'))
         assert t.select(t.derived, t.derived2).collect()[0] == {'derived': 2, 'derived2': True}
         assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(root).values())
+
+    def test_update_all_aggregate_query_column(self, db_root: DatabaseRoot) -> None:
+        """A column of one model that aggregates over another model's rows, via an ungrouped `@pxt.query`."""
+        p = db_root.make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        class Orders(TableModel, name='orders'):
+            order_id = Column(type=pxt.Int, primary_key=True)
+            customer: pxt.String
+            amount: pxt.Float
+
+        @pxt.query(return_scalar=True)
+        def customer_total(customer: str) -> pxt.Query:
+            return Orders.where(Orders.customer == customer).select(pxtf.sum(Orders.amount))  # type: ignore[arg-type]
+
+        class Customers(TableModel, name='customers'):
+            customer = Column(type=pxt.String, primary_key=True)
+            total = customer_total(customer)
+
+        TableModel.create_all(root)
+        orders = pxt.get_table(p('orders'))
+        customers = pxt.get_table(p('customers'))
+        orders.insert(
+            [{'order_id': 1, 'customer': 'a', 'amount': 2.5}, {'order_id': 2, 'customer': 'a', 'amount': 1.0}]
+        )
+        customers.insert([{'customer': 'a'}, {'customer': 'b'}])
+        assert_type_eq(customers.total.col_type, pxt.Float | None)
+        assert customers.order_by(customers.customer).select(customers.total).collect()['total'] == [3.5, None]
 
     def test_update_all_altered_columns_reversed_dependency(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

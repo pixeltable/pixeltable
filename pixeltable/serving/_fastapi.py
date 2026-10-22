@@ -1996,7 +1996,9 @@ class FastAPIRouter(fastapi.APIRouter):
         Add an endpoint that executes a `@pxt.query` or `pxt.retrieval_udf` and returns the results.
 
         By default the endpoint accepts POST requests with a JSON
-        [`Body`](https://fastapi.tiangolo.com/tutorial/body/) and returns `{"rows": [{...}, ...]}`.
+        [`Body`](https://fastapi.tiangolo.com/tutorial/body/) and returns `{"rows": [{...}, ...]}`. A query declared
+        with `return_scalar=True` returns the values of its one column instead: a JSON array, or the value itself with
+        `one_row` or for an aggregation without `group_by()`.
         Use `method='get'` for
         [`Query`](https://fastapi.tiangolo.com/tutorial/query-params/) parameters instead.
 
@@ -2134,6 +2136,8 @@ class FastAPIRouter(fastapi.APIRouter):
             endpoint_model = BackgroundJobResponse
         elif return_fileresponse:
             endpoint_model = None
+        elif return_scalar and query.single_value:
+            endpoint_model = query.signature.return_type.to_pydantic_type()
         elif return_scalar:
             scalar_py_type = next(iter(result_schema.values())).to_pydantic_type()
             endpoint_model = list[scalar_py_type] if not one_row else scalar_py_type  # type: ignore[valid-type]
@@ -2198,6 +2202,8 @@ class FastAPIRouter(fastapi.APIRouter):
                 # output is list[dict]; extract the single column value from each row
                 assert isinstance(output, list)
                 scalars = [row[scalar_col_name] for row in output]  # type: ignore[index]
+                if query.single_value:
+                    return scalars[0] if len(scalars) > 0 else None
                 return scalars[0] if one_row else scalars
             elif one_row:
                 assert isinstance(output, list)
