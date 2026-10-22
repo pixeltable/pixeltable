@@ -1,7 +1,7 @@
 import asyncio
 import contextlib
 import inspect
-from typing import TYPE_CHECKING, Any, AsyncIterator, Sequence
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Sequence
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
@@ -16,12 +16,20 @@ if TYPE_CHECKING:
 
 @contextlib.asynccontextmanager
 async def mcp_session(
-    url: str, *, headers: dict[str, str] | None = None, timeout: float | None = None
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    timeout: float | None = None,
+    on_http_error: Callable[[int], None] | None = None,
 ) -> AsyncIterator['mcp.ClientSession']:
     """An initialized MCP session over Streamable HTTP, for the duration of the context.
 
-    `headers` and `timeout` replace the SDK's default HTTP client. `timeout` also bounds the session as a whole,
-    because the protocol's own read timeout covers neither connection setup nor teardown.
+    `headers`, `timeout` and `on_http_error` replace the SDK's default HTTP client. `timeout` also bounds the session
+    as a whole, because the protocol's own read timeout covers neither connection setup nor teardown.
+
+    `on_http_error` receives the status of each failed JSON-RPC request, which the transport otherwise reports as one
+    opaque protocol error that keeps neither the status nor the response body. The SDK's optional event stream and its
+    session teardown do not carry a request, so the statuses they return are not reported.
     """
     Env.get().require_package('mcp', [2])
     import mcp
@@ -29,12 +37,23 @@ async def mcp_session(
 
     async with contextlib.AsyncExitStack() as stack:
         http_client: 'httpx2.AsyncClient | None' = None
-        if headers is not None or timeout is not None:
+        if headers is not None or timeout is not None or on_http_error is not None:
             import httpx2
 
             if timeout is not None:
                 await stack.enter_async_context(asyncio.timeout(timeout))
-            http_client = await stack.enter_async_context(httpx2.AsyncClient(headers=headers, timeout=timeout))
+            event_hooks: dict[str, list[Any]] = {}
+            if on_http_error is not None:
+                report: Callable[[int], None] = on_http_error
+
+                async def record_status(response: 'httpx2.Response') -> None:  # noqa: RUF029
+                    if response.status_code >= 400 and response.request.method == 'POST':
+                        report(response.status_code)
+
+                event_hooks['response'] = [record_status]
+            http_client = await stack.enter_async_context(
+                httpx2.AsyncClient(headers=headers, timeout=timeout, event_hooks=event_hooks)
+            )
         read_stream, write_stream = await stack.enter_async_context(
             streamable_http_client(url, http_client=http_client)
         )

@@ -37,12 +37,17 @@ class _ParallelClient:
         import mcp
 
         # Each request owns its transport; the cached client holds no mutable conversation state or open sockets.
+        statuses: list[int] = []
         try:
-            async with mcp_session(_MCP_URL, headers=self.headers, timeout=_REQUEST_TIMEOUT) as session:
+            async with mcp_session(
+                _MCP_URL, headers=self.headers, timeout=_REQUEST_TIMEOUT, on_http_error=statuses.append
+            ) as session:
                 result = await session.call_tool(tool, arguments)
-        except ExceptionGroup as group:
+        except Exception as exc:
+            if len(statuses) > 0:
+                raise _status_error(statuses[-1]) from None
             # AnyIO wraps transport errors; expose the underlying diagnostic to computed-column error reporting.
-            error: BaseException = group
+            error: BaseException = exc
             while isinstance(error, ExceptionGroup) and len(error.exceptions) == 1:
                 error = error.exceptions[0]
             raise error from None
@@ -68,6 +73,36 @@ class _ParallelClient:
 @register_client('parallel', credential_param='api_key')
 def _(api_key: str | None = None) -> _ParallelClient:
     return _ParallelClient(api_key)
+
+
+def _status_error(status: int) -> excs.ExternalServiceError:
+    """Classify a failed HTTP response from the service.
+
+    The transport reports every status other than 404 as the same opaque protocol error, so the status observed as
+    the response arrived is all there is to go on. The scheduler retries from `is_retryable_error()`, which reads
+    the message rather than the error code, so a rate limit and a timeout say so in words.
+    """
+    code: excs.ErrorCode
+    message: str
+    if status in (401, 403):
+        code = excs.ErrorCode.PROVIDER_AUTH_ERROR
+        message = (
+            f'Parallel rejected the API key (HTTP {status}); check PARALLEL_API_KEY, or `api_key` in the `parallel` '
+            f'configuration section.'
+        )
+    elif status == 429:
+        code = excs.ErrorCode.RATE_LIMITED
+        message = 'Parallel rate limit exceeded (HTTP 429).'
+    elif status in (408, 504):
+        code = excs.ErrorCode.PROVIDER_TIMEOUT
+        message = f'Parallel timed out (HTTP {status}).'
+    elif status == 503:
+        code = excs.ErrorCode.PROVIDER_OVERLOADED
+        message = 'Parallel is temporarily unavailable (HTTP 503).'
+    else:
+        code = excs.ErrorCode.PROVIDER_ERROR
+        message = f'Parallel returned HTTP {status}.'
+    return excs.ExternalServiceError(code, message, provider='parallel', status_code=status)
 
 
 def _session_args(session_id: str | None) -> dict[str, str]:

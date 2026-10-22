@@ -49,12 +49,16 @@ class _McpServer:
         self.calls: list[dict[str, Any]] = []
         self.result: dict[str, Any] | None = None
         self.status = 200
+        # how many requests `status` is returned for; None returns it for every request
+        self.rejections: int | None = None
         self.block = False
         self.closed = 0
 
     async def handle(self, request: httpx2.Request) -> httpx2.Response:
         self.requests.append(request)
-        if self.status != 200:
+        if self.status != 200 and self.rejections != 0:
+            if self.rejections is not None:
+                self.rejections -= 1
             return httpx2.Response(self.status, json={'error': 'rejected'})
         if request.method != 'POST':
             return httpx2.Response(405)
@@ -237,10 +241,40 @@ def test_rejected_key_does_not_fall_back(
     mcp_server.status = status
     t = pxt.create_table('parallel_test', {'query': pxt.String})
     t.add_computed_column(sources=parallel.search(t.query))
-    assert t.insert(query='test query', on_error='ignore').num_excs == 1
-    assert 'Server returned an error response' in t.select(message=t.sources.errormsg).collect()[0]['message']
+    # the transport drops the status and the body, so the rejection is reported from the status seen on the wire
+    with pxt_raises(pxt.ErrorCode.PROVIDER_AUTH_ERROR, match=f'rejected the API key .HTTP {status}.*PARALLEL_API_KEY'):
+        t.insert(query='test query')
     assert all(r.headers['authorization'] == 'Bearer test-rejected-key' for r in mcp_server.requests)
     assert not mcp_server.calls
+
+
+@pytest.mark.parametrize(
+    'status,error_code',
+    [
+        (402, pxt.ErrorCode.PROVIDER_ERROR),
+        (408, pxt.ErrorCode.PROVIDER_TIMEOUT),
+        (429, pxt.ErrorCode.RATE_LIMITED),
+        (500, pxt.ErrorCode.PROVIDER_ERROR),
+        (503, pxt.ErrorCode.PROVIDER_OVERLOADED),
+        (504, pxt.ErrorCode.PROVIDER_TIMEOUT),
+    ],
+)
+def test_status_errors(status: int, error_code: pxt.ErrorCode) -> None:
+    error = parallel._status_error(status)
+    assert error.error_code is error_code
+    assert f'HTTP {status}' in error.message
+    assert error.provider_http_status_code == status
+
+
+def test_rate_limit_is_retried(uses_db: None, mcp_server: _McpServer) -> None:
+    mcp_server.status = 429
+    mcp_server.rejections = 1
+    t = pxt.create_table('parallel_test', {'query': pxt.String})
+    t.add_computed_column(sources=parallel.search(t.query))
+    t.insert(query='test query')
+    # the scheduler reads the status out of the message, retries the row, and the second attempt gets the result
+    assert mcp_server.rejections == 0
+    assert t.collect()[0]['sources'] == _SEARCH_RESPONSE
 
 
 @pytest.mark.parametrize(
