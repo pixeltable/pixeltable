@@ -35,6 +35,16 @@ _logger = logging.getLogger('pixeltable_test')
 
 
 class TestGeminiLocal:
+    """Tests that need no credentials or network, kept out of TestGemini so that its class markers don't deselect
+    them.
+
+    They cover what live calls can't produce on demand. One kind is responses that Gemini returns only in edge
+    cases: a blocked prompt, a candidate without content or parts, a blob without a MIME type. The other is a
+    deterministic check that the runtime closes the client's async resources. The session-teardown leak check sees
+    an unclosed client only while something keeps it alive, since the SDK closes a client when it's
+    garbage-collected.
+    """
+
     @pytest.mark.parametrize('close_fails', [False, True])
     # google-genai subclasses aiohttp.ClientSession for the session it opens
     @pytest.mark.filterwarnings('ignore:Inheritance class AiohttpClientSession:DeprecationWarning')
