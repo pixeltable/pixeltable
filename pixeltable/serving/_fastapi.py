@@ -2000,13 +2000,15 @@ class FastAPIRouter(fastapi.APIRouter):
         [`Query`](https://fastapi.tiangolo.com/tutorial/query-params/) parameters instead.
 
         The response depends on the shape of the query. A query returns at most one row if it aggregates without
-        `group_by()` or has `limit(1)`; otherwise it returns any number of rows.
+        `group_by()` or has `limit(1)`; otherwise it returns multiple rows.
+        Only a literal `limit(1)` counts: `limit(n)` with a parameter returns multiple rows, even when `n` is 1.
 
-        - Any number of rows, selecting a single unnamed expression, as in `select(t.text)`: a JSON array of values.
-        - Any number of rows, with any other select list: `{"rows": [{...}, ...]}`, with a JSON object per row.
+        - Multiple rows, selecting a single unnamed expression, as in `select(t.text)`: a JSON array of values.
+        - Multiple rows, with any other select list: `{"rows": [{...}, ...]}`, with a JSON object per row.
         - At most one row, selecting a single unnamed expression: the value itself.
         - At most one row, with any other select list: the row as a JSON object.
 
+        To get JSON objects for a single expression, name it, as in `select(text=t.text)`.
         If a query that returns at most one row finds no row, the response is a 404.
 
         Args:

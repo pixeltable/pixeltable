@@ -191,12 +191,15 @@ def query(*args: Any, **kwargs: Any) -> Any:
     `pxt.tools()` and as an HTTP endpoint through `FastAPIRouter.add_query_route()`.
 
     The result of a call depends on the shape of the query. A query returns at most one row if it aggregates without
-    `group_by()` or has `limit(1)`; otherwise it returns multiple rows.
+    `group_by()` or has `limit(1)` (note: `limit(n)` always implies that it can return multiple rows);
+    otherwise it returns multiple rows.
 
     - Multiple rows, selecting a single unnamed expression, as in `select(t.text)`: a list of values.
     - Multiple rows, with any other select list: a list of dicts, one per row, with the selected column names as keys.
     - At most one row, selecting a single unnamed expression: the value, or `None` if there is no row.
     - At most one row, with any other select list: the row as a dict, or `None` if there is no row.
+
+    To get dicts for a single expression, explicitly assign a column name to it, as in `select(text=t.text)`.
 
     Args:
         param_types: The Pixeltable types of the parameters, for parameters without type annotations.
