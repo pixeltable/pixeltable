@@ -331,11 +331,12 @@ def _tbl_lock_mode(op_class: _TblOpClass, is_data_versioned: bool) -> _TblLockMo
     return _TblLockMode.ACCESS_EXCLUSIVE
 
 
-def _lock_set_blocking(op_class: _TblOpClass, any_data_versioned: bool) -> bool:
-    """Return whether to wait for locks. The policy applies to the entire lock set.
+def _should_wait(op_class: _TblOpClass, any_data_versioned: bool) -> bool:
+    """Return whether to wait for locks that are not immediately available, instead of failing.
 
-    Data reads and writes use NOWAIT when every locked table is operational. If any table is data-versioned,
-    they wait for all required locks. Schema changes and pending-op finalization always wait.
+    The policy applies to the entire lock set. Data reads and writes fail fast when every locked table is operational.
+    If any table is data-versioned, they wait for all required locks. Schema changes and pending-op finalization
+    always wait.
     """
     if op_class in (_TblOpClass.MD_WRITE, _TblOpClass.FINALIZE):
         return True
@@ -362,8 +363,8 @@ class _LockSet:
     tbl_targets: tuple[_LockTarget, ...] = ()
     # dirs, sorted by directory path
     dir_ids: tuple[UUID, ...] = ()
-    # whether to wait if the required locks are not immediately available
-    blocking: bool = True
+    # whether to wait for locks that are not immediately available; if False, raise _LockNotAvailableError
+    wait: bool = True
 
 
 class Catalog(CatalogBase):
@@ -1031,7 +1032,7 @@ class Catalog(CatalogBase):
         return _LockSet(
             tbl_targets=sorted_tbl_targets,
             dir_ids=sorted_dir_ids,
-            blocking=_lock_set_blocking(op_class, any(is_data_versioned.values())),
+            wait=_should_wait(op_class, any(is_data_versioned.values())),
         )
 
     def _path_lock_targets_from_cache(
@@ -1158,7 +1159,7 @@ class Catalog(CatalogBase):
                 any_data_versioned |= tree_result[1]
         return _LockSet(
             tbl_targets=tuple(targets[name] for name in sorted(targets)),
-            blocking=_lock_set_blocking(op_class, any_data_versioned),
+            wait=_should_wait(op_class, any_data_versioned),
         )
 
     def _resolve_lock_set(
@@ -1349,7 +1350,7 @@ class Catalog(CatalogBase):
                 stacklevel=2,
             )
 
-    def _lock_tables(self, targets: Sequence[_LockTarget], *, blocking: bool) -> None:
+    def _lock_tables(self, targets: Sequence[_LockTarget], *, wait: bool) -> None:
         """Lock store tables.
 
         The tables must be ordered by name, and that is the order in which the locks are acquired. Maintaining a total
@@ -1365,7 +1366,7 @@ class Catalog(CatalogBase):
         # a store table is locked once per transaction, no lock is ever upgraded
         assert all(name not in self._locks_held for name in names), (names, self._locks_held)
         # Send the LOCK TABLE statements in one request, separated by semicolons. psycopg executes them in order.
-        nowait_clause = '' if blocking else ' NOWAIT'
+        nowait_clause = '' if wait else ' NOWAIT'
         stmt = '; '.join(f'LOCK TABLE {t.store_tbl_name} IN {t.mode.sql_name} MODE{nowait_clause}' for t in targets)
         try:
             get_runtime().conn.exec_driver_sql(stmt)
@@ -1373,7 +1374,7 @@ class Catalog(CatalogBase):
             msg = f'{stmt} failed: {e}'
             _logger.debug(msg)
             if isinstance(e.orig, psycopg.errors.LockNotAvailable):
-                assert not blocking
+                assert not wait
                 raise _LockNotAvailableError from e
             if isinstance(e.orig, psycopg.errors.UndefinedTable):
                 # A missing store table means the lock set is stale.
@@ -1391,7 +1392,7 @@ class Catalog(CatalogBase):
         """
         if len(lock_set.tbl_targets) > 0:
             fault_injection.process_fault(FaultLocation.CATALOG_BEFORE_TBL_LOCK, op_class=op_class)
-            self._lock_tables(lock_set.tbl_targets, blocking=lock_set.blocking)
+            self._lock_tables(lock_set.tbl_targets, wait=lock_set.wait)
             fault_injection.process_fault(FaultLocation.CATALOG_AFTER_TBL_LOCK, op_class=op_class)
         for dir_id in lock_set.dir_ids:
             self._acquire_dir_xlock(dir_id=dir_id)
