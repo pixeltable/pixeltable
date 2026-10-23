@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lead Enrichment &amp; Outreach Ledger - Pixeltable + treg.to</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Public+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #F3F5F8;
+      --surface: #FFFFFF;
+      --surface-subtle: #EAEFF4;
+      --ink: #111827;
+      --ink-secondary: #374151;
+      --ink-muted: #5B6472;
+      --line: #D8E0E8;
+      --line-strong: #B8C4D0;
+      --accent: #1D4ED8;
+      --accent-hover: #1E40AF;
+      --accent-tint: #E8EFFD;
+      --valid-fg: #14532D;
+      --valid-bg: #E7F4EC;
+      --warn-fg: #7C2D12;
+      --warn-bg: #FDEFD9;
+      --danger-fg: #881337;
+      --danger-bg: #FCE8EC;
+      --shadow-soft: 0 8px 24px -8px rgba(17, 24, 39, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    ::selection {
+      background: var(--accent-tint);
+      color: var(--accent);
+    }
+
+    html {
+      font-family: 'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      caret-color: var(--accent);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: var(--surface-subtle);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--line-strong);
+      border-radius: 4px;
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .mono {
+      font-family: 'IBM Plex Mono', monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .shell {
+      max-width: 1440px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 28px 32px 64px;
+    }
+
+    header.topbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      line-height: 1.2;
+      color: var(--ink);
+    }
+
+    .subtitle {
+      margin-top: 6px;
+      font-size: 0.9375rem;
+      color: var(--ink-secondary);
+      max-width: 68ch;
+      line-height: 1.5;
+    }
+
+    .dag-strip {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      background: var(--surface-subtle);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 0.75rem;
+      color: var(--ink-secondary);
+    }
+
+    .dag-node {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 3px 7px;
+    }
+
+    .dag-arrow {
+      color: var(--ink-muted);
+    }
+
+    /* Composer bar */
+    .composer {
+      margin-top: 22px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px 18px;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .composer-form {
+      display: grid;
+      grid-template-columns: 1.2fr 1.2fr 1fr 0.7fr auto auto;
+      gap: 12px;
+      align-items: end;
+    }
+
+    @media (max-width: 1024px) {
+      .composer-form {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    .field label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--ink-secondary);
+      margin-bottom: 5px;
+    }
+
+    .field input,
+    .field select {
+      width: 100%;
+      height: 38px;
+      padding: 0 11px;
+      font-family: inherit;
+      font-size: 0.875rem;
+      color: var(--ink);
+      background: var(--bg);
+      border: 1px solid var(--line-strong);
+      border-radius: 5px;
+      transition: border-color 140ms ease;
+    }
+
+    .field input::placeholder {
+      color: var(--ink-muted);
+    }
+
+    .field input:focus,
+    .field select:focus {
+      border-color: var(--accent);
+      background: var(--surface);
+    }
+
+    .btn {
+      height: 38px;
+      padding: 0 15px;
+      font-family: inherit;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border-radius: 5px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      white-space: nowrap;
+      transition: background-color 140ms ease, border-color 140ms ease;
+    }
+
+    .btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #FFFFFF;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+    }
+
+    .btn-secondary {
+      background: var(--surface-subtle);
+      color: var(--ink);
+      border-color: var(--line-strong);
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background: var(--line);
+    }
+
+    .btn-ghost {
+      height: 30px;
+      padding: 0 9px;
+      font-size: 0.75rem;
+      background: transparent;
+      color: var(--ink-secondary);
+      border: 1px solid var(--line);
+    }
+    .btn-ghost:hover:not(:disabled) {
+      color: var(--ink);
+      background: var(--surface-subtle);
+    }
+
+    /* Banner for preview or errors */
+    .notice {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--line-strong);
+      background: var(--surface-subtle);
+      font-size: 0.85rem;
+      line-height: 1.5;
+      display: none;
+    }
+    .notice.visible {
+      display: block;
+    }
+    .notice.error {
+      background: var(--danger-bg);
+      color: var(--danger-fg);
+      border-color: #F3B8C6;
+    }
+
+    /* Filter toolbar */
+    .toolbar {
+      margin-top: 24px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 12px;
+    }
+
+    .filter-group {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .pill {
+      height: 32px;
+      padding: 0 12px;
+      font-family: inherit;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: var(--ink-secondary);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .pill.active {
+      background: var(--ink);
+      color: var(--bg);
+      border-color: var(--ink);
+    }
+
+    .toolbar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.8125rem;
+      color: var(--ink-secondary);
+    }
+
+    .domain-search {
+      height: 32px;
+      padding: 0 10px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.8rem;
+      background: var(--surface);
+      border: 1px solid var(--line-strong);
+      border-radius: 5px;
+      color: var(--ink);
+    }
+
+    /* Ledger Table */
+    .table-wrap {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 16px;
+      overflow-x: auto;
+      box-shadow: var(--shadow-soft);
+    }
+
+    table.ledger {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.85rem;
+    }
+
+    table.ledger th {
+      padding: 11px 14px;
+      background: var(--surface-subtle);
+      border-bottom: 1px solid var(--line);
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--ink-secondary);
+      white-space: nowrap;
+    }
+
+    table.ledger td {
+      padding: 14px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      line-height: 1.45;
+    }
+
+    table.ledger tr:last-child td {
+      border-bottom: none;
+    }
+
+    table.ledger tbody tr:hover {
+      background: #F8FAFC;
+    }
+
+    .lead-name {
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    .lead-role {
+      font-size: 0.78rem;
+      color: var(--ink-secondary);
+      margin-top: 2px;
+    }
+
+    .lead-domain {
+      display: inline-block;
+      margin-top: 4px;
+      font-size: 0.76rem;
+      color: var(--accent);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      cursor: pointer;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.72rem;
+      font-weight: 500;
+      border: 1px solid transparent;
+    }
+    .badge-valid {
+      background: var(--valid-bg);
+      color: var(--valid-fg);
+      border-color: #B9E2C8;
+    }
+    .badge-warn {
+      background: var(--warn-bg);
+      color: var(--warn-fg);
+      border-color: #F5D096;
+    }
+    .badge-skip {
+      background: var(--danger-bg);
+      color: var(--danger-fg);
+      border-color: #F3B8C6;
+    }
+    .badge-neutral {
+      background: var(--surface-subtle);
+      color: var(--ink-secondary);
+      border-color: var(--line);
+    }
+
+    .email-cell {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .provider-tag {
+      font-size: 0.72rem;
+      color: var(--ink-muted);
+    }
+
+    .outreach-text {
+      max-width: 44ch;
+      color: var(--ink);
+      font-size: 0.83rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+
+    .outreach-actions {
+      margin-top: 8px;
+      display: flex;
+      gap: 6px;
+    }
+
+    audio.voice-player {
+      height: 32px;
+      width: 210px;
+    }
+
+    select.stage-select {
+      height: 28px;
+      padding: 0 7px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.75rem;
+      background: var(--bg);
+      border: 1px solid var(--line-strong);
+      border-radius: 4px;
+      color: var(--ink);
+    }
+
+    .empty-state {
+      padding: 48px 24px;
+      text-align: center;
+      color: var(--ink-secondary);
+    }
+    .empty-state h2 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: var(--ink);
+      margin-bottom: 6px;
+    }
+    .empty-state p {
+      font-size: 0.875rem;
+      max-width: 52ch;
+      margin: 0 auto;
+    }
+
+    /* Site Markdown Inspector Drawer */
+    .drawer {
+      margin-top: 20px;
+      background: var(--surface);
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      padding: 16px 20px;
+      display: none;
+    }
+    .drawer.visible {
+      display: block;
+    }
+    .drawer-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 12px;
+    }
+    .drawer-header h2 {
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+    .drawer pre {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.78rem;
+      line-height: 1.55;
+      color: var(--ink-secondary);
+      white-space: pre-wrap;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <h1>Lead Enrichment &amp; Outreach Ledger</h1>
+        <p class="subtitle">
+          Pixeltable computed columns run enrichment through <span class="mono">treg.to</span> waterfall discovery, inline BounceBan mailbox verification, live site extraction, OpenAI copywriting, and Fish Audio voice synthesis.
+        </p>
+      </div>
+      <div class="dag-strip" aria-label="Computed column pipeline">
+        <span class="dag-node">Leads(full_name, domain)</span>
+        <span class="dag-arrow">&rarr;</span>
+        <span class="dag-node">treg_find_email</span>
+        <span class="dag-arrow">&rarr;</span>
+        <span class="dag-node">treg_extract_site</span>
+        <span class="dag-arrow">&rarr;</span>
+        <span class="dag-node">chat_completions</span>
+        <span class="dag-arrow">&rarr;</span>
+        <span class="dag-node">treg_voice_note</span>
+      </div>
+    </header>
+
+    <section class="composer" aria-label="Enrich or preview a lead">
+      <form id="lead-form" class="composer-form">
+        <div class="field">
+          <label for="full_name">Full name</label>
+          <input id="full_name" name="full_name" type="text" placeholder="Pierre Brunelle" required />
+        </div>
+        <div class="field">
+          <label for="domain">Company domain</label>
+          <input id="domain" name="domain" type="text" class="mono" placeholder="pixeltable.com" required />
+        </div>
+        <div class="field">
+          <label for="role">Role / title</label>
+          <input id="role" name="role" type="text" placeholder="Founder &amp; CEO" value="Founder" />
+        </div>
+        <div class="field">
+          <label for="stage">Stage</label>
+          <select id="stage" name="stage">
+            <option value="new">new</option>
+            <option value="queued">queued</option>
+            <option value="sent">sent</option>
+            <option value="replied">replied</option>
+          </select>
+        </div>
+        <button id="btn-insert" type="submit" class="btn btn-primary">
+          Enrich &amp; Save Lead
+        </button>
+        <button id="btn-preview" type="button" class="btn btn-secondary" title="Runs add_compute_route (/preview) without storing a row">
+          Paid preview
+        </button>
+      </form>
+      <p>Enrichment and preview spend your treg.to prepaid balance and call OpenAI. Preview also generates audio; it saves no lead.</p>
+      <div id="notice" class="notice" role="status" aria-live="polite"></div>
+    </section>
+
+    <section class="toolbar" aria-label="Filter leads">
+      <div class="filter-group">
+        <button type="button" class="pill active" data-filter="all">All leads</button>
+        <button type="button" class="pill" data-filter="valid">Verified valid</button>
+        <button type="button" class="pill" data-filter="catch_all">Catch-all</button>
+        <button type="button" class="pill" data-filter="priority">Priority tier (new)</button>
+      </div>
+      <div class="toolbar-right">
+        <input id="domain-lookup" type="search" class="domain-search" placeholder="Filter by domain (e.g. pixeltable.com)" aria-label="Lookup by domain" />
+        <span id="summary-stats" class="mono">0 rows &middot; $0.000000 total</span>
+        <a href="docs" class="btn btn-ghost mono">OpenAPI /docs</a>
+      </div>
+    </section>
+
+    <section class="table-wrap" aria-label="Enriched leads table">
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th>Prospect</th>
+            <th>Email &amp; Verification</th>
+            <th>Tier &amp; Stage</th>
+            <th>Personalized Cold Email</th>
+            <th>Voice Note (pxt.Audio)</th>
+            <th>Treg cost</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="leads-tbody">
+          <tr>
+            <td colspan="7" class="empty-state">Loading leads from Pixeltable...</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <aside id="site-drawer" class="drawer" aria-label="Scraped company website markdown">
+      <div class="drawer-header">
+        <h2 id="drawer-title">Scraped Website Markdown</h2>
+        <button id="drawer-close" type="button" class="btn btn-ghost">Close</button>
+      </div>
+      <pre id="drawer-body"></pre>
+    </aside>
+  </main>
+
+  <script>
+    const tbody = document.getElementById('leads-tbody');
+    const notice = document.getElementById('notice');
+    const summaryStats = document.getElementById('summary-stats');
+    const form = document.getElementById('lead-form');
+    const btnInsert = document.getElementById('btn-insert');
+    const btnPreview = document.getElementById('btn-preview');
+    const domainLookup = document.getElementById('domain-lookup');
+    const drawer = document.getElementById('site-drawer');
+    const drawerTitle = document.getElementById('drawer-title');
+    const drawerBody = document.getElementById('drawer-body');
+
+    function showNotice(text, isError = false) {
+      notice.textContent = text;
+      notice.className = 'notice visible' + (isError ? ' error' : '');
+    }
+
+    function clearNotice() {
+      notice.className = 'notice';
+      notice.textContent = '';
+    }
+
+    function verdictBadge(verdict) {
+      const v = (verdict || 'unknown').toLowerCase();
+      if (v === 'valid') return `<span class="badge badge-valid">valid</span>`;
+      if (v === 'catch_all' || v === 'risky') return `<span class="badge badge-warn">${escapeHtml(v)}</span>`;
+      if (v === 'invalid') return `<span class="badge badge-skip">invalid</span>`;
+      return `<span class="badge badge-neutral">${escapeHtml(v)}</span>`;
+    }
+
+    function tierBadge(tier) {
+      const t = (tier || 'review').toLowerCase();
+      if (t === 'priority') return `<span class="badge badge-valid">priority</span>`;
+      if (t === 'ready') return `<span class="badge badge-neutral">ready</span>`;
+      if (t === 'review') return `<span class="badge badge-warn">review</span>`;
+      return `<span class="badge badge-skip">${escapeHtml(t)}</span>`;
+    }
+
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function renderRows(rows) {
+      if (!rows || rows.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="7" class="empty-state">
+              <h2>No enriched leads in this view yet</h2>
+              <p>Enter a name and company domain above (or run <span class="mono">python seed.py leads</span>) to trigger the Pixeltable enrichment DAG.</p>
+            </td>
+          </tr>`;
+        summaryStats.textContent = '0 rows | $0.000000 total';
+        return;
+      }
+
+      let totalCost = 0;
+      tbody.innerHTML = rows.map((row) => {
+        const cost = Number(row.cost_usd || 0);
+        totalCost += cost;
+        const audioSrc = row.voice_note || `leads/voice-note?lead_id=${encodeURIComponent(row.lead_id)}`;
+        const stages = ['new', 'queued', 'sent', 'replied'].map((s) =>
+          `<option value="${s}" ${row.stage === s ? 'selected' : ''}>${s}</option>`
+        ).join('');
+
+        return `
+          <tr data-lead-id="${escapeHtml(row.lead_id)}">
+            <td>
+              <div class="lead-name">${escapeHtml(row.full_name)}</div>
+              <div class="lead-role">${escapeHtml(row.role || '-')}</div>
+              <span class="lead-domain mono" data-inspect-domain="${escapeHtml(row.domain)}" data-inspect-lead="${escapeHtml(row.lead_id)}" title="Inspect scraped website markdown">
+                ${escapeHtml(row.domain)}
+              </span>
+            </td>
+            <td>
+              <div class="email-cell">
+                <span class="mono">${escapeHtml(row.email || 'no match')}</span>
+                <div>
+                  ${verdictBadge(row.verdict)}
+                  ${row.served_by ? `<span class="provider-tag mono">via ${escapeHtml(row.served_by)}</span>` : ''}
+                </div>
+              </div>
+            </td>
+            <td>
+              <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start;">
+                ${tierBadge(row.tier)}
+                <select class="stage-select" data-stage-lead="${escapeHtml(row.lead_id)}" aria-label="Update lead stage">
+                  ${stages}
+                </select>
+              </div>
+            </td>
+            <td>
+              <div class="outreach-text">${escapeHtml(row.cold_email || '-')}</div>
+              <div class="outreach-actions">
+                <button type="button" class="btn btn-ghost" data-copy="${escapeHtml(row.cold_email || '')}">Copy email</button>
+                <button type="button" class="btn btn-ghost" data-inspect-domain="${escapeHtml(row.domain)}" data-inspect-lead="${escapeHtml(row.lead_id)}">Site context</button>
+              </div>
+            </td>
+            <td>
+              <audio class="voice-player" controls preload="none" src="${escapeHtml(audioSrc)}"></audio>
+            </td>
+            <td class="mono">$${cost.toFixed(6)}</td>
+            <td>
+              <button type="button" class="btn btn-ghost" data-delete-lead="${escapeHtml(row.lead_id)}">Delete</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      summaryStats.textContent = `${rows.length} row${rows.length === 1 ? '' : 's'} | $${totalCost.toFixed(6)} total`;
+    }
+
+    async function fetchJson(url, options = {}) {
+      const res = await fetch(url, options);
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch { data = { message: text }; }
+      if (!res.ok) {
+        const detail = data?.detail?.cause || data?.detail?.message || data?.detail || text || `HTTP ${res.status}`;
+        throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+      }
+      return data;
+    }
+
+    async function loadFilter(filter = 'all') {
+      clearNotice();
+      try {
+        let data;
+        if (filter === 'all') {
+          data = await fetchJson('leads/all?limit=50');
+        } else if (filter === 'valid' || filter === 'catch_all') {
+          data = await fetchJson(`leads/by-verdict?verdict=${encodeURIComponent(filter)}`);
+        } else if (filter === 'priority') {
+          data = await fetchJson('leads/by-tier?tier=priority&stage=new');
+        }
+        renderRows(data?.rows ?? (Array.isArray(data) ? data : []));
+      } catch (err) {
+        showNotice(`Could not load leads: ${err.message}`, true);
+      }
+    }
+
+    let pendingLeadId = null;
+    let pendingPayload = '';
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      clearNotice();
+      const payload = {
+        full_name: form.full_name.value.trim(),
+        domain: form.domain.value.trim(),
+        role: form.role.value.trim() || 'Founder',
+        stage: form.stage.value,
+      };
+      const signature = JSON.stringify(payload);
+      if (signature !== pendingPayload || !pendingLeadId) {
+        pendingLeadId = crypto.randomUUID();
+        pendingPayload = signature;
+      }
+      payload.lead_id = pendingLeadId;
+      btnInsert.disabled = true;
+      btnInsert.textContent = 'Enriching via treg + OpenAI...';
+      try {
+        await fetchJson('leads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        pendingLeadId = null;
+        form.full_name.value = '';
+        form.domain.value = '';
+        await loadFilter('all');
+      } catch (err) {
+        showNotice(`Enrichment failed: ${err.message}`, true);
+      } finally {
+        btnInsert.disabled = false;
+        btnInsert.textContent = 'Enrich & Save Lead';
+      }
+    });
+
+    btnPreview.addEventListener('click', async () => {
+      clearNotice();
+      const full_name = form.full_name.value.trim();
+      const domain = form.domain.value.trim();
+      if (!full_name || !domain) {
+        showNotice('Enter Full name and Company domain first to run a paid preview.', true);
+        return;
+      }
+      btnPreview.disabled = true;
+      btnPreview.textContent = 'Running /preview...';
+      try {
+        const res = await fetchJson('preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lead_id: crypto.randomUUID(),
+            full_name,
+            domain,
+            role: form.role.value.trim() || 'Founder',
+            stage: form.stage.value,
+          }),
+        });
+        const row = res;
+        showNotice(
+          `Paid preview (not stored): ${row.email || 'no email'} [${row.verdict || 'n/a'} via ${row.served_by || 'treg'}] | Tier: ${row.tier} | Cost: $${Number(row.cost_usd || 0).toFixed(6)} - "${row.cold_email || ''}"`
+        );
+      } catch (err) {
+        showNotice(`Preview failed: ${err.message}`, true);
+      } finally {
+        btnPreview.disabled = false;
+        btnPreview.textContent = 'Paid preview';
+      }
+    });
+
+    document.querySelectorAll('.pill[data-filter]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.pill[data-filter]').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        loadFilter(btn.dataset.filter);
+      });
+    });
+
+    domainLookup.addEventListener('keydown', async (e) => {
+      if (e.key !== 'Enter') return;
+      const d = domainLookup.value.trim();
+      if (!d) {
+        loadFilter('all');
+        return;
+      }
+      try {
+        const rows = await fetchJson(`leads/by-domain?domain=${encodeURIComponent(d)}`);
+        renderRows(rows.rows);
+      } catch (err) {
+        showNotice(`Could not load domain: ${err.message}`, true);
+      }
+    });
+
+    tbody.addEventListener('change', async (e) => {
+      const select = e.target.closest('select[data-stage-lead]');
+      if (!select) return;
+      try {
+        await fetchJson('leads/stage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lead_id: select.dataset.stageLead, stage: select.value }),
+        });
+      } catch (err) {
+        showNotice(`Stage update failed: ${err.message}`, true);
+      }
+    });
+
+    tbody.addEventListener('click', async (e) => {
+      const copyBtn = e.target.closest('button[data-copy]');
+      if (copyBtn) {
+        await navigator.clipboard.writeText(copyBtn.dataset.copy || '');
+        const prev = copyBtn.textContent;
+        copyBtn.textContent = 'Copied';
+        setTimeout(() => { copyBtn.textContent = prev; }, 1200);
+        return;
+      }
+
+      const inspectEl = e.target.closest('[data-inspect-domain]');
+      if (inspectEl) {
+        const domain = inspectEl.dataset.inspectDomain;
+        try {
+          const rows = await fetchJson(`leads/by-domain?domain=${encodeURIComponent(domain)}`);
+          const row = rows.rows.find((item) => item.lead_id === inspectEl.dataset.inspectLead);
+          drawerTitle.textContent = `Scraped Site Markdown - ${domain}`;
+          drawerBody.textContent = row?.site_markdown || 'No markdown stored.';
+          drawer.classList.add('visible');
+        } catch (err) {
+          showNotice(`Could not load site markdown for ${domain}: ${err.message}`, true);
+        }
+        return;
+      }
+
+      const delBtn = e.target.closest('button[data-delete-lead]');
+      if (delBtn) {
+        try {
+          await fetchJson('leads/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lead_id: delBtn.dataset.deleteLead }),
+          });
+          await loadFilter('all');
+        } catch (err) {
+          showNotice(`Delete failed: ${err.message}`, true);
+        }
+      }
+    });
+
+    document.getElementById('drawer-close').addEventListener('click', () => {
+      drawer.classList.remove('visible');
+    });
+
+    loadFilter('all');
+  </script>
+</body>
+</html>
