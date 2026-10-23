@@ -49,7 +49,7 @@ These flags work the same way across the catalog commands that support them and 
 | Flag | Available on | Description |
 |---|---|---|
 | `-h`, `--help` | Every command | Print the command's usage and examples |
-| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs other than `example`, plus `init`, `skills install`, `login`, `whoami`, `db`, `secret`, `org`, `key`, `usage`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), `schema example` and `service example` (which print an example file), or the commands that print plain status lines (`logout`, `daemon start`/`stop`/`restart`). |
+| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs other than `example`, plus `init`, `skills install`, `feedback`, `login`, `whoami`, `db`, `secret`, `org`, `key`, `usage`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), `schema example` and `service example` (which print an example file), or the commands that print plain status lines (`logout`, `daemon start`/`stop`/`restart`). |
 | `--json-schema` | `schema diff`, `service diff`, `db diff`, `db status`, `service list` | Print the JSON Schema of that command's `--json` output, with descriptions of every field and enum value, and exit. |
 | `-n`, `--dry-run` | Every catalog mutation (`drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), plus `schema update`, `schema prune`, `service update` and `service prune` | Print the intended action; don't execute. |
 | `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `recompute`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`, `db update`, `db delete`, `skills install`) | Skip the `[y/N]` prompt. Required in non-interactive contexts: without it the command exits `3` and names the command to run with `-f` on a `next:` line (see [Output and scripting](#output-and-scripting)). `rename` and `mv` don't prompt and don't accept `-f`. |
@@ -460,6 +460,24 @@ The command downloads the skill from the repository's `main` branch and prints t
 - If Claude Code also has the Pixeltable plugin, both copies load, because plugin skills are namespaced: keep one.
 - Commit both directories to give every collaborator's agent the same copy, and delete them to remove the skill.
 
+### Reporting a gap
+
+When Pixeltable cannot do what a task needs, a coding agent drafts a report for the Pixeltable team with `pxt feedback`:
+
+```bash
+pxt feedback --kind gap 'What the task needed, what was tried, what happened'   # prints what would be sent; sends nothing
+```
+
+`--kind` is `bug`, `gap` or `docs`. The text is one argument of 1 to 4000 characters, in single quotes so the shell runs no `` `command` `` and expands no `$VARIABLE` in it; it may hold newlines and tabs, a carriage return becomes a newline, and any other control character is refused.
+
+Without `--send`, the command prints the destination and every field it would send, and sends nothing. The preview spells out a character a terminal would not show, such as a right-to-left override, as an escape; the report keeps it. With `--send`, it sends these fields and nothing else: the kind, the text, the Pixeltable version, the Python version, the OS, and the coding agent it runs under, when it can tell. Besides the text, which goes as written, it sends no paths, hostnames, organization or file contents. With `DO_NOT_TRACK` set to `1`, `true` or `yes`, `--send` prints the preview (with `--json`, an error document with `error_code` `DO_NOT_TRACK`), sends nothing and exits 3. `PIXELTABLE_SITE_URL`, which also points `pxt new` elsewhere, sends the report to another site; it must use https, except on localhost.
+
+A report that fails exits 1, and with `--json` prints an error document: `RATE_LIMITED`, with `retry_after` in seconds when the site gives one; `FEEDBACK_UNCONFIRMED`, not retryable, after a server error, a read timeout or a dropped connection, when the report may have arrived and a resend may duplicate it; `INVALID_CONFIGURATION` for a `PIXELTABLE_SITE_URL` it refuses, even for a preview; `FEEDBACK_NOT_SENT` otherwise.
+
+The text comes from your project, so an agent should show you the preview and wait for your yes before it adds `--send`.
+
+An unexpected daemon failure prints its traceback, followed by a `next:` line naming `pxt feedback --kind bug`.
+
 ## Schema management
 
 The commands above act on one object at a time. `pxt schema` works differently: you describe the tables you want in a Python file, and the CLI reconciles a catalog to that description. Provisioning an empty target and evolving an existing one are the same command, so there is no separate first-time step.
@@ -676,7 +694,7 @@ The command is the one you ran, with `-f` (or `--allow-destructive`) added; ever
 
 A person who answers anything but `y` at the prompt also gets exit `3`, and with `--json` a document with `error_code` `CONFIRMATION_DECLINED` and no `next`. The plan commands (`schema`, `service`, `db update`) keep printing their plan instead; `schema update`, `schema prune` and `service prune` mark the refused operations `refused`. An unknown command exits `2` and suggests the commands it may have meant, such as `pxt db logs` and `pxt service logs` for `pxt logs`.
 
-A request that fails ends its line with the error code, as in `pxt: 404 Directory 'nope' does not exist. [DIRECTORY_NOT_FOUND]`, except a refusal only the user can lift, which prints Cloud's reason alone (see [Plan limits](#plan-limits)); with `--json`, stdout gets `{"error_code": ..., "message": ..., "retryable": ...}`. A daemon that does not start or cannot be reached gives `DAEMON_UNREACHABLE`; an answer without a code gives `HTTP_<status>` for a 4xx and `INTERNAL_ERROR` otherwise.
+A request that fails ends its line with the error code, as in `pxt: 404 Directory 'nope' does not exist. [DIRECTORY_NOT_FOUND]`, except a refusal only the user can lift, which prints Cloud's reason alone (see [Plan limits](#plan-limits)); with `--json`, stdout gets `{"error_code": ..., "message": ..., "retryable": ...}`. A daemon that does not start or cannot be reached gives `DAEMON_UNREACHABLE`; an answer without a code gives `HTTP_<status>` for a 4xx and `INTERNAL_ERROR` otherwise. When Pixeltable Cloud says how long to wait, as it does when busy, the `--json` document adds `retry_after` in seconds.
 
 | Exit | Meaning |
 |---|---|
