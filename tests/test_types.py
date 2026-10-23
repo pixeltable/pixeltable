@@ -2,6 +2,8 @@
 # ruff: noqa: RUF031
 
 import datetime
+import itertools
+import json
 import typing
 import uuid
 from typing import Any, Dict, List, Literal, Optional, Tuple, TypedDict, Union
@@ -12,7 +14,7 @@ import pydantic
 import pytest
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, exprs
 from pixeltable.type_system import (
     UUID,
     Array,
@@ -98,7 +100,7 @@ class TestTypes:
             (b'ab\x03\xfe', BinaryType()),
             (PIL.Image.new('RGB', (100, 100)), ImageType(height=100, width=100, mode='RGB')),
             (np.ndarray((1, 2, 3), dtype=np.int64), ArrayType((1, 2, 3), dtype=np.dtype('int64'))),
-            ({'a': 1, 'b': '2'}, JsonType(JsonType.TypeSchema({'a': IntType(), 'b': StringType()}))),
+            ({'a': 1, 'b': '2'}, JsonType(JsonType.TypeSchema({'a': IntType(), 'b': StringType()}, closed=True))),
             (['3', 4], JsonType(JsonType.TypeSchema([StringType(), IntType()]))),
         ]
         for val, expected_type in test_cases:
@@ -380,19 +382,60 @@ class TestTypes:
             (
                 JsonType(JsonType.TypeSchema({'a': StringType(), 'c': ArrayType((3,), dtype=FLOAT32)})),
                 JsonType(JsonType.TypeSchema({'b': IntType(), 'c': ArrayType((5,), dtype=FLOAT32)})),
-                # keys in one but not the other become optional keys in the supertype;
-                # keys in both become their supertype
+                # dict schemas are open, so the supertype declares only the keys in both, as their supertype
+                JsonType(JsonType.TypeSchema({'c': ArrayType((None,), dtype=FLOAT32)})),
+            ),
+            (
+                # a key whose types have no other common supertype becomes untyped Json
+                JsonType(JsonType.TypeSchema({'a': StringType(), 'b': IntType()})),
+                JsonType(JsonType.TypeSchema({'a': AudioType(), 'b': IntType()})),
+                JsonType(JsonType.TypeSchema({'a': JsonType(), 'b': IntType()})),
+            ),
+            (
+                # a key is required in the supertype only if both require it
+                JsonType(JsonType.TypeSchema({'a': IntType(), 'b': StringType()})),
+                JsonType(JsonType.TypeSchema({'a': IntType(), 'b': StringType()}, optional_keys=frozenset(('b',)))),
+                JsonType(JsonType.TypeSchema({'a': IntType(), 'b': StringType()}, optional_keys=frozenset(('b',)))),
+            ),
+            (
+                # nested dict schemas combine the same way
                 JsonType(
                     JsonType.TypeSchema(
-                        {'a': StringType(), 'b': IntType(), 'c': ArrayType((None,), dtype=FLOAT32)},
-                        optional_keys=frozenset(('a', 'b')),
+                        {'x': JsonType(JsonType.TypeSchema({'a': IntType(), 'b': IntType()})), 'y': IntType()}
+                    )
+                ),
+                JsonType(JsonType.TypeSchema({'x': JsonType(JsonType.TypeSchema({'a': IntType(), 'c': IntType()}))})),
+                JsonType(JsonType.TypeSchema({'x': JsonType(JsonType.TypeSchema({'a': IntType()}))})),
+            ),
+            (
+                # closed schemas: a key that only one declares is kept as optional, since the other's values don't
+                # have it; the supertype of two closed schemas is closed
+                JsonType(JsonType.TypeSchema({'a': IntType(), 'b': StringType()}, closed=True)),
+                JsonType(JsonType.TypeSchema({'a': IntType(), 'c': FloatType()}, closed=True)),
+                JsonType(
+                    JsonType.TypeSchema(
+                        {'a': IntType(), 'b': StringType(), 'c': FloatType()},
+                        optional_keys=frozenset(('b', 'c')),
+                        closed=True,
                     )
                 ),
             ),
             (
-                # conflicting keys -> default JsonType()
+                # a closed and an open schema: only the open one's keys are kept, and the supertype is open
+                JsonType(JsonType.TypeSchema({'a': IntType(), 'c': FloatType()}, closed=True)),
+                JsonType(JsonType.TypeSchema({'a': IntType(), 'b': StringType()})),
+                JsonType(JsonType.TypeSchema({'a': IntType(), 'b': StringType()}, optional_keys=frozenset(('b',)))),
+            ),
+            (
+                # ... which keeps the supertype of two closed schemas closed
+                JsonType(JsonType.TypeSchema({'a': StringType(), 'b': IntType()}, closed=True)),
+                JsonType(JsonType.TypeSchema({'a': AudioType(), 'b': IntType()}, closed=True)),
+                JsonType(JsonType.TypeSchema({'a': JsonType(), 'b': IntType()}, closed=True)),
+            ),
+            (
+                # a dict schema and a list schema -> default JsonType()
                 JsonType(JsonType.TypeSchema({'a': StringType()})),
-                JsonType(JsonType.TypeSchema({'a': AudioType()})),
+                JsonType(JsonType.TypeSchema([StringType()])),
                 JsonType(),
             ),
             (
@@ -447,6 +490,118 @@ class TestTypes:
                         print(expectedn)
                         print(t1n.supertype(t2n))
                         raise type(e)(f'Failed test case {i} with n1={n1}, n2={n2}') from e
+
+    def test_json_literal_inference(self, init_env: None) -> None:
+        def d(type_spec: dict[str, ColumnType], optional_keys: tuple[str, ...] = ()) -> JsonType:
+            return JsonType(JsonType.TypeSchema(type_spec, optional_keys=frozenset(optional_keys), closed=True))
+
+        # literal types have closed schemas, so their common supertype keeps every key, optional where only some
+        # literals have it
+        test_cases: list[tuple[list[Any], ColumnType]] = [
+            ([{'a': 1}, {'b': 'x'}], d({'a': IntType(), 'b': StringType()}, ('a', 'b'))),
+            (
+                [{'a': 1, 'c': [1.0]}, {'a': 2}],
+                d({'a': IntType(), 'c': JsonType(JsonType.TypeSchema([FloatType()]))}, ('c',)),
+            ),
+            # nested dicts, in a dict or in a list
+            ([{'x': {'a': 1}}, {'x': {'b': 1}}], d({'x': d({'a': IntType(), 'b': IntType()}, ('a', 'b'))})),
+            (
+                [[{'a': 1}], [{'b': 1}]],
+                JsonType(JsonType.TypeSchema([d({'a': IntType(), 'b': IntType()}, ('a', 'b'))])),
+            ),
+            # values of different scalar types combine to Json
+            ([{'a': 1}, {'a': 'x'}], d({'a': JsonType()})),
+        ]
+        for vals, expected in test_cases:
+            assert ColumnType.infer_common_literal_type(vals) == expected, vals
+
+        # the order of the literals doesn't matter, even when a key's types have no common supertype
+        rows = [{'a': PIL.Image.new('RGB', (4, 4))}, {'a': 1}, {'b': 'x'}]
+        for perm in itertools.permutations(rows):
+            assert ColumnType.infer_common_literal_type(perm) == d({'a': JsonType(), 'b': StringType()}, ('a', 'b'))
+
+    def test_json_is_supertype_of(self, init_env: None) -> None:
+        def d(type_spec: dict[str, ColumnType], optional_keys: tuple[str, ...] = (), closed: bool = False) -> JsonType:
+            return JsonType(JsonType.TypeSchema(type_spec, optional_keys=frozenset(optional_keys), closed=closed))
+
+        # (t1, t2, whether t1 is a supertype of t2)
+        test_cases = [
+            # a schema with fewer keys is a supertype (width subtyping), but not the other way around
+            (d({'a': IntType()}), d({'a': IntType(), 'b': StringType()}), True),
+            (d({'a': IntType(), 'b': StringType()}), d({'a': IntType()}), False),
+            (d({}), d({'a': IntType()}), True),
+            # an optional key must still be declared by the subtype, since an undeclared key could have any type
+            (d({'a': IntType(), 'b': StringType()}, ('b',)), d({'a': IntType()}), False),
+            # a required key may be required or optional in the supertype, but not the other way around
+            (d({'a': IntType(), 'b': StringType()}, ('b',)), d({'a': IntType(), 'b': StringType()}), True),
+            (d({'a': IntType(), 'b': StringType()}), d({'a': IntType(), 'b': StringType()}, ('b',)), False),
+            # value types are covariant
+            (d({'a': FloatType()}), d({'a': IntType(), 'b': IntType()}), True),
+            (d({'a': IntType()}), d({'a': FloatType()}), False),
+            (d({'a': IntType(nullable=True)}), d({'a': IntType()}), True),
+            (d({'a': IntType()}), d({'a': IntType(nullable=True)}), False),
+            # nested dict schemas follow the same rules
+            (d({'x': d({'a': IntType()})}), d({'x': d({'a': IntType(), 'b': IntType()}), 'y': IntType()}), True),
+            (d({'x': d({'a': IntType(), 'b': IntType()})}), d({'x': d({'a': IntType()})}), False),
+            (JsonType(), d({'a': IntType()}), True),
+            (d({'a': IntType()}), JsonType(), False),
+            (d({}), JsonType(JsonType.TypeSchema([IntType()])), False),
+            # a closed schema, which allows no undeclared keys, may omit an optional key of an open supertype
+            (d({'a': IntType(), 'b': StringType()}, ('b',)), d({'a': IntType()}, closed=True), True),
+            (d({'a': IntType(), 'b': StringType()}), d({'a': IntType()}, closed=True), False),
+            (d({'a': IntType()}), d({'a': IntType(), 'c': IntType()}, closed=True), True),
+            (d({'x': d({'a': IntType(), 'b': IntType()}, ('b',))}), d({'x': d({'a': IntType()}, closed=True)}), True),
+            # a closed schema is a supertype only of closed schemas that declare a subset of its keys
+            (d({'a': IntType()}, closed=True), d({'a': IntType()}), False),
+            (d({'a': IntType(), 'b': StringType()}, ('b',), closed=True), d({'a': IntType()}, closed=True), True),
+            (d({'a': IntType()}, closed=True), d({'a': IntType(), 'c': IntType()}, closed=True), False),
+        ]
+        for i, (t1, t2, expected) in enumerate(test_cases):
+            assert t1.is_supertype_of(t2) == expected, (i, t1, t2)
+            assert t1.is_supertype_of(t2, ignore_nullable=True) == expected, (i, t1, t2)
+
+    def test_json_closed_literals(self, init_env: None) -> None:
+        # the type of a dict literal has closed schemas, nested ones included
+        lit = exprs.Expr.from_object({'a': 1, 'b': [{'c': 'x'}, 2]})
+        assert isinstance(lit, exprs.Literal) and isinstance(lit.col_type, JsonType)
+        closed_repr = "Json[{'a': Int, 'b': Json[(Json[{'c': String}, closed=True], Int)]}, closed=True]"
+        assert repr(lit.col_type) == closed_repr
+        assert repr(lit.col_type.opened()) == "Json[{'a': Int, 'b': Json[(Json[{'c': String}], Int)]}]"
+
+        # a literal stores its type opened, and infers it again when loaded
+        d = lit.as_dict()
+        assert 'closed' not in json.dumps(d)
+        assert repr(exprs.Expr.from_dict(d).col_type) == closed_repr
+        # any other type stores closedness
+        assert ColumnType.from_dict(lit.col_type.as_dict()) == lit.col_type
+
+        # a literal given an explicit type keeps it
+        open_type = JsonType(JsonType.TypeSchema({'a': IntType()}))
+        assert exprs.Literal({'a': 1, 'z': 2}, col_type=open_type).col_type == open_type
+
+    def test_json_validate_literal(self, init_env: None) -> None:
+        t = JsonType(
+            JsonType.TypeSchema(
+                {'a': IntType(), 'b': StringType(), 'x': JsonType(JsonType.TypeSchema({'c': IntType()}))},
+                optional_keys=frozenset(('b',)),
+            )
+        )
+        # keys the schema doesn't declare are allowed, at any level
+        t.validate_literal({'a': 1, 'x': {'c': 2}, 'z': 'extra'})
+        t.validate_literal({'a': 1, 'b': 'y', 'x': {'c': 2, 'z': [None]}})
+        # declared keys are still checked
+        with pytest.raises(TypeError, match="Missing required key: 'a'"):
+            t.validate_literal({'x': {'c': 2}, 'z': 'extra'})
+        with pytest.raises(TypeError, match="Missing required key: 'c'"):
+            t.validate_literal({'a': 1, 'x': {'z': 2}})
+        with pytest.raises(TypeError, match='Expected string, got int'):
+            t.validate_literal({'a': 1, 'b': 2, 'x': {'c': 2}})
+
+        # a closed schema allows no undeclared keys
+        closed = JsonType(JsonType.TypeSchema({'a': IntType()}, closed=True))
+        closed.validate_literal({'a': 1})
+        with pytest.raises(TypeError, match="Unexpected key: 'z'"):
+            closed.validate_literal({'a': 1, 'z': 'extra'})
 
     def test_to_json_schema(self, init_env: None) -> None:
         test_cases: list[tuple[ColumnType, dict]] = [

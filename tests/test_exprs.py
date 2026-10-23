@@ -878,6 +878,10 @@ class TestExprs:
             # dict resolution applied to heterogeneous tuple
             (t.col.f5[:].f5a, pxt.Json[(int | None, str | None, float | None, ...)] | None),
             (t.col.f4['*'].f4b, pxt.Json[[str | None]] | None),  # special '*' operator
+            # dict schemas are open, so a key that the schema doesn't declare resolves to untyped Json
+            (t.col.not_a_field, pxt.Json | None),
+            (t.col.f2.not_a_field[3].f1, pxt.Json | None),
+            (t.col.f4['*'].not_a_field, pxt.Json[[pxt.Json | None]] | None),
             (
                 t.col.f4.f4a,
                 pxt.Json[[int | None]] | None,
@@ -895,7 +899,6 @@ class TestExprs:
             (t.col.f1, 'cannot_be_a_field', "'cannot_be_a_field'"),  # field access on primitive type
             (t.col.f1, 3, '[3]'),  # index access on primitive type
             (t.col.f1, slice(3, 10), '[3:10]'),  # slice access on primitive type
-            (t.col, 'not_a_field', "'not_a_field'"),  # invalid field name in dict
             (t.col, 3, '[3]'),  # index access on dict
             (t.col, slice(3, 10), '[3:10]'),  # slice access on dict
             (t.col.f2.f2b, 'not_an_index', "'not_an_index'"),  # field access on tuple

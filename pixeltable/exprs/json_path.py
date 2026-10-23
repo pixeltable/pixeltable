@@ -113,9 +113,12 @@ class JsonPath(Expr):
             # selects all elements.
             return cls.__resolve_type(col_type, path_elements[1:])
 
-        if isinstance(el, str) and isinstance(schema.type_spec, dict) and el in schema.type_spec:
+        if isinstance(el, str) and isinstance(schema.type_spec, dict):
             # Dict key resolution.
-            return cls.__resolve_type(schema.type_spec[el], path_elements[1:])
+            if el in schema.type_spec:
+                return cls.__resolve_type(schema.type_spec[el], path_elements[1:])
+            # Dict schemas are open, so a value may have a key that its schema doesn't declare.
+            return ts.JsonType(nullable=True)
 
         if isinstance(el, str) and isinstance(schema.type_spec, list):
             # Key resolution on a list: acts transitively on all elements of the list. This corresponds to
