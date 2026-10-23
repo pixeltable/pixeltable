@@ -711,6 +711,12 @@ class Catalog(CatalogBase):
                 'operation that was run on a different process.\n'
                 'Please re-run the operation.',
             ) from raise_from
+        elif isinstance(e.orig, psycopg.errors.DataError):
+            # sqlstate class 22 errors (invalid operand in a SQL-evaluated expression, invalid input value, ...)
+            # are user errors; surface the postgres message without the SQL statement
+            raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, str(e.orig)) from (
+                e if _logger.isEnabledFor(logging.DEBUG) else None
+            )
 
     @property
     def in_write_xact(self) -> bool:

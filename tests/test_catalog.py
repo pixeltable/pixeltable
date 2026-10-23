@@ -172,6 +172,23 @@ class TestCatalog:
         assert len(ls) == 1, ls
         assert ls['Name'].iloc[0] == 'test', ls
 
+    @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
+    def test_add_column_abort_rolls_back_column_md(self, uses_db: None, fault_injection: None) -> None:
+        t = pxt.create_table('test', {'a': pxt.Int | None})
+        t.insert([{'a': 1}])
+        # a failure in a non-transactional op aborts the statement after the column md was committed;
+        # rollback must remove the column so the schema stays consistent and the table remains usable
+        fault = ExceptionFault(Exception('injected'))
+        get_runtime().fault_manager.inject_fault(FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault)
+        with pxt_raises(excs.ErrorCode.INTERNAL_ERROR, match='injected'):
+            t.add_column(b=pxt.Int | None)
+        fault.assert_count(1)
+        assert 'b' not in t.get_metadata()['columns']
+        assert t.count() == 1
+        # a subsequent add_column goes through the same pending-ops path and must still work
+        t.add_column(c=pxt.Int | None)
+        assert 'c' in t.get_metadata()['columns']
+
     @pytest.mark.db_roots('local', reason='recovers transparently when the server drops the pooled db connections')
     def test_dropped_connection(self, uses_db: None) -> None:
         if not Env.get().is_local:
