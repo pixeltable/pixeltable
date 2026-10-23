@@ -109,6 +109,7 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache
           df -h
       - name: Install miniforge
+        # Remote ref, not ./: the default checkout is the release tag, which may not contain this action
         uses: pixeltable/pixeltable/.github/actions/setup-miniforge@main
       - name: Install python
         run: |
@@ -188,6 +189,7 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache /opt/az /opt/microsoft
           df -h
       - name: Install miniforge
+        # Remote ref, not ./: the default checkout is the release tag, which may not contain this action
         uses: pixeltable/pixeltable/.github/actions/setup-miniforge@main
       - name: Install ollama
         run: |

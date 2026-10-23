@@ -5,6 +5,9 @@ runs:
   steps:
     - uses: conda-incubator/setup-miniconda@v3
       with:
+        # 26.9.4-0 fails `conda init` on Windows: its installer embeds conda-standalone 26.7.0, which leaves
+        # conda-launchers' paths_data empty (https://github.com/conda/conda/issues/16856). Return to `latest`
+        # once a Miniforge release ships conda-standalone with conda >= 26.9.3.
         miniforge-version: 26.7.2-1
         activate-environment: pxt
         conda-remove-defaults: true
