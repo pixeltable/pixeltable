@@ -224,6 +224,11 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             _ = t.where(t.c2 <= 2).select(self.value_exc(t.c2 - 1)).show()
 
+        # psycopg DataError (sqlstate class 22) raised during SQL evaluation surfaces as pxt.Error,
+        # not a raw sqlalchemy error
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='zero raised to a negative power'):
+            _ = t.select((t.c2 - t.c2).pow(-1)).collect()
+
     @staticmethod
     @pxt.udf
     def raise_sync(x: int) -> int:
@@ -1963,6 +1968,11 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION):
             # nested aggregates
             _ = t.group_by(t.c2 % 2).select(sum(count(t.c2))).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION):
+            # non-grouping expr in select of a group_by query without aggregates
+            _ = t.group_by(t.c4).select(t.c4, t.c2).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION):
+            _ = t.select(t.c4, t.c2).group_by(t.c4).collect()
 
     def test_function_call_errors(self, test_tbl: pxt.Table) -> None:
         t = test_tbl

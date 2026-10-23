@@ -165,6 +165,16 @@ class Analyzer:
             # keys still have to be expressible in SQL; otherwise rows are not ordered and every input
             # row is emitted.
             self._validate_grouping_exprs()
+            if self.group_by_clause is not None:
+                # select items that aren't grouping exprs would emit 'SELECT <non-grouped> ... GROUP BY'
+                grouping_expr_ids = {e.id for e in self.group_by_clause}
+                is_agg_output = [self._determine_agg_status(e, grouping_expr_ids)[0] for e in self.select_list]
+                if is_agg_output.count(False) > 0:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_EXPRESSION,
+                        'Invalid non-aggregate expression in aggregate query: '
+                        f'{self.select_list[is_agg_output.index(False)]}',
+                    )
             return
         # if we're doing grouping aggregation and don't have an explicit Group By clause, we're creating a single group
         if self.group_by_clause is None:

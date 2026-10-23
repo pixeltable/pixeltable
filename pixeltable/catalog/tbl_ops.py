@@ -224,15 +224,17 @@ class CreateColumnMdOp(TableOp):
         pass
 
     def undo(self, tv: TableVersion | None) -> None:
-        # TODO this is completely broken, but the fix requires a separate change and more thought. Leaving as is for now
-        # because this change is meant to be mostly a refactoring (and a minor change in behavior, but elsewhere)
-        # 1. major: write_tbl_md cannot be called while there are pending ops (and we are inside one of them).
-        # 2. minor: [] is not an acceptable value for pending_ops
-        # 3. minor: TableVersion internals access. Once we figure out how to fix 1, this one should go away as well.
+        # write_tbl_md() can't be used here: it asserts on the presence of pending ops, and we are inside one.
         assert get_runtime().in_xact
         for col_id in self.column_ids:
-            del tv._tbl_md.column_md[col_id]
-        get_runtime().catalog.write_tbl_md(tv.id, None, tv._tbl_md, None, None, [])
+            tv._tbl_md.column_md.pop(col_id, None)
+            tv.cols_by_id.pop(col_id, None)
+        result = get_runtime().session.execute(
+            sql.update(schema.Table.__table__)
+            .values({schema.Table.md: dataclasses.asdict(tv._tbl_md, dict_factory=schema.md_dict_factory)})
+            .where(schema.Table.id == tv.id)
+        )
+        assert isinstance(result, sql.CursorResult) and result.rowcount == 1
 
 
 @dataclasses.dataclass
