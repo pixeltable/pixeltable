@@ -40,13 +40,14 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, telemetry
 from pixeltable._query import ResultSet
-from pixeltable.catalog import Path as PxtPath, retry_loop
+from pixeltable.catalog import Path as PxtPath, retry_read_md_loop
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.service import management_client, proxy_daemon
+from pixeltable.telemetry import SubscriberRegistry
 from pixeltable.types import ColumnSpec
 from pixeltable.utils import sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
@@ -1060,7 +1061,7 @@ class ReloadTester:
         # enumerate(): the list index is useful for debugging
         for idx, (query_dict, result_set) in enumerate(self.query_info):
 
-            @retry_loop()
+            @retry_read_md_loop()
             def query_from_dict() -> pxt.Query:
                 return pxt.Query.from_dict(query_dict)
 
@@ -1456,3 +1457,78 @@ def schema_from_tbl_md(metadata: pxt.TableMetadata) -> dict[str, str]:
         },
         'indexes': metadata['indexes'],
     }
+
+
+class RecordingSubscriber(telemetry.Subscriber):
+    """Records every hook invocation; span tokens are dict records linked by id."""
+
+    def __init__(self) -> None:
+        self.spans: list[dict[str, Any]] = []
+        self.events: list[tuple[Any, str, dict[str, Any]]] = []
+        self.counter_adds: list[tuple[telemetry.Counter, int | float, dict[str, Any]]] = []
+        self.histogram_records: list[tuple[telemetry.Histogram, int | float, dict[str, Any]]] = []
+        self.ctx_restores: list[Any] = []
+        self.ctx_exits: list[Any] = []
+
+    def on_span_start(self, name: str, parent_token: Any, attrs: dict[str, Any] | None, set_current: bool) -> Any:
+        record: dict[str, Any] = {
+            'id': len(self.spans),
+            'name': name,
+            'parent_id': parent_token['id'] if parent_token is not None else None,
+            'attrs': attrs,
+            'set_current': set_current,
+            'ended': False,
+            'exc': None,
+            'end_attrs': None,
+        }
+        self.spans.append(record)
+        return record
+
+    def on_span_end(self, token: Any, exc: BaseException | None, attrs: dict[str, Any] | None) -> None:
+        token['ended'] = True
+        token['exc'] = exc
+        token['end_attrs'] = attrs
+
+    def on_event(self, token: Any, name: str, attrs: dict[str, Any]) -> None:
+        self.events.append((token, name, attrs))
+
+    def on_counter_add(self, counter: telemetry.Counter, value: int | float, attrs: dict[str, Any]) -> None:
+        self.counter_adds.append((counter, value, attrs))
+
+    def on_histogram_record(self, histogram: telemetry.Histogram, value: int | float, attrs: dict[str, Any]) -> None:
+        self.histogram_records.append((histogram, value, attrs))
+
+    def capture_context(self) -> Any:
+        return 'ctx'
+
+    def restore_context(self, ctx: Any) -> Any:
+        self.ctx_restores.append(ctx)
+        return 'token'
+
+    def exit_context(self, token: Any) -> None:
+        self.ctx_exits.append(token)
+
+    def find(self, name: str) -> dict[str, Any]:
+        matches = [s for s in self.spans if s['name'] == name]
+        assert len(matches) == 1, f'expected exactly one span named {name!r}, got {len(matches)}'
+        return matches[0]
+
+    def counter_total(self, counter: telemetry.Counter) -> int | float:
+        """The sum of all values added to `counter` since this subscriber was subscribed."""
+        return sum(value for c, value, _ in self.counter_adds if c is counter)
+
+
+@contextmanager
+def record_telemetry(span_level: int = telemetry.INFO) -> Iterator[RecordingSubscriber]:
+    """Record the telemetry emitted inside the block, with spans at `span_level` and above."""
+    recorder = RecordingSubscriber()
+    SubscriberRegistry.get().subscribe(recorder)
+    telemetry.set_span_level(span_level)
+    try:
+        yield recorder
+    finally:
+        SubscriberRegistry.get().unsubscribe(recorder)
+        telemetry.set_span_level(telemetry.INFO)
+        # a block failing between span_start(set_current=True) and span_end would leak the ambient span into
+        # subsequent tests
+        telemetry._current_span.set(None)
