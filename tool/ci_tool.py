@@ -16,6 +16,8 @@ from typing import Literal, NamedTuple, NoReturn
 DEFAULT_PYTEST = "-m 'not expensive and not very_expensive and not benchmark'"
 EXPENSIVE_PYTEST = "-m 'not very_expensive and not benchmark'"
 VERY_EXPENSIVE_PYTEST = "-m 'not benchmark'"
+# The tests that stay out of the merge queue today, minus those that call paid APIs: the candidates for the large runner
+RESOURCE_PROBE_PYTEST = "-m '(expensive or very_expensive) and not remote_api'"
 
 # Note: in addition to these pytest filters, the tests that actually run are implicitly filtered by
 # skip_test_if_not_installed() and the install configuration.
@@ -189,6 +191,21 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
     return configs
 
 
+def build_resource_probe_configs() -> list[MatrixConfig]:
+    """Run the large-runner candidates on each free runner with a full dev install, measuring every test."""
+    return [
+        MatrixConfig(
+            'resource-probe',
+            'py',
+            platform,
+            '3.11',
+            pytest_options=RESOURCE_PROBE_PYTEST,
+            pre_test_cmd='python tool/resource_heartbeat.py 15 &',
+        )
+        for platform in ALL_PLATFORMS
+    ]
+
+
 def generate_matrix(args: argparse.Namespace) -> None:
     """Generate test matrix configuration."""
     output_file = args.output_file
@@ -198,9 +215,13 @@ def generate_matrix(args: argparse.Namespace) -> None:
     print('Output file : ', output_file)
     print('Triggered on: ', trigger)
     print('Force all   : ', force_all)
+    print('Resource probe: ', args.resource_probe)
     print()
 
-    configs = build_configs(trigger, force_all, has_aws_credentials=bool(os.environ.get('AWS_ACCESS_KEY_ID')))
+    if args.resource_probe:
+        configs = build_resource_probe_configs()
+    else:
+        configs = build_configs(trigger, force_all, has_aws_credentials=bool(os.environ.get('AWS_ACCESS_KEY_ID')))
     matrix = {'include': [cfg.matrix_entry for cfg in configs]}
 
     print(json.dumps(matrix, indent=4))
@@ -223,6 +244,9 @@ def main() -> NoReturn:
     matrix_parser.add_argument('output_file', help='Output file for the test matrix')
     matrix_parser.add_argument('trigger', choices=TRIGGERS, help='CI trigger type')
     matrix_parser.add_argument('--force-all', action='store_true', help='Force generation of all configurations')
+    matrix_parser.add_argument(
+        '--resource-probe', action='store_true', help='Generate only the resource-probe configurations'
+    )
     matrix_parser.set_defaults(func=generate_matrix)
 
     # Parse arguments and execute

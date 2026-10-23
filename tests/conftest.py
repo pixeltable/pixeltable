@@ -68,6 +68,11 @@ def pytest_addoption(parser: argparsing.Parser) -> None:
 def pytest_configure(config: PytestConfig) -> None:
     global DO_RERUN  # noqa: PLW0603
     DO_RERUN = not config.getoption('--no-rerun')
+    probe_path = os.environ.get('PXTTEST_RESOURCE_PROBE')
+    if probe_path:
+        from .resource_probe import ResourceProbe
+
+        config.pluginmanager.register(ResourceProbe(config, probe_path), 'resource_probe')
 
 
 # Fixtures that download a Hugging Face model. Any test requesting one of these is implicitly a

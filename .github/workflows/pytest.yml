@@ -56,6 +56,11 @@ on:
         description: 'Run on all platforms (including expensive ones)'
         required: false
         default: false
+      resource_probe:
+        type: boolean
+        description: 'Run only the large-runner candidates on free runners, measuring each test'
+        required: false
+        default: false
 
 env:
   # PIXELTABLE_API_KEY: ${{ secrets.PIXELTABLE_API_KEY }}
@@ -136,7 +141,8 @@ jobs:
         id: set-matrix
         run: |
           ARGS=${{ github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms && '--force-all' || '' }}
-          python tool/ci_tool.py generate-matrix "$GITHUB_OUTPUT" ${{ github.event_name }} $ARGS
+          PROBE_ARGS=${{ github.event_name == 'workflow_dispatch' && inputs.resource_probe && '--resource-probe' || '' }}
+          python tool/ci_tool.py generate-matrix "$GITHUB_OUTPUT" ${{ github.event_name }} $ARGS $PROBE_ARGS
 
   tests:
     name: ${{ matrix.display-name }}
@@ -233,14 +239,17 @@ jobs:
           cd dashboard && npm install --silent && npm run build
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
-        # A timeout so that a hung test doesn't keep merge queue for hours
-        timeout-minutes: 90
+        # A timeout so that a hung test doesn't keep merge queue for hours. A resource probe runs the heaviest tests on
+        # small runners, where they can take much longer.
+        timeout-minutes: ${{ inputs.resource_probe && 330 || 90 }}
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
+          PXTTEST_RESOURCE_PROBE: ${{ inputs.resource_probe && format('{0}/resource-probe/probe.jsonl', runner.temp) || '' }}
           # Collect coverage for every unit-test configuration in scheduled and dispatched runs. pytest-cov ensures
-          # xdist workers are measured; other triggers avoid the tracing overhead.
+          # xdist workers are measured; other triggers avoid the tracing overhead. A resource probe skips coverage
+          # so that tracing doesn't inflate its measurements.
           PYTEST_COVERAGE_OPTS: >-
-            ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '--cov=pixeltable --cov-report=term-missing' || '' }}
+            ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.resource_probe)) && '--cov=pixeltable --cov-report=term-missing' || '' }}
         # Run the tests with the 'expensive' marker only once, on ubuntu-24.04 with Python 3.11. The other tests
         # (including tests with the 'remote_api' marker that are not also marked 'expensive') will run on all matrix
         # configurations.
@@ -317,6 +326,13 @@ jobs:
             ${{ runner.temp }}/pxt-pytest/**/.pixeltable/proxy_*/logs
             ${{ runner.temp }}/pxt-pytest/**/pxt-daemon*/daemon.log
           include-hidden-files: true
+      - name: Archive resource probe
+        if: ${{ always() && inputs.resource_probe && matrix.test-category == 'py' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: resource-probe-${{ matrix.os }}-${{ matrix.python-version }}
+          if-no-files-found: ignore
+          path: ${{ runner.temp }}/resource-probe/probe.jsonl
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |
