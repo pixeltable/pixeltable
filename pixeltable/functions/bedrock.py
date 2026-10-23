@@ -11,6 +11,7 @@ import io
 import json
 import logging
 import mimetypes
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
@@ -254,14 +255,13 @@ async def _bedrock_async_invocation(
     invocation_arn: str = response['invocationArn']
     invocation_id: str = invocation_arn.rsplit('/', maxsplit=1)[-1]
 
-    elapsed = 0.0
+    deadline = time.monotonic() + _ASYNC_INVOCATION_TIMEOUT_SECS
     result_prefix = f'{soa.prefix}{invocation_id}/'
     keys: list[str] = []
     try:
         while True:
             await asyncio.sleep(_ASYNC_INVOCATION_POLL_INTERVAL_SECS)
-            elapsed += _ASYNC_INVOCATION_POLL_INTERVAL_SECS
-            if elapsed > _ASYNC_INVOCATION_TIMEOUT_SECS:
+            if time.monotonic() > deadline:
                 raise pxt.ExternalServiceError(
                     pxt.ErrorCode.PROVIDER_JOB_TIMEOUT,
                     f'Async invocation {invocation_id} timed out after {_ASYNC_INVOCATION_TIMEOUT_SECS}s',
