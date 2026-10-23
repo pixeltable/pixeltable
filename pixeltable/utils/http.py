@@ -79,20 +79,17 @@ SESSION = new_session()
 DOWNLOAD_USER_AGENT = 'Pixeltable/1.0 (https://pixeltable.com)'
 
 _RETRIABLE_ERROR_INDICATORS = re.compile(
-    r'\b(?:'
-    + '|'.join(
+    '|'.join(
         (
-            r'rate limit(?:s|ed|ing)?',
+            'rate limit',
+            'connection err',
             'too many requests',
-            '429',
-            'quota exceeded',
+            '(?:quota|rate) exceed',
             'throttled',
-            'rate exceeded',
-            'connection error',
             'timed out',
+            r'\b429\b',
         )
     )
-    + r')\b'
 )
 _RETRY_AFTER_PATTERNS = (
     r'retry after (\d+(?:\.\d+)?)\s*seconds?',
