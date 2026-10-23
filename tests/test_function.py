@@ -549,6 +549,10 @@ class TestFunction:
             return t.where(t.c1 < x).select(pxtf.sum(t.c2))
 
         @pxt.query
+        def single_group_total_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).group_by().select(pxtf.sum(t.c2))
+
+        @pxt.query
         def values_below(x: int) -> pxt.Query:
             return t.where(t.c1 < x).select(t.c2)
 
@@ -572,13 +576,20 @@ class TestFunction:
         def first_values(n: int) -> pxt.Query:
             return t.order_by(t.c1).select(t.c2).limit(n)
 
+        @pxt.query
+        def running_totals_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).select(pxtf.sum(t.c2, order_by=t.c1))
+
         assert_type_eq(total_below.signature.return_type, pxt.Float | None)
+        assert_type_eq(single_group_total_below.signature.return_type, pxt.Float | None)
         assert_type_eq(values_below.signature.return_type, pxt.Json[[pxt.Float]])
         assert_type_eq(named_values_below.signature.return_type, pxt.Json[[{'v': pxt.Float}]])
         assert_type_eq(counts_below.signature.return_type, pxt.Json[[pxt.Int]])
         assert_type_eq(value_at.signature.return_type, pxt.Float | None)
         assert_type_eq(row_at.signature.return_type, pxt.Json[{'c1': pxt.Int, 'c2': pxt.Float}] | None)
         assert_type_eq(first_values.signature.return_type, pxt.Json[[pxt.Float]])
+        # a window function returns a value per row, rather than aggregating the rows into one
+        assert_type_eq(running_totals_below.signature.return_type, pxt.Json[[pxt.Float | None]])
 
         t.add_computed_column(total=total_below(t.c1))
         t.add_computed_column(values=values_below(t.c1))
@@ -598,7 +609,9 @@ class TestFunction:
         assert res['next_value'] == [*[i + 1.5 for i in range(9)], None]
         assert res['next_row'] == [*[{'c1': i + 1, 'c2': i + 1.5} for i in range(9)], None]
         assert t.select(n=counts_below(t.c1)).order_by(t.c1).collect()['n'][3] == [1, 1, 1]
+        assert t.select(s=single_group_total_below(3)).limit(1).collect()['s'] == [4.5]
         assert t.select(v=first_values(2)).limit(1).collect()['v'] == [[0.5, 1.5]]
+        assert sorted(t.select(r=running_totals_below(3)).limit(1).collect()['r'][0]) == [0.5, 2.0, 4.5]
 
         reload_tester.run_reload_test()
         t = pxt.get_table(p('test'))

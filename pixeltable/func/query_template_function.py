@@ -140,6 +140,7 @@ class QueryTemplateFunction(Function):
             col_name = next(iter(self.template_query.schema))
             rows = [row[col_name] for row in rows]
         if self.single_row:
+            assert len(rows) <= 1
             return rows[0] if len(rows) > 0 else None
         return rows
 
@@ -179,37 +180,59 @@ def query(*, param_types: list[ts.ColumnType] | None = None) -> Callable[[Callab
 
 
 def query(*args: Any, **kwargs: Any) -> Any:
-    """Turn a function that returns a parameterized query into a function that runs the query.
+    """A decorator to create a function that runs a parameterized [`Query`][pixeltable.Query].
 
-    The decorated function builds the query from its parameters. A call to the resulting function in an expression,
-    such as a computed column, runs the query for each row, with that row's values as the arguments.
+    The decorated function takes the parameters and returns the query that uses them. It runs once, when it is
+    decorated, with placeholders for the parameters: the parameters can appear in query expressions, but not in
+    Python logic such as an `if` statement.
+
+    The resulting function runs the query with the arguments of each call. In a computed column or in `select()`, it
+    runs the query once per row, with that row's values as the arguments. It also works as an LLM tool through
+    `pxt.tools()` and as an HTTP endpoint through `FastAPIRouter.add_query_route()`.
+
+    The result of a call depends on the shape of the query. A query returns at most one row if it aggregates without
+    `group_by()` or has `limit(1)`; otherwise it returns multiple rows.
+
+    - Multiple rows, selecting a single unnamed expression, as in `select(t.text)`: a list of values.
+    - Multiple rows, with any other select list: a list of dicts, one per row, with the selected column names as keys.
+    - At most one row, selecting a single unnamed expression: the value, or `None` if there is no row.
+    - At most one row, with any other select list: the row as a dict, or `None` if there is no row.
 
     Args:
         param_types: The Pixeltable types of the parameters, for parameters without type annotations.
 
     Returns:
-        The query function. A call returns a list of rows, each a dictionary from the selected column names to their
-        values. If the query selects one unnamed item, as in `select(t.text)`, each row is that item's value instead.
-        If the query aggregates without `group_by()` or has `limit(1)`, a call returns the one row instead of a list,
-        or None if there is no row.
+        The function that runs the query.
 
     Examples:
         The texts of the five chunks most similar to a question, given a table `chunks` with an embedding index on
-        `text`:
+        `text`. In a computed column of the table `questions`, each value is a list of five strings:
 
         >>> @pxt.query
         ... def top_chunks(question: str) -> pxt.Query:
         ...     sim = chunks.text.similarity(string=question)
         ...     return chunks.order_by(sim, asc=False).select(chunks.text).limit(5)
+        >>> questions.add_computed_column(context=top_chunks(questions.question))
 
-        The total of a customer's orders, as a single value in a computed column of the table `customers`:
+        A product looked up by its SKU. In a computed column of the table `orders`, each value is a dict of the
+        product's columns, or `None` for an unknown SKU:
 
         >>> @pxt.query
-        ... def customer_total(customer: str) -> pxt.Query:
-        ...     return orders.where(orders.customer == customer).select(
+        ... def product_by_sku(sku: str) -> pxt.Query:
+        ...     return products.where(products.sku == sku).limit(1)
+        >>> orders.add_computed_column(product=product_by_sku(orders.sku))
+
+        The total amount of a customer's orders. In a query over the table `customers`, each customer gets a single
+        number, computed when the query runs, or `None` for a customer without orders:
+
+        >>> @pxt.query
+        ... def order_total(customer_id: int) -> pxt.Query:
+        ...     return orders.where(orders.customer_id == customer_id).select(
         ...         pxtf.sum(orders.amount)
         ...     )
-        >>> customers.add_computed_column(total=customer_total(customers.customer))
+        >>> customers.select(
+        ...     customers.name, total=order_total(customers.id)
+        ... ).collect()
     """
 
     def make_query_template(py_fn: Callable, param_types: list[ts.ColumnType] | None) -> QueryTemplateFunction:
@@ -246,9 +269,9 @@ def retrieval_udf(
 ) -> func.QueryTemplateFunction:
     """
     Constructs a retrieval UDF for the given table. The retrieval UDF is a UDF whose parameters are
-    columns of the table and whose return value is a list of rows from the table. The return value of
+    columns of the table. A call
     >>> f(col1=x, col2=y, ...)
-    will be a list of all rows from the table that match the specified arguments.
+    returns the rows of the table whose columns equal the specified arguments.
 
     Args:
         table: The table to use as the dataset for the retrieval tool.
@@ -262,9 +285,11 @@ def retrieval_udf(
         limit: The maximum number of rows to return. If not specified, then all matching rows will be returned.
 
     Returns:
-        A list of dictionaries containing data from the table, one per row that matches the input arguments.
-        If there are no matching rows, an empty list will be returned. With `limit=1`, the UDF returns the one
-        matching row, or None.
+        The retrieval UDF. A call returns:
+
+        - With `limit=1`: the matching row, as a dict with the table's column names as keys, or `None` if no row
+            matches.
+        - Otherwise: a list of such dicts, one per matching row up to `limit`, or an empty list if no row matches.
     """
     # Argument validation
     col_refs: list[exprs.ColumnRef]

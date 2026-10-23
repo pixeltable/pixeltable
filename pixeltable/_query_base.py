@@ -160,10 +160,14 @@ class QueryBase(ABC):
 
     @property
     def _is_ungrouped_aggregate(self) -> bool:
-        if self._select_list_exprs is None or self.group_by_clause is not None or self.grouping_tbl_key is not None:
+        if self._select_list_exprs is None or self.grouping_tbl_key is not None:
             return False
+        # group_by() without arguments forms a single group, the same as no group_by()
+        if self.group_by_clause is not None and len(self.group_by_clause) > 0:
+            return False
+        # any(): if there are any non-window agg function calls in the select list, we must be doing non-grouping agg
         return any(
-            e.is_grouping_agg_fn_call
+            e.is_std_agg_fn_call
             for e in exprs.Expr.list_subexprs(self._select_list_exprs, expr_class=exprs.FunctionCall)
         )
 

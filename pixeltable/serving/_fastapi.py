@@ -1995,12 +1995,19 @@ class FastAPIRouter(fastapi.APIRouter):
         Add an endpoint that executes a `@pxt.query` or `pxt.retrieval_udf` and returns the results.
 
         By default the endpoint accepts POST requests with a JSON
-        [`Body`](https://fastapi.tiangolo.com/tutorial/body/) and returns `{"rows": [{...}, ...]}`, or a JSON array of
-        values for a query that selects one unnamed item. A query that returns one row, because it aggregates without
-        `group_by()` or has `limit(1)`, returns the row as a JSON object, or the value itself for one unnamed item.
-        Without a row, an aggregation returns `null` and any other query a 404.
+        [`Body`](https://fastapi.tiangolo.com/tutorial/body/).
         Use `method='get'` for
         [`Query`](https://fastapi.tiangolo.com/tutorial/query-params/) parameters instead.
+
+        The response depends on the shape of the query. A query returns at most one row if it aggregates without
+        `group_by()` or has `limit(1)`; otherwise it returns any number of rows.
+
+        - Any number of rows, selecting a single unnamed expression, as in `select(t.text)`: a JSON array of values.
+        - Any number of rows, with any other select list: `{"rows": [{...}, ...]}`, with a JSON object per row.
+        - At most one row, selecting a single unnamed expression: the value itself.
+        - At most one row, with any other select list: the row as a JSON object.
+
+        If a query that returns at most one row finds no row, the response is a 404.
 
         Args:
             path: The URL path for the endpoint.
@@ -2020,8 +2027,12 @@ class FastAPIRouter(fastapi.APIRouter):
             method: HTTP method for the endpoint (`'get'` or `'post'`).
 
         Examples:
-            Multi-row JSON response:
+            A search; the response contains a JSON object per result row under `rows`:
 
+            >>> @pxt.query
+            ... def search_docs(query_text: str) -> pxt.Query:
+            ...     sim = docs.text.similarity(string=query_text)
+            ...     return docs.order_by(sim, asc=False).select(docs.id, docs.text, score=sim)
             >>> router.add_query_route(path='/search', query=search_docs)
 
             ```bash
@@ -2031,7 +2042,20 @@ class FastAPIRouter(fastapi.APIRouter):
             # {"rows": [{"id": 1, "text": "hello world", "score": 0.95}, ...]}
             ```
 
-            Single-row lookup:
+            The same search over a single unnamed expression; the response is a JSON array of values:
+
+            >>> @pxt.query
+            ... def search_texts(query_text: str) -> pxt.Query:
+            ...     sim = docs.text.similarity(string=query_text)
+            ...     return docs.order_by(sim, asc=False).select(docs.text)
+            >>> router.add_query_route(path='/search-texts', query=search_texts)
+
+            ```bash
+            curl -X POST http://localhost:8000/search-texts -d '{"query_text": "hello"}'
+            # ["hello world", ...]
+            ```
+
+            A lookup with `limit(1)`; the response is a single JSON object, or a 404 if there is no row:
 
             >>> @pxt.query
             ... def lookup_by_id(id: int) -> pxt.Query:
@@ -2043,7 +2067,7 @@ class FastAPIRouter(fastapi.APIRouter):
             # {"id": 42, "name": "Alice", "email": "alice@example.com"}
             ```
 
-            GET with query-string parameters:
+            The same lookup with query-string parameters; the response is again a single JSON object:
 
             >>> router.add_query_route(path='/lookup', query=lookup_by_id, method='get')
 
@@ -2052,8 +2076,24 @@ class FastAPIRouter(fastapi.APIRouter):
             # {"id": 42, "name": "Alice", "email": "alice@example.com"}
             ```
 
-            `FileResponse`:
+            An aggregation without `group_by()`; the response is the value itself:
 
+            >>> @pxt.query
+            ... def user_count(min_age: int) -> pxt.Query:
+            ...     return users.where(users.age >= min_age).select(pxtf.count(users.id))
+            >>> router.add_query_route(path='/user-count', query=user_count)
+
+            ```bash
+            curl -X POST http://localhost:8000/user-count -d '{"min_age": 21}'
+            # 1234
+            ```
+
+            A `FileResponse`; the query returns at most one row, and the response is the file itself, or a 404 if
+            there is no row:
+
+            >>> @pxt.query
+            ... def get_thumbnail(id: int) -> pxt.Query:
+            ...     return images.where(images.id == id).select(images.thumbnail).limit(1)
             >>> router.add_query_route(
             ...     path='/thumbnail', query=get_thumbnail, return_fileresponse=True,
             ... )
@@ -2119,7 +2159,6 @@ class FastAPIRouter(fastapi.APIRouter):
 
         return_scalar = query.return_scalar
         scalar_col_name = next(iter(result_schema)) if return_scalar else None
-        is_aggregate = template_query._is_ungrouped_aggregate
 
         # build pydantic models for the response
         output_model: type[pydantic.BaseModel] | None  # what's returned by run_query(); None for scalars
@@ -2146,13 +2185,8 @@ class FastAPIRouter(fastapi.APIRouter):
         elif return_fileresponse:
             endpoint_model = None
         elif return_scalar:
-            scalar_type = next(iter(result_schema.values()))
-            if single_row and is_aggregate:
-                scalar_type = scalar_type.copy(nullable=True)
-            scalar_py_type = scalar_type.to_pydantic_type()
+            scalar_py_type = next(iter(result_schema.values())).to_pydantic_type()
             endpoint_model = scalar_py_type if single_row else list[scalar_py_type]  # type: ignore[valid-type]
-        elif single_row and is_aggregate:
-            endpoint_model = output_model | None
         else:
             endpoint_model = output_model
 
@@ -2189,8 +2223,6 @@ class FastAPIRouter(fastapi.APIRouter):
             rows = list(result_set)
 
             if single_row and len(rows) == 0:
-                if is_aggregate and not return_fileresponse:
-                    return None
                 raise HTTPException(status_code=404, detail='query returned no rows')
 
             output = self._create_output(

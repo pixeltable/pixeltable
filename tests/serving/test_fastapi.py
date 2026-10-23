@@ -1600,7 +1600,8 @@ class TestFastAPI:
 
     def test_add_query_route_single_row(self, db_root: DatabaseRoot) -> None:
         """A query with limit(1) returns a flat JSON object, or a bare value for an unnamed item; no row -> 404.
-        An aggregation without group_by() returns a flat JSON object as well."""
+        An aggregation without group_by() returns a flat JSON object as well. A background job's result has the same
+        shape."""
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
@@ -1666,10 +1667,31 @@ class TestFastAPI:
         resp = client.post('/text-by-id', json={'id': 999})
         assert resp.status_code == 404, resp.text
 
-        # an aggregation without group_by(): flat JSON object
+        # an aggregation without group_by(): flat JSON object, also over no rows
         resp = client.post('/id-stats', json={'min_id': 0})
         assert resp.status_code == 200, resp.text
         assert resp.json() == {'n': 3, 'total': 1}
+        resp = client.post('/id-stats', json={'min_id': 10})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'n': 0, 'total': None}
+
+        # a background job's result: the row, or the value
+        bg_router = FastAPIRouter()
+        bg_router.add_query_route(path='/by-id', query=by_id, background=True)
+        bg_router.add_query_route(path='/text-by-id', query=text_by_id, background=True)
+        bg_client = make_test_client(bg_router)
+        job = bg_client.post('/by-id', json={'id': 1}).json()
+        assert await_background_job(bg_client, job, require_pending=False)['result'] == {'id': 1, 'text': 't1'}
+        job = bg_client.post('/text-by-id', json={'id': 1}).json()
+        assert await_background_job(bg_client, job, require_pending=False)['result'] == 't1'
+        # no row: the job fails with the detail of the synchronous 404
+        job = bg_client.post('/by-id', json={'id': 999}).json()
+        deadline = time.time() + 30.0
+        while (status := bg_client.get(job['job_url']).json())['status'] == 'pending':
+            assert time.time() < deadline, status
+            time.sleep(0.05)
+        assert status['status'] == 'error', status
+        assert status['error_detail'] == client.post('/by-id', json={'id': 999}).json()['detail']
 
         # OpenAPI: a single row advertises the row model, not the wrapper
         openapi = client.get('/openapi.json').json()
@@ -1684,13 +1706,13 @@ class TestFastAPI:
         ]
         assert scalar_schema.get('type') != 'array'
         assert 'rows' not in str(scalar_schema)
-        # an aggregation over no rows is null
+        # an aggregation advertises the row model as well
         stats_schema = openapi['paths']['/id-stats']['post']['responses']['200']['content']['application/json'][
             'schema'
         ]
-        assert stats_schema['anyOf'][1] == {'type': 'null'}
-        stats_ref = stats_schema['anyOf'][0]['$ref']
-        assert set(openapi['components']['schemas'][stats_ref.split('/')[-1]]['properties'].keys()) == {'n', 'total'}
+        assert '$ref' in stats_schema
+        stats_row_schema = openapi['components']['schemas'][stats_schema['$ref'].split('/')[-1]]
+        assert set(stats_row_schema['properties'].keys()) == {'n', 'total'}
 
     def test_add_query_route_image(self, db_root: DatabaseRoot) -> None:
         """Image query route: JSON response, return_fileresponse (happy/404/500), and background."""
@@ -2028,6 +2050,10 @@ class TestFastAPI:
             return t.select(t.image)
 
         @pxt.query
+        def running_ids() -> pxt.Query:
+            return t.select(pxtf.sum(t.id, order_by=t.id))
+
+        @pxt.query
         def by_image(img: pxt.Image) -> pxt.Query:
             return t.where(t.image == img).select(t.id)
 
@@ -2055,6 +2081,12 @@ class TestFastAPI:
             match="return_fileresponse requires a query that returns one row.*'all_images'",
         ):
             router.add_query_route(path='/e', query=all_images, return_fileresponse=True)
+        # a window function returns a value per row, so the query returns a list
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match="return_fileresponse requires a query that returns one row.*'running_ids'",
+        ):
+            router.add_query_route(path='/e', query=running_ids, return_fileresponse=True)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='GET endpoints cannot have uploadfile_inputs'):
             router.add_query_route(path='/e', query=by_image, uploadfile_inputs=['img'], method='get')
 
