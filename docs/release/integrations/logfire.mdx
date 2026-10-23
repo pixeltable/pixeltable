@@ -1,0 +1,229 @@
+---
+title: 'Pydantic Logfire'
+description: 'Trace Pixeltable operations and LLM calls in Logfire with OpenTelemetry'
+---
+
+Pixeltable runs LLM calls inside computed columns and UDFs. [Pydantic Logfire](https://logfire.pydantic.dev) records each call as a trace: the operation, the row, the UDF, and the model request. This page sends Pixeltable's OpenTelemetry spans to Logfire. The bridge itself, including metrics, is covered in [Observability](/platform/observability). Sending OTLP without the Logfire SDK is covered in Logfire's [alternative clients](https://logfire.pydantic.dev/docs/guides/alternative-clients/).
+
+One Pixeltable operation (`insert`, `add_computed_column`, `collect`, and the rest) is one trace. At `span_level='debug'` an OpenAI insert looks like this. `openai.chat_completions` runs on a resource pool, so its UDF span sits beside `pixeltable.row`. A UDF without a resource pool nests under `pixeltable.row`.
+
+```text
+pixeltable.insert
+└─ pixeltable.store.insert_rows
+   ├─ pixeltable.row                      (one per row, debug)
+   ├─ pixeltable.udf.chat_completions     (one per LLM cell, debug)
+   │  └─ Chat Completion with 'gpt-4o-mini'
+   └─ pixeltable.sa.insert_rows
+```
+
+The child span in that tree is what `logfire.instrument_openai()` records. The [export path](#export-spans-to-logfire) uses OpenInference instead, and that child span is named `ChatCompletion`.
+
+<Note>
+This page matches Pixeltable 0.7.19, Logfire 5.2.0, and `opentelemetry-instrumentation-pixeltable` 0.1.0. `pixeltable[otel]` installs that package from PyPI.
+</Note>
+
+## Choose an approach
+
+| You want | Use |
+| --- | --- |
+| OTLP export with no Logfire SDK in your code | [Export spans to Logfire](#export-spans-to-logfire) |
+| Logfire as the tracer provider, with `logfire.instrument_openai()` on computed-column calls | [Use the Logfire SDK](#use-the-logfire-sdk) |
+
+## Install
+
+```bash
+pip install 'pixeltable[otel]' logfire openai openinference-instrumentation-openai
+```
+
+`pixeltable[otel]` installs the Pixeltable bridge, the OpenTelemetry SDK, and the OTLP exporters. `logfire` is the SDK path. `openai` is the client that `chat_completions()` calls. Neither Pixeltable nor the instrumentor installs it. The export path uses `openinference-instrumentation-openai` for generation spans. The SDK path uses `logfire.instrument_openai()` and does not need the OpenInference package.
+
+## Set the environment
+
+A write token belongs to one Logfire project, and that project lives in one region. Create the token under Project, then Settings, then Write tokens. `logfire.configure()` reads `LOGFIRE_TOKEN`.
+
+```bash
+export LOGFIRE_TOKEN="your-write-token"
+export OPENAI_API_KEY="sk-..."
+```
+
+Direct OTLP also needs the region's base URL. US is `https://logfire-us.pydantic.dev`. EU is `https://logfire-eu.pydantic.dev`. The header value is the write token. Logfire's OTLP examples do not put `Bearer` in front of it.
+
+```bash
+# US host. EU: https://logfire-eu.pydantic.dev
+export OTEL_EXPORTER_OTLP_ENDPOINT="https://logfire-us.pydantic.dev"
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=$LOGFIRE_TOKEN"
+export OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf"
+export OTEL_SERVICE_NAME="pixeltable-app"
+export OTEL_SPAN_LEVEL=debug
+```
+
+<Warning>
+Prompts and completions are sent to Logfire on the OpenAI span. `logfire.configure(scrubbing=...)` redacts spans the Logfire SDK exports. It does not scrub a direct OTLP export. Leave Pixeltable `logs` off unless those log lines are redacted.
+</Warning>
+
+## Export spans to Logfire
+
+`pxt_otel.init()` builds the tracer provider and starts Pixeltable's spans. For OTLP/HTTP it appends `/v1/traces` unless the endpoint already ends in that path, so pass the regional base URL, not a URL that already ends in `/v1/traces`. Metrics are exported when an endpoint is set. Logfire accepts them. Pass `metrics=False` to send traces only.
+
+Call `pxt_otel.init()` once in the process, before the first Pixeltable operation. The default `protocol` is `http/protobuf`.
+
+```python
+import os
+
+import opentelemetry.instrumentation.pixeltable as pxt_otel
+from openinference.instrumentation.openai import OpenAIInstrumentor
+
+pxt_otel.init(
+    endpoint=os.environ['OTEL_EXPORTER_OTLP_ENDPOINT'],  # regional base URL; /v1/traces is appended
+    headers=f"Authorization={os.environ['LOGFIRE_TOKEN']}",
+    service_name='pixeltable-app',  # default service.name is pixeltable
+    span_level='debug',  # info: operation, catalog, store, SQL; debug adds row, UDF, and file spans
+)
+OpenAIInstrumentor().instrument()
+```
+
+<Note>
+A `pxt_otel.init()` argument overrides the config. With the argument left unset, `endpoint` and `protocol` resolve from the database entry (`db_exporter_otlp_endpoint`, `db_exporter_otlp_protocol` in `pixeltable.toml`), then `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL`, then the `[otel]` section of `~/.pixeltable/config.toml`. `headers` resolves from `OTEL_EXPORTER_OTLP_HEADERS`, then `[otel]`. Build the Authorization value from environment variables, and never write the token into code. On a hosted database, run `pxt secret set pxt://<org>:<db> OTEL_EXPORTER_OTLP_HEADERS='Authorization=<write-token>'`, then `pxt service restart`. [Configuration](/platform/configuration).
+</Note>
+
+Pixeltable spans record which operation, row, column, and UDF ran: `pxt.table`, `pxt.path`, `pxt.column`, `pxt.udf_path`, and, for a resource-pool call, `pxt.resource_pool` and `pxt.retries`. The model, prompt, completion, and token counts are on the OpenInference span. While an operation span is active, Pixeltable sets the OpenTelemetry context for that UDF call, including across its thread pools and async scheduler, so the generation nests under the UDF span. The span name is `pixeltable.udf.` plus the UDF's display name, so this column is `pixeltable.udf.chat_completions`.
+
+`span_level='trace'` adds a span per iterator step. At the default `'info'`, row and UDF spans are omitted, and the generation nests under `pixeltable.store.insert_rows`.
+
+Setting only `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` does not start export. Set `OTEL_EXPORTER_OTLP_ENDPOINT` or pass `endpoint`. With no service name, Logfire groups the data under `(unknown)`.
+
+### Declare the table and insert
+
+An application file puts the columns on a `TableModel`. `pxt schema update app.py my_app` creates `my_app.articles`. The insert runs in the process that called `pxt_otel.init()`.
+
+A script can create the same column with `create_table` and `add_computed_column` in that same process. Both forms store the completion text. The model runs when the row is inserted.
+
+<Tabs>
+  <Tab title="Application file">
+    ```python
+    import pixeltable as pxt
+    import pixeltable.functions as pxtf
+
+    TableModel = pxt.model_base()
+
+
+    class Articles(TableModel, name='articles'):
+        id: pxt.Int
+        body: pxt.String
+        summary = pxtf.openai.chat_completions(
+            messages=[{'role': 'user', 'content': 'Summarize in one sentence: ' + body}],
+            model='gpt-4o-mini',
+        ).choices[0].message.content
+    ```
+
+    ```bash
+    pxt schema update app.py my_app
+    ```
+
+    In the process that called `pxt_otel.init()`:
+
+    ```python
+    import pixeltable as pxt
+    from opentelemetry import trace
+
+    t = pxt.get_table('my_app.articles')
+    t.insert([
+        {'id': 1, 'body': 'Pixeltable is declarative data infrastructure for multimodal AI apps.'}
+    ])
+    trace.get_tracer_provider().force_flush()  # short-lived scripts: send spans before exit
+    ```
+  </Tab>
+  <Tab title="Script">
+    In the same process as `pxt_otel.init()`:
+
+    ```python
+    import pixeltable as pxt
+    import pixeltable.functions as pxtf
+    from opentelemetry import trace
+
+    t = pxt.create_table('articles', {'id': pxt.Int, 'body': pxt.String}, if_exists='replace')
+    t.add_computed_column(
+        summary=pxtf.openai.chat_completions(
+            messages=[{'role': 'user', 'content': 'Summarize in one sentence: ' + t.body}],
+            model='gpt-4o-mini',
+        ).choices[0].message.content
+    )
+    t.insert([
+        {'id': 1, 'body': 'Pixeltable is declarative data infrastructure for multimodal AI apps.'}
+    ])
+    trace.get_tracer_provider().force_flush()
+    ```
+  </Tab>
+</Tabs>
+
+To trace a served app, add `--otel` to `pxt service run` or `pxt service update` ([Tracing](/platform/cli#tracing)). It calls `pxt_otel.init()` with no arguments before it loads the app file, so configure the export in the environment, or in the matching `[otel]` keys. The variables in [Set the environment](#set-the-environment) are that configuration.
+
+`pxt service run` reads these variables in its own process. `pxt service update` starts the service from the Pixeltable daemon, which reads the environment once, so run `pxt daemon restart` after the exports.
+
+If the database entry in `pixeltable.toml` sets `db_exporter_otlp_endpoint`, it wins over `OTEL_EXPORTER_OTLP_ENDPOINT`, so set the Logfire endpoint on that entry instead.
+
+The app file must not call `pxt_otel.init()`: with `--otel`, that second call raises `INVALID_STATE`, and without `--otel` it records Pixeltable spans but not the FastAPI request spans. Use this path or [the Logfire SDK](#use-the-logfire-sdk) in a process, not both.
+
+## Use the Logfire SDK
+
+`logfire.configure()` installs Logfire as the global tracer provider and reads `LOGFIRE_TOKEN`. `PixeltableInstrumentor().instrument()` attaches to that provider. It does not build an exporter of its own. Call both once, before the first Pixeltable operation.
+
+`logfire.instrument_openai()` patches `openai`, including the `AsyncOpenAI` client that `pixeltable.functions.openai` uses. Leave `openinference-instrumentation-openai` uninstrumented on this path. `instrument_openai()` suppresses other OpenAI instrumentation, and enabling both records two spans for each call.
+
+```python
+import logfire
+from opentelemetry.instrumentation.pixeltable import PixeltableInstrumentor
+
+logfire.configure(service_name='pixeltable-app')
+logfire.instrument_openai()
+PixeltableInstrumentor().instrument(span_level='debug')
+```
+
+Run the same insert as [Declare the table and insert](#declare-the-table-and-insert). The OpenAI span name is `Chat Completion with 'gpt-4o-mini'`, nested under `pixeltable.udf.chat_completions`.
+
+A UDF defined in the `__main__` module of a script is rejected. Put it in a module and import it. A UDF without a resource pool nests under `pixeltable.row`.
+
+```python
+# my_udfs.py
+import pixeltable as pxt
+
+
+@pxt.udf
+def word_count(text: str) -> int:
+    return len(text.split())
+```
+
+```python
+from my_udfs import word_count
+
+t.add_computed_column(words=word_count(t.body))
+```
+
+## View the traces
+
+Open the project and go to the Live view. Filter for `pixeltable.insert`. The trace contains `pixeltable.store.insert_rows`, a `pixeltable.row` span, and `pixeltable.udf.chat_completions` beside that row. Under the UDF span, the SDK path shows `Chat Completion with 'gpt-4o-mini'` with the model, token counts, and cost. The export path shows `ChatCompletion` there instead.
+
+`create_table`, `add_computed_column`, and `collect` each appear as their own trace.
+
+<img
+  src="/images/logfire-pixeltable-trace.png"
+  alt="Logfire Live view of a pixeltable.insert trace. word_count is nested under pixeltable.row. chat_completions sits beside the row, with Chat Completion with gpt-4o-mini under it, showing model gpt-4o-mini, token counts, and cost."
+/>
+
+## Caveats
+
+- With the bridge on, every Pixeltable operation is a trace, including `create_dir`, `create_table`, `drop_dir`, and `collect`. `span_level='info'` drops the per-row, per-UDF, and per-file spans. On an insert, the OpenAI span then nests under `pixeltable.store.insert_rows`.
+- Per-row spans stop at 100 rows in one operation. A provider call on a resource pool still gets its `pixeltable.udf.*` span.
+- Computed-column values are stored. `collect()` records a Pixeltable span and does not call the model again. The model runs on `insert`, on `update`, and when `add_computed_column` backfills existing rows.
+- Flush before the process exits: `trace.get_tracer_provider().force_flush()` after `pxt_otel.init()`. `logfire.configure()` exports on its own schedule. A short script should still flush the provider.
+- Call `pxt_otel.init()`, or `logfire.configure()` and `PixeltableInstrumentor().instrument()`, before the first Pixeltable operation. `pxt_otel.init()` runs once per process.
+- A 401 or 403 means the write token is missing or the endpoint is the other region. Nothing under a service name means `service_name` was left unset.
+
+<CardGroup cols={2}>
+  <Card title="Observability" icon="chart-line" href="/platform/observability">
+    Span tree, metrics, and a Grafana Cloud export.
+  </Card>
+  <Card title="Alternative clients" icon="fire" href="https://logfire.pydantic.dev/docs/guides/alternative-clients/">
+    Logfire's regional OTLP endpoints and write-token header.
+  </Card>
+</CardGroup>

@@ -41,11 +41,16 @@ pip install 'pixeltable[otel]' openai langfuse openinference-instrumentation-ope
 ```bash
 export LANGFUSE_PUBLIC_KEY="pk-lf-..."
 export LANGFUSE_SECRET_KEY="sk-lf-..."
-export LANGFUSE_BASE_URL="https://cloud.langfuse.com"  # EU. US: https://us.cloud.langfuse.com
+# Host for the region that holds this project.
+# EU: https://cloud.langfuse.com
+# US: https://us.cloud.langfuse.com
+# Japan: https://jp.cloud.langfuse.com
+# HIPAA: https://hipaa.cloud.langfuse.com
+export LANGFUSE_BASE_URL="https://us.cloud.langfuse.com"
 export OPENAI_API_KEY="sk-..."
 ```
 
-Keys belong to one Langfuse project and one region. A key from a US project on the EU host returns 401. Set `LANGFUSE_BASE_URL`. `LANGFUSE_HOST` still works and is deprecated.
+Keys belong to one Langfuse project and one region. Set `LANGFUSE_BASE_URL` to that region's host. US is `https://us.cloud.langfuse.com`. A key sent to another region's host returns 401. `LANGFUSE_HOST` still works and is deprecated.
 
 ## Export spans to Langfuse
 
@@ -61,7 +66,7 @@ import opentelemetry.instrumentation.pixeltable as pxt_otel
 from openinference.instrumentation.openai import OpenAIInstrumentor
 from opentelemetry import trace
 
-base_url = os.environ.get('LANGFUSE_BASE_URL', 'https://cloud.langfuse.com').rstrip('/')
+base_url = os.environ['LANGFUSE_BASE_URL'].rstrip('/')
 token = base64.b64encode(
     f"{os.environ['LANGFUSE_PUBLIC_KEY']}:{os.environ['LANGFUSE_SECRET_KEY']}".encode()
 ).decode()
