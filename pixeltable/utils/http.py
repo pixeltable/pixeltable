@@ -78,15 +78,21 @@ SESSION = new_session()
 
 DOWNLOAD_USER_AGENT = 'Pixeltable/1.0 (https://pixeltable.com)'
 
-_RETRIABLE_ERROR_INDICATORS = (
-    'rate limit',
-    'too many requests',
-    '429',
-    'quota exceeded',
-    'throttled',
-    'rate exceeded',
-    'connection error',
-    'timed out',
+_RETRIABLE_ERROR_INDICATORS = re.compile(
+    r'\b(?:'
+    + '|'.join(
+        (
+            r'rate limit(?:s|ed|ing)?',
+            'too many requests',
+            '429',
+            'quota exceeded',
+            'throttled',
+            'rate exceeded',
+            'connection error',
+            'timed out',
+        )
+    )
+    + r')\b'
 )
 _RETRY_AFTER_PATTERNS = (
     r'retry after (\d+(?:\.\d+)?)\s*seconds?',
@@ -157,7 +163,7 @@ def is_retryable_error(exc: Exception) -> tuple[bool, float | None]:
 
     # Check common rate limit keywords in exception message
     error_msg = str(exc).lower()
-    if any(indicator in error_msg for indicator in _RETRIABLE_ERROR_INDICATORS):
+    if _RETRIABLE_ERROR_INDICATORS.search(error_msg) is not None:
         retry_delay = _extract_retry_delay_from_message(error_msg)
         return True, retry_delay if retry_delay is not None and retry_delay >= 0 else None
 
