@@ -664,8 +664,11 @@ def _serialize_input_images(input: list) -> list:
     """Returns a copy of `input` in which each PIL image of an `input_image` part is replaced by a PNG data URL."""
     input = copy.deepcopy(input)
     for item in input:
-        content = item.get('content') if isinstance(item, dict) else None
-        if isinstance(content, list):
+        if not isinstance(item, dict):
+            continue
+        for content in (item.get('content'), item.get('instructions'), item.get('output')):
+            if not isinstance(content, list):
+                continue
             for part in content:
                 if (
                     isinstance(part, dict)
@@ -1395,9 +1398,6 @@ class DecisionResponse(TypedDict):
     usage: DecisionUsage
 
 
-_MAX_DECISION_QUESTIONS = 400
-
-
 @pxt.udf(is_deterministic=False)
 async def decisions(
     input: pxt.Json, *, questions: list, model: str = 'gpt-6-luna', model_kwargs: dict[str, Any] | None = None
@@ -1417,13 +1417,14 @@ async def decisions(
     - `pip install 'openai>=3.32'`
 
     Args:
-        input: A text string, or a list of user messages. A message's `content` is a string or a list of
-            `input_text` and `input_image` parts. An `input_image` part's `image_url` can be an image column, a
-            public HTTP(S) URL, or a base64 data URL. A request can contain at most 128 images.
+        input: A text string, or a list of messages, function calls and outputs, or custom tool calls and outputs.
+            Message `content` and tool `output` lists can contain `input_text`, `input_image`, and `input_json`
+            parts. An `input_image` part's `image_url` can be an image column, a public HTTP(S) URL, or a base64
+            data URL.
         questions: Between 1 and 400 questions, each with a `type` of `predicate`, `choice`, or `score`, an
-            `instructions` string, and an optional `name`. A `choice` question lists its `choices`, and a `score`
-            question lists its `levels`.
-        model: The model to use. Currently, `gpt-6-luna` is the only supported model.
+            `instructions` string or list of `input_text`, `input_image`, and `input_json` parts, and an optional
+            `name`. A `choice` question lists its `choices`, and a `score` question lists its `levels`.
+        model: The model to use.
         model_kwargs: Additional keyword args for the OpenAI `decisions` API, such as `prompt_cache_key`,
             `prompt_cache_options`, and `safety_identifier`. For details on the available parameters, see:
             <https://developers.openai.com/api/reference/python/resources/decisions/methods/create>
@@ -1505,19 +1506,17 @@ async def decisions(
     if not isinstance(input, (str, list)):
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_ARGUMENT,
-            f'`input` must be a string or a list of messages, got {type(input).__name__}',
+            f'`input` must be a string or a list of input items, got {type(input).__name__}',
         )
     if not isinstance(questions, list):
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_ARGUMENT, f'`questions` must be a list, got {type(questions).__name__}'
         )
-    if not 1 <= len(questions) <= _MAX_DECISION_QUESTIONS:
-        raise pxt.RequestError(
-            pxt.ErrorCode.INVALID_ARGUMENT,
-            f'`questions` must contain 1 to {_MAX_DECISION_QUESTIONS} questions, got {len(questions)}',
-        )
+    if len(questions) == 0:
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, '`questions` must contain at least one question')
     if isinstance(input, list):
         input = _serialize_input_images(input)
+    questions = _serialize_input_images(questions)
     if model_kwargs is None:
         model_kwargs = {}
 

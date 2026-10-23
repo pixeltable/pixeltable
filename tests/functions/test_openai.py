@@ -998,6 +998,23 @@ class TestOpenaiTypedDictAdherence:
 
         assert ours_optional == frozenset(ours_fields.keys())
 
+    def test_decision_response(self) -> None:
+        """DecisionResponse mirrors Decision except for its flattened answer variants."""
+        skip_test_if_not_installed('openai')
+        from openai.types.decision import Decision
+
+        from pixeltable.functions.openai import DecisionResponse
+
+        ours_fields, ours_optional = self._td_fields(DecisionResponse)
+        sdk_fields = self._pydantic_fields(Decision)
+        assert set(ours_fields) == set(Decision.model_fields)
+        assert not ours_optional
+        for name in set(ours_fields) - {'answers'}:
+            assert name in sdk_fields, f'Decision field {name!r} is not convertible'
+            assert self._normalize(ours_fields[name]) == self._normalize(sdk_fields[name]), (
+                f'DecisionResponse field {name!r} drifted: ours={ours_fields[name]} sdk={sdk_fields[name]}'
+            )
+
     def test_decision_answer(self) -> None:
         """DecisionAnswer flattens the SDK's four answer variants into one TypedDict."""
         skip_test_if_not_installed('openai')
