@@ -111,8 +111,7 @@ jobs:
       - name: Install miniforge
         uses: conda-incubator/setup-miniconda@v3
         with:
-          # On Windows, Miniforge 26.9.4-0's `conda init --all` fails: "needs sudo" for Scripts\conda.exe
-          miniforge-version: ${{ startsWith(matrix.os, 'windows') && '26.7.2-1' || 'latest' }}
+          miniforge-version: latest
           activate-environment: pxt
           conda-remove-defaults: true
       - name: Install python
