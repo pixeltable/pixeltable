@@ -192,18 +192,51 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
     return configs
 
 
+_HF = 'tests/functions/test_huggingface.py::TestHuggingface::'
+# Round 2: the tests that round 1 never reached, because a heavier test took the runner down first. Each job runs on its
+# own runner with one worker, so that a test that exhausts memory only ends its own job, and each measurement is the
+# test's own. Within a job, the tests most likely to exhaust memory come last.
+RESOURCE_PROBE_JOBS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    'diffusion': (
+        (MAIN_PLATFORM, 'windows-2025'),
+        (f'{_HF}test_text_to_image', f'{_HF}test_image_to_image', f'{_HF}test_image_to_video'),
+    ),
+    'large-models': (
+        ALL_PLATFORMS,
+        (
+            f'{_HF}test_speech2text_for_conditional_generation',
+            f'{_HF}test_text_generation',
+            f'{_HF}test_image_captioning',
+            f'{_HF}test_text_to_speech',
+            'tests/functions/test_vision.py::TestVision::test_overlay_segmentation',
+            'tests/functions/test_llama_cpp.py::TestLlamaCpp',
+            f'{_HF}test_sam3_for_segmentation_no_detections',
+        ),
+    ),
+    'inlined': (
+        (MAIN_PLATFORM, 'windows-2025'),
+        (
+            'tests/test_table.py::TestTable::test_compute_with_idx',
+            'tests/tool/test_db_dump_tool.py',
+            'tests/test_inlined_objects.py::TestInlinedObjects',
+        ),
+    ),
+}
+
+
 def build_resource_probe_configs() -> list[MatrixConfig]:
-    """Run the large-runner candidates on each free runner with a full dev install, measuring every test."""
+    """Run the large-runner candidates on free runners with a full dev install, measuring every test."""
     return [
         MatrixConfig(
-            'resource-probe',
+            f'resource-probe {job}',
             'py',
             platform,
             '3.11',
-            pytest_options=RESOURCE_PROBE_PYTEST,
+            pytest_options=f'-n 1 {RESOURCE_PROBE_PYTEST} {" ".join(nodeids)}',
             pre_test_cmd='python tool/resource_heartbeat.py 15 &',
         )
-        for platform in ALL_PLATFORMS
+        for job, (platforms, nodeids) in RESOURCE_PROBE_JOBS.items()
+        for platform in platforms
     ]
 
 

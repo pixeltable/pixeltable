@@ -241,7 +241,7 @@ jobs:
         if: ${{ matrix.test-category == 'py' }}
         # A timeout so that a hung test doesn't keep merge queue for hours. A resource probe runs the heaviest tests on
         # small runners, where they can take much longer.
-        timeout-minutes: ${{ inputs.resource_probe && 330 || 90 }}
+        timeout-minutes: ${{ inputs.resource_probe && 150 || 90 }}
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
           PXTTEST_RESOURCE_PROBE: ${{ inputs.resource_probe && format('{0}/resource-probe/probe.jsonl', runner.temp) || '' }}
@@ -330,7 +330,7 @@ jobs:
         if: ${{ always() && inputs.resource_probe && matrix.test-category == 'py' }}
         uses: actions/upload-artifact@v4
         with:
-          name: resource-probe-${{ matrix.os }}-${{ matrix.python-version }}
+          name: ${{ matrix.display-name }}
           if-no-files-found: ignore
           path: ${{ runner.temp }}/resource-probe/probe.jsonl
       - name: Print utilization info
