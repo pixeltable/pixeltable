@@ -1,6 +1,6 @@
 import asyncio
 import json
-from typing import Any
+from typing import Any, Iterator
 
 import PIL.Image
 import pytest
@@ -98,12 +98,13 @@ class MockOpenaiApi:
 
 
 @pytest.fixture
-def mock_api(init_env: None, monkeypatch: pytest.MonkeyPatch) -> MockOpenaiApi:
+def mock_api(init_env: None, monkeypatch: pytest.MonkeyPatch) -> Iterator[MockOpenaiApi]:
     skip_test_if_not_installed('openai')
     import httpx2
     import openai
 
     from pixeltable.functions import openai as pxt_openai
+    from pixeltable.runtime import get_runtime
 
     api = MockOpenaiApi()
     client = openai.AsyncOpenAI(
@@ -115,7 +116,8 @@ def mock_api(init_env: None, monkeypatch: pytest.MonkeyPatch) -> MockOpenaiApi:
         return client
 
     monkeypatch.setattr(pxt_openai, '_openai_client', openai_client)
-    return api
+    yield api
+    get_runtime().event_loop.run_until_complete(client.close())
 
 
 def png_data_url(path: str) -> str:
@@ -211,6 +213,7 @@ class TestOpenaiDecisions:
         assert t.select(p=t.decision.answers[0].probability).collect()[0]['p'] == pytest.approx(0.75)
 
     def test_serialize_input_images_copies_input(self, init_env: None) -> None:
+        """Call the helper directly because UDF argument evaluation hides mutations of the caller's objects."""
         from pixeltable.functions.openai import _serialize_input_images
 
         with PIL.Image.open(SAMPLE_IMAGE_FILE_PATH) as img:
@@ -221,6 +224,67 @@ class TestOpenaiDecisions:
         assert serialized[0]['content'][0]['image_url'] == png_data_url(SAMPLE_IMAGE_FILE_PATH)
         assert serialized[1] == 'other'
         assert part['image_url'] is img
+
+    @pytest.mark.parametrize('question', QUESTIONS[:3])
+    def test_question_instruction_images(
+        self, uses_db: None, mock_api: MockOpenaiApi, question: dict[str, Any]
+    ) -> None:
+        from pixeltable.functions.openai import decisions
+
+        t = pxt.create_table('test_tbl', {'image': pxt.Image})
+        instructions = [
+            {'type': 'input_text', 'text': 'Compare the product photos.'},
+            {'type': 'input_image', 'image_url': t.image},
+            {'type': 'input_image', 'image_url': 'https://example.com/photo.png'},
+            {'type': 'input_image', 'image_url': 'data:image/png;base64,iVBORw0KGgo=', 'detail': 'low'},
+        ]
+        t.add_computed_column(
+            decision=decisions('Product photos', questions=[{**question, 'instructions': instructions}])
+        )
+        validate_update_status(t.insert([{'image': SAMPLE_IMAGE_FILE_PATH}]), expected_rows=1)
+
+        assert mock_api.requests[0]['questions'] == [
+            {
+                **question,
+                'instructions': [
+                    instructions[0],
+                    {'type': 'input_image', 'image_url': png_data_url(SAMPLE_IMAGE_FILE_PATH)},
+                    instructions[2],
+                    instructions[3],
+                ],
+            }
+        ]
+        assert t.select(answer=t.decision.answers[0].type).collect()[0]['answer'] == question['type']
+
+    @pytest.mark.parametrize('tool_type', ['function', 'custom_tool'])
+    def test_tool_output_images(self, uses_db: None, mock_api: MockOpenaiApi, tool_type: str) -> None:
+        from pixeltable.functions.openai import decisions
+
+        t = pxt.create_table('test_tbl', {'image': pxt.Image})
+        call = {'type': f'{tool_type}_call', 'call_id': 'call_1', 'name': 'product_photo'}
+        call['arguments' if tool_type == 'function' else 'input'] = '{}'
+        output = [
+            {'type': 'input_image', 'image_url': t.image},
+            {'type': 'input_image', 'image_url': 'https://example.com/photo.png'},
+            {'type': 'input_image', 'image_url': 'data:image/png;base64,iVBORw0KGgo='},
+        ]
+        messages = [call, {'type': f'{tool_type}_call_output', 'call_id': 'call_1', 'output': output}]
+        t.add_computed_column(decision=decisions(messages, questions=QUESTIONS[:1]))
+        validate_update_status(t.insert([{'image': SAMPLE_IMAGE_FILE_PATH}]), expected_rows=1)
+
+        assert mock_api.requests[0]['input'] == [
+            call,
+            {
+                'type': f'{tool_type}_call_output',
+                'call_id': 'call_1',
+                'output': [
+                    {'type': 'input_image', 'image_url': png_data_url(SAMPLE_IMAGE_FILE_PATH)},
+                    output[1],
+                    output[2],
+                ],
+            },
+        ]
+        assert t.select(p=t.decision.answers[0].probability).collect()[0]['p'] == pytest.approx(0.75)
 
     def test_responses_image_serialization(self, uses_db: None, mock_api: MockOpenaiApi) -> None:
         from pixeltable.functions.openai import responses
@@ -246,10 +310,9 @@ class TestOpenaiDecisions:
         assert len(row['n1']) == 1 and len(row['n400']) == 400
 
         mock_api.requests.clear()
-        for n in (0, 401):
-            t.add_computed_column(**{f'd_{n}': decisions(t.review, questions=[question] * n)}, on_error='ignore')
-            msg = t.select(msg=t[f'd_{n}'].errormsg).collect()[0]['msg']
-            assert f'`questions` must contain 1 to 400 questions, got {n}' in msg
+        t.add_computed_column(d_empty=decisions(t.review, questions=[]), on_error='ignore')
+        msg = t.select(msg=t.d_empty.errormsg).collect()[0]['msg']
+        assert '`questions` must contain at least one question' in msg
         assert mock_api.requests == []
 
     def test_invalid_input(self, uses_db: None, mock_api: MockOpenaiApi) -> None:
@@ -261,7 +324,7 @@ class TestOpenaiDecisions:
         assert status.num_excs == 1
         rows = t.select(t.input, msg=t.decision.errormsg, p=t.decision.answers[0].probability).collect()
         by_input = {json.dumps(row['input']): row for row in rows}
-        assert '`input` must be a string or a list of messages, got int' in by_input['5']['msg']
+        assert '`input` must be a string or a list of input items, got int' in by_input['5']['msg']
         assert by_input['"first"']['p'] == by_input['"last"']['p'] == pytest.approx(0.75)
         assert sorted(body['input'] for body in mock_api.requests) == ['first', 'last']
 
