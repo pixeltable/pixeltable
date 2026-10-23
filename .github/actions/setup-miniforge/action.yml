@@ -1,0 +1,10 @@
+name: Set up Miniforge
+description: Install Miniforge and activate the pxt conda environment
+runs:
+  using: composite
+  steps:
+    - uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniforge-version: 26.7.2-1
+        activate-environment: pxt
+        conda-remove-defaults: true
