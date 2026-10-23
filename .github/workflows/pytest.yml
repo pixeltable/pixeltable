@@ -178,7 +178,7 @@ jobs:
       - name: Install miniforge
         uses: conda-incubator/setup-miniconda@v3
         with:
-          miniforge-version: latest
+          miniforge-version: 26.7.2-1
           activate-environment: pxt
           conda-remove-defaults: true
       - name: Install python
