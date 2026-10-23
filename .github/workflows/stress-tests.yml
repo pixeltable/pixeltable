@@ -10,6 +10,9 @@ on:
         description: 'Enable SSH debugging with tmate'
         required: false
         default: false
+  # TEMPORARY: runs abnormal-termination on its PR while we iterate; drop before merging
+  pull_request:
+    branches: [main]
 
 env:
   PIXELTABLE_VERBOSITY: 0
@@ -20,6 +23,7 @@ env:
 
 jobs:
   random-ops:
+    if: ${{ github.event_name != 'pull_request' }}  # TEMPORARY
     strategy:
       # A failure in one random-ops variant should not cancel the others
       fail-fast: false
@@ -71,7 +75,60 @@ jobs:
           name: random-ops-log${{ matrix.options }}
           path: ~/.pixeltable/logs/random-ops.log
 
+  abnormal-termination:
+    strategy:
+      # A failure on one OS should not cancel the others
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-24.04, macos-15, windows-2025 ]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Set up tmate session
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
+        uses: mxschmitt/action-tmate@v3
+        with:
+          detached: true
+      - name: Install miniforge
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          activate-environment: pxt
+          conda-remove-defaults: true
+      - name: Install python
+        run: |
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=3.11 pip
+          conda info
+      - name: Install uv
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "uv==$UV_VERSION"
+      - name: Install the project dependencies
+        # Retry 3 times to be resilient against transient connectivity issues.
+        run: |
+          export VIRTUAL_ENV="$CONDA_PREFIX"
+          ./scripts/retry.sh 3 60 uv sync --active --no-dev
+      - name: Run abnormal termination tests
+        run: python -u tool/abnormal_termination.py --cycles 10 --home pxt-home
+      - name: Archive log files
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: abnormal-termination-logs-${{ matrix.os }}
+          path: |
+            pxt-home/logs
+            pxt-home/pgdata.log
+
   performance-tests:
+    if: ${{ github.event_name != 'pull_request' }}  # TEMPORARY
     runs-on: ubuntu-large
     defaults:
       run:
@@ -116,6 +173,7 @@ jobs:
         run: echo "Performance test failed. Check the logs for details."
 
   benchmark-tests:
+    if: ${{ github.event_name != 'pull_request' }}  # TEMPORARY
     runs-on: ubuntu-latest
     defaults:
       run:
