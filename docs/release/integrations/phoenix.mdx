@@ -104,9 +104,11 @@ pxt_otel.init(
 For an authenticated deployment, put the bearer token in the same header string and use the collector URL from Settings as the endpoint. `headers` is comma-separated `key=value` pairs, the `OTEL_EXPORTER_OTLP_HEADERS` form.
 
 ```python
+import os
+
 pxt_otel.init(
-    endpoint='https://your-phoenix.example.com',
-    headers='Authorization=Bearer your-api-key,x-project-name=pixeltable-app',
+    endpoint=os.environ['PHOENIX_COLLECTOR_ENDPOINT'],
+    headers=f"Authorization=Bearer {os.environ['PHOENIX_API_KEY']},x-project-name=pixeltable-app",
     service_name='pixeltable-app',
     span_level='debug',
     metrics=False,
@@ -114,7 +116,7 @@ pxt_otel.init(
 ```
 
 <Note>
-A `pxt_otel.init()` argument overrides the config. With the argument left unset, `endpoint` and `protocol` resolve from the database entry (`db_exporter_otlp_endpoint`, `db_exporter_otlp_protocol` in `pixeltable.toml`), then `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL`, then the `[otel]` section of `~/.pixeltable/config.toml`. `headers` resolves from `OTEL_EXPORTER_OTLP_HEADERS`, then `[otel]`. Build the header value from environment variables, and never write the key into code. On a hosted database, run `pxt secret set pxt://<org>:<db> OTEL_EXPORTER_OTLP_HEADERS='Authorization=Bearer <api-key>,x-project-name=pixeltable-app'`, then `pxt service restart`. [Configuration](/platform/configuration).
+A `pxt_otel.init()` argument overrides the config. With the argument left unset, `endpoint` and `protocol` resolve from the database entry (`db_exporter_otlp_endpoint`, `db_exporter_otlp_protocol` in `pixeltable.toml`), then `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL`, then the `[otel]` section of `~/.pixeltable/config.toml`. `headers` resolves from `OTEL_EXPORTER_OTLP_HEADERS`, then `[otel]`. Build the header value from environment variables, and never write the key into code. On a hosted database, run `pxt secret set pxt://<org>:<db> OTEL_EXPORTER_OTLP_HEADERS='Authorization=Bearer <api-key>,x-project-name=pixeltable-app'`, then `pxt db restart pxt://<org>:<db>` and `pxt service restart pxt://<org>:<db>/<service>`. [Configuration](/platform/configuration).
 </Note>
 
 Pixeltable spans record which operation, row, column, and UDF ran: `pxt.table`, `pxt.path`, `pxt.column`, `pxt.udf_path`, and, for a resource-pool call, `pxt.resource_pool` and `pxt.retries`. The model, prompt, and completion are on the OpenInference span. While an operation span is active, Pixeltable sets the OpenTelemetry context for that UDF call, including across its thread pools and async scheduler, so the LLM span nests under the UDF span. The span name is `pixeltable.udf.` plus the UDF's display name, so this column is `pixeltable.udf.chat_completions`. `pxt.udf_path` is the full path, `pixeltable.functions.openai.chat_completions`.
@@ -202,11 +204,19 @@ export OTEL_SPAN_LEVEL=debug
 
 If the database entry in `pixeltable.toml` sets `db_exporter_otlp_endpoint`, it wins over `OTEL_EXPORTER_OTLP_ENDPOINT`, so set the Phoenix endpoint on that entry instead.
 
+`--otel` calls `pxt_otel.init()` and instruments FastAPI. It does not instrument OpenAI, and an `OpenAIInstrumentor().instrument()` in another process does not carry into this one. Put this at module scope in `app.py`. The service loads the file after `init()`, so the instrumentor attaches to that provider:
+
+```python
+from openinference.instrumentation.openai import OpenAIInstrumentor
+
+OpenAIInstrumentor().instrument()
+```
+
 The app file must not call `pxt_otel.init()`: with `--otel`, that second call raises `INVALID_STATE`, and without `--otel` it records Pixeltable spans but not the FastAPI request spans. Use this path or [the Phoenix SDK](#use-the-phoenix-sdk) in a process, not both.
 
 ## Use the Phoenix SDK
 
-`register()` installs its tracer provider as the global OpenTelemetry provider (`set_global_tracer_provider=True` by default). `auto_instrument=True` turns on OpenInference instrumentors that are already installed, including `openinference-instrumentation-openai` when that package is installed. Pixeltable's instrumentor is not one of them, so attach it yourself. Do this once, before the first Pixeltable operation. Do not also call `OpenAIInstrumentor().instrument()`: `auto_instrument=True` already did, and a second instrumentor records each call twice.
+`register()` installs its tracer provider as the global OpenTelemetry provider (`set_global_tracer_provider=True` by default). `auto_instrument=True` turns on OpenInference instrumentors that are already installed, including `openinference-instrumentation-openai` when that package is installed. Pixeltable's instrumentor is not one of them, so attach it yourself. Do this once, before the first Pixeltable operation. Do not also call `OpenAIInstrumentor().instrument()`. `auto_instrument=True` already wrapped OpenAI, and a second call returns immediately: `BaseInstrumentor` is a singleton.
 
 ```python
 from opentelemetry.instrumentation.pixeltable import PixeltableInstrumentor

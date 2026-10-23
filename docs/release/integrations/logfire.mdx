@@ -83,14 +83,14 @@ OpenAIInstrumentor().instrument()
 ```
 
 <Note>
-A `pxt_otel.init()` argument overrides the config. With the argument left unset, `endpoint` and `protocol` resolve from the database entry (`db_exporter_otlp_endpoint`, `db_exporter_otlp_protocol` in `pixeltable.toml`), then `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL`, then the `[otel]` section of `~/.pixeltable/config.toml`. `headers` resolves from `OTEL_EXPORTER_OTLP_HEADERS`, then `[otel]`. Build the Authorization value from environment variables, and never write the token into code. On a hosted database, run `pxt secret set pxt://<org>:<db> OTEL_EXPORTER_OTLP_HEADERS='Authorization=<write-token>'`, then `pxt service restart`. [Configuration](/platform/configuration).
+A `pxt_otel.init()` argument overrides the config. With the argument left unset, `endpoint` and `protocol` resolve from the database entry (`db_exporter_otlp_endpoint`, `db_exporter_otlp_protocol` in `pixeltable.toml`), then `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL`, then the `[otel]` section of `~/.pixeltable/config.toml`. `headers` resolves from `OTEL_EXPORTER_OTLP_HEADERS`, then `[otel]`. Build the Authorization value from environment variables, and never write the token into code. On a hosted database, run `pxt secret set pxt://<org>:<db> OTEL_EXPORTER_OTLP_HEADERS='Authorization=<write-token>'`, then `pxt db restart pxt://<org>:<db>` and `pxt service restart pxt://<org>:<db>/<service>`. [Configuration](/platform/configuration).
 </Note>
 
 Pixeltable spans record which operation, row, column, and UDF ran: `pxt.table`, `pxt.path`, `pxt.column`, `pxt.udf_path`, and, for a resource-pool call, `pxt.resource_pool` and `pxt.retries`. The model, prompt, completion, and token counts are on the OpenInference span. While an operation span is active, Pixeltable sets the OpenTelemetry context for that UDF call, including across its thread pools and async scheduler, so the generation nests under the UDF span. The span name is `pixeltable.udf.` plus the UDF's display name, so this column is `pixeltable.udf.chat_completions`.
 
 `span_level='trace'` adds a span per iterator step. At the default `'info'`, row and UDF spans are omitted, and the generation nests under `pixeltable.store.insert_rows`.
 
-Setting only `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` does not start export. Set `OTEL_EXPORTER_OTLP_ENDPOINT` or pass `endpoint`. With no service name, Logfire groups the data under `(unknown)`.
+Setting only `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` does not start export. Set `OTEL_EXPORTER_OTLP_ENDPOINT` or pass `endpoint`. `pxt_otel.init()` sets `service.name` to `pixeltable` when `service_name` is left unset.
 
 ### Declare the table and insert
 
@@ -162,18 +162,30 @@ To trace a served app, add `--otel` to `pxt service run` or `pxt service update`
 
 If the database entry in `pixeltable.toml` sets `db_exporter_otlp_endpoint`, it wins over `OTEL_EXPORTER_OTLP_ENDPOINT`, so set the Logfire endpoint on that entry instead.
 
-The app file must not call `pxt_otel.init()`: with `--otel`, that second call raises `INVALID_STATE`, and without `--otel` it records Pixeltable spans but not the FastAPI request spans. Use this path or [the Logfire SDK](#use-the-logfire-sdk) in a process, not both.
+`--otel` calls `pxt_otel.init()` and instruments FastAPI. It does not instrument OpenAI, and an `OpenAIInstrumentor().instrument()` in another process does not carry into this one. Put this at module scope in `app.py`. The service loads the file after `init()`, so the instrumentor attaches to that provider:
+
+```python
+from openinference.instrumentation.openai import OpenAIInstrumentor
+
+OpenAIInstrumentor().instrument()
+```
+
+The app file must not call `pxt_otel.init()`: with `--otel`, that second call raises `INVALID_STATE`, and without `--otel` it records Pixeltable spans but not the FastAPI request spans. Use this path or [the Logfire SDK](#use-the-logfire-sdk) in a process, not both. The SDK path calls `logfire.instrument_openai()` instead of `OpenAIInstrumentor`.
 
 ## Use the Logfire SDK
 
-`logfire.configure()` installs Logfire as the global tracer provider and reads `LOGFIRE_TOKEN`. `PixeltableInstrumentor().instrument()` attaches to that provider. It does not build an exporter of its own. Call both once, before the first Pixeltable operation.
+`logfire.configure()` installs Logfire as the global tracer provider and reads `LOGFIRE_TOKEN`. Logfire 5.2.0 also adds `OTLPSpanExporter()` when `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is set, beside the exporter it builds from `LOGFIRE_TOKEN`. The export block above sets the first of those. Unset both before `configure()`, or each span is sent twice. `PixeltableInstrumentor().instrument()` attaches to the provider `configure()` installed. It does not build an exporter of its own. Call both once, before the first Pixeltable operation.
 
-`logfire.instrument_openai()` patches `openai`, including the `AsyncOpenAI` client that `pixeltable.functions.openai` uses. Leave `openinference-instrumentation-openai` uninstrumented on this path. `instrument_openai()` suppresses other OpenAI instrumentation, and enabling both records two spans for each call.
+`logfire.instrument_openai()` patches `openai`, including the `AsyncOpenAI` client that `pixeltable.functions.openai` uses. `suppress_other_instrumentation` (the default) quiets the HTTPX spans that client would otherwise emit. It does not quiet `openinference-instrumentation-openai`. Leave that package uninstrumented on this path, or each call records a Logfire span and an OpenInference span.
 
 ```python
+import os
+
 import logfire
 from opentelemetry.instrumentation.pixeltable import PixeltableInstrumentor
 
+os.environ.pop('OTEL_EXPORTER_OTLP_ENDPOINT', None)
+os.environ.pop('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT', None)
 logfire.configure(service_name='pixeltable-app')
 logfire.instrument_openai()
 PixeltableInstrumentor().instrument(span_level='debug')
@@ -181,7 +193,7 @@ PixeltableInstrumentor().instrument(span_level='debug')
 
 Run the same insert as [Declare the table and insert](#declare-the-table-and-insert). The OpenAI span name is `Chat Completion with 'gpt-4o-mini'`, nested under `pixeltable.udf.chat_completions`.
 
-A UDF defined in the `__main__` module of a script is rejected. Put it in a module and import it. A UDF without a resource pool nests under `pixeltable.row`.
+The `word_count` span in the screenshot under [View the traces](#view-the-traces) is this UDF. It has no resource pool, so it nests under `pixeltable.row`. A UDF defined in the `__main__` module of a script is rejected. Put it in a module, then add it to the table from the script above.
 
 ```python
 # my_udfs.py
@@ -194,8 +206,10 @@ def word_count(text: str) -> int:
 ```
 
 ```python
+import pixeltable as pxt
 from my_udfs import word_count
 
+t = pxt.get_table('articles')
 t.add_computed_column(words=word_count(t.body))
 ```
 
@@ -217,7 +231,7 @@ Open the project and go to the Live view. Filter for `pixeltable.insert`. The tr
 - Computed-column values are stored. `collect()` records a Pixeltable span and does not call the model again. The model runs on `insert`, on `update`, and when `add_computed_column` backfills existing rows.
 - Flush before the process exits: `trace.get_tracer_provider().force_flush()` after `pxt_otel.init()`. `logfire.configure()` exports on its own schedule. A short script should still flush the provider.
 - Call `pxt_otel.init()`, or `logfire.configure()` and `PixeltableInstrumentor().instrument()`, before the first Pixeltable operation. `pxt_otel.init()` runs once per process.
-- A 401 or 403 means the write token is missing or the endpoint is the other region. Nothing under a service name means `service_name` was left unset.
+- A 401 or 403 means the write token is missing or the endpoint is the other region. On the export path, an unset `service_name` puts the data under `pixeltable`. On the SDK path, `logfire.configure()` with no `service_name` leaves OpenTelemetry's `unknown_service`.
 
 <CardGroup cols={2}>
   <Card title="Observability" icon="chart-line" href="/platform/observability">
