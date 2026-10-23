@@ -11,7 +11,6 @@ class TestPodRunner:
     def test_server_config(
         self, init_env: None, private_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # init_env sets up the Env that skip_test_if_not_installed() consults.
         # private_home precedes monkeypatch, so that Config.init is no longer patched when private_home restores Config
         skip_test_if_not_installed('fastapi', 'uvicorn')
         import uvicorn

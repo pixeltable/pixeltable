@@ -253,7 +253,7 @@ class TestExprs:
             return sum(1 for obj in gc.get_objects() if isinstance(obj, exprs.DataRow) and obj.has_exc())
 
         # The rate-limits scheduler logs the exception with its traceback. Env keeps pixeltable records away from
-        # pytest's log capture, which would hold them, and with them the rows, until the test ends.
+        # pytest's log capture, which would hold them, and with them the rows, until the end of the test.
         monkeypatch.setattr(logging.getLogger('pixeltable'), 'propagate', False)
         baseline = num_errored_rows()
         t = pxt.create_table('errored_rows', {'x': pxt.Int})
