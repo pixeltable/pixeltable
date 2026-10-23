@@ -3,9 +3,9 @@
 from .catalog import (
     Catalog,
     ProhibitedWriteError,
-    retry_read_loop,
-    retry_read_md_loop,
-    retry_schema_change_loop,
+    retry_data_read_loop,
+    retry_md_read_loop,
+    retry_md_write_loop,
     retrying_read,
 )
 from .catalog_base import CatalogBase

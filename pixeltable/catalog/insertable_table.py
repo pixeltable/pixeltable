@@ -157,7 +157,7 @@ class InsertableTable(LocalTable):
         status = pxt.UpdateStatus()
         query = data_source.pxt_query if isinstance(data_source, QueryTableDataConduit) else None
         read_tbl_keys = query.referenced_tbl_keys() if query is not None else None
-        with get_runtime().catalog.begin_write_xact(read_tbl_keys=read_tbl_keys, tvps=[self._tbl_version_path]):
+        with get_runtime().catalog.begin_data_write_xact(read_tbl_keys=read_tbl_keys, tvps=[self._tbl_version_path]):
             data_source.add_table_info(self)
             data_source.prepare_for_insert_into_table()
             # in on_error='abort' mode the exec raises the internal ExprEvalError on the first failing cell;
@@ -198,7 +198,7 @@ class InsertableTable(LocalTable):
         """
         fail_on_exception = OnErrorParam.fail_on_exception(on_error)
         start_ts = time.perf_counter()
-        with get_runtime().catalog.begin_write_xact(tvps=[self._tbl_version_path]):
+        with get_runtime().catalog.begin_data_write_xact(tvps=[self._tbl_version_path]):
             status = self._tbl_version.get().insert(
                 source=sql_source,
                 query=None,
@@ -229,7 +229,7 @@ class InsertableTable(LocalTable):
         """
         self._validate_where(where)
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
-        with get_runtime().catalog.begin_write_xact(tvps=[self._tbl_version_path]):
+        with get_runtime().catalog.begin_data_write_xact(tvps=[self._tbl_version_path]):
             tv = self._tbl_version.get()
             status = tv.delete(where=where)
             telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))

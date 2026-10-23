@@ -131,7 +131,7 @@ def _store_tbl_name(tbl_id: UUID, *, is_view: bool) -> str:
     return StoreBase.storage_name(tbl_id, is_view)
 
 
-def retry_read_md_loop(
+def retry_md_read_loop(
     *, tbl_keys: Collection[TableVersionKey] | None = None
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Retry an operation that reads catalog metadata without reading table rows.
@@ -142,14 +142,14 @@ def retry_read_md_loop(
     return _retry_loop(op_class=_TblOpClass.MD_READ, read_tbl_keys=tbl_keys)
 
 
-def retry_read_loop(
+def retry_data_read_loop(
     *, tvps: Collection[TableVersionPath] | None = None, tbl_keys: Collection[TableVersionKey] | None = None
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Retry a data read, taking read locks on every table in the supplied paths and their bases."""
     return _retry_loop(op_class=_TblOpClass.DATA_READ, read_tvps=tvps, read_tbl_keys=tbl_keys)
 
 
-def retry_schema_change_loop(
+def retry_md_write_loop(
     *,
     tvps: Collection[TableVersionPath] | None = None,
     tbl_ids: Collection[UUID] | None = None,
@@ -242,12 +242,12 @@ def _retry_loop(
 def retrying_read(op: Callable[[], T], *, tbl_keys: Collection[TableVersionKey] | None = None) -> T:
     """Run an operation that reads catalog metadata, retrying transient failures when it opens its own transaction.
 
-    `tbl_keys` identifies tables to refresh before running the operation, as in retry_read_md_loop(). Inside an
+    `tbl_keys` identifies tables to refresh before running the operation, as in retry_md_read_loop(). Inside an
     existing transaction, run the operation once. The enclosing transaction handles retries.
     """
     if get_runtime().in_xact:
         return op()
-    return retry_read_md_loop(tbl_keys=tbl_keys)(op)()
+    return retry_md_read_loop(tbl_keys=tbl_keys)(op)()
 
 
 class ProhibitedWriteError(Exception):
@@ -474,7 +474,7 @@ class Catalog(CatalogBase):
         if get_runtime().in_xact:
             self._validate_tbls_exist(tbl_ids)
         else:
-            retry_read_md_loop()(self._validate_tbls_exist)(tbl_ids)
+            retry_md_read_loop()(self._validate_tbls_exist)(tbl_ids)
 
     def validate(self) -> None:
         """Validate structural consistency of cached metadata"""
@@ -540,7 +540,7 @@ class Catalog(CatalogBase):
             _frozen.reset(token)
 
     @contextmanager
-    def begin_read_md_xact(self, *, tbl_keys: Collection[TableVersionKey] | None = None) -> Iterator[sql.Connection]:
+    def begin_md_read_xact(self, *, tbl_keys: Collection[TableVersionKey] | None = None) -> Iterator[sql.Connection]:
         """Open a transaction that reads catalog metadata without locking store tables.
 
         Without `tbl_keys`, setup skips table refreshes and pending-op checks. Catalog listings can therefore read
@@ -553,7 +553,7 @@ class Catalog(CatalogBase):
             yield conn
 
     @contextmanager
-    def begin_read_xact(
+    def begin_data_read_xact(
         self, *, tvps: Collection[TableVersionPath] | None = None, tbl_keys: Collection[TableVersionKey] | None = None
     ) -> Iterator[sql.Connection]:
         """Open a data-read transaction, locking the targets and their base tables.
@@ -564,7 +564,7 @@ class Catalog(CatalogBase):
             yield conn
 
     @contextmanager
-    def begin_write_xact(
+    def begin_data_write_xact(
         self, *, read_tbl_keys: Collection[TableVersionKey] | None = None, tvps: Collection[TableVersionPath]
     ) -> Iterator[sql.Connection]:
         """Open a transaction to insert, update, or delete rows.
@@ -578,7 +578,7 @@ class Catalog(CatalogBase):
             yield conn
 
     @contextmanager
-    def begin_schema_change_xact(
+    def begin_md_write_xact(
         self,
         *,
         tvps: Collection[TableVersionPath] | None = None,
@@ -1194,7 +1194,7 @@ class Catalog(CatalogBase):
             if lock_set is not None:
                 return lock_set
 
-        with self.begin_read_md_xact():
+        with self.begin_md_read_xact():
             return self._lock_set_from_store(
                 op_class=op_class,
                 read_tvps=read_tvps,
@@ -2079,7 +2079,7 @@ class Catalog(CatalogBase):
         rows = get_runtime().conn.execute(stmt).all()
         return {r.tbl_id: r.errors for r in rows}
 
-    @retry_read_md_loop()
+    @retry_md_read_loop()
     def get_dir_contents(
         self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False
     ) -> dict[str, DirEntry]:
@@ -2113,7 +2113,7 @@ class Catalog(CatalogBase):
         return result
 
     def move(self, path: Path, new_path: Path, if_exists: IfExistsParam, if_not_exists: IfNotExistsParam) -> None:
-        @retry_schema_change_loop(paths=[path, new_path])
+        @retry_md_write_loop(paths=[path, new_path])
         def move_fn() -> None:
             self._move(path, new_path, if_exists, if_not_exists)
 
@@ -2339,10 +2339,10 @@ class Catalog(CatalogBase):
         Might raise PendingTableOpsError."""
         key = TableVersionKey(tbl_id, version)
         if key not in self._tbls:
-            # begin_read_md_xact() is re-entrant: it joins the caller's transaction if there is one, and otherwise
+            # begin_md_read_xact() is re-entrant: it joins the caller's transaction if there is one, and otherwise
             # starts a fresh metadata read transaction (which also permits the metadata load). Cache hits stay
             # xact-free.
-            with self.begin_read_md_xact():
+            with self.begin_md_read_xact():
                 if version is None:
                     tbl = self._load_tbl(tbl_id, ignore_pending_drop=ignore_if_dropped)
                 else:
@@ -2401,7 +2401,7 @@ class Catalog(CatalogBase):
         if additional_idxs is None:
             additional_idxs = []
 
-        @retry_schema_change_loop(
+        @retry_md_write_loop(
             paths=[path] if if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE) else [],
             lock_path_subtree=True,
         )
@@ -2437,7 +2437,7 @@ class Catalog(CatalogBase):
         tbl_id, is_created = create_fn()
         self._roll_forward()
 
-        @retry_read_md_loop(tbl_keys=[TableVersionKey(tbl_id, None)])
+        @retry_md_read_loop(tbl_keys=[TableVersionKey(tbl_id, None)])
         def get_tbl_fn() -> LocalTable:
             return self.get_table_by_id(tbl_id)
 
@@ -2505,7 +2505,7 @@ class Catalog(CatalogBase):
         # a mutable view of a mutable base bumps the base's view_sn, which is a metadata write to the base
         bumps_base_view_sn = not is_snapshot and base.is_mutable()
 
-        @retry_schema_change_loop(
+        @retry_md_write_loop(
             tvps=[base] if bumps_base_view_sn else None,
             paths=[path] if if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE) else [],
             lock_path_subtree=True,
@@ -2555,7 +2555,7 @@ class Catalog(CatalogBase):
         self._roll_forward()
 
         # a snapshot view's cache entry is keyed by its version, which is 0 for a freshly created one
-        @retry_read_md_loop(tbl_keys=[TableVersionKey(view_id, 0 if is_snapshot else None)])
+        @retry_md_read_loop(tbl_keys=[TableVersionKey(view_id, 0 if is_snapshot else None)])
         def get_tbl_fn() -> LocalTable:
             return self.get_table_by_id(view_id)
 
@@ -2665,7 +2665,7 @@ class Catalog(CatalogBase):
         fault_injection.process_fault(FaultLocation.CATALOG_UPDATE_FROM_MODEL_BEFORE_APPLY)
         tbl_ids = [change_set['tbl_id'] for change_set in change_sets]
 
-        @retry_schema_change_loop(tbl_ids=tbl_ids, lock_mutable_tree=True)
+        @retry_md_write_loop(tbl_ids=tbl_ids, lock_mutable_tree=True)
         def update_fn() -> None:
             tbls = [self.get_table_by_id(tbl_id, ignore_if_dropped=True) for tbl_id in tbl_ids]
             # check for tables that were dropped since the diff was computed
@@ -2749,7 +2749,7 @@ class Catalog(CatalogBase):
             # a table identified by the diff may no longer exist: it was dropped, or dropped and recreated at the
             # same path, which gives it a new id. Report the ones that are gone by path, not by internal id.
             # The store is queried directly: a Table cached from before the drop still answers get_table_by_id().
-            with self.begin_read_md_xact():
+            with self.begin_md_read_xact():
                 conn = get_runtime().conn
                 q = sql.select(schema.Table.id).where(schema.Table.id.in_(tbl_ids))
                 live_tbl_ids = {row.id for row in conn.execute(q)}
@@ -2766,7 +2766,7 @@ class Catalog(CatalogBase):
             ) from e
 
     def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
-        @retry_schema_change_loop(tvps=[tbl], lock_mutable_tree=False)
+        @retry_md_write_loop(tvps=[tbl], lock_mutable_tree=False)
         def add_fn() -> None:
             tv = self._get_tbl_version(TableVersionKey(tbl.tbl_id, None))
             md, ops = tv.add_columns_ops(cols)
@@ -2792,7 +2792,7 @@ class Catalog(CatalogBase):
             tv.is_validated = False
             del self._tbl_versions[key]
 
-    @retry_read_md_loop()
+    @retry_md_read_loop()
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> LocalTable | None:
         obj = self._get_schema_object(
             path,
@@ -2810,7 +2810,7 @@ class Catalog(CatalogBase):
         return obj
 
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
-        @retry_schema_change_loop(paths=[path], lock_path_subtree=True)
+        @retry_md_write_loop(paths=[path], lock_path_subtree=True)
         def drop_fn() -> None:
             tbl = self._get_schema_object(
                 path,
@@ -2941,7 +2941,7 @@ class Catalog(CatalogBase):
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
         paths = [path] if if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE) else []
 
-        @retry_schema_change_loop(paths=paths, lock_path_subtree=True)
+        @retry_md_write_loop(paths=paths, lock_path_subtree=True)
         def create_fn() -> Dir:
             return self._create_dir(path, if_exists, parents)
 
@@ -2972,7 +2972,7 @@ class Catalog(CatalogBase):
         return dir
 
     def drop_dir(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
-        @retry_schema_change_loop(paths=[path], lock_path_subtree=True)
+        @retry_md_write_loop(paths=[path], lock_path_subtree=True)
         def drop_fn() -> None:
             _, _, schema_obj = self._prepare_dir_op(
                 drop_dir_path=path.parent,
@@ -3046,7 +3046,7 @@ class Catalog(CatalogBase):
         if get_runtime().in_xact:
             return self._get_tbl_version(key, validate_initialized=validate_initialized)
 
-        @retry_read_md_loop()
+        @retry_md_read_loop()
         def do_get_tbl_version() -> TableVersion | None:
             return self._get_tbl_version(key, validate_initialized=validate_initialized)
 
@@ -3404,7 +3404,7 @@ class Catalog(CatalogBase):
 
         return tvp
 
-    @retry_read_md_loop()
+    @retry_md_read_loop()
     def collect_tbl_history(self, tbl_id: UUID, n: int | None) -> list[TableVersionMd]:
         return self._collect_tbl_history(tbl_id, n)
 
@@ -3985,7 +3985,7 @@ class Catalog(CatalogBase):
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', excs.PixeltableWarning)
             all_contents = self.get_dir_contents(ROOT_PATH, recursive=True)
-            with self.begin_read_md_xact(), self._allow_tbl_md_read():
+            with self.begin_md_read_xact(), self._allow_tbl_md_read():
                 for entry in all_contents.values():
                     if entry.table is None:
                         continue

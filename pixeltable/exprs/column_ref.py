@@ -175,11 +175,11 @@ class ColumnRef(Expr):
 
     def recompute(self, *, cascade: bool = True, errors_only: bool = False) -> catalog.UpdateStatus:
         cat = get_runtime().catalog
-        with cat.begin_read_md_xact():
+        with cat.begin_md_read_xact():
             tbl = cat.get_table_by_id(self.col_md.tbl_id)
             tvp = tbl._tbl_version_path
 
-        with cat.begin_write_xact(tvps=[tvp]):
+        with cat.begin_data_write_xact(tvps=[tvp]):
             col = self.col
             tbl_version = col.tbl_handle.get()
             if tbl_version.id != self.col_md.tbl_id:
@@ -530,7 +530,7 @@ class ColumnRef(Expr):
 
     def _descriptors(self) -> DescriptionHelper:
         col_name = self.col_md.name
-        with get_runtime().catalog.begin_read_md_xact():
+        with get_runtime().catalog.begin_md_read_xact():
             tbl = get_runtime().catalog.get_table_by_id(self.col_md.qcolid.tbl_id)
         # TODO: is this what we want? it's printing the path of the containing table, not of the context table
         helper = DescriptionHelper()

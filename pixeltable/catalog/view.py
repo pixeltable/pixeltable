@@ -434,7 +434,7 @@ class View(LocalTable):
         base_tbl_key = self._base_tbl_key
         if base_tbl_key is None:
             return None
-        with get_runtime().catalog.begin_read_md_xact(tbl_keys=[base_tbl_key]):
+        with get_runtime().catalog.begin_md_read_xact(tbl_keys=[base_tbl_key]):
             return get_runtime().catalog.get_table_by_id(base_tbl_key.tbl_id)
 
     @property
