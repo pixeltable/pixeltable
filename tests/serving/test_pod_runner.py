@@ -4,14 +4,16 @@ from unittest import mock
 import pytest
 
 import pixeltable as pxt
-from tests.utils import pxt_raises
+from tests.utils import pxt_raises, skip_test_if_not_installed
 
 
 class TestPodRunner:
-    def test_server_config(self, private_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_server_config(
+        self, init_env: None, private_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # init_env sets up the Env that skip_test_if_not_installed() consults.
         # private_home precedes monkeypatch, so that Config.init is no longer patched when private_home restores Config
-        pytest.importorskip('fastapi')
-        pytest.importorskip('uvicorn')
+        skip_test_if_not_installed('fastapi', 'uvicorn')
         import uvicorn
 
         from pixeltable.serving import pod_runner
