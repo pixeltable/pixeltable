@@ -2652,7 +2652,7 @@ class TestTableModel:
         probe = pxt.get_table(f'{target}/probe')
         probe.insert([{'cutoff': 0}, {'cutoff': 1}])
         rows = probe.order_by(probe.cutoff).select(probe.matches).collect()['matches']
-        assert rows == [[{'title': 'alpha'}, {'title': 'beta'}], [{'title': 'beta'}]]
+        assert rows == [['alpha', 'beta'], ['beta']]
 
     def test_query_udf_column_shapes(self, db_root: DatabaseRoot) -> None:
         """Several columns over one query udf, and one that wraps its result, each hold their own value."""
@@ -2684,11 +2684,8 @@ class TestTableModel:
         probe = pxt.get_table(f'{target}/probe')
         probe.insert([{'cutoff': 0}, {'cutoff': 2}])
         rows = probe.order_by(probe.cutoff).select(probe.matches, probe.from_two, probe.match_count).collect()
-        assert [r['matches'] for r in rows] == [
-            [{'title': 'alpha'}, {'title': 'beta'}, {'title': 'gamma'}],
-            [{'title': 'gamma'}],
-        ]
-        assert [r['from_two'] for r in rows] == [[{'title': 'gamma'}], [{'title': 'gamma'}]]
+        assert [r['matches'] for r in rows] == [['alpha', 'beta', 'gamma'], ['gamma']]
+        assert [r['from_two'] for r in rows] == [['gamma'], ['gamma']]
         assert [r['match_count'] for r in rows] == [3, 1]
 
     def test_update_all_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
@@ -2735,11 +2732,11 @@ class TestTableModel:
         reload_catalog()
         probe = pxt.get_table(f'{target}/probe')
         rows = probe.order_by(probe.cutoff).select(probe.from_zero).collect()
-        assert [r['from_zero'] for r in rows] == [[{'title': 'alpha'}, {'title': 'beta'}]] * 2
+        assert [r['from_zero'] for r in rows] == [['alpha', 'beta']] * 2
 
         probe.recompute_columns('matches')
         rows = probe.order_by(probe.cutoff).select(probe.matches).collect()
-        assert [r['matches'] for r in rows] == [[{'title': 'beta'}], [{'title': 'beta'}]]
+        assert [r['matches'] for r in rows] == [['beta'], ['beta']]
 
     def test_view_over_query_udf_model(self, db_root: DatabaseRoot) -> None:
         """A view model can be based on a model whose computed columns call a query udf over another model."""
@@ -2775,9 +2772,7 @@ class TestTableModel:
 
         view = pxt.get_table(f'{target}/probe_view')
         rows = view.select(view.matches, view.tool_matches, view.match_count).collect()
-        assert list(rows) == [
-            {'matches': [{'title': 'beta'}], 'tool_matches': {'titles_after': [[{'title': 'beta'}]]}, 'match_count': 1}
-        ]
+        assert list(rows) == [{'matches': ['beta'], 'tool_matches': {'titles_after': [['beta']]}, 'match_count': 1}]
 
     def test_nested_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
         """A query udf over a model can select a query udf over another model."""
@@ -2817,7 +2812,7 @@ class TestTableModel:
 
         view = pxt.get_table(f'{target}/probe_view')
         assert view.select(view.matches).collect()['matches'] == [
-            [{'topic': 'cats', 'titles': [{'title': 'a'}, {'title': 'b'}]}, {'topic': 'cows', 'titles': []}]
+            [{'topic': 'cats', 'titles': ['a', 'b']}, {'topic': 'cows', 'titles': []}]
         ]
 
     def test_update_all_nested_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
@@ -2859,7 +2854,7 @@ class TestTableModel:
         pxt.get_table(f'{target}/topics').insert([{'topic': 'cats'}])
         probe = pxt.get_table(f'{target}/probe')
         probe.recompute_columns('matches')
-        assert probe.select(probe.matches).collect()['matches'] == [[{'titles': [{'title': 'a'}]}]]
+        assert probe.select(probe.matches).collect()['matches'] == [[{'titles': ['a']}]]
 
     def test_table_model_validation_errors(self, db_root: DatabaseRoot) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""
@@ -3289,7 +3284,7 @@ class TestTableModel:
         pxt.get_table(f'{query_root}/docs').insert([{'doc_id': 1, 'title': 'alpha'}, {'doc_id': 5, 'title': 'beta'}])
         probe = pxt.get_table(f'{query_root}/probe')
         probe.insert([{'cutoff': 0}])
-        assert probe.select(probe.matches).collect()['matches'] == [[{'title': 'alpha'}, {'title': 'beta'}]]
+        assert probe.select(probe.matches).collect()['matches'] == [['alpha', 'beta']]
 
         reload_catalog()
         AlteredQueryModel = pxt.model_base()
@@ -3420,7 +3415,7 @@ class TestTableModel:
             customer: pxt.String
             amount: pxt.Float
 
-        @pxt.query(return_scalar=True)
+        @pxt.query
         def customer_total(customer: str) -> pxt.Query:
             return Orders.where(Orders.customer == customer).select(pxtf.sum(Orders.amount))  # type: ignore[arg-type]
 

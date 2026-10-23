@@ -465,7 +465,6 @@ def bind_query_templates(e: exprs.Expr, catalog_dir: str | None) -> exprs.Expr:
         rebound = func.QueryTemplateFunction(
             fn.template_query.to_defined_query() if catalog_dir is None else fn.template_query.bind(catalog_dir),
             list(fn.signature.parameters.values()),
-            return_scalar=fn.return_scalar,
             path=fn.self_path,
             name=fn.self_name,
             comment=fn.comment(),

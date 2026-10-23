@@ -162,12 +162,10 @@ class QueryBase(ABC):
     def _is_ungrouped_aggregate(self) -> bool:
         if self._select_list_exprs is None or self.group_by_clause is not None or self.grouping_tbl_key is not None:
             return False
-        agg_calls = exprs.Expr.list_subexprs(
-            self._select_list_exprs,
-            expr_class=exprs.FunctionCall,
-            filter=lambda e: bool(e.is_agg_fn_call and not e.is_window_fn_call),
+        return any(
+            e.is_grouping_agg_fn_call
+            for e in exprs.Expr.list_subexprs(self._select_list_exprs, expr_class=exprs.FunctionCall)
         )
-        return next(agg_calls, None) is not None
 
     def _vars(self) -> dict[str, exprs.Variable]:
         """

@@ -1987,7 +1987,6 @@ class FastAPIRouter(fastapi.APIRouter):
         query: pxt.Function,
         inputs: ColumnsParam | None = None,
         uploadfile_inputs: ColumnsParam | None = None,
-        one_row: bool = False,
         return_fileresponse: bool = False,
         background: bool = False,
         method: Literal['get', 'post'] = 'post',
@@ -1996,9 +1995,10 @@ class FastAPIRouter(fastapi.APIRouter):
         Add an endpoint that executes a `@pxt.query` or `pxt.retrieval_udf` and returns the results.
 
         By default the endpoint accepts POST requests with a JSON
-        [`Body`](https://fastapi.tiangolo.com/tutorial/body/) and returns `{"rows": [{...}, ...]}`. A query declared
-        with `return_scalar=True` returns the values of its one column instead: a JSON array, or the value itself with
-        `one_row` or for an aggregation without `group_by()`.
+        [`Body`](https://fastapi.tiangolo.com/tutorial/body/) and returns `{"rows": [{...}, ...]}`, or a JSON array of
+        values for a query that selects one unnamed item. A query that returns one row, because it aggregates without
+        `group_by()` or has `limit(1)`, returns the row as a JSON object, or the value itself for one unnamed item.
+        Without a row, an aggregation returns `null` and any other query a 404.
         Use `method='get'` for
         [`Query`](https://fastapi.tiangolo.com/tutorial/query-params/) parameters instead.
 
@@ -2009,11 +2009,9 @@ class FastAPIRouter(fastapi.APIRouter):
             uploadfile_inputs: Parameters to accept as
                 [`UploadFile`](https://fastapi.tiangolo.com/tutorial/request-files/) fields
                 (must be media-typed).
-            one_row: If True, expect exactly one result row and return it as a plain JSON object
-                (not wrapped in `{"rows": [...]}`). 0 rows produces a 404, >1 rows a 409.
             return_fileresponse: If True, return the single media-typed result column as a
                 [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse).
-                Requires `one_row` semantics (0 rows -> 404, >1 rows -> 409).
+                Requires a query that returns one row; no row produces a 404.
                 Mutually exclusive with `background`.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
                 the query in a background thread. Poll `job_url` for the result.
@@ -2035,7 +2033,10 @@ class FastAPIRouter(fastapi.APIRouter):
 
             Single-row lookup:
 
-            >>> router.add_query_route(path='/lookup', query=lookup_by_id, one_row=True)
+            >>> @pxt.query
+            ... def lookup_by_id(id: int) -> pxt.Query:
+            ...     return users.where(users.id == id).limit(1)
+            >>> router.add_query_route(path='/lookup', query=lookup_by_id)
 
             ```bash
             curl -X POST http://localhost:8000/lookup -d '{"id": 42}'
@@ -2072,6 +2073,13 @@ class FastAPIRouter(fastapi.APIRouter):
             raise pxt.RequestError(
                 pxt.ErrorCode.INVALID_ARGUMENT,
                 'add_query_route(): return_fileresponse and background are mutually exclusive',
+            )
+        single_row = query.single_row
+        if return_fileresponse and not single_row:
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_ARGUMENT,
+                f'add_query_route(): return_fileresponse requires a query that returns one row, such as one with '
+                f'limit(1); {query.name!r} returns a list',
             )
         uploadfile_inputs = uploadfile_inputs or []
 
@@ -2111,6 +2119,7 @@ class FastAPIRouter(fastapi.APIRouter):
 
         return_scalar = query.return_scalar
         scalar_col_name = next(iter(result_schema)) if return_scalar else None
+        is_aggregate = template_query._is_ungrouped_aggregate
 
         # build pydantic models for the response
         output_model: type[pydantic.BaseModel] | None  # what's returned by run_query(); None for scalars
@@ -2121,7 +2130,7 @@ class FastAPIRouter(fastapi.APIRouter):
             path_elements = path.split('/')
             path_str = ''.join(el.capitalize() for el in path_elements if len(el) > 0)
             query_result_model = self._create_model(name=f'{path_str}RowResponse', output_schema=result_schema)
-            if one_row:
+            if single_row:
                 output_model = query_result_model
             else:
                 # Multi-row: wrap per-row models in a response with a rows field.
@@ -2136,11 +2145,14 @@ class FastAPIRouter(fastapi.APIRouter):
             endpoint_model = BackgroundJobResponse
         elif return_fileresponse:
             endpoint_model = None
-        elif return_scalar and query.single_value:
-            endpoint_model = query.signature.return_type.to_pydantic_type()
         elif return_scalar:
-            scalar_py_type = next(iter(result_schema.values())).to_pydantic_type()
-            endpoint_model = list[scalar_py_type] if not one_row else scalar_py_type  # type: ignore[valid-type]
+            scalar_type = next(iter(result_schema.values()))
+            if single_row and is_aggregate:
+                scalar_type = scalar_type.copy(nullable=True)
+            scalar_py_type = scalar_type.to_pydantic_type()
+            endpoint_model = scalar_py_type if single_row else list[scalar_py_type]  # type: ignore[valid-type]
+        elif single_row and is_aggregate:
+            endpoint_model = output_model | None
         else:
             endpoint_model = output_model
 
@@ -2159,7 +2171,7 @@ class FastAPIRouter(fastapi.APIRouter):
             background=background,
             return_fileresponse=return_fileresponse,
             query_fn=query.self_path,
-            one_row=one_row,
+            one_row=single_row,
             query_cols=() if declared_query is None else sorted(declared_query.referenced_column_names()),
         )
         if isinstance(template_query, ModelQuery):
@@ -2176,18 +2188,10 @@ class FastAPIRouter(fastapi.APIRouter):
             result_set = self._query_binding(route.route_id)._collect(args=call_kwargs)
             rows = list(result_set)
 
-            # do error checking now, before converting data
-            if return_fileresponse or one_row:
-                if len(rows) == 0:
-                    raise HTTPException(status_code=404, detail='query returned no rows')
-                if len(rows) > 1:
-                    raise HTTPException(
-                        status_code=409,
-                        detail=(
-                            f'Query returned {len(rows)} rows; expected exactly 1 for one_row=True. '
-                            'Change the query to return exactly one row.'
-                        ),
-                    )
+            if single_row and len(rows) == 0:
+                if is_aggregate and not return_fileresponse:
+                    return None
+                raise HTTPException(status_code=404, detail='query returned no rows')
 
             output = self._create_output(
                 rows,
@@ -2202,10 +2206,8 @@ class FastAPIRouter(fastapi.APIRouter):
                 # output is list[dict]; extract the single column value from each row
                 assert isinstance(output, list)
                 scalars = [row[scalar_col_name] for row in output]  # type: ignore[index]
-                if query.single_value:
-                    return scalars[0] if len(scalars) > 0 else None
-                return scalars[0] if one_row else scalars
-            elif one_row:
+                return scalars[0] if single_row else scalars
+            elif single_row:
                 assert isinstance(output, list)
                 return output[0]
             else:

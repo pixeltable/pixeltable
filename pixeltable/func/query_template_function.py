@@ -19,17 +19,12 @@ class QueryTemplateFunction(Function):
     template_query: 'QueryBase' | None
     self_name: str | None
     return_scalar: bool
-    single_value: bool
+    single_row: bool
     _comment: str | None
 
     @classmethod
     def create(
-        cls,
-        template_callable: Callable,
-        param_types: list[ts.ColumnType] | None,
-        path: str,
-        name: str,
-        return_scalar: bool,
+        cls, template_callable: Callable, param_types: list[ts.ColumnType] | None, path: str, name: str
     ) -> QueryTemplateFunction:
         # we need to construct a template df and a signature
         py_sig = inspect.signature(template_callable, eval_str=True)
@@ -42,50 +37,56 @@ class QueryTemplateFunction(Function):
 
         assert isinstance(template_query, QueryBase)
         return QueryTemplateFunction(
-            template_query,
-            params,
-            return_scalar=return_scalar,
-            path=path,
-            name=name,
-            comment=inspect.getdoc(template_callable),
+            template_query, params, path=path, name=name, comment=inspect.getdoc(template_callable)
         )
 
     def __init__(
         self,
         template_query: 'QueryBase' | None,
         params: list[func.Parameter],
-        return_scalar: bool = False,
+        return_type: ts.ColumnType | None = None,
         path: str | None = None,
         name: str | None = None,
         comment: str | None = None,
     ):
         # TODO:
-        # - assign a correct return type, based on the query's schema
         # - re-resolve schema at execution time if this is a SELECT *
-
-        schema = template_query.schema
-        # return_scalar == True: single-column queries return a variadic list of that column's type directly, rather
-        # than wrapping each row in a single-field dict; an ungrouped aggregate returns its one value instead.
-        row_schema: ts.ColumnType
-        assert not return_scalar or len(schema) == 1
-        single_value = return_scalar and template_query._is_ungrouped_aggregate
-        if return_scalar:
-            row_schema = next(iter(schema.values()))
+        self.template_query = template_query
+        if return_type is None:
+            select_list = template_query.select_list
+            limit = template_query.limit_val
+            # select_list[0][1] is None: no explicitly assigned name
+            return_scalar = select_list is not None and len(select_list) == 1 and select_list[0][1] is None
+            single_row = template_query._is_ungrouped_aggregate or (isinstance(limit, exprs.Literal) and limit.val == 1)
         else:
-            row_schema = ts.JsonType(ts.JsonType.TypeSchema(type_spec=dict(schema)))
-        return_type: ts.ColumnType
-        if single_value:
-            # None if the query returns no rows
-            return_type = row_schema.copy(nullable=True)
-        else:
-            return_type = ts.JsonType(ts.JsonType.TypeSchema(type_spec=[], variadic_type=row_schema))
-        sig = Signature(return_type=return_type, parameters=params)
+            shapes = [
+                (single_row, return_scalar)
+                for single_row in (False, True)
+                for return_scalar in (False, True)
+                if not return_scalar or len(template_query.schema) == 1
+            ]
+            # the untyped Json of older functions matches no shape; those returned lists of dicts
+            single_row, return_scalar = next(
+                (shape for shape in shapes if self._result_type(*shape) == return_type), (False, False)
+            )
+        sig = Signature(return_type=self._result_type(single_row, return_scalar), parameters=params)
         super().__init__([sig], self_path=path)
         self.self_name = name
-        self.template_query = template_query
         self.return_scalar = return_scalar
-        self.single_value = single_value
+        self.single_row = single_row
         self._comment = comment
+
+    def _result_type(self, single_row: bool, return_scalar: bool) -> ts.ColumnType:
+        schema = self.template_query.schema
+        row_type: ts.ColumnType
+        if return_scalar:
+            row_type = next(iter(schema.values()))
+        else:
+            row_type = ts.JsonType(ts.JsonType.TypeSchema(type_spec=dict(schema)))
+        if single_row:
+            # nullable: the query may return no rows
+            return row_type.copy(nullable=True)
+        return ts.JsonType(ts.JsonType.TypeSchema(type_spec=[], variadic_type=row_type))
 
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
         pass  # only one signature supported for QueryTemplateFunction
@@ -134,13 +135,13 @@ class QueryTemplateFunction(Function):
                 f'Query UDF {self.name!r} is declared over a model rather than a table, so it cannot be evaluated.',
             )
         result = await self.template_query._acollect(args=bound_args)
+        rows: list[Any] = list(result)
         if self.return_scalar:
             col_name = next(iter(self.template_query.schema))
-            values = [row[col_name] for row in result]
-            if self.single_value:
-                return values[0] if len(values) > 0 else None
-            return values
-        return list(result)
+            rows = [row[col_name] for row in rows]
+        if self.single_row:
+            return rows[0] if len(rows) > 0 else None
+        return rows
 
     @property
     def display_name(self) -> str:
@@ -154,12 +155,7 @@ class QueryTemplateFunction(Function):
         return self._comment
 
     def _as_dict(self) -> dict:
-        return {
-            'name': self.name,
-            'signature': self.signature.as_dict(),
-            'df': self.template_query.as_dict(),
-            'return_scalar': self.return_scalar,
-        }
+        return {'name': self.name, 'signature': self.signature.as_dict(), 'df': self.template_query.as_dict()}
 
     @classmethod
     def _from_dict(cls, d: dict) -> Function:
@@ -171,9 +167,7 @@ class QueryTemplateFunction(Function):
         except excs.NotFoundError as e:
             # template_query references a table or column that no longer exists
             return func.InvalidFunction(d['name'], d, f'the @pxt.query UDF {d["name"]!r} cannot be loaded: {e}')
-        return cls(
-            template_query, list(sig.parameters.values()), return_scalar=d.get('return_scalar', False), name=d['name']
-        )
+        return cls(template_query, list(sig.parameters.values()), return_type=sig.return_type, name=d['name'])
 
 
 @overload
@@ -181,9 +175,7 @@ def query(py_fn: Callable) -> QueryTemplateFunction: ...
 
 
 @overload
-def query(
-    *, param_types: list[ts.ColumnType] | None = None, return_scalar: bool = False
-) -> Callable[[Callable], QueryTemplateFunction]: ...
+def query(*, param_types: list[ts.ColumnType] | None = None) -> Callable[[Callable], QueryTemplateFunction]: ...
 
 
 def query(*args: Any, **kwargs: Any) -> Any:
@@ -194,15 +186,16 @@ def query(*args: Any, **kwargs: Any) -> Any:
 
     Args:
         param_types: The Pixeltable types of the parameters, for parameters without type annotations.
-        return_scalar: For a query that selects one column, return a list of that column's values instead of a list
-            of rows. For an aggregation without `group_by()`, return its one value.
 
     Returns:
-        The query function. Unless `return_scalar` is set, a call returns a list of rows, each a dictionary from the
-        selected column names to their values.
+        The query function. A call returns a list of rows, each a dictionary from the selected column names to their
+        values. If the query selects one unnamed item, as in `select(t.text)`, each row is that item's value instead.
+        If the query aggregates without `group_by()` or has `limit(1)`, a call returns the one row instead of a list,
+        or None if there is no row.
 
     Examples:
-        The five chunks most similar to a question, given a table `chunks` with an embedding index on `text`:
+        The texts of the five chunks most similar to a question, given a table `chunks` with an embedding index on
+        `text`:
 
         >>> @pxt.query
         ... def top_chunks(question: str) -> pxt.Query:
@@ -211,7 +204,7 @@ def query(*args: Any, **kwargs: Any) -> Any:
 
         The total of a customer's orders, as a single value in a computed column of the table `customers`:
 
-        >>> @pxt.query(return_scalar=True)
+        >>> @pxt.query
         ... def customer_total(customer: str) -> pxt.Query:
         ...     return orders.where(orders.customer == customer).select(
         ...         pxtf.sum(orders.amount)
@@ -219,18 +212,14 @@ def query(*args: Any, **kwargs: Any) -> Any:
         >>> customers.add_computed_column(total=customer_total(customers.customer))
     """
 
-    def make_query_template(
-        py_fn: Callable, param_types: list[ts.ColumnType] | None, return_scalar: bool
-    ) -> QueryTemplateFunction:
+    def make_query_template(py_fn: Callable, param_types: list[ts.ColumnType] | None) -> QueryTemplateFunction:
         if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
             # this is a named function in a module
             function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
         else:
             function_path = None
         query_name = py_fn.__name__
-        query_fn = QueryTemplateFunction.create(
-            py_fn, return_scalar=return_scalar, param_types=param_types, path=function_path, name=query_name
-        )
+        query_fn = QueryTemplateFunction.create(py_fn, param_types=param_types, path=function_path, name=query_name)
         return query_fn
 
         # TODO: verify that the inferred return type matches that of the template
@@ -238,15 +227,14 @@ def query(*args: Any, **kwargs: Any) -> Any:
 
     if len(args) == 1:
         assert len(kwargs) == 0 and callable(args[0])
-        return make_query_template(args[0], None, False)
+        return make_query_template(args[0], None)
     else:
         param_types = kwargs.pop('param_types', None)
-        return_scalar = kwargs.pop('return_scalar', False)
         if len(kwargs) > 0:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION, f'@pxt.query(): unknown argument(s): {", ".join(kwargs)}'
             )
-        return lambda py_fn: make_query_template(py_fn, param_types, return_scalar)
+        return lambda py_fn: make_query_template(py_fn, param_types)
 
 
 def retrieval_udf(
@@ -275,7 +263,8 @@ def retrieval_udf(
 
     Returns:
         A list of dictionaries containing data from the table, one per row that matches the input arguments.
-        If there are no matching rows, an empty list will be returned.
+        If there are no matching rows, an empty list will be returned. With `limit=1`, the UDF returns the one
+        matching row, or None.
     """
     # Argument validation
     col_refs: list[exprs.ColumnRef]

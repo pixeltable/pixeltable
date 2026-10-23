@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:
-    return isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call and not e.is_window_fn_call
+    return isinstance(e, exprs.FunctionCall) and e.is_grouping_agg_fn_call
 
 
 def _get_combined_ordering(
@@ -147,11 +147,7 @@ class Analyzer:
         """Check semantic correctness of aggregation and fill in agg-specific fields of Analyzer"""
         candidates = self.select_list
         agg_fn_calls = exprs.ExprSet(
-            exprs.Expr.list_subexprs(
-                candidates,
-                expr_class=exprs.FunctionCall,
-                filter=lambda e: bool(e.is_agg_fn_call and not e.is_window_fn_call),
-            )
+            exprs.Expr.list_subexprs(candidates, expr_class=exprs.FunctionCall, filter=_is_agg_fn_call)
         )
         self.agg_fn_calls = list(agg_fn_calls)
         window_fn_calls = exprs.ExprSet(
