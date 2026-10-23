@@ -152,7 +152,7 @@ def retry_read_loop(
 def retry_schema_change_loop(
     *,
     tvps: Collection[TableVersionPath] | None = None,
-    tbl_keys: Collection[TableVersionKey] | None = None,
+    tbl_ids: Collection[UUID] | None = None,
     lock_mutable_tree: bool = False,
     paths: Collection[Path] | None = None,
     lock_path_subtree: bool = False,
@@ -161,7 +161,7 @@ def retry_schema_change_loop(
     return _retry_loop(
         op_class=_TblOpClass.MD_WRITE,
         write_tvps=tvps,
-        write_tbl_keys=tbl_keys,
+        write_tbl_ids=tbl_ids,
         lock_mutable_tree=lock_mutable_tree,
         write_paths=paths,
         lock_path_subtree=lock_path_subtree,
@@ -174,7 +174,7 @@ def _retry_loop(
     read_tvps: Collection[TableVersionPath] | None = None,
     read_tbl_keys: Collection[TableVersionKey] | None = None,
     write_tvps: Collection[TableVersionPath] | None = None,
-    write_tbl_keys: Collection[TableVersionKey] | None = None,
+    write_tbl_ids: Collection[UUID] | None = None,
     lock_mutable_tree: bool = False,
     write_paths: Collection[Path] | None = None,
     lock_path_subtree: bool = False,
@@ -202,7 +202,7 @@ def _retry_loop(
                             read_tvps=read_tvps,
                             read_tbl_keys=read_tbl_keys,
                             write_tvps=write_tvps,
-                            write_tbl_keys=write_tbl_keys,
+                            write_tbl_ids=write_tbl_ids,
                             lock_mutable_tree=lock_mutable_tree,
                             write_paths=write_paths,
                             lock_path_subtree=lock_path_subtree,
@@ -581,14 +581,14 @@ class Catalog(CatalogBase):
         self,
         *,
         tvps: Collection[TableVersionPath] | None = None,
-        tbl_keys: Collection[TableVersionKey] | None = None,
+        tbl_ids: Collection[UUID] | None = None,
         lock_mutable_tree: bool = False,
         paths: Collection[Path] | None = None,
         lock_path_subtree: bool = False,
     ) -> Iterator[sql.Connection]:
         """Open a metadata-write or DDL transaction with exclusive locks on its targets.
 
-        - tvps/tbl_keys: tables whose metadata the operation writes.
+        - tvps/tbl_ids: tables whose metadata the operation writes.
         - lock_mutable_tree: also lock each target's mutable views, recursively.
         - paths: resolve and lock the objects at these catalog paths, along with their parent directories.
         - lock_path_subtree: also lock each directory's descendants and tables, or each table's views and snapshots.
@@ -596,7 +596,7 @@ class Catalog(CatalogBase):
         with self._begin_xact(
             op_class=_TblOpClass.MD_WRITE,
             write_tvps=tvps,
-            write_tbl_keys=tbl_keys,
+            write_tbl_ids=tbl_ids,
             lock_mutable_tree=lock_mutable_tree,
             write_paths=paths,
             lock_path_subtree=lock_path_subtree,
@@ -607,10 +607,7 @@ class Catalog(CatalogBase):
     def begin_finalize_xact(self, tbl_id: UUID) -> Iterator[sql.Connection]:
         """Open a pending-op finalization transaction, waiting for ACCESS EXCLUSIVE on the table."""
         with self._begin_xact(
-            op_class=_TblOpClass.FINALIZE,
-            write_tbl_keys=[TableVersionKey(tbl_id, None)],
-            convert_db_excs=False,
-            finalize_pending_ops=False,
+            op_class=_TblOpClass.FINALIZE, write_tbl_ids=[tbl_id], convert_db_excs=False, finalize_pending_ops=False
         ) as conn:
             yield conn
 
@@ -622,7 +619,7 @@ class Catalog(CatalogBase):
         read_tvps: Collection[TableVersionPath] | None = None,
         read_tbl_keys: Collection[TableVersionKey] | None = None,
         write_tvps: Collection[TableVersionPath] | None = None,
-        write_tbl_keys: Collection[TableVersionKey] | None = None,
+        write_tbl_ids: Collection[UUID] | None = None,
         lock_mutable_tree: bool = False,
         write_paths: Collection[Path] | None = None,
         lock_path_subtree: bool = False,
@@ -642,7 +639,7 @@ class Catalog(CatalogBase):
         the caller's work are propagated; use a retry_*_loop() decorator if the whole operation needs to restart.
         """
         for_write = op_class in (_TblOpClass.DATA_WRITE, _TblOpClass.MD_WRITE, _TblOpClass.FINALIZE)
-        assert for_write or not (write_tvps or write_tbl_keys or write_paths), (op_class, write_tvps, write_tbl_keys)
+        assert for_write or not (write_tvps or write_tbl_ids or write_paths), (op_class, write_tvps, write_tbl_ids)
         assert op_class is not _TblOpClass.DATA_READ or (read_tvps or read_tbl_keys), (
             'DATA_READ requires at least one table or table path'
         )
@@ -651,7 +648,7 @@ class Catalog(CatalogBase):
         read_tvps = read_tvps or []
         write_tvps = write_tvps or []
         read_tbl_keys = read_tbl_keys or []
-        write_tbl_keys = write_tbl_keys or []
+        write_tbl_ids = write_tbl_ids or []
         write_paths = write_paths or []
         if get_runtime().in_xact:
             # TODO: restore _check_write_locks()'s check that the enclosing transaction holds all required locks.
@@ -674,7 +671,7 @@ class Catalog(CatalogBase):
                     read_tvps=read_tvps,
                     read_tbl_keys=read_tbl_keys,
                     write_tvps=write_tvps,
-                    write_tbl_keys=write_tbl_keys,
+                    write_tbl_ids=write_tbl_ids,
                     lock_mutable_tree=lock_mutable_tree,
                     write_paths=write_paths,
                     lock_path_subtree=lock_path_subtree,
@@ -694,7 +691,7 @@ class Catalog(CatalogBase):
                     attempt=num_retries,
                     read_table_ids=[str(k.tbl_id) for k in read_tbl_keys] + [str(tvp.tbl_id) for tvp in read_tvps]
                     or None,
-                    write_table_ids=[str(k.tbl_id) for k in write_tbl_keys] + [str(tvp.tbl_id) for tvp in write_tvps]
+                    write_table_ids=[str(tbl_id) for tbl_id in write_tbl_ids] + [str(tvp.tbl_id) for tvp in write_tvps]
                     or None,
                 ),
             )
@@ -717,20 +714,20 @@ class Catalog(CatalogBase):
                                 read_tvps,
                                 read_tbl_keys,
                                 write_tvps,
-                                write_tbl_keys,
+                                write_tbl_ids,
                                 lock_mutable_tree=lock_mutable_tree,
                                 check_pending_ops=finalize_pending_ops,
                             )
                             self._validate_lock_set(
                                 op_class=op_class,
                                 write_tvps=write_tvps,
-                                write_tbl_keys=write_tbl_keys,
+                                write_tbl_ids=write_tbl_ids,
                                 lock_mutable_tree=lock_mutable_tree,
                                 write_paths=write_paths,
                                 lock_path_subtree=lock_path_subtree,
                             )
                             if for_write and lock_mutable_tree:
-                                self._compute_column_dependents(write_tvps, write_tbl_keys)
+                                self._compute_column_dependents(write_tvps, write_tbl_ids)
                             if _logger.isEnabledFor(logging.DEBUG):
                                 # validate only when we don't see errors
                                 self.validate()
@@ -778,7 +775,7 @@ class Catalog(CatalogBase):
                     ) from e
                 num_retries += 1
                 # Clear cached metadata so the next attempt rebuilds the set from the store.
-                self._invalidate_lock_set(read_tvps, read_tbl_keys, write_tvps, write_tbl_keys)
+                self._invalidate_lock_set(read_tvps, read_tbl_keys, write_tvps, write_tbl_ids)
                 continue
 
             except PendingTableOpsError as e:
@@ -794,7 +791,7 @@ class Catalog(CatalogBase):
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
                 has_exc = True
                 attempt_exc = e
-                single_tbl, single_tbl_id = self._get_single_tbl(read_tvps, read_tbl_keys, write_tvps, write_tbl_keys)
+                single_tbl, single_tbl_id = self._get_single_tbl(read_tvps, read_tbl_keys, write_tvps, write_tbl_ids)
                 self.convert_sql_exc(e, tbl_id=single_tbl_id, tbl=single_tbl, convert_db_excs=convert_db_excs)
                 raise  # re-raise the error if it didn't convert to a pxt.Error
 
@@ -851,7 +848,7 @@ class Catalog(CatalogBase):
         read_tvps: Collection[TableVersionPath],
         read_tbl_keys: Collection[TableVersionKey],
         write_tvps: Collection[TableVersionPath],
-        write_tbl_keys: Collection[TableVersionKey],
+        write_tbl_ids: Collection[UUID],
         lock_mutable_tree: bool,
         write_paths: Collection[Path],
         lock_path_subtree: bool,
@@ -887,8 +884,8 @@ class Catalog(CatalogBase):
                 tbl_id_to_op_classes[key.tbl_id].add(op_class if is_live_tbl_leaf else _TblOpClass.DATA_READ)
         for key in read_tbl_keys:
             tbl_id_to_op_classes[key.tbl_id].add(_TblOpClass.DATA_READ)
-        for key in write_tbl_keys:
-            tbl_id_to_op_classes[key.tbl_id].add(op_class)
+        for tbl_id in write_tbl_ids:
+            tbl_id_to_op_classes[tbl_id].add(op_class)
 
         def list_dir_contents(dir_id: UUID, dir_path: Path) -> tuple[dict[UUID, Path], set[UUID]]:
             """Return directory id-to-path mappings for the subtree and the ids of its visible tables."""
@@ -991,7 +988,7 @@ class Catalog(CatalogBase):
             return visited_ids
 
         if lock_mutable_tree:
-            visit_transitive_views(set(self._mutable_write_tbl_ids(write_tvps, write_tbl_keys)), mutable_only=True)
+            visit_transitive_views(set(self._mutable_write_tbl_ids(write_tvps, write_tbl_ids)), mutable_only=True)
 
         # Descendant table/view ids reached from write paths, including snapshots when requested.
         write_path_mutable_views: set[UUID] = set()
@@ -1009,8 +1006,8 @@ class Catalog(CatalogBase):
 
         # Require an exclusive lock on the base if finalization will advance its view_sn.
         if op_class is _TblOpClass.FINALIZE:
-            for key in write_tbl_keys:
-                base_id = finalized_view_bases.get(key.tbl_id)
+            for tbl_id in write_tbl_ids:
+                base_id = finalized_view_bases.get(tbl_id)
                 if base_id is not None:
                     tbl_id_to_op_classes[base_id].add(_TblOpClass.FINALIZE)
         if lock_path_subtree:
@@ -1117,7 +1114,7 @@ class Catalog(CatalogBase):
         read_tvps: Collection[TableVersionPath],
         read_tbl_keys: Collection[TableVersionKey],
         write_tvps: Collection[TableVersionPath],
-        write_tbl_keys: Collection[TableVersionKey],
+        write_tbl_ids: Collection[UUID],
         lock_mutable_tree: bool,
     ) -> _LockSet | None:
         """Build a tentative lock set from cached metadata, without querying the store.
@@ -1144,6 +1141,7 @@ class Catalog(CatalogBase):
                     return None
                 add(path_result[0])
                 any_data_versioned |= path_result[1]
+        write_tbl_keys = [TableVersionKey(tbl_id, None) for tbl_id in write_tbl_ids]
         for tbl_keys, target_op_class in ((read_tbl_keys, _TblOpClass.DATA_READ), (write_tbl_keys, op_class)):
             for key in tbl_keys:
                 ancestors_result = self._ancestors_lock_targets_from_cache(key, target_op_class)
@@ -1152,7 +1150,7 @@ class Catalog(CatalogBase):
                 add(ancestors_result[0])
                 any_data_versioned |= ancestors_result[1]
         if lock_mutable_tree:
-            for write_tbl_id in self._mutable_write_tbl_ids(write_tvps, write_tbl_keys):
+            for write_tbl_id in self._mutable_write_tbl_ids(write_tvps, write_tbl_ids):
                 tree_result = self._mutable_tree_lock_targets_from_cache(write_tbl_id, op_class)
                 if tree_result is None:
                     return None
@@ -1170,7 +1168,7 @@ class Catalog(CatalogBase):
         read_tvps: Collection[TableVersionPath],
         read_tbl_keys: Collection[TableVersionKey],
         write_tvps: Collection[TableVersionPath],
-        write_tbl_keys: Collection[TableVersionKey],
+        write_tbl_ids: Collection[UUID],
         lock_mutable_tree: bool,
         write_paths: Collection[Path],
         lock_path_subtree: bool,
@@ -1188,7 +1186,7 @@ class Catalog(CatalogBase):
                 read_tvps=read_tvps,
                 read_tbl_keys=read_tbl_keys,
                 write_tvps=write_tvps,
-                write_tbl_keys=write_tbl_keys,
+                write_tbl_ids=write_tbl_ids,
                 lock_mutable_tree=lock_mutable_tree,
             )
 
@@ -1201,7 +1199,7 @@ class Catalog(CatalogBase):
                 read_tvps=read_tvps,
                 read_tbl_keys=read_tbl_keys,
                 write_tvps=write_tvps,
-                write_tbl_keys=write_tbl_keys,
+                write_tbl_ids=write_tbl_ids,
                 lock_mutable_tree=lock_mutable_tree,
                 write_paths=write_paths,
                 lock_path_subtree=lock_path_subtree,
@@ -1212,20 +1210,22 @@ class Catalog(CatalogBase):
         read_tvps: Collection[TableVersionPath],
         read_tbl_keys: Collection[TableVersionKey],
         write_tvps: Collection[TableVersionPath],
-        write_tbl_keys: Collection[TableVersionKey],
+        write_tbl_ids: Collection[UUID],
     ) -> None:
         """Clear the cached metadata used to build the lock set, forcing a store read on the next attempt."""
         assert not get_runtime().in_xact
         telemetry_schemas.lock_set_restarts.add(1)
-        for key in (*(k for tvp in (*read_tvps, *write_tvps) for k in tvp.tbl_keys), *read_tbl_keys, *write_tbl_keys):
+        for key in (*(k for tvp in (*read_tvps, *write_tvps) for k in tvp.tbl_keys), *read_tbl_keys):
             self._clear_tv_cache(key)
+        for tbl_id in write_tbl_ids:
+            self._clear_tv_cache(TableVersionKey(tbl_id, None))
 
     def _validate_lock_set(
         self,
         *,
         op_class: _TblOpClass,
         write_tvps: Collection[TableVersionPath],
-        write_tbl_keys: Collection[TableVersionKey],
+        write_tbl_ids: Collection[UUID],
         lock_mutable_tree: bool,
         write_paths: Collection[Path],
         lock_path_subtree: bool,
@@ -1249,7 +1249,7 @@ class Catalog(CatalogBase):
                     raise _StaleLockSetError(msg)
 
         if lock_mutable_tree:
-            for write_tbl_id in self._mutable_write_tbl_ids(write_tvps, write_tbl_keys):
+            for write_tbl_id in self._mutable_write_tbl_ids(write_tvps, write_tbl_ids):
                 mutable_tree = self._mutable_tree_lock_targets_from_cache(write_tbl_id, op_class)
                 if mutable_tree is None:
                     msg = f'lock set mismatch: mutable tree of {write_tbl_id} is not fully cached'
@@ -1264,7 +1264,7 @@ class Catalog(CatalogBase):
                 read_tvps=(),
                 read_tbl_keys=(),
                 write_tvps=write_tvps,
-                write_tbl_keys=write_tbl_keys,
+                write_tbl_ids=write_tbl_ids,
                 lock_mutable_tree=lock_mutable_tree,
                 write_paths=write_paths,
                 lock_path_subtree=lock_path_subtree,
@@ -1278,11 +1278,11 @@ class Catalog(CatalogBase):
 
     @classmethod
     def _mutable_write_tbl_ids(
-        cls, write_tvps: Collection[TableVersionPath], write_tbl_keys: Collection[TableVersionKey]
+        cls, write_tvps: Collection[TableVersionPath], write_tbl_ids: Collection[UUID]
     ) -> list[UUID]:
-        """Return the mutable table ids from the supplied paths and keys, excluding snapshots."""
+        """Return the mutable table ids from the supplied paths and ids, excluding snapshots."""
         ids = [tvp.tbl_id for tvp in write_tvps if tvp.effective_version() is None]
-        ids.extend(k.tbl_id for k in write_tbl_keys if k.effective_version is None)
+        ids.extend(write_tbl_ids)
         return ids
 
     def is_tbl_locked(self, store_tbl_name: str, mode: _TblLockMode) -> bool:
@@ -1401,7 +1401,7 @@ class Catalog(CatalogBase):
         read_tvps: Collection[TableVersionPath],
         read_tbl_keys: Collection[TableVersionKey],
         write_tvps: Collection[TableVersionPath],
-        write_tbl_keys: Collection[TableVersionKey],
+        write_tbl_ids: Collection[UUID],
         *,
         lock_mutable_tree: bool,
         check_pending_ops: bool,
@@ -1417,10 +1417,12 @@ class Catalog(CatalogBase):
                 check_pending_ops=check_pending_ops,
                 refreshed=refreshed,
             )
-        for write_key in write_tbl_keys:
-            assert write_key.effective_version is None, write_key
+        for tbl_id in write_tbl_ids:
             self._refresh_tbl_cache(
-                key=write_key, mutable_tree=lock_mutable_tree, check_pending_ops=check_pending_ops, refreshed=refreshed
+                key=TableVersionKey(tbl_id, None),
+                mutable_tree=lock_mutable_tree,
+                check_pending_ops=check_pending_ops,
+                refreshed=refreshed,
             )
         for tvp in read_tvps:
             self._refresh_path_cache(tbl=tvp, for_write=False, check_pending_ops=check_pending_ops)
@@ -1451,15 +1453,17 @@ class Catalog(CatalogBase):
         read_tvps: Collection[TableVersionPath],
         read_tbl_keys: Collection[TableVersionKey],
         write_tvps: Collection[TableVersionPath],
-        write_tbl_keys: Collection[TableVersionKey],
+        write_tbl_ids: Collection[UUID],
     ) -> tuple[TableVersionHandle | None, UUID | None]:
         """Return (tbl, None) or (None, tbl_id) iff the transaction touches exactly one table; else (None, None)."""
-        total = len(write_tvps) + len(read_tvps) + len(read_tbl_keys) + len(write_tbl_keys)
+        total = len(write_tvps) + len(read_tvps) + len(read_tbl_keys) + len(write_tbl_ids)
         if total != 1:
             return None, None
         if write_tvps or read_tvps:
             return next(iter(write_tvps or read_tvps)).tbl_version, None
-        return None, next(iter(read_tbl_keys or write_tbl_keys)).tbl_id
+        if read_tbl_keys:
+            return None, next(iter(read_tbl_keys)).tbl_id
+        return None, next(iter(write_tbl_ids))
 
     def convert_sql_exc(
         self,
@@ -1954,7 +1958,7 @@ class Catalog(CatalogBase):
         return result
 
     def _compute_column_dependents(
-        self, write_tvps: Collection[TableVersionPath], write_tbl_keys: Collection[TableVersionKey]
+        self, write_tvps: Collection[TableVersionPath], write_tbl_ids: Collection[UUID]
     ) -> None:
         """Build the column-dependency graph for the write targets and their mutable descendant views.
 
@@ -1964,7 +1968,7 @@ class Catalog(CatalogBase):
         assert self._column_dependents is None
         self._column_dependents = defaultdict(set)
         mutable_tbls: set[UUID] = set()
-        for tbl_id in self._mutable_write_tbl_ids(write_tvps, write_tbl_keys):
+        for tbl_id in self._mutable_write_tbl_ids(write_tvps, write_tbl_ids):
             mutable_tbls |= self._get_mutable_tree(tbl_id)
         for tbl_id in mutable_tbls:
             assert tbl_id in self._column_dependencies, (
@@ -2660,7 +2664,7 @@ class Catalog(CatalogBase):
         fault_injection.process_fault(FaultLocation.CATALOG_UPDATE_FROM_MODEL_BEFORE_APPLY)
         tbl_ids = [change_set['tbl_id'] for change_set in change_sets]
 
-        @retry_schema_change_loop(tbl_keys=[TableVersionKey(i, None) for i in tbl_ids], lock_mutable_tree=True)
+        @retry_schema_change_loop(tbl_ids=tbl_ids, lock_mutable_tree=True)
         def update_fn() -> None:
             tbls = [self.get_table_by_id(tbl_id, ignore_if_dropped=True) for tbl_id in tbl_ids]
             # check for tables that were dropped since the diff was computed
