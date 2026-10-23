@@ -169,6 +169,9 @@ Once you've set up your dev environment, you're ready to start contributing PRs.
         or a dash, or on the next line, or start it with "focus": `claude review focus on function signatures` or
         `claude review: error paths`. Claude reacts to the comment with a thumbs-up when the review starts, and posts
         its summary and inline comments as one review. A request while a Claude review of the PR runs starts no other.
+        The review uses fixed source revisions and validates independent finding decisions before posting. Missing
+        coverage is explicit. For local preparation, validation, and the output contract, see
+        [the review guide](.github/scripts/README.claude-review.md).
     * The erosion check is currently commented out in `claude-review.yml`. When it runs, on every commit it measures
         how your PR changes code erosion and verbosity, as defined in
         [SlopCodeBench](https://arxiv.org/abs/2603.24755), and Claude judges up to 10 functions whose complexity, not
