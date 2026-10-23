@@ -20,16 +20,19 @@ jobs:
         shell: cmd
         run: call C:\Users\runneradmin\miniconda3\condabin\conda.bat info
       - name: conda list
+        if: always()
         shell: cmd
         run: call C:\Users\runneradmin\miniconda3\condabin\conda.bat list -n base --show-channel-urls
       - name: conda-launchers record
+        if: always()
         shell: cmd
         run: type C:\Users\runneradmin\miniconda3\conda-meta\conda-launchers-*.json
       - name: conda init -vv
+        if: always()
         shell: cmd
         run: call C:\Users\runneradmin\miniconda3\condabin\conda.bat init --all -vv
       - name: Reinstall conda-launchers with safety checks, then conda init
-        if: ${{ matrix.miniforge-version == 'latest' }}
+        if: ${{ always() && matrix.miniforge-version == 'latest' }}
         shell: cmd
         run: |
           set CONDA_SAFETY_CHECKS=warn
