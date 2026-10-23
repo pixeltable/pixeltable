@@ -17,7 +17,8 @@ DEFAULT_PYTEST = "-m 'not expensive and not very_expensive and not benchmark'"
 EXPENSIVE_PYTEST = "-m 'not very_expensive and not benchmark'"
 VERY_EXPENSIVE_PYTEST = "-m 'not benchmark'"
 # The tests that stay out of the merge queue today, minus those that call paid APIs: the candidates for the large runner
-RESOURCE_PROBE_PYTEST = "-m '(expensive or very_expensive) and not remote_api'"
+# No parentheses: pytest.yml echoes the options inside single quotes, which these quotes end, leaving bash a bare '('.
+RESOURCE_PROBE_PYTEST = "-m 'expensive and not remote_api or very_expensive and not remote_api'"
 
 # Note: in addition to these pytest filters, the tests that actually run are implicitly filtered by
 # skip_test_if_not_installed() and the install configuration.
