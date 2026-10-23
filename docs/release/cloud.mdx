@@ -42,10 +42,12 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     In a new directory, run:
 
     ```bash
-    mkdir cloud-app && cd cloud-app
+    mkdir -p cloud-app && cd cloud-app
     pxt init
     pxt service example --out app.py
     ```
+
+    Run this from the directory that should contain `cloud-app`, and paste it again from that same directory so it reuses the folder.
 
     In a notebook, `!cd` does not carry over to the next command. Use `%cd cloud-app` instead, so that `pxt init` makes that directory the project root.
 
