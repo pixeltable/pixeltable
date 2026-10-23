@@ -80,6 +80,8 @@ class ErrorCode(enum.Enum):
     PROVIDER_BAD_REQUEST = 5003, 400, False
     PROVIDER_TIMEOUT = 5004, 504, True
     PROVIDER_OVERLOADED = 5005, 503, True
+    PROVIDER_JOB_TIMEOUT = 5006, 504, False
+    PROVIDER_INVALID_RESPONSE = 5007, 502, False
 
     # ServiceUnavailableError (6xxx)
     DATABASE_UNAVAILABLE = 6000, 503, True
