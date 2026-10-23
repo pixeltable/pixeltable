@@ -7,7 +7,7 @@ import { CatalogSwitcher } from '@/components/CatalogSwitcher'
 import { TableDetailView } from '@/components/TableDetailView'
 import { SearchPanel } from '@/components/SearchPanel'
 import { PipelineInspector } from '@/components/PipelineInspector'
-import { getDirectoryTree, getStatus } from '@/api/client'
+import { useDashboardRuntime } from '@/lib/dashboard-runtime'
 import type { SystemStatus } from '@/api/client'
 import type { TableNode, TreeNode } from '@/types'
 import {
@@ -86,7 +86,10 @@ function collectTables(nodes: TreeNode[]): TableNode[] {
 }
 
 function DirectoryView() {
-  const { '*': dirPath } = useParams()
+  const runtime = useDashboardRuntime()
+  const { client: { getDirectoryTree } } = runtime
+  const { '*': routePath } = useParams()
+  const dirPath = routePath || (runtime.kind === 'embedded' ? runtime.catalog : undefined)
   const navigate = useNavigate()
   const [nodes, setNodes] = useState<TreeNode[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -209,7 +212,7 @@ function WelcomeView() {
   return (
     <div className="flex flex-col items-center justify-center h-full text-center p-8">
       <div className="mb-6">
-        <img src="/logo.png?v=3" alt="Pixeltable" className="h-14 w-14 rounded-xl" />
+        <img src={__DASHBOARD_LOGO_URL__} alt="Pixeltable" className="h-14 w-14 rounded-xl" />
       </div>
       <h1 className="text-xl font-semibold text-foreground mb-2">
         Pixeltable Dashboard
@@ -271,20 +274,25 @@ function WelcomeView() {
 // ── Main App ────────────────────────────────────────────────────────────────
 
 function useTheme() {
+  const runtime = useDashboardRuntime()
+  const preferences = runtime.preferences
   const [dark, setDark] = useState(() => {
     if (typeof window === 'undefined') return true
-    const stored = localStorage.getItem('pxt-theme')
+    if (runtime.kind === 'embedded') return runtime.theme === 'dark'
+    const stored = preferences.getItem('pxt-theme')
     if (stored) return stored === 'dark'
     return window.matchMedia('(prefers-color-scheme: dark)').matches
   })
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', dark)
-    localStorage.setItem('pxt-theme', dark ? 'dark' : 'light')
-  }, [dark])
+    document.documentElement.classList.toggle('dark', runtime.kind === 'embedded' ? runtime.theme === 'dark' : dark)
+    if (runtime.kind === 'local') preferences.setItem('pxt-theme', dark ? 'dark' : 'light')
+  }, [dark, runtime, preferences])
   return [dark, () => setDark(d => !d)] as const
 }
 
 export default function App() {
+  const runtime = useDashboardRuntime()
+  const { client: { getDirectoryTree, getStatus }, preferences } = runtime
   const [tree, setTree] = useState<TreeNode[]>([])
   const [loading, setLoading] = useState(true)
   const [treeError, setTreeError] = useState<string | null>(null)
@@ -293,7 +301,7 @@ export default function App() {
   const sidebarPanelRef = useRef<ImperativePanelHandle>(null)
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [dark, toggleTheme] = useTheme()
-  const [activeCatalog, setActiveCatalog] = useState(loadActiveCatalog)
+  const [activeCatalog, setActiveCatalog] = useState(() => runtime.kind === 'embedded' ? runtime.catalog : loadActiveCatalog(preferences))
   const [treeReload, setTreeReload] = useState(0)
   const [connOpen, setConnOpen] = useState(false)
   const [connPos, setConnPos] = useState<{ top: number; left: number } | null>(null)
@@ -333,7 +341,7 @@ export default function App() {
 
   const handleCatalogSelect = useCallback((uri: string) => {
     setActiveCatalog(uri)
-    saveActiveCatalog(uri)
+    saveActiveCatalog(uri, preferences)
     navigate('/')
   }, [navigate])
 
@@ -358,7 +366,7 @@ export default function App() {
   }, [activeCatalog, treeReload])
 
   useEffect(() => {
-    getStatus().then(setStatus).catch(console.error)
+    if (runtime.kind === 'local') getStatus().then(setStatus).catch(console.error)
   }, [])
 
   // Global ⌘K shortcut
@@ -382,11 +390,11 @@ export default function App() {
     setSearchOpen(false)
     // Keep chrome aligned with one active catalog when opening a hosted search hit.
     const root = catalogRootFromPath(path)
-    if (root !== null) {
-      const extras = loadExtraCatalogs()
-      if (!extras.includes(root)) saveExtraCatalogs([...extras, root])
+    if (root !== null && runtime.kind === 'local') {
+      const extras = loadExtraCatalogs(preferences)
+      if (!extras.includes(root)) saveExtraCatalogs([...extras, root], preferences)
       setActiveCatalog(root)
-      saveActiveCatalog(root)
+      saveActiveCatalog(root, preferences)
     }
     handleSelectItem(path, type)
   }
@@ -403,7 +411,7 @@ export default function App() {
 
   return (
     <div className="h-screen overflow-hidden bg-background">
-      <PanelGroup direction="horizontal" autoSaveId="pxt-layout" className="h-full">
+      <PanelGroup direction="horizontal" autoSaveId={runtime.kind === 'local' ? 'pxt-layout' : undefined} className="h-full">
         {/* ── Sidebar ─────────────────────────────────────────────────── */}
         <Panel
           ref={sidebarPanelRef}
@@ -430,7 +438,7 @@ export default function App() {
             onMouseEnter={() => { if (sidebarOpen && status?.config) openConnection() }}
             onMouseLeave={scheduleCloseConnection}
           >
-            <img src="/logo.png?v=3" alt="Pixeltable" className="h-7 w-7 shrink-0 rounded-lg" />
+            <img src={__DASHBOARD_LOGO_URL__} alt="Pixeltable" className="h-7 w-7 shrink-0 rounded-lg" />
             {sidebarOpen && (
               <div className="flex flex-col min-w-0">
                 <div className="flex items-center gap-1.5">
@@ -535,12 +543,14 @@ export default function App() {
         {/* Navigation: hairline under header (same language as footer) */}
         <nav className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-border/40 px-2 pt-1.5">
           {/* Sticky catalog switcher (Local / Cloud) */}
-          <CatalogSwitcher
+          {runtime.kind === 'embedded' ? (
+            <div className="px-2 py-3 text-xs text-muted-foreground break-all">{runtime.catalog}</div>
+          ) : <CatalogSwitcher
             activeCatalog={activeCatalog}
             onSelect={handleCatalogSelect}
             collapsed={!sidebarOpen}
             onExpandRequest={() => sidebarPanelRef.current?.expand()}
-          />
+          />}
 
           {/* Filter sticky under switcher; tree scrolls inside the panel */}
           {loading ? (
@@ -597,7 +607,7 @@ export default function App() {
             <MessageSquare className="h-[15px] w-[15px] shrink-0" />
             {sidebarOpen && <span>Feedback</span>}
           </a>
-          <button
+          {runtime.kind === 'local' && <button
             type="button"
             onClick={toggleTheme}
             title={dark ? 'Light mode' : 'Dark mode'}
@@ -608,7 +618,7 @@ export default function App() {
           >
             {dark ? <Sun className="h-[15px] w-[15px] shrink-0" /> : <Moon className="h-[15px] w-[15px] shrink-0" />}
             {sidebarOpen && <span>{dark ? 'Light mode' : 'Dark mode'}</span>}
-          </button>
+          </button>}
           <button
             type="button"
             className={cn(
@@ -634,7 +644,7 @@ export default function App() {
         {/* ── Main Content ────────────────────────────────────────────── */}
         <Panel className="flex flex-col min-h-0 overflow-hidden bg-card">
         <Routes>
-          <Route path="/" element={<div className="flex-1 overflow-auto h-full"><WelcomeView /></div>} />
+          <Route path="/" element={<div className="flex-1 overflow-auto h-full">{runtime.kind === 'embedded' ? <DirectoryView /> : <WelcomeView />}</div>} />
           <Route path="/lineage" element={<PipelineInspector catalog={activeCatalog} />} />
           <Route path="/table/*" element={<div className="flex-1 flex flex-col h-full bg-card"><TableView /></div>} />
           <Route path="/dir/*" element={<div className="flex-1 overflow-auto h-full"><DirectoryView /></div>} />
