@@ -330,7 +330,10 @@
           {
             "group": "Observability",
             "pages": [
-              "integrations/langfuse"
+              "integrations/langfuse",
+              "integrations/phoenix",
+              "integrations/logfire",
+              "integrations/signoz"
             ]
           },
           {
