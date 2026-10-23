@@ -263,7 +263,7 @@ async def _bedrock_async_invocation(
             elapsed += _ASYNC_INVOCATION_POLL_INTERVAL_SECS
             if elapsed > _ASYNC_INVOCATION_TIMEOUT_SECS:
                 raise pxt.ExternalServiceError(
-                    pxt.ErrorCode.PROVIDER_TIMEOUT,
+                    pxt.ErrorCode.PROVIDER_JOB_TIMEOUT,
                     f'Async invocation {invocation_id} timed out after {_ASYNC_INVOCATION_TIMEOUT_SECS}s',
                     provider='bedrock',
                 )
@@ -290,7 +290,7 @@ async def _bedrock_async_invocation(
         keys = [obj['Key'] for obj in listed.get('Contents', [])]
         if not keys:
             raise pxt.ExternalServiceError(
-                pxt.ErrorCode.PROVIDER_ERROR,
+                pxt.ErrorCode.PROVIDER_INVALID_RESPONSE,
                 f'No output found at {output_location}/{invocation_id} after job {invocation_id} completed',
                 provider='bedrock',
             )
@@ -298,7 +298,7 @@ async def _bedrock_async_invocation(
         result_key = next((k for k in keys if not k.endswith('manifest.json')), None)
         if result_key is None:
             raise pxt.ExternalServiceError(
-                pxt.ErrorCode.PROVIDER_ERROR,
+                pxt.ErrorCode.PROVIDER_INVALID_RESPONSE,
                 f'No output file (only manifest) found for job {invocation_id}',
                 provider='bedrock',
             )

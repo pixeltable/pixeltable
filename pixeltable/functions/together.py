@@ -235,7 +235,7 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
                 provider='together',
             ) from exc
     raise excs.ExternalServiceError(
-        excs.ErrorCode.PROVIDER_ERROR, 'Response does not contain a generated image.', provider='together'
+        excs.ErrorCode.PROVIDER_INVALID_RESPONSE, 'Response does not contain a generated image.', provider='together'
     )
 
 

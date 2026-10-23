@@ -575,7 +575,7 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
         data = response.candidates[0].content.parts[0].inline_data.data
     except (IndexError, AttributeError, TypeError) as exc:
         raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR,
+            excs.ErrorCode.PROVIDER_INVALID_RESPONSE,
             f'Gemini TTS returned unexpected response structure for model {model}.',
             provider='gemini',
         ) from exc
@@ -646,7 +646,7 @@ async def _(text: str, *, model: str, voices: dict[str, str], config: dict | Non
         data = response.candidates[0].content.parts[0].inline_data.data
     except (IndexError, AttributeError, TypeError) as exc:
         raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR,
+            excs.ErrorCode.PROVIDER_INVALID_RESPONSE,
             f'Gemini multi-speaker TTS returned unexpected response structure for model {model}.',
             provider='gemini',
         ) from exc
@@ -869,7 +869,7 @@ async def _embed_content(
     result = await client.aio.models.embed_content(model=model, contents=contents_, config=config_)
     if len(result.embeddings) != len(contents):
         raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR,
+            excs.ErrorCode.PROVIDER_INVALID_RESPONSE,
             f'Unexpected response from Gemini server: number of embeddings returned ({len(result.embeddings)}) '
             f'does not match request batch size ({len(contents)}).',
             provider='gemini',
