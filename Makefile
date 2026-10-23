@@ -255,7 +255,7 @@ clean:
 	@rm -f pixeltable/catalog/model.pyi pixeltable/catalog/model/definition.pyi pixeltable/catalog/model/declaration.pyi || true
 	@rm -rf .make-install || true
 	@rm -rf .mypy_cache || true
-	@rm -rf pixeltable_cli/server/static || true
+	@rm -rf pixeltable_cli/server/static pixeltable_cli/server/embedded || true
 	@rm -rf site || true
 	@rm -rf target || true
 	@rm -rf tests/target || true

@@ -16,9 +16,10 @@ describe('embedded media boundary', () => {
   it('rejects foreign references, arbitrary URLs and HTML before calling a tool', async () => {
     const callServerTool = vi.fn();
     const resolve = createMcpMediaResolver({ callServerTool }, 'pxt://org:main');
-    for (const value of ['https://private.example/image', 'data:text/html;base64,YQ==', location({ ...reference, db: 'other' }), 'pxt-preview:%FF']) {
-      await expect(resolve(value)).rejects.toThrow();
+    for (const value of ['https://private.example/image', 'data:text/html;base64,YQ==', location({ ...reference, fingerprint: 'not-a-hash' }), 'pxt-preview:%FF']) {
+      await expect(resolve(value)).rejects.toThrow('This media cannot be previewed in chat. Open it in Pixeltable Cloud.');
     }
+    await expect(resolve(location({ ...reference, db: 'other' }))).rejects.toThrow('This media belongs to another catalog.');
     expect(callServerTool).not.toHaveBeenCalled();
   });
 });

@@ -2240,7 +2240,11 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
                   return (
                     <div key={col.name} className="flex flex-col">
                       <span className="text-[11px] text-muted-foreground">{col.name}</span>
-                      <Cell value={filteredRows[expandedRow][col.name]} column={col} error={rowErrors?.[col.name]} />
+                      <Cell value={filteredRows[expandedRow][col.name]} column={col} error={rowErrors?.[col.name]}
+                        onMediaExpand={col.is_media ? () => {
+                          setLightboxCell({ rowIdx: expandedRow, colName: col.name })
+                          setExpandedRow(null)
+                        } : undefined} />
                     </div>
                   )
                 })}

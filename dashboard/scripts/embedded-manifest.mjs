@@ -7,7 +7,9 @@ if (html.byteLength > 1024 * 1024) throw new Error('Embedded dashboard exceeds t
 const manifest = {
   contractVersion: 1,
   sourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
-  sourceDirty: execFileSync('git', ['status', '--porcelain', '--', 'dashboard'], { encoding: 'utf8' }).trim().length > 0,
+  sourceDirty: execFileSync('git', ['status', '--porcelain', '--', ':(top)dashboard'], {
+    cwd: new URL('../..', import.meta.url), encoding: 'utf8',
+  }).trim().length > 0,
   sha256: createHash('sha256').update(html).digest('hex'),
   bytes: html.byteLength,
 };
