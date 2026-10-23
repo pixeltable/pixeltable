@@ -2008,6 +2008,14 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='resource_pool requires an async function'):
             t3.insert([{'num': 1}])
 
+    def test_resource_pool_in_json_mapper(self, db_root: DatabaseRoot) -> None:
+        """A UDF with a resource_pool runs when a JsonMapper calls it per element, as invoke_tools() does."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_mapped_rp'), {'id': pxt.Int | None, 'words': pxt.Json | None})
+        t.add_computed_column(shouted=pxtf.map(t.words, lambda w: mapped_udf_with_rp(w)))
+        validate_update_status(t.insert([{'id': 0, 'words': ['a', 'b']}, {'id': 1, 'words': ['c']}]))
+        assert [row['shouted'] for row in t.order_by(t.id).collect()] == [['A', 'B'], ['C']]
+
     def test_future_annotations_udf(self, db_root: DatabaseRoot) -> None:
         """Tests that UDFs can be defined in modules with `from __future__ import annotations`."""
         p = db_root.make_catalog_path
@@ -2096,6 +2104,11 @@ def sync_udf_with_rp(text: str) -> str:
 @pxt.udf(batch_size=4, resource_pool='request-rate:test-sync-batch')
 def sync_batched_udf_with_rp(texts: Batch[str]) -> Batch[str]:
     return [t.upper() for t in texts]
+
+
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:test-mapped')
+async def mapped_udf_with_rp(text: str) -> str:
+    return text.upper()
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:test-sync-poly')
