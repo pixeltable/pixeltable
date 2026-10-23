@@ -241,7 +241,7 @@ class TestExprs:
 
     @pytest.mark.db_roots('local', reason='inspects in-process DataRows')
     @pytest.mark.parametrize('udf_name', ['raise_sync', 'raise_async', 'raise_rate_limited'])
-    def test_errored_rows_released(self, uses_db: None, udf_name: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_errored_rows_released(self, uses_db: None, udf_name: str) -> None:
         """A row whose evaluation raised is garbage-collected after the insert.
 
         The recorded exception's traceback references the row through the frame that caught it, so the row is part
@@ -249,13 +249,16 @@ class TestExprs:
         """
 
         def num_errored_rows() -> int:
+            # pytest's log capture handlers keep the record of each _logger.exception() call in the rate-limits
+            # scheduler, and through its traceback the rows
+            for logger in (logging.getLogger(), logging.getLogger('pixeltable')):
+                for handler in logger.handlers:
+                    records = getattr(handler, 'records', None)
+                    if isinstance(records, list):
+                        records.clear()
             gc.collect()
             return sum(1 for obj in gc.get_objects() if isinstance(obj, exprs.DataRow) and obj.has_exc())
 
-        # The rate-limits scheduler logs the exception with its traceback, and pytest's log capture would hold that
-        # record, and with it the rows, until the end of the test. Env turns off propagation for the pixeltable logger,
-        # but it was on in the nightly of 2026-10-23, for a reason not yet found.
-        monkeypatch.setattr(logging.getLogger('pixeltable'), 'propagate', False)
         baseline = num_errored_rows()
         t = pxt.create_table('errored_rows', {'x': pxt.Int})
         t.add_computed_column(y=getattr(self, udf_name)(t.x))
