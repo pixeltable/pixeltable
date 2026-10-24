@@ -34,6 +34,14 @@ pub struct CallResults {
     nodes: Vec<(usize, Vec<Option<Result<Value>>>)>,
 }
 
+impl CallResults {
+    /// True if the calls of node `e` were made.
+    pub fn contains(&self, e: &Expr) -> bool {
+        let key = node_key(e);
+        self.nodes.iter().any(|(k, _)| *k == key)
+    }
+}
+
 /// What a row context needs to find prefetched outcomes: the batch's results and the row's index in the batch.
 #[derive(Clone, Copy)]
 pub struct CallSlot<'a> {

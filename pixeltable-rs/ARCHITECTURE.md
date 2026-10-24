@@ -66,6 +66,7 @@ src/
                     commit)
   exec/prefetch.rs  batched evaluation, phase A: user-function calls of a batch of rows made before row evaluation
   exec/dispatch.rs  running those calls: UDF worker pool, async event loop, batches, resource pools
+  exec/par.rs       data parallelism (rayon) for pure-Rust evaluation and sorting; is_pure()
   exec/compute_rows.rs Table.compute(): rows a table would hold for some input rows, nothing stored
   exec/index.rs     AddIndexPlan: embeddings of existing rows for a new embedding index
   bindings/         PyO3 glue only: types.rs (_core.ColumnType), expr.rs (_core.Expr, MethodRef), catalog.rs
@@ -295,6 +296,16 @@ at most `rate_limit` requests per minute (config `<endpoint>.rate_limit` / `<end
 600), `rate-limits:...` only limits concurrency (upstream's provider-reported limits need its internal `Env`); failed
 calls that look retryable (`_runtime.retry_info()`, upstream's `is_retryable_error()`) are retried with upstream's
 delays (3 resp. 10 times), and a pool starts no new request while a retry is pending.
+
+Pure-Rust work runs without the GIL: the bindings detach from the interpreter around query execution, `count()`,
+insert/update/add_computed_column/index computation (`py.detach`), and code that needs Python attaches again (user
+code, media helpers). Query stages evaluate their expressions over rows in parallel with rayon (`exec::par`, from
+`MIN_PARALLEL_ROWS` rows: the where clause, ordering keys, grouping keys and aggregate arguments, join keys and
+predicates, the select list) when the expressions are pure (`par::is_pure()`: no user code except prefetched calls, no
+Python-backed builtin, no iterator output or media validated on read); results are collected in row order and the
+first failing row's error is reported, as sequentially. Sorting sorts row indices (stable, `par::sort_by()`), and with a
+limit selects the first `offset + limit` rows without sorting the rest. Group and join keys are typed (`KeyPart`, SQL
+equality). Aggregate state updates and window functions stay sequential, in row order.
 
 The contract, which every phase-B caller relies on:
 - outcomes equal sequential evaluation: each row gets its value or its error (a failed batch fails each of its rows);

@@ -282,7 +282,7 @@ pub fn tbl_add_embedding_index<'py>(
     let plan = with_catalog(py, |cat| AddIndexPlan::new(cat, id, spec, value_expr, &col.name, replace))?;
     let mut stats = crate::catalog::table::RowCountStats::default();
     let mut cols_with_excs = Vec::new();
-    let values = plan.compute(&mut stats, &mut cols_with_excs)?;
+    let values = py.detach(|| plan.compute(&mut stats, &mut cols_with_excs))?;
     with_catalog(py, |cat| plan.commit(cat, values, stats, cols_with_excs))?;
     Ok(())
 }

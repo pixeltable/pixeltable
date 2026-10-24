@@ -28,6 +28,8 @@ chrono-tz = "0.10"
 unicode-normalization = "0.1"
 toml = { version = "0.8", default-features = false, features = ["parse"] }
 rayon = "1.10"
+smallvec = "1.13"
+rustc-hash = "2"
 
 [profile.release]
 opt-level = 3

@@ -246,7 +246,7 @@ fn check_where_bound(cat: &Catalog, tbl_id: Uuid, pred: &Expr) -> Result<()> {
 
 /// Computes and commits an update; returns its status dict (with the updated rows if the plan asks for them).
 fn run_update<'py>(py: Python<'py>, plan: UpdatePlan, fail_on_exception: bool) -> Result<Bound<'py, PyDict>> {
-    let out = plan.compute(fail_on_exception)?;
+    let out = py.detach(|| plan.compute(fail_on_exception))?;
     let rows = if plan.return_cols.is_some() { out.own.new_rows.clone() } else { Vec::new() };
     let status = with_catalog(py, |cat| plan.commit(cat, out))?;
     let d = status_dict(py, &status)?;
@@ -474,7 +474,7 @@ pub fn tbl_batch_update<'py>(
         let unmatched: Vec<usize> = keys_in_order.iter().enumerate().filter(|(_, k)| k.is_none()).map(|(i, _)| i).collect();
         Ok((plan, unmatched))
     })?;
-    let out = plan.compute(false)?;
+    let out = py.detach(|| plan.compute(false))?;
     let mut returned = if plan.return_cols.is_some() { out.own.new_rows.clone() } else { Vec::new() };
     let mut unmatched_idx = unmatched_idx;
     // rowids that match no live row
@@ -500,7 +500,7 @@ pub fn tbl_batch_update<'py>(
             })
             .collect();
         let ins_plan = with_catalog(py, |cat| InsertPlan::new(cat, id, None))?;
-        let built = insert::build_rows(&ins_plan, rows, false)?;
+        let built = py.detach(|| insert::build_rows(&ins_plan, rows, false))?;
         if plan.return_cols.is_some() {
             returned.extend(built.rows.iter().cloned());
         }

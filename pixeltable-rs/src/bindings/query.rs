@@ -74,7 +74,8 @@ fn limit_arg(obj: &Bound<'_, PyAny>, name: &str) -> Result<LimitArg> {
 
 fn run(py: Python<'_>, q: &QuerySpec, rowid_desc: bool) -> Result<ResultData> {
     let input = with_catalog(py, |cat| QueryInput::snapshot(cat, q))?;
-    execute(&input, rowid_desc)
+    // execution calls into Python only for user code and media, which attach again
+    py.detach(|| execute(&input, rowid_desc))
 }
 
 /// Upstream `_validate_constant_type_range()` for `sample()` parameters: a constant of the required type, in range.
@@ -416,7 +417,7 @@ impl PyQuerySpec {
 
     fn count(&self, py: Python<'_>) -> Result<usize> {
         let input = with_catalog(py, |cat| QueryInput::snapshot(cat, &self.q))?;
-        count(&input)
+        py.detach(|| count(&input))
     }
 
     /// name -> ColumnType of the result columns

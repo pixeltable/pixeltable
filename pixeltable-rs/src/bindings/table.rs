@@ -146,7 +146,7 @@ pub fn returned_rows_to_py<'py>(py: Python<'py>, cols: &[ReturnCol], rows: &[&St
 /// result rows as input rows of `plan`.
 pub fn query_input_rows(py: Python<'_>, q: &crate::exec::QuerySpec, plan: &InsertPlan) -> Result<Vec<InputRow>> {
     let input = with_catalog(py, |cat| crate::exec::QueryInput::snapshot(cat, q))?;
-    let result = crate::exec::execute(&input, false)?;
+    let result = py.detach(|| crate::exec::execute(&input, false))?;
     let mut targets = Vec::with_capacity(result.names.len());
     for name in &result.names {
         let col = plan.column(name).ok_or_else(|| crate::pxt_err!(ColumnNotFound, "Unknown column name {name}"))?;
@@ -222,7 +222,7 @@ pub fn insert_rows<'py>(
     fail_on_exception: bool,
     return_rows: bool,
 ) -> Result<Bound<'py, PyDict>> {
-    let built = insert::build_rows(plan, rows, fail_on_exception)?;
+    let built = py.detach(|| insert::build_rows(plan, rows, fail_on_exception))?;
     let returned = if return_rows {
         let cols = with_catalog(py, |cat| insert::return_columns(cat, plan.tbl_id))?;
         Some(returned_rows_to_py(py, &cols, &built.rows.iter().collect::<Vec<_>>())?)
@@ -587,7 +587,7 @@ pub fn tbl_add_computed_column<'py>(
     let mut stats = RowCountStats::default();
     let mut cols_with_excs = Vec::new();
     let mut saved = Vec::new();
-    let values = match plan.compute(fail_on_exception, &mut stats, &mut cols_with_excs, &mut saved) {
+    let values = match py.detach(|| plan.compute(fail_on_exception, &mut stats, &mut cols_with_excs, &mut saved)) {
         Ok(v) => v,
         Err(e) => {
             crate::exec::compute::discard_media(&saved);
