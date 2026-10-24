@@ -135,6 +135,13 @@ The placeholder decorators in `python/pixeltable/func/__init__.py` already captu
 (`Arc<TableData>`). `catalog::runtime::with_catalog(py, |cat| ...)` gives exclusive access; the catalog is loaded
 from the store on first use, dropped by `reload_catalog()` and wiped by `reset_db()`.
 
+Atomicity: each `with_catalog` call is atomic. `Catalog::checkpoint()` captures the in-memory state (maps of `Arc`s,
+cheap); if the closure fails, `Catalog::finish()` restores it, rewrites `catalog.json` if the operation had already
+committed, and removes the data files it wrote. Never delete files directly: use `defer_delete_*` (applied only
+when the operation succeeds). An operation that spans several lock acquisitions (plan/compute/commit) is atomic
+only in its commit step, so put every mutation into the commit step (see `AddComputedPlan::commit`, which also
+performs the `if_exists='replace'` drop).
+
 Locking rule: never run user Python code (UDFs, generators, pydantic serializers) while holding the catalog lock.
 Operations that may do so are split into plan (lock) -> compute (no lock) -> commit (lock, re-check the schema
 version): see `exec/insert.rs` and `exec/compute.rs`. Queries snapshot `Arc`s of metadata and data
@@ -152,6 +159,10 @@ version, deletes/updates will close `v_max` (updates re-insert with the same row
 so added columns read NULL for older rows and dropped columns keep their cells for older versions. Operational tables
 (`_is_data_versioned=False`) bump the version only for schema changes. `get_table('t:3')` pins a handle to version 3
 (queries read rows and schema as of 3).
+
+Performance note: a mutation currently copies the table's whole `TableData` and rewrites its data file (O(rows)
+per insert). The intended evolution is segment-based storage (`TableData` = list of `Arc` segments, one file per
+segment; inserts add a segment, deletes/updates rewrite only the affected segments).
 
 Views (`catalog/views.rs`) have no rows of their own yet: a query over a view scans its base (at the pinned version
 for snapshots) with the view predicates applied (`ScanSource`), and the view's columns are its base's columns. To
