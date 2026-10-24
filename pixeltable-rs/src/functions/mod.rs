@@ -14,6 +14,7 @@
 
 pub mod math;
 pub mod string;
+pub mod uuid;
 
 use pyo3::prelude::*;
 use serde_json::json;
@@ -56,7 +57,7 @@ fn registry() -> &'static HashMap<String, &'static Builtin> {
     static REGISTRY: OnceLock<HashMap<String, &'static Builtin>> = OnceLock::new();
     REGISTRY.get_or_init(|| {
         let mut m = HashMap::new();
-        for table in [string::FUNCTIONS, math::FUNCTIONS] {
+        for table in [string::FUNCTIONS, math::FUNCTIONS, uuid::FUNCTIONS] {
             for b in table {
                 m.insert(b.qualified_name(), b);
             }
