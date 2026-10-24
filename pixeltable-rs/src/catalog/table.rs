@@ -254,6 +254,10 @@ pub struct ViewMd {
     /// false for a view defined by a query with a select list: only its own columns are visible
     #[serde(default = "default_true")]
     pub include_base_columns: bool,
+    /// component views: the serialized iterator call (`functions::iterator::IteratorCall::to_json()`); its outputs
+    /// (`pos` first) are the view's first columns
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iterator: Option<Json>,
 }
 
 impl ViewMd {
@@ -377,6 +381,27 @@ impl TableMd {
 
     pub fn is_snapshot(&self) -> bool {
         self.view.as_ref().is_some_and(|v| v.is_snapshot)
+    }
+
+    /// True for a component view (a view defined by an iterator).
+    pub fn is_component_view(&self) -> bool {
+        self.view.as_ref().is_some_and(|v| v.iterator.is_some())
+    }
+
+    /// The number of iterator output columns (`pos` and the outputs; they are the first columns of a component view).
+    pub fn num_iterator_cols(&self) -> usize {
+        self.view
+            .as_ref()
+            .and_then(|v| v.iterator.as_ref())
+            .and_then(|i| i.get("outputs"))
+            .and_then(|o| o.as_object())
+            .map(|o| o.len())
+            .unwrap_or(0)
+    }
+
+    /// True if column `col_id` is produced by the view's iterator.
+    pub fn is_iterator_col(&self, col_id: ColId) -> bool {
+        (col_id as usize) < self.num_iterator_cols()
     }
 
     /// A snapshot without columns or filter: it has no rows of its own and reads its (pinned) bases.

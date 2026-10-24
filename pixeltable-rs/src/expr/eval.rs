@@ -209,6 +209,16 @@ pub fn compare(op: CmpOp, a: &Value, b: &Value) -> Value {
     if a.is_null() || b.is_null() {
         return Value::Null;
     }
+    // a media cell compared with a string: the string names a file as a media input does (a path or a URL)
+    match (a, b) {
+        (Value::Media(_), Value::String(s)) => {
+            return compare(op, a, &Value::Media(crate::media::normalize_input(s)));
+        }
+        (Value::String(s), Value::Media(_)) => {
+            return compare(op, &Value::Media(crate::media::normalize_input(s)), b);
+        }
+        _ => {}
+    }
     let ord = cmp_values(a, b);
     let eq = values_equal(a, b);
     Value::Bool(match op {

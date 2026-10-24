@@ -427,7 +427,7 @@ pub fn tbl_metadata<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
             cm.set_item("defined_in", &owner.name)?;
             cm.set_item("comment", &c.md.comment)?;
             cm.set_item("custom_metadata", vpy::json_to_py(py, &c.md.custom_metadata)?)?;
-            cm.set_item("is_iterator_col", false)?;
+            cm.set_item("is_iterator_col", owner.is_iterator_col(c.md.id))?;
             cm.set_item("destination", &c.md.destination)?;
             columns.set_item(&c.name, cm)?;
         }
@@ -474,7 +474,11 @@ pub fn tbl_metadata<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
         };
         d.set_item("view_filter", view_filter)?;
         d.set_item("view_sample", py.None())?;
-        d.set_item("iterator_call", py.None())?;
+        let iterator_call = match md.view.as_ref().and_then(|v| v.iterator.as_ref()) {
+            Some(j) => Some(crate::functions::iterator::IteratorCall::from_json(j)?.display()),
+            None => None,
+        };
+        d.set_item("iterator_call", iterator_call)?;
         Ok(d)
     })
 }

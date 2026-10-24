@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use super::compute::{ComputedCol, cell_error, eval_error};
 use crate::catalog::Catalog;
+use crate::functions::iterator::IteratorCall;
 use crate::catalog::table::{ColId, RowCountStats, TableMd};
 use crate::catalog::views::PathElem;
 use crate::error::{Error, Result};
@@ -28,6 +29,25 @@ pub struct ElemInfo {
     pub unstored: HashMap<ColId, ExprRef>,
     /// the table's media columns that are validated on read
     pub read_validation: Option<Arc<crate::media::ReadValidation>>,
+    /// component views: the iterator, whose `pos` column reads the row key and whose unstored outputs are produced
+    /// again on read (`IteratorCall::seek_row`)
+    pub iterator: Option<Arc<IterInfo>>,
+}
+
+/// The iterator of a component view, as a scan reads its columns.
+pub struct IterInfo {
+    pub call: Arc<IteratorCall>,
+    /// the column of each value output (`call.value_outputs()`), with its output index and whether it is stored
+    pub outputs: Vec<(ColId, usize, bool)>,
+}
+
+impl IterInfo {
+    pub fn of(md: &TableMd) -> Result<Option<IterInfo>> {
+        let Some(j) = md.view.as_ref().and_then(|v| v.iterator.as_ref()) else { return Ok(None) };
+        let call = Arc::new(IteratorCall::from_json(j)?);
+        let outputs = call.value_outputs().iter().enumerate().map(|(i, o)| ((i + 1) as ColId, i, o.is_stored)).collect();
+        Ok(Some(IterInfo { call, outputs }))
+    }
 }
 
 impl std::fmt::Debug for ElemInfo {
@@ -47,7 +67,22 @@ impl ElemInfo {
                 }
             }
         }
-        Ok(ElemInfo { tbl_id: md.id, unstored, read_validation: Some(Arc::new(crate::media::ReadValidation::for_table(md)?)) })
+        Ok(ElemInfo {
+            tbl_id: md.id,
+            unstored,
+            read_validation: Some(Arc::new(crate::media::ReadValidation::for_table(md)?)),
+            iterator: IterInfo::of(md)?.map(Arc::new),
+        })
+    }
+
+    /// The same table, with the unstored iterator outputs read from the row (while a row is being computed, all
+    /// outputs are in its cells).
+    pub fn with_materialized_outputs(&self) -> ElemInfo {
+        let mut out = self.clone();
+        if let Some(it) = &self.iterator {
+            out.iterator = Some(Arc::new(IterInfo { call: it.call.clone(), outputs: it.outputs.iter().map(|(c, i, _)| (*c, *i, true)).collect() }));
+        }
+        out
     }
 
     /// For a read-validated media column with a file: the validation error, if any.
@@ -76,12 +111,6 @@ pub struct PathInput {
     pub elems: Vec<ElemInput>,
 }
 
-/// The number of iterator positions in the row keys of a table (one per component view in its path).
-pub fn num_pos(cat: &Catalog, tbl_id: Uuid) -> usize {
-    let _ = (cat, tbl_id);
-    0
-}
-
 impl PathInput {
     pub fn snapshot(cat: &mut Catalog, path: &[PathElem]) -> Result<PathInput> {
         let mut elems = Vec::with_capacity(path.len());
@@ -90,10 +119,18 @@ impl PathInput {
             let version = e.pinned.unwrap_or(md.current_version);
             let info = ElemInfo::of(&md, e.pinned)?;
             let data = cat.data(e.tbl_id)?;
-            elems.push(ElemInput { info, version, data, num_pos: num_pos(cat, e.tbl_id) });
+            elems.push(ElemInput { info, version, data, num_pos: 0 });
         }
         if elems.is_empty() {
             return Err(Error::internal("empty table path"));
+        }
+        // key lengths: one iterator position per component view from the element to the root
+        let mut n = 0;
+        for e in elems.iter_mut().rev() {
+            if e.info.iterator.is_some() {
+                n += 1;
+            }
+            e.num_pos = n;
         }
         Ok(PathInput { elems })
     }
@@ -161,6 +198,24 @@ impl RowContext for PathCtx<'_> {
             return eval(e, self);
         }
         let Some(row) = self.rows.get(i) else { return Ok(Value::Null) };
+        if let Some(it) = &self.elems[i].iterator {
+            if col.col_id == 0 {
+                // `pos`: the row's own iterator position
+                return Ok(row.pos.last().map(|p| Value::Int(*p)).unwrap_or(Value::Null));
+            }
+            if let Some((_, idx, false)) = it.outputs.iter().find(|(c, _, _)| *c == col.col_id) {
+                let stored: Vec<(String, Value)> = it
+                    .outputs
+                    .iter()
+                    .filter(|(_, _, s)| *s)
+                    .map(|(c, j, _)| (it.call.value_outputs()[*j].name.clone(), row.cell(*c).clone()))
+                    .collect();
+                let base = PathCtx { elems: &self.elems[i + 1..], rows: &self.rows[i + 1..], python: self.python };
+                let pos = row.pos.last().copied().unwrap_or(0);
+                let values = it.call.seek_row(&base, pos, &stored)?;
+                return Ok(values.get(*idx).cloned().unwrap_or(Value::Null));
+            }
+        }
         if let Some(Some(_)) = self.elems[i].read_validation_error(row, col.col_id) {
             // an invalid file reads as NULL; its error is the cell's error
             return Ok(Value::Null);
