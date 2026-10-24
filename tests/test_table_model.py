@@ -2322,17 +2322,35 @@ class TestTableModel:
                 id: pxt.Int | None
                 bad = Column()
 
-        # `references columns that are not in the model's scope` is raised at `create()` time, when a computed
-        # column refers to a column outside the model (here, a column belonging to a different, unbound model).
+        # a column reference that belongs to a different model is rejected by the class definition itself,
+        # whether or not the name would collide with one of the model's own columns
         class OtherModel(TableModel, name='other_model'):
             x: pxt.Int | None
 
-        class RefsOutOfScope(TableModel, name='refs_out_of_scope'):
-            y: pxt.Int | None
-            bad = OtherModel.x + 1
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r"references columns of models outside its base: \['OtherModel.x'\]"
+        ):
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"references columns that are not in the model's scope"):
-            RefsOutOfScope._create(p(''))
+            class RefsOutOfScope(TableModel, name='refs_out_of_scope'):
+                y: pxt.Int | None
+                bad = OtherModel.x + 1
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r"references columns of models outside its base: \['OtherModel.x'\]"
+        ):
+
+            class RefsCollidingName(TableModel, name='refs_colliding_name'):
+                x: pxt.Int | None
+                bad = OtherModel.x + 1
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r'references a column of a model outside its base: `OtherModel.x`'
+        ):
+
+            class RefsInIndex(TableModel, name='refs_in_index'):
+                x: pxt.Int | None
+
+                __indexes__ = [BtreeIndex(OtherModel.x)]
 
         class NullablePk(TableModel, name='nullable_pk'):
             note_id = Column(type=pxt.Int | None, primary_key=True)
