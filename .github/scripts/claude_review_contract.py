@@ -16,6 +16,7 @@ KINDS = {'defect', 'design', 'rule', 'maintenance'}
 AGENT_FILES = {'CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', '.claude', '.mcp.json'}
 STATE_MARKER = '<!-- pxt-review-state\n'
 MAX_JSON_BYTES = 2_000_000
+MAX_SOURCES_BYTES = 20_000_000
 MAX_BODY_BYTES = 60_000
 
 
@@ -29,6 +30,21 @@ def read_json(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding='utf-8'))
     if not isinstance(value, dict):
         raise ValueError('Expected a JSON object')
+    if 'sources_path' in value and 'sources' not in value:
+        sources_path = Path(text(value.get('sources_path'), 'sources_path'))
+        if not sources_path.is_absolute():
+            sources_path = path.parent / sources_path
+        elif not sources_path.exists() and (path.parent / sources_path.name).exists():
+            sources_path = path.parent / sources_path.name
+        if sources_path.stat().st_size > MAX_SOURCES_BYTES:
+            raise ValueError('Prepared source index exceeds the review size limit')
+        raw = sources_path.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != value.get('sources_sha256'):
+            raise ValueError('Prepared source index changed')
+        extra = json.loads(raw.decode('utf-8'))
+        if not isinstance(extra, dict):
+            raise ValueError('Expected a JSON object')
+        value.update(extra)
     return value
 
 
@@ -140,6 +156,10 @@ def reference(ref: Any, manifest: dict[str, Any], historical: dict[str, Any] | N
 
 
 def verify_sources(manifest: dict[str, Any]) -> None:
+    if 'sources_path' in manifest:
+        raw = Path(text(manifest.get('sources_path'), 'sources_path')).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != manifest.get('sources_sha256'):
+            raise ValueError('Prepared source index changed')
     for path, expected_hash in manifest.get('tooling_files', {}).items():
         content = (Path(manifest['tooling_root']) / repository_path(path)).read_bytes()
         if hashlib.sha256(content).hexdigest() != expected_hash:
@@ -201,11 +221,12 @@ def same_identity(claim: dict[str, Any], earlier: dict[str, Any], manifest: dict
     renames = {change['old_path']: path for path, change in manifest['diff_files'].items() if change['old_path']}
     renames.update(manifest.get('previous_renames', {}))
     for old, path in renames.items():
-        if (
-            old
-            and old != path
-            and earlier['subject'].startswith(old + '#')
-            and claim['subject'] == path + earlier['subject'][len(old) :]
+        if not old or old == path:
+            continue
+        if earlier['subject'] == old and claim['subject'] == path:
+            return True
+        if earlier['subject'].startswith((old + '#', old + ':')) and (
+            claim['subject'] == path + earlier['subject'][len(old) :]
         ):
             return True
     return False
@@ -279,12 +300,18 @@ def validate(data: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
         for d in data['decisions']
         if isinstance(d, dict) and d.get('decision') in {'resolved', 'reject', 'question'}
     }
+    historical_candidates = closing | {
+        d.get('finding_id') for d in data['decisions'] if isinstance(d, dict) and d.get('decision') == 'narrow'
+    }
     for claim in data['findings']:
         earlier = previous.get(claim.get('id'), {}).get('claim') if isinstance(claim, dict) else None
-        historical = earlier if isinstance(claim, dict) and claim.get('id') in closing else None
+        historical = earlier if isinstance(claim, dict) and claim.get('id') in historical_candidates else None
         validate_claim(claim, manifest, historical)
         key = claim['id']
-        if key in findings or claim['producer'] not in passes:
+        valid_producer = claim['producer'] in passes or (
+            earlier is not None and claim['producer'] == earlier['producer']
+        )
+        if key in findings or not valid_producer:
             raise ValueError('Finding has a duplicate ID or an unknown producer')
         findings[key] = claim
     decisions: dict[str, Any] = {}
@@ -307,6 +334,8 @@ def validate(data: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
             text(decision.get('check'), 'check')
             gaps.append(f'{key}: decisive fact remains unresolved')
         if decision['decision'] == 'resolved':
+            if key not in previous:
+                raise ValueError('Only a prior claim can be resolved')
             fixes = decision.get('fix_evidence', [])
             removed = decision.get('removed_paths', [])
             if not isinstance(fixes, list) or not isinstance(removed, list) or not (fixes or removed):
@@ -407,6 +436,7 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
     elif checked['status'] == 'skipped':
         body += ['', 'Skipped: ' + checked['reason']]
     comments: list[dict[str, Any]] = []
+    maintenance: list[str] = []
     questions = list(data['questions'])
     previous = {r['claim']['id']: r for r in manifest.get('previous', {}).get('records', [])}
     records: dict[str, Any] = {
@@ -436,9 +466,8 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
             questions.append({'unknown': decision['unknown'], 'check': decision['check']})
             continue
         if verdict == 'resolved':
-            if not record['ever_posted']:
-                raise ValueError('Only a previously posted claim can be resolved')
-            body += ['', f'Resolved: {claim["title"]}. {decision["reason"]}']
+            if record['ever_posted']:
+                body += ['', f'Resolved: {claim["title"]}. {decision["reason"]}']
             continue
         if verdict == 'reject':
             continue
@@ -449,19 +478,24 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
         label = claim.get('severity') if claim['kind'] == 'defect' else claim['kind'].title()
         comment_body = f'**{label}: {claim["title"]}**\n\n{claim["comment"]}'
         ref = claim['evidence'][0]
-        body += ['', f'- {claim["title"]}: [source]({source_link(ref, manifest)}).']
+        link = f'[source]({source_link(ref, manifest)})'
         location = claim.get('location')
-        if claim['kind'] != 'maintenance' and location is not None and inline_valid(location, manifest['diff_files']):
+        if claim['kind'] == 'maintenance':
+            maintenance.append(f'- **{claim["title"]}** ({link}): {claim["comment"]}')
+        elif location is not None and inline_valid(location, manifest['diff_files']):
+            body += ['', f'- **{label}: {claim["title"]}** ({link}).']
             comment = {k: location[k] for k in ['path', 'line']}
             comment |= {'side': location.get('side', 'RIGHT'), 'body': comment_body}
             if location.get('start_line', location['line']) < location['line']:
                 comment |= {'start_line': location['start_line'], 'start_side': comment['side']}
             comments.append(comment)
         else:
-            body += ['', comment_body]
+            body += ['', f'- **{label}: {claim["title"]}** ({link}): {claim["comment"]}']
         published += 1
     if not published and checked['status'] == 'complete':
         body += ['', 'No new supported findings.' if previous else 'No supported findings.']
+    if maintenance:
+        body += ['', '### Maintenance suggestions', '', *maintenance]
     if questions:
         body += ['', '### Questions', '']
         body += [f'- {q["unknown"]} Check: {q["check"]}' for q in questions]

@@ -16,7 +16,8 @@ python .github/scripts/prepare_claude_review.py "$pr_url" --output "$review_dir"
 Use an open PR for routine reviews. Set `PXT_REVIEW_ALLOW_CLOSED=1` only when preparing a historical evaluation case.
 Add `--focus "error paths"` during preparation to require the focus pass. Prior bot records are input for current
 verification. `--no-history` starts an independent evaluation without prior records.
-Use `--focus="--strict"` when the focus starts with a dash. Preparation rejects oversized manifests before model work.
+Use `--focus="--strict"` when the focus starts with a dash. Preparation writes a compact `manifest.json` for Claude and
+a companion `sources.json` with full-tree line counts and SHA-256 digests for host validation.
 
 Run the command in Claude Code:
 

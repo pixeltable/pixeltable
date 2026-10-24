@@ -14,6 +14,7 @@ from typing import Any
 from claude_review_contract import (
     AGENT_FILES,
     MAX_JSON_BYTES,
+    MAX_SOURCES_BYTES,
     REQUIRED_PASSES,
     STATE_MARKER,
     VERSION,
@@ -285,8 +286,34 @@ def prepare(pr_url: str, output: Path, tooling: Path, focus: str = '', history: 
         for path in policy_paths
         if path.is_file()
     }
+    tooling_sha = run('git', 'rev-parse', 'HEAD', cwd=tooling)
+    snapshot_id = digest(
+        {
+            'repo': repo,
+            'pr': number,
+            'base_sha': base,
+            'head_sha': head,
+            'merge_base_sha': merge_base,
+            'tooling_sha': tooling_sha,
+            'tooling_files': policy_hashes,
+            'focus': focus,
+            'required_passes': [*REQUIRED_PASSES, *(['focus'] if focus else [])],
+        }
+    )
+    sources_path = output / 'sources.json'
+    sources_encoded = (
+        json.dumps(
+            {'diff_files': changes, 'previous_tree': previous_tree, 'sources': sources, 'tooling_files': policy_hashes},
+            sort_keys=True,
+            ensure_ascii=True,
+        )
+        + '\n'
+    )
+    if len(sources_encoded.encode()) > MAX_SOURCES_BYTES:
+        raise ValueError('Prepared source index exceeds the review size limit')
     manifest: dict[str, Any] = {
         'schema_version': VERSION,
+        'snapshot_id': snapshot_id,
         'repo': repo,
         'pr': number,
         'pr_url': pr_url,
@@ -294,40 +321,23 @@ def prepare(pr_url: str, output: Path, tooling: Path, focus: str = '', history: 
         'base_sha': base,
         'head_sha': head,
         'merge_base_sha': merge_base,
-        'tooling_sha': run('git', 'rev-parse', 'HEAD', cwd=tooling),
+        'tooling_sha': tooling_sha,
         'tooling_root': str(tooling.resolve()),
-        'tooling_files': policy_hashes,
-        'roots': {'LEFT': str(output / 'base'), 'RIGHT': str(output / 'head')},
-        'sources': sources,
-        'files': files,
-        'skip_reason': 'The reviewed commits have no changed paths.' if not files else '',
-        'diff_files': changes,
-        'diff_path': str(output / 'diff.patch'),
-        'required_passes': [*REQUIRED_PASSES, *(['focus'] if focus else [])],
         'focus': focus,
+        'required_passes': [*REQUIRED_PASSES, *(['focus'] if focus else [])],
+        'skip_reason': 'The reviewed commits have no changed paths.' if not files else '',
+        'roots': {'LEFT': str(output / 'base'), 'RIGHT': str(output / 'head')},
+        'diff_path': str(output / 'diff.patch'),
         'diff_sha256': hashlib.sha256(patch.encode()).hexdigest(),
+        'sources_path': str(sources_path),
+        'sources_sha256': hashlib.sha256(sources_encoded.encode()).hexdigest(),
+        'files': files,
         'metadata': metadata,
         'previous': previous,
-        'previous_tree': previous_tree,
         'previous_renames': previous_renames,
     }
-    manifest['snapshot_id'] = digest(
-        {
-            k: manifest[k]
-            for k in [
-                'repo',
-                'pr',
-                'base_sha',
-                'head_sha',
-                'merge_base_sha',
-                'tooling_sha',
-                'tooling_files',
-                'focus',
-                'required_passes',
-            ]
-        }
-    )
     (output / 'diff.patch').write_text(patch, encoding='utf-8')
+    sources_path.write_text(sources_encoded, encoding='utf-8')
     manifest_path = output / 'manifest.json'
     encoded = json.dumps(manifest, indent=2, ensure_ascii=True) + '\n'
     if len(encoded.encode()) > MAX_JSON_BYTES:

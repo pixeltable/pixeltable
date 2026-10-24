@@ -4,7 +4,10 @@ import argparse
 from pathlib import Path
 
 SHARED_FILES = [
+    '.claude/commands/pxt-address.md',
     '.claude/commands/pxt-review.md',
+    '.claude/skills/address-the-review/SKILL.md',
+    '.claude/skills/address-the-review/references/critic.md',
     '.github/workflows/claude-review.yml',
     *[
         f'.github/scripts/{name}'

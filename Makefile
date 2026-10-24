@@ -188,6 +188,8 @@ typecheck: install
 	@mypy pixeltable pixeltable_cli tests tool
 	# Separate direct check of definition.py (which is shadowed by the generated definition.pyi in the main run)
 	@mypy pixeltable/catalog/model/definition.py
+	@echo 'Running `mypy` on .github/scripts ...'
+	@MYPYPATH=.github/scripts mypy .github/scripts --exclude claude_erosion_check.py
 	@echo 'Running `mypy` on $(OTEL_PKG) ...'
 	@MYPYPATH=$(OTEL_PKG)/src mypy --explicit-package-bases --namespace-packages \
 		$(OTEL_PKG)/src/opentelemetry/instrumentation/pixeltable $(OTEL_PKG)/tests
@@ -195,14 +197,14 @@ typecheck: install
 .PHONY: lint
 lint: install
 	@echo 'Running `ruff check` ...'
-	@ruff check pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
+	@ruff check pixeltable pixeltable_cli tests tool .github/scripts $(OTEL_PKG)/src $(OTEL_PKG)/tests
 
 .PHONY: formatcheck
 formatcheck: install
 	@echo 'Running `ruff format --check` ...'
-	@ruff format --check pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
+	@ruff format --check pixeltable pixeltable_cli tests tool .github/scripts $(OTEL_PKG)/src $(OTEL_PKG)/tests
 	@echo 'Running `ruff check --select I` ...'
-	@ruff check --select I pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
+	@ruff check --select I pixeltable pixeltable_cli tests tool .github/scripts $(OTEL_PKG)/src $(OTEL_PKG)/tests
 
 .PHONY: nbcheck
 nbcheck: install
@@ -212,9 +214,9 @@ nbcheck: install
 .PHONY: format
 format: install
 	@echo 'Running `ruff format` ...'
-	@ruff format pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
+	@ruff format pixeltable pixeltable_cli tests tool .github/scripts $(OTEL_PKG)/src $(OTEL_PKG)/tests
 	@echo 'Running `ruff check --select I --fix` ...'
-	@ruff check --select I --fix pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
+	@ruff check --select I --fix pixeltable pixeltable_cli tests tool .github/scripts $(OTEL_PKG)/src $(OTEL_PKG)/tests
 	@echo 'Running `./scripts/format-notebooks.sh` ...'
 	@./scripts/format-notebooks.sh
 

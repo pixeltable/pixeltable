@@ -89,6 +89,16 @@ class PrepareTest(unittest.TestCase):
 
     def test_prepare_fetches_fixed_commits_and_detects_source_and_diff_mutation(self) -> None:
         path = self.prepare_local()
+        raw_manifest = json.loads(path.read_text(encoding='utf-8'))
+        self.assertNotIn('sources', raw_manifest)
+        self.assertNotIn('diff_files', raw_manifest)
+        self.assertNotIn('previous_tree', raw_manifest)
+        self.assertNotIn('tooling_files', raw_manifest)
+        keys = list(raw_manifest)
+        self.assertLess(keys.index('snapshot_id'), keys.index('previous'))
+        self.assertLess(keys.index('files'), keys.index('previous'))
+        self.assertLess(keys.index('diff_path'), keys.index('previous'))
+        self.assertLess(keys.index('metadata'), keys.index('previous'))
         manifest = contract.read_json(path)
         self.assertEqual(manifest['head_sha'], self.head)
         self.assertEqual(manifest['merge_base_sha'], self.base)
@@ -102,6 +112,10 @@ class PrepareTest(unittest.TestCase):
         Path(manifest['diff_path']).write_text('different diff', encoding='utf-8')
         with self.assertRaisesRegex(ValueError, 'diff changed'):
             contract.verify_sources(manifest)
+        sources_path = Path(raw_manifest['sources_path'])
+        sources_path.write_text('{"tampered": true}\n', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'source index changed'):
+            contract.read_json(path)
 
     def test_nontext_changes_keep_metadata_without_requiring_text_lines(self) -> None:
         (self.repo / 'image.png').write_bytes(b'\0binary\0')

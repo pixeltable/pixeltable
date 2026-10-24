@@ -433,6 +433,94 @@ class ContractTest(unittest.TestCase):
         result['reason'] = manifest['skip_reason']
         contract.validate(result, manifest)
 
+    def test_prior_optional_pass_finding_can_be_revalidated_without_running_that_pass_again(self) -> None:
+        manifest, result = fixture()
+        earlier = finding()
+        earlier['producer'] = 'focus'
+        add_finding(result, copy.deepcopy(earlier))
+        with self.assertRaisesRegex(ValueError, 'unknown producer'):
+            contract.validate(result, manifest)
+        manifest['previous'] = {'records': [{'claim': copy.deepcopy(earlier), 'posted': True, 'status': 'keep'}]}
+        self.assertEqual(contract.validate(result, manifest)['status'], 'complete')
+
+    def test_narrowed_prior_finding_accepts_historical_candidate_evidence_with_current_checked_lines(self) -> None:
+        manifest, result = fixture()
+        earlier = finding()
+        earlier['evidence'] = [{'path': 'example.py', 'line': 9}]
+        earlier['location'] = {'path': 'example.py', 'line': 9}
+        manifest['previous'] = {'records': [{'claim': copy.deepcopy(earlier), 'posted': True, 'status': 'keep'}]}
+        checked = finding()
+        checked['comment'] = 'Narrowed to the remaining branch on line 2.'
+        add_finding(result, copy.deepcopy(earlier))
+        result['decisions'][0].update(decision='narrow', checked=checked)
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['published'], 1)
+        self.assertEqual(review['comments'][0]['line'], 2)
+
+    def test_unposted_prior_question_can_be_resolved_and_new_claim_cannot_be_resolved(self) -> None:
+        manifest, result = fixture()
+        earlier = finding()
+        add_finding(result, copy.deepcopy(earlier))
+        result['decisions'][0].update(decision='resolved', fix_evidence=[{'path': 'example.py', 'line': 2}])
+        with self.assertRaisesRegex(ValueError, 'Only a prior claim can be resolved'):
+            contract.validate(result, manifest)
+        manifest['previous'] = {
+            'records': [{'claim': copy.deepcopy(earlier), 'posted': False, 'ever_posted': False, 'status': 'question'}]
+        }
+        manifest['previous_tree'] = {'example.py': 'old'}
+        manifest['sources']['RIGHT']['example.py']['git_blob'] = 'new'
+        review, _ = contract.render(result, manifest)
+        self.assertNotIn('Resolved:', review['body'])
+
+    def test_same_identity_recognizes_colon_and_bare_path_renames(self) -> None:
+        manifest, _ = fixture()
+        manifest['diff_files'] = {
+            'new.py': {'old_path': 'old.py', 'status': 'R100', 'hunks': [], 'changed': {'LEFT': [], 'RIGHT': []}}
+        }
+        for old_subject, new_subject in [('old.py:helper', 'new.py:helper'), ('old.py', 'new.py')]:
+            earlier = {**finding(), 'subject': old_subject}
+            current = {**finding(), 'subject': new_subject}
+            self.assertTrue(contract.same_identity(current, earlier, manifest))
+
+    def test_render_includes_summary_severity_single_title_body_findings_and_maintenance_section(self) -> None:
+        manifest, result = fixture()
+        inline_claim = finding('PXT-1')
+        body_claim = {
+            **finding('PXT-2'),
+            'subject': 'example.py#body-only',
+            'title': 'Body-only defect title',
+            'comment': 'Body-only defect explanation.',
+            'location': None,
+        }
+        maint_claim = {
+            **finding('PXT-3'),
+            'subject': 'example.py#maint',
+            'kind': 'maintenance',
+            'severity': None,
+            'title': 'Simplify helper',
+            'comment': 'Inline the single-use wrapper.',
+            'location': None,
+        }
+        add_finding(result, inline_claim)
+        add_finding(result, body_claim)
+        add_finding(result, maint_claim)
+        review, _ = contract.render(result, manifest)
+        self.assertIn('- **Medium: Validate the input**', review['body'])
+        self.assertIn(
+            '- **Medium: Body-only defect title** ([source](https://github.com/o/r/blob/'
+            + manifest['head_sha']
+            + '/example.py#L2-L2)): Body-only defect explanation.',
+            review['body'],
+        )
+        self.assertEqual(review['body'].count('Body-only defect title'), 2)  # once in body, once in hidden JSON state
+        self.assertIn(
+            '### Maintenance suggestions\n\n'
+            '- **Simplify helper** ([source](https://github.com/o/r/blob/'
+            + manifest['head_sha']
+            + '/example.py#L2-L2)): Inline the single-use wrapper.',
+            review['body'],
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

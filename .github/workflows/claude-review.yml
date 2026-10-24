@@ -149,6 +149,7 @@ jobs:
           name: claude-review-${{ env.PR_NUMBER }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/pxt-review/manifest.json
+            ${{ runner.temp }}/pxt-review/sources.json
             ${{ runner.temp }}/pxt-review/outcome.json
             ${{ runner.temp }}/pxt-review/stats.json
             ${{ runner.temp }}/pxt-review/review.json
@@ -193,7 +194,7 @@ jobs:
   #         python-version: '3.12'
   #     - uses: actions/setup-node@v7
   #       with:
-  #         node-version: '24'
+  #         node-version-file: .github/node-version
   #     # The job holds ANTHROPIC_API_KEY and a token that can comment, so every dependency is pinned by hash.
   #     - run: |
   #         pip install --quiet --require-hashes -r .github/scripts/claude_erosion_requirements.txt

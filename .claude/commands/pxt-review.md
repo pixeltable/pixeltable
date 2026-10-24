@@ -42,8 +42,9 @@ This command takes precedence where a skill requires execution, file writes, pub
 
 1. **Context, Sonnet.** Read the manifest, metadata, frozen diff, previous records, and applicable rules. Return the
    requirement and beneficiary, labeled stated or inferred. Classify changed files as core or peripheral. Identify
-   user-facing changes and the job to walk. Every file needs review or an explicit exclusion reason. Generated
-   content can be excluded, but inspect dependency pins or generated contracts when their effects matter.
+   user-facing changes and the job to walk. When earlier review records exist, note the prior reviewed commit SHA so
+   passes can compare follow-up fixes against the full change. Every file needs review or an explicit exclusion reason.
+   Generated content can be excluded, but inspect dependency pins or generated contracts when their effects matter.
 2. **Passes, in parallel.** Each pass collects candidates, rereads their source, and tries to disprove them. Keep
    source-backed claims with a trigger, impact, attribution, and smallest correction. Return structured pass checks,
    exclusions, candidates, rejected claims, and questions. A failed or malformed result gets at most one fresh retry
@@ -51,7 +52,9 @@ This command takes precedence where a skill requires execution, file writes, pub
    Self-rejected ideas stay in the pass result. Do not make the cross-checker repeat every self-rejected idea.
    - `abstractions`, Opus: articulate-the-abstraction steps 2 and 3 on the core files.
    - `lines`, Sonnet: its step 4, including deletions, tests, and relevant peripheral supporting checks.
-   - `design`, Opus: challenge-the-design across the whole change, including requirement and forced deletion.
+   - `design`, Opus: challenge-the-design across the whole change, including requirement and forced deletion. When the
+     PR has follow-up commits after an earlier review, check whether they patched symptoms onto a flawed mechanism
+     introduced by the PR instead of deleting or simplifying it.
    - `blast-radius`, Opus: affected callers, formats, transactions, persisted data, languages, and downstream contracts.
    - `rules`, Sonnet: changed lines against the applicable trusted rules. Quote each broken rule exactly.
    - `walk`, Sonnet: walk-the-job's walk and trouble when context identifies a user-facing change.
