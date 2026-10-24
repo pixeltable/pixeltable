@@ -11,11 +11,13 @@
 //! Calls of Python functions (UDFs, expression templates) are `FuncRef::Udf` (see `udf`): binding, typing and
 //! evaluation happen there; evaluation calls back into Python for the function body.
 
+pub mod image;
 pub mod math;
 pub mod signature;
 pub mod string;
 pub mod udf;
 pub mod uuid;
+pub mod video;
 
 use serde_json::json;
 use std::collections::HashMap;
@@ -57,7 +59,14 @@ fn registry() -> &'static HashMap<String, &'static Builtin> {
     static REGISTRY: OnceLock<HashMap<String, &'static Builtin>> = OnceLock::new();
     REGISTRY.get_or_init(|| {
         let mut m = HashMap::new();
-        for table in [string::FUNCTIONS, math::FUNCTIONS, uuid::FUNCTIONS] {
+        for table in [
+            string::FUNCTIONS,
+            math::FUNCTIONS,
+            uuid::FUNCTIONS,
+            image::FUNCTIONS,
+            video::VIDEO_FUNCTIONS,
+            video::AUDIO_FUNCTIONS,
+        ] {
             for b in table {
                 m.insert(b.qualified_name(), b);
             }
@@ -68,6 +77,14 @@ fn registry() -> &'static HashMap<String, &'static Builtin> {
 
 pub fn lookup(qualified_name: &str) -> Option<&'static Builtin> {
     registry().get(qualified_name).copied()
+}
+
+/// True for builtins that are properties of their first argument (`t.img.width`: called without parentheses).
+pub fn is_property(qualified_name: &str) -> bool {
+    match qualified_name.rsplit_once('.') {
+        Some((module, name)) if module == image::MODULE => image::PROPERTIES.contains(&name),
+        _ => false,
+    }
 }
 
 pub fn builtin_names() -> Vec<String> {

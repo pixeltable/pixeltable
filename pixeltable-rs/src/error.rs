@@ -45,6 +45,8 @@ pub enum ErrorCode {
     InvalidState,
     InvalidConfiguration,
     SchemaMismatch,
+    // ExternalServiceError
+    ProviderError,
     // ServiceUnavailableError
     StoreUnavailable,
     // ConcurrencyError
@@ -83,6 +85,7 @@ impl ErrorCode {
             InvalidState => "INVALID_STATE",
             InvalidConfiguration => "INVALID_CONFIGURATION",
             SchemaMismatch => "SCHEMA_MISMATCH",
+            ProviderError => "PROVIDER_ERROR",
             StoreUnavailable => "STORE_UNAVAILABLE",
             ConcurrentModification => "CONCURRENT_MODIFICATION",
         }
@@ -141,6 +144,7 @@ impl Error {
                     ColumnAlreadyExists | PathAlreadyExists | IndexAlreadyExists | FunctionAlreadyExists => {
                         "AlreadyExistsError"
                     }
+                    ProviderError => "ExternalServiceError",
                     StoreUnavailable => "ServiceUnavailableError",
                     ConcurrentModification => "ConcurrencyError",
                     _ => "RequestError",

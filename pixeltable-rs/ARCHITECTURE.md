@@ -33,7 +33,9 @@ src/
   expr/display.rs   str(expr) as upstream renders it
   expr/serde.rs     Expr <-> JSON, tagged Value <-> JSON
   expr/eval.rs      RowContext trait, eval(), SQL-like NULL semantics
-  functions/        builtin registry (mod.rs: Builtin, FuncRef, make_call) + one file per module (string.rs, math.rs)
+  functions/        builtin registry (mod.rs: Builtin, FuncRef, make_call) + one file per module (string.rs, math.rs,
+                    uuid.rs, image.rs (PIL), video.rs (PyAV metadata))
+  media.rs          media cells: path/URL normalization, file cache, writing in-memory media, validation
   catalog/mod.rs    Catalog: dirs, tables (Arc<TableMd>), lazily loaded row data; commit(); lookups
   catalog/path.rs   Path parsing/validation/folding (upstream messages)
   catalog/table.rs  TableMd, ColumnMd, SchemaVersionMd, VersionMd, ViewMd, ResolvedColumn
@@ -82,8 +84,17 @@ pixeltable-rs")`.
 
 `Value` is Null | Bool | Int(i64) | Float(f64) | String | Timestamp(UTC micros) | Date(days since 1970-01-01) |
 Uuid | Binary | Json(serde_json) | Array(Arc<NdArray>) | Media(path or URL) | PyObj (in flight only, never stored).
-In-memory media (PIL images, bytes) are written to `media/<db>/<tbl id>/` on insert (`bindings/table.rs`,
-`save_media`). Timestamps: naive inputs are interpreted in the default time zone (`PIXELTABLE_TIME_ZONE`, `TZ`, the
+Media cells (`Value::Media`) hold an absolute local path or a URL
+(`media::normalize_input()`); remote files are downloaded on first use into `$PIXELTABLE_HOME/file_cache/`
+(`media::local_path()`). In-memory media (PIL images, bytes, images computed by builtins) are written to
+`media/<db>/<tbl id>/<tbl id>_<col id>_<version>_<uuid>[.ext]` (JPEG, or WebP with transparency) by
+`exec::compute::MediaTarget::materialize()` during insert/add_computed_column, outside the lock; the commit adopts the
+files (`Catalog::adopt_media()`), so a failed operation deletes them. `Catalog::defer_delete_media_version()` deletes
+the files of one table version (for revert). Write-validated media columns are validated in
+`exec::insert::build_rows()` (PIL/PyAV, upstream messages); read-validated ones by `media::ReadValidation` in the query
+context (an invalid file reads as NULL with a cell error). Column properties (`errortype`, `errormsg`, `fileurl`,
+`localpath`) are `ExprKind::ColumnProperty` nodes; `RowContext::column_error()` supplies cell errors. A computed column
+whose inputs have a cell error gets that error (`eval_computed()`). Timestamps: naive inputs are interpreted in the default time zone (`PIXELTABLE_TIME_ZONE`, `TZ`, the
 system zone, else UTC) and results are returned as aware datetimes in it.
 
 `ColumnType` serializes to upstream's `as_dict()` form (`{'_classname': 'IntType', 'nullable': False}`), which is
