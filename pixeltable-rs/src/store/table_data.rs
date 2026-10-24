@@ -402,11 +402,6 @@ impl TableData {
         self.visible_at(NOW)
     }
 
-    /// The live rows by key.
-    pub fn live_by_key(&self) -> HashMap<(i64, &[i64]), &StoredRow> {
-        self.live_rows().map(|r| (r.key(), r)).collect()
-    }
-
     fn find(&self, key: (i64, &[i64]), version: i64) -> Option<Addr> {
         for (p, s) in self.segs.iter().enumerate().rev() {
             if s.skip_at(version) {
