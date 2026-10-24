@@ -90,8 +90,24 @@ pub fn validate_column_spec(spec: &ColumnSpec) -> Result<()> {
             py_repr(&spec.name)
         );
     }
+    // upstream `Column.check_value_expr()`
     if let Some(e) = &spec.value_expr {
         crate::functions::udf::validate_storable(e, &format!("Computed column {}", py_repr(&spec.name)))?;
+        check_no_cellmd_refs(e)?;
+        let mut has_window_call = false;
+        e.visit(&mut |n| {
+            if let crate::expr::ExprKind::FunctionCall(fc) = &n.kind {
+                has_window_call |= fc.is_window();
+            }
+        });
+        if spec.stored == Some(false) && has_window_call {
+            crate::bail!(
+                UnsupportedOperation,
+                "Column {}: `stored=False` not supported for columns computed with window functions:\n{}",
+                py_repr(&spec.name),
+                crate::expr::display::display(e)
+            );
+        }
     }
     Ok(())
 }

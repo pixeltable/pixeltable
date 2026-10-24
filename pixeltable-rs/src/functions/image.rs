@@ -8,7 +8,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 use std::sync::Arc;
 
-use super::{PosBuiltin as Builtin, expect_arg};
+use super::{Builtin, CallTypes};
 use crate::error::{Error, Result};
 use crate::media;
 use crate::types::{ColumnType, TypeKind};
@@ -17,58 +17,67 @@ use crate::value::{Json, Value};
 
 pub const MODULE: &str = "pixeltable.functions.image";
 
-/// Functions that are properties of image expressions (`t.img.width`, no call).
-pub static PROPERTIES: &[&str] = &["width", "height", "mode", "size"];
-
 // ------------------------------------------------------------------------------------------------ types
 
-fn image_type(nullable: bool) -> ColumnType {
-    ColumnType::new(TypeKind::Image { width: None, height: None, mode: None }, nullable)
+/// The image type of the call's `self` argument.
+fn self_image(ct: &CallTypes<'_>) -> (Option<u64>, Option<u64>, Option<String>, bool) {
+    match ct.ty(0) {
+        Some(ColumnType { kind: TypeKind::Image { width, height, mode }, nullable }) => (*width, *height, mode.clone(), *nullable),
+        Some(t) => (None, None, None, t.nullable),
+        None => (None, None, None, false),
+    }
 }
 
-fn check_image(fn_name: &str, param: &str, t: Option<&ColumnType>) -> Result<()> {
-    let t = t.ok_or_else(|| Error::internal("missing argument"))?;
-    expect_arg(fn_name, param, t, t.is_image(), "Image")
+fn image(width: Option<u64>, height: Option<u64>, mode: Option<String>, nullable: bool) -> ColumnType {
+    ColumnType::new(TypeKind::Image { width, height, mode }, nullable)
 }
 
-fn check_self(name: &str, args: &[ColumnType]) -> Result<()> {
-    check_image(name, "self", args.first())
-}
-
-macro_rules! ret {
-    ($name:literal, $t:expr) => {
-        |args: &[ColumnType]| -> Result<ColumnType> {
-            check_self($name, args)?;
-            Ok($t)
-        }
+/// The integers of a literal list argument.
+fn literal_ints(ct: &CallTypes<'_>, i: usize) -> Option<Vec<i64>> {
+    let items = match ct.literal(i)? {
+        Value::Json(Json::Array(items)) => items.clone(),
+        _ => return None,
     };
+    items.iter().map(|x| x.as_i64()).collect()
 }
 
-/// Same type as the input image (rotate, effect_spread, transpose).
-fn same_image(args: &[ColumnType]) -> Result<ColumnType> {
-    check_self("image function", args)?;
-    Ok(args[0].with_nullable(false))
-}
-
-/// An image of the input's mode and unknown size.
-fn image_of_mode(args: &[ColumnType]) -> Result<ColumnType> {
-    check_self("image function", args)?;
-    let mode = match &args[0].kind {
-        TypeKind::Image { mode, .. } => mode.clone(),
+/// upstream `convert.conditional_return_type`: the input's size, the given mode
+fn convert_type(ct: &CallTypes<'_>) -> Result<ColumnType> {
+    let (w, h, _, nullable) = self_image(ct);
+    let mode = match ct.literal(1) {
+        Some(Value::String(m)) => Some(m.clone()),
         _ => None,
     };
-    Ok(ColumnType::new(TypeKind::Image { width: None, height: None, mode }, false))
+    Ok(image(w, h, mode, nullable))
 }
 
-fn any_image(args: &[ColumnType]) -> Result<ColumnType> {
-    check_self("image function", args)?;
-    Ok(image_type(false))
+/// upstream `crop.conditional_return_type`: the box's size if it is a literal, the input's mode
+fn crop_type(ct: &CallTypes<'_>) -> Result<ColumnType> {
+    let (_, _, mode, nullable) = self_image(ct);
+    match literal_ints(ct, 1).as_deref() {
+        Some([x0, y0, x1, y1]) if x1 >= x0 && y1 >= y0 => Ok(image(Some((x1 - x0) as u64), Some((y1 - y0) as u64), mode, nullable)),
+        _ => Ok(image(None, None, mode, nullable)),
+    }
 }
 
-fn two_images(args: &[ColumnType]) -> Result<ColumnType> {
-    check_image("image function", "im1", args.first())?;
-    check_image("image function", "im2", args.get(1))?;
-    Ok(image_type(false))
+/// upstream `getchannel.conditional_return_type`: the input's size, mode `L`
+fn getchannel_type(ct: &CallTypes<'_>) -> Result<ColumnType> {
+    let (w, h, _, nullable) = self_image(ct);
+    Ok(image(w, h, Some("L".to_string()), nullable))
+}
+
+/// upstream `resize.conditional_return_type`: the given size, the input's mode
+fn resize_type(ct: &CallTypes<'_>) -> Result<ColumnType> {
+    let (_, _, mode, nullable) = self_image(ct);
+    match literal_ints(ct, 1).as_deref() {
+        Some([w, h]) if *w >= 0 && *h >= 0 => Ok(image(Some(*w as u64), Some(*h as u64), mode, nullable)),
+        _ => Ok(image(None, None, mode, nullable)),
+    }
+}
+
+/// upstream conditional return type of `rotate()`, `effect_spread()`, `transpose()`: the input's type
+fn same_type(ct: &CallTypes<'_>) -> Result<ColumnType> {
+    Ok(ct.ty(0).cloned().unwrap_or_else(|| image(None, None, None, false)))
 }
 
 // ------------------------------------------------------------------------------------------------ arguments
@@ -199,22 +208,7 @@ fn getbbox(args: &[Value]) -> Result<Value> {
 fn quantize(args: &[Value]) -> Result<Value> {
     with_py(|py| {
         let im = img(py, args, 0)?;
-        let colors = match args.get(1) {
-            Some(Value::Int(n)) => *n,
-            _ => 256,
-        };
-        let kmeans = match args.get(3) {
-            Some(Value::Int(n)) => *n,
-            _ => 0,
-        };
-        let dither = match args.get(5) {
-            None | Some(Value::Null) => media::pil_image(py)?.getattr("Dither")?.getattr("FLOYDSTEINBERG")?,
-            Some(v) => arg(py, v)?,
-        };
-        let call_args = PyTuple::new(
-            py,
-            [colors.into_pyobject(py)?.into_any(), opt(py, args, 2)?, kmeans.into_pyobject(py)?.into_any(), opt(py, args, 4)?, dither],
-        )?;
+        let call_args = PyTuple::new(py, [req(py, args, 1)?, opt(py, args, 2)?, req(py, args, 3)?, opt(py, args, 4)?, req(py, args, 5)?])?;
         image_result(im.call_method1("quantize", call_args)?)
     })
 }
@@ -223,16 +217,8 @@ fn thumbnail(args: &[Value]) -> Result<Value> {
     with_py(|py| {
         let im = img(py, args, 0)?.call_method0("copy")?;
         let size = tuple_arg(py, args, 1)?;
-        let resampling = media::pil_image(py)?.getattr("Resampling")?;
-        let resample = match args.get(2) {
-            None | Some(Value::Null) => resampling.getattr("LANCZOS")?,
-            Some(v) => resampling.call1((arg(py, v)?,))?,
-        };
-        let reducing_gap = match args.get(3) {
-            None => 2.0f64.into_pyobject(py)?.into_any(),
-            Some(v) => opt(py, std::slice::from_ref(v), 0)?,
-        };
-        im.call_method1("thumbnail", (size, resample, reducing_gap))?;
+        let resample = media::pil_image(py)?.getattr("Resampling")?.call1((req(py, args, 2)?,))?;
+        im.call_method1("thumbnail", (size, resample, opt(py, args, 3)?))?;
         image_result(im)
     })
 }
@@ -242,324 +228,113 @@ fn attr_int(args: &[Value], name: &str) -> Result<Value> {
 }
 
 pub static FUNCTIONS: &[Builtin] = &[
-    Builtin {
-        name: "b64_encode",
-        module: MODULE,
-        params: &["img", "image_format"],
-        required: 1,
-        strict: true,
-        return_type: |args| {
-            check_image("b64_encode", "img", args.first())?;
-            Ok(ColumnType::string(false))
-        },
-        eval: b64_encode,
-    },
-    Builtin {
-        name: "alpha_composite",
-        module: MODULE,
-        params: &["im1", "im2"],
-        required: 2,
-        strict: true,
-        return_type: two_images,
-        eval: |args| pil_fn("alpha_composite", args, 2, None),
-    },
-    Builtin {
-        name: "blend",
-        module: MODULE,
-        params: &["im1", "im2", "alpha"],
-        required: 3,
-        strict: true,
-        return_type: two_images,
-        eval: |args| pil_fn("blend", args, 2, Some(2)),
-    },
-    Builtin {
-        name: "composite",
-        module: MODULE,
-        params: &["image1", "image2", "mask"],
-        required: 3,
-        strict: true,
-        return_type: |args| {
-            check_image("composite", "image1", args.first())?;
-            check_image("composite", "image2", args.get(1))?;
-            check_image("composite", "mask", args.get(2))?;
-            Ok(image_type(false))
-        },
-        eval: |args| pil_fn("composite", args, 3, None),
-    },
-    Builtin {
-        name: "convert",
-        module: MODULE,
-        params: &["self", "mode"],
-        required: 2,
-        strict: true,
-        return_type: any_image,
-        eval: |args| method_image(args, "convert", |py| Ok(vec![req(py, args, 1)?])),
-    },
-    Builtin {
-        name: "crop",
-        module: MODULE,
-        params: &["self", "box"],
-        required: 2,
-        strict: true,
-        return_type: image_of_mode,
-        eval: |args| method_image(args, "crop", |py| Ok(vec![tuple_arg(py, args, 1)?])),
-    },
-    Builtin {
-        name: "getchannel",
-        module: MODULE,
-        params: &["self", "channel"],
-        required: 2,
-        strict: true,
-        return_type: ret!("getchannel", ColumnType::new(TypeKind::Image { width: None, height: None, mode: Some("L".into()) }, false)),
-        eval: |args| method_image(args, "getchannel", |py| Ok(vec![req(py, args, 1)?])),
-    },
-    Builtin {
-        name: "get_metadata",
-        module: MODULE,
-        params: &["self"],
-        required: 1,
-        strict: true,
-        return_type: ret!("get_metadata", ColumnType::json(false)),
-        eval: get_metadata,
-    },
-    Builtin {
-        name: "point",
-        module: MODULE,
-        params: &["self", "lut", "mode"],
-        required: 2,
-        strict: true,
-        return_type: any_image,
-        eval: |args| method_image(args, "point", |py| Ok(vec![req(py, args, 1)?, opt(py, args, 2)?])),
-    },
-    Builtin {
-        name: "resize",
-        module: MODULE,
-        params: &["self", "size"],
-        required: 2,
-        strict: true,
-        return_type: image_of_mode,
-        eval: |args| method_image(args, "resize", |py| Ok(vec![tuple_arg(py, args, 1)?])),
-    },
-    Builtin {
-        name: "rotate",
-        module: MODULE,
-        params: &["self", "angle"],
-        required: 2,
-        strict: true,
-        return_type: same_image,
-        eval: |args| method_image(args, "rotate", |py| Ok(vec![req(py, args, 1)?])),
-    },
-    Builtin {
-        name: "effect_spread",
-        module: MODULE,
-        params: &["self", "distance"],
-        required: 2,
-        strict: true,
-        return_type: same_image,
-        eval: |args| method_image(args, "effect_spread", |py| Ok(vec![req(py, args, 1)?])),
-    },
-    Builtin {
-        name: "transpose",
-        module: MODULE,
-        params: &["self", "method"],
-        required: 2,
-        strict: true,
-        return_type: same_image,
-        eval: |args| method_image(args, "transpose", |py| Ok(vec![req(py, args, 1)?])),
-    },
-    Builtin {
-        name: "entropy",
-        module: MODULE,
-        params: &["self", "mask", "extrema"],
-        required: 1,
-        strict: false,
-        return_type: ret!("entropy", ColumnType::float(false)),
-        eval: |args| {
-            if matches!(args.first(), None | Some(Value::Null)) {
-                return Ok(Value::Null);
-            }
-            with_py(|py| {
-                let im = img(py, args, 0)?;
-                Ok(Value::Float(im.call_method1("entropy", (opt(py, args, 1)?, opt(py, args, 2)?))?.extract()?))
-            })
-        },
-    },
-    Builtin {
-        name: "getbands",
-        module: MODULE,
-        params: &["self"],
-        required: 1,
-        strict: true,
-        return_type: ret!("getbands", ColumnType::json(false)),
-        eval: |args| method_json(args, "getbands", none),
-    },
-    Builtin {
-        name: "getbbox",
-        module: MODULE,
-        params: &["self", "alpha_only"],
-        required: 1,
-        strict: true,
-        return_type: ret!("getbbox", ColumnType::json(true)),
-        eval: getbbox,
-    },
-    Builtin {
-        name: "getcolors",
-        module: MODULE,
-        params: &["self", "maxcolors"],
-        required: 1,
-        strict: true,
-        return_type: ret!("getcolors", ColumnType::json(false)),
-        eval: |args| {
-            method_json(args, "getcolors", |py| {
-                Ok(vec![match args.get(1) {
-                    Some(v) => arg(py, v)?,
-                    None => 256i64.into_pyobject(py)?.into_any(),
-                }])
-            })
-        },
-    },
-    Builtin {
-        name: "getextrema",
-        module: MODULE,
-        params: &["self"],
-        required: 1,
-        strict: true,
-        return_type: ret!("getextrema", ColumnType::json(false)),
-        eval: |args| method_json(args, "getextrema", none),
-    },
-    Builtin {
-        name: "getpalette",
-        module: MODULE,
-        params: &["self", "mode"],
-        required: 1,
-        strict: false,
-        return_type: ret!("getpalette", ColumnType::json(true)),
-        eval: |args| {
-            if matches!(args.first(), None | Some(Value::Null)) {
-                return Ok(Value::Null);
-            }
-            method_json(args, "getpalette", |py| Ok(vec![opt(py, args, 1)?]))
-        },
-    },
-    Builtin {
-        name: "getpixel",
-        module: MODULE,
-        params: &["self", "xy"],
-        required: 2,
-        strict: true,
-        return_type: ret!("getpixel", ColumnType::json(false)),
-        eval: |args| method_json(args, "getpixel", |py| Ok(vec![tuple_arg(py, args, 1)?])),
-    },
-    Builtin {
-        name: "getprojection",
-        module: MODULE,
-        params: &["self"],
-        required: 1,
-        strict: true,
-        return_type: ret!("getprojection", ColumnType::json(false)),
-        eval: |args| method_json(args, "getprojection", none),
-    },
-    Builtin {
-        name: "histogram",
-        module: MODULE,
-        params: &["self", "mask", "extrema"],
-        required: 1,
-        strict: false,
-        return_type: ret!("histogram", ColumnType::json(false)),
-        eval: |args| {
-            if matches!(args.first(), None | Some(Value::Null)) {
-                return Ok(Value::Null);
-            }
-            method_json(args, "histogram", |py| Ok(vec![opt(py, args, 1)?, opt(py, args, 2)?]))
-        },
-    },
-    Builtin {
-        name: "quantize",
-        module: MODULE,
-        params: &["self", "colors", "method", "kmeans", "palette", "dither"],
-        required: 1,
-        strict: false,
-        return_type: ret!("quantize", ColumnType::new(TypeKind::Image { width: None, height: None, mode: Some("P".into()) }, false)),
-        eval: |args| {
-            if matches!(args.first(), None | Some(Value::Null)) {
-                return Ok(Value::Null);
-            }
-            quantize(args)
-        },
-    },
-    Builtin {
-        name: "reduce",
-        module: MODULE,
-        params: &["self", "factor", "box"],
-        required: 2,
-        strict: false,
-        return_type: image_of_mode,
-        eval: |args| {
-            if matches!(args.first(), None | Some(Value::Null)) {
-                return Ok(Value::Null);
-            }
-            method_image(args, "reduce", |py| {
-                let bx = match args.get(2) {
-                    None | Some(Value::Null) => py.None().into_bound(py),
-                    Some(_) => tuple_arg(py, args, 2)?,
-                };
-                Ok(vec![req(py, args, 1)?, bx])
-            })
-        },
-    },
-    Builtin {
-        name: "thumbnail",
-        module: MODULE,
-        params: &["self", "size", "resample", "reducing_gap"],
-        required: 2,
-        strict: false,
-        return_type: image_of_mode,
-        eval: |args| {
-            if matches!(args.first(), None | Some(Value::Null)) {
-                return Ok(Value::Null);
-            }
-            thumbnail(args)
-        },
-    },
-    Builtin {
-        name: "width",
-        module: MODULE,
-        params: &["self"],
-        required: 1,
-        strict: true,
-        return_type: ret!("width", ColumnType::int(false)),
-        eval: |args| attr_int(args, "width"),
-    },
-    Builtin {
-        name: "height",
-        module: MODULE,
-        params: &["self"],
-        required: 1,
-        strict: true,
-        return_type: ret!("height", ColumnType::int(false)),
-        eval: |args| attr_int(args, "height"),
-    },
-    Builtin {
-        name: "mode",
-        module: MODULE,
-        params: &["self"],
-        required: 1,
-        strict: true,
-        return_type: ret!("mode", ColumnType::string(false)),
-        eval: |args| with_py(|py| Ok(Value::String(img(py, args, 0)?.getattr("mode")?.extract()?))),
-    },
-    Builtin {
-        name: "size",
-        module: MODULE,
-        params: &["self"],
-        required: 1,
-        strict: true,
-        return_type: ret!("size", ColumnType::json(false)),
-        eval: |args| {
-            with_py(|py| {
-                let (w, h): (i64, i64) = img(py, args, 0)?.getattr("size")?.extract()?;
-                Ok(Value::Json(Json::Array(vec![Json::from(w), Json::from(h)])))
-            })
-        },
-    },
+    Builtin::new("b64_encode", "(img: Image, image_format: String = 'png') -> String", |a| b64_encode(a.vals)).method(),
+    Builtin::new("alpha_composite", "(im1: Image, im2: Image) -> Image", |a| pil_fn("alpha_composite", a.vals, 2, None)).method(),
+    Builtin::new("blend", "(im1: Image, im2: Image, alpha: Float) -> Image", |a| pil_fn("blend", a.vals, 2, Some(2))).method(),
+    Builtin::new("composite", "(image1: Image, image2: Image, mask: Image) -> Image", |a| pil_fn("composite", a.vals, 3, None))
+        .method(),
+    Builtin::new("convert", "(self: Image, mode: String) -> Image", |a| {
+        method_image(a.vals, "convert", |py| Ok(vec![req(py, a.vals, 1)?]))
+    })
+    .method()
+    .ret(convert_type),
+    Builtin::new("crop", "(self: Image, box: Json[(Int, Int, Int, Int)]) -> Image", |a| {
+        method_image(a.vals, "crop", |py| Ok(vec![tuple_arg(py, a.vals, 1)?]))
+    })
+    .method()
+    .ret(crop_type),
+    Builtin::new("getchannel", "(self: Image, channel: Int) -> Image", |a| {
+        method_image(a.vals, "getchannel", |py| Ok(vec![req(py, a.vals, 1)?]))
+    })
+    .method()
+    .ret(getchannel_type),
+    Builtin::new("get_metadata", "(self: Image) -> Json", |a| get_metadata(a.vals)).method(),
+    Builtin::new("point", "(self: Image, lut: Json[(Int, ...)], mode: String | None = None) -> Image", |a| {
+        method_image(a.vals, "point", |py| Ok(vec![req(py, a.vals, 1)?, opt(py, a.vals, 2)?]))
+    })
+    .method(),
+    Builtin::new("resize", "(self: Image, size: Json[(Int, Int)]) -> Image", |a| {
+        method_image(a.vals, "resize", |py| Ok(vec![tuple_arg(py, a.vals, 1)?]))
+    })
+    .method()
+    .ret(resize_type),
+    Builtin::new("rotate", "(self: Image, angle: Int) -> Image", |a| method_image(a.vals, "rotate", |py| Ok(vec![req(py, a.vals, 1)?])))
+        .method()
+        .ret(same_type),
+    Builtin::new("effect_spread", "(self: Image, distance: Int) -> Image", |a| {
+        method_image(a.vals, "effect_spread", |py| Ok(vec![req(py, a.vals, 1)?]))
+    })
+    .method()
+    .ret(same_type),
+    Builtin::new("transpose", "(self: Image, method: Int) -> Image", |a| {
+        method_image(a.vals, "transpose", |py| Ok(vec![req(py, a.vals, 1)?]))
+    })
+    .method()
+    .ret(same_type),
+    Builtin::new("entropy", "(self: Image, mask: Image | None = None, extrema: Json[(Json, ...)] | None = None) -> Float", |a| {
+        with_py(|py| {
+            let im = img(py, a.vals, 0)?;
+            Ok(Value::Float(im.call_method1("entropy", (opt(py, a.vals, 1)?, opt(py, a.vals, 2)?))?.extract()?))
+        })
+    })
+    .method(),
+    Builtin::new("getbands", "(self: Image) -> Json[(String, ...)]", |a| method_json(a.vals, "getbands", none)).method(),
+    Builtin::new("getbbox", "(self: Image, *, alpha_only: Bool = True) -> Json[(Int, Int, Int, Int)] | None", |a| getbbox(a.vals))
+        .method(),
+    Builtin::new("getcolors", "(self: Image, maxcolors: Int = 256) -> Json[(Json[(Int, Int)], ...)]", |a| {
+        method_json(a.vals, "getcolors", |py| Ok(vec![req(py, a.vals, 1)?]))
+    })
+    .method(),
+    Builtin::new("getextrema", "(self: Image) -> Json[(Int, Int)]", |a| method_json(a.vals, "getextrema", none)).method(),
+    Builtin::new("getpalette", "(self: Image, mode: String | None = None) -> Json[(Int, ...)] | None", |a| {
+        method_json(a.vals, "getpalette", |py| Ok(vec![opt(py, a.vals, 1)?]))
+    })
+    .method(),
+    Builtin::new("getpixel", "(self: Image, xy: Json[(Json, ...)]) -> Json[(Int)]", |a| {
+        method_json(a.vals, "getpixel", |py| Ok(vec![tuple_arg(py, a.vals, 1)?]))
+    })
+    .method(),
+    Builtin::new("getprojection", "(self: Image) -> Json[(Json[(Int, ...)], Json[(Int, ...)])]", |a| {
+        method_json(a.vals, "getprojection", none)
+    })
+    .method(),
+    Builtin::new(
+        "histogram",
+        "(self: Image, mask: Image | None = None, extrema: Json[(Json, ...)] | None = None) -> Json[(Int, ...)]",
+        |a| method_json(a.vals, "histogram", |py| Ok(vec![opt(py, a.vals, 1)?, opt(py, a.vals, 2)?])),
+    )
+    .method(),
+    // the `dither` default is `PIL.Image.Dither.FLOYDSTEINBERG`
+    Builtin::new(
+        "quantize",
+        "(self: Image, colors: Int = 256, method: Int | None = None, kmeans: Int = 0, palette: Image | None = None, dither: Int = 3) -> Image",
+        |a| quantize(a.vals),
+    )
+    .method(),
+    Builtin::new("reduce", "(self: Image, factor: Int, box: Json[(Int, Int, Int, Int)] | None = None) -> Image", |a| {
+        method_image(a.vals, "reduce", |py| {
+            let bx = match a.get(2) {
+                Value::Null => py.None().into_bound(py),
+                _ => tuple_arg(py, a.vals, 2)?,
+            };
+            Ok(vec![req(py, a.vals, 1)?, bx])
+        })
+    })
+    .method(),
+    // the `resample` default is `PIL.Image.Resampling.LANCZOS`
+    Builtin::new("thumbnail", "(self: Image, size: Json[(Int, Int)], resample: Int = 1, reducing_gap: Float | None = 2.0) -> Image", |a| {
+        thumbnail(a.vals)
+    })
+    .method(),
+    Builtin::new("width", "(self: Image) -> Int", |a| attr_int(a.vals, "width")).property(),
+    Builtin::new("height", "(self: Image) -> Int", |a| attr_int(a.vals, "height")).property(),
+    Builtin::new("mode", "(self: Image) -> String", |a| with_py(|py| Ok(Value::String(img(py, a.vals, 0)?.getattr("mode")?.extract()?))))
+        .property(),
+    Builtin::new("size", "(self: Image) -> Json[(Int, Int)]", |a| {
+        with_py(|py| {
+            let (w, h): (i64, i64) = img(py, a.vals, 0)?.getattr("size")?.extract()?;
+            Ok(Value::Json(Json::Array(vec![Json::from(w), Json::from(h)])))
+        })
+    })
+    .property(),
 ];
