@@ -173,7 +173,26 @@ class Query:
     def group_by(self, *grouping_items: Any) -> Query: ...
 
     @unimplemented('Query.distinct()')
-    def distinct(self) -> Query: ...
+    def distinct(self) -> Query:
+        """
+        Remove duplicate rows from this Query.
+
+        Note that grouping will be applied to the rows based on the select clause of this Query.
+        In the absence of a select clause, by default, all columns are selected in the grouping.
+
+        Each selected expression must be expressible in SQL. A JSON path, including one passed through
+        `astype()`, is not. Executing the query raises `RequestError` rather than returning duplicate rows.
+        Store the value in a computed column of a scalar type and select that column.
+
+        Examples:
+            Select unique addresses from table `addresses`.
+
+            >>> results = addresses.distinct()
+
+            Select unique cities in table `addresses`
+
+            >>> results = addresses.select(addresses.city).distinct()
+        """
 
     @unimplemented('Query.sample()')
     def sample(self, *args: Any, **kwargs: Any) -> Query: ...

@@ -47,13 +47,8 @@ pub fn validate_column_name(name: &str) -> Result<()> {
 /// Upstream `Column` construction checks.
 pub fn validate_column_spec(spec: &ColumnSpec) -> Result<()> {
     validate_column_name(&spec.name)?;
-    if spec.stored.is_some() && spec.value_expr.is_none() {
-        crate::bail!(
-            UnsupportedOperation,
-            "Column {}: `stored={}` only applies to computed columns",
-            py_repr(&spec.name),
-            if spec.stored == Some(true) { "True" } else { "False" }
-        );
+    if spec.stored == Some(false) && spec.value_expr.is_none() {
+        crate::bail!(UnsupportedOperation, "Column {}: `stored=False` only applies to computed columns", py_repr(&spec.name));
     }
     if spec.destination.is_some() && (spec.value_expr.is_none() || spec.stored == Some(false)) {
         crate::bail!(
@@ -255,11 +250,12 @@ impl Catalog {
         Ok(())
     }
 
-    /// Fails if the table cannot be modified (snapshots, pinned versions).
+    /// Fails if the table cannot be modified (snapshots, pinned versions): `op_descr` completes
+    /// "Cannot <op_descr> a snapshot." (e.g. "add columns to").
     pub fn check_mutable(&self, tbl_id: Uuid, version: Option<i64>, op_descr: &str) -> Result<()> {
         let md = self.table(tbl_id)?;
         if md.is_snapshot() || version.is_some() {
-            crate::bail!(UnsupportedOperation, "{op_descr} on a snapshot is not allowed.");
+            crate::bail!(UnsupportedOperation, "{}: Cannot {op_descr} a snapshot.", self.display_str(tbl_id)?);
         }
         Ok(())
     }
@@ -295,28 +291,104 @@ impl Catalog {
         Ok(new_version)
     }
 
+    /// Adds a column at a new schema version; returns its id. Does not commit.
+    pub fn push_column(&mut self, tbl_id: Uuid, spec: ColumnSpec, value_expr: Option<Json>) -> Result<ColId> {
+        let change = format!("Added {}", py_repr(&spec.name));
+        let new_version = self.bump_version(tbl_id, Some(change))?;
+        let md = self.table_mut(tbl_id)?;
+        let id = md.next_col_id;
+        md.next_col_id += 1;
+        let is_computed = value_expr.is_some();
+        md.columns.push(ColumnMd {
+            id,
+            col_type: spec.col_type,
+            is_pk: false,
+            stored: if is_computed { spec.stored.unwrap_or(true) } else { true },
+            value_expr,
+            schema_version_add: new_version,
+            schema_version_drop: None,
+            media_validation: spec.media_validation,
+            comment: spec.comment,
+            custom_metadata: spec.custom_metadata,
+            destination: spec.destination,
+        });
+        let sv = md.schema_versions.last_mut().ok_or_else(|| Error::internal("table has no schema versions"))?;
+        sv.columns.push(SchemaColumn { col_id: id, name: spec.name });
+        Ok(id)
+    }
+
+    /// Upstream `_ignore_or_drop_existing_columns()`: returns true if the column should be skipped (it exists and
+    /// `if_exists='ignore'`); drops it for `replace`.
+    pub fn handle_existing_column(&mut self, tbl_id: Uuid, name: &str, if_exists: IfExists) -> Result<bool> {
+        let md = self.table(tbl_id)?.clone();
+        if !self.resolve_columns(tbl_id, None)?.iter().any(|c| c.name == name) {
+            return Ok(false);
+        }
+        match if_exists {
+            IfExists::Error => crate::bail!(ColumnAlreadyExists, "Duplicate column name: {name}"),
+            IfExists::Ignore => Ok(true),
+            IfExists::Replace | IfExists::ReplaceForce => {
+                let Some(col) = md.column_by_name(name, None)? else {
+                    crate::bail!(
+                        UnsupportedOperation,
+                        "Column {} is a base table column. Cannot replace it.",
+                        py_repr(name)
+                    );
+                };
+                let dependents = self.dependent_columns(tbl_id, col.md.id)?;
+                if !dependents.is_empty() {
+                    crate::bail!(
+                        ColumnAlreadyExists,
+                        "Column {} already exists and the following columns depend on it: {}. Cannot {} it.",
+                        py_repr(name),
+                        dependents.join(", "),
+                        if if_exists == IfExists::Replace { "replace" } else { "replace_force" }
+                    );
+                }
+                self.drop_column(tbl_id, name, IfNotExists::Error)?;
+                Ok(false)
+            }
+        }
+    }
+
+    /// Names of the visible computed columns of `tbl_id` whose value expression references column `col_id`.
+    pub fn dependent_columns(&self, tbl_id: Uuid, col_id: ColId) -> Result<Vec<String>> {
+        let md = self.table(tbl_id)?;
+        Ok(md
+            .columns_at(None)?
+            .into_iter()
+            .filter(|c| {
+                c.md.value_expr.as_ref().is_some_and(|e| {
+                    crate::expr::serde::from_json(e)
+                        .map(|e| e.column_refs().iter().any(|r| r.tbl_id == tbl_id && r.col_id == col_id))
+                        .unwrap_or(false)
+                })
+            })
+            .map(|c| c.name)
+            .collect())
+    }
+
     /// Adds non-computed columns (upstream `add_columns()` for plain columns).
     pub fn add_columns(&mut self, tbl_id: Uuid, specs: Vec<ColumnSpec>, if_exists: IfExists) -> Result<Vec<String>> {
-        self.check_mutable(tbl_id, None, "add_column()")?;
-        let md = self.table(tbl_id)?.clone();
-        let existing = md.columns_at(None)?;
+        self.check_mutable(tbl_id, None, "add columns to")?;
         let mut to_add = Vec::new();
         for spec in specs {
+            if self.handle_existing_column(tbl_id, &spec.name, if_exists)? {
+                continue;
+            }
             validate_column_spec(&spec)?;
             if spec.value_expr.is_some() {
-                return Err(Error::not_implemented("computed columns"));
+                return Err(Error::not_implemented("add_columns() with computed columns; use add_computed_column()"));
             }
             if spec.is_pk {
-                crate::bail!(UnsupportedOperation, "Cannot add a primary key column to an existing table");
-            }
-            if existing.iter().any(|c| c.name == spec.name) {
-                match if_exists {
-                    IfExists::Error => crate::bail!(ColumnAlreadyExists, "Duplicate column name: {}", spec.name),
-                    IfExists::Ignore => continue,
-                    _ => return Err(Error::not_implemented("add_column() with if_exists='replace'")),
-                }
+                crate::bail!(
+                    UnsupportedOperation,
+                    "Cannot add primary key column {} after table creation",
+                    py_repr(&spec.name)
+                );
             }
             if !spec.col_type.nullable {
+                let md = self.table(tbl_id)?.clone();
                 let has_rows = self.data(tbl_id)?.visible_at(md.current_version).next().is_some();
                 if has_rows {
                     crate::bail!(
@@ -329,41 +401,18 @@ impl Catalog {
             }
             to_add.push(spec);
         }
-        if to_add.is_empty() {
-            return Ok(Vec::new());
-        }
         let names: Vec<String> = to_add.iter().map(|s| s.name.clone()).collect();
-        let change = format!("Added {}", names.iter().map(|n| py_repr(n)).collect::<Vec<_>>().join(", "));
-        let new_version = self.bump_version(tbl_id, Some(change))?;
-        let md = self.table_mut(tbl_id)?;
         for spec in to_add {
-            let id = md.next_col_id;
-            md.next_col_id += 1;
-            md.columns.push(ColumnMd {
-                id,
-                col_type: spec.col_type,
-                is_pk: false,
-                stored: true,
-                value_expr: None,
-                schema_version_add: new_version,
-                schema_version_drop: None,
-                media_validation: spec.media_validation,
-                comment: spec.comment,
-                custom_metadata: spec.custom_metadata,
-                destination: None,
-            });
-            let sv = md
-                .schema_versions
-                .last_mut()
-                .ok_or_else(|| Error::internal("table has no schema versions"))?;
-            sv.columns.push(SchemaColumn { col_id: id, name: spec.name });
+            self.push_column(tbl_id, spec, None)?;
         }
-        self.commit()?;
+        if !names.is_empty() {
+            self.commit()?;
+        }
         Ok(names)
     }
 
     pub fn drop_column(&mut self, tbl_id: Uuid, name: &str, if_not_exists: IfNotExists) -> Result<()> {
-        self.check_mutable(tbl_id, None, "drop_column()")?;
+        self.check_mutable(tbl_id, None, "drop columns from")?;
         let md = self.table(tbl_id)?.clone();
         let Some(col) = md.column_by_name(name, None)? else {
             if if_not_exists == IfNotExists::Ignore {
@@ -374,24 +423,21 @@ impl Catalog {
         if col.md.is_pk {
             crate::bail!(UnsupportedOperation, "Cannot drop primary key column {}", py_repr(&col.name));
         }
-        let dependents: Vec<String> = md
-            .columns_at(None)?
-            .into_iter()
-            .filter(|c| {
-                c.md.value_expr.as_ref().is_some_and(|e| {
-                    crate::expr::serde::from_json(e)
-                        .map(|e| e.column_refs().iter().any(|r| r.tbl_id == tbl_id && r.col_id == col.md.id))
-                        .unwrap_or(false)
-                })
-            })
-            .map(|c| c.name)
-            .collect();
+        let dependents = self.dependent_columns(tbl_id, col.md.id)?;
         if !dependents.is_empty() {
             crate::bail!(
                 UnsupportedOperation,
                 "Cannot drop column {} because the following columns depend on it:\n{}",
                 py_repr(&col.name),
                 dependents.join(", ")
+            );
+        }
+        let visible = self.resolve_columns(tbl_id, None)?;
+        if visible.len() == 1 && visible[0].md.id == col.md.id {
+            crate::bail!(
+                MissingRequired,
+                "Cannot drop column {} because it is the last remaining column in this table. Tables must have at least one column.",
+                py_repr(&col.name)
             );
         }
         let new_version = self.bump_version(tbl_id, Some(format!("Dropped {}", py_repr(&col.name))))?;
@@ -406,7 +452,7 @@ impl Catalog {
     }
 
     pub fn rename_column(&mut self, tbl_id: Uuid, old_name: &str, new_name: &str) -> Result<()> {
-        self.check_mutable(tbl_id, None, "rename_column()")?;
+        self.check_mutable(tbl_id, None, "rename columns of")?;
         let md = self.table(tbl_id)?.clone();
         let Some(col) = md.column_by_name(old_name, None)? else {
             crate::bail!(ColumnNotFound, "Unknown column: {old_name}");

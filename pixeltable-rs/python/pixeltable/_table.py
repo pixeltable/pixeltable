@@ -193,18 +193,27 @@ class Table(SchemaObject):
         **kwargs: Any,
     ) -> UpdateStatus:
         """Add a column, given as `name=type` or `name=ColumnSpec`."""
-        if len(kwargs) != 1:
-            from pixeltable import exceptions as excs
+        _core.tbl_add_column(str(self._id), kwargs, if_exists)
+        return UpdateStatus()
 
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT,
-                f'add_column() requires exactly one keyword argument of the form `col_name=col_type`; '
-                f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})',
+    def add_computed_column(
+        self,
+        *,
+        stored: bool | None = None,
+        destination: str | Path | None = None,
+        custom_metadata: Any = None,
+        comment: str = '',
+        print_stats: bool = False,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore', 'replace'] = 'error',
+        **kwargs: Any,
+    ) -> UpdateStatus:
+        """Add a computed column, given as `name=expression`."""
+        return _status_from_core(
+            _core.tbl_add_computed_column(
+                str(self._id), kwargs, stored, destination, custom_metadata, comment, on_error, if_exists
             )
-        return self.add_columns(kwargs, if_exists=if_exists)
-
-    @unimplemented('computed columns')
-    def add_computed_column(self, **kwargs: Any) -> UpdateStatus: ...
+        )
 
     def drop_column(self, column: str | _core.Expr, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
         """Drop a column, given by name or by reference."""
@@ -251,7 +260,7 @@ class Table(SchemaObject):
             raise NotImplementedError(
                 'insert() with source_format, schema_overrides or return_rows is not implemented yet in pixeltable-rs'
             )
-        return _status_from_core(_core.tbl_insert(str(self._id), source, kwargs, on_error))
+        return _status_from_core(_core.tbl_insert(str(self._id), self._version, source, kwargs, on_error))
 
     @unimplemented('Table.compute()')
     def compute(self, source: Sequence[Any], /, **kwargs: Any) -> Any: ...

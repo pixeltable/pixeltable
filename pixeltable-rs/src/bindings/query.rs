@@ -107,6 +107,9 @@ impl PyQuerySpec {
 
     #[pyo3(signature = (n, offset=None))]
     fn limit(&self, n: &Bound<'_, PyAny>, offset: Option<&Bound<'_, PyAny>>) -> Result<Self> {
+        if n.is_none() {
+            crate::bail!(MissingRequired, "'limit()' parameter must be present");
+        }
         if n.is_instance_of::<PyInt>() && !n.is_instance_of::<PyBool>() && n.extract::<i64>()? < 0 {
             crate::bail!(InvalidArgument, "'limit()' parameter must be >= 0");
         }

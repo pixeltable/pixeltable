@@ -128,6 +128,35 @@ impl Error {
         }
     }
 
+    /// The name of the Python exception class this error is raised as.
+    pub fn py_type_name(&self) -> String {
+        match self {
+            Error::Pxt { code, .. } => {
+                use ErrorCode::*;
+                match code {
+                    InternalError => "InternalError",
+                    GenericUserError => "UserError",
+                    ColumnNotFound | PathNotFound | TableNotFound | DirectoryNotFound | IndexNotFound
+                    | FunctionNotFound | RowNotFound | StorageNotFound => "NotFoundError",
+                    ColumnAlreadyExists | PathAlreadyExists | IndexAlreadyExists | FunctionAlreadyExists => {
+                        "AlreadyExistsError"
+                    }
+                    StoreUnavailable => "ServiceUnavailableError",
+                    ConcurrentModification => "ConcurrencyError",
+                    _ => "RequestError",
+                }
+                .to_string()
+            }
+            Error::Type(_) => "TypeError".to_string(),
+            Error::Attribute(_) => "AttributeError".to_string(),
+            Error::Value(_) => "ValueError".to_string(),
+            Error::NotImplemented(_) => "NotImplementedError".to_string(),
+            Error::Python(e) => Python::attach(|py| {
+                e.get_type(py).name().map(|n| n.to_string()).unwrap_or_else(|_| "Exception".to_string())
+            }),
+        }
+    }
+
     pub fn message(&self) -> String {
         match self {
             Error::Pxt { message, .. }

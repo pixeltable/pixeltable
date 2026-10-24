@@ -8,6 +8,7 @@
 //! Extension points: joins (more than one source in `QueryInput`), group by / aggregates and window functions
 //! (a grouping stage between filter and project), distinct, sample.
 
+pub mod compute;
 pub mod insert;
 
 use std::sync::Arc;
@@ -181,6 +182,32 @@ impl QuerySpec {
         Ok(items.into_iter().map(|(e, _)| e).zip(names).collect())
     }
 
+    /// Fails if an expression of the query references a column that no longer exists (it was dropped after the
+    /// query was built).
+    pub fn check_columns_exist(&self, cat: &Catalog) -> Result<()> {
+        let visible: std::collections::HashSet<(Uuid, crate::catalog::table::ColId)> =
+            cat.resolve_columns(self.tbl_id, self.version)?.iter().map(|c| (c.tbl_id, c.md.id)).collect();
+        let mut exprs: Vec<&ExprRef> = Vec::new();
+        if let Some(items) = &self.select {
+            exprs.extend(items.iter().map(|(e, _)| e));
+        }
+        exprs.extend(self.where_.iter());
+        exprs.extend(self.order_by.iter().map(|(e, _)| e));
+        for e in exprs {
+            for r in e.column_refs() {
+                if !visible.contains(&(r.tbl_id, r.col_id)) {
+                    crate::bail!(
+                        ColumnNotFound,
+                        "Column was dropped (no record for column ID {} in table {})",
+                        r.col_id,
+                        py_repr(&self.tbl_name(cat))
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
     // ------------------------------------------------------------------------------------------- serialization
 
     pub fn to_json(&self) -> Result<serde_json::Value> {
@@ -290,10 +317,13 @@ pub struct QueryInput {
     pub data: Arc<TableData>,
     pub select: Vec<(ExprRef, String)>,
     pub predicates: Vec<ExprRef>,
+    /// value expressions of unstored computed columns of the scanned table, evaluated on read
+    pub unstored: std::collections::HashMap<crate::catalog::table::ColId, ExprRef>,
 }
 
 impl QueryInput {
     pub fn snapshot(cat: &mut Catalog, q: &QuerySpec) -> Result<QueryInput> {
+        q.check_columns_exist(cat)?;
         let source = cat.scan_source(q.tbl_id, q.version)?;
         let base = cat.table(source.base_tbl_id)?;
         let version = source.base_version.unwrap_or(base.current_version);
@@ -303,18 +333,30 @@ impl QueryInput {
             .iter()
             .map(crate::expr::serde::from_json)
             .collect::<Result<Vec<_>>>()?;
+        let mut unstored = std::collections::HashMap::new();
+        for c in &cat.table(source.base_tbl_id)?.columns {
+            if !c.stored {
+                if let Some(e) = &c.value_expr {
+                    unstored.insert(c.id, crate::expr::serde::from_json(e)?);
+                }
+            }
+        }
         let data = cat.data(source.base_tbl_id)?;
-        Ok(QueryInput { source, version, data, select, predicates })
+        Ok(QueryInput { source, version, data, select, predicates, unstored })
     }
 }
 
 struct StoredRowCtx<'a> {
     row: &'a StoredRow,
+    unstored: &'a std::collections::HashMap<crate::catalog::table::ColId, ExprRef>,
 }
 
 impl RowContext for StoredRowCtx<'_> {
     fn column_value(&self, col: &ColumnRef) -> Result<Value> {
-        Ok(self.row.cell(col.col_id).clone())
+        match self.unstored.get(&col.col_id) {
+            Some(e) => eval(e, self),
+            None => Ok(self.row.cell(col.col_id).clone()),
+        }
     }
 }
 
@@ -324,7 +366,7 @@ fn filtered_rows<'a>(input: &'a QueryInput, q: &QuerySpec) -> Result<Vec<&'a Sto
     rows.sort_by_key(|r| r.rowid);
     let mut out = Vec::with_capacity(rows.len());
     'rows: for r in rows {
-        let ctx = StoredRowCtx { row: r };
+        let ctx = StoredRowCtx { row: r, unstored: &input.unstored };
         for p in &input.predicates {
             if !eval_predicate(p, &ctx)? {
                 continue 'rows;
@@ -350,7 +392,7 @@ pub fn execute(input: &QueryInput, q: &QuerySpec, rowid_desc: bool) -> Result<Re
         let mut keyed: Vec<(Vec<Value>, &StoredRow)> = rows
             .into_iter()
             .map(|r| {
-                let ctx = StoredRowCtx { row: r };
+                let ctx = StoredRowCtx { row: r, unstored: &input.unstored };
                 let keys = q.order_by.iter().map(|(e, _)| eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
                 Ok((keys, r))
             })
@@ -375,7 +417,7 @@ pub fn execute(input: &QueryInput, q: &QuerySpec, rowid_desc: bool) -> Result<Re
     };
     let mut out_rows = Vec::with_capacity(rows.len());
     for r in rows {
-        let ctx = StoredRowCtx { row: r };
+        let ctx = StoredRowCtx { row: r, unstored: &input.unstored };
         out_rows.push(input.select.iter().map(|(e, _)| eval(e, &ctx)).collect::<Result<Vec<_>>>()?);
     }
     Ok(ResultData {

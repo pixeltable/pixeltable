@@ -12,6 +12,7 @@ use crate::catalog::runtime::with_catalog;
 use crate::catalog::table::RowCountStats;
 use crate::catalog::{IfExists, IfNotExists};
 use crate::error::{Error, Result, py_repr};
+use crate::exec::compute::AddComputedPlan;
 use crate::exec::insert::{self, InputRow, InsertPlan, UpdateStatus};
 use crate::exec::column_ref_expr;
 use crate::value::Value;
@@ -214,10 +215,11 @@ fn convert_row(row: &Bound<'_, PyAny>, plan: &InsertPlan, media_dir: &std::path:
 
 /// `Table.insert()`; returns the status dict.
 #[pyfunction]
-#[pyo3(signature = (tbl_id, source, kwargs, on_error))]
+#[pyo3(signature = (tbl_id, version, source, kwargs, on_error))]
 pub fn tbl_insert<'py>(
     py: Python<'py>,
     tbl_id: &str,
+    version: Option<i64>,
     source: Option<&Bound<'py, PyAny>>,
     kwargs: Option<&Bound<'py, PyDict>>,
     on_error: &str,
@@ -239,13 +241,11 @@ pub fn tbl_insert<'py>(
         None => vec![kwargs.cloned().unwrap_or_else(|| PyDict::new(py)).into_any()],
         Some(s) => source_rows(s)?,
     };
-    let (plan, media_dir) = with_catalog(py, |cat| {
-        cat.check_mutable(id, None, "insert()")?;
-        Ok((InsertPlan::new(cat, id)?, cat.store().media_dir(id)))
-    })?;
-    // conversion runs Python code (pydantic, generators, PIL), so it happens without the catalog lock
+    let (plan, media_dir) = with_catalog(py, |cat| Ok((InsertPlan::new(cat, id, version)?, cat.store().media_dir(id))))?;
+    // conversion and computed columns run Python code (pydantic, generators, PIL, UDFs): no catalog lock here
     let converted: Vec<InputRow> = rows.iter().map(|r| convert_row(r, &plan, &media_dir)).collect::<Result<_>>()?;
-    let status = with_catalog(py, |cat| insert::commit(cat, &plan, converted, fail_on_exception))?;
+    let built = insert::build_rows(&plan, converted, fail_on_exception)?;
+    let status = with_catalog(py, |cat| insert::commit(cat, &plan, built))?;
     Ok(status_dict(py, &status)?)
 }
 
@@ -340,6 +340,97 @@ pub fn tbl_metadata<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
     })
 }
 
+fn check_single_column_kwarg(method: &str, value_form: &str, kwargs: &Bound<'_, PyDict>) -> Result<()> {
+    if kwargs.len() != 1 {
+        let names: Vec<String> = kwargs.keys().iter().map(|k| k.str().map(|s| s.to_string()).unwrap_or_default()).collect();
+        crate::bail!(
+            UnsupportedOperation,
+            "{method}() requires exactly one keyword argument of the form {value_form}; got {} arguments instead ({})",
+            kwargs.len(),
+            names.join(", ")
+        );
+    }
+    Ok(())
+}
+
+/// `Table.add_column(name=type)`
+#[pyfunction]
+#[pyo3(signature = (tbl_id, kwargs, if_exists))]
+pub fn tbl_add_column(py: Python<'_>, tbl_id: &str, kwargs: &Bound<'_, PyDict>, if_exists: &str) -> Result<Vec<String>> {
+    check_single_column_kwarg("add_column", "`col_name=col_type`", kwargs)?;
+    if let Some((_, v)) = kwargs.iter().next() {
+        let ok = v.is_instance_of::<PyDict>() || super::types::is_type_form(&v)?;
+        if !ok {
+            crate::bail!(
+                InvalidArgument,
+                "The argument to add_column() must be a type; did you intend to use add_computed_column() instead?"
+            );
+        }
+    }
+    tbl_add_columns(py, tbl_id, kwargs, if_exists)
+}
+
+/// `Table.add_computed_column(name=expr, ...)`; returns the status dict.
+#[pyfunction]
+#[pyo3(signature = (tbl_id, kwargs, stored, destination, custom_metadata, comment, on_error, if_exists))]
+#[allow(clippy::too_many_arguments)]
+pub fn tbl_add_computed_column<'py>(
+    py: Python<'py>,
+    tbl_id: &str,
+    kwargs: &Bound<'py, PyDict>,
+    stored: Option<bool>,
+    destination: Option<&Bound<'py, PyAny>>,
+    custom_metadata: Option<&Bound<'py, PyAny>>,
+    comment: Option<&Bound<'py, PyAny>>,
+    on_error: &str,
+    if_exists: &str,
+) -> Result<Bound<'py, PyDict>> {
+    let id = parse_uuid(tbl_id)?;
+    with_catalog(py, |cat| cat.check_mutable(id, None, "add columns to"))?;
+    check_single_column_kwarg("add_computed_column", "`col_name=col_type` or `col_name=expression`", kwargs)?;
+    let (name, value) = kwargs.iter().next().ok_or_else(|| Error::internal("missing column"))?;
+    let name: String = name.extract()?;
+    if !crate::catalog::path::is_valid_identifier(&name, false) {
+        crate::bail!(InvalidColumnName, "Invalid column name: {name}");
+    }
+    let folded = fold_identifier(&name);
+    let fail_on_exception = match on_error.to_ascii_lowercase().as_str() {
+        "abort" => true,
+        "ignore" => false,
+        _ => return Err(Error::Value(format!("Invalid value for on_error: {on_error}"))),
+    };
+    let ie = IfExists::parse(if_exists, "if_exists")?;
+    let spec_dict = PyDict::new(py);
+    spec_dict.set_item("value", &value)?;
+    if let Some(s) = stored {
+        spec_dict.set_item("stored", s)?;
+    }
+    if let Some(d) = destination.filter(|d| !d.is_none()) {
+        spec_dict.set_item("destination", d)?;
+    }
+    if let Some(cm) = custom_metadata.filter(|c| !c.is_none()) {
+        spec_dict.set_item("custom_metadata", cm)?;
+    }
+    if let Some(c) = comment.filter(|c| !c.is_none() && c.str().map(|s| !s.to_string().is_empty()).unwrap_or(true)) {
+        spec_dict.set_item("comment", c)?;
+    }
+    let schema = PyDict::new(py);
+    schema.set_item(&folded, spec_dict)?;
+    let mut specs = parse_schema(&schema)?;
+    let spec = specs.pop().ok_or_else(|| Error::internal("missing column spec"))?;
+    let skip = with_catalog(py, |cat| cat.handle_existing_column(id, &folded, ie))?;
+    if skip {
+        return Ok(status_dict(py, &UpdateStatus::default())?);
+    }
+    crate::catalog::tables::validate_column_spec(&spec)?;
+    let plan = with_catalog(py, |cat| AddComputedPlan::new(cat, id, spec))?;
+    let mut stats = RowCountStats::default();
+    let mut cols_with_excs = Vec::new();
+    let values = plan.compute(fail_on_exception, &mut stats, &mut cols_with_excs)?;
+    let status = with_catalog(py, |cat| plan.commit(cat, values, stats, cols_with_excs))?;
+    Ok(status_dict(py, &status)?)
+}
+
 /// `Table.add_columns()` for plain (non-computed) columns.
 #[pyfunction]
 #[pyo3(signature = (tbl_id, schema, if_exists))]
@@ -361,13 +452,14 @@ pub fn tbl_drop_column(py: Python<'_>, tbl_id: &str, column: &Bound<'_, PyAny>, 
             Some(c) => {
                 let c = c.clone();
                 with_catalog(py, |cat| {
-                    let md = cat.table(c.tbl_id)?;
-                    let sv = md.current_schema()?;
-                    sv.columns
-                        .iter()
-                        .find(|sc| sc.col_id == c.col_id)
-                        .map(|sc| sc.name.clone())
-                        .ok_or_else(|| crate::pxt_err!(ColumnNotFound, "Unknown column: {}", c.name))
+                    let visible = cat.resolve_columns(id, None)?;
+                    match visible.iter().find(|v| v.tbl_id == c.tbl_id && v.md.id == c.col_id) {
+                        Some(v) => Ok(v.name.clone()),
+                        None => {
+                            let tbl_name = cat.table(c.tbl_id).map(|t| t.name.clone()).unwrap_or_default();
+                            Err(crate::pxt_err!(ColumnNotFound, "Unknown column: {tbl_name}.{}", c.name))
+                        }
+                    }
                 })?
             }
             None => crate::bail!(TypeMismatch, "Invalid column parameter type: {}", column.get_type().str()?),

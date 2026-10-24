@@ -1,19 +1,19 @@
 //! Inserting rows.
 //!
 //! An insert runs in three steps (see `catalog::runtime` for why): `InsertPlan::new()` captures the target schema
-//! under the lock; the bindings convert the Python rows into values without the lock (`convert` in
-//! `bindings::table`); `commit()` re-checks the schema version, evaluates computed columns, enforces the primary
-//! key, appends the rows at a new table version and persists them.
+//! under the lock; the bindings convert the Python rows into values and `build_rows()` evaluates computed columns,
+//! both without the lock; `commit()` re-checks the schema version, enforces the primary key, appends the rows at a
+//! new table version and persists them.
 
 use std::collections::HashSet;
 use uuid::Uuid;
 
+use super::compute::{ComputedCol, eval_computed};
 use crate::catalog::Catalog;
 use crate::catalog::table::{ColId, RowCountStats};
-use crate::error::{Error, Result, py_repr};
+use crate::error::{Result, py_repr};
 use crate::expr::ExprRef;
-use crate::expr::eval::{RowContext, eval};
-use crate::store::rows::{CellError, LIVE, StoredRow};
+use crate::store::rows::{LIVE, StoredRow};
 use crate::types::ColumnType;
 use crate::value::Value;
 
@@ -23,6 +23,7 @@ pub struct InsertColumn {
     pub name: String,
     pub col_type: ColumnType,
     pub value_expr: Option<ExprRef>,
+    pub stored: bool,
     pub is_pk: bool,
 }
 
@@ -54,16 +55,11 @@ pub struct UpdateStatus {
 }
 
 impl InsertPlan {
-    pub fn new(cat: &Catalog, tbl_id: Uuid) -> Result<InsertPlan> {
+    pub fn new(cat: &Catalog, tbl_id: Uuid, version: Option<i64>) -> Result<InsertPlan> {
         let md = cat.table(tbl_id)?;
-        if md.is_view() {
-            crate::bail!(
-                UnsupportedOperation,
-                "{} {}: Cannot insert into a {}.",
-                md.kind.display_name(),
-                py_repr(&cat.table_path(tbl_id)?.to_string()),
-                md.kind.display_name()
-            );
+        if md.is_view() || version.is_some() {
+            let kind = if version.is_some() { "snapshot" } else { md.kind.display_name() };
+            crate::bail!(UnsupportedOperation, "{}: Cannot insert into a {kind}.", cat.display_str(tbl_id)?);
         }
         let columns = md
             .columns_at(None)?
@@ -74,6 +70,7 @@ impl InsertPlan {
                     name: c.name,
                     col_type: c.md.col_type.clone(),
                     value_expr: c.md.value_expr.as_ref().map(crate::expr::serde::from_json).transpose()?,
+                    stored: c.md.stored,
                     is_pk: c.md.is_pk,
                 })
             })
@@ -84,30 +81,47 @@ impl InsertPlan {
     pub fn column(&self, name: &str) -> Option<&InsertColumn> {
         self.columns.iter().find(|c| c.name == name)
     }
+
+    /// The stored computed columns, in schema order (a computed column only references columns before it).
+    pub fn computed_columns(&self) -> Vec<ComputedCol> {
+        self.columns
+            .iter()
+            .filter(|c| c.stored)
+            .filter_map(|c| c.value_expr.as_ref().map(|e| ComputedCol { col_id: c.col_id, name: c.name.clone(), expr: e.clone() }))
+            .collect()
+    }
 }
 
 /// A converted input row: a value for every column of the plan that was given (others are NULL or computed).
 pub type InputRow = Vec<(ColId, Value)>;
 
-struct NewRowCtx<'a> {
-    row: &'a StoredRow,
+/// Rows ready to be stored (rowids and versions are assigned at commit).
+pub struct BuiltRows {
+    pub rows: Vec<StoredRow>,
+    pub stats: RowCountStats,
+    pub cols_with_excs: Vec<String>,
 }
 
-impl RowContext for NewRowCtx<'_> {
-    fn column_value(&self, col: &crate::expr::ColumnRef) -> Result<Value> {
-        Ok(self.row.cell(col.col_id).clone())
+/// Evaluates computed columns for the input rows (no catalog lock held).
+pub fn build_rows(plan: &InsertPlan, inputs: Vec<InputRow>, fail_on_exception: bool) -> Result<BuiltRows> {
+    let computed = plan.computed_columns();
+    let mut stats = RowCountStats::default();
+    let mut cols_with_excs = Vec::new();
+    let mut rows = Vec::with_capacity(inputs.len());
+    for input in inputs {
+        let mut row = StoredRow { rowid: 0, v_min: 0, v_max: LIVE, cells: Vec::new(), errors: Vec::new() };
+        for (col_id, v) in input {
+            row.set_cell(col_id, v);
+        }
+        eval_computed(&mut row, &computed, fail_on_exception, &mut stats, &mut cols_with_excs)?;
+        stats.ins_rows += 1;
+        rows.push(row);
     }
+    Ok(BuiltRows { rows, stats, cols_with_excs })
 }
 
 fn pk_key(row: &StoredRow, pk_cols: &[ColId]) -> String {
-    pk_cols
-        .iter()
-        .map(|c| match row.cell(*c) {
-            Value::String(s) => s.clone(),
-            v => format!("{v:?}"),
-        })
-        .collect::<Vec<_>>()
-        .join("\u{1f}")
+    pk_cols.iter().map(|c| format!("{:?}", row.cell(*c))).collect::<Vec<_>>().join("\u{1f}")
 }
 
 fn pk_display(row: &StoredRow, plan: &InsertPlan) -> String {
@@ -117,7 +131,6 @@ fn pk_display(row: &StoredRow, plan: &InsertPlan) -> String {
         .iter()
         .map(|c| match row.cell(c.col_id) {
             Value::String(s) => s.clone(),
-            Value::Int(i) => i.to_string(),
             v => crate::expr::display::literal_str(v, &c.col_type),
         })
         .collect();
@@ -125,7 +138,7 @@ fn pk_display(row: &StoredRow, plan: &InsertPlan) -> String {
 }
 
 /// Appends the rows at a new table version and persists them.
-pub fn commit(cat: &mut Catalog, plan: &InsertPlan, rows: Vec<InputRow>, fail_on_exception: bool) -> Result<UpdateStatus> {
+pub fn commit(cat: &mut Catalog, plan: &InsertPlan, built: BuiltRows) -> Result<UpdateStatus> {
     let md = cat.table(plan.tbl_id)?.clone();
     if md.current_schema_version != plan.schema_version {
         crate::bail!(
@@ -134,57 +147,24 @@ pub fn commit(cat: &mut Catalog, plan: &InsertPlan, rows: Vec<InputRow>, fail_on
             py_repr(&plan.tbl_name)
         );
     }
-    let data = cat.data(plan.tbl_id)?;
-    let mut new_data = data.as_ref().clone();
+    let mut data = cat.data(plan.tbl_id)?.as_ref().clone();
     let pk_cols: Vec<ColId> = plan.columns.iter().filter(|c| c.is_pk).map(|c| c.col_id).collect();
-    let mut pk_seen: HashSet<String> = HashSet::new();
     if !pk_cols.is_empty() {
-        for r in new_data.visible_at(md.current_version) {
-            pk_seen.insert(pk_key(r, &pk_cols));
-        }
-    }
-
-    let version = if md.is_data_versioned { md.current_version + 1 } else { md.current_version };
-    let mut next_rowid = md.next_rowid;
-    let mut stats = RowCountStats::default();
-    let mut cols_with_excs: Vec<String> = Vec::new();
-    let mut new_rows = Vec::with_capacity(rows.len());
-    for input in rows {
-        let mut row = StoredRow { rowid: next_rowid, v_min: version, v_max: LIVE, cells: Vec::new(), errors: Vec::new() };
-        next_rowid += 1;
-        for (col_id, v) in input {
-            row.set_cell(col_id, v);
-        }
-        for c in plan.columns.iter().filter(|c| c.is_computed()) {
-            let Some(e) = &c.value_expr else { continue };
-            stats.computed_values += 1;
-            match eval(e, &NewRowCtx { row: &row }) {
-                Ok(v) => row.set_cell(c.col_id, v),
-                Err(err) => {
-                    if fail_on_exception {
-                        return Err(err);
-                    }
-                    stats.num_excs += 1;
-                    if !cols_with_excs.contains(&c.name) {
-                        cols_with_excs.push(c.name.clone());
-                    }
-                    row.set_cell(c.col_id, Value::Null);
-                    let errortype = match &err {
-                        Error::Pxt { code, .. } => code.name().to_string(),
-                        _ => "Error".to_string(),
-                    };
-                    row.set_error(c.col_id, Some(CellError { errortype, errormsg: err.message() }));
-                }
+        let mut seen: HashSet<String> = data.visible_at(md.current_version).map(|r| pk_key(r, &pk_cols)).collect();
+        for r in &built.rows {
+            if !seen.insert(pk_key(r, &pk_cols)) {
+                crate::bail!(ConstraintViolation, "Duplicate primary key value: {}", pk_display(r, plan));
             }
         }
-        if !pk_cols.is_empty() && !pk_seen.insert(pk_key(&row, &pk_cols)) {
-            crate::bail!(ConstraintViolation, "Duplicate primary key value: {}", pk_display(&row, plan));
-        }
-        stats.ins_rows += 1;
-        new_rows.push(row);
     }
-
-    new_data.rows.extend(new_rows);
+    let version = if md.is_data_versioned { md.current_version + 1 } else { md.current_version };
+    let mut next_rowid = md.next_rowid;
+    for mut r in built.rows {
+        r.rowid = next_rowid;
+        r.v_min = version;
+        next_rowid += 1;
+        data.rows.push(r);
+    }
     if md.is_data_versioned {
         cat.bump_version(plan.tbl_id, None)?;
     }
@@ -192,16 +172,16 @@ pub fn commit(cat: &mut Catalog, plan: &InsertPlan, rows: Vec<InputRow>, fail_on
         let md = cat.table_mut(plan.tbl_id)?;
         md.next_rowid = next_rowid;
         if let Some(vmd) = md.versions.iter_mut().find(|v| v.version == version) {
-            vmd.row_count_stats.ins_rows += stats.ins_rows;
-            vmd.row_count_stats.num_excs += stats.num_excs;
-            vmd.row_count_stats.computed_values += stats.computed_values;
+            vmd.row_count_stats.ins_rows += built.stats.ins_rows;
+            vmd.row_count_stats.num_excs += built.stats.num_excs;
+            vmd.row_count_stats.computed_values += built.stats.computed_values;
         }
     }
-    cat.write_data(plan.tbl_id, new_data)?;
+    cat.write_data(plan.tbl_id, data)?;
     Ok(UpdateStatus {
         updated_cols: Vec::new(),
-        cols_with_excs,
-        row_count_stats: stats,
+        cols_with_excs: built.cols_with_excs,
+        row_count_stats: built.stats,
         cascade_row_count_stats: RowCountStats::default(),
     })
 }

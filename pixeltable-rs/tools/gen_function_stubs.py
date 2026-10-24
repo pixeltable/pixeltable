@@ -89,10 +89,10 @@ def main() -> None:
         'from . import (',
         *[f'    {m},' for m in sorted(submodules)],
         ')',
-        f'from .globals import {", ".join(gfuncs)}',
+        f'from .globals import {", ".join(gfuncs + gclasses)}',
         'from .util import CodecContextMetadata, ContainerMetadata, StreamMetadata',
         '',
-        f'__all__ = {sorted(submodules) + gfuncs + ["CodecContextMetadata", "ContainerMetadata", "StreamMetadata"]!r}',
+        f'__all__ = {sorted(submodules) + gfuncs + gclasses + ["CodecContextMetadata", "ContainerMetadata", "StreamMetadata"]!r}',
         '',
     ]
     (out_fn / '__init__.py').write_text('\n'.join(init))

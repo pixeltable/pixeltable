@@ -52,6 +52,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(table::tbl_insert, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_metadata, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_add_columns, m)?)?;
+    m.add_function(wrap_pyfunction!(table::tbl_add_column, m)?)?;
+    m.add_function(wrap_pyfunction!(table::tbl_add_computed_column, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_drop_column, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_rename_column, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_versions, m)?)?;
