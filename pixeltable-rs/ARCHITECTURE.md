@@ -291,9 +291,12 @@ thread state, attached only while they run a call; `udf_threads`), async functio
 loop thread (`func/_runtime.py`; at most `max_concurrency`, default `udf_async_concurrency`, in flight per function),
 batched functions in batches of `batch_size` (several in flight). The dispatching thread is detached from the
 interpreter while it waits (and checks signals every 50 ms). Sync calls start in the dispatching thread; only calls
-slower than 50 us get workers, first two, whose calls a probe compares with the elapsed time: calls that do not overlap
-(pure-Python CPU work holding the GIL) go back to the dispatching thread, one after the other, and are probed again
-after 64, 128, ... calls; calls that overlap get all workers. Resource pools (`resource_pool=`, async functions only, as upstream): `request-rate:<endpoint>[:<model>]` starts
+slower than 50 us (not counting the first call, which may include one-time setup) get workers, first two, whose
+throughput a probe compares with that of the dispatching thread: calls that run less than 1.2x faster on two workers
+(pure-Python CPU work holding the GIL, or short calls that release and retake it and so wait for each other's switch
+interval) go back to the dispatching thread, one after the other, and are probed again after 64, 128, ... calls; the
+others get all workers. The probe compares throughput, not the calls' durations, because a call's duration includes
+its waits to retake the GIL. Resource pools (`resource_pool=`, async functions only, as upstream): `request-rate:<endpoint>[:<model>]` starts
 at most `rate_limit` requests per minute (config `<endpoint>.rate_limit` / `<endpoint>.rate_limits.<model>`, default
 600), `rate-limits:...` only limits concurrency (upstream's provider-reported limits need its internal `Env`); failed
 calls that look retryable (`_runtime.retry_info()`, upstream's `is_retryable_error()`) are retried with upstream's
@@ -320,7 +323,7 @@ Free-threaded CPython: the module declares `gil_used = false` (lib.rs) after an 
 mutexes or atomics, a mutex that can be held while detached is waited for detached (`lock_py_attached`: the catalog, a
 result cursor), Python objects are held as `Py`, cached type objects are `PyOnceLock`s and every pyclass is frozen. The
 compat harness and tests_rs pass on 3.14t with the GIL disabled; there, worker threads run pure-Python UDF calls in
-parallel (the probe sees them overlap).
+parallel (the probe sees them run faster).
 
 The contract, which every phase-B caller relies on:
 - outcomes equal sequential evaluation: each row gets its value or its error (a failed batch fails each of its rows);

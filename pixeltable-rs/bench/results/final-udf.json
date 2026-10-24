@@ -1,0 +1,45 @@
+{
+  "results": {
+    "add_column_sleep": 0.7099649510000745,
+    "async_sleep": 0.06693712200103619,
+    "batched_sleep": 0.20860734100097034,
+    "numpy_matmul": 0.42327016399940476,
+    "pil_resize": 3.635636049999448,
+    "py_cpu_loop": 0.9212948710010096,
+    "py_cpu_tiny": 0.15777521600102773,
+    "py_cpu_tiny_select": 0.0505804629992781,
+    "embed_index_100k": 3.28733082799954,
+    "similarity_100k": 0.03251378200002364,
+    "sync_sleep_insert": 0.7035493879993737,
+    "sync_sleep_select": 0.7091814289997274,
+    "two_cols_insert": 0.6965070660007768
+  },
+  "builds": null,
+  "descriptions": {
+    "add_column_sleep": "add_computed_column over 1,000 existing rows: sync UDF sleeping 10 ms",
+    "async_sleep": "computed column on insert: async UDF awaiting asyncio.sleep(0.05), 1,000 rows",
+    "batched_sleep": "computed column on insert: batched UDF (batch_size=16) sleeping 20 ms per batch, 1,000 rows",
+    "numpy_matmul": "computed column on insert: sync UDF doing a 300x300 matmul (BLAS single-threaded), 1,000 rows",
+    "pil_resize": "computed column on insert: sync UDF resizing a 1024x1024 image (PIL releases the GIL), 1,000 rows",
+    "py_cpu_loop": "computed column on insert: pure-Python CPU-bound UDF (~1 ms, holds the GIL), 1,000 rows",
+    "py_cpu_tiny": "computed column on insert: trivial pure-Python UDF (call overhead), 100,000 rows",
+    "py_cpu_tiny_select": "select: trivial pure-Python UDF (call overhead, no storage), 100,000 rows (best of 3)",
+    "embed_index_100k": "similarity over 100k 64-d embeddings (embedding index built by a numpy UDF)",
+    "similarity_100k": "similarity over 100k 64-d embeddings (embedding index built by a numpy UDF)",
+    "sync_sleep_insert": "computed column on insert: sync UDF sleeping 10 ms, 1,000 rows",
+    "sync_sleep_select": "select: sync UDF sleeping 10 ms, 1,000 rows",
+    "two_cols_insert": "one insert fills two independent computed columns, each a sync UDF sleeping 10 ms, 500 rows"
+  },
+  "env": {},
+  "machine": {
+    "platform": "Linux-6.18.44-fc-v153-x86_64-with-glibc2.39",
+    "python": "3.13.17",
+    "cpus": 4,
+    "load": [
+      2.6064453125,
+      1.8037109375,
+      1.53271484375
+    ]
+  },
+  "commit": "0447efc2"
+}

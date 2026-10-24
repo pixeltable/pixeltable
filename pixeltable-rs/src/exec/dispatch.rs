@@ -461,7 +461,8 @@ fn replicate(py: Python<'_>, err: Error, n: usize) -> Vec<Result<Value>> {
 // ------------------------------------------------------------------------------------------------ dispatch
 
 enum Msg {
-    Done { node: usize, unit: usize, results: Vec<Result<Value>>, busy: Duration },
+    /// `finished`: when the call returned (a probe measures to then, not to when the dispatching thread got to it)
+    Done { node: usize, unit: usize, results: Vec<Result<Value>>, finished: Instant },
     Skipped { node: usize, unit: usize },
 }
 
@@ -484,7 +485,7 @@ impl AsyncDone {
         let (s, e) = n.unit(unit);
         let outcome = task.call_method0("result").map_err(Error::from);
         let results = n.unit_results(py, outcome, s, e);
-        let _ = self.tx.send(Msg::Done { node, unit, results, busy: Duration::ZERO });
+        let _ = self.tx.send(Msg::Done { node, unit, results, finished: Instant::now() });
     }
 }
 
@@ -498,15 +499,18 @@ enum Mode {
     Async,
 }
 
-/// Measures whether the calls of a parallel node overlap: the node starts with `PROBE_WORKERS` workers; after `target`
-/// calls, the sum of their durations (each measured while its worker is attached) over the time since the workers
-/// started tells whether they ran at the same time. Below 1.5, the calls hold the GIL and run no faster in parallel:
-/// the dispatching thread runs the following calls; else the node gets all its workers (`helpers`). A serial node is
-/// probed again after `reprobe_after` of its calls (doubling each time), so that one unlucky measurement (a busy
-/// machine) does not decide for all calls.
+/// Measures whether the calls of a parallel node run faster on workers: the node starts with `PROBE_WORKERS` workers;
+/// after `target` calls, their throughput is compared with that of the dispatching thread running them one after the
+/// other (`serial`, the time per call). Below `PROBE_MIN_SPEEDUP`, the calls hold the GIL (pure-Python CPU work) or
+/// contend for it (short calls that release and retake it, which on several threads wait for each other's switch
+/// interval): the dispatching thread runs the following calls; else the node gets all its workers (`helpers`).
+/// Throughput, not the calls' durations, is what is compared: a call's duration includes the time it waits to retake
+/// the GIL. A serial node is probed again after `reprobe_after` of its calls (doubling each time), so that one unlucky
+/// measurement (a busy machine) does not decide for all calls.
 struct Probe {
     started: Instant,
-    busy: Duration,
+    last_finished: Instant,
+    serial: Duration,
     completed: usize,
     target: usize,
     decided: bool,
@@ -518,6 +522,62 @@ struct Probe {
 
 /// The workers a parallel node starts with, until the probe has decided.
 const PROBE_WORKERS: usize = 2;
+/// The speedup of `PROBE_WORKERS` workers over the dispatching thread below which a node runs serially (calls that
+/// hold the GIL cannot exceed 1; those that contend for it are far below).
+const PROBE_MIN_SPEEDUP: f64 = 1.2;
+/// A speedup above this is impossible with `PROBE_WORKERS` workers: the calls got faster than they were measured
+/// (the measured ones included one-time setup), and the node measures them again.
+const PROBE_MAX_SPEEDUP: f64 = PROBE_WORKERS as f64 * 1.25;
+/// A probe runs for at least this long (with calls of the measured duration), and for 4 to 256 calls per worker.
+const PROBE_TIME: Duration = Duration::from_millis(2);
+
+/// The calls of a parallel node the dispatching thread ran, and their duration, not counting the first
+/// `WARM_UP_CALLS` (which may include one-time setup such as imports and would make the calls look slower).
+#[derive(Default)]
+struct SerialTiming {
+    warm_up: usize,
+    calls: usize,
+    time: Duration,
+}
+
+const WARM_UP_CALLS: usize = 1;
+/// Workers start only after this many measured calls, or this much measured time.
+const MIN_MEASURED_CALLS: usize = 8;
+const MIN_MEASURED_TIME: Duration = Duration::from_millis(2);
+
+impl SerialTiming {
+    fn add(&mut self, calls: usize, time: Duration) {
+        if self.warm_up < WARM_UP_CALLS {
+            self.warm_up += calls;
+        } else {
+            self.calls += calls;
+            self.time += time;
+        }
+    }
+
+    fn per_call(&self) -> Option<Duration> {
+        (self.calls > 0).then(|| self.time / self.calls as u32)
+    }
+
+    /// How many calls to run between readings of the clock: every call while the first ones are measured (so that a
+    /// slow call gets workers soon), then every few (a short call costs less than reading the clock twice).
+    fn check_every(&self, measuring: bool) -> usize {
+        if !measuring {
+            16
+        } else if self.warm_up + self.calls < 4 {
+            1
+        } else {
+            2
+        }
+    }
+
+    /// True if enough calls were measured, and they are slow enough to gain from workers.
+    fn wants_workers(&self) -> bool {
+        self.calls > 0
+            && (self.calls >= MIN_MEASURED_CALLS || self.time >= MIN_MEASURED_TIME)
+            && self.time >= PARALLEL_MIN_CALL * self.calls as u32
+    }
+}
 
 struct AsyncState {
     limit: usize,
@@ -540,8 +600,8 @@ struct Dispatch<'o> {
     /// per node: units not finished
     remaining: Vec<usize>,
     probes: Vec<Option<Probe>>,
-    /// parallel nodes: the calls the dispatching thread ran before workers were started, and their duration
-    measured: Vec<(usize, Duration)>,
+    /// parallel nodes: the calls the dispatching thread ran (before workers were started, and while serial)
+    measured: Vec<SerialTiming>,
     asyncs: Vec<Option<AsyncState>>,
     tx: Sender<Msg>,
     rx: Mutex<Receiver<Msg>>,
@@ -609,7 +669,7 @@ impl<'o> Dispatch<'o> {
             outcomes,
             remaining: nodes.iter().map(|n| n.num_units).collect(),
             probes: nodes.iter().map(|_| None).collect(),
-            measured: nodes.iter().map(|_| (0, Duration::ZERO)).collect(),
+            measured: nodes.iter().map(|_| SerialTiming::default()).collect(),
             nodes: Arc::new(nodes),
             modes,
             asyncs,
@@ -664,11 +724,15 @@ impl<'o> Dispatch<'o> {
         let helpers = threads.min(node.max_concurrency.unwrap_or(usize::MAX)).min(node.num_units).max(1);
         let first = helpers.min(PROBE_WORKERS);
         let reprobe_after = self.probes[ni].as_ref().map_or(64, |p| p.reprobe_after * 2);
+        let serial = self.measured[ni].per_call().unwrap_or(PARALLEL_MIN_CALL).max(Duration::from_nanos(100));
+        let calls_per_worker = (PROBE_TIME.as_secs_f64() / serial.as_secs_f64()).ceil() as usize;
+        let now = Instant::now();
         self.probes[ni] = Some(Probe {
-            started: Instant::now(),
-            busy: Duration::ZERO,
+            started: now,
+            last_finished: now,
+            serial,
             completed: 0,
-            target: 4 * first,
+            target: calls_per_worker.clamp(4, 256) * first,
             decided: false,
             helpers,
             serial_calls: 0,
@@ -711,6 +775,7 @@ impl<'o> Dispatch<'o> {
             }
             let mut since_check = 0usize;
             let mut check_start = Instant::now();
+            let mut check_every = self.measured[ni].check_every(measuring);
             loop {
                 let u = node.next.fetch_add(1, Ordering::SeqCst);
                 if u >= node.num_units {
@@ -731,22 +796,21 @@ impl<'o> Dispatch<'o> {
                     }
                 }
                 since_check += 1;
-                // the clock is read every few calls (a short call costs less than reading it twice)
-                if since_check < if measuring { 2 } else { 16 } {
+                if since_check < check_every {
                     continue;
                 }
                 let now = Instant::now();
-                if measuring {
+                if self.modes[ni] == Mode::Parallel {
                     let m = &mut self.measured[ni];
-                    m.0 += since_check;
-                    m.1 += now - check_start;
-                    if m.1 >= PARALLEL_MIN_CALL * m.0 as u32 && node.next.load(Ordering::SeqCst) < node.num_units {
+                    m.add(since_check, now - check_start);
+                    if measuring && m.wants_workers() && node.next.load(Ordering::SeqCst) < node.num_units {
                         self.start_workers(ni);
                         break;
                     }
                 }
                 since_check = 0;
                 check_start = now;
+                check_every = self.measured[ni].check_every(measuring);
                 if now - slice_start >= INLINE_SLICE {
                     return Ok(true);
                 }
@@ -838,15 +902,21 @@ impl<'o> Dispatch<'o> {
                 self.finish_unit(node, unit, None);
                 Ok(())
             }
-            Msg::Done { node, unit, results, busy } => {
+            Msg::Done { node, unit, results, finished } => {
                 let mut ramp_up = 0;
                 if let Some(p) = self.probes[node].as_mut() {
-                    p.busy += busy;
                     p.completed += 1;
+                    p.last_finished = p.last_finished.max(finished);
                     if !p.decided && p.completed >= p.target {
                         p.decided = true;
-                        let overlap = p.busy.as_secs_f64() / p.started.elapsed().as_secs_f64().max(1e-9);
-                        if overlap < 1.5 && p.helpers > 1 {
+                        let elapsed = p.last_finished.saturating_duration_since(p.started);
+                        let parallel = elapsed.as_secs_f64().max(1e-9) / p.completed as f64;
+                        let speedup = p.serial.as_secs_f64() / parallel;
+                        if speedup > PROBE_MAX_SPEEDUP {
+                            self.nodes[node].serial.store(true, Ordering::SeqCst);
+                            self.probes[node] = None;
+                            self.measured[node] = SerialTiming { warm_up: WARM_UP_CALLS, ..SerialTiming::default() };
+                        } else if speedup < PROBE_MIN_SPEEDUP && p.helpers > 1 {
                             self.nodes[node].serial.store(true, Ordering::SeqCst);
                         } else {
                             ramp_up = p.helpers.saturating_sub(PROBE_WORKERS.min(p.helpers));
@@ -962,9 +1032,8 @@ impl WorkerJob {
                 Msg::Skipped { node: self.ni, unit: u }
             } else {
                 Python::attach(|py| {
-                    let t0 = Instant::now();
                     let results = self.node.run_unit(py, u);
-                    Msg::Done { node: self.ni, unit: u, results, busy: t0.elapsed() }
+                    Msg::Done { node: self.ni, unit: u, results, finished: Instant::now() }
                 })
             };
             if self.tx.send(msg).is_err() {

@@ -26,8 +26,9 @@ Unlike upstream Pixeltable, which runs sync UDFs one call at a time, pixeltable-
 rows concurrently:
 
 - Calls of a **sync UDF** may run in parallel on a pool of worker threads, in any order. Calls that wait on I/O or
-  release the GIL (network requests, `time.sleep`, numpy, PIL, torch) overlap; pure-Python CPU-bound calls, which
-  would only contend for the GIL, are detected and run one after the other as before.
+  release the GIL (network requests, `time.sleep`, numpy, PIL, torch) overlap; calls that would run no faster on
+  several threads (pure-Python CPU-bound work, which holds the GIL, and short calls that contend for it) are detected
+  and run one after the other, as upstream runs them.
 - Calls of an **async UDF** are all in flight together on one event loop (up to `max_concurrency` per function), and
   functions with a `resource_pool` follow the pool's request rate and retry failed calls that look retryable, as
   upstream does.
@@ -37,7 +38,8 @@ rows concurrently:
 
 Results are the same as with sequential execution: each value is placed in its row, an exception is recorded for the
 row that raised it (a failed batch fails each of its rows), `on_error='abort'` reports the error of the first failing
-row in row order, and a `KeyboardInterrupt` aborts the operation.
+row in row order (and calls for later rows are not started), and a `KeyboardInterrupt` aborts the operation. As in
+upstream, every UDF call of an expression is made for every row, also where `&` or `|` would not need its result.
 
 A UDF that is not thread-safe (it mutates shared state without a lock, or uses a library that must not be called
 from several threads) declares `@pxt.udf(max_concurrency=1)`: its calls then run one at a time, in row order, in the
@@ -47,7 +49,7 @@ thread that runs the operation. `max_concurrency=n` caps the calls in flight at 
 |---|---|
 | `PIXELTABLE_UDF_THREADS` / `udf_threads`: worker threads for sync UDFs; 1 runs every call in the calling thread, in row order (upstream's behavior) | 4 per CPU, 4 to 32 |
 | `PIXELTABLE_UDF_ASYNC_CONCURRENCY` / `udf_async_concurrency`: calls of one async UDF in flight at once | 1024 |
-| `<ENDPOINT>_RATE_LIMIT` / `[<endpoint>] rate_limit`: requests per minute of `resource_pool='request-rate:<endpoint>'` | 600 |
+| `<ENDPOINT>_RATE_LIMIT` / `[<endpoint>] rate_limit`: requests per minute of `resource_pool='request-rate:<endpoint>'` (`[<endpoint>.rate_limits] <model>` for `'request-rate:<endpoint>:<model>'`) | 600 |
 
 On free-threaded CPython (3.13t, 3.14t: `uv venv --python 3.14t`, then the setup below) the extension runs without the
 GIL, so pure-Python CPU-bound UDFs run in parallel too (a 1 ms pure-Python UDF over 1,000 rows: 3.5x faster on 4 cores

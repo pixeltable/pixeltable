@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Iterator
 
+import numpy as np
 import pytest
 
 import pixeltable as pxt
@@ -92,6 +93,16 @@ def serial_udf(x: int) -> int:
     record(x)
     time.sleep(0.001)
     return x
+
+
+@pxt.udf
+def contended(x: int) -> float:
+    # numpy releases and retakes the GIL several times per call: on several threads, the calls wait for each other
+    total = 0.0
+    for i in range(8):
+        total += float(np.random.default_rng(x * 8 + i).random(64).sum())
+    record(x)
+    return total
 
 
 @pxt.udf
@@ -329,6 +340,16 @@ except KeyboardInterrupt:
             assert {tid for _, tid in CALLS} == {threading.get_ident()}
         finally:
             pixeltable._testing.configure_udf_dispatch(threads=prev)
+
+    @pytest.mark.skipif(not getattr(sys, '_is_gil_enabled', lambda: True)(), reason='without a GIL the calls overlap')
+    def test_calls_contending_for_the_gil_run_in_caller(self) -> None:
+        # slow enough for workers, but slower on several threads than one after the other: the probes (the first one
+        # and a few more after 64, 128, ... calls) send the calls back to the dispatching thread
+        t = int_table('t', 4000)
+        CALLS.clear()
+        assert len(t.select(y=contended(t.x)).collect()) == 4000
+        in_caller = sum(tid == threading.get_ident() for _, tid in CALLS)
+        assert in_caller > 0.75 * len(CALLS)
 
     def test_nested_evaluation_in_udf(self) -> None:
         int_table('nested_src', 20)
