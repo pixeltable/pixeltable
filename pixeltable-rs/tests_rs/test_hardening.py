@@ -232,3 +232,32 @@ class TestErrorClasses:
         with raises(pxt.ErrorCode.INVALID_ARGUMENT, match=msg):
             t.where(t.s == '\ud800').count()
         assert t.count() == 0
+
+    def test_lone_surrogates_in_names(self) -> None:
+        # upstream: RequestError 'Invalid path: x\ud800' / 'Invalid column name: a\ud800'
+        t = pxt.create_table('t', {'a': pxt.Int})
+        with raises(pxt.ErrorCode.INVALID_PATH, match=r'^Invalid path: x\\ud800$'):
+            pxt.create_table('x\ud800', {'a': pxt.Int})
+        with raises(pxt.ErrorCode.INVALID_PATH, match=r'^Invalid path: d\\ud800$'):
+            pxt.create_dir('d\ud800')
+        with raises(pxt.ErrorCode.INVALID_PATH, match=r'^Invalid path: x\\ud800$'):
+            pxt.get_table('x\ud800')
+        with raises(pxt.ErrorCode.INVALID_PATH, match=r'^Invalid path: y\\ud800$'):
+            pxt.move('t', 'y\ud800')
+        with raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match=r'^Invalid column name: a\\ud800$'):
+            pxt.create_table('u', {'a\ud800': pxt.Int})
+        with raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match=r'^Invalid column name: b\\ud800$'):
+            t.rename_column('a', 'b\ud800')
+        assert pxt.list_tables() == ['t']
+
+
+def test_computed_value_too_deep() -> None:
+    # a computed JSON value deeper than the store accepts fails the operation (rolled back), never the reload
+    t = pxt.create_table('t', {'j': pxt.Json | None})
+    t.insert([{'j': nested_list(MAX_JSON_DEPTH - 1)}])
+    with raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='nested too deeply'):
+        t.add_computed_column(c=[[t.j]])
+    reload_catalog()
+    t = pxt.get_table('t')
+    assert t.columns() == ['j']
+    assert depth_of(t.collect()['j'][0]) == MAX_JSON_DEPTH - 1
