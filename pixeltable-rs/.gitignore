@@ -5,3 +5,4 @@ target/
 __pycache__/
 .pytest_cache/
 compat/results/
+bench/results/latest.json

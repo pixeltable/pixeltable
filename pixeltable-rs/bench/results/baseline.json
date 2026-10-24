@@ -1,0 +1,51 @@
+{
+  "results": {
+    "add_column_sleep": 10.217962815999726,
+    "async_sleep": 50.590182342999924,
+    "batched_sleep": 20.226801589999923,
+    "create_1m": 4.866087717000028,
+    "arith_1m": 0.9585320520000096,
+    "string_1m": 0.9190228759998718,
+    "filter_1m": 0.6792545650000648,
+    "groupby_1m": 1.8592779170003269,
+    "sort_1m": 2.3108369050000874,
+    "join_1m": 1.8400818499999332,
+    "numpy_matmul": 1.2891622410002128,
+    "pil_resize": 10.624431222999647,
+    "py_cpu_loop": 1.0407302520002304,
+    "py_cpu_tiny": 0.17379940299997543,
+    "embed_index_100k": 3.3135387360002824,
+    "similarity_100k": 0.11596404700003404,
+    "sync_sleep_insert": 10.222321018000002,
+    "sync_sleep_select": 10.20874559999993,
+    "two_cols_insert": 10.228097119000267
+  },
+  "descriptions": {
+    "add_column_sleep": "add_computed_column over 1,000 existing rows: sync UDF sleeping 10 ms",
+    "async_sleep": "computed column on insert: async UDF awaiting asyncio.sleep(0.05), 1,000 rows",
+    "batched_sleep": "computed column on insert: batched UDF (batch_size=16) sleeping 20 ms per batch, 1,000 rows",
+    "create_1m": "builtin-only work over 1M rows",
+    "arith_1m": "builtin-only work over 1M rows",
+    "string_1m": "builtin-only work over 1M rows",
+    "filter_1m": "builtin-only work over 1M rows",
+    "groupby_1m": "builtin-only work over 1M rows",
+    "sort_1m": "builtin-only work over 1M rows",
+    "join_1m": "builtin-only work over 1M rows",
+    "numpy_matmul": "computed column on insert: sync UDF doing a 300x300 matmul (BLAS single-threaded), 1,000 rows",
+    "pil_resize": "computed column on insert: sync UDF resizing a 1024x1024 image (PIL releases the GIL), 1,000 rows",
+    "py_cpu_loop": "computed column on insert: pure-Python CPU-bound UDF (~1 ms, holds the GIL), 1,000 rows",
+    "py_cpu_tiny": "computed column on insert: trivial pure-Python UDF (call overhead), 100,000 rows",
+    "embed_index_100k": "similarity over 100k 64-d embeddings (embedding index built by a numpy UDF)",
+    "similarity_100k": "similarity over 100k 64-d embeddings (embedding index built by a numpy UDF)",
+    "sync_sleep_insert": "computed column on insert: sync UDF sleeping 10 ms, 1,000 rows",
+    "sync_sleep_select": "select: sync UDF sleeping 10 ms, 1,000 rows",
+    "two_cols_insert": "one insert fills two independent computed columns, each a sync UDF sleeping 10 ms, 500 rows"
+  },
+  "env": {},
+  "machine": {
+    "platform": "Linux-6.18.44-fc-v153-x86_64-with-glibc2.39",
+    "python": "3.13.17",
+    "cpus": 4
+  },
+  "commit": "a533df3"
+}
