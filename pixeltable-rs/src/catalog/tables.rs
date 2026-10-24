@@ -68,6 +68,9 @@ pub fn validate_column_spec(spec: &ColumnSpec) -> Result<()> {
             py_repr(&spec.name)
         );
     }
+    if let Some(e) = &spec.value_expr {
+        crate::functions::udf::validate_storable(e, &format!("Computed column {}", py_repr(&spec.name)))?;
+    }
     Ok(())
 }
 

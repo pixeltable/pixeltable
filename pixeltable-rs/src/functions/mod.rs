@@ -13,9 +13,10 @@
 //! back into Python; that is the only place where builtin-free evaluation leaves Rust.
 
 pub mod math;
+pub mod signature;
 pub mod string;
+pub mod udf;
 
-use pyo3::prelude::*;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
@@ -75,38 +76,26 @@ pub fn builtin_names() -> Vec<String> {
     names
 }
 
-/// A Python UDF referenced from an expression.
-pub struct UdfRef {
-    pub name: String,
-    /// how to find the callable again after a reload (produced and resolved by `pixeltable.func`)
-    pub descriptor: Json,
-    pub callable: Py<PyAny>,
-}
-
-impl std::fmt::Debug for UdfRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "UdfRef({})", self.name)
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum FuncRef {
     Builtin(&'static Builtin),
-    Udf(Arc<UdfRef>),
+    /// a call of a Python function (see `udf`)
+    Udf(Arc<udf::UdfCall>),
 }
 
 impl FuncRef {
+    /// The name used as the default output column name (upstream `Function.name`).
     pub fn name(&self) -> &str {
         match self {
             FuncRef::Builtin(b) => b.name,
-            FuncRef::Udf(u) => &u.name,
+            FuncRef::Udf(u) => u.def.name.as_deref().unwrap_or(""),
         }
     }
 
     pub fn to_json(&self) -> Result<Json> {
         Ok(match self {
             FuncRef::Builtin(b) => json!({ "builtin": b.qualified_name() }),
-            FuncRef::Udf(u) => json!({ "udf": u.descriptor, "name": u.name }),
+            FuncRef::Udf(u) => u.to_json()?,
         })
     }
 
@@ -115,9 +104,6 @@ impl FuncRef {
             return lookup(name)
                 .map(FuncRef::Builtin)
                 .ok_or_else(|| crate::pxt_err!(FunctionNotFound, "Function {} not found", crate::error::py_repr(name)));
-        }
-        if j.get("udf").is_some() {
-            return Err(Error::not_implemented("resolving a stored Python UDF"));
         }
         Err(Error::internal(format!("malformed function reference: {j}")))
     }
@@ -133,9 +119,30 @@ impl FuncRef {
                 }
                 (b.eval)(args)
             }
-            FuncRef::Udf(u) => Err(Error::not_implemented(format!("calling the Python UDF `{}`", u.name))),
+            FuncRef::Udf(_) => Err(Error::internal("Python function calls are evaluated by `udf::eval_call()`")),
         }
     }
+}
+
+/// Evaluates a function call node against a row.
+pub fn eval_call(fc: &FunctionCall, e: &Expr, ctx: &dyn crate::expr::eval::RowContext) -> Result<Value> {
+    if let FuncRef::Udf(call) = &fc.func {
+        return udf::eval_call(call, fc, e, ctx);
+    }
+    let args: Vec<Value> = fc.args.iter().map(|a| crate::expr::eval::eval(a, ctx)).collect::<Result<_>>()?;
+    let kwargs: Vec<(String, Value)> =
+        fc.kwargs.iter().map(|(k, a)| Ok((k.clone(), crate::expr::eval::eval(a, ctx)?))).collect::<Result<_>>()?;
+    fc.func.call(&args, &kwargs, &e.col_type)
+}
+
+/// `str()` of a function call node.
+pub fn display_call(fc: &FunctionCall) -> String {
+    if let FuncRef::Udf(call) = &fc.func {
+        return udf::display_call(call, fc);
+    }
+    let mut args: Vec<String> = fc.args.iter().map(|a| crate::expr::display::display(a)).collect();
+    args.extend(fc.kwargs.iter().map(|(k, v)| format!("{k}={}", crate::expr::display::display(v))));
+    format!("{}({})", fc.func.name(), args.join(", "))
 }
 
 /// Builds a call of the builtin `qualified_name`, binding keyword arguments to positions.

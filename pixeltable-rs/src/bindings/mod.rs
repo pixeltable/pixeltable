@@ -5,6 +5,7 @@
 
 pub mod catalog;
 pub mod expr;
+pub mod func;
 pub mod query;
 pub mod table;
 pub mod types;
@@ -18,11 +19,16 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<query::PyCursor>()?;
     m.add_class::<query::PyQuerySpec>()?;
     m.add_class::<query::PyResultSet>()?;
+    m.add_class::<func::PyUdf>()?;
+    m.add_class::<func::PyUdfMethodRef>()?;
 
     m.add_function(wrap_pyfunction!(expr::expr_from_object, m)?)?;
     m.add_function(wrap_pyfunction!(expr::array, m)?)?;
     m.add_function(wrap_pyfunction!(expr::call_builtin, m)?)?;
     m.add_function(wrap_pyfunction!(expr::builtin_names, m)?)?;
+    m.add_function(wrap_pyfunction!(func::register_function, m)?)?;
+    m.add_function(wrap_pyfunction!(func::registered_functions, m)?)?;
+    m.add_function(wrap_pyfunction!(func::variable, m)?)?;
 
     m.add_function(wrap_pyfunction!(catalog::init, m)?)?;
     m.add_function(wrap_pyfunction!(catalog::home, m)?)?;
