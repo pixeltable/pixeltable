@@ -111,7 +111,7 @@ lock set before opening the transaction:
 
 Use cached `TableVersion` metadata when available. It supplies store table names, bases, mutable views, and each
 table's versioning. On a cache miss, read raw `tables` rows in a separate metadata transaction
-(`_lock_set_from_store()`).
+(`_resolve_lock_set_from_store()`).
 
 Catalog paths always require a store read because Catalog does not cache directory structure or path resolution.
 Both cached and stored results can become stale before lock acquisition.

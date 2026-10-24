@@ -857,7 +857,7 @@ class Catalog(CatalogBase):
         except sql_exc.DBAPIError:
             pass
 
-    def _lock_set_from_store(self, request: _LockRequest) -> _LockSet:
+    def _resolve_lock_set_from_store(self, request: _LockRequest) -> _LockSet:
         """Build a lock set from stored metadata in the current transaction.
 
         Read raw `tables` rows without constructing TableVersion instances, so pending operations do not prevent
@@ -1112,7 +1112,7 @@ class Catalog(CatalogBase):
             any_data_versioned |= subtree_data_versioned
         return targets, any_data_versioned
 
-    def _lock_set_from_cache(self, request: _LockRequest) -> _LockSet | None:
+    def _resolve_lock_set_from_cache(self, request: _LockRequest) -> _LockSet | None:
         """Build a tentative lock set from cached metadata, without querying the store.
 
         Return None if required metadata is missing. Cached metadata may be stale, so validate the set after locking.
@@ -1168,12 +1168,12 @@ class Catalog(CatalogBase):
 
         # Read catalog paths and pending operations from the store: neither is cached.
         if len(request.write_paths) == 0 and request.op_class is not _TblOpClass.FINALIZE:
-            lock_set = self._lock_set_from_cache(request)
+            lock_set = self._resolve_lock_set_from_cache(request)
             if lock_set is not None:
                 return lock_set
 
         with self.begin_md_read_xact():
-            return self._lock_set_from_store(request)
+            return self._resolve_lock_set_from_store(request)
 
     def _validate_lock_set(self, request: _LockRequest) -> None:
         """Check that the held locks cover the operation's targets according to refreshed metadata.
@@ -1205,7 +1205,7 @@ class Catalog(CatalogBase):
 
         if len(request.write_paths) > 0:
             # Resolve paths again under the acquired locks and check for targets added since the initial store read.
-            lock_set_from_store = self._lock_set_from_store(request)
+            lock_set_from_store = self._resolve_lock_set_from_store(request)
             validate_targets_locked(lock_set_from_store.tbl_targets)
             for dir_id in lock_set_from_store.dir_ids:
                 if not self._is_dir_locked(dir_id):
