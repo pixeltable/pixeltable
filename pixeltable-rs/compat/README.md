@@ -20,7 +20,8 @@ All commands run from `pixeltable-rs/compat/` with any Python 3.11+ (only `run.p
 `run.py` options: files may be given as `test_dirs`, `dirs` or `test_dirs.py`; `-n 0` disables xdist; `--timeout S`
 overrides the per-test timeout (120 s); `--stream` shows pytest's output instead of writing it to
 `results/latest.pytest.log`; `--no-run` re-summarizes existing results; extra pytest arguments go after `--`
-(`python run.py dirs -- -x`); `--python` picks another interpreter (used for the upstream baseline).
+(`python run.py dirs -- -x`); `--python` picks another interpreter (used for the upstream baseline); `--passing`
+uses another list than `PASSING.txt`.
 
 With a subset of files, `--update-passing` and `--check` only touch entries of those files; with `-k`, `-m` or extra
 pytest arguments, only entries of tests that actually ran. Exit status without `--check` is 0 unless pytest itself

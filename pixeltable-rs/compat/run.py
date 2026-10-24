@@ -193,6 +193,7 @@ def main() -> int:
     parser.add_argument('--update-passing', action='store_true', help='rewrite PASSING.txt from this run')
     parser.add_argument('--check', action='store_true', help='exit 1 if a test listed in PASSING.txt no longer passes')
     parser.add_argument('--no-run', action='store_true', help='do not run pytest; summarize/check existing results')
+    parser.add_argument('--passing', type=Path, default=PASSING_FILE, help='the PASSING list (default: PASSING.txt)')
     argv = sys.argv[1:]
     extra: list[str] = []
     if '--' in argv:
@@ -227,7 +228,8 @@ def main() -> int:
     passing_now = {nodeid for nodeid, e in tests.items() if e['outcome'] == 'passed'}
     run_files = {f'tests/{name}.py' for name in files}
     filtered = bool(args.k or args.m or args.pytest_args)
-    previously_passing = set(read_lines(PASSING_FILE))
+    passing_file: Path = args.passing
+    previously_passing = set(read_lines(passing_file))
 
     exit_status = 0 if returncode in (0, 1) else returncode
     if args.check:
@@ -238,7 +240,7 @@ def main() -> int:
         }
         regressions = sorted(nodeid for nodeid in in_scope if nodeid not in passing_now)
         if regressions:
-            print(f'\nREGRESSIONS: {len(regressions)} test(s) in PASSING.txt no longer pass:')
+            print(f'\nREGRESSIONS: {len(regressions)} test(s) in {passing_file.name} no longer pass:')
             for nodeid in regressions:
                 entry = tests.get(nodeid)
                 status = f'{entry["outcome"]}: {entry["reason"]}' if entry else 'not run / not collected'
@@ -259,9 +261,9 @@ def main() -> int:
             if not (test_file_of(nodeid) in run_files and (nodeid in ran or not filtered))
         }
         updated = sorted(kept | passing_now)
-        PASSING_FILE.write_text(''.join(f'{n}\n' for n in updated), encoding='utf-8')
+        passing_file.write_text(''.join(f'{n}\n' for n in updated), encoding='utf-8')
         added, removed = len(set(updated) - previously_passing), len(previously_passing - set(updated))
-        print(f'PASSING.txt: {len(updated)} tests (+{added}, -{removed})')
+        print(f'{passing_file.name}: {len(updated)} tests (+{added}, -{removed})')
 
     return exit_status
 
