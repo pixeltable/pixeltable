@@ -197,6 +197,7 @@ tests/test_query.py::TestQuery::test_distinct_non_sql_groupable
 tests/test_query.py::TestQuery::test_expr_unique_id
 tests/test_query.py::TestQuery::test_head_tail[data_versioned]
 tests/test_query.py::TestQuery::test_head_tail[operational]
+tests/test_query.py::TestQuery::test_html_media_url
 tests/test_query.py::TestQuery::test_join
 tests/test_query.py::TestQuery::test_join_errors
 tests/test_query.py::TestQuery::test_limit_0
