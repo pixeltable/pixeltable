@@ -32,6 +32,17 @@ pub trait AggState: Send {
     /// Adds a row; `args` are the positional arguments, `kwargs` the keyword arguments other than init parameters.
     fn update(&mut self, args: &[Value], kwargs: &[(String, Value)]) -> Result<()>;
     fn value(&mut self) -> Result<Value>;
+    /// Folds in `later`, the state of the same aggregation over the rows that follow this state's rows (partial
+    /// aggregation of row chunks); only for the states of a `mergeable()` function.
+    fn merge(&mut self, _later: &mut dyn AggState) -> Result<()> {
+        Err(Error::internal("this aggregate cannot be merged"))
+    }
+    fn as_any(&mut self) -> &mut dyn std::any::Any;
+}
+
+/// `later` as the concrete state type `T` (the states of one aggregation all have the same type).
+fn same<T: 'static>(later: &mut dyn AggState) -> Result<&mut T> {
+    later.as_any().downcast_mut::<T>().ok_or_else(|| Error::internal("merging states of different aggregates"))
 }
 
 pub trait AggregateFunction: Send + Sync + Debug {
@@ -55,6 +66,11 @@ pub trait AggregateFunction: Send + Sync + Debug {
     /// For a Python UDA: its `pixeltable.func.AggregateFunction` object.
     fn py_function(&self) -> Option<&pyo3::Py<pyo3::PyAny>> {
         None
+    }
+    /// True if states over consecutive runs of rows can be combined (`AggState::merge()`), so that chunks of rows can
+    /// be aggregated in parallel.
+    fn mergeable(&self) -> bool {
+        false
     }
 }
 
@@ -298,6 +314,9 @@ impl AggregateFunction for BuiltinAgg {
     fn to_json(&self) -> Result<Json> {
         Ok(json!({ "builtin_agg": self.qualified_name() }))
     }
+    fn mergeable(&self) -> bool {
+        !matches!(self.kind, BuiltinKind::MakeVideo)
+    }
 }
 
 struct CountState(i64);
@@ -311,6 +330,13 @@ impl AggState for CountState {
     }
     fn value(&mut self) -> Result<Value> {
         Ok(Value::Int(self.0))
+    }
+    fn merge(&mut self, later: &mut dyn AggState) -> Result<()> {
+        self.0 += same::<CountState>(later)?.0;
+        Ok(())
+    }
+    fn as_any(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }
 
@@ -334,6 +360,16 @@ impl AggState for SumState {
     }
     fn value(&mut self) -> Result<Value> {
         Ok(self.0.clone().unwrap_or(Value::Null))
+    }
+    fn merge(&mut self, later: &mut dyn AggState) -> Result<()> {
+        // the partial sum is added like one more value (an integer overflow is reported as for a single pass)
+        match same::<SumState>(later)?.0.take() {
+            Some(v) => self.update(&[v], &[]),
+            None => Ok(()),
+        }
+    }
+    fn as_any(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }
 
@@ -362,6 +398,15 @@ impl AggState for MinMaxState {
     }
     fn value(&mut self) -> Result<Value> {
         Ok(self.val.clone().unwrap_or(Value::Null))
+    }
+    fn merge(&mut self, later: &mut dyn AggState) -> Result<()> {
+        match same::<MinMaxState>(later)?.val.take() {
+            Some(v) => self.update(&[v], &[]),
+            None => Ok(()),
+        }
+    }
+    fn as_any(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }
 
@@ -393,6 +438,17 @@ impl AggState for MeanState {
         let sum = self.int_sum as f64 + self.float_sum;
         Ok(Value::Float(sum / self.count as f64))
     }
+    fn merge(&mut self, later: &mut dyn AggState) -> Result<()> {
+        let later = same::<MeanState>(later)?;
+        self.int_sum += later.int_sum;
+        self.float_sum += later.float_sum;
+        self.is_float |= later.is_float;
+        self.count += later.count;
+        Ok(())
+    }
+    fn as_any(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
 }
 
 struct MakeListState(Vec<Json>);
@@ -407,6 +463,13 @@ impl AggState for MakeListState {
     }
     fn value(&mut self) -> Result<Value> {
         Ok(Value::Json(Json::Array(self.0.clone())))
+    }
+    fn merge(&mut self, later: &mut dyn AggState) -> Result<()> {
+        self.0.append(&mut same::<MakeListState>(later)?.0);
+        Ok(())
+    }
+    fn as_any(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }
 
@@ -452,6 +515,9 @@ impl AggState for MakeVideoState {
             }
             Ok(())
         })
+    }
+    fn as_any(&mut self) -> &mut dyn std::any::Any {
+        self
     }
     fn value(&mut self) -> Result<Value> {
         let Some((container, stream, path)) = self.out.take() else {

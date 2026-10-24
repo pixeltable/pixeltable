@@ -669,18 +669,24 @@ fn equi_keys(pred: &ExprRef, input: &QueryInput, right_src: usize) -> (Vec<ExprR
 fn scan_and_join<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
     let n = input.width;
     let empty = HashMap::new();
-    let mut rows: Vec<JRow<'a>> = Vec::new();
-    let mut add = |r: &[&'a StoredRow]| {
-        let mut jr: JRow<'a> = smallvec![None; n];
-        input.place(&mut jr, 0, r);
-        rows.push(jr);
-    };
+    // the joined rows of the first from-table, as consecutive runs of `width` rows (leaf first), then one `JRow` each
+    // (built in parallel: most of the cost is writing fresh memory)
     let first = &input.sources[0].path;
+    let width = first.elems.len();
+    let capacity = if input.q.where_.is_none() { first.elems[0].data.num_live() * width } else { 0 };
+    let mut flat: Vec<&'a StoredRow> = Vec::with_capacity(capacity);
+    let mut add = |r: &[&'a StoredRow]| flat.extend_from_slice(r);
     if input.q.joins.is_empty() {
         first.for_each_row_where(input.q.where_.as_ref(), &mut add)?;
     } else {
         first.for_each_row(&mut add)?;
     }
+    let mut rows: Vec<JRow<'a>> = super::par::map_rows(flat.len() / width, |i| {
+        let mut jr: JRow<'a> = smallvec![None; n];
+        input.place(&mut jr, 0, &flat[i * width..(i + 1) * width]);
+        jr
+    });
+    drop(flat);
     for (k, join) in input.q.joins.iter().enumerate() {
         let slot = k + 1;
         let right = source_rows(input, slot)?;
@@ -719,38 +725,54 @@ fn scan_and_join<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
                     }
                 }
                 let all: Vec<usize> = (0..right.len()).collect();
-                // the matching right rows of each left row
-                let matches = super::par::try_map_rows(rows.len(), pure, |i| {
-                    let l = &rows[i];
-                    let candidates: &[usize] = if lkeys.is_empty() {
-                        &all
-                    } else {
-                        let ctx = Ctx { input, row: l, pre: &[], slots: &empty, calls: None };
-                        let vals = lkeys.iter().map(|e| eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
-                        if vals.iter().any(Value::is_null) {
-                            &[]
-                        } else {
-                            index.get(&group_key_of(&vals)).map(Vec::as_slice).unwrap_or(&[])
-                        }
-                    };
-                    let mut matched: SmallVec<[usize; 2]> = SmallVec::new();
-                    for &j in candidates {
-                        let jr = combined(l, &right[j]);
-                        let ctx = Ctx { input, row: &jr, pre: &[], slots: &empty, calls: None };
-                        if matches!(eval(pred, &ctx)?, Value::Bool(true)) {
-                            matched.push(j);
+                // the joined rows of a run of left rows, and the right rows they matched, up to the first failure
+                let join_rows = |range: std::ops::Range<usize>| -> (Vec<JRow<'a>>, Vec<usize>, Option<Error>) {
+                    let mut out = Vec::new();
+                    let mut matched_right = Vec::new();
+                    for i in range {
+                        let l = &rows[i];
+                        let step = (|| -> Result<()> {
+                            let candidates: &[usize] = if lkeys.is_empty() {
+                                &all
+                            } else {
+                                let ctx = Ctx { input, row: l, pre: &[], slots: &empty, calls: None };
+                                let vals = lkeys.iter().map(|e| eval(e, &ctx)).collect::<Result<SmallVec<[Value; 2]>>>()?;
+                                if vals.iter().any(Value::is_null) {
+                                    &[]
+                                } else {
+                                    index.get(&group_key_of(&vals)).map(Vec::as_slice).unwrap_or(&[])
+                                }
+                            };
+                            let mut matched = false;
+                            for &j in candidates {
+                                let jr = combined(l, &right[j]);
+                                let ctx = Ctx { input, row: &jr, pre: &[], slots: &empty, calls: None };
+                                if matches!(eval(pred, &ctx)?, Value::Bool(true)) {
+                                    matched = true;
+                                    matched_right.push(j);
+                                    out.push(jr);
+                                }
+                            }
+                            if !matched && matches!(how, JoinType::Left | JoinType::FullOuter) {
+                                out.push(l.clone());
+                            }
+                            Ok(())
+                        })();
+                        if let Err(err) = step {
+                            return (out, matched_right, Some(err));
                         }
                     }
-                    Ok(matched)
-                });
-                for (l, matched) in rows.iter().zip(matches) {
-                    let matched = matched?;
-                    for &j in &matched {
+                    (out, matched_right, None)
+                };
+                let parts = if pure { super::par::map_chunks(rows.len(), join_rows) } else { vec![join_rows(0..rows.len())] };
+                out.reserve(parts.iter().map(|(p, _, _)| p.len()).sum());
+                for (part, matched, failed) in parts {
+                    if let Some(err) = failed {
+                        return Err(err);
+                    }
+                    out.extend(part);
+                    for j in matched {
                         right_matched[j] = true;
-                        out.push(combined(l, &right[j]));
-                    }
-                    if matched.is_empty() && matches!(how, JoinType::Left | JoinType::FullOuter) {
-                        out.push(l.clone());
                     }
                 }
                 if how == JoinType::FullOuter {
@@ -795,15 +817,30 @@ fn filtered<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
     let Some(w) = &input.q.where_ else { return Ok(rows) };
     let empty = HashMap::new();
     let calls = prefetch_calls(input, &[w], rows.len(), &|i| (&rows[i], &[]), &empty)?;
-    let keep = super::par::try_map_rows(rows.len(), input.expr_pure(w, &calls), |i| {
-        let ctx = Ctx { input, row: &rows[i], pre: &[], slots: &empty, calls: slot_of(&calls, i) };
-        Ok(matches!(eval(w, &ctx).map_err(|err| super::compute::eval_error(w, err))?, Value::Bool(true)))
-    });
-    let mut out = Vec::with_capacity(rows.len());
-    for (r, keep) in rows.iter().zip(keep) {
-        if keep? {
-            out.push(r.clone());
+    // the rows of a run that pass, up to its first failure
+    let filter_rows = |range: std::ops::Range<usize>| -> (Vec<JRow<'a>>, Option<Error>) {
+        let mut out = Vec::new();
+        for i in range {
+            let ctx = Ctx { input, row: &rows[i], pre: &[], slots: &empty, calls: slot_of(&calls, i) };
+            match eval(w, &ctx) {
+                Ok(Value::Bool(true)) => out.push(rows[i].clone()),
+                Ok(_) => {}
+                Err(err) => return (out, Some(super::compute::eval_error(w, err))),
+            }
         }
+        (out, None)
+    };
+    let parts = if input.expr_pure(w, &calls) {
+        super::par::map_chunks(rows.len(), filter_rows)
+    } else {
+        vec![filter_rows(0..rows.len())]
+    };
+    let mut out = Vec::with_capacity(parts.iter().map(|(p, _)| p.len()).sum());
+    for (part, failed) in parts {
+        if let Some(err) = failed {
+            return Err(err);
+        }
+        out.extend(part);
     }
     Ok(out)
 }
@@ -926,13 +963,6 @@ fn aggregate<'a>(input: &'a QueryInput, plan: &Plan, rows: Vec<JRow<'a>>, groupi
     }
     let calls = prefetch_calls(input, &exprs, rows.len(), &|i| (&rows[i], &[]), &empty)?;
     let pure = exprs.iter().all(|e| input.expr_pure(e, &calls));
-    // per row: the hashable grouping key, and the arguments of all aggregates (positional, then keyword, aggregate after
-    // aggregate) or the index of the aggregate whose arguments failed and the error
-    let arg_counts: Vec<(usize, usize)> = plan
-        .aggs
-        .iter()
-        .map(|a| a.expr.as_function_call().map_or((0, 0), |fc| (fc.args.len(), fc.kwargs.len())))
-        .collect();
     let eval_key = |ctx: &Ctx<'_>, r: &JRow<'_>| -> Result<Vec<Value>> {
         match plan.group_slot {
             // the key of the base row (rowid, then iterator positions)
@@ -943,50 +973,63 @@ fn aggregate<'a>(input: &'a QueryInput, plan: &Plan, rows: Vec<JRow<'a>>, groupi
             None => grouping.iter().map(|e| eval(e, ctx).map_err(|err| agg_error(e, err))).collect(),
         }
     };
-    // the arguments of the aggregates before a failed one, and the failure
-    type RowArgs = (SmallVec<[Value; 4]>, Option<(usize, Error)>);
-    let evaluated = super::par::try_map_rows(rows.len(), pure, |i| -> Result<(GroupKey, RowArgs)> {
-        let r = &rows[i];
-        let ctx = Ctx { input, row: r, pre: &[], slots: &empty, calls: slot_of(&calls, i) };
-        let key = group_key_of(&eval_key(&ctx, r)?);
+    // The groups of a run of rows: (key, first row, states), in order of first occurrence. Rows are aggregated in
+    // order and the run stops at its first failure, which is returned with it.
+    type Partial = (FxHashMap<GroupKey, usize>, Vec<(GroupKey, usize, Vec<Box<dyn AggState>>)>);
+    let aggregate_rows = |range: std::ops::Range<usize>| -> (Partial, Option<Error>) {
+        let mut part: Partial = (FxHashMap::default(), Vec::new());
         let mut args: SmallVec<[Value; 4]> = SmallVec::new();
-        for (ai, a) in plan.aggs.iter().enumerate() {
-            let fc = a.expr.as_function_call().ok_or_else(|| Error::internal("aggregate call expected"))?;
-            for e in fc.args.iter().chain(fc.kwargs.iter().map(|(_, e)| e)) {
-                match eval(e, &ctx) {
-                    Ok(v) => args.push(v),
-                    Err(err) => return Ok((key, (args, Some((ai, agg_error(&a.expr, err)))))),
+        for i in range {
+            let r = &rows[i];
+            let ctx = Ctx { input, row: r, pre: &[], slots: &empty, calls: slot_of(&calls, i) };
+            let step = (|| -> Result<()> {
+                let k = group_key_of(&eval_key(&ctx, r)?);
+                let gi = match part.0.get(&k) {
+                    Some(gi) => *gi,
+                    None => {
+                        part.1.push((k.clone(), i, new_states()?));
+                        part.0.insert(k, part.1.len() - 1);
+                        part.1.len() - 1
+                    }
+                };
+                for (a, state) in plan.aggs.iter().zip(part.1[gi].2.iter_mut()) {
+                    let fc = a.expr.as_function_call().ok_or_else(|| Error::internal("aggregate call expected"))?;
+                    args.clear();
+                    for e in fc.args.iter().chain(fc.kwargs.iter().map(|(_, e)| e)) {
+                        args.push(eval(e, &ctx).map_err(|err| agg_error(&a.expr, err))?);
+                    }
+                    let na = fc.args.len();
+                    a.plan.update_slices(state.as_mut(), &args[..na], &args[na..]).map_err(|err| agg_error(&a.expr, err))?;
+                }
+                Ok(())
+            })();
+            if let Err(err) = step {
+                return (part, Some(err));
+            }
+        }
+        (part, None)
+    };
+    // pure arguments of aggregates whose states merge: chunks of rows in parallel, merged in row order
+    let chunked = pure && plan.aggs.iter().all(|a| a.plan.func.mergeable()) && super::par::worth_parallel(rows.len());
+    let parts = if chunked { super::par::map_chunks(rows.len(), aggregate_rows) } else { vec![aggregate_rows(0..rows.len())] };
+    for ((_, part_groups), failed) in parts {
+        for (k, first_row, mut states) in part_groups {
+            match index.get(&k) {
+                Some(gi) => {
+                    for ((a, state), later) in plan.aggs.iter().zip(groups[*gi].states.iter_mut()).zip(states.iter_mut()) {
+                        state.merge(later.as_mut()).map_err(|err| agg_error(&a.expr, err))?;
+                    }
+                }
+                None => {
+                    let r = &rows[first_row];
+                    // the key's values (to order the groups), evaluated again for the group's first row
+                    let key = eval_key(&Ctx { input, row: r, pre: &[], slots: &empty, calls: slot_of(&calls, first_row) }, r)?;
+                    groups.push(Group { key, rep: r.clone(), states });
+                    index.insert(k, groups.len() - 1);
                 }
             }
         }
-        Ok((key, (args, None)))
-    });
-    for (i, row_values) in evaluated.into_iter().enumerate() {
-        let (k, args) = row_values?;
-        let gi = match index.get(&k) {
-            Some(gi) => *gi,
-            None => {
-                let r = &rows[i];
-                // the key's values (to order the groups), evaluated again for the group's first row
-                let key = eval_key(&Ctx { input, row: r, pre: &[], slots: &empty, calls: slot_of(&calls, i) }, r)?;
-                groups.push(Group { key, rep: r.clone(), states: new_states()? });
-                index.insert(k, groups.len() - 1);
-                groups.len() - 1
-            }
-        };
-        let (args, failed) = args;
-        let mut offset = 0;
-        for (ai, ((a, state), (na, nk))) in plan.aggs.iter().zip(groups[gi].states.iter_mut()).zip(&arg_counts).enumerate() {
-            if let Some((fi, _)) = &failed {
-                if *fi == ai {
-                    break;
-                }
-            }
-            let row_args = &args[offset..offset + na + nk];
-            offset += na + nk;
-            a.plan.update_slices(state.as_mut(), &row_args[..*na], &row_args[*na..]).map_err(|err| agg_error(&a.expr, err))?;
-        }
-        if let Some((_, err)) = failed {
+        if let Some(err) = failed {
             return Err(err);
         }
     }
@@ -1034,6 +1077,46 @@ fn sort_rows_upto<'a>(
     let exprs: Vec<&ExprRef> = ordering.iter().map(|(e, _)| e).collect();
     let calls = prefetch_calls(input, &exprs, rows.len(), &|i| (&rows[i].row, &rows[i].pre), &plan.slots)?;
     let pure = exprs.iter().all(|e| input.expr_pure(e, &calls));
+    let row_keys = |i: usize| -> Result<SmallVec<[Value; 2]>> {
+        let r = &rows[i];
+        let ctx = Ctx { input, row: &r.row, pre: &r.pre, slots: &plan.slots, calls: slot_of(&calls, i) };
+        ordering.iter().map(|(e, _)| eval(e, &ctx).map_err(|err| super::compute::eval_error(e, err))).collect()
+    };
+    // by key, ties by position (a stable sort)
+    let cmp_keyed = |(ka, a): &(SmallVec<[Value; 2]>, u32), (kb, b): &(SmallVec<[Value; 2]>, u32)| -> std::cmp::Ordering {
+        for (i, (_, asc)) in ordering.iter().enumerate() {
+            let ord = cmp_values(&ka[i], &kb[i]);
+            let ord = if asc.unwrap_or(true) { ord } else { ord.reverse() };
+            if ord.is_ne() {
+                return ord;
+            }
+        }
+        a.cmp(b)
+    };
+    if let Some(k) = keep.filter(|k| pure && *k < super::par::CHUNK_ROWS / 4 && super::par::worth_parallel(rows.len())) {
+        // the first `k` rows of each chunk, then the first `k` of those
+        let firsts = |range: std::ops::Range<usize>| -> Result<Vec<(SmallVec<[Value; 2]>, u32)>> {
+            let mut keyed = Vec::with_capacity(range.len());
+            for i in range {
+                keyed.push((row_keys(i)?, i as u32));
+            }
+            if keyed.len() > k {
+                if k > 0 {
+                    keyed.select_nth_unstable_by(k - 1, &cmp_keyed);
+                }
+                keyed.truncate(k);
+            }
+            Ok(keyed)
+        };
+        let mut candidates = Vec::new();
+        for part in super::par::map_chunks(rows.len(), firsts) {
+            candidates.extend(part?);
+        }
+        candidates.sort_unstable_by(&cmp_keyed);
+        candidates.truncate(k);
+        let mut rows: Vec<Option<OutRow<'a>>> = rows.into_iter().map(Some).collect();
+        return Ok(candidates.into_iter().filter_map(|(_, i)| rows[i as usize].take()).collect());
+    }
     let keys = super::par::try_map_rows(rows.len(), pure, |i| {
         let r = &rows[i];
         let ctx = Ctx { input, row: &r.row, pre: &r.pre, slots: &plan.slots, calls: slot_of(&calls, i) };
@@ -1129,10 +1212,31 @@ fn result_rows<'a>(input: &'a QueryInput, plan: &Plan, rowid_desc: bool) -> Resu
     Ok(out)
 }
 
+/// Computes the query embedding of each similarity lookup in the query (once per expression, cached in the node)
+/// before rows are evaluated on several threads; a failure is left to row evaluation to report.
+fn init_similarities(input: &QueryInput) {
+    let row: JRow<'_> = smallvec![None; input.width];
+    let slots = HashMap::new();
+    let ctx = Ctx { input, row: &row, pre: &[], slots: &slots, calls: None };
+    let exprs = input.q.exprs();
+    for e in exprs.iter().chain(input.select.iter().map(|(e, _)| e)) {
+        e.visit(&mut |x| {
+            if let ExprKind::Similarity(sim) = &x.kind {
+                if sim.cache.get().is_none() {
+                    if let Ok(v) = eval(&sim.item_embedding, &ctx) {
+                        let _ = sim.cache.set(v);
+                    }
+                }
+            }
+        });
+    }
+}
+
 /// Runs the query. `rowid_desc`: for `tail()`, scan in descending rowid order.
 pub fn execute(input: &QueryInput, rowid_desc: bool) -> Result<ResultData> {
     let q = &input.q;
     let plan = Plan::new(input)?;
+    init_similarities(input);
     let names: Vec<String> = input.select.iter().map(|(_, n)| n.clone()).collect();
     let types = input.select.iter().map(|(e, _)| e.col_type.clone()).collect();
     if q.limit == Some(0) {
