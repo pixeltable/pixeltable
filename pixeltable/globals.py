@@ -274,31 +274,35 @@ def create_table(
 
     # TODO: combine data loading with table creation into a single transaction
     if was_created and data_source is not None:
-        fail_on_exception = OnErrorParam.fail_on_exception(on_error)
-        if isinstance(tbl, catalog.InsertableTable):
-            if isinstance(data_source, QueryTableDataConduit):
-                query = data_source.pxt_query
-                with get_runtime().catalog.begin_xact(
-                    for_write=True, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True
-                ):
-                    tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
-            elif not is_direct_query:
-                tbl._insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
-        else:
-            # Schema inference may have consumed a one-shot iterator/generator source; re-passing it would
-            # insert nothing. Insert the rows the conduit already materialized instead. (A Query source is
-            # re-runnable, and other source types aren't reached here, so passing source as-is is correct.)
-            # Materialized rows are already parsed, so the source_format (e.g. 'json') must not be re-applied,
-            # which would otherwise re-classify the row list as a file source.
-            insert_source = data_source.raw_rows if isinstance(data_source, RowDataTableDataConduit) else source
-            insert_format = None if isinstance(data_source, RowDataTableDataConduit) else source_format
-            tbl.insert(
-                insert_source,
-                source_format=insert_format,
-                schema_overrides=schema_overrides,
-                on_error=on_error,
-                **(extra_args or {}),
-            )
+        try:
+            fail_on_exception = OnErrorParam.fail_on_exception(on_error)
+            if isinstance(tbl, catalog.InsertableTable):
+                if isinstance(data_source, QueryTableDataConduit):
+                    query = data_source.pxt_query
+                    with get_runtime().catalog.begin_xact(
+                        for_write=True, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True
+                    ):
+                        tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
+                elif not is_direct_query:
+                    tbl._insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
+            else:
+                # Schema inference may have consumed a one-shot iterator/generator source; re-passing it would
+                # insert nothing. Insert the rows the conduit already materialized instead. (A Query source is
+                # re-runnable, and other source types aren't reached here, so passing source as-is is correct.)
+                # Materialized rows are already parsed, so the source_format (e.g. 'json') must not be re-applied,
+                # which would otherwise re-classify the row list as a file source.
+                insert_source = data_source.raw_rows if isinstance(data_source, RowDataTableDataConduit) else source
+                insert_format = None if isinstance(data_source, RowDataTableDataConduit) else source_format
+                tbl.insert(
+                    insert_source,
+                    source_format=insert_format,
+                    schema_overrides=schema_overrides,
+                    on_error=on_error,
+                    **(extra_args or {}),
+                )
+        except BaseException:
+            drop_table(tbl, if_not_exists='ignore')
+            raise
 
     return tbl
 

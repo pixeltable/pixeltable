@@ -1,4 +1,5 @@
 import datetime
+import pathlib
 import uuid
 from zoneinfo import ZoneInfo
 
@@ -178,6 +179,21 @@ class TestPandas:
             None,
             datetime.datetime(2024, 5, 6).astimezone(None),
         ]
+
+    @pytest.mark.db_roots('local', 'proxy', reason='file sources are exercised over cloud by the remote-source tests')
+    def test_create_table_from_path_source(self, db_root: DatabaseRoot) -> None:
+        # a `Path` is a supported source, equivalent to its `str` form [PXT-1257]
+        p = db_root.make_catalog_path
+        csv_path = pathlib.Path('tests/data/datasets/onlinefoods.csv')
+        t1 = pxt.create_table(p('from_csv_path'), source=csv_path)
+        assert t1.count() == 388
+        t1.insert(csv_path)
+        assert t1.count() == 2 * 388
+
+        skip_test_if_not_installed('pyarrow')
+        pq_path = pathlib.Path('tests/data/datasets/iris.parquet')
+        t2 = pxt.create_table(p('from_parquet_path'), source=pq_path)
+        assert t2.count() == len(pd.read_parquet(pq_path))
 
     @pytest.mark.parametrize(
         'source',
