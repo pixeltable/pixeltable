@@ -93,7 +93,7 @@ pub fn tbl_column_ref(py: Python<'_>, tbl_id: &str, version: Option<i64>, name: 
     let id = parse_uuid(tbl_id)?;
     let col = with_catalog(py, |cat| cat.resolve_column_by_name(id, version, name))?;
     match col {
-        Some(c) => Ok(PyExpr::new(column_ref_expr(&c, version))),
+        Some(c) => Ok(PyExpr { path_tbl_id: Some(id), ..PyExpr::new(column_ref_expr(&c, version)) }),
         None => Err(Error::Attribute(format!("Unknown column: {name}"))),
     }
 }

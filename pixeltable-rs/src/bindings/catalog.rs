@@ -625,6 +625,9 @@ fn validate_view_query(q: &crate::exec::QuerySpec, is_snapshot: bool) -> Result<
             );
         }
     }
+    for e in q.sample.iter().flat_map(|s| &s.stratify_by) {
+        crate::functions::udf::validate_storable(e, "A view's sample clause")?;
+    }
     if let Some(sc) = &q.sample {
         if !is_snapshot && !sc.is_repeatable() {
             crate::bail!(

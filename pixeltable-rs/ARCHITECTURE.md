@@ -167,8 +167,9 @@ SQL, an optional conditional return type (`ret`, from the bound argument types a
 `make_builtin_call()` binds like `inspect.Signature.bind()` (upstream's INVALID_ARGUMENT message), checks argument
 types (TYPE_MISMATCH), and makes the result nullable when a nullable argument meets a non-nullable parameter; at
 evaluation a NULL for a non-nullable parameter short-circuits to NULL and defaults are filled in. `str()` renders
-method calls as `c.upper()` and aggregate clauses as `order_by=`/`group_by=`. The media builtins (image.rs,
-video.rs) are older positional `PosBuiltin` entries registered with a synthesized signature. The Python side needs
+method calls as `c.upper()` and aggregate clauses as `order_by=`/`group_by=`. The image builtins (image.rs)
+use upstream's signatures and conditional return types (`convert`, `crop`, `getchannel`, `resize`, ...); video.rs
+holds older positional `PosBuiltin` entries registered with a synthesized signature. The Python side needs
 nothing more: the generated stub `upper = _fn(__name__, 'upper')` resolves to a `BuiltinFunction` (which calls
 `_core.call_builtin`) once the backend registers `pixeltable.functions.string.upper`, and `t.c.upper()` works through
 `Expr.__getattr__` -> `MethodRef` (the module is chosen by the value's type, `method_module()`).
@@ -246,9 +247,10 @@ and `is_stored` (false for `unstored_cols`). Python wraps the result (`_core.Ite
 
 A running iterator is a `RowSource` (`next_row`, `seek`, `close`): Python iterators run through `PyRowSource`;
 builtin iterators (`BuiltinIterator` entries in `iterator.rs::BUILTIN_ITERATORS`: `video_iterators.rs`
-`frame_iterator`/`legacy_frame_iterator` over PyAV, `image_iterators.rs` `tile_iterator` over PIL) implement it in
-Rust, and their Python objects (`func._iterator.BuiltinGeneratingFunction`, what the generated stubs resolve to) are
-resolved by path like Python iterators. A NULL argument for a non-nullable parameter yields no rows. Test hooks:
+`frame_iterator`/`legacy_frame_iterator` over PyAV, `image_iterators.rs` `tile_iterator` over PIL,
+`string_iterators.rs` `string_splitter` over spaCy) implement it in Rust. Their Python objects
+(`func._iterator.BuiltinGeneratingFunction`, which the generated stubs return for upstream iterator classes (`_cls`)
+and `@pxt.iterator` functions (`_fn`) alike) are resolved by path like Python iterators. A NULL argument for a non-nullable parameter yields no rows. Test hooks:
 `_core._iterator_rows(call, {col: value})` and `_core._iterator_seek(call, {col: value}, pos, stored)`.
 
 ## Catalog, storage and versioning
