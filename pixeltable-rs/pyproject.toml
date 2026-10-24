@@ -13,3 +13,7 @@ dependencies = ["numpy", "pandas", "pillow", "pydantic", "typing_extensions"]
 python-source = "python"
 module-name = "pixeltable._core"
 features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests_rs"]
+addopts = "-p no:cacheprovider"

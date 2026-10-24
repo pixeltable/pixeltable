@@ -322,3 +322,110 @@ impl PyResultSet {
         pd.getattr("DataFrame")?.call_method("from_records", (records,), Some(&kwargs))
     }
 }
+
+enum CursorState {
+    Pending,
+    Open { data: ResultData, pos: usize, columns: Py<PyDict>, col_types: Py<PyDict> },
+    Closed,
+}
+
+/// The backend of `pixeltable.ResultCursor`: yields `pixeltable.Row` objects.
+///
+/// The query runs when the cursor is opened; rows are converted to Python objects one at a time.
+#[pyclass(name = "ResultCursor", module = "pixeltable._core", frozen)]
+pub struct PyCursor {
+    q: QuerySpec,
+    state: parking_lot::Mutex<CursorState>,
+}
+
+impl PyCursor {
+    fn open_inner(&self, py: Python<'_>, state: &mut CursorState) -> Result<()> {
+        match state {
+            CursorState::Open { .. } => crate::bail!(InvalidState, "Cursor is already open."),
+            CursorState::Closed => crate::bail!(InvalidState, "Cursor is closed and cannot be reopened."),
+            CursorState::Pending => {}
+        }
+        let data = run(py, &self.q, false)?;
+        let columns = PyDict::new(py);
+        let col_types = PyDict::new(py);
+        for (i, (n, t)) in data.names.iter().zip(data.types.iter()).enumerate() {
+            columns.set_item(n, i)?;
+            col_types.set_item(n, wrap_type(py, t)?)?;
+        }
+        *state = CursorState::Open { data, pos: 0, columns: columns.unbind(), col_types: col_types.unbind() };
+        Ok(())
+    }
+}
+
+#[pymethods]
+impl PyCursor {
+    fn open(&self, py: Python<'_>) -> Result<()> {
+        let mut state = self.state.lock();
+        self.open_inner(py, &mut state)
+    }
+
+    fn close(&self) {
+        *self.state.lock() = CursorState::Closed;
+    }
+
+    #[getter]
+    fn state_name(&self) -> &'static str {
+        match *self.state.lock() {
+            CursorState::Pending => "pending",
+            CursorState::Open { .. } => "open",
+            CursorState::Closed => "closed",
+        }
+    }
+
+    #[getter]
+    fn _closed(&self) -> bool {
+        matches!(*self.state.lock(), CursorState::Closed)
+    }
+
+    fn __iter__(slf: Bound<'_, Self>) -> Result<Bound<'_, Self>> {
+        let py = slf.py();
+        {
+            let this = slf.get();
+            let mut state = this.state.lock();
+            match *state {
+                CursorState::Closed => crate::bail!(InvalidState, "Cursor is closed and cannot be iterated upon."),
+                CursorState::Pending => this.open_inner(py, &mut state)?,
+                CursorState::Open { .. } => {}
+            }
+        }
+        Ok(slf)
+    }
+
+    fn __next__<'py>(&self, py: Python<'py>) -> Result<Option<Bound<'py, PyAny>>> {
+        let mut state = self.state.lock();
+        let row = match &mut *state {
+            CursorState::Open { data, pos, columns, col_types } => {
+                if *pos >= data.rows.len() {
+                    None
+                } else {
+                    let i = *pos;
+                    *pos += 1;
+                    let vals: Vec<Bound<'py, PyAny>> = data.rows[i]
+                        .iter()
+                        .zip(data.types.iter())
+                        .map(|(v, t)| vpy::to_py(py, v, t))
+                        .collect::<PyResult<_>>()?;
+                    let row_cls = py.import("pixeltable._row")?.getattr("Row")?;
+                    Some(row_cls.call1((pyo3::types::PyTuple::new(py, vals)?, columns.bind(py), col_types.bind(py)))?)
+                }
+            }
+            _ => None,
+        };
+        if row.is_none() {
+            *state = CursorState::Closed;
+        }
+        Ok(row)
+    }
+}
+
+#[pymethods]
+impl PyQuerySpec {
+    fn cursor(&self) -> PyCursor {
+        PyCursor { q: self.q.clone(), state: parking_lot::Mutex::new(CursorState::Pending) }
+    }
+}

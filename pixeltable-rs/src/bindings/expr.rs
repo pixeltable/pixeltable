@@ -369,19 +369,34 @@ impl PyExpr {
         Err(Error::Attribute(format!("Type {} is not subscriptable", self.e.col_type.repr())))
     }
 
-    fn __getattr__(&self, name: &str) -> Result<PyExpr> {
+    /// `expr.method`: a method of the expression's type (a builtin of the type's function module), returned as a
+    /// `MethodRef` to call; for Json values, a JSON path (not implemented yet).
+    fn __getattr__(&self, py: Python<'_>, name: &str) -> Result<PyMethodRef> {
         if name.starts_with('_') {
             return Err(Error::Attribute(format!("'Expr' object has no attribute {}", crate::error::py_repr(name))));
         }
-        if self.e.col_type.is_json() {
-            return Err(Error::not_implemented(format!(
-                "JSON path expressions (`.{name}` on a Json value)"
-            )));
+        if self.e.as_column_ref().is_some() && COLUMN_PROPERTIES.contains(&name) {
+            return Err(Error::not_implemented(format!("the column property `.{name}`")));
         }
-        Err(Error::not_implemented(format!(
-            "method `{name}()` on expressions of type {}",
-            self.e.col_type.repr()
-        )))
+        if name == "apply" {
+            return Err(Error::not_implemented("Expr.apply()"));
+        }
+        let module = method_module(&self.e.col_type);
+        if let Some(module) = module {
+            let qualified = format!("{module}.{name}");
+            if crate::functions::lookup(&qualified).is_some() {
+                return Ok(PyMethodRef { base: self.e.clone(), qualified, name: name.to_string() });
+            }
+        }
+        if self.e.col_type.is_json() {
+            return Err(Error::not_implemented(format!("JSON path expressions (`.{name}` on a Json value)")));
+        }
+        if let Some(module) = module {
+            if py.import(module).and_then(|m| m.hasattr(name)).unwrap_or(false) {
+                return Err(Error::not_implemented(format!("`{module}.{name}()`")));
+            }
+        }
+        Err(Error::Attribute(format!("Unknown method (of type {}): {name}", self.e.col_type.repr())))
     }
 
     fn _is_column_ref(&self) -> bool {
@@ -391,6 +406,59 @@ impl PyExpr {
     /// (tbl_id, col_id) of a column reference, else None.
     fn _column_id(&self) -> Option<(String, u32)> {
         self.e.as_column_ref().map(|c| (c.tbl_id.to_string(), c.col_id))
+    }
+}
+
+/// Properties of column references (`t.img.localpath`, `t.c.errortype`, ...).
+const COLUMN_PROPERTIES: [&str; 5] = ["errortype", "errormsg", "fileurl", "localpath", "cellmd"];
+
+/// The function module whose functions are methods of values of type `t`.
+fn method_module(t: &crate::types::ColumnType) -> Option<&'static str> {
+    use crate::types::TypeKind::*;
+    Some(match t.kind {
+        String => "pixeltable.functions.string",
+        Int | Float => "pixeltable.functions.math",
+        Timestamp => "pixeltable.functions.timestamp",
+        Date => "pixeltable.functions.date",
+        Uuid => "pixeltable.functions.uuid",
+        Json(_) => "pixeltable.functions.json",
+        Array { .. } => "pixeltable.functions.array",
+        Image { .. } => "pixeltable.functions.image",
+        Video => "pixeltable.functions.video",
+        Audio => "pixeltable.functions.audio",
+        Document { .. } => "pixeltable.functions.document",
+        _ => return None,
+    })
+}
+
+/// A method of an expression (`t.c.upper`), called to build the function call (`t.c.upper()`).
+#[pyclass(name = "MethodRef", module = "pixeltable", frozen)]
+pub struct PyMethodRef {
+    base: ExprRef,
+    qualified: String,
+    name: String,
+}
+
+#[pymethods]
+impl PyMethodRef {
+    #[pyo3(signature = (*args, **kwargs))]
+    fn __call__(&self, args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Result<PyExpr> {
+        let mut arg_exprs = vec![self.base.clone()];
+        for a in args.iter() {
+            arg_exprs.push(from_object(&a)?.ok_or_else(|| Error::Type(format!("Not a valid argument: {}", a.str().map(|s| s.to_string()).unwrap_or_default())))?);
+        }
+        let mut kw = Vec::new();
+        if let Some(kwargs) = kwargs {
+            for (k, v) in kwargs.iter() {
+                let e = from_object(&v)?.ok_or_else(|| Error::Type(format!("Not a valid argument: {}", v.str().map(|s| s.to_string()).unwrap_or_default())))?;
+                kw.push((k.extract::<String>()?, e));
+            }
+        }
+        Ok(wrap(crate::functions::make_call(&self.qualified, arg_exprs, kw)?))
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{}.{}", display::display(&self.base), self.name)
     }
 }
 

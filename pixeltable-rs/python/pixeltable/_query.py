@@ -84,10 +84,49 @@ class ResultSet:
 
 
 class ResultCursor:
-    """Cursor that iterates over query results (not implemented yet in pixeltable-rs)."""
+    """Cursor that iterates over query results, yielding [`Row`][pixeltable.Row] objects.
+
+    A cursor is pending (created), open (iterating) or closed. Iteration opens it and exhaustion closes it; it can
+    also be used as a context manager.
+    """
+
+    _core: _core.ResultCursor
+    _schema: dict[str, ColumnType]
 
     def __init__(self, query: Query):
-        raise NotImplementedError('ResultCursor is not implemented yet in pixeltable-rs')
+        self._core = query._spec.cursor()
+        self._schema = query.schema
+
+    @property
+    def schema(self) -> dict[str, str]:
+        """The result columns as a mapping from name to its type string."""
+        return {name: repr(col_type) for name, col_type in self._schema.items()}
+
+    @property
+    def _closed(self) -> bool:
+        return self._core._closed
+
+    def open(self) -> None:
+        """Start the query; raises if the cursor is already open or closed."""
+        self._core.open()
+
+    def close(self) -> None:
+        """Release the query's resources (idempotent); a closed cursor cannot be reopened."""
+        self._core.close()
+
+    def __enter__(self) -> ResultCursor:
+        self.open()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    def __iter__(self) -> Iterator[Any]:
+        return iter(self._core)
+
+    def __repr__(self) -> str:
+        cols = ', '.join(f'{name}: {col_type}' for name, col_type in self._schema.items())
+        return f'ResultCursor({self._core.state_name}, columns=[{cols}])'
 
 
 class Query:
@@ -197,8 +236,9 @@ class Query:
     @unimplemented('Query.sample()')
     def sample(self, *args: Any, **kwargs: Any) -> Query: ...
 
-    @unimplemented('Query.cursor()')
-    def cursor(self) -> ResultCursor: ...
+    def cursor(self) -> ResultCursor:
+        """A [`ResultCursor`][pixeltable.ResultCursor] over the query results."""
+        return ResultCursor(self)
 
     @unimplemented('Query.update()')
     def update(self, value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus: ...

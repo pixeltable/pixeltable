@@ -14,6 +14,8 @@ use pyo3::prelude::*;
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<types::PyColumnType>()?;
     m.add_class::<expr::PyExpr>()?;
+    m.add_class::<expr::PyMethodRef>()?;
+    m.add_class::<query::PyCursor>()?;
     m.add_class::<query::PyQuerySpec>()?;
     m.add_class::<query::PyResultSet>()?;
 

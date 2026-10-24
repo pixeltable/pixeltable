@@ -451,7 +451,7 @@ pub fn tbl_drop_column(py: Python<'_>, tbl_id: &str, column: &Bound<'_, PyAny>, 
         match e.as_column_ref() {
             Some(c) => {
                 let c = c.clone();
-                with_catalog(py, |cat| {
+                let name = with_catalog(py, |cat| {
                     let visible = cat.resolve_columns(id, None)?;
                     match visible.iter().find(|v| v.tbl_id == c.tbl_id && v.md.id == c.col_id) {
                         Some(v) => Ok(v.name.clone()),
@@ -460,7 +460,14 @@ pub fn tbl_drop_column(py: Python<'_>, tbl_id: &str, column: &Bound<'_, PyAny>, 
                             Err(crate::pxt_err!(ColumnNotFound, "Unknown column: {tbl_name}.{}", c.name))
                         }
                     }
-                })?
+                });
+                match name {
+                    Ok(n) => n,
+                    Err(Error::Pxt { code: crate::error::ErrorCode::ColumnNotFound, .. }) if ine == IfNotExists::Ignore => {
+                        return Ok(());
+                    }
+                    Err(e) => return Err(e),
+                }
             }
             None => crate::bail!(TypeMismatch, "Invalid column parameter type: {}", column.get_type().str()?),
         }
