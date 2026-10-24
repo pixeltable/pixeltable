@@ -12,8 +12,9 @@
 //! the pending patches to the last segment; the store writes every segment that is not in a file yet; `mark_written()`
 //! records that. Reading (`from_segments()`) applies the patches of every segment in order.
 //!
-//! Lookups by key binary-search each segment (a key has at most one visible row per version); key indexes
-//! (`KeyIndex`) map the values of the primary key, or of a column with a B-tree index, to rowids.
+//! Lookups by key binary-search each segment's keys (a key has at most one visible row per version), which a segment
+//! read from a file has without decoding its cells; key indexes (`KeyIndex`, and the sorted key hashes stored with
+//! segments) map the values of the primary key, or of a column with a B-tree index, to rowids.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::Hasher;
@@ -202,9 +203,10 @@ impl TableData {
         out
     }
 
-    /// The number of segments whose rows are decoded, and of all segments.
-    pub fn decoded_segments(&self) -> (usize, usize) {
-        (self.segs.iter().filter(|s| s.seg.is_decoded()).count(), self.segs.len())
+    /// The number of decoded chunks of rows (see `segment::CHUNK_ROWS`), and of all chunks.
+    pub fn decoded_chunks(&self) -> (usize, usize) {
+        let all = self.segs.iter().map(|s| s.len().div_ceil(super::segment::CHUNK_ROWS)).sum();
+        (self.segs.iter().map(|s| s.seg.decoded_chunks()).sum(), all)
     }
 
     /// The ids of the segments, in order (the table's manifest).
@@ -333,7 +335,7 @@ impl TableData {
         // (vmin, vmax, row) of the rows that stay
         let mut rows: Vec<(i64, i64, StoredRow)> = Vec::with_capacity(members.iter().map(|s| s.len() - s.dead).sum());
         for s in &members {
-            for (i, r) in s.seg.rows().iter().enumerate() {
+            for (i, r) in s.seg.rows().enumerate() {
                 if s.vmax[i] != DEAD {
                     rows.push((s.seg.vmin[i], s.vmax[i], r.clone()));
                 }
@@ -375,7 +377,14 @@ impl TableData {
         self.segs
             .iter()
             .filter(move |s| !s.skip_at(version))
-            .flat_map(move |s| s.seg.rows().iter().enumerate().filter(move |(i, _)| s.visible(*i, version)).map(|(_, r)| r))
+            .flat_map(move |s| {
+                // decode the chunks in parallel first when many rows are read; else each chunk with a visible row is
+                // decoded when reached
+                if !s.seg.is_decoded() && (0..s.len()).filter(|i| s.visible(*i, version)).count() * 4 >= s.len() {
+                    s.seg.decode_all();
+                }
+                (0..s.len()).filter(move |i| s.visible(*i, version)).map(move |i| s.seg.row(i))
+            })
     }
 
     /// The number of rows visible at `version`.
@@ -412,7 +421,7 @@ impl TableData {
     }
 
     fn row(&self, (p, i): Addr) -> &StoredRow {
-        &self.segs[p].seg.rows()[i]
+        self.segs[p].seg.row(i)
     }
 
     /// The row with key `key` visible at `version`, if any.
@@ -640,9 +649,9 @@ impl TableData {
             }
         }
         for (p, changes) in by_seg {
-            let rows = self.rewrite_seg(p).rows_mut();
+            let seg = self.rewrite_seg(p);
             for (i, v, e) in changes {
-                let r = &mut rows[i];
+                let r = seg.row_mut(i);
                 r.set_cell(col_id, v);
                 r.set_error(col_id, e);
             }
@@ -655,7 +664,7 @@ impl TableData {
             if self.segs[p].len() == 0 {
                 continue;
             }
-            for r in self.rewrite_seg(p).rows_mut().iter_mut() {
+            for r in self.rewrite_seg(p).rows_mut() {
                 f(r);
             }
         }
@@ -769,10 +778,11 @@ impl KeyIndex {
             if self.covered.contains_key(&s.seg.id) || s.seg.hashes(cols, truncate).is_some() {
                 continue;
             }
+            s.seg.decode_all();
             let hashes: Vec<u64> = if s.len() >= 4096 {
-                s.seg.rows().par_iter().map(|r| pk_hash(cols.iter().map(|c| r.cell(*c)), truncate)).collect()
+                (0..s.len()).into_par_iter().map(|i| pk_hash(cols.iter().map(|c| s.seg.row(i).cell(*c)), truncate)).collect()
             } else {
-                s.seg.rows().iter().map(|r| pk_hash(cols.iter().map(|c| r.cell(*c)), truncate)).collect()
+                s.seg.rows().map(|r| pk_hash(cols.iter().map(|c| r.cell(*c)), truncate)).collect()
             };
             self.first.reserve(hashes.len());
             for (h, rowid) in hashes.into_iter().zip(s.seg.rowids()) {

@@ -740,16 +740,16 @@ mod tests {
         insert(&mut cat, id, 0..150_000)?;
         let mut cat = Catalog::load(store.clone(), false)?;
         let data = cat.data(id)?;
-        let (decoded, total) = data.decoded_segments();
-        assert!(total >= 3 && decoded == 0, "{decoded} of {total} decoded");
+        let (decoded, total) = data.decoded_chunks();
+        assert!(total >= 18 && decoded == 0, "{decoded} of {total} decoded");
         // counting reads only version ranges; a primary-key lookup reads the stored key hashes and decodes the one
-        // segment holding the row
+        // chunk holding the row
         assert_eq!(data.count_at(1), 150_000);
         let found = data.find_live_by_pk(&[0], true, &[crate::value::Value::Int(70_000)], true).map(|r| r.rowid);
         assert_eq!(found, Some(70_000));
-        assert_eq!(data.decoded_segments().0, 1);
+        assert_eq!(data.decoded_chunks().0, 1);
         assert_eq!(rowids_at(&mut cat, id, None)?.len(), 150_000);
-        assert_eq!(data.decoded_segments().0, total);
+        assert_eq!(data.decoded_chunks().0, total);
         let _ = std::fs::remove_dir_all(store.home());
         Ok(())
     }

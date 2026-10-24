@@ -1,34 +1,33 @@
 //! The binary encoding of segment files.
 //!
 //! ```text
-//! header: magic "PXTSEG" 0x03 0x00 | table id (16) | segment id (u64) | rows (u64) | patches (u64) | flags (u8) |
-//!         body length (u64) | body checksum (u64) | v_min (i64 per row) | v_max (i64 per row) | rowid (i64 per row) |
+//! header: magic "PXTSEG" 0x04 0x00 | table id (16) | segment id (u64) | rows (u64) | patches (u64) | flags (u8) |
+//!         body length (u64) | rows per chunk (u32) | v_min (i64 per row) | v_max (i64 per row) | rowid (i64 per row) |
 //!         [flag 1: positions per row (count, int each)] |
 //!         [flag 2: key hashes: count, then per key: columns (count, int each), truncated (u8),
 //!                  (hash u64, row u32) per row, by hash] |
-//!         patches (segment u64, row u32, v_max i64 each)
-//! body:   per row: cells (count, value each) | errors (count, each 0 or 1 + type + message)
+//!         patches (segment u64, row u32, v_max i64 each) | chunks: offset in the body (u64), checksum (u64) each
+//! body:   chunks of `segment::CHUNK_ROWS` rows; per row: cells (count, value each) | errors (count, each 0 or 1 +
+//!         type + message)
 //! value:  tag (u8) + payload: 0 NULL, 1 false, 2 true, 3 Int (int), 4 Float (f64), 5 String, 6 Timestamp (int),
 //!         7 Date (int), 8 UUID (16), 9 Binary, 10 JSON (text), 11 Array (MessagePack of NdArray), 12 Media (path/URL)
 //! counts and lengths: LEB128; int: zigzag LEB128; strings and byte strings: length + bytes; fixed-size numbers are
 //! little-endian
 //! ```
 //!
-//! `decode()` reads the header and keeps the body encoded (`Segment::rows()` decodes it on first use, checking its
+//! `decode()` reads the header and keeps the body encoded (`Segment` decodes a chunk on first use, checking its
 //! checksum). JSON values are written as text, refusing values nested more deeply than `value::MAX_JSON_DEPTH` (so
-//! every stored value can be read back) and read with the same limit. Large segments are encoded and decoded in
-//! chunks of `DECODE_CHUNK` rows in parallel (rayon); decoding first skips through the rows to find where the chunks
-//! start.
+//! every stored value can be read back) and read with the same limit. Chunks are encoded in parallel (rayon).
 
 use uuid::Uuid;
 
 use super::rows::{CellError, StoredRow};
-use super::segment::{Body, KeyHashes, Patch, Segment};
+use super::segment::{Body, CHUNK_ROWS, KeyHashes, Patch, Segment};
 use crate::catalog::table::ColId;
 use crate::error::{Error, ErrorCode, Result};
 use crate::value::{MAX_JSON_DEPTH, Value, json_nesting_depth, json_too_deep_msg, parse_json_bounded};
 
-const MAGIC: &[u8; 8] = b"PXTSEG\x03\x00";
+const MAGIC: &[u8; 8] = b"PXTSEG\x04\x00";
 const FLAG_POS: u8 = 1;
 const FLAG_HASHES: u8 = 2;
 
@@ -213,27 +212,20 @@ impl<'a> Reader<'a> {
 /// `keys` (columns, truncated or not).
 pub fn encode(tbl_id: Uuid, seg: &Segment, vmax: &[i64], keys: &[(Vec<ColId>, bool)]) -> Result<Vec<u8>> {
     use rayon::prelude::*;
-    let rows = seg.rows();
+    let rows: Vec<&StoredRow> = seg.rows().collect();
     let n = rows.len();
-    let body = if n < 2 * DECODE_CHUNK {
-        let mut w = Writer(Vec::with_capacity(n * 48));
-        rows.iter().try_for_each(|r| w.row(r))?;
-        w.0
-    } else {
-        let parts = rows
-            .par_chunks(DECODE_CHUNK)
-            .map(|rows| {
-                let mut pw = Writer(Vec::with_capacity(rows.len() * 48));
-                rows.iter().try_for_each(|r| pw.row(r))?;
-                Ok(pw.0)
-            })
-            .collect::<Result<Vec<Vec<u8>>>>()?;
-        parts.concat()
-    };
+    let chunks = rows
+        .par_chunks(CHUNK_ROWS)
+        .map(|rows| {
+            let mut w = Writer(Vec::with_capacity(rows.len() * 48));
+            rows.iter().try_for_each(|r| w.row(r))?;
+            Ok(w.0)
+        })
+        .collect::<Result<Vec<Vec<u8>>>>()?;
     let hashes: Vec<Vec<(u64, u32)>> = keys
         .iter()
         .map(|(cols, truncate)| {
-            let hash = |(i, r): (usize, &StoredRow)| (super::table_data::pk_hash(cols.iter().map(|c| r.cell(*c)), *truncate), i as u32);
+            let hash = |(i, r): (usize, &&StoredRow)| (super::table_data::pk_hash(cols.iter().map(|c| r.cell(*c)), *truncate), i as u32);
             let mut sorted: Vec<(u64, u32)> =
                 if n >= 4096 { rows.par_iter().enumerate().map(hash).collect() } else { rows.iter().enumerate().map(hash).collect() };
             sorted.par_sort_unstable();
@@ -241,26 +233,27 @@ pub fn encode(tbl_id: Uuid, seg: &Segment, vmax: &[i64], keys: &[(Vec<ColId>, bo
         })
         .collect();
     let has_pos = rows.iter().any(|r| !r.pos.is_empty());
-    let mut w = Writer(Vec::with_capacity(96 + n * 32 + body.len()));
+    let body_len: usize = chunks.iter().map(Vec::len).sum();
+    let mut w = Writer(Vec::with_capacity(96 + n * 32 + body_len));
     w.0.extend_from_slice(MAGIC);
     w.0.extend_from_slice(tbl_id.as_bytes());
     w.u64(seg.id);
     w.u64(n as u64);
     w.u64(seg.patches.len() as u64);
     w.u8(if has_pos { FLAG_POS } else { 0 } | if hashes.is_empty() { 0 } else { FLAG_HASHES });
-    w.u64(body.len() as u64);
-    w.u64(checksum(&body));
+    w.u64(body_len as u64);
+    w.u32(CHUNK_ROWS as u32);
     for v in &seg.vmin {
         w.i64(*v);
     }
     for v in vmax {
         w.i64(*v);
     }
-    for r in rows {
+    for r in &rows {
         w.i64(r.rowid);
     }
     if has_pos {
-        for r in rows {
+        for r in &rows {
             w.len(r.pos.len())?;
             for p in &r.pos {
                 w.int(*p);
@@ -286,7 +279,15 @@ pub fn encode(tbl_id: Uuid, seg: &Segment, vmax: &[i64], keys: &[(Vec<ColId>, bo
         w.u32(p.idx);
         w.i64(p.vmax);
     }
-    w.0.extend_from_slice(&body);
+    let mut offset = 0u64;
+    for c in &chunks {
+        w.u64(offset);
+        w.u64(checksum(c));
+        offset += c.len() as u64;
+    }
+    for c in &chunks {
+        w.0.extend_from_slice(c);
+    }
     Ok(w.0)
 }
 
@@ -323,7 +324,9 @@ pub fn decode(bytes: Vec<u8>, tbl_id: Uuid, id: u64) -> Result<(Segment, Vec<i64
     let m = usize::try_from(r.u64()?).map_err(|_| corrupt())?;
     let flags = r.u8()?;
     let body_len = usize::try_from(r.u64()?).map_err(|_| corrupt())?;
-    let checksum = r.u64()?;
+    if r.u32()? as usize != CHUNK_ROWS {
+        return Err(corrupt());
+    }
     if n.saturating_mul(24).saturating_add(m.saturating_mul(20)).saturating_add(body_len) > bytes.len() {
         return Err(corrupt());
     }
@@ -356,52 +359,33 @@ pub fn decode(bytes: Vec<u8>, tbl_id: Uuid, id: u64) -> Result<(Segment, Vec<i64
         }
     }
     let patches = (0..m).map(|_| Ok(Patch { seg: r.u64()?, idx: r.u32()?, vmax: r.i64()? })).collect::<Result<Vec<_>>>()?;
+    let chunks = (0..n.div_ceil(CHUNK_ROWS))
+        .map(|_| {
+            let (offset, sum) = (r.u64()?, r.u64()?);
+            if offset > body_len as u64 { Err(corrupt()) } else { Ok((offset, sum)) }
+        })
+        .collect::<Result<Vec<_>>>()?;
     let start = r.pos;
-    if bytes.len() - start != body_len {
+    if bytes.len() - start != body_len || chunks.windows(2).any(|w| w[0].0 > w[1].0) {
         return Err(corrupt());
     }
-    Ok((Segment::encoded(id, vmin, patches, rowids, pos, Body { bytes, start, checksum }, hashes), vmax))
+    Ok((Segment::encoded(id, vmin, patches, rowids, pos, Body { bytes, start, chunks }, hashes), vmax))
 }
 
-/// The rows of a segment from its encoded body and the keys of its rows.
-pub fn decode_body(body: &Body, rowids: &[i64], pos: &[Vec<i64>]) -> Result<Vec<StoredRow>> {
-    use rayon::prelude::*;
-    let bytes = &body.bytes[body.start..];
-    if checksum(bytes) != body.checksum {
+/// The rows of chunk `k` of a segment from its encoded body and the keys of the chunk's rows.
+pub fn decode_chunk(body: &Body, k: usize, rowids: &[i64], pos: &[Vec<i64>]) -> Result<Vec<StoredRow>> {
+    let (offset, sum) = body.chunks[k];
+    let end = body.chunks.get(k + 1).map_or(body.bytes.len() - body.start, |c| c.0 as usize);
+    let bytes = &body.bytes[body.start + offset as usize..body.start + end];
+    if checksum(bytes) != sum {
         return Err(Error::internal("table data file is corrupt (checksum mismatch)"));
     }
-    let n = rowids.len();
-    let key = |i: usize| (rowids[i], pos.get(i).cloned().unwrap_or_default());
     let mut r = Reader { buf: bytes, pos: 0 };
-    if n < 2 * DECODE_CHUNK {
-        let rows = (0..n).map(|i| r.row(key(i))).collect::<Result<Vec<_>>>()?;
-        return if r.pos == bytes.len() { Ok(rows) } else { Err(corrupt()) };
-    }
-    // find where every chunk of rows starts (skipping is much cheaper than decoding), then decode the chunks in parallel
-    let mut starts = Vec::with_capacity(n / DECODE_CHUNK + 1);
-    for i in 0..n {
-        if i % DECODE_CHUNK == 0 {
-            starts.push(r.pos);
-        }
-        r.skip_row()?;
-    }
-    if r.pos != bytes.len() {
-        return Err(corrupt());
-    }
-    let chunks = starts
-        .par_iter()
-        .enumerate()
-        .map(|(k, &start)| {
-            let mut cr = Reader { buf: bytes, pos: start };
-            let first = k * DECODE_CHUNK;
-            (first..n.min(first + DECODE_CHUNK)).map(|i| cr.row(key(i))).collect::<Result<Vec<_>>>()
-        })
-        .collect::<Result<Vec<Vec<StoredRow>>>>()?;
-    Ok(chunks.into_iter().flatten().collect())
+    let rows = (0..rowids.len())
+        .map(|i| r.row((rowids[i], pos.get(i).cloned().unwrap_or_default())))
+        .collect::<Result<Vec<_>>>()?;
+    if r.pos == bytes.len() { Ok(rows) } else { Err(corrupt()) }
 }
-
-/// The number of rows a thread encodes or decodes at a time.
-const DECODE_CHUNK: usize = 8192;
 
 /// A fast checksum of a segment body (four independent multiply-rotate lanes over 8-byte words).
 fn checksum(b: &[u8]) -> u64 {
@@ -443,35 +427,6 @@ impl Reader<'_> {
             });
         }
         Ok(StoredRow { rowid, cells, errors, pos })
-    }
-
-    /// Moves past a row without decoding it (checking only its structure; `row()` checks the rest).
-    fn skip_row(&mut self) -> Result<()> {
-        for _ in 0..self.count()? {
-            match self.u8()? {
-                0..=2 => {}
-                3 | 6 | 7 => {
-                    self.varint()?;
-                }
-                4 => {
-                    self.take(8)?;
-                }
-                8 => {
-                    self.take(16)?;
-                }
-                5 | 9..=12 => {
-                    self.bytes()?;
-                }
-                _ => return Err(corrupt()),
-            }
-        }
-        for _ in 0..self.count()? {
-            if self.u8()? == 1 {
-                self.bytes()?;
-                self.bytes()?;
-            }
-        }
-        Ok(())
     }
 }
 
@@ -517,7 +472,7 @@ mod tests {
         assert_eq!(back.hashes(&[3], false).map(|h| h.sorted.len()), Some(2));
         assert_eq!(back.hashes(&[0, 1], true).map(|h| h.sorted.len()), Some(2));
         assert!(back.hashes(&[3], true).is_none());
-        let rows = back.rows();
+        let rows: Vec<&StoredRow> = back.rows().collect();
         assert_eq!(rows[0].pos, vec![1, 2]);
         assert_eq!(rows[1].rowid, 43);
         for (i, v) in values.iter().enumerate() {
@@ -530,21 +485,19 @@ mod tests {
             assert!(decode(bytes[..cut].to_vec(), tbl, 9).is_err());
         }
         assert!(decode(bytes.clone(), tbl, 10).is_err());
-        // a body that does not match its checksum is refused
-        let le64 = |b: &[u8]| b.iter().rev().fold(0u64, |acc, x| (acc << 8) | u64::from(*x));
-        let (body_len, sum) = (le64(&bytes[49..57]) as usize, le64(&bytes[57..65]));
+        // a chunk that does not match its checksum is refused (when it is decoded)
         let mut flipped = bytes.clone();
         let last = flipped.len() - 1;
         flipped[last] ^= 1;
-        let body = Body { start: flipped.len() - body_len, bytes: flipped, checksum: sum };
-        assert!(decode_body(&body, &[42, 43], &[vec![1, 2], Vec::new()]).is_err());
+        let (seg, _) = decode(flipped, tbl, 9)?;
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| seg.row(0).rowid)).is_err());
         Ok(())
     }
 
     #[test]
     fn large_segments_decode_in_chunks() -> Result<()> {
         let tbl = Uuid::new_v4();
-        let n = 3 * DECODE_CHUNK + 17;
+        let n = 3 * CHUNK_ROWS + 17;
         let rows: Vec<StoredRow> = (0..n as i64)
             .map(|i| {
                 let mut r = StoredRow::new(i, if i % 3 == 0 { vec![i, -i] } else { Vec::new() });
@@ -559,8 +512,12 @@ mod tests {
         let seg = Segment::new(1, rows, vec![1; n], Vec::new());
         let bytes = encode(tbl, &seg, &vec![i64::MAX; n], &[])?;
         let (back, _) = decode(bytes.clone(), tbl, 1)?;
-        assert_eq!(back.rows().len(), n);
-        for (a, b) in seg.rows().iter().zip(back.rows()) {
+        // one row decodes its chunk only
+        assert_eq!(back.row(CHUNK_ROWS + 5).rowid, (CHUNK_ROWS + 5) as i64);
+        assert_eq!(back.decoded_chunks(), 1);
+        assert_eq!(back.rows().count(), n);
+        assert!(back.is_decoded());
+        for (a, b) in seg.rows().zip(back.rows()) {
             assert_eq!(a.rowid, b.rowid);
             assert_eq!(a.pos, b.pos);
             assert!(a.cells.iter().zip(&b.cells).all(|(x, y)| crate::store::table_data::values_identical(x, y)));

@@ -144,7 +144,7 @@ class TestReload:
             env=env,
         )
         assert r.returncode == 0, r.stderr[-2000:]
-        assert 'has format pixeltable-rs v1, which this version of pixeltable-rs (format v3) cannot read' in r.stdout
+        assert 'has format pixeltable-rs v1, which this version of pixeltable-rs (format v4) cannot read' in r.stdout
 
 
 class TestPrimaryKeyIndex:
@@ -276,3 +276,30 @@ class TestThreads:
         assert not errors, errors
         assert t.count() == 1000
         assert t.where(t.b >= 100).count() == 8 * 25
+
+    def test_threads_read_a_freshly_loaded_table(self) -> None:
+        import threading
+
+        t = pxt.create_table('t', {'id': pxt.Int, 's': pxt.String}, primary_key='id')
+        t.insert({'id': i, 's': f'v{i}'} for i in range(70_000))
+        reload_catalog()
+        t = pxt.get_table('t')
+        errors: list[BaseException] = []
+        results: list[int] = []
+
+        def reader(k: int) -> None:
+            try:
+                if k % 2:
+                    results.append(len(t.where(t.id == 12_345 + k).collect()))
+                else:
+                    results.append(t.where(t.s == f'v{k}').count())
+            except BaseException as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=reader, args=(k,)) for k in range(8)]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join(timeout=300)
+        assert not errors, errors
+        assert results == [1] * 8

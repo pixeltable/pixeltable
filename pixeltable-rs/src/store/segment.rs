@@ -1,10 +1,12 @@
 //! A segment: an immutable run of a table's rows, sorted by key (then `v_min`), stored as one file.
 //!
 //! A segment read from a file keeps its keys, version ranges, patches and stored key hashes decoded, and its cells
-//! encoded until something reads them (`rows()`), so that loading a table costs little more than reading its files,
-//! counting rows needs no decoding, and a point lookup decodes one segment.
+//! encoded, in chunks of `CHUNK_ROWS` rows, until something reads them: loading a table costs little more than
+//! reading its files, counting rows needs no decoding, a point lookup decodes one chunk, and a scan decodes a segment's
+//! chunks in parallel (`decode_all()`).
 
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -12,6 +14,9 @@ use serde::{Deserialize, Serialize};
 use super::codec;
 use super::rows::StoredRow;
 use crate::catalog::table::ColId;
+
+/// The rows of a segment are encoded, and decoded, in chunks of this many rows.
+pub const CHUNK_ROWS: usize = 8192;
 
 /// A change of `v_max` of row `idx` of segment `seg`, carried by a later segment's file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,12 +44,13 @@ impl KeyHashes {
     }
 }
 
-/// The encoded cells of a segment read from a file: `bytes[start..]`, with its checksum.
+/// The encoded cells of a segment read from a file: `bytes[start..]`, as chunks of `CHUNK_ROWS` rows, each with its
+/// offset (from `start`) and checksum.
 #[derive(Debug)]
 pub struct Body {
     pub bytes: Vec<u8>,
     pub start: usize,
-    pub checksum: u64,
+    pub chunks: Vec<(u64, u64)>,
 }
 
 #[derive(Debug)]
@@ -57,9 +63,11 @@ pub struct Segment {
     rowids: Vec<i64>,
     /// iterator positions of each row; empty if no row has any
     pos: Vec<Vec<i64>>,
-    rows: OnceLock<Vec<StoredRow>>,
-    /// the encoded rows, until decoded
-    body: Mutex<Option<Body>>,
+    /// the rows, `CHUNK_ROWS` per chunk
+    chunks: Vec<OnceLock<Vec<StoredRow>>>,
+    /// the encoded rows, until every chunk is decoded
+    body: Mutex<Option<Arc<Body>>>,
+    undecoded: AtomicUsize,
     /// one per key index known when the segment was written
     hashes: Vec<KeyHashes>,
 }
@@ -79,7 +87,16 @@ impl Segment {
     pub fn new(id: u64, rows: Vec<StoredRow>, vmin: Vec<i64>, patches: Vec<Patch>) -> Segment {
         let rowids = rows.iter().map(|r| r.rowid).collect();
         let pos = if rows.iter().any(|r| !r.pos.is_empty()) { rows.iter().map(|r| r.pos.clone()).collect() } else { Vec::new() };
-        Segment { id, vmin, patches, rowids, pos, rows: OnceLock::from(rows), body: Mutex::new(None), hashes: Vec::new() }
+        let mut chunks = Vec::with_capacity(rows.len().div_ceil(CHUNK_ROWS));
+        let mut rows = rows.into_iter();
+        loop {
+            let chunk: Vec<StoredRow> = rows.by_ref().take(CHUNK_ROWS).collect();
+            if chunk.is_empty() {
+                break;
+            }
+            chunks.push(OnceLock::from(chunk));
+        }
+        Segment { id, vmin, patches, rowids, pos, chunks, body: Mutex::new(None), undecoded: AtomicUsize::new(0), hashes: Vec::new() }
     }
 
     /// A segment read from a file whose rows are still encoded (see `codec`).
@@ -92,7 +109,18 @@ impl Segment {
         body: Body,
         hashes: Vec<KeyHashes>,
     ) -> Segment {
-        Segment { id, vmin, patches, rowids, pos, rows: OnceLock::new(), body: Mutex::new(Some(body)), hashes }
+        let n = body.chunks.len();
+        Segment {
+            id,
+            vmin,
+            patches,
+            rowids,
+            pos,
+            chunks: (0..n).map(|_| OnceLock::new()).collect(),
+            body: Mutex::new((n > 0).then(|| Arc::new(body))),
+            undecoded: AtomicUsize::new(n),
+            hashes,
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -117,46 +145,85 @@ impl Segment {
         self.hashes.iter().find(|h| h.cols == cols && h.truncate == truncate)
     }
 
-    /// The rows, decoded on first use. Decoding cannot fail for a segment the store wrote (the file's checksum
-    /// guards against corruption), so a failure is reported as a panic, which operations turn into an internal error.
-    pub fn rows(&self) -> &[StoredRow] {
-        self.rows.get_or_init(|| {
-            let body = self.body.lock().take();
-            let Some(body) = body else { unreachable!("a segment has either rows or an encoded body") };
-            match codec::decode_body(&body, &self.rowids, &self.pos) {
+    /// True once all rows are decoded.
+    pub fn is_decoded(&self) -> bool {
+        self.undecoded.load(Ordering::Acquire) == 0
+    }
+
+    /// The number of decoded chunks.
+    pub fn decoded_chunks(&self) -> usize {
+        self.chunks.iter().filter(|c| c.get().is_some()).count()
+    }
+
+    /// Chunk `k`, decoded on first use. Decoding cannot fail for a segment the store wrote (each chunk has a
+    /// checksum against corruption), so a failure is reported as a panic, which operations turn into an internal
+    /// error. Decoding never touches the Python interpreter (a thread waiting here may hold it).
+    fn chunk(&self, k: usize) -> &[StoredRow] {
+        self.chunks[k].get_or_init(|| {
+            let body = self.body.lock().clone();
+            let Some(body) = body else { unreachable!("an undecoded chunk has an encoded body") };
+            let first = k * CHUNK_ROWS;
+            let last = self.len().min(first + CHUNK_ROWS);
+            let pos = self.pos.get(first..last).unwrap_or(&[]);
+            let rows = match codec::decode_chunk(&body, k, &self.rowids[first..last], pos) {
                 Ok(rows) => rows,
                 Err(e) => panic!("table data segment {:016x} cannot be decoded: {}", self.id, e.message()),
+            };
+            if self.undecoded.fetch_sub(1, Ordering::AcqRel) == 1 {
+                // the last chunk: the encoded rows are no longer needed
+                *self.body.lock() = None;
             }
+            rows
         })
     }
 
-    /// True once the rows are decoded.
-    pub fn is_decoded(&self) -> bool {
-        self.rows.get().is_some()
+    /// Row `i` (decoding its chunk if needed).
+    pub fn row(&self, i: usize) -> &StoredRow {
+        &self.chunk(i / CHUNK_ROWS)[i % CHUNK_ROWS]
+    }
+
+    /// Decodes all chunks not decoded yet, in parallel.
+    pub fn decode_all(&self) {
+        if self.is_decoded() {
+            return;
+        }
+        use rayon::prelude::*;
+        (0..self.chunks.len()).into_par_iter().for_each(|k| {
+            self.chunk(k);
+        });
+    }
+
+    /// The rows, in order.
+    pub fn rows(&self) -> impl Iterator<Item = &StoredRow> {
+        self.decode_all();
+        (0..self.chunks.len()).flat_map(move |k| self.chunk(k).iter())
     }
 
     /// The rows, for changing their cells (keys stay); drops the stored key hashes.
-    pub fn rows_mut(&mut self) -> &mut Vec<StoredRow> {
-        self.rows();
+    pub fn rows_mut(&mut self) -> impl Iterator<Item = &mut StoredRow> {
+        self.decode_all();
         self.hashes.clear();
-        match self.rows.get_mut() {
-            Some(rows) => rows,
-            None => unreachable!("rows() initialized them"),
+        self.chunks.iter_mut().flat_map(|c| match c.get_mut() {
+            Some(rows) => rows.iter_mut(),
+            None => unreachable!("decode_all() decoded every chunk"),
+        })
+    }
+
+    /// Row `i`, for changing its cells (its key stays); drops the stored key hashes.
+    pub fn row_mut(&mut self, i: usize) -> &mut StoredRow {
+        self.chunk(i / CHUNK_ROWS);
+        self.hashes.clear();
+        match self.chunks[i / CHUNK_ROWS].get_mut() {
+            Some(rows) => &mut rows[i % CHUNK_ROWS],
+            None => unreachable!("chunk() decoded the chunk"),
         }
     }
 }
 
 impl Clone for Segment {
     fn clone(&self) -> Segment {
-        Segment {
-            id: self.id,
-            vmin: self.vmin.clone(),
-            patches: self.patches.clone(),
-            rowids: self.rowids.clone(),
-            pos: self.pos.clone(),
-            rows: OnceLock::from(self.rows().to_vec()),
-            body: Mutex::new(None),
-            hashes: self.hashes.clone(),
-        }
+        let mut copy = Segment::new(self.id, self.rows().cloned().collect(), self.vmin.clone(), self.patches.clone());
+        copy.hashes = self.hashes.clone();
+        copy
     }
 }
