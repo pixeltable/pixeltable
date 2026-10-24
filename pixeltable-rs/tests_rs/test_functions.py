@@ -65,6 +65,18 @@ def plus_one(x: int) -> int:
     return x + 1
 
 
+@pxt.uda
+class total(pxt.Aggregator):
+    def __init__(self, start: int = 0) -> None:
+        self.sum = start
+
+    def update(self, x: int) -> None:
+        self.sum += x
+
+    def value(self) -> int:
+        return self.sum
+
+
 evolving: Any = None
 
 
@@ -165,6 +177,32 @@ class TestUdfCalls:
 
         res = t.where(t.i != None).order_by(t.i).select(r=below(t.i)).collect()['r']
         assert res == [[], [{'i': 0}], [{'i': 0}, {'i': 1}], [{'i': 0}, {'i': 1}, {'i': 2}]]
+
+        @pxt.query(return_scalar=True)
+        def first(n: int, skip: int = 0) -> pxt.Query:
+            return t.where(t.i != None).select(t.i).order_by(t.i).limit(n, offset=skip)
+
+        assert t.where(t.i == 0).select(r=first(2, skip=1)).collect()[0]['r'] == [1, 2]
+        assert t.where(t.i == 0).select(r=first(0)).collect()[0]['r'] == []
+        with raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'limit' parameter must be >= 0"):
+            t.select(r=first(-1)).collect()
+        # adding a computed column wraps a row's failure (upstream `write_column()`)
+        with raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="computed column 'c':\n'offset' parameter must be >= 0"):
+            t.add_computed_column(c=first(1, skip=-1))
+        with raises(pxt.ErrorCode.INVALID_ARGUMENT, match='limit\\(\\): parameter must be an int constant'):
+
+            @pxt.query
+            def bad(n: int) -> pxt.Query:
+                return t.select(t.i).limit(n + 1)
+
+    def test_uda(self, t: pxt.Table) -> None:
+        assert t.select(s=total(t.i)).collect()[0]['s'] == 6  # NULL for a non-nullable parameter is skipped
+        res = t.where(t.i != None).group_by(t.i % 2).select(k=t.i % 2, s=total(t.i, start=10)).order_by(t.i % 2)
+        assert list(res.collect()['s']) == [12, 14]
+        reload_catalog()
+        t = pxt.get_table('t')
+        q = t.select(s=total(t.i))  # stored by reference to the class, resolved again after a reload
+        assert pxt.Query.from_dict(q.as_dict()).collect()[0]['s'] == 6
 
 
 class TestIterators:

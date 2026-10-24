@@ -181,8 +181,11 @@ Aggregates (`functions/agg.rs`): an `AggregateFunction` (signatures, init parame
 `allows_std_agg`, `allows_window`, `create()` -> `AggState { update(), value() }`) referenced as `FuncRef::Agg`.
 `make_agg_call()` applies upstream's rules for `order_by`/`group_by` (a window call is an aggregate with
 `group_by`/`order_by`, or one that disallows plain aggregation). Builtins: `count`, `sum`, `min`, `max`, `mean`,
-`json.make_list`. A Python UDA plugs in by implementing `AggregateFunction` with `create()`/`update()`/`value()`
-calling the Aggregator class (and `resolve_uda()` for stored calls); the executor needs nothing else.
+`json.make_list`. Python UDAs (`@pxt.uda`, `functions/uda.rs`): `AggregateFunction._make_core()` ->
+`_core.Uda(fn, spec)` -> `UdaFunction`, which implements `AggregateFunction`: `create()` instantiates the
+`Aggregator` class with the init arguments, its state calls `update()` and `value()`; calls go through
+`make_agg_call()` like builtins (`AggregateFunction.__call__` -> `Uda.call`). A stored call is
+`{"uda": AggregateFunction.as_dict()}`, resolved by `resolve_uda()` through `pixeltable.func._resolve_function`.
 
 ## Python functions (UDFs, templates, iterators)
 
@@ -214,7 +217,11 @@ in `udf::register_function` (FUNCTION_ALREADY_EXISTS on duplicates); `is_method`
 
 Query templates (`@pxt.query`, `pxt.retrieval_udf()`): `UdfImpl::Query` holds the template `QuerySpec` (built by
 calling the decorated function with `Variable`s); a call binds its arguments as literals (`QuerySpec::map_exprs`),
-snapshots and executes the query and returns the rows as a JSON list. They serialize by value; their Python
+snapshots and executes the query and returns the rows as a JSON list. `limit(n, offset=k)` in a template takes an
+int constant or a parameter (`QuerySpec::limit_param`/`offset_param`, bound per call by `QuerySpec::bind_params`,
+which refuses a negative value with INVALID_ARGUMENT). A failing query is the call's exception: a query raises it
+with its code, adding a computed column with `on_error='abort'` wraps it (UNSUPPORTED_OPERATION "Error while
+evaluating computed column ...", as for any row failure, `AddComputedPlan::abort_error`). They serialize by value; their Python
 `_from_dict()` must not touch the catalog (it runs under the catalog lock: deserializing a stored expression resolves
 its functions in Python; `with_catalog` fails instead of deadlocking on re-entry).
 

@@ -154,9 +154,12 @@ class Function(abc.ABC):
         """The description `pixeltable._core.Udf` is created from."""
         raise NotImplementedError()
 
-    def _core_udf(self) -> _core.Udf:
+    def _make_core(self) -> Any:
+        return _core.Udf(self, self._core_spec())
+
+    def _core_udf(self) -> Any:
         if self.__core is None:
-            self.__core = _core.Udf(self, self._core_spec())
+            self.__core = self._make_core()
         return self.__core
 
     @property
