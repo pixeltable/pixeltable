@@ -2,6 +2,7 @@ tests/test_alter_column.py::TestAlterColumn::test_alter_column[data_versioned-no
 tests/test_alter_column.py::TestAlterColumn::test_alter_column[data_versioned-reload_catalog]
 tests/test_alter_column.py::TestAlterColumn::test_alter_column[operational-no_reload_catalog]
 tests/test_alter_column.py::TestAlterColumn::test_alter_column[operational-reload_catalog]
+tests/test_alter_column.py::TestAlterColumn::test_alter_column_errors
 tests/test_alter_column.py::TestAlterColumn::test_alter_column_history[data_versioned-no_reload_catalog]
 tests/test_alter_column.py::TestAlterColumn::test_alter_column_history[data_versioned-reload_catalog]
 tests/test_alter_column.py::TestAlterColumn::test_alter_column_history[operational-no_reload_catalog]
@@ -102,6 +103,7 @@ tests/test_exprs.py::TestExprs::test_make_list
 tests/test_exprs.py::TestExprs::test_math_builtins
 tests/test_exprs.py::TestExprs::test_multi_json_mapper
 tests/test_exprs.py::TestExprs::test_nested_chained_mappers
+tests/test_exprs.py::TestExprs::test_nonmodule_function_errors
 tests/test_exprs.py::TestExprs::test_null_args
 tests/test_exprs.py::TestExprs::test_pow
 tests/test_exprs.py::TestExprs::test_props
