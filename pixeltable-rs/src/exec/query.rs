@@ -229,6 +229,8 @@ struct Plan {
     group_slot: Option<usize>,
     /// the ordering the rows need before window functions are evaluated
     window_order: Vec<(ExprRef, Option<bool>)>,
+    /// the ordering the input rows need before aggregation (aggregates with an ordering requirement)
+    agg_order: Vec<(ExprRef, Option<bool>)>,
 }
 
 fn expr_key(e: &Expr) -> String {
@@ -426,12 +428,15 @@ impl Plan {
             o.extend(fc.order_by.iter().map(|e| (e.clone(), Some(true))));
             requirements.push(o);
         }
+        let mut agg_order: Vec<(ExprRef, Option<bool>)> = Vec::new();
         for a in &aggs {
             let fc = a.expr.as_function_call().ok_or_else(|| Error::internal("aggregate call expected"))?;
             if !fc.order_by.is_empty() {
                 let mut o: Vec<(ExprRef, Option<bool>)> =
                     grouping.iter().flatten().map(|e| (e.clone(), None)).collect();
                 o.extend(fc.order_by.iter().map(|e| (e.clone(), Some(true))));
+                // incompatible requirements are reported below, with the query's order by
+                agg_order = combine_orderings(&agg_order, &o).unwrap_or(agg_order);
                 requirements.push(o);
             }
         }
@@ -449,7 +454,7 @@ impl Plan {
         if !windows.is_empty() && grouping.is_some() {
             return Err(Error::not_implemented("window functions in an aggregation query"));
         }
-        Ok(Plan { aggs, windows, slots, grouping, group_slot, window_order })
+        Ok(Plan { aggs, windows, slots, grouping, group_slot, window_order, agg_order })
     }
 }
 
@@ -866,6 +871,11 @@ fn result_rows<'a>(input: &'a QueryInput, plan: &Plan, rowid_desc: bool) -> Resu
     }
     if let Some(s) = &input.q.sample {
         rows = apply_sample(input, rows, s)?;
+    }
+    if !plan.agg_order.is_empty() {
+        // ordered aggregates see their rows in order (groups keep the input order)
+        let wrapped = rows.into_iter().map(|row| OutRow { row, pre: Vec::new() }).collect();
+        rows = sort_rows(input, plan, wrapped, &plan.agg_order)?.into_iter().map(|r| r.row).collect();
     }
     let mut out: Vec<OutRow<'a>> = match &plan.grouping {
         Some(g) => aggregate(input, plan, rows, g)?,

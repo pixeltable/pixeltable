@@ -67,7 +67,15 @@ class ResultSet:
         return self.to_pandas().to_string()
 
     def _repr_html_(self) -> str:
-        return self.to_pandas().to_html(index=False)
+        from pixeltable._formatter import Formatter
+
+        formatter = Formatter(len(self), len(self._col_names))
+        formatters: dict[Any, Any] = {}
+        for col_name, col_type in self._schema.items():
+            f = formatter.get_pandas_formatter(col_type)
+            if f is not None:
+                formatters[col_name] = f
+        return self.to_pandas().to_html(formatters=formatters, escape=False, index=False)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ResultSet):
