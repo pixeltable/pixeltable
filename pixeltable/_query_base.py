@@ -499,6 +499,20 @@ class QueryBase(ABC):
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'where() expression needs to return `Bool`, but instead returns `{pred.col_type}`',
             )
+        if len(self._from_clause.tbls) == 1 and self._from_clause.is_local:
+            # retarget the predicate, as in select(), to support expressions such as `snapshot.where(base_tbl.col)`
+            pred = pred.copy()
+            try:
+                pred = pred.retarget_path(self._from_clause.tvps[0])
+            except Exception:
+                # If retarget() fails, then the succeeding is_bound_by() will raise an error.
+                pass
+        if not pred.is_bound_by(self._from_clause.tbls):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f"That expression cannot be evaluated in the context of this query's tables "
+                f'({", ".join(tbl.tbl_name() for tbl in self._from_clause.tbls)}): {pred}',
+            )
         return type(self)(
             from_clause=self._from_clause,
             select_list=self.select_list,
