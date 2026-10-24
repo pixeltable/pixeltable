@@ -8,14 +8,14 @@
 //! To add a builtin: write `fn return_type(&[ColumnType]) -> Result<ColumnType>` and `fn eval(&[Value]) ->
 //! Result<Value>`, add a `Builtin` entry to the module's `FUNCTIONS`, and add the one-line Python stub.
 //!
-//! Python UDFs are `FuncRef::Udf`: the node holds the Python callable and a descriptor (module + qualname, or
-//! pickled bytes for local functions) that Python resolves when the expression is deserialized. Evaluation calls
-//! back into Python; that is the only place where builtin-free evaluation leaves Rust.
+//! Calls of Python functions (UDFs, expression templates) are `FuncRef::Udf` (see `udf`): binding, typing and
+//! evaluation happen there; evaluation calls back into Python for the function body.
 
 pub mod math;
 pub mod signature;
 pub mod string;
 pub mod udf;
+pub mod uuid;
 
 use serde_json::json;
 use std::collections::HashMap;
@@ -57,7 +57,7 @@ fn registry() -> &'static HashMap<String, &'static Builtin> {
     static REGISTRY: OnceLock<HashMap<String, &'static Builtin>> = OnceLock::new();
     REGISTRY.get_or_init(|| {
         let mut m = HashMap::new();
-        for table in [string::FUNCTIONS, math::FUNCTIONS] {
+        for table in [string::FUNCTIONS, math::FUNCTIONS, uuid::FUNCTIONS] {
             for b in table {
                 m.insert(b.qualified_name(), b);
             }
