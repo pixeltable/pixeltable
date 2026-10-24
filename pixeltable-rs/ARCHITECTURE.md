@@ -363,7 +363,8 @@ Computed columns are evaluated with Python semantics (`RowContext::python_semant
 `<table>.<column>` (`<table>.<column>:<index>` for index values).
 
 Indexes (`catalog/indexes.rs`, `TableMd.indexes`): nothing reads B-tree indexes (scans are full scans);
-`has_default_idxs` adds one to every eligible column (`push_column()`, `create_table()`). An index can have a value
+`has_default_idxs` adds one to every eligible column (`push_column()`, `create_table()`; for a view, its own
+columns, `add_default_view_indexes()`). An index can have a value
 column: a hidden stored computed column (`IndexMd::val_col_id()`, not listed in any schema version, named
 `<col>:<idx>`). `exec::compute::index_value_columns()` lists them; inserts, updates (always, for indexes on updated or
 recomputed columns, as upstream) and view propagation (`ViewCompute::current()`) compute them like other stored

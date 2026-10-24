@@ -46,6 +46,8 @@ pub struct ViewDef {
     pub media_validation: MediaValidation,
     /// component views: the iterator call that produces the view's rows from each base row
     pub iterator: Option<std::sync::Arc<crate::functions::iterator::IteratorCall>>,
+    /// a default B-tree index on each eligible column of the view (not on its bases' columns)
+    pub has_default_idxs: bool,
 }
 
 impl Catalog {
@@ -485,13 +487,13 @@ impl Catalog {
         let mut version0 = VersionMd::new(0, ts, 0, "schema", None);
         version0.base_versions =
             base_path.iter().map(|e| Ok(e.pinned.unwrap_or(self.table(e.tbl_id)?.current_version))).collect::<Result<_>>()?;
-        let md = TableMd {
+        let mut md = TableMd {
             id,
             dir_id: Uuid::nil(),
             name: path.name().to_string(),
             kind: if def.is_snapshot { TableKind::Snapshot } else { TableKind::View },
             is_data_versioned: true,
-            has_default_idxs: false,
+            has_default_idxs: def.has_default_idxs,
             created_at: ts,
             current_version: 0,
             current_schema_version: 0,
@@ -517,6 +519,9 @@ impl Catalog {
             data_file: None,
             indexes: Default::default(),
         };
+        if def.has_default_idxs {
+            super::indexes::add_default_view_indexes(&mut md)?;
+        }
         Ok(ViewPlanOutcome::New(Box::new(md), base_path))
     }
 

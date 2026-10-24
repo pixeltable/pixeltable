@@ -526,7 +526,10 @@ pub fn create_table(
 
 /// Returns (view id, kind, created).
 #[pyfunction]
-#[pyo3(signature = (path, base, additional_columns, is_snapshot, iterator, comment, custom_metadata, media_validation, if_exists))]
+#[pyo3(signature = (
+    path, base, additional_columns, is_snapshot, iterator, comment, custom_metadata, media_validation, if_exists,
+    has_default_idxs=false
+))]
 #[allow(clippy::too_many_arguments)]
 pub fn create_view(
     py: Python<'_>,
@@ -539,7 +542,11 @@ pub fn create_view(
     custom_metadata: Option<&Bound<'_, PyAny>>,
     media_validation: &str,
     if_exists: &str,
+    has_default_idxs: bool,
 ) -> Result<(String, String, bool)> {
+    if is_snapshot && has_default_idxs {
+        crate::bail!(UnsupportedOperation, "Cannot create default indexes on a snapshot");
+    }
     let path = &*path;
     let (base_id, base_version, predicate, select) = if let Ok(spec) = base.getattr("_spec") {
         let spec = spec.cast::<PyQuerySpec>().map_err(|_| Error::internal("Query._spec is not a QuerySpec"))?;
@@ -583,6 +590,7 @@ pub fn create_view(
         custom_metadata,
         media_validation: mv,
         iterator,
+        has_default_idxs,
     };
     let (id, created) = create_view_from_def(py, &p, &def, ie)?;
     let kind = with_catalog(py, |cat| Ok(cat.table(id)?.kind.display_name().to_string()))?;
