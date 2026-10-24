@@ -1,16 +1,18 @@
-//! Indexes: B-tree indexes (metadata only: every scan is a full scan) and embedding indexes, whose embeddings are
-//! materialized in a hidden stored column of the table (`IndexKind::Embedding::val_col_id`, not part of any schema
-//! version's visible columns) that inserts compute like any other stored computed column.
+//! Indexes: B-tree indexes (every scan is a full scan, so nothing reads them) and embedding indexes. An index can
+//! have a value column: a hidden stored computed column of the table (not part of any schema version's visible
+//! columns) that inserts and updates compute like any other stored computed column. An embedding index keeps its
+//! embeddings there; a B-tree index of a data-versioned table keeps the indexed values (upstream
+//! `BtreeIndex.uses_value_col`), which matters for the errors an operation reports and the rows it returns.
 //!
 //! Adding an embedding index evaluates the embedding of every row, so it is a plan/compute/commit operation
-//! (`exec::compute::AddComputedPlan` with an `IndexSpec`); everything else here runs under the lock.
+//! (`exec::index::AddIndexPlan`); everything else here runs under the lock.
 
 use uuid::Uuid;
 
 use super::Catalog;
 use super::path::fold_identifier;
 use super::table::{ColId, ColumnMd, IndexKind, IndexMd, ResolvedColumn, TableMd};
-use crate::error::{Error, Result, py_repr};
+use crate::error::{Result, py_repr};
 use crate::types::ColumnType;
 
 /// An index about to be created together with its hidden value column (see `AddComputedPlan`).
@@ -101,18 +103,60 @@ impl Catalog {
         Ok(v)
     }
 
-    /// Records a B-tree index on column `col_id` of `tbl_id` (no version change, no validation).
-    pub fn push_btree_index(&mut self, tbl_id: Uuid, col_id: ColId, name: Option<String>) -> Result<()> {
+    /// Records a B-tree index on column `col_id` of `tbl_id` (no version change, no validation), with a value column
+    /// if the table is data-versioned; returns the id of the value column, which the caller populates.
+    pub fn push_btree_index(&mut self, tbl_id: Uuid, col_id: ColId, name: Option<String>) -> Result<Option<ColId>> {
         let md = self.table_mut(tbl_id)?;
         let name = name.unwrap_or_else(|| generate_idx_name(md));
+        let schema_version_add = md.current_schema_version;
+        let val_col_id = if md.is_data_versioned {
+            let col = md.columns_at(None)?.into_iter().find(|c| c.md.id == col_id);
+            let col = col.ok_or_else(|| crate::error::Error::internal("B-tree index on an unknown column"))?;
+            let col_ref = crate::exec::column_ref_expr(&col, None);
+            let value_expr = if col.md.col_type.is_string() {
+                crate::functions::make_call(&format!("{}.str_filter", crate::functions::btree::MODULE), vec![col_ref], vec![])?
+            } else {
+                col_ref
+            };
+            let val_col_id = md.next_col_id;
+            md.next_col_id += 1;
+            md.columns.push(ColumnMd {
+                id: val_col_id,
+                col_type: value_expr.col_type.with_nullable(true),
+                is_pk: false,
+                stored: true,
+                value_expr: Some(crate::expr::serde::to_json(&value_expr)?),
+                schema_version_add,
+                schema_version_drop: None,
+                media_validation: None,
+                comment: None,
+                custom_metadata: crate::value::Json::Null,
+                destination: None,
+            });
+            Some(val_col_id)
+        } else {
+            None
+        };
         let id = md.indexes.next_id;
         md.indexes.next_id += 1;
-        let schema_version_add = md.current_schema_version;
-        md.indexes.list.push(IndexMd { id, name, col_tbl_id: tbl_id, col_id, kind: IndexKind::Btree, schema_version_add });
-        Ok(())
+        let kind = IndexKind::Btree { val_col_id };
+        md.indexes.list.push(IndexMd { id, name, col_tbl_id: tbl_id, col_id, kind, schema_version_add });
+        Ok(val_col_id)
+    }
+
+    /// Sets the value column `val_col_id` of a B-tree index on `col_id` from the column's values in every row
+    /// (stored errors read as NULL, as upstream reads the values from the store). Does not commit.
+    pub fn fill_btree_values(&mut self, tbl_id: Uuid, col_id: ColId, val_col_id: ColId) -> Result<()> {
+        let mut data = self.data(tbl_id)?.as_ref().clone();
+        for r in data.rows.iter_mut() {
+            let v = crate::functions::btree::truncate(r.cell(col_id));
+            r.set_cell(val_col_id, v);
+        }
+        self.stage_data(tbl_id, data)
     }
 
     /// The default B-tree index of a new column of a table with `has_default_idxs` (call after the column exists).
+    /// Does not populate its value column.
     pub fn add_default_index(&mut self, tbl_id: Uuid, col_id: ColId) -> Result<()> {
         let md = self.table(tbl_id)?;
         if !md.has_default_idxs {
@@ -120,6 +164,8 @@ impl Catalog {
         }
         let Some(col) = md.column(col_id) else { return Ok(()) };
         if can_btree_index(col) {
+            // the existing rows have no values for the new column yet (a computed column's caller sets them, and
+            // the index values with them)
             self.push_btree_index(tbl_id, col_id, None)?;
         }
         Ok(())
@@ -179,7 +225,9 @@ impl Catalog {
             crate::bail!(IndexAlreadyExists, "Index {} already exists on column {}.", py_repr(&existing.name), py_repr(&col_name));
         }
         self.bump_version_for_index(tbl_id)?;
-        self.push_btree_index(tbl_id, col.md.id, idx_name)?;
+        if let Some(val_col_id) = self.push_btree_index(tbl_id, col.md.id, idx_name)? {
+            self.fill_btree_values(tbl_id, col.md.id, val_col_id)?;
+        }
         self.commit()
     }
 
@@ -262,6 +310,7 @@ impl Catalog {
                 c.schema_version_drop = Some(version);
             }
         }
+        md.indexes.dropped.push((version, idx));
         Ok(())
     }
 
@@ -370,9 +419,4 @@ impl Catalog {
             .filter_map(|i| self.index_column_name(tbl_id, i).map(|n| (n, i.clone())))
             .collect())
     }
-}
-
-/// An error for an index operation on a table kind that does not support it yet.
-pub fn views_unsupported(what: &str) -> Error {
-    Error::not_implemented(format!("{what} on a view"))
 }

@@ -3,7 +3,7 @@
 //! Evaluation runs without the catalog lock (it will call Python UDFs): `AddComputedPlan::new()` snapshots what is
 //! needed under the lock, `compute()` evaluates, and `commit()` re-checks the schema version and writes.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::catalog::table::{ColId, RowCountStats};
@@ -68,6 +68,27 @@ pub fn unstored_exprs(md: &crate::catalog::table::TableMd) -> Result<HashMap<Col
                 out.insert(c.id, crate::expr::serde::from_json(e)?);
             }
         }
+    }
+    Ok(out)
+}
+
+/// The hidden value columns of the embedding indexes of `tbl_id` (current schema), as computed columns named
+/// `<indexed column>:<index>`; with `on`, only those of indexes on a column in `on`.
+pub fn index_value_columns(cat: &Catalog, tbl_id: Uuid, on: Option<&HashSet<(Uuid, ColId)>>) -> Result<Vec<ComputedCol>> {
+    let md = cat.table(tbl_id)?;
+    let mut out = Vec::new();
+    for (col_name, idx) in cat.visible_indexes(tbl_id)? {
+        let Some(val_col_id) = idx.val_col_id() else { continue };
+        if on.is_some_and(|on| !on.contains(&(idx.col_tbl_id, idx.col_id))) {
+            continue;
+        }
+        let Some(e) = md.column(val_col_id).and_then(|c| c.value_expr.as_ref()) else { continue };
+        out.push(ComputedCol {
+            col_id: val_col_id,
+            name: format!("{col_name}:{}", idx.name),
+            expr: crate::expr::serde::from_json(e)?,
+            is_media: false,
+        });
     }
     Ok(out)
 }
@@ -249,7 +270,7 @@ impl AddComputedPlan {
         }
         let col = ComputedCol {
             col_id: self.eval_col_id,
-            name: format!("{}.{}", self.tbl_name, self.spec.name),
+            name: self.spec.name.clone(),
             expr: self.expr.clone(),
             is_media: self.spec.col_type.is_media(),
         };
@@ -270,8 +291,8 @@ impl AddComputedPlan {
         &self,
         cat: &mut Catalog,
         values: Vec<KeyedValue>,
-        stats: RowCountStats,
-        cols_with_excs: Vec<String>,
+        mut stats: RowCountStats,
+        mut cols_with_excs: Vec<String>,
     ) -> Result<UpdateStatus> {
         if cat.table(self.tbl_id)?.current_schema_version != self.schema_version {
             crate::bail!(
@@ -286,6 +307,19 @@ impl AddComputedPlan {
         let value_json = crate::expr::serde::to_json(&self.expr)?;
         let col_id = cat.push_column(self.tbl_id, self.spec.clone(), Some(value_json))?;
         let mut data = cat.data(self.tbl_id)?.as_ref().clone();
+        // the value column of the column's default B-tree index holds its values, and inherits its errors
+        let on_new_col: HashSet<(Uuid, ColId)> = [(self.tbl_id, col_id)].into_iter().collect();
+        for idx_col in index_value_columns(cat, self.tbl_id, Some(&on_new_col))? {
+            let idx_values: Vec<KeyedValue> =
+                values.iter().map(|(k, v, e)| (k.clone(), crate::functions::btree::truncate(v), e.clone())).collect();
+            stats.computed_values += idx_values.len() as i64;
+            let num_excs = idx_values.iter().filter(|(_, _, e)| e.is_some()).count() as i64;
+            if num_excs > 0 {
+                stats.num_excs += num_excs;
+                cols_with_excs.push(format!("{}.{}", self.tbl_name, idx_col.name));
+            }
+            data.set_live_cells(idx_col.col_id, idx_values);
+        }
         data.set_live_cells(col_id, values);
         record_version_status(cat, self.tbl_id, &UpdateStatus { row_count_stats: stats, ..Default::default() })?;
         cat.write_data(self.tbl_id, data)?;

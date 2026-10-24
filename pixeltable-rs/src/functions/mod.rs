@@ -11,6 +11,7 @@
 //! Calls of Python functions (UDFs, expression templates) are `FuncRef::Udf` (see `udf`): binding, typing and
 //! evaluation happen there; evaluation calls back into Python for the function body.
 
+pub mod btree;
 pub mod image;
 pub mod image_iterators;
 pub mod iterator;
@@ -66,6 +67,7 @@ fn registry() -> &'static HashMap<String, &'static Builtin> {
             string::FUNCTIONS,
             math::FUNCTIONS,
             uuid::FUNCTIONS,
+            btree::FUNCTIONS,
             image::FUNCTIONS,
             video::VIDEO_FUNCTIONS,
             video::AUDIO_FUNCTIONS,

@@ -189,6 +189,7 @@ impl Catalog {
             let preceding = md.current_schema()?.preceding_schema_version.unwrap_or(0);
             md.schema_versions.retain(|s| s.schema_version != v);
             md.current_schema_version = preceding;
+            md.indexes.revert(v);
         }
         md.versions.retain(|vm| vm.version != v);
         md.current_version = v - 1;

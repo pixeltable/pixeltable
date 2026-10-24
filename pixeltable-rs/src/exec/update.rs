@@ -71,11 +71,13 @@ pub struct UpdatePlan {
     pub recompute: Vec<ComputedCol>,
     /// qualified names of the updated and recomputed columns (`UpdateStatus.updated_cols`)
     pub updated_cols: Vec<String>,
+    /// false: the views are left alone (`cascade=False`), and `views` is empty
+    pub cascade: bool,
     pub views: Vec<ViewUpdateNode>,
     /// `recompute_columns(errors_only=True)`: only rows with an error in this column
     pub errors_only: Option<ColId>,
-    /// `return_rows`: the columns to return for each updated row
-    pub return_cols: Option<Vec<(String, ExprRef)>>,
+    /// `return_rows`: the columns to return for each updated row (read from `UpdateOutput::own.new_rows`)
+    pub return_cols: Option<Vec<super::insert::ReturnCol>>,
     /// `alter_computed_column()`: the column whose value expression changes in the same (schema) version
     pub schema_change: Option<(ColId, ExprRef)>,
     /// false: only the schema change (`alter_computed_column(recompute=False)`), no rows are written
@@ -152,13 +154,16 @@ pub fn view_update_tree(
     let mut out = Vec::new();
     for v in cat.mutable_view_ids(tbl_id) {
         let md = cat.table(v)?.clone();
-        let compute = ViewCompute::of(&md, cat.store().media_dir(v))?;
+        let compute = ViewCompute::current(cat, v)?;
         let mut changed = changed.clone();
-        let recompute = dependent_columns(&md, &mut changed)?;
+        let mut recompute = dependent_columns(&md, &mut changed)?;
+        for c in &recompute {
+            updated_cols.push(format!("{}.{}", md.name, c.name));
+        }
+        recompute.extend(super::compute::index_value_columns(cat, v, Some(&changed))?);
         let tbl_display = crate::functions::udf::tbl_version_display(&md);
         for c in &recompute {
             crate::functions::udf::check_valid_column(&tbl_display, &c.name, &c.expr, "updated in")?;
-            updated_cols.push(format!("{}.{}", md.name, c.name));
         }
         let membership_change = base_membership_change
             || compute.predicate.as_ref().is_some_and(|p| p.column_refs().iter().any(|r| changed.contains(&(r.tbl_id, r.col_id))));
@@ -229,8 +234,6 @@ pub struct ViewChanges {
 
 pub struct UpdateOutput {
     pub own: TableChanges,
-    /// `return_rows`: the visible columns of each updated row, after the update
-    pub rows: Vec<Vec<Value>>,
     pub views: Vec<ViewChanges>,
     /// `batch_update()`: keys that matched no row
     pub unmatched: Vec<RowKey>,
@@ -262,7 +265,6 @@ impl UpdatePlan {
         if !self.writes_rows {
             return Ok(UpdateOutput {
                 own: TableChanges::default(),
-                rows: Vec::new(),
                 views: Vec::new(),
                 unmatched: Vec::new(),
                 saved_media: Vec::new(),
@@ -338,16 +340,7 @@ impl UpdatePlan {
             })
             .collect();
         let views = compute_view_changes(&self.views, &infos, &changes, saved)?;
-        let mut rows = Vec::new();
-        if let Some(cols) = &self.return_cols {
-            for (_, path) in &changes {
-                if let Some(p) = path {
-                    let ctx = PathCtx::new(&infos, p);
-                    rows.push(cols.iter().map(|(_, e)| eval(e, &ctx)).collect::<Result<Vec<_>>>()?);
-                }
-            }
-        }
-        Ok(UpdateOutput { own, rows, views, unmatched, saved_media: Vec::new() })
+        Ok(UpdateOutput { own, views, unmatched, saved_media: Vec::new() })
     }
 
     /// Fails if the schemas or views involved changed since the update was planned.
@@ -358,6 +351,9 @@ impl UpdatePlan {
                 "The schema of table {} changed while the update was being prepared; retry",
                 py_repr(&self.tbl_name)
             );
+        }
+        if !self.cascade {
+            return Ok(());
         }
         check_views_unchanged(cat, self.tbl_id, &self.views)
     }

@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use super::catalog::parse_uuid;
 use super::expr::{as_expr, from_object};
-use super::table::{row_value_to_py, status_dict};
+use super::table::{returned_rows_to_py, status_dict};
 use crate::catalog::Catalog;
 use crate::catalog::path::{fold_identifier, is_valid_identifier};
 use crate::catalog::runtime::with_catalog;
@@ -191,15 +191,18 @@ fn build_plan(
             }
         }
     }
-    let tbl_display = crate::functions::udf::tbl_version_display(&md);
-    for c in &recompute {
-        crate::functions::udf::check_valid_column(&tbl_display, &c.name, &c.expr, "updated in")?;
-    }
     for c in &recompute {
         let q = format!("{}.{}", md.name, c.name);
         if !updated_cols.contains(&q) {
             updated_cols.push(q);
         }
+    }
+    // the indexes on updated or recomputed columns are always recomputed (not reported as updated columns)
+    let modified: HashSet<QCol> = changed.iter().copied().chain(recompute.iter().map(|c| (tbl_id, c.col_id))).collect();
+    recompute.extend(crate::exec::compute::index_value_columns(cat, tbl_id, Some(&modified))?);
+    let tbl_display = crate::functions::udf::tbl_version_display(&md);
+    for c in &recompute {
+        crate::functions::udf::check_valid_column(&tbl_display, &c.name, &c.expr, "updated in")?;
     }
     let views = if cascade { view_update_tree(cat, tbl_id, &changed, false, &mut updated_cols)? } else { Vec::new() };
     let path = cat.tbl_path(tbl_id, None)?;
@@ -212,6 +215,7 @@ fn build_plan(
         selection,
         recompute,
         updated_cols,
+        cascade,
         views,
         errors_only: None,
         return_cols: None,
@@ -225,23 +229,6 @@ fn build_plan(
     })
 }
 
-/// The visible columns of `tbl_id` as (name, column reference) pairs, for `return_rows`.
-fn return_columns(cat: &Catalog, tbl_id: Uuid) -> Result<Vec<(String, ExprRef)>> {
-    Ok(cat.resolve_columns(tbl_id, None)?.iter().map(|c| (c.name.clone(), crate::exec::column_ref_expr(c, None))).collect())
-}
-
-/// Rows of values as a Python list of dicts.
-fn rows_to_py<'py>(py: Python<'py>, cols: &[(String, ExprRef)], rows: &[Vec<Value>]) -> Result<Bound<'py, PyList>> {
-    let list = PyList::empty(py);
-    for r in rows {
-        let d = PyDict::new(py);
-        for ((name, e), v) in cols.iter().zip(r) {
-            d.set_item(name, row_value_to_py(py, v, &e.col_type)?)?;
-        }
-        list.append(d)?;
-    }
-    Ok(list)
-}
 
 /// Fails unless `pred` references only the table's path.
 fn check_where_bound(cat: &Catalog, tbl_id: Uuid, pred: &Expr) -> Result<()> {
@@ -259,12 +246,12 @@ fn check_where_bound(cat: &Catalog, tbl_id: Uuid, pred: &Expr) -> Result<()> {
 
 /// Computes and commits an update; returns its status dict (with the updated rows if the plan asks for them).
 fn run_update<'py>(py: Python<'py>, plan: UpdatePlan, fail_on_exception: bool) -> Result<Bound<'py, PyDict>> {
-    let mut out = plan.compute(fail_on_exception)?;
-    let rows = std::mem::take(&mut out.rows);
+    let out = plan.compute(fail_on_exception)?;
+    let rows = if plan.return_cols.is_some() { out.own.new_rows.clone() } else { Vec::new() };
     let status = with_catalog(py, |cat| plan.commit(cat, out))?;
     let d = status_dict(py, &status)?;
     if let Some(cols) = &plan.return_cols {
-        d.set_item("rows", rows_to_py(py, cols, &rows)?)?;
+        d.set_item("rows", returned_rows_to_py(py, cols, &rows.iter().collect::<Vec<_>>())?)?;
     }
     Ok(d)
 }
@@ -326,7 +313,7 @@ pub fn tbl_update<'py>(
         let mut plan =
             build_plan(cat, id, RowSelection::Where { pred: pred.clone(), targets: exprs }, updated_cols, changed, Vec::new(), cascade)?;
         if return_rows {
-            plan.return_cols = Some(return_columns(cat, id)?);
+            plan.return_cols = Some(insert::return_columns(cat, id)?);
         }
         Ok(plan)
     })?;
@@ -471,13 +458,13 @@ pub fn tbl_batch_update<'py>(
         }
         let mut plan = build_plan(cat, id, RowSelection::Keys(sel), updated_cols, changed, Vec::new(), cascade)?;
         if return_rows {
-            plan.return_cols = Some(return_columns(cat, id)?);
+            plan.return_cols = Some(insert::return_columns(cat, id)?);
         }
         let unmatched: Vec<usize> = keys_in_order.iter().enumerate().filter(|(_, k)| k.is_none()).map(|(i, _)| i).collect();
         Ok((plan, unmatched))
     })?;
-    let mut out = plan.compute(false)?;
-    let mut returned = std::mem::take(&mut out.rows);
+    let out = plan.compute(false)?;
+    let mut returned = if plan.return_cols.is_some() { out.own.new_rows.clone() } else { Vec::new() };
     let mut unmatched_idx = unmatched_idx;
     // rowids that match no live row
     for (i, (_, ident, _)) in updates.iter().enumerate() {
@@ -503,20 +490,15 @@ pub fn tbl_batch_update<'py>(
             .collect();
         let ins_plan = with_catalog(py, |cat| InsertPlan::new(cat, id, None))?;
         let built = insert::build_rows(&ins_plan, rows, false)?;
-        if let Some(cols) = &plan.return_cols {
-            for r in &built.rows {
-                let rows = [r];
-                let infos = [&ins_plan.info];
-                let ctx = crate::exec::scan::PathCtx::new(&infos, &rows);
-                returned.push(cols.iter().map(|(_, e)| crate::expr::eval::eval(e, &ctx)).collect::<Result<Vec<_>>>()?);
-            }
+        if plan.return_cols.is_some() {
+            returned.extend(built.rows.iter().cloned());
         }
         let ins_status = with_catalog(py, |cat| insert::commit(cat, &ins_plan, built))?;
         status = status + ins_status.to_cascade();
     }
     let d = status_dict(py, &status)?;
     if let Some(cols) = &plan.return_cols {
-        d.set_item("rows", rows_to_py(py, cols, &returned)?)?;
+        d.set_item("rows", returned_rows_to_py(py, cols, &returned.iter().collect::<Vec<_>>())?)?;
     }
     Ok(d)
 }
