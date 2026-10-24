@@ -191,7 +191,7 @@ def query(*args: Any, **kwargs: Any) -> Any:
     `pxt.tools()` and as an HTTP endpoint through `FastAPIRouter.add_query_route()`.
 
     The result of a call depends on the shape of the query. A query returns at most one row if it aggregates without
-    `group_by()` or has `limit(1)` (note: `limit(n)` always implies that it can return multiple rows);
+    `group_by()` or has `limit(1)` (note: `limit(n)` always returns a list);
     otherwise it returns multiple rows.
 
     - Multiple rows, selecting a single unnamed expression, as in `select(t.text)`: a list of values.
