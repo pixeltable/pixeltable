@@ -170,12 +170,8 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
                 _ => Ok(Value::Null),
             }
         }
-        ExprKind::FunctionCall(fc) => {
-            let args: Vec<Value> = fc.args.iter().map(|a| eval(a, ctx)).collect::<Result<_>>()?;
-            let kwargs: Vec<(String, Value)> =
-                fc.kwargs.iter().map(|(k, a)| Ok((k.clone(), eval(a, ctx)?))).collect::<Result<_>>()?;
-            fc.func.call(&args, &kwargs, &e.col_type)
-        }
+        ExprKind::FunctionCall(fc) => crate::functions::eval_call(fc, e, ctx),
+        ExprKind::Variable(name) => Err(Error::internal(format!("unbound variable {name} in an evaluated expression"))),
     }
 }
 

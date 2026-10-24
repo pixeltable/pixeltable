@@ -262,6 +262,9 @@ pub enum ExprKind {
     FunctionCall(FunctionCall),
     /// `col.<prop>`: `col` is a ColumnRef node
     ColumnProperty { col: ExprRef, prop: ColumnProp },
+    /// a named parameter of an expression template (`@pxt.expr_udf`, `Function.using()`, `@pxt.query`), replaced by
+    /// an argument when the template is instantiated (`crate::functions::udf::substitute`)
+    Variable(String),
 }
 
 #[derive(Debug, Clone)]
@@ -274,7 +277,7 @@ impl ExprKind {
     /// Direct sub-expressions.
     pub fn children(&self) -> Vec<&ExprRef> {
         match self {
-            ExprKind::ColumnRef(_) | ExprKind::Literal(_) => vec![],
+            ExprKind::ColumnRef(_) | ExprKind::Literal(_) | ExprKind::Variable(_) => vec![],
             ExprKind::Arithmetic { lhs, rhs, .. }
             | ExprKind::StringOp { lhs, rhs, .. }
             | ExprKind::Comparison { lhs, rhs, .. }
@@ -287,6 +290,39 @@ impl ExprKind {
             ExprKind::InlineDict(items) => items.iter().map(|(_, e)| e).collect(),
             ExprKind::JsonPath { base, .. } | ExprKind::ArraySlice { base, .. } => vec![base],
             ExprKind::FunctionCall(fc) => fc.args.iter().chain(fc.kwargs.iter().map(|(_, e)| e)).collect(),
+        }
+    }
+
+    /// The same node with its direct sub-expressions replaced (`children` in the order of `children()`). Function
+    /// calls of Python functions are rebuilt by `crate::functions::udf::substitute`, which re-binds them.
+    pub fn with_children(&self, children: Vec<ExprRef>) -> ExprKind {
+        let mut it = children.into_iter();
+        let mut next = || it.next().expect("with_children(): too few children");
+        match self {
+            ExprKind::ColumnRef(_) | ExprKind::Literal(_) | ExprKind::Variable(_) => self.clone(),
+            ExprKind::Arithmetic { op, .. } => ExprKind::Arithmetic { op: *op, lhs: next(), rhs: next() },
+            ExprKind::StringOp { op, .. } => ExprKind::StringOp { op: *op, lhs: next(), rhs: next() },
+            ExprKind::Comparison { op, .. } => ExprKind::Comparison { op: *op, lhs: next(), rhs: next() },
+            ExprKind::InExpr { .. } => ExprKind::InExpr { lhs: next(), rhs: next() },
+            ExprKind::Compound { op, operands } => {
+                ExprKind::Compound { op: *op, operands: operands.iter().map(|_| next()).collect() }
+            }
+            ExprKind::IsNull(_) => ExprKind::IsNull(next()),
+            ExprKind::TypeCast(_) => ExprKind::TypeCast(next()),
+            ExprKind::ColumnProperty { prop, .. } => ExprKind::ColumnProperty { col: next(), prop: *prop },
+            ExprKind::InList { values, display, .. } => {
+                ExprKind::InList { lhs: next(), values: values.clone(), display: display.clone() }
+            }
+            ExprKind::InlineList(items) => ExprKind::InlineList(items.iter().map(|_| next()).collect()),
+            ExprKind::InlineArray(items) => ExprKind::InlineArray(items.iter().map(|_| next()).collect()),
+            ExprKind::InlineDict(items) => ExprKind::InlineDict(items.iter().map(|(k, _)| (k.clone(), next())).collect()),
+            ExprKind::JsonPath { path, .. } => ExprKind::JsonPath { base: next(), path: path.clone() },
+            ExprKind::ArraySlice { index, .. } => ExprKind::ArraySlice { base: next(), index: index.clone() },
+            ExprKind::FunctionCall(fc) => ExprKind::FunctionCall(FunctionCall {
+                func: fc.func.clone(),
+                args: fc.args.iter().map(|_| next()).collect(),
+                kwargs: fc.kwargs.iter().map(|(k, _)| (k.clone(), next())).collect(),
+            }),
         }
     }
 }

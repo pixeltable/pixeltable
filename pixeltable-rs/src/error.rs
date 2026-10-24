@@ -168,7 +168,7 @@ impl Error {
             | Error::Attribute(message)
             | Error::Value(message)
             | Error::NotImplemented(message) => message.clone(),
-            // `str(exc)`, as upstream records and reports exceptions
+            // `str(exc)`, as upstream records it in cell errors and messages
             Error::Python(e) => Python::attach(|py| e.value(py).str().map(|s| s.to_string()).unwrap_or_else(|_| e.to_string())),
         }
     }

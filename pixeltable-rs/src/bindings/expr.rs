@@ -388,8 +388,49 @@ impl PyExpr {
 
     /// `expr.method`: a method of the expression's type (a builtin of the type's function module), returned as a
     /// `MethodRef` to call; a property builtin (`t.img.width`) or a column property (`t.img.localpath`) is returned as
-    /// an expression; for Json values, a JSON path (not implemented yet).
+    /// an expression; a method or property registered by a UDF (`is_method`/`is_property`) takes precedence; for Json
+    /// values, a JSON path (not implemented yet).
     fn __getattr__<'py>(&self, py: Python<'py>, name: &str) -> Result<Bound<'py, PyAny>> {
+        if let Some(m) = super::func::udf_attribute(py, &self.e, name)? {
+            return Ok(m);
+        }
+        self.builtin_attribute(py, name)
+    }
+
+    /// For a call of a Python function: the (resolved) `Function`; else None.
+    #[getter]
+    fn r#fn(&self, py: Python<'_>) -> Result<Py<PyAny>> {
+        if let crate::expr::ExprKind::FunctionCall(crate::expr::FunctionCall {
+            func: crate::functions::FuncRef::Udf(call),
+            ..
+        }) = &self.e.kind
+        {
+            return Ok(call.def.py_obj.bind(py).call_method1("_resolved_fn", (call.sig_idx,))?.unbind());
+        }
+        Ok(py.None())
+    }
+
+    /// For a literal: (True, value); else (False, None).
+    fn _literal_value<'py>(&self, py: Python<'py>) -> Result<(bool, Bound<'py, PyAny>)> {
+        match self.e.as_literal() {
+            Some(v) => Ok((true, vpy::to_py(py, v, &self.e.col_type)?)),
+            None => Ok((false, py.None().into_bound(py))),
+        }
+    }
+
+    fn _is_column_ref(&self) -> bool {
+        self.e.as_column_ref().is_some()
+    }
+
+    /// (tbl_id, col_id) of a column reference, else None.
+    fn _column_id(&self) -> Option<(String, u32)> {
+        self.e.as_column_ref().map(|c| (c.tbl_id.to_string(), c.col_id))
+    }
+}
+
+impl PyExpr {
+    /// `expr.name` for builtins: column properties and builtin methods/properties of the expression's type.
+    fn builtin_attribute<'py>(&self, py: Python<'py>, name: &str) -> Result<Bound<'py, PyAny>> {
         if name.starts_with('_') {
             return Err(Error::Attribute(format!("'Expr' object has no attribute {}", crate::error::py_repr(name))));
         }
@@ -422,15 +463,6 @@ impl PyExpr {
             }
         }
         Err(Error::Attribute(format!("Unknown method (of type {}): {name}", self.e.col_type.repr())))
-    }
-
-    fn _is_column_ref(&self) -> bool {
-        self.e.as_column_ref().is_some()
-    }
-
-    /// (tbl_id, col_id) of a column reference, else None.
-    fn _column_id(&self) -> Option<(String, u32)> {
-        self.e.as_column_ref().map(|c| (c.tbl_id.to_string(), c.col_id))
     }
 }
 

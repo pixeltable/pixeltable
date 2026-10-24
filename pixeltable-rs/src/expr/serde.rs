@@ -174,6 +174,10 @@ pub fn to_json(e: &Expr) -> Result<Json> {
             m.insert("index".into(), Json::Array(index.iter().map(index_to_json).collect()));
             "ArraySlice"
         }
+        ExprKind::Variable(name) => {
+            m.insert("name".into(), json!(name));
+            "Variable"
+        }
         ExprKind::ColumnProperty { prop, .. } => {
             m.insert("prop".into(), json!(*prop as i64));
             "ColumnPropertyRef"
@@ -279,7 +283,6 @@ pub fn from_json(d: &Json) -> Result<ExprRef> {
             prop: d.get("prop").and_then(Json::as_i64).and_then(ColumnProp::from_i64).ok_or_else(|| bad(d))?,
         },
         "FunctionCall" => {
-            let func = crate::functions::FuncRef::from_json(d.get("fn").ok_or_else(|| bad(d))?)?;
             let kwarg_names: Vec<String> = match d.get("kwarg_names") {
                 Some(Json::Array(k)) => k.iter().filter_map(|k| k.as_str().map(str::to_owned)).collect(),
                 _ => Vec::new(),
@@ -287,8 +290,16 @@ pub fn from_json(d: &Json) -> Result<ExprRef> {
             let n_args = comps.len().checked_sub(kwarg_names.len()).ok_or_else(|| bad(d))?;
             let mut comps = comps;
             let kw_vals = comps.split_off(n_args);
-            ExprKind::FunctionCall(FunctionCall { func, args: comps, kwargs: kwarg_names.into_iter().zip(kw_vals).collect() })
+            let kwargs: Vec<(String, ExprRef)> = kwarg_names.into_iter().zip(kw_vals).collect();
+            let fn_json = d.get("fn").ok_or_else(|| bad(d))?;
+            if crate::functions::udf::is_udf_json(fn_json) {
+                // a Python function: resolved against the current code, re-bound, and validated
+                return crate::functions::udf::call_from_json(fn_json, comps, kwargs, col_type);
+            }
+            let func = crate::functions::FuncRef::from_json(fn_json)?;
+            ExprKind::FunctionCall(FunctionCall { func, args: comps, kwargs })
         }
+        "Variable" => ExprKind::Variable(d.get("name").and_then(Json::as_str).ok_or_else(|| bad(d))?.to_string()),
         _ => return Err(bad(d)),
     };
     Ok(Expr::new(kind, col_type))

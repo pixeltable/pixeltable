@@ -198,13 +198,47 @@ def array(elements: Iterable) -> _core.Expr:
     return _core.array(elements)
 
 
-@unimplemented('list_functions()')
-def list_functions() -> Any: ...
+def list_functions() -> Any:
+    """Returns information about all registered functions.
+
+    Returns:
+        Pandas DataFrame with columns 'Path', 'Function Name', 'Parameters', 'Return Type'
+    """
+    from pixeltable import func
+
+    functions = func.FunctionRegistry.get().list_functions()
+    paths = ['.'.join(f.self_path.split('.')[:-1]) for f in functions]
+    names = [f.name for f in functions]
+    params = [
+        ', '.join(param_name + ': ' + str(param.col_type) for param_name, param in f.signatures[0].parameters.items())
+        for f in functions
+    ]
+    pd_df = pd.DataFrame(
+        {
+            'Path': paths,
+            'Function Name': names,
+            'Parameters': params,
+            'Return Type': [str(f.signatures[0].get_return_type()) for f in functions],
+        }
+    )
+    styler = pd_df.style.set_properties(None, **{'text-align': 'left'}).set_table_styles(
+        [{'selector': 'th', 'props': [('text-align', 'center')]}]
+    )
+    return styler.hide(axis='index')
 
 
-@unimplemented('pxt.tools()')
-def tools(*args: Any) -> Any: ...
+def tools(*args: Any) -> Any:
+    """Specifies a collection of UDFs to be used as LLM tools."""
+    from pixeltable.func import Tool, Tools
+
+    return Tools(tools=[arg if isinstance(arg, Tool) else tool(arg) for arg in args])
 
 
-@unimplemented('pxt.tool()')
-def tool(fn: Any, name: str | None = None, description: str | None = None) -> Any: ...
+def tool(fn: Any, name: str | None = None, description: str | None = None) -> Any:
+    """Specifies a Pixeltable UDF to be used as an LLM tool with customizable metadata."""
+    from pixeltable import exceptions as excs
+    from pixeltable.func import AggregateFunction, Tool
+
+    if isinstance(fn, AggregateFunction) or getattr(fn, 'is_aggregate', False):
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Aggregator UDFs cannot be used as tools')
+    return Tool(fn=fn, name=name, description=description)
