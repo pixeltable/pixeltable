@@ -3,6 +3,7 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString, PyTuple};
 
+use super::NameArg;
 use super::catalog::{parse_schema, parse_uuid};
 use super::expr::{PyExpr, as_expr};
 use super::sources::Conduit;
@@ -594,7 +595,8 @@ pub fn tbl_drop_column(py: Python<'_>, tbl_id: &str, column: &Bound<'_, PyAny>, 
 }
 
 #[pyfunction]
-pub fn tbl_rename_column(py: Python<'_>, tbl_id: &str, old_name: &str, new_name: &str) -> Result<()> {
+pub fn tbl_rename_column(py: Python<'_>, tbl_id: &str, old_name: NameArg, new_name: NameArg) -> Result<()> {
+    let (old_name, new_name) = (&*old_name, &*new_name);
     let id = parse_uuid(tbl_id)?;
     with_catalog(py, |cat| cat.rename_column(id, old_name, new_name))
 }

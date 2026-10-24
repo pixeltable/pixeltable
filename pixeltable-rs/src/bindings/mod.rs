@@ -72,3 +72,29 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(table::tbl_versions, m)?)?;
     Ok(())
 }
+
+/// A path or name argument. A str that UTF-8 cannot encode (a lone surrogate) is taken with the character
+/// backslash-escaped, as Python displays it (`x\ud800`), which no valid path or name contains, so the usual validation
+/// refuses it ("Invalid path: x\ud800", as upstream) instead of the conversion raising UnicodeEncodeError.
+pub struct NameArg(pub String);
+
+impl<'a, 'py> FromPyObject<'a, 'py> for NameArg {
+    type Error = PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        let s = obj.cast::<pyo3::types::PyString>()?;
+        if let Ok(v) = s.to_str() {
+            return Ok(NameArg(v.to_owned()));
+        }
+        let escaped = s.call_method1("encode", ("utf-8", "backslashreplace"))?.call_method1("decode", ("utf-8",))?;
+        Ok(NameArg(escaped.extract()?))
+    }
+}
+
+impl std::ops::Deref for NameArg {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
