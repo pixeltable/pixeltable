@@ -216,6 +216,10 @@ pub fn eval_into(
                 None => match eval(&c.expr, &ctx) {
                     Ok(v) => Ok(v),
                     Err(err) => {
+                        if crate::functions::udf::is_interrupt(&err) {
+                            // a BaseException that is not an Exception (KeyboardInterrupt, SystemExit) aborts as is
+                            return Err(err);
+                        }
                         if fail_on_exception {
                             return Err(eval_error(&c.expr, err));
                         }
