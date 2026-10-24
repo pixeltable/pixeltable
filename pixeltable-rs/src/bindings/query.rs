@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyInt, PyList, PyString};
 
 use super::catalog::parse_uuid;
-use super::expr::{as_expr, from_object};
+use super::expr::{PyExpr, as_expr, from_object};
 use super::types::wrap_type;
 use crate::catalog::path::fold_identifier;
 use crate::catalog::runtime::with_catalog;
@@ -103,6 +103,32 @@ impl PyQuerySpec {
     /// (table id, version) of the from-table
     fn tbl_ref(&self) -> (String, Option<i64>) {
         (self.q.tbl_id.to_string(), self.q.version)
+    }
+
+    /// The target of `Query.update()` / `delete()` / `recompute_columns()`: (table id, version, where clause), after
+    /// checking that the query can be used for `op_name` (upstream `_validate_mutable()`).
+    fn mutation_target(&self, py: Python<'_>, op_name: &str) -> Result<(String, Option<i64>, Option<PyExpr>)> {
+        let q = &self.q;
+        for (clause, present) in [
+            ("order_by", !q.order_by.is_empty()),
+            ("select", q.select.is_some()),
+            ("limit", q.limit.is_some() || q.offset.is_some()),
+        ] {
+            if present {
+                crate::bail!(UnsupportedOperation, "Cannot use `{op_name}` after `{clause}`.");
+            }
+        }
+        let is_snapshot = with_catalog(py, |cat| {
+            let md = cat.table(q.tbl_id)?;
+            if op_name == "delete" && md.is_view() && !md.is_snapshot() {
+                crate::bail!(UnsupportedOperation, "Cannot use `delete` on a view.");
+            }
+            Ok(md.is_snapshot() || q.version.is_some())
+        })?;
+        if is_snapshot {
+            crate::bail!(UnsupportedOperation, "Cannot use `{op_name}` on a snapshot.");
+        }
+        Ok((q.tbl_id.to_string(), q.version, q.where_.clone().map(PyExpr::new)))
     }
 
     #[getter]

@@ -430,6 +430,21 @@ impl ExprKind {
 }
 
 impl Expr {
+    /// A copy of this expression with every column reference replaced by `f(column ref)` (None: unchanged).
+    pub fn map_column_refs(self: &ExprRef, f: &dyn Fn(&ColumnRef) -> Option<ColumnRef>) -> ExprRef {
+        if let ExprKind::ColumnRef(c) = &self.kind {
+            return match f(c) {
+                Some(new) => Expr::new(ExprKind::ColumnRef(new), self.col_type.clone()),
+                None => self.clone(),
+            };
+        }
+        if self.kind.children().is_empty() {
+            return self.clone();
+        }
+        let children: Vec<ExprRef> = self.kind.children().into_iter().map(|c| c.map_column_refs(f)).collect();
+        Expr::new(self.kind.with_children(children), self.col_type.clone())
+    }
+
     pub fn new(kind: ExprKind, col_type: ColumnType) -> ExprRef {
         let depth = 1 + kind.children().iter().map(|c| c.depth).max().unwrap_or(0);
         Arc::new(Expr { kind, col_type, depth })

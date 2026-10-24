@@ -1,10 +1,10 @@
 //! Query execution: scan -> join -> filter -> sample -> aggregate -> window functions -> sort -> limit -> project.
 //!
-//! `QueryInput::snapshot()` captures, under the catalog lock, the rows and metadata of every from-table (`Source`:
-//! the scanned base table, the view predicates, the unstored computed columns). `execute()` and `count()` run
-//! without the lock.
+//! `QueryInput::snapshot()` captures, under the catalog lock, the table path (`scan::PathInput`: the table and the
+//! bases its rows join with) of every from-table. `execute()` and `count()` run without the lock.
 //!
-//! Rows flow as `JRow`s (one optional stored row per from-table; None is the missing side of an outer join).
+//! Rows flow as `JRow`s: one optional stored row per slot, where each from-table occupies one slot per table of its
+//! path (leaf first); None is the missing side of an outer join.
 //! Aggregate and window function results are computed outside of expression evaluation and handed to it through
 //! `RowContext::precomputed()`: `Plan::slots` maps each aggregate/window call node (by address) to an index into
 //! the per-output-row `pre` values.
@@ -14,33 +14,25 @@
 //! zero in a SQL-expressible arithmetic expression yields NULL (unless `RowContext::python_semantics()`).
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use uuid::Uuid;
 
+use super::scan::{ElemInfo, PathCtx, PathInput};
 use super::{JoinType, QuerySpec, ResultData, SampleClause};
 use crate::catalog::Catalog;
 use crate::catalog::table::ColId;
-use crate::catalog::views::ScanSource;
 use crate::error::{Error, Result};
 use crate::expr::display::display;
 use crate::expr::eval::{RowContext, eval};
 use crate::expr::{ArithOp, CmpOp, ColumnRef, Expr, ExprKind, ExprRef, LogicalOp};
 use crate::functions::agg::{AggPlan, AggState};
-use crate::store::rows::{StoredRow, TableData};
+use crate::store::rows::StoredRow;
 use crate::value::{Value, cmp_values};
 
-/// One from-table of a query, captured under the catalog lock.
+/// One from-table of a query: its table path, captured under the catalog lock.
 pub struct Source {
-    /// tables whose columns this source provides (the from-table and its bases)
-    pub chain: Vec<Uuid>,
-    pub scan: ScanSource,
-    /// version of the scanned table
-    pub version: i64,
-    pub data: Arc<TableData>,
-    /// view predicates
-    pub predicates: Vec<ExprRef>,
-    /// media columns of the scanned table that are validated on read
-    pub read_validation: Arc<crate::media::ReadValidation>,
+    pub path: PathInput,
+    /// the slot of the path's first (leaf) table in a `JRow`
+    pub offset: usize,
 }
 
 /// Everything a query reads, captured under the catalog lock.
@@ -50,8 +42,12 @@ pub struct QueryInput {
     pub select: Vec<(ExprRef, String)>,
     /// value expressions of unstored computed columns, evaluated on read
     pub unstored: HashMap<(Uuid, ColId), ExprRef>,
-    /// table id -> index of the source that provides its columns
-    slot_of: HashMap<Uuid, usize>,
+    /// number of slots of a `JRow`
+    width: usize,
+    /// table id -> (source index, slot) of the first slot that provides its columns
+    slot_of: HashMap<Uuid, (usize, usize)>,
+    /// slot -> (source index, index in the source's path)
+    slot_elems: Vec<(usize, usize)>,
 }
 
 impl QueryInput {
@@ -61,31 +57,43 @@ impl QueryInput {
         let mut sources = Vec::new();
         let mut unstored = HashMap::new();
         let mut slot_of = HashMap::new();
+        let mut slot_elems = Vec::new();
         for (i, (tbl_id, version)) in q.from_tbls().into_iter().enumerate() {
-            let scan = cat.scan_source(tbl_id, version)?;
-            let base = cat.table(scan.base_tbl_id)?.clone();
-            let v = scan.base_version.unwrap_or(base.current_version);
-            let predicates = scan.predicates.iter().map(crate::expr::serde::from_json).collect::<Result<Vec<_>>>()?;
-            for c in &base.columns {
-                if !c.stored {
-                    if let Some(e) = &c.value_expr {
-                        unstored.insert((scan.base_tbl_id, c.id), crate::expr::serde::from_json(e)?);
-                    }
+            let path = PathInput::snapshot(cat, &cat.tbl_path(tbl_id, version)?)?;
+            let offset = slot_elems.len();
+            for (k, e) in path.elems.iter().enumerate() {
+                for (col_id, x) in &e.info.unstored {
+                    unstored.insert((e.info.tbl_id, *col_id), x.clone());
                 }
+                slot_of.entry(e.info.tbl_id).or_insert((i, offset + k));
+                slot_elems.push((i, k));
             }
-            let chain = cat.base_chain(tbl_id);
-            for t in &chain {
-                slot_of.entry(*t).or_insert(i);
-            }
-            let read_validation = Arc::new(crate::media::ReadValidation::for_table(&base)?);
-            let data = cat.data(scan.base_tbl_id)?;
-            sources.push(Source { chain, scan, version: v, data, predicates, read_validation });
+            sources.push(Source { path, offset });
         }
-        Ok(QueryInput { q: q.clone(), sources, select, unstored, slot_of })
+        let width = slot_elems.len();
+        Ok(QueryInput { q: q.clone(), sources, select, unstored, width, slot_of, slot_elems })
     }
 
     fn slot(&self, tbl_id: &Uuid) -> Option<usize> {
-        self.slot_of.get(tbl_id).copied()
+        self.slot_of.get(tbl_id).map(|(_, slot)| *slot)
+    }
+
+    /// The from-table (source index) that provides the columns of `tbl_id`.
+    fn source_of(&self, tbl_id: &Uuid) -> Option<usize> {
+        self.slot_of.get(tbl_id).map(|(src, _)| *src)
+    }
+
+    fn info(&self, slot: usize) -> &ElemInfo {
+        let (src, k) = self.slot_elems[slot];
+        &self.sources[src].path.elems[k].info
+    }
+
+    /// A row with only the slots of source `i` set.
+    fn place<'a>(&self, jr: &mut JRow<'a>, i: usize, rows: &[&'a StoredRow]) {
+        let off = self.sources[i].offset;
+        for (k, r) in rows.iter().enumerate() {
+            jr[off + k] = Some(*r);
+        }
     }
 }
 
@@ -120,12 +128,7 @@ impl Ctx<'_> {
 
     /// For a read-validated media column with a file: the validation error, if any.
     fn read_validation_error(&self, slot: usize, r: &StoredRow, col: &ColumnRef) -> Option<Option<crate::store::rows::CellError>> {
-        let rv = &self.input.sources[slot].read_validation;
-        let kind = rv.kind(col.col_id)?;
-        match r.cell(col.col_id) {
-            Value::Media(s) => Some(rv.error(s, kind)),
-            _ => Some(None),
-        }
+        self.input.info(slot).read_validation_error(r, col.col_id)
     }
 }
 
@@ -478,50 +481,26 @@ fn keys_of(vals: &[Value]) -> String {
     s
 }
 
-/// The visible rows of source `i` (version + view predicates), in rowid order.
-fn source_rows<'a>(input: &'a QueryInput, i: usize) -> Result<Vec<&'a StoredRow>> {
-    let src = &input.sources[i];
-    let mut rows: Vec<&StoredRow> = src.data.visible_at(src.version).collect();
-    rows.sort_by_key(|r| r.rowid);
-    if src.predicates.is_empty() {
-        return Ok(rows);
-    }
-    let n = input.sources.len();
-    let empty = HashMap::new();
-    let mut out = Vec::with_capacity(rows.len());
-    for r in rows {
-        let mut jrow: JRow<'_> = vec![None; n];
-        jrow[i] = Some(r);
-        let ctx = Ctx { input, row: &jrow, pre: &[], slots: &empty };
-        let mut keep = true;
-        for p in &src.predicates {
-            if !matches!(eval(p, &ctx)?, Value::Bool(true)) {
-                keep = false;
-                break;
-            }
-        }
-        if keep {
-            out.push(r);
-        }
-    }
-    Ok(out)
+/// The visible rows of source `i` (each joined with its path's base rows), in key order.
+fn source_rows<'a>(input: &'a QueryInput, i: usize) -> Result<Vec<Vec<&'a StoredRow>>> {
+    input.sources[i].path.rows()
 }
 
 /// For a join predicate, the equality conjuncts `lhs == rhs` whose sides reference only the left tables resp. only
 /// the right table (hash join keys): (left exprs, right exprs).
-fn equi_keys(pred: &ExprRef, input: &QueryInput, right_slot: usize) -> (Vec<ExprRef>, Vec<ExprRef>) {
+fn equi_keys(pred: &ExprRef, input: &QueryInput, right_src: usize) -> (Vec<ExprRef>, Vec<ExprRef>) {
     let side = |e: &ExprRef| -> Option<bool> {
         let refs = e.column_refs();
         if refs.is_empty() {
             return None;
         }
-        let slots: Vec<usize> = refs.iter().filter_map(|c| input.slot(&c.tbl_id)).collect();
-        if slots.len() != refs.len() {
+        let srcs: Vec<usize> = refs.iter().filter_map(|c| input.source_of(&c.tbl_id)).collect();
+        if srcs.len() != refs.len() {
             return None;
         }
-        if slots.iter().all(|s| *s == right_slot) {
+        if srcs.iter().all(|s| *s == right_src) {
             Some(true)
-        } else if slots.iter().all(|s| *s < right_slot) {
+        } else if srcs.iter().all(|s| *s < right_src) {
             Some(false)
         } else {
             None
@@ -549,13 +528,13 @@ fn equi_keys(pred: &ExprRef, input: &QueryInput, right_slot: usize) -> (Vec<Expr
 
 /// Scans the from-tables and joins them (in from-clause order).
 fn scan_and_join<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
-    let n = input.sources.len();
+    let n = input.width;
     let empty = HashMap::new();
     let mut rows: Vec<JRow<'a>> = source_rows(input, 0)?
         .into_iter()
         .map(|r| {
             let mut jr = vec![None; n];
-            jr[0] = Some(r);
+            input.place(&mut jr, 0, &r);
             jr
         })
         .collect();
@@ -564,9 +543,9 @@ fn scan_and_join<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
         let right = source_rows(input, slot)?;
         let mut out: Vec<JRow<'a>> = Vec::new();
         let mut right_matched = vec![false; right.len()];
-        let combined = |left: &JRow<'a>, r: &'a StoredRow| -> JRow<'a> {
+        let combined = |left: &JRow<'a>, r: &[&'a StoredRow]| -> JRow<'a> {
             let mut jr = left.clone();
-            jr[slot] = Some(r);
+            input.place(&mut jr, slot, r);
             jr
         };
         match (&join.on, join.how) {
@@ -584,7 +563,7 @@ fn scan_and_join<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
                 if !lkeys.is_empty() {
                     for (j, r) in right.iter().enumerate() {
                         let mut jr = vec![None; n];
-                        jr[slot] = Some(*r);
+                        input.place(&mut jr, slot, r);
                         let ctx = Ctx { input, row: &jr, pre: &[], slots: &empty };
                         let vals = rkeys.iter().map(|e| eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
                         if vals.iter().any(Value::is_null) {
@@ -608,7 +587,7 @@ fn scan_and_join<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
                     };
                     let mut matched = false;
                     for &j in candidates {
-                        let jr = combined(l, right[j]);
+                        let jr = combined(l, &right[j]);
                         let ctx = Ctx { input, row: &jr, pre: &[], slots: &empty };
                         if matches!(eval(pred, &ctx)?, Value::Bool(true)) {
                             matched = true;
@@ -624,7 +603,7 @@ fn scan_and_join<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
                     for (j, r) in right.iter().enumerate() {
                         if !right_matched[j] {
                             let mut jr = vec![None; n];
-                            jr[slot] = Some(*r);
+                            input.place(&mut jr, slot, r);
                             out.push(jr);
                         }
                     }
@@ -656,8 +635,13 @@ fn filtered<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
 // ------------------------------------------------------------------------------------------------ sampling
 
 fn row_hash(seed: u64, row: &JRow<'_>) -> u64 {
-    let rowid = row.first().copied().flatten().map_or(0, |r| r.rowid);
-    super::sample::splitmix64(seed ^ super::sample::splitmix64(rowid as u64))
+    use super::sample::splitmix64;
+    let Some(r) = row.first().copied().flatten() else { return splitmix64(seed) };
+    let mut h = splitmix64(r.rowid as u64);
+    for p in &r.pos {
+        h = splitmix64(h ^ *p as u64);
+    }
+    splitmix64(seed ^ h)
 }
 
 /// Upstream `SqlSampleNode`: rows are ranked by a hash of (seed, rowid); a fraction keeps the rows whose hash falls
@@ -763,7 +747,7 @@ fn aggregate<'a>(input: &'a QueryInput, plan: &Plan, rows: Vec<JRow<'a>>, groupi
     }
     if groups.is_empty() && grouping.is_empty() {
         // an aggregation without grouping returns one row, also for empty input (SQL semantics)
-        groups.push(Group { key: Vec::new(), rep: vec![None; input.sources.len()], states: new_states()? });
+        groups.push(Group { key: Vec::new(), rep: vec![None; input.width], states: new_states()? });
     }
     groups.sort_by(|a, b| {
         for (x, y) in a.key.iter().zip(b.key.iter()) {
@@ -936,19 +920,25 @@ pub fn count(input: &QueryInput) -> Result<usize> {
 
 // ------------------------------------------------------------------------------------- windows in computed columns
 
-/// Evaluates against the cells of one stored row, with precomputed window values.
-struct CellsCtx<'a> {
-    row: &'a StoredRow,
+/// Evaluates against one joined row of a table path, with precomputed window values.
+struct WindowCtx<'a> {
+    path: PathCtx<'a>,
     pre: &'a [Value],
     slots: &'a HashMap<usize, usize>,
 }
 
-impl RowContext for CellsCtx<'_> {
+impl RowContext for WindowCtx<'_> {
     fn column_value(&self, col: &ColumnRef) -> Result<Value> {
-        Ok(self.row.cell(col.col_id).clone())
+        self.path.column_value(col)
+    }
+    fn column_error(&self, col: &ColumnRef) -> Result<Option<crate::store::rows::CellError>> {
+        self.path.column_error(col)
     }
     fn precomputed(&self, e: &Expr) -> Option<Value> {
         self.slots.get(&node_key(e)).map(|i| self.pre[*i].clone())
+    }
+    fn python_semantics(&self) -> bool {
+        self.path.python_semantics()
     }
 }
 
@@ -961,8 +951,14 @@ pub fn has_window_calls(e: &ExprRef) -> bool {
 
 /// Evaluates a computed column's value expression that contains window function calls over `rows` (upstream
 /// computes such columns with a query plan that orders the rows by the window clauses). Returns one result per
-/// row, in the order of `rows`.
-pub fn eval_rows_with_windows(rows: &[&StoredRow], expr: &ExprRef) -> Result<Vec<Result<Value>>> {
+/// row, in the order of `rows` (joined rows of the table path `infos`; `python`: evaluate with Python semantics).
+pub fn eval_rows_with_windows(
+    infos: &[&ElemInfo],
+    rows: &[Vec<&StoredRow>],
+    expr: &ExprRef,
+    python: bool,
+) -> Result<Vec<Result<Value>>> {
+
     let mut calls = Vec::new();
     collect_calls(expr, &mut calls, &|fc| fc.is_window());
     let mut slots = HashMap::new();
@@ -999,7 +995,7 @@ pub fn eval_rows_with_windows(rows: &[&StoredRow], expr: &ExprRef) -> Result<Vec
     let no_slots = HashMap::new();
     let mut order: Vec<(Vec<Value>, usize)> = Vec::with_capacity(rows.len());
     for (i, r) in rows.iter().enumerate() {
-        let ctx = CellsCtx { row: r, pre: &[], slots: &no_slots };
+        let ctx = WindowCtx { path: PathCtx { elems: infos, rows: r, python }, pre: &[], slots: &no_slots };
         order.push((ordering.iter().map(|(e, _)| eval(e, &ctx)).collect::<Result<Vec<_>>>()?, i));
     }
     order.sort_by(|(a, _), (b, _)| {
@@ -1018,17 +1014,15 @@ pub fn eval_rows_with_windows(rows: &[&StoredRow], expr: &ExprRef) -> Result<Vec
         let mut state: Option<Box<dyn AggState>> = None;
         let mut partition: Option<String> = None;
         for (_, i) in &order {
-            let ctx = CellsCtx { row: rows[*i], pre: &[], slots: &no_slots };
+            let ctx = WindowCtx { path: PathCtx { elems: infos, rows: &rows[*i], python }, pre: &[], slots: &no_slots };
             let pkey = keys_of(&fc.group_by.iter().map(|g| eval(g, &ctx)).collect::<Result<Vec<_>>>()?);
             if state.is_none() || partition.as_ref() != Some(&pkey) {
                 state = Some(plan.new_state()?);
                 partition = Some(pkey);
             }
             let (args, kwargs) = call_args(e, &ctx)?;
-            if plan.skips(&args, &kwargs) {
-                continue;
-            }
             let st = state.as_mut().expect("state");
+            // a skipped row (NULL argument) still gets the running value
             plan.update(st.as_mut(), args, kwargs)?;
             pre[*i][wi] = st.value()?;
         }
@@ -1036,6 +1030,6 @@ pub fn eval_rows_with_windows(rows: &[&StoredRow], expr: &ExprRef) -> Result<Vec
     Ok(rows
         .iter()
         .enumerate()
-        .map(|(i, r)| eval(expr, &CellsCtx { row: r, pre: &pre[i], slots: &slots }))
+        .map(|(i, r)| eval(expr, &WindowCtx { path: PathCtx { elems: infos, rows: r, python }, pre: &pre[i], slots: &slots }))
         .collect())
 }

@@ -10,8 +10,11 @@ pub mod compute;
 pub mod compute_rows;
 pub mod index;
 pub mod insert;
+pub mod propagate;
 pub mod query;
 pub mod sample;
+pub mod scan;
+pub mod update;
 
 use uuid::Uuid;
 
@@ -533,7 +536,7 @@ impl QuerySpec {
     pub fn check_columns_exist(&self, cat: &Catalog) -> Result<()> {
         let mut visible: std::collections::HashSet<(Uuid, crate::catalog::table::ColId)> = std::collections::HashSet::new();
         for (id, v) in self.from_tbls() {
-            visible.extend(cat.resolve_columns(id, v)?.iter().map(|c| (c.tbl_id, c.md.id)));
+            visible.extend(cat.path_columns(&cat.tbl_path(id, v)?)?.iter().map(|c| (c.tbl_id, c.md.id)));
         }
         for e in self.clause_exprs() {
             for r in e.column_refs() {
@@ -771,7 +774,7 @@ pub enum JoinOn {
 pub fn column_ref_expr(c: &ResolvedColumn, version: Option<i64>) -> ExprRef {
     let _ = version;
     Expr::new(
-        ExprKind::ColumnRef(ColumnRef { tbl_id: c.tbl_id, col_id: c.md.id, name: c.name.clone(), tbl_version: None }),
+        ExprKind::ColumnRef(ColumnRef { tbl_id: c.tbl_id, col_id: c.md.id, name: c.name.clone(), tbl_version: c.tbl_version }),
         c.md.col_type.clone(),
     )
 }

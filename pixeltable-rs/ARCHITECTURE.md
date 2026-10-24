@@ -42,13 +42,17 @@ src/
   catalog/table.rs  TableMd, ColumnMd, SchemaVersionMd, VersionMd, ViewMd, ResolvedColumn
   catalog/dirs.rs   directory ops, path-collision handling (if_exists), listings
   catalog/tables.rs create/get/drop table, add/drop/rename column, version bumps
-  catalog/views.rs  views/snapshots (filter over a base, live or pinned), column resolution through bases
+  catalog/views.rs  table paths (tbl_path), views/snapshots (plan_view/commit_view), column resolution through paths
+  catalog/versions.rs revert(), version history (get_versions() with schema-change descriptions)
   catalog/indexes.rs B-tree and embedding index metadata, default indexes, drop/cascade
   catalog/runtime.rs the process-wide Catalog behind a mutex; reload/reset hooks; reserved column names
   store/mod.rs      files under $PIXELTABLE_HOME, atomic writes
   store/rows.rs     TableData / StoredRow with version ranges, cell errors
   exec/mod.rs       QuerySpec (select/where/order_by/limit, validation, JSON), QueryInput snapshot, execute(), count()
-  exec/insert.rs    insert pipeline: InsertPlan -> build_rows -> commit
+  exec/scan.rs      PathInput (a table path captured for a scan), joined path rows, PathCtx, eval_into()
+  exec/insert.rs    insert pipeline: InsertPlan -> build_rows -> commit (propagates to views)
+  exec/propagate.rs ViewCompute (a view's rows from base path rows), ViewNode (live view tree), insert propagation
+  exec/update.rs    update/batch_update/recompute_columns (UpdatePlan: plan -> compute -> commit), delete, propagation
   exec/compute.rs   computed columns: eval_computed(), AddComputedPlan (plan -> compute -> commit)
   exec/compute_rows.rs Table.compute(): rows a table would hold for some input rows, nothing stored
   exec/index.rs     AddIndexPlan: embeddings of existing rows for a new embedding index
@@ -56,7 +60,8 @@ src/
                     (module-level functions), table.rs (tbl_* functions), query.rs (QuerySpec, ResultSet, cursor),
                     sources.rs (data sources: rows, iterators, pydantic models, queries; schema inference),
                     indexes.rs (index operations, similarity(), describe data),
-                    func.rs (_core.Udf, _core.Iterator, _core.IteratorCall, the function registry)
+                    func.rs (_core.Udf, _core.Iterator, _core.IteratorCall, the function registry), mutate.rs
+                    (update/batch_update/recompute_columns/delete/revert/alter_*/get_versions)
 python/pixeltable/
   __init__.py       the public names (same as upstream's __init__)
   exceptions.py     copy of upstream's public module
@@ -250,19 +255,36 @@ committed, the catalog and its cached row data are reloaded before the closure r
 therefore commits against the latest state (its commit step re-checks the schema version as usual).
 
 Versioning: a data-versioned table gets a new version per mutation; a schema change also creates a schema version
-equal to the new table version (`Catalog::bump_version`). Rows carry `[v_min, v_max)`; inserts add rows at the new
-version, deletes/updates will close `v_max` (updates re-insert with the same rowid). Cells are indexed by column id,
-so added columns read NULL for older rows and dropped columns keep their cells for older versions. Operational tables
-(`_is_data_versioned=False`) bump the version only for schema changes. `get_table('t:3')` pins a handle to version 3
-(queries read rows and schema as of 3).
+equal to the new table version (`Catalog::bump_version`). Rows carry `[v_min, v_max)` and a key `(rowid, pos)`
+(`pos`: iterator positions of component views); inserts add rows at the new version, deletes retire rows (`v_max`),
+updates retire a row and add its replacement with the same key (`TableData::retire/append/revert`). Cells are indexed
+by column id, so added columns read NULL for older rows and dropped columns keep their cells for older versions. A
+schema version can override a column's type and value expression (`SchemaColumn.col_type/value_expr`, from
+`alter_column()`/`alter_computed_column()`), so older versions keep the old ones and `revert()` restores them.
+Operational tables (`_is_data_versioned=False`) bump the version only for schema changes, update and delete in
+place, and cannot be reverted, pinned or viewed. `get_table('t:3')` pins a handle to version 3 (queries read rows
+and schema as of 3). `revert()` undoes the current version of a table and the view versions it created
+(`VersionMd.cascade_from`); a version that a snapshot pins cannot be reverted.
 
 Performance note: a mutation currently copies the table's whole `TableData` and rewrites its data file (O(rows)
 per insert). The intended evolution is segment-based storage (`TableData` = list of `Arc` segments, one file per
 segment; inserts add a segment, deletes/updates rewrite only the affected segments).
 
-Views (`catalog/views.rs`) have no rows of their own yet: a query over a view scans its base (at the pinned version
-for snapshots) with the view predicates applied (`ScanSource`), and the view's columns are its base's columns. To
-add view columns, iterators or materialized snapshots, give views their own `TableData` and join on base rowids.
+Table paths and views (`catalog/views.rs`, `exec/scan.rs`): a handle reads a *table path*, leaf first, each element
+live or pinned to a version (`Catalog::tbl_path`): a base table is a path of one; a view adds its bases
+(`ViewMd.bases`, each live or pinned); a version-pinned view reads its bases at the versions recorded for that view
+version (`VersionMd.base_versions`, recorded by every `bump_version` of a view); a pure snapshot (no columns, no
+filter) has no rows and is the pinned path of its bases. A view stores its own rows: one per base row that passes its
+filter, keyed by the base row's key, holding the view's stored columns. A scan (`PathInput::rows`) joins each visible
+leaf row with the base rows of the same key at the versions the path pins; `PathCtx` resolves a column reference by
+its table id (unstored computed columns are evaluated, read-validated media checked). Column references carry the
+pinned version of their table (`ColumnRef.tbl_version`, None: live), which binding checks compare (`is_bound_by`), so
+`t.c` is not bound by a snapshot of `t`. Visible columns: the leaf's own, then (unless the view has a select list,
+`include_base_columns`) the base's that it doesn't shadow. Base inserts propagate to the live views (`ViewNode` tree,
+every view gets a version); updates rewrite the changed rows and each live view re-decides membership (filter reads a
+changed column) and recomputes dependent stored columns, getting a version only if it does either; deletes retire the
+view rows of deleted base rows (a version only if rows were removed). View rows are computed without the lock (they
+may call UDFs) and committed with the base's.
 
 To add a catalog operation: implement it as a `Catalog` method in the matching `catalog/*.rs` file (validate, mutate,
 `self.commit()`), expose it as a `#[pyfunction]` in `bindings/catalog.rs` or `bindings/table.rs` (convert arguments,
@@ -271,10 +293,10 @@ call inside `with_catalog`), register it in `bindings/mod.rs`, and forward to it
 ## Queries
 
 `exec::QuerySpec` is the state of a `pxt.Query`; its `with_*` methods validate as upstream does. Execution:
-scan visible rows (rowid order) -> view predicates and where clause -> stable sort (ASC nulls last, DESC nulls first)
+scan the table path (key order, see Table paths above) -> where clause -> stable sort (ASC nulls last, DESC nulls first)
 -> offset/limit -> project. Unstored computed columns are evaluated on read. Results are a `ResultData` held in Rust
 (`_core.ResultSet`); values convert to Python objects on access. Not built yet: joins, group by/aggregates, window
-functions, distinct, sample, update/delete, JSON paths, array slices.
+functions, distinct, sample, JSON paths, array slices.
 
 ## Data sources, compute(), indexes
 
@@ -296,4 +318,4 @@ schema version, computed by inserts like other stored computed columns, named `<
 embedding functions are kept as `Function.as_dict()` descriptors per query modality. `col.similarity(...)` builds an
 `ExprKind::Similarity` node that holds the embedding call of the query item (computed once per expression) and
 compares it with the row's stored embedding (cosine similarity, inner product or L2 distance). Indexes on views are
-not supported yet (views have no rows of their own).
+not supported yet.
