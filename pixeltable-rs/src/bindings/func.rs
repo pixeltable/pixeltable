@@ -261,6 +261,18 @@ impl PyIterator {
         Ok(PyIterator { def: Arc::new(IteratorDef::new(fqn, signature, unstored_cols, has_seek, py_obj.unbind(), error_msg)) })
     }
 
+    /// The backend's builtin iterator `fqn` (`py_obj`: its Python function object).
+    #[staticmethod]
+    fn _builtin(py_obj: Bound<'_, PyAny>, fqn: &str) -> Result<Self> {
+        let b = iterator::lookup_builtin(fqn).ok_or_else(|| crate::pxt_err!(FunctionNotFound, "Iterator {} not found", py_repr(fqn)))?;
+        Ok(PyIterator { def: Arc::new(IteratorDef::builtin(b, py_obj.unbind())) })
+    }
+
+    #[getter]
+    fn unstored_cols(&self) -> Vec<String> {
+        self.def.unstored_cols.clone()
+    }
+
     /// `iterator(*args, **kwargs)`
     #[pyo3(signature = (*args, **kwargs))]
     fn call(&self, args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Result<PyIteratorCall> {
@@ -370,4 +382,82 @@ pub fn table_udf<'py>(
 fn substitution(subst: &[((uuid::Uuid, u32), ExprRef)], x: &Expr) -> Option<ExprRef> {
     let c = x.as_column_ref()?;
     subst.iter().find(|(k, _)| *k == (c.tbl_id, c.col_id)).map(|(_, e)| e.clone())
+}
+
+#[pyfunction]
+pub fn builtin_iterator_names() -> Vec<String> {
+    iterator::builtin_names()
+}
+
+/// Evaluates against values given by column name (for `_iterator_rows`).
+struct NamedValues(Vec<(String, crate::value::Value)>);
+
+impl crate::expr::eval::RowContext for NamedValues {
+    fn column_value(&self, col: &crate::expr::ColumnRef) -> Result<crate::value::Value> {
+        self.0
+            .iter()
+            .find(|(n, _)| *n == col.name)
+            .map(|(_, v)| v.clone())
+            .ok_or_else(|| Error::internal(format!("no value for column {}", col.name)))
+    }
+}
+
+/// Test hook: runs an iterator call for one input row (`row`: column name -> value of the columns the arguments
+/// read); returns the output rows as dicts (with `pos`).
+#[pyfunction]
+pub fn _iterator_rows<'py>(py: Python<'py>, call: &Bound<'py, PyAny>, row: &Bound<'py, PyDict>) -> Result<Vec<Bound<'py, PyDict>>> {
+    let call = iterator_call_from_py(call)?;
+    let mut values = Vec::new();
+    for e in call.arg_exprs() {
+        for c in e.column_refs() {
+            if let Some(v) = row.get_item(&c.name)? {
+                values.push((c.name.clone(), crate::value::py::coerce(&v, &e.col_type)?));
+            }
+        }
+    }
+    let rows = call.eval_rows(&NamedValues(values))?;
+    rows.into_iter()
+        .enumerate()
+        .map(|(pos, r)| {
+            let d = PyDict::new(py);
+            d.set_item("pos", pos)?;
+            for (o, v) in call.value_outputs().iter().zip(r.iter()) {
+                d.set_item(&o.name, crate::value::py::to_py(py, v, &o.col_type)?)?;
+            }
+            Ok(d)
+        })
+        .collect()
+}
+
+/// Test hook: the outputs of the row at `pos` for one input row, recomputed with `seek()` (`stored`: the stored
+/// outputs of that row, by name).
+#[pyfunction]
+pub fn _iterator_seek<'py>(
+    py: Python<'py>,
+    call: &Bound<'py, PyAny>,
+    row: &Bound<'py, PyDict>,
+    pos: i64,
+    stored: &Bound<'py, PyDict>,
+) -> Result<Bound<'py, PyDict>> {
+    let call = iterator_call_from_py(call)?;
+    let mut values = Vec::new();
+    for e in call.arg_exprs() {
+        for c in e.column_refs() {
+            if let Some(v) = row.get_item(&c.name)? {
+                values.push((c.name.clone(), crate::value::py::coerce(&v, &e.col_type)?));
+            }
+        }
+    }
+    let mut stored_vals = Vec::new();
+    for o in call.value_outputs() {
+        if let Some(v) = stored.get_item(&o.name)? {
+            stored_vals.push((o.name.clone(), crate::value::py::coerce(&v, &o.col_type)?));
+        }
+    }
+    let r = call.seek_row(&NamedValues(values), pos, &stored_vals)?;
+    let d = PyDict::new(py);
+    for (o, v) in call.value_outputs().iter().zip(r.iter()) {
+        d.set_item(&o.name, crate::value::py::to_py(py, v, &o.col_type)?)?;
+    }
+    Ok(d)
 }

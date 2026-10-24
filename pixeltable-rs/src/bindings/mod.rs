@@ -33,6 +33,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(func::registered_functions, m)?)?;
     m.add_function(wrap_pyfunction!(func::variable, m)?)?;
     m.add_function(wrap_pyfunction!(func::table_udf, m)?)?;
+    m.add_function(wrap_pyfunction!(func::builtin_iterator_names, m)?)?;
+    m.add_function(wrap_pyfunction!(func::_iterator_rows, m)?)?;
+    m.add_function(wrap_pyfunction!(func::_iterator_seek, m)?)?;
 
     m.add_function(wrap_pyfunction!(catalog::init, m)?)?;
     m.add_function(wrap_pyfunction!(catalog::home, m)?)?;
