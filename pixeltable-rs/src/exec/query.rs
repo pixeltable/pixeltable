@@ -176,6 +176,8 @@ pub fn is_sql_expr(e: &Expr, unstored: &HashMap<(Uuid, ColId), ExprRef>) -> bool
             None => true,
         },
         ExprKind::Literal(_) => true,
+        // properties of stored columns read the stored value or its cell metadata
+        ExprKind::ColumnProperty { col, prop } => *prop != crate::expr::ColumnProp::LocalPath && is_sql_expr(col, unstored),
         // upstream evaluates a float `%` and an int `**` in Python
         ExprKind::Arithmetic { op: ArithOp::Mod, .. } if e.col_type.is_float() => false,
         ExprKind::Arithmetic { op: ArithOp::Pow, .. } if !e.col_type.is_float() => false,
@@ -219,8 +221,10 @@ struct Plan {
     aggs: Vec<AggCall>,
     windows: Vec<WindowCall>,
     slots: HashMap<usize, usize>,
-    /// Some: aggregate (Some(empty): a single group)
+    /// Some: aggregate (Some(empty): a single group, unless `group_slot` is set)
     grouping: Option<Vec<ExprRef>>,
+    /// `group_by(base_table)`: the slot of the base table, whose rows define the groups
+    group_slot: Option<usize>,
     /// the ordering the rows need before window functions are evaluated
     window_order: Vec<(ExprRef, Option<bool>)>,
 }
@@ -337,9 +341,10 @@ fn validate_grouping(group_by: &[ExprRef], unstored: &HashMap<(Uuid, ColId), Exp
 impl Plan {
     fn new(input: &QueryInput) -> Result<Plan> {
         let q = &input.q;
-        if q.grouping_tbl.is_some() {
-            return Err(Error::not_implemented("group_by(<base table>)"));
-        }
+        let group_slot = match q.grouping_tbl {
+            Some(t) => Some(input.slot(&t).ok_or_else(|| Error::internal("grouping table is not in the table path"))?),
+            None => None,
+        };
         let candidates: Vec<&ExprRef> = input.select.iter().map(|(e, _)| e).collect();
         let mut agg_exprs = Vec::new();
         let mut window_exprs = Vec::new();
@@ -380,7 +385,10 @@ impl Plan {
         }
 
         let mut grouping = q.group_by.clone();
-        if !aggs.is_empty() {
+        if group_slot.is_some() {
+            grouping = Some(Vec::new());
+        }
+        if !aggs.is_empty() || group_slot.is_some() {
             let g = grouping.get_or_insert_with(Vec::new).clone();
             let gkeys: Vec<String> = g.iter().map(|e| expr_key(e)).collect();
             for (e, _) in &input.select {
@@ -439,7 +447,7 @@ impl Plan {
         if !windows.is_empty() && grouping.is_some() {
             return Err(Error::not_implemented("window functions in an aggregation query"));
         }
-        Ok(Plan { aggs, windows, slots, grouping, window_order })
+        Ok(Plan { aggs, windows, slots, grouping, group_slot, window_order })
     }
 }
 
@@ -730,7 +738,14 @@ fn aggregate<'a>(input: &'a QueryInput, plan: &Plan, rows: Vec<JRow<'a>>, groupi
     };
     for r in rows {
         let ctx = Ctx { input, row: &r, pre: &[], slots: &empty };
-        let key = grouping.iter().map(|e| eval(e, &ctx).map_err(|err| agg_error(e, err))).collect::<Result<Vec<_>>>()?;
+        let key = match plan.group_slot {
+            // the key of the base row (rowid, then iterator positions)
+            Some(slot) => match r[slot] {
+                Some(b) => std::iter::once(b.rowid).chain(b.pos.iter().copied()).map(Value::Int).collect(),
+                None => Vec::new(),
+            },
+            None => grouping.iter().map(|e| eval(e, &ctx).map_err(|err| agg_error(e, err))).collect::<Result<Vec<_>>>()?,
+        };
         let k = keys_of(&key);
         let gi = match index.get(&k) {
             Some(i) => *i,
@@ -745,7 +760,7 @@ fn aggregate<'a>(input: &'a QueryInput, plan: &Plan, rows: Vec<JRow<'a>>, groupi
             a.plan.update(state.as_mut(), args, kwargs).map_err(|err| agg_error(&a.expr, err))?;
         }
     }
-    if groups.is_empty() && grouping.is_empty() {
+    if groups.is_empty() && grouping.is_empty() && plan.group_slot.is_none() {
         // an aggregation without grouping returns one row, also for empty input (SQL semantics)
         groups.push(Group { key: Vec::new(), rep: vec![None; input.width], states: new_states()? });
     }
@@ -902,6 +917,11 @@ pub fn count(input: &QueryInput) -> Result<usize> {
     let mut rows = filtered(input)?;
     if let Some(s) = &q.sample {
         rows = apply_sample(input, rows, s)?;
+    }
+    if let Some(t) = q.grouping_tbl {
+        let slot = input.slot(&t).ok_or_else(|| Error::internal("grouping table is not in the table path"))?;
+        let keys: std::collections::HashSet<(i64, &[i64])> = rows.iter().filter_map(|r| r[slot]).map(|b| b.key()).collect();
+        return Ok(keys.len());
     }
     match &q.group_by {
         Some(g) => {
