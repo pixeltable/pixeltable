@@ -107,6 +107,9 @@ class TableDataConduit:
             isinstance(tds.source, str) and any(s in tds.source.lower() for s in ['.parquet', '.pq', '.parq'])
         ):
             return ParquetTableDataConduit.from_tds(tds)
+        if isinstance(tds.source, dict):
+            # a single dict is a one-row source; HF DatasetDicts (also dicts) were handled above
+            tds.source = [tds.source]
         if tds.is_rowdata_structure(tds.source) or isinstance(tds.source, Iterator):
             return RowDataTableDataConduit.from_tds(tds)
         raise excs.RequestError(

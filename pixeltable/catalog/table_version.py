@@ -775,10 +775,12 @@ class TableVersion:
         idx_cols: set[Column] = self.idx_val_cols | self.idx_undo_cols
         row_count = self.store_tbl.count()
         num_excs = 0
+        num_computed_cols = 0
         cols_with_excs: list[int] = []
         for col in cols:
             if not col.is_computed or not col.is_stored or row_count == 0:
                 continue
+            num_computed_cols += 1
 
             # populate the column
             with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
@@ -807,7 +809,9 @@ class TableVersion:
             plan.ctx.profile.print(num_rows=row_count)
 
         # TODO: what to do about system columns with exceptions?
-        row_counts = RowCountStats(upd_rows=row_count, num_excs=num_excs, computed_values=0)  # add_columns
+        row_counts = RowCountStats(
+            upd_rows=row_count, num_excs=num_excs, computed_values=row_count * num_computed_cols
+        )  # add_columns
         return UpdateStatus(cols_with_excs=self._cols_with_excs_names(cols_with_excs), row_count_stats=row_counts)
 
     def _own_col_refs(self, value_expr_dict: dict[str, Any] | None) -> set[int]:

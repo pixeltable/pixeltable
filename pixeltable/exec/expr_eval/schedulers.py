@@ -51,6 +51,8 @@ class RateLimitsScheduler(Scheduler):
     # Used to maintain _est_in_flight_usage as accurately as possible, keyed by id(request).
     _inflight_costs: dict[int, dict[str, int]]
 
+    _config_requests_per_min: int | None  # optional configured cap on the 'requests' resource limit
+
     total_requests: int
     total_retried: int
 
@@ -66,6 +68,15 @@ class RateLimitsScheduler(Scheduler):
         self._inflight_costs = {}
         self.total_requests = 0
         self.total_retried = 0
+        # resource_pool: 'rate-limits:<endpoint>' or 'rate-limits:<endpoint>:<model>'; the configured
+        # rate limit (requests/min) clamps the provider-reported 'requests' resource limit
+        elems = resource_pool.split(':')
+        if len(elems) == 3:
+            _, endpoint, model = elems
+            self._config_requests_per_min = Config.get().get_int_value(model, section=f'{endpoint}.rate_limits')
+        else:
+            assert len(elems) == 2
+            self._config_requests_per_min = Config.get().get_int_value('rate_limit', section=elems[1])
 
     @classmethod
     def matches(cls, resource_pool: str) -> bool:
@@ -173,14 +184,20 @@ class RateLimitsScheduler(Scheduler):
             highest_wait_resource = None
             for resource, usage in request_resources.items():
                 info = self.pool_info.resource_limits[resource]
+                # A configured rate limit caps the request rate below the provider-reported limit: shrink the
+                # usable window by (info.limit - limit), so requests pause once the capped budget is spent.
+                limit = info.limit
+                if self._config_requests_per_min is not None and 'requests' in resource:
+                    limit = min(limit, self._config_requests_per_min)
                 # Note: usage and _est_in_flight_usage are estimated costs of requests, and it may
                 # be way off (for example, if max tokens is unspecified for an openAI request).
                 time_until = info.estimated_resource_refill_delay(
                     math.ceil(
-                        info.limit * env.TARGET_RATE_LIMIT_RESOURCE_FRACT
+                        limit * env.TARGET_RATE_LIMIT_RESOURCE_FRACT
                         + usage
                         + self._est_in_flight_usage.get(resource, 0)
                     )
+                    + (info.limit - limit)
                 )
                 if time_until is not None and highest_wait < time_until:
                     highest_wait = time_until

@@ -195,6 +195,15 @@ def import_sql(
             f'`schema_overrides` references column(s) not in the SQL source: {", ".join(sorted(unknown))}',
         )
 
+    # Primary key columns must be non-nullable; coerce them here, since SQL source metadata often does not
+    # report nullability reliably (and `schema_overrides` is the only way to adjust it otherwise).
+    pk_names = [primary_key] if isinstance(primary_key, str) else (primary_key or [])
+    for pk_name in pk_names:
+        if pk_name in schema:
+            schema[pk_name] = ts.ColumnType.normalize_type(schema[pk_name], allow_builtin_types=False).copy(
+                nullable=False
+            )
+
     def run(connection: sql.Connection) -> pxt.Table:
         sql_data_source = SqlDataSource(select_stmt=stmt, col_names=source_names, conn=connection)
 

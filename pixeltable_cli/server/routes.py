@@ -457,9 +457,9 @@ def columns(req: Request) -> models.ColumnsResponse:
     for p in paths:
         try:
             md = pxt.get_table(p).get_metadata()
-        except excs.NotFoundError:
-            # a table can disappear between dir-tree traversal and metadata fetch; other
-            # pixeltable errors propagate as 500s so real bugs surface
+        except excs.Error:
+            # a table can disappear between dir-tree traversal and metadata fetch, or its metadata read
+            # can fail; skip it rather than failing the entire listing
             continue
         for name, c in md['columns'].items():
             if computed and not c['is_computed']:
@@ -490,7 +490,7 @@ def indexes(req: Request) -> models.IdxsResponse:
     for p in paths:
         try:
             md = pxt.get_table(p).get_metadata()
-        except excs.NotFoundError:
+        except excs.Error:
             continue
         for name, idx in md['indexes'].items():
             if embedding and idx['index_type'] != 'embedding':

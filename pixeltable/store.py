@@ -560,6 +560,7 @@ class StoreBase:
         num_rows = 0
         cols_with_excs: set[int] = set()
         row_builder = exec_plan.row_builder
+        num_computed_cols = sum(1 for col in row_builder.table_columns if col.is_computed)
 
         store_col_names = row_builder.store_column_names()
 
@@ -621,7 +622,9 @@ class StoreBase:
             telemetry_schemas.rows_written.add(
                 num_rows, table=self.tbl_version.get().name, table_id=str(self.tbl_version.id)
             )
-            row_counts = RowCountStats(ins_rows=num_rows, num_excs=num_excs, computed_values=0)
+            row_counts = RowCountStats(
+                ins_rows=num_rows, num_excs=num_excs, computed_values=num_rows * num_computed_cols
+            )
 
             return cols_with_excs, row_counts, (inserted_rows if return_rows else None)
 
@@ -703,6 +706,7 @@ class StoreBase:
         num_rows = 0
         cols_with_excs: set[int] = set()
         row_builder = exec_plan.row_builder
+        num_computed_cols = sum(1 for col in row_builder.table_columns if col.is_computed)
 
         store_col_names = row_builder.store_column_names()
         num_pk_cols = len(self._pk_cols)
@@ -773,7 +777,7 @@ class StoreBase:
             if len(bind_params) > 0:
                 flush()
 
-        row_counts = RowCountStats(upd_rows=num_rows, num_excs=num_excs)
+        row_counts = RowCountStats(upd_rows=num_rows, num_excs=num_excs, computed_values=num_rows * num_computed_cols)
         return cols_with_excs, row_counts, (updated_rows if return_rows else None)
 
     def _sql_update(self, stmt: sql.Update, params: list[dict[str, Any]]) -> None:

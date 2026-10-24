@@ -22,6 +22,11 @@ if TYPE_CHECKING:
 
 # Default embedding dimensions for Voyage AI models
 _embedding_dimensions_cache: dict[str, int] = {
+    'voyage-4-large': 1024,
+    'voyage-4': 1024,
+    'voyage-4-lite': 1024,
+    'voyage-code-4': 1024,
+    'voyage-4-nano': 2048,
     'voyage-3-large': 1024,
     'voyage-3.5': 1024,
     'voyage-3.5-lite': 1024,

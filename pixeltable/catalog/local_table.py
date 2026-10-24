@@ -742,6 +742,25 @@ class LocalTable(Table):
                     f'Cannot drop column {col.name!r} because the following views depend on it:\n{dependent_views_str}',
                 )
 
+            # similarity() references the indexed column via qcol_id, which the serialized dependency graph
+            # does not record; scan the value exprs of this table and its mutable views explicitly.
+            sim_dependent_cols = [
+                c
+                for tv in [
+                    self._tbl_version.get(),
+                    *(v._tbl_version.get() for v in views if v._tbl_version is not None),
+                ]
+                for c in tv.cols_by_name.values()
+                if c.value_expr is not None
+                and any(e.qcol_id == col.qid for e in c.value_expr.subexprs(expr_class=exprs.SimilarityExpr))
+            ]
+            if len(sim_dependent_cols) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot drop column {col.name!r} because the following columns depend on it:\n'
+                    f'{", ".join(c.name for c in sim_dependent_cols)}',
+                )
+
             all_columns = self.columns()
             if len(all_columns) == 1 and col.name == all_columns[0]:
                 raise excs.RequestError(

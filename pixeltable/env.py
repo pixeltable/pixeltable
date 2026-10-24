@@ -483,13 +483,18 @@ class Env:
         self._managed_logging_handlers.append((_http_server_logger, http_fh))
         _http_server_logger.propagate = False
 
-        # Route uvicorn's loggers to the main pxt log file
+        # Route uvicorn's loggers to the main pxt log file, and also to stdout: the service runners
+        # pass log_config=None to uvicorn, so without a stream handler startup tracebacks (and the
+        # "Uvicorn running on ..." banner) would be invisible on the `pxt service run` console.
         uvicorn_logger = logging.getLogger('uvicorn')
         if uvicorn_logger.level == logging.NOTSET:
             uvicorn_logger.setLevel(logging.INFO)
         uvicorn_logger.addHandler(fh)
+        uvicorn_stream_handler = logging.StreamHandler(stdout)
+        uvicorn_logger.addHandler(uvicorn_stream_handler)
         uvicorn_logger.propagate = False
         self._managed_logging_handlers.append((uvicorn_logger, fh))
+        self._managed_logging_handlers.append((uvicorn_logger, uvicorn_stream_handler))
 
         self.clear_tmp_dir()
         tz_name = self._get_tz_name()
