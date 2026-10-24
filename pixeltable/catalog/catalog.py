@@ -404,6 +404,7 @@ def _should_wait(op_class: _TblOpClass, any_data_versioned: bool) -> bool:
 class _LockTarget:
     """A store table and the lock mode required for its role in the operation."""
 
+    tbl_id: UUID
     store_tbl_name: str
     mode: _TblLockMode
 
@@ -455,8 +456,8 @@ class Catalog(CatalogBase):
     _tbl_versions: OrderedDict[TableVersionKey, TableVersion]
     _tbls: OrderedDict[TableVersionKey, LocalTable]
     _in_write_xact: bool  # True if we're in a write transaction
-    # table locks held in the current transaction: store table name -> mode
-    _locks_held: dict[str, _TblLockMode]
+    # table locks held in the current transaction: table id -> mode
+    _locks_held: dict[UUID, _TblLockMode]
     # dir locks held in the current transaction
     _dir_locks_held: set[UUID]
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
@@ -1024,6 +1025,7 @@ class Catalog(CatalogBase):
 
         sorted_tbl_targets = tuple(
             _LockTarget(
+                tbl_id=tbl_id,
                 store_tbl_name=store_tbl_name,
                 mode=_TblLockMode.strongest_of(
                     _tbl_lock_mode(op_class, is_data_versioned=is_data_versioned[tbl_id])
@@ -1058,6 +1060,7 @@ class Catalog(CatalogBase):
             op_class = target_op_class if i == 0 and key.effective_version is None else _TblOpClass.DATA_READ
             targets.append(
                 _LockTarget(
+                    tbl_id=tv.id,
                     store_tbl_name=_store_tbl_name(tv.id, is_view=tv.is_view),
                     mode=_tbl_lock_mode(op_class, tv.is_data_versioned),
                 )
@@ -1098,6 +1101,7 @@ class Catalog(CatalogBase):
             return None
         targets = [
             _LockTarget(
+                tbl_id=tv.id,
                 store_tbl_name=_store_tbl_name(tv.id, is_view=tv.is_view),
                 mode=_tbl_lock_mode(op_class, tv.is_data_versioned),
             )
@@ -1188,8 +1192,8 @@ class Catalog(CatalogBase):
 
         def validate_targets_locked(targets: Collection[_LockTarget]) -> None:
             for target in targets:
-                if not self.is_tbl_locked(target.store_tbl_name, target.mode):
-                    held = self._locks_held.get(target.store_tbl_name)
+                if not self._is_tbl_locked(target.tbl_id, target.mode):
+                    held = self._locks_held.get(target.tbl_id)
                     msg = f'lock set mismatch: {target.store_tbl_name} is locked in {held}, not {target.mode}'
                     _logger.debug(msg)
                     raise _StaleLockSetError(msg)
@@ -1213,10 +1217,10 @@ class Catalog(CatalogBase):
                     _logger.debug(msg)
                     raise _StaleLockSetError(msg)
 
-    def is_tbl_locked(self, store_tbl_name: str, mode: _TblLockMode) -> bool:
-        """Return whether this transaction holds the requested mode or stronger on the store table."""
+    def _is_tbl_locked(self, tbl_id: UUID, mode: _TblLockMode) -> bool:
+        """Return whether this transaction holds the requested mode or stronger on the table's store table."""
         assert get_runtime().in_xact
-        held = self._locks_held.get(store_tbl_name)
+        held = self._locks_held.get(tbl_id)
         return held is not None and held.is_at_least(mode)
 
     def _is_dir_locked(self, dir_id: UUID) -> bool:
@@ -1250,17 +1254,16 @@ class Catalog(CatalogBase):
             assert current_dir_id is not None, tbl_id
             assert self._is_dir_locked(current_dir_id), (tbl_id, current_dir_id, self._dir_locks_held)
             return
-        assert self._has_store_tbl_lock(tbl_id, _TblLockMode.EXCLUSIVE), (tbl_id, self._locks_held)
+        assert self._is_tbl_locked(tbl_id, _TblLockMode.EXCLUSIVE), (tbl_id, self._locks_held)
 
     def assert_rows_write_locked(self, tv: TableVersion) -> None:
         """Assert that the transaction holds the required lock for writing this table's rows."""
         mode = _tbl_lock_mode(_TblOpClass.DATA_WRITE, tv.is_data_versioned)
-        store_tbl_name = tv.store_tbl._storage_name()
-        assert self.is_tbl_locked(store_tbl_name, mode), (store_tbl_name, mode, self._locks_held)
+        assert self._is_tbl_locked(tv.id, mode), (tv.id, mode, self._locks_held)
 
     def assert_store_schema_write_locked(self, tbl_id: UUID) -> None:
         """Assert that the transaction holds the required lock for changing this table's store schema."""
-        assert self._has_store_tbl_lock(tbl_id, _TblLockMode.ACCESS_EXCLUSIVE), (tbl_id, self._locks_held)
+        assert self._is_tbl_locked(tbl_id, _TblLockMode.ACCESS_EXCLUSIVE), (tbl_id, self._locks_held)
 
     def check_rows_read_locked(self, tv: TableVersion) -> None:
         """Warn if the transaction lacks a read lock on this table.
@@ -1269,10 +1272,9 @@ class Catalog(CatalogBase):
         in computed columns.
         """
         read_lock_mode = _tbl_lock_mode(_TblOpClass.DATA_READ, tv.is_data_versioned)
-        store_tbl_name = tv.store_tbl._storage_name()
-        if not self.is_tbl_locked(store_tbl_name, read_lock_mode):
+        if not self._is_tbl_locked(tv.id, read_lock_mode):
             warnings.warn(
-                f'Table {tv.versioned_name} ({store_tbl_name}) was not locked for read at the transaction start',
+                f'Table {tv.versioned_name} was not locked for read at the transaction start',
                 excs.PixeltableWarning,
                 stacklevel=2,
             )
@@ -1291,7 +1293,7 @@ class Catalog(CatalogBase):
         names = [t.store_tbl_name for t in targets]
         assert names == sorted(names), names
         # a store table is locked once per transaction, no lock is ever upgraded
-        assert all(name not in self._locks_held for name in names), (names, self._locks_held)
+        assert all(t.tbl_id not in self._locks_held for t in targets), (names, self._locks_held)
         # Send the LOCK TABLE statements in one request, separated by semicolons. psycopg executes them in order.
         nowait_clause = '' if wait else ' NOWAIT'
         stmt = '; '.join(f'LOCK TABLE {t.store_tbl_name} IN {t.mode.sql_name} MODE{nowait_clause}' for t in targets)
@@ -1308,7 +1310,7 @@ class Catalog(CatalogBase):
                 raise _StaleLockSetError from e
             raise
         for t in targets:
-            self._locks_held[t.store_tbl_name] = t.mode
+            self._locks_held[t.tbl_id] = t.mode
 
     @telemetry.spanned('pixeltable.catalog.acquire_locks', level=telemetry.DEBUG)
     def _acquire_locks(self, lock_set: _LockSet, op_class: _TblOpClass) -> None:
@@ -1440,10 +1442,6 @@ class Catalog(CatalogBase):
                 refreshed=refreshed,
             )
 
-    def _has_store_tbl_lock(self, tbl_id: UUID, mode: _TblLockMode) -> bool:
-        """Return whether this transaction holds `mode` or stronger under the table or view storage name."""
-        return any(self.is_tbl_locked(_store_tbl_name(tbl_id, is_view=is_view), mode) for is_view in (False, True))
-
     def _refresh_tbl_cache(
         self,
         *,
@@ -1554,7 +1552,7 @@ class Catalog(CatalogBase):
                         return None
                     assert tbl_md.tbl_state in (schema.TableState.ROLLFORWARD, schema.TableState.ROLLBACK)
                     base_id = _finalized_view_base_id(tbl_md)
-                    if base_id is not None and not self._has_store_tbl_lock(base_id, _TblLockMode.ACCESS_EXCLUSIVE):
+                    if base_id is not None and not self._is_tbl_locked(base_id, _TblLockMode.ACCESS_EXCLUSIVE):
                         base_row = conn.execute(
                             sql.select(schema.Table.id).where(schema.Table.id == base_id)
                         ).one_or_none()
@@ -1788,7 +1786,7 @@ class Catalog(CatalogBase):
         otherwise.
         """
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(table_id=str(tbl_id)))
-        assert self._has_store_tbl_lock(tbl_id, _TblLockMode.ACCESS_EXCLUSIVE), tbl_id
+        assert self._is_tbl_locked(tbl_id, _TblLockMode.ACCESS_EXCLUSIVE), tbl_id
         pending_ops_stmt = self._pending_table_ops_update_stmt(tbl_id, op, new_status, is_final_op=is_final_op)
         conn = get_runtime().conn
         rowcount = conn.execute(pending_ops_stmt).rowcount
@@ -1834,7 +1832,7 @@ class Catalog(CatalogBase):
         The transaction must hold ACCESS EXCLUSIVE on the store table to prevent concurrent finalization.
         """
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(table_id=str(tbl_id)))
-        assert self._has_store_tbl_lock(tbl_id, _TblLockMode.ACCESS_EXCLUSIVE), tbl_id
+        assert self._is_tbl_locked(tbl_id, _TblLockMode.ACCESS_EXCLUSIVE), tbl_id
         conn = get_runtime().conn
         q = (
             sql.select(schema.PendingTableOp)
