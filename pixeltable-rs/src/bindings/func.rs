@@ -173,7 +173,7 @@ impl PyUdf {
         let out = udf::bind_template(&self.def, &bindings)?;
         let items: Vec<Bound<'py, PyTuple>> = out
             .into_iter()
-            .map(|(i, e)| PyTuple::new(py, [i.into_pyobject(py)?.into_any(), Bound::new(py, PyExpr::new(e))?.into_any()]))
+            .map(|(i, e)| PyTuple::new(py, [i.into_pyobject(py)?.into_any(), Bound::new(py, wrap(e)?)?.into_any()]))
             .collect::<PyResult<_>>()?;
         Ok(PyList::new(py, items)?)
     }
@@ -234,7 +234,7 @@ pub fn registered_functions(py: Python<'_>) -> Vec<Py<PyAny>> {
 #[pyfunction]
 pub fn variable(name: &str, col_type: &Bound<'_, PyAny>) -> Result<PyExpr> {
     let t = super::types::core_type(col_type).ok_or_else(|| Error::Type("expected a ColumnType".into()))?;
-    Ok(PyExpr::new(Expr::new(ExprKind::Variable(name.to_string()), t)))
+    wrap(Expr::new(ExprKind::Variable(name.to_string()), t))
 }
 
 // ------------------------------------------------------------------------------------------------ iterators
@@ -376,7 +376,7 @@ pub fn table_udf<'py>(
         .into_iter()
         .map(|(n, t)| Ok((n, super::types::wrap_type(py, &t)?)))
         .collect::<Result<Vec<_>>>()?;
-    Ok((PyExpr::new(expr), params))
+    Ok((wrap(expr)?, params))
 }
 
 fn substitution(subst: &[((uuid::Uuid, u32), ExprRef)], x: &Expr) -> Option<ExprRef> {
