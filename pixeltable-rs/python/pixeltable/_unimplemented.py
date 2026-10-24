@@ -46,8 +46,14 @@ def stub_functions(module_name: str, names: list[str]) -> dict[str, Unimplemente
     return {name: UnimplementedFunction(module_name, name) for name in names}
 
 
-def unimplemented_class(module: str, name: str) -> type:
-    """A placeholder class whose instantiation raises NotImplementedError."""
+def unimplemented_class(module: str, name: str) -> Any:
+    """A placeholder class whose instantiation raises NotImplementedError (or the backend's builtin iterator of that
+    name: upstream defines iterators such as `frame_iterator` as classes)."""
+    from pixeltable.func._iterator import builtin_iterator
+
+    it = builtin_iterator(module, name)
+    if it is not None:
+        return it
 
     def __init__(self: Any, *args: Any, **kwargs: Any) -> None:
         raise NotImplementedError(_message(f'`{module}.{name}`'))

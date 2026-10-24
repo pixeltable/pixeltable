@@ -87,7 +87,13 @@ impl InsertPlan {
                     media_validation,
                 })
             })
-            .collect::<Result<_>>()?;
+            .collect::<Result<Vec<InsertColumn>>>()?;
+        let tbl_display = crate::functions::udf::tbl_version_display(md);
+        for c in columns.iter().filter(|c| c.stored) {
+            if let Some(e) = &c.value_expr {
+                crate::functions::udf::check_valid_column(&tbl_display, &c.name, e, "inserted into")?;
+            }
+        }
         let mut columns: Vec<InsertColumn> = columns;
         // the hidden value columns of embedding indexes are computed like stored computed columns
         for idx in &md.indexes.list {

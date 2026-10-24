@@ -564,12 +564,17 @@ pub fn create_view(
 pub fn get_table(py: Python<'_>, path: &str, if_not_exists: &str) -> Result<Option<(String, String, Option<i64>)>> {
     let ine = IfNotExists::parse(if_not_exists, "if_not_exists")?;
     let p = Path::parse(path, false, true)?;
-    with_catalog(py, |cat| {
+    let (result, warnings) = with_catalog(py, |cat| {
         Ok(match cat.get_table(&p, ine)? {
-            Some(id) => Some((id.to_string(), cat.table(id)?.kind.display_name().to_string(), p.version)),
-            None => None,
+            Some(id) => (
+                Some((id.to_string(), cat.table(id)?.kind.display_name().to_string(), p.version)),
+                crate::functions::udf::load_warnings(cat, id)?,
+            ),
+            None => (None, Vec::new()),
         })
-    })
+    })?;
+    crate::functions::udf::emit_warnings(py, &warnings)?;
+    Ok(result)
 }
 
 /// `table` is a path string or a table id (from a handle).

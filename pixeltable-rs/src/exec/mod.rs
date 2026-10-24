@@ -210,6 +210,35 @@ impl QuerySpec {
         Ok(())
     }
 
+    /// The query with every expression replaced by `f(expr)` (used to bind the parameters of a `@pxt.query`
+    /// template). Every expression-holding field must be mapped here (the destructuring makes a new field a compile
+    /// error until it is).
+    pub fn map_exprs(&self, f: &dyn Fn(&ExprRef) -> Result<ExprRef>) -> Result<QuerySpec> {
+        let QuerySpec { tbl_id, version, select, where_, order_by, limit, offset } = self;
+        Ok(QuerySpec {
+            tbl_id: *tbl_id,
+            version: *version,
+            select: select
+                .as_ref()
+                .map(|items| items.iter().map(|(e, n)| Ok((f(e)?, n.clone()))).collect::<Result<Vec<_>>>())
+                .transpose()?,
+            where_: where_.as_ref().map(f).transpose()?,
+            order_by: order_by.iter().map(|(e, asc)| Ok((f(e)?, *asc))).collect::<Result<_>>()?,
+            limit: *limit,
+            offset: *offset,
+        })
+    }
+
+    /// Every expression of the query.
+    pub fn exprs(&self) -> Vec<ExprRef> {
+        let out = std::cell::RefCell::new(Vec::new());
+        let _ = self.map_exprs(&|e| {
+            out.borrow_mut().push(e.clone());
+            Ok(e.clone())
+        });
+        out.into_inner()
+    }
+
     // ------------------------------------------------------------------------------------------- serialization
 
     pub fn to_json(&self) -> Result<serde_json::Value> {

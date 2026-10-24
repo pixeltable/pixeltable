@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use crate::error::{Error, Result};
 use crate::types::{ColumnType, DType, JsonSchema, JsonSpec, TypeKind};
-use crate::value::{ArrayData, Json, NdArray, Value};
+use crate::value::{ArrayData, Json, MAX_JSON_DEPTH, NdArray, Value, json_too_deep_msg};
 
 static DATETIME: PyOnceLock<Py<PyType>> = PyOnceLock::new();
 static DATE: PyOnceLock<Py<PyType>> = PyOnceLock::new();
@@ -123,6 +123,25 @@ fn py_repr(obj: &Bound<'_, PyAny>) -> String {
 
 fn type_err(msg: impl Into<String>) -> Error {
     Error::Type(msg.into())
+}
+
+/// A Python str as a Rust string. A str that UTF-8 cannot encode (a lone surrogate) is a `TypeError` with Python's
+/// message, so that insert reports it as an invalid value of its column.
+fn str_value(obj: &Bound<'_, PyAny>) -> Result<String> {
+    let py = obj.py();
+    obj.extract::<String>().map_err(|e| {
+        if e.is_instance_of::<pyo3::exceptions::PyUnicodeEncodeError>(py) {
+            type_err(e.value(py).to_string())
+        } else {
+            e.into()
+        }
+    })
+}
+
+/// Fails once JSON containers are nested more than `MAX_JSON_DEPTH` deep (`depth` is the level of the container
+/// being entered, starting at 1).
+fn check_json_depth(depth: usize) -> Result<()> {
+    if depth > MAX_JSON_DEPTH { Err(type_err(json_too_deep_msg())) } else { Ok(()) }
 }
 
 // ------------------------------------------------------------------------------------------------ scalars
@@ -294,7 +313,7 @@ fn validate_array(obj: &Bound<'_, PyAny>, shape: &Option<crate::types::Shape>, d
 
 // ------------------------------------------------------------------------------------------------ json
 
-fn is_valid_json_literal(obj: &Bound<'_, PyAny>) -> Result<bool> {
+fn is_valid_json_literal(obj: &Bound<'_, PyAny>, depth: usize) -> Result<bool> {
     let py = obj.py();
     if obj.is_none()
         || obj.is_instance_of::<PyString>()
@@ -310,24 +329,27 @@ fn is_valid_json_literal(obj: &Bound<'_, PyAny>) -> Result<bool> {
         return Ok(dtype_of(obj)?.is_some());
     }
     if let Ok(list) = obj.cast::<PyList>() {
+        check_json_depth(depth)?;
         for item in list.iter() {
-            if !is_valid_json_literal(&item)? {
+            if !is_valid_json_literal(&item, depth + 1)? {
                 return Ok(false);
             }
         }
         return Ok(true);
     }
     if let Ok(tuple) = obj.cast::<PyTuple>() {
+        check_json_depth(depth)?;
         for item in tuple.iter() {
-            if !is_valid_json_literal(&item)? {
+            if !is_valid_json_literal(&item, depth + 1)? {
                 return Ok(false);
             }
         }
         return Ok(true);
     }
     if let Ok(dict) = obj.cast::<PyDict>() {
+        check_json_depth(depth)?;
         for (k, v) in dict.iter() {
-            if !k.is_instance_of::<PyString>() || !is_valid_json_literal(&v)? {
+            if !k.is_instance_of::<PyString>() || !is_valid_json_literal(&v, depth + 1)? {
                 return Ok(false);
             }
         }
@@ -338,6 +360,10 @@ fn is_valid_json_literal(obj: &Bound<'_, PyAny>) -> Result<bool> {
 
 /// Converts a (validated) Python JSON literal into a JSON value.
 pub fn json_from_py(obj: &Bound<'_, PyAny>) -> Result<Json> {
+    json_from_py_at(obj, 1)
+}
+
+fn json_from_py_at(obj: &Bound<'_, PyAny>, depth: usize) -> Result<Json> {
     let py = obj.py();
     if obj.is_none() {
         return Ok(Json::Null);
@@ -362,21 +388,24 @@ pub fn json_from_py(obj: &Bound<'_, PyAny>) -> Result<Json> {
         });
     }
     if obj.is_instance_of::<PyString>() {
-        return Ok(Json::String(obj.extract()?));
+        return Ok(Json::String(str_value(obj)?));
     }
     if obj.is_instance(base_model_cls(py)?)? {
-        return json_from_py(&obj.call_method0("model_dump")?);
+        return json_from_py_at(&obj.call_method0("model_dump")?, depth);
     }
     if let Ok(list) = obj.cast::<PyList>() {
-        return Ok(Json::Array(list.iter().map(|i| json_from_py(&i)).collect::<Result<_>>()?));
+        check_json_depth(depth)?;
+        return Ok(Json::Array(list.iter().map(|i| json_from_py_at(&i, depth + 1)).collect::<Result<_>>()?));
     }
     if let Ok(tuple) = obj.cast::<PyTuple>() {
-        return Ok(Json::Array(tuple.iter().map(|i| json_from_py(&i)).collect::<Result<_>>()?));
+        check_json_depth(depth)?;
+        return Ok(Json::Array(tuple.iter().map(|i| json_from_py_at(&i, depth + 1)).collect::<Result<_>>()?));
     }
     if let Ok(dict) = obj.cast::<PyDict>() {
+        check_json_depth(depth)?;
         let mut m = serde_json::Map::new();
         for (k, v) in dict.iter() {
-            m.insert(k.extract::<String>()?, json_from_py(&v)?);
+            m.insert(str_value(&k)?, json_from_py_at(&v, depth + 1)?);
         }
         return Ok(Json::Object(m));
     }
@@ -572,7 +601,7 @@ pub fn validate(obj: &Bound<'_, PyAny>, t: &ColumnType) -> Result<()> {
             if v.is_instance(base_model_cls(py)?)? {
                 v = v.call_method0("model_dump")?;
             }
-            if !is_valid_json_literal(&v)? {
+            if !is_valid_json_literal(&v, 1)? {
                 return Err(type_err(format!("That literal is not a valid Pixeltable JSON object: {}", py_str(&v))));
             }
             if let Some(s) = schema {
@@ -656,7 +685,12 @@ pub fn decode_data_url_image<'py>(py: Python<'py>, url: &str) -> Result<Bound<'p
         Ok(img)
     };
     attempt().map_err(|_| {
-        let shown = if url.len() < 50 { url.to_string() } else { format!("{}...", &url[..50]) };
+        // upstream truncates to 50 characters (not bytes: slicing bytes could split a character)
+        let shown = if url.chars().count() < 50 {
+            url.to_string()
+        } else {
+            format!("{}...", url.chars().take(50).collect::<String>())
+        };
         crate::pxt_err!(InvalidDataFormat, "data URL could not be decoded into a valid image: {shown}")
     })
 }
@@ -670,7 +704,7 @@ fn convert_validated(obj: &Bound<'_, PyAny>, t: &ColumnType) -> Result<Value> {
     Ok(match &t.kind {
         TypeKind::Invalid => Value::Null,
         TypeKind::String => {
-            let s: String = obj.extract()?;
+            let s = str_value(obj)?;
             // upstream replaces NUL characters (which Postgres cannot store) with spaces
             Value::String(if s.contains('\0') { s.replace('\0', " ") } else { s })
         }
@@ -706,8 +740,16 @@ pub fn coerce(obj: &Bound<'_, PyAny>, t: &ColumnType) -> Result<Value> {
     convert_validated(&v, t)
 }
 
-/// `ColumnType.infer_literal_type()` plus conversion: the type and value of a Python literal, or None.
+/// `ColumnType.infer_literal_type()` plus conversion: the type and value of a Python literal, or None. A value that
+/// cannot be stored (a str with a lone surrogate, JSON nested too deeply) is an INVALID_ARGUMENT error.
 pub fn infer_literal(obj: &Bound<'_, PyAny>) -> Result<Option<(ColumnType, Value)>> {
+    infer_literal_at(obj, 1).map_err(|e| match e {
+        Error::Type(msg) => crate::pxt_err!(InvalidArgument, "{msg}"),
+        e => e,
+    })
+}
+
+fn infer_literal_at(obj: &Bound<'_, PyAny>, depth: usize) -> Result<Option<(ColumnType, Value)>> {
     let py = obj.py();
     let mut v = obj.clone();
     if v.is_instance(enum_cls(py)?)? {
@@ -750,10 +792,10 @@ pub fn infer_literal(obj: &Bound<'_, PyAny>) -> Result<Option<(ColumnType, Value
         || v.is_instance(base_model_cls(py)?)?
     {
         let converted = pre_convert(&v, &ColumnType::json(false))?;
-        if !is_valid_json_literal(&converted)? {
+        if !is_valid_json_literal(&converted, depth)? {
             return Ok(None);
         }
-        return Ok(Some((json_literal_type(&converted)?, Value::Json(json_from_py(&converted)?))));
+        return Ok(Some((json_literal_type(&converted, depth)?, Value::Json(json_from_py_at(&converted, depth)?))));
     } else {
         return Ok(None);
     };
@@ -761,10 +803,10 @@ pub fn infer_literal(obj: &Bound<'_, PyAny>) -> Result<Option<(ColumnType, Value
     Ok(Some((t, value)))
 }
 
-/// The structural type of a JSON literal (`JsonType.from_literal`).
-fn json_literal_type(obj: &Bound<'_, PyAny>) -> Result<ColumnType> {
+/// The structural type of a JSON literal (`JsonType.from_literal`); `obj` has been validated at `depth`.
+fn json_literal_type(obj: &Bound<'_, PyAny>, depth: usize) -> Result<ColumnType> {
     let item_type = |item: &Bound<'_, PyAny>| -> Result<ColumnType> {
-        Ok(match infer_literal(item)? {
+        Ok(match infer_literal_at(item, depth + 1)? {
             Some((t, _)) => t,
             None => ColumnType::json(false),
         })
@@ -774,7 +816,7 @@ fn json_literal_type(obj: &Bound<'_, PyAny>) -> Result<ColumnType> {
     } else if let Ok(dict) = obj.cast::<PyDict>() {
         let mut fields = indexmap::IndexMap::new();
         for (k, v) in dict.iter() {
-            fields.insert(k.extract::<String>()?, item_type(&v)?);
+            fields.insert(str_value(&k)?, item_type(&v)?);
         }
         JsonSpec::Dict(fields)
     } else {

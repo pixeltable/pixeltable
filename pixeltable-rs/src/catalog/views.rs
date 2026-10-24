@@ -37,6 +37,9 @@ impl Catalog {
         media_validation: MediaValidation,
         if_exists: IfExists,
     ) -> Result<(Uuid, bool)> {
+        if let Some(p) = &predicate {
+            crate::functions::udf::validate_storable(p, "A view's filter")?;
+        }
         let creating = if is_snapshot { Creating::Snapshot } else { Creating::View };
         // a replacement must not be one of the view's own ancestors
         if matches!(if_exists, IfExists::Replace | IfExists::ReplaceForce) {

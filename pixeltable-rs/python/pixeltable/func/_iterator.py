@@ -364,6 +364,46 @@ class GeneratingFunctionCall:
         return self.display_str()
 
 
+class BuiltinGeneratingFunction(GeneratingFunction):
+    """An iterator implemented in the backend (e.g. `pixeltable.functions.video.frame_iterator`)."""
+
+    def __init__(self, module: str, name: str) -> None:
+        self.fqn = f'{module}.{name}'
+        self.__module__ = module
+        self.__name__ = name
+        self.__qualname__ = name
+        self._core = None
+        self._validate = None
+        self._conditional_output_schema = None
+        self._default_output_schema = None
+        self.is_legacy_retrofit = False
+        self.has_seek = True
+        core = self._core_iterator()
+        self.unstored_cols = list(core.unstored_cols)
+
+    @property
+    def decorated_callable(self) -> Any:  # type: ignore[override]
+        return self
+
+    def _core_iterator(self) -> _core.Iterator:
+        if self._core is None:
+            self._core = _core.Iterator._builtin(self, self.fqn)
+        return self._core
+
+    def call_output_schema(self, bound_args: dict[str, Any]) -> dict[str, ts.ColumnType]:
+        raise NotImplementedError(f'call_output_schema() of the builtin iterator `{self.fqn}`')
+
+
+_BUILTIN_ITERATORS: set[str] = set(_core.builtin_iterator_names())
+
+
+def builtin_iterator(module: str, name: str) -> BuiltinGeneratingFunction | None:
+    """The backend's iterator `module.name`, if it implements one."""
+    if f'{module}.{name}' in _BUILTIN_ITERATORS:
+        return BuiltinGeneratingFunction(module, name)
+    return None
+
+
 def _resolve_iterator(d: dict[str, Any]) -> GeneratingFunction:
     """Called by the backend to resolve a stored iterator (`GeneratingFunction.as_dict()`)."""
     return GeneratingFunction.from_dict(d)

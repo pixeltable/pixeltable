@@ -9,7 +9,7 @@ use super::expr::{as_expr, from_object};
 use super::types::wrap_type;
 use crate::catalog::path::fold_identifier;
 use crate::catalog::runtime::with_catalog;
-use crate::error::{Error, Result};
+use crate::error::{Error, Result, py_repr};
 use crate::exec::{QueryInput, QuerySpec, ResultData, count, execute};
 use crate::value::py as vpy;
 
@@ -28,10 +28,20 @@ fn obj_str(obj: &Bound<'_, PyAny>) -> String {
 
 fn int_param(obj: &Bound<'_, PyAny>, name: &str) -> Result<i64> {
     if obj.is_instance_of::<PyInt>() && !obj.is_instance_of::<PyBool>() {
-        return Ok(obj.extract()?);
+        let out_of_range = || crate::pxt_err!(InvalidArgument, "{} parameter must be <= {}", py_repr(name), i64::MAX);
+        return obj.extract().map_err(|_| out_of_range());
     }
     let t = vpy::infer_literal(obj)?.map(|(t, _)| t.repr()).unwrap_or_else(|| "Invalid".to_string());
     crate::bail!(TypeMismatch, "{} parameter must be of type `Int`; got `{t}`", crate::error::py_repr(name))
+}
+
+/// A non-negative int parameter (`limit()`, `offset`): negative values are refused before the type check, as
+/// upstream does.
+fn nonneg_int_param(obj: &Bound<'_, PyAny>, name: &str) -> Result<i64> {
+    if obj.is_instance_of::<PyInt>() && !obj.is_instance_of::<PyBool>() && obj.lt(0)? {
+        crate::bail!(InvalidArgument, "{} parameter must be >= 0", crate::error::py_repr(name));
+    }
+    int_param(obj, name)
 }
 
 fn run(py: Python<'_>, q: &QuerySpec, rowid_desc: bool) -> Result<ResultData> {
@@ -110,19 +120,11 @@ impl PyQuerySpec {
         if n.is_none() {
             crate::bail!(MissingRequired, "'limit()' parameter must be present");
         }
-        if n.is_instance_of::<PyInt>() && !n.is_instance_of::<PyBool>() && n.extract::<i64>()? < 0 {
-            crate::bail!(InvalidArgument, "'limit()' parameter must be >= 0");
-        }
-        let n = int_param(n, "limit()")?;
+        let n = nonneg_int_param(n, "limit()")?;
         let offset = match offset {
             None => None,
             Some(o) if o.is_none() => None,
-            Some(o) => {
-                if o.is_instance_of::<PyInt>() && !o.is_instance_of::<PyBool>() && o.extract::<i64>()? < 0 {
-                    crate::bail!(InvalidArgument, "'offset' parameter must be >= 0");
-                }
-                Some(int_param(o, "offset")?)
-            }
+            Some(o) => Some(nonneg_int_param(o, "offset")?),
         };
         Ok(wrap(self.q.with_limit(n, offset)?))
     }
@@ -139,15 +141,15 @@ impl PyQuerySpec {
         Ok(PyResultSet::new(run(py, &self.q, false)?))
     }
 
-    fn head(&self, py: Python<'_>, n: i64) -> Result<PyResultSet> {
+    fn head(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> Result<PyResultSet> {
         self.q.check_head_tail("head")?;
-        let q = self.q.with_limit(n, None)?;
+        let q = self.q.with_limit(nonneg_int_param(n, "limit()")?, None)?;
         Ok(PyResultSet::new(run(py, &q, false)?))
     }
 
-    fn tail(&self, py: Python<'_>, n: i64) -> Result<PyResultSet> {
+    fn tail(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> Result<PyResultSet> {
         self.q.check_head_tail("tail")?;
-        let q = self.q.with_limit(n, None)?;
+        let q = self.q.with_limit(nonneg_int_param(n, "limit()")?, None)?;
         let mut data = run(py, &q, true)?;
         data.rows.reverse();
         Ok(PyResultSet::new(data))
@@ -181,10 +183,20 @@ impl PyQuerySpec {
         Ok(vpy::json_to_py(py, &self.q.to_json()?)?)
     }
 
+    /// `from_dict()` without checking the catalog (for deserialization that runs under the catalog lock).
+    #[staticmethod]
+    fn _from_dict_unchecked(py: Python<'_>, d: &Bound<'_, PyAny>) -> Result<Self> {
+        let s: String = py.import("json")?.call_method1("dumps", (d,))?.extract()?;
+        let j: serde_json::Value = crate::value::parse_json_bounded(s.as_bytes(), crate::store::MAX_CATALOG_DEPTH)
+            .map_err(|e| Error::internal(format!("malformed serialized query: {e}")))?;
+        Ok(wrap(QuerySpec::from_json(&j)?))
+    }
+
     #[staticmethod]
     fn from_dict(py: Python<'_>, d: &Bound<'_, PyAny>) -> Result<Self> {
         let s: String = py.import("json")?.call_method1("dumps", (d,))?.extract()?;
-        let j: serde_json::Value = serde_json::from_str(&s)?;
+        let j: serde_json::Value = crate::value::parse_json_bounded(s.as_bytes(), crate::store::MAX_CATALOG_DEPTH)
+            .map_err(|e| Error::internal(format!("malformed serialized query: {e}")))?;
         let q = QuerySpec::from_json(&j)?;
         with_catalog(py, |cat| cat.table(q.tbl_id).map(|_| ()))?;
         Ok(wrap(q))

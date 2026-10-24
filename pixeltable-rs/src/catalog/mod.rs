@@ -20,7 +20,7 @@ use uuid::Uuid;
 
 use crate::error::{Error, Result};
 use crate::store::rows::TableData;
-use crate::store::{CatalogFile, DirMd, FORMAT_NAME, FORMAT_VERSION, Store};
+use crate::store::{CatalogFile, CatalogStamp, DirMd, FORMAT_NAME, FORMAT_VERSION, Store};
 use path::Path;
 use table::TableMd;
 
@@ -82,6 +82,9 @@ enum PendingDelete {
 
 pub struct Catalog {
     store: Store,
+    /// the stamp of the committed state this catalog reflects (see `store::CatalogFile`)
+    catalog_id: Uuid,
+    generation: u64,
     root_id: Uuid,
     dirs: HashMap<Uuid, DirMd>,
     tables: HashMap<Uuid, Arc<TableMd>>,
@@ -117,6 +120,8 @@ impl Catalog {
                 let root_id = root.id;
                 Ok(Catalog {
                     store,
+                    catalog_id: cf.catalog_id,
+                    generation: cf.generation,
                     root_id,
                     dirs: cf.dirs.into_iter().map(|d| (d.id, d)).collect(),
                     tables: cf.tables.into_iter().map(|t| (t.id, Arc::new(t))).collect(),
@@ -131,6 +136,8 @@ impl Catalog {
                 let root = DirMd { id: Uuid::new_v4(), parent_id: None, name: String::new(), created_at: now() };
                 let mut cat = Catalog {
                     store,
+                    catalog_id: Uuid::new_v4(),
+                    generation: 0,
                     root_id: root.id,
                     dirs: HashMap::from([(root.id, root)]),
                     tables: HashMap::new(),
@@ -148,6 +155,11 @@ impl Catalog {
 
     pub fn store(&self) -> &Store {
         &self.store
+    }
+
+    /// The stamp of the committed state this in-memory catalog reflects.
+    pub fn stamp(&self) -> CatalogStamp {
+        (self.catalog_id, self.generation)
     }
 
     // ---------------------------------------------------------------------------------------- atomicity
@@ -220,9 +232,12 @@ impl Catalog {
         dirs.sort_by(|a, b| a.created_at.total_cmp(&b.created_at).then(a.id.cmp(&b.id)));
         let mut tables: Vec<TableMd> = self.tables.values().map(|t| t.as_ref().clone()).collect();
         tables.sort_by(|a, b| a.created_at.total_cmp(&b.created_at).then(a.id.cmp(&b.id)));
+        self.generation += 1;
         self.store.save_catalog(&CatalogFile {
             format: FORMAT_NAME.to_string(),
             format_version: FORMAT_VERSION,
+            catalog_id: self.catalog_id,
+            generation: self.generation,
             dirs,
             tables,
         })?;

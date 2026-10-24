@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 use std::sync::Arc;
 
-use super::expr::{PyExpr, as_expr, from_object};
+use super::expr::{PyExpr, as_expr, from_object, wrap};
 use crate::error::{Error, Result, py_repr};
 use crate::expr::{Expr, ExprKind, ExprRef};
 use crate::functions::signature::Signature;
@@ -101,6 +101,14 @@ impl PyUdf {
                 }
                 UdfImpl::Template { exprs }
             }
+            "query" => {
+                let q = spec_item(spec, "query")?.ok_or_else(|| Error::internal("query template without a query"))?;
+                let q = q
+                    .cast::<super::query::PyQuerySpec>()
+                    .map_err(|_| Error::internal("a query template needs a _core.QuerySpec"))?;
+                let return_scalar = flag("return_scalar")?;
+                UdfImpl::Query { spec: q.get().q.clone(), return_scalar }
+            }
             "invalid" => UdfImpl::Invalid {
                 error_msg: spec_item(spec, "error_msg")?.map(|m| m.extract()).transpose()?.unwrap_or_default(),
             },
@@ -109,6 +117,7 @@ impl PyUdf {
         let storable = match &imp {
             UdfImpl::Callable { .. } => self_path.is_some(),
             UdfImpl::Template { exprs } => self_path.is_some() || exprs.iter().all(|e| udf::is_storable(e)),
+            UdfImpl::Query { spec, .. } => spec.exprs().iter().all(|e| udf::is_storable(e)),
             UdfImpl::Invalid { .. } => false,
         };
         let def = UdfDef::new(
@@ -129,7 +138,7 @@ impl PyUdf {
     #[pyo3(signature = (*args, **kwargs))]
     fn call(&self, args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Result<PyExpr> {
         let (a, k) = call_args(self.def.self_path.as_deref(), args, kwargs)?;
-        Ok(PyExpr::new(udf::make_call(&self.def, a, k, false)?))
+        wrap(udf::make_call(&self.def, a, k, false)?)
     }
 
     /// `base.fn(*args, **kwargs)` (a method call)
@@ -143,7 +152,7 @@ impl PyUdf {
         let base = as_expr(base).ok_or_else(|| Error::internal("method call on a non-expression"))?;
         let (mut a, k) = call_args(self.def.self_path.as_deref(), args, kwargs)?;
         a.insert(0, base);
-        Ok(PyExpr::new(udf::make_call(&self.def, a, k, true)?))
+        wrap(udf::make_call(&self.def, a, k, true)?)
     }
 
     /// `Function.using(**kwargs)`: (signature index, template call) for each signature that accepts the bindings.
@@ -188,7 +197,7 @@ impl PyUdfMethodRef {
     fn __call__(&self, args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Result<PyExpr> {
         let (mut a, k) = call_args(self.def.self_path.as_deref(), args, kwargs)?;
         a.insert(0, self.base.clone());
-        Ok(PyExpr::new(udf::make_call(&self.def, a, k, true)?))
+        wrap(udf::make_call(&self.def, a, k, true)?)
     }
 
     fn __repr__(&self) -> String {
@@ -203,7 +212,7 @@ pub fn udf_attribute<'py>(py: Python<'py>, base: &ExprRef, name: &str) -> Result
     let def = udf::def_of(f.bind(py))?;
     if def.is_property {
         let call = udf::make_call(&def, vec![base.clone()], vec![], true)?;
-        return Ok(Some(Bound::new(py, PyExpr::new(call))?.into_any()));
+        return Ok(Some(Bound::new(py, wrap(call)?)?.into_any()));
     }
     Ok(Some(Bound::new(py, PyUdfMethodRef { base: base.clone(), def })?.into_any()))
 }
@@ -250,6 +259,18 @@ impl PyIterator {
         let has_seek = spec_item(spec, "has_seek")?.map(|v| v.is_truthy()).transpose()?.unwrap_or(false);
         let error_msg: Option<String> = spec_item(spec, "error_msg")?.map(|m| m.extract()).transpose()?;
         Ok(PyIterator { def: Arc::new(IteratorDef::new(fqn, signature, unstored_cols, has_seek, py_obj.unbind(), error_msg)) })
+    }
+
+    /// The backend's builtin iterator `fqn` (`py_obj`: its Python function object).
+    #[staticmethod]
+    fn _builtin(py_obj: Bound<'_, PyAny>, fqn: &str) -> Result<Self> {
+        let b = iterator::lookup_builtin(fqn).ok_or_else(|| crate::pxt_err!(FunctionNotFound, "Iterator {} not found", py_repr(fqn)))?;
+        Ok(PyIterator { def: Arc::new(IteratorDef::builtin(b, py_obj.unbind())) })
+    }
+
+    #[getter]
+    fn unstored_cols(&self) -> Vec<String> {
+        self.def.unstored_cols.clone()
     }
 
     /// `iterator(*args, **kwargs)`
@@ -306,4 +327,137 @@ pub fn iterator_call_from_py(obj: &Bound<'_, PyAny>) -> Result<Arc<IteratorCall>
         "iterator must be a call of a @pxt.iterator, not {}",
         obj.get_type().name().map(|n| n.to_string()).unwrap_or_default()
     )))
+}
+
+/// Upstream `udf.from_table()`: the template of `pxt.udf(table)`: (template expression, parameters as
+/// (name, ColumnType)). Data columns of the table and its bases become variables (the parameters); computed columns
+/// become their value expressions with the substitutions applied; the template is a dict of all columns, or
+/// `return_value` with the same substitutions.
+#[pyfunction]
+#[pyo3(signature = (tbl_id, return_value=None))]
+pub fn table_udf<'py>(
+    py: Python<'py>,
+    tbl_id: &str,
+    return_value: Option<&Bound<'py, PyAny>>,
+) -> Result<(PyExpr, Vec<(String, Bound<'py, PyAny>)>)> {
+    let id = super::catalog::parse_uuid(tbl_id)?;
+    let return_value = match return_value.filter(|r| !r.is_none()) {
+        None => None,
+        Some(r) => Some(from_object(r)?.ok_or_else(|| Error::Type("return_value must be an expression".into()))?),
+    };
+    let (expr, params) = crate::catalog::runtime::with_catalog(py, |cat| {
+        let mut subst: Vec<((uuid::Uuid, u32), ExprRef)> = Vec::new();
+        let mut result: Vec<(String, ExprRef)> = Vec::new();
+        let mut params: Vec<(String, crate::types::ColumnType)> = Vec::new();
+        for t in cat.base_chain(id).into_iter().rev() {
+            for c in cat.table(t)?.columns_at(None)? {
+                let key = (c.tbl_id, c.md.id);
+                let e = match &c.md.value_expr {
+                    Some(j) => {
+                        let value = crate::expr::serde::from_json(j)?;
+                        udf::substitute(&value, &|x| substitution(&subst, x))?
+                    }
+                    None => {
+                        params.push((c.name.clone(), c.md.col_type.clone()));
+                        Expr::new(ExprKind::Variable(c.name.clone()), c.md.col_type.clone())
+                    }
+                };
+                subst.push((key, e.clone()));
+                result.push((c.name.clone(), e));
+            }
+        }
+        let expr = match &return_value {
+            None => crate::expr::build::inline_dict(result),
+            Some(r) => udf::substitute(r, &|x| substitution(&subst, x))?,
+        };
+        Ok((expr, params))
+    })?;
+    let params = params
+        .into_iter()
+        .map(|(n, t)| Ok((n, super::types::wrap_type(py, &t)?)))
+        .collect::<Result<Vec<_>>>()?;
+    Ok((PyExpr::new(expr), params))
+}
+
+fn substitution(subst: &[((uuid::Uuid, u32), ExprRef)], x: &Expr) -> Option<ExprRef> {
+    let c = x.as_column_ref()?;
+    subst.iter().find(|(k, _)| *k == (c.tbl_id, c.col_id)).map(|(_, e)| e.clone())
+}
+
+#[pyfunction]
+pub fn builtin_iterator_names() -> Vec<String> {
+    iterator::builtin_names()
+}
+
+/// Evaluates against values given by column name (for `_iterator_rows`).
+struct NamedValues(Vec<(String, crate::value::Value)>);
+
+impl crate::expr::eval::RowContext for NamedValues {
+    fn column_value(&self, col: &crate::expr::ColumnRef) -> Result<crate::value::Value> {
+        self.0
+            .iter()
+            .find(|(n, _)| *n == col.name)
+            .map(|(_, v)| v.clone())
+            .ok_or_else(|| Error::internal(format!("no value for column {}", col.name)))
+    }
+}
+
+/// Test hook: runs an iterator call for one input row (`row`: column name -> value of the columns the arguments
+/// read); returns the output rows as dicts (with `pos`).
+#[pyfunction]
+pub fn _iterator_rows<'py>(py: Python<'py>, call: &Bound<'py, PyAny>, row: &Bound<'py, PyDict>) -> Result<Vec<Bound<'py, PyDict>>> {
+    let call = iterator_call_from_py(call)?;
+    let mut values = Vec::new();
+    for e in call.arg_exprs() {
+        for c in e.column_refs() {
+            if let Some(v) = row.get_item(&c.name)? {
+                values.push((c.name.clone(), crate::value::py::coerce(&v, &e.col_type)?));
+            }
+        }
+    }
+    let rows = call.eval_rows(&NamedValues(values))?;
+    rows.into_iter()
+        .enumerate()
+        .map(|(pos, r)| {
+            let d = PyDict::new(py);
+            d.set_item("pos", pos)?;
+            for (o, v) in call.value_outputs().iter().zip(r.iter()) {
+                d.set_item(&o.name, crate::value::py::to_py(py, v, &o.col_type)?)?;
+            }
+            Ok(d)
+        })
+        .collect()
+}
+
+/// Test hook: the outputs of the row at `pos` for one input row, recomputed with `seek()` (`stored`: the stored
+/// outputs of that row, by name).
+#[pyfunction]
+pub fn _iterator_seek<'py>(
+    py: Python<'py>,
+    call: &Bound<'py, PyAny>,
+    row: &Bound<'py, PyDict>,
+    pos: i64,
+    stored: &Bound<'py, PyDict>,
+) -> Result<Bound<'py, PyDict>> {
+    let call = iterator_call_from_py(call)?;
+    let mut values = Vec::new();
+    for e in call.arg_exprs() {
+        for c in e.column_refs() {
+            if let Some(v) = row.get_item(&c.name)? {
+                values.push((c.name.clone(), crate::value::py::coerce(&v, &e.col_type)?));
+            }
+        }
+    }
+    let mut stored_vals = Vec::new();
+    for o in call.value_outputs() {
+        if let Some(v) = stored.get_item(&o.name)? {
+            stored_vals.push((o.name.clone(), crate::value::py::coerce(&v, &o.col_type)?));
+        }
+    }
+    let r = call.seek_row(&NamedValues(values), pos, &stored_vals)?;
+    let d = PyDict::new(py);
+    for (o, v) in call.value_outputs().iter().zip(r.iter()) {
+        d.set_item(&o.name, crate::value::py::to_py(py, v, &o.col_type)?)?;
+    }
+    Ok(d)
 }
