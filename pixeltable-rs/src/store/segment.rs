@@ -60,7 +60,8 @@ pub struct Segment {
     rows: OnceLock<Vec<StoredRow>>,
     /// the encoded rows, until decoded
     body: Mutex<Option<Body>>,
-    hashes: Option<KeyHashes>,
+    /// one per key index known when the segment was written
+    hashes: Vec<KeyHashes>,
 }
 
 /// A new segment id (random, so that files of a failed operation never collide with committed ones).
@@ -78,7 +79,7 @@ impl Segment {
     pub fn new(id: u64, rows: Vec<StoredRow>, vmin: Vec<i64>, patches: Vec<Patch>) -> Segment {
         let rowids = rows.iter().map(|r| r.rowid).collect();
         let pos = if rows.iter().any(|r| !r.pos.is_empty()) { rows.iter().map(|r| r.pos.clone()).collect() } else { Vec::new() };
-        Segment { id, vmin, patches, rowids, pos, rows: OnceLock::from(rows), body: Mutex::new(None), hashes: None }
+        Segment { id, vmin, patches, rowids, pos, rows: OnceLock::from(rows), body: Mutex::new(None), hashes: Vec::new() }
     }
 
     /// A segment read from a file whose rows are still encoded (see `codec`).
@@ -89,7 +90,7 @@ impl Segment {
         rowids: Vec<i64>,
         pos: Vec<Vec<i64>>,
         body: Body,
-        hashes: Option<KeyHashes>,
+        hashes: Vec<KeyHashes>,
     ) -> Segment {
         Segment { id, vmin, patches, rowids, pos, rows: OnceLock::new(), body: Mutex::new(Some(body)), hashes }
     }
@@ -111,9 +112,9 @@ impl Segment {
         &self.rowids
     }
 
-    /// The key hashes written with the segment, if any.
-    pub fn hashes(&self) -> Option<&KeyHashes> {
-        self.hashes.as_ref()
+    /// The hashes of key `cols` (truncated or not) written with the segment, if any.
+    pub fn hashes(&self, cols: &[ColId], truncate: bool) -> Option<&KeyHashes> {
+        self.hashes.iter().find(|h| h.cols == cols && h.truncate == truncate)
     }
 
     /// The rows, decoded on first use. Decoding cannot fail for a segment the store wrote (the file's checksum
@@ -137,7 +138,7 @@ impl Segment {
     /// The rows, for changing their cells (keys stay); drops the stored key hashes.
     pub fn rows_mut(&mut self) -> &mut Vec<StoredRow> {
         self.rows();
-        self.hashes = None;
+        self.hashes.clear();
         match self.rows.get_mut() {
             Some(rows) => rows,
             None => unreachable!("rows() initialized them"),

@@ -341,12 +341,10 @@ impl Catalog {
             let Some(entry) = self.data.get_mut(&tbl_id) else { continue };
             let data = Arc::make_mut(entry);
             if data.has_unwritten() {
-                // segments of a table with a primary key carry the hashes of its rows' keys (`KeyIndex`)
                 let md = self.tables.get(&tbl_id).ok_or_else(|| Error::internal("staged table has no metadata"))?;
-                let pk: Vec<ColId> = if md.is_view() { Vec::new() } else { md.columns.iter().filter(|c| c.is_pk).map(|c| c.id).collect() };
-                let key = (!pk.is_empty()).then_some((pk.as_slice(), md.is_data_versioned));
+                let keys = key_indexes(md);
                 for (seg, vmax) in data.prepare_write() {
-                    written.push(self.store.write_segment(tbl_id, &seg, &vmax, key)?);
+                    written.push(self.store.write_segment(tbl_id, &seg, &vmax, &keys)?);
                 }
                 data.mark_written();
             }
@@ -573,6 +571,22 @@ impl Catalog {
     }
 }
 
+/// The keys whose hashes the segments of table `md` carry (see `store::table_data::KeyIndex`): its primary key
+/// (truncated as the index of a data-versioned table truncates strings) and each of its columns with a B-tree index.
+fn key_indexes(md: &TableMd) -> Vec<(Vec<ColId>, bool)> {
+    let mut out = Vec::new();
+    let pk: Vec<ColId> = if md.is_view() { Vec::new() } else { md.columns.iter().filter(|c| c.is_pk).map(|c| c.id).collect() };
+    if !pk.is_empty() {
+        out.push((pk, md.is_data_versioned));
+    }
+    for i in md.indexes.list.iter().filter(|i| i.is_btree() && i.col_tbl_id == md.id) {
+        if !out.iter().any(|(cols, t)| *cols == [i.col_id] && !*t) {
+            out.push((vec![i.col_id], false));
+        }
+    }
+    out
+}
+
 /// The files in the store's `tables/` directory that table `md` references.
 fn table_files(md: &TableMd) -> Vec<String> {
     let mut out: Vec<String> = md.storage.segments.iter().map(|id| Store::segment_file_name(md.id, *id)).collect();
@@ -705,7 +719,7 @@ mod tests {
         // history records past the committed length
         let h = cat.table(id)?.storage.history.ok_or_else(|| Error::internal("no history"))?;
         let stray = crate::store::segment::Segment::new(99, Vec::new(), Vec::new(), Vec::new());
-        store.write_segment(id, &stray, &[], None)?;
+        store.write_segment(id, &stray, &[], &[])?;
         store.append_history(id, h.file, h.len, b"{\"version\": \"garbage\"}\n")?;
         let mut reloaded = Catalog::load(store.clone(), true)?;
         assert_eq!(rowids_at(&mut reloaded, id, None)?, (0..10).collect::<Vec<_>>());

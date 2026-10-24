@@ -352,11 +352,12 @@ format pixeltable-rs v1, which this version of pixeltable-rs (format v3) cannot 
   history file with the committed length); atomically replaced by every commit (the commit point); starts with a
   stamp (`catalog_id`, `generation`) that every commit advances. Its size does not depend on rows or versions;
 - `tables/<tbl id>.<id>.seg`: a segment (`store/codec.rs`): a header with the rows' keys, `v_min` and `v_max` as of
-  writing, for a table with a primary key the (hash, row) pairs of the rows' keys sorted by hash, and the patches it
+  writing, for each key index known then (primary key, columns with a B-tree index; `catalog::key_indexes()`) the
+  (hash, row) pairs of the rows sorted by hash, and the patches it
   carries (`v_max` changes of rows of earlier segments: deletes, the old versions of updated rows, `revert()`); then
   the cells (tagged values, varints; JSON as text) with a checksum. Loading a table reads its files (in parallel) and
   decodes only headers: a segment's cells are decoded on first use (`Segment::rows()`, in parallel chunks), so
-  counting needs no decoding and a primary-key lookup decodes one segment;
+  counting needs no decoding and a key lookup decodes one segment;
 - `tables/<tbl id>.<id>.hist`: the table's version history, one `VersionMd`/`SchemaVersionMd` record per line; a
   commit appends the records that differ from the committed ones (compared by `Arc` identity), replay lets a record
   replace those of the same and later versions and drops versions after `current_version`; rewritten when most of it

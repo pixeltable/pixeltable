@@ -4,7 +4,8 @@
 //! header: magic "PXTSEG" 0x03 0x00 | table id (16) | segment id (u64) | rows (u64) | patches (u64) | flags (u8) |
 //!         body length (u64) | body checksum (u64) | v_min (i64 per row) | v_max (i64 per row) | rowid (i64 per row) |
 //!         [flag 1: positions per row (count, int each)] |
-//!         [flag 2: key hashes: columns (count, int each), truncated (u8), (hash u64, row u32) per row by hash] |
+//!         [flag 2: key hashes: count, then per key: columns (count, int each), truncated (u8),
+//!                  (hash u64, row u32) per row, by hash] |
 //!         patches (segment u64, row u32, v_max i64 each)
 //! body:   per row: cells (count, value each) | errors (count, each 0 or 1 + type + message)
 //! value:  tag (u8) + payload: 0 NULL, 1 false, 2 true, 3 Int (int), 4 Float (f64), 5 String, 6 Timestamp (int),
@@ -208,9 +209,9 @@ impl<'a> Reader<'a> {
     }
 }
 
-/// Encodes segment `seg` of table `tbl_id`, with `vmax` as the `v_max` of its rows, and with the hashes of key `key`
-/// (columns, truncated or not) if given.
-pub fn encode(tbl_id: Uuid, seg: &Segment, vmax: &[i64], key: Option<(&[ColId], bool)>) -> Result<Vec<u8>> {
+/// Encodes segment `seg` of table `tbl_id`, with `vmax` as the `v_max` of its rows, and with the hashes of the keys
+/// `keys` (columns, truncated or not).
+pub fn encode(tbl_id: Uuid, seg: &Segment, vmax: &[i64], keys: &[(Vec<ColId>, bool)]) -> Result<Vec<u8>> {
     use rayon::prelude::*;
     let rows = seg.rows();
     let n = rows.len();
@@ -229,13 +230,16 @@ pub fn encode(tbl_id: Uuid, seg: &Segment, vmax: &[i64], key: Option<(&[ColId], 
             .collect::<Result<Vec<Vec<u8>>>>()?;
         parts.concat()
     };
-    let hashes: Option<Vec<(u64, u32)>> = key.map(|(cols, truncate)| {
-        let hash = |(i, r): (usize, &StoredRow)| (super::table_data::pk_hash(cols.iter().map(|c| r.cell(*c)), truncate), i as u32);
-        let mut sorted: Vec<(u64, u32)> =
-            if n >= 4096 { rows.par_iter().enumerate().map(hash).collect() } else { rows.iter().enumerate().map(hash).collect() };
-        sorted.par_sort_unstable();
-        sorted
-    });
+    let hashes: Vec<Vec<(u64, u32)>> = keys
+        .iter()
+        .map(|(cols, truncate)| {
+            let hash = |(i, r): (usize, &StoredRow)| (super::table_data::pk_hash(cols.iter().map(|c| r.cell(*c)), *truncate), i as u32);
+            let mut sorted: Vec<(u64, u32)> =
+                if n >= 4096 { rows.par_iter().enumerate().map(hash).collect() } else { rows.iter().enumerate().map(hash).collect() };
+            sorted.par_sort_unstable();
+            sorted
+        })
+        .collect();
     let has_pos = rows.iter().any(|r| !r.pos.is_empty());
     let mut w = Writer(Vec::with_capacity(96 + n * 32 + body.len()));
     w.0.extend_from_slice(MAGIC);
@@ -243,7 +247,7 @@ pub fn encode(tbl_id: Uuid, seg: &Segment, vmax: &[i64], key: Option<(&[ColId], 
     w.u64(seg.id);
     w.u64(n as u64);
     w.u64(seg.patches.len() as u64);
-    w.u8(if has_pos { FLAG_POS } else { 0 } | if hashes.is_some() { FLAG_HASHES } else { 0 });
+    w.u8(if has_pos { FLAG_POS } else { 0 } | if hashes.is_empty() { 0 } else { FLAG_HASHES });
     w.u64(body.len() as u64);
     w.u64(checksum(&body));
     for v in &seg.vmin {
@@ -263,15 +267,18 @@ pub fn encode(tbl_id: Uuid, seg: &Segment, vmax: &[i64], key: Option<(&[ColId], 
             }
         }
     }
-    if let (Some(hashes), Some((cols, truncate))) = (&hashes, key) {
-        w.len(cols.len())?;
-        for c in cols {
-            w.varint(u64::from(*c));
-        }
-        w.u8(u8::from(truncate));
-        for (h, i) in hashes {
-            w.u64(*h);
-            w.u32(*i);
+    if !hashes.is_empty() {
+        w.len(hashes.len())?;
+        for ((cols, truncate), sorted) in keys.iter().zip(&hashes) {
+            w.len(cols.len())?;
+            for c in cols {
+                w.varint(u64::from(*c));
+            }
+            w.u8(u8::from(*truncate));
+            for (h, i) in sorted {
+                w.u64(*h);
+                w.u32(*i);
+            }
         }
     }
     for p in &seg.patches {
@@ -333,20 +340,21 @@ pub fn decode(bytes: Vec<u8>, tbl_id: Uuid, id: u64) -> Result<(Segment, Vec<i64
     } else {
         Vec::new()
     };
-    let hashes = if flags & FLAG_HASHES != 0 {
-        let k = r.count()?;
-        let cols = (0..k).map(|_| u32::try_from(r.varint()?).map_err(|_| corrupt())).collect::<Result<Vec<_>>>()?;
-        let truncate = r.u8()? != 0;
-        let sorted = (0..n)
-            .map(|_| {
-                let (h, i) = (r.u64()?, r.u32()?);
-                if i as usize >= n { Err(corrupt()) } else { Ok((h, i)) }
-            })
-            .collect::<Result<Vec<_>>>()?;
-        Some(KeyHashes { cols, truncate, sorted })
-    } else {
-        None
-    };
+    let mut hashes = Vec::new();
+    if flags & FLAG_HASHES != 0 {
+        for _ in 0..r.count()? {
+            let k = r.count()?;
+            let cols = (0..k).map(|_| u32::try_from(r.varint()?).map_err(|_| corrupt())).collect::<Result<Vec<_>>>()?;
+            let truncate = r.u8()? != 0;
+            let sorted = (0..n)
+                .map(|_| {
+                    let (h, i) = (r.u64()?, r.u32()?);
+                    if i as usize >= n { Err(corrupt()) } else { Ok((h, i)) }
+                })
+                .collect::<Result<Vec<_>>>()?;
+            hashes.push(KeyHashes { cols, truncate, sorted });
+        }
+    }
     let patches = (0..m).map(|_| Ok(Patch { seg: r.u64()?, idx: r.u32()?, vmax: r.i64()? })).collect::<Result<Vec<_>>>()?;
     let start = r.pos;
     if bytes.len() - start != body_len {
@@ -499,15 +507,16 @@ mod tests {
         }
         row.set_error(3, Some(CellError { errortype: "ValueError".into(), errormsg: "bad".into() }));
         let seg = Segment::new(9, vec![row, StoredRow::new(43, Vec::new())], vec![1, 2], vec![Patch { seg: 3, idx: 4, vmax: 5 }]);
-        let bytes = encode(tbl, &seg, &[7, i64::MAX], Some((&[3], false)))?;
+        let bytes = encode(tbl, &seg, &[7, i64::MAX], &[(vec![3], false), (vec![0, 1], true)])?;
         let (back, vmax) = decode(bytes.clone(), tbl, 9)?;
         assert_eq!(vmax, vec![7, i64::MAX]);
         assert_eq!(back.vmin, seg.vmin);
         assert_eq!(back.patches, seg.patches);
         assert_eq!(back.key(0), (42, &[1, 2][..]));
         assert_eq!(back.key(1), (43, &[][..]));
-        let hashes = back.hashes().map(|h| (h.cols.clone(), h.truncate, h.sorted.len()));
-        assert_eq!(hashes, Some((vec![3], false, 2)));
+        assert_eq!(back.hashes(&[3], false).map(|h| h.sorted.len()), Some(2));
+        assert_eq!(back.hashes(&[0, 1], true).map(|h| h.sorted.len()), Some(2));
+        assert!(back.hashes(&[3], true).is_none());
         let rows = back.rows();
         assert_eq!(rows[0].pos, vec![1, 2]);
         assert_eq!(rows[1].rowid, 43);
@@ -548,7 +557,7 @@ mod tests {
             })
             .collect();
         let seg = Segment::new(1, rows, vec![1; n], Vec::new());
-        let bytes = encode(tbl, &seg, &vec![i64::MAX; n], None)?;
+        let bytes = encode(tbl, &seg, &vec![i64::MAX; n], &[])?;
         let (back, _) = decode(bytes.clone(), tbl, 1)?;
         assert_eq!(back.rows().len(), n);
         for (a, b) in seg.rows().iter().zip(back.rows()) {
@@ -570,7 +579,7 @@ mod tests {
         let mut row = StoredRow::new(0, Vec::new());
         row.set_cell(0, Value::Json(j));
         let seg = Segment::new(1, vec![row], vec![0], Vec::new());
-        match encode(Uuid::nil(), &seg, &[i64::MAX], None) {
+        match encode(Uuid::nil(), &seg, &[i64::MAX], &[]) {
             Err(Error::Pxt { code: ErrorCode::UnsupportedOperation, message }) => assert_eq!(message, json_too_deep_msg()),
             other => panic!("expected UNSUPPORTED_OPERATION, got {other:?}"),
         }

@@ -721,7 +721,7 @@ impl TableData {
                 let mut out = idx.get(h);
                 // segments with stored hashes for this key are searched directly
                 for s in &self.segs {
-                    if let Some(kh) = s.seg.hashes().filter(|kh| kh.cols == cols && kh.truncate == truncate) {
+                    if let Some(kh) = s.seg.hashes(cols, truncate) {
                         out.extend(kh.rows_with(h).map(|i| s.seg.rowids()[i]));
                     }
                 }
@@ -766,7 +766,7 @@ impl KeyIndex {
         }
         for s in segs {
             let (cols, truncate) = (&self.cols, self.truncate);
-            if self.covered.contains_key(&s.seg.id) || s.seg.hashes().is_some_and(|h| h.cols == *cols && h.truncate == truncate) {
+            if self.covered.contains_key(&s.seg.id) || s.seg.hashes(cols, truncate).is_some() {
                 continue;
             }
             let hashes: Vec<u64> = if s.len() >= 4096 {

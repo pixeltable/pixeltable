@@ -303,10 +303,10 @@ impl Store {
         self.save_catalog_bytes(&Store::serialize_catalog(cf)?)
     }
 
-    /// Writes a segment of table `tbl_id` with the given `v_max` of its rows, and the hashes of key `key` (see
+    /// Writes a segment of table `tbl_id` with the given `v_max` of its rows, and the hashes of the keys `keys` (see
     /// `codec::encode()`), fsynced (the directory is synced by `sync_tables()`). Returns the file name.
-    pub fn write_segment(&self, tbl_id: Uuid, seg: &Segment, vmax: &[i64], key: Option<(&[crate::catalog::table::ColId], bool)>) -> Result<String> {
-        let bytes = codec::encode(tbl_id, seg, vmax, key)?;
+    pub fn write_segment(&self, tbl_id: Uuid, seg: &Segment, vmax: &[i64], keys: &[(Vec<crate::catalog::table::ColId>, bool)]) -> Result<String> {
+        let bytes = codec::encode(tbl_id, seg, vmax, keys)?;
         let name = Store::segment_file_name(tbl_id, seg.id);
         let mut f = fs::File::create(self.tables_dir().join(&name))?;
         f.write_all(&bytes)?;
@@ -535,7 +535,7 @@ mod tests {
         let mut r = StoredRow::new(3, Vec::new());
         r.set_cell(1, crate::value::Value::String("x".into()));
         let seg = Segment::new(77, vec![r], vec![2], vec![Patch { seg: 5, idx: 1, vmax: 2 }]);
-        store.write_segment(tbl, &seg, &[rows::LIVE], None)?;
+        store.write_segment(tbl, &seg, &[rows::LIVE], &[])?;
         let (back, vmax) = store.read_segment(tbl, 77)?;
         assert_eq!(back.rows().len(), 1);
         assert_eq!(back.vmin, vec![2]);
