@@ -11,6 +11,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use super::compute::{ComputedCol, cell_error, eval_error};
+use super::prefetch::CallSlot;
 use crate::catalog::Catalog;
 use crate::functions::iterator::IteratorCall;
 use crate::catalog::table::{ColId, RowCountStats, TableMd};
@@ -299,11 +300,13 @@ pub struct PathCtx<'a> {
     pub elems: &'a [&'a ElemInfo],
     pub rows: &'a [&'a StoredRow],
     pub python: bool,
+    /// the outcomes of prefetched calls for this row (`exec::prefetch`)
+    pub calls: Option<CallSlot<'a>>,
 }
 
 impl<'a> PathCtx<'a> {
     pub fn new(elems: &'a [&'a ElemInfo], rows: &'a [&'a StoredRow]) -> Self {
-        PathCtx { elems, rows, python: false }
+        PathCtx { elems, rows, python: false, calls: None }
     }
 
     fn elem(&self, col: &ColumnRef) -> Result<usize> {
@@ -333,7 +336,7 @@ impl RowContext for PathCtx<'_> {
                     .filter(|(_, _, s)| *s)
                     .map(|(c, j, _)| (it.call.value_outputs()[*j].name.clone(), row.cell(*c).clone()))
                     .collect();
-                let base = PathCtx { elems: &self.elems[i + 1..], rows: &self.rows[i + 1..], python: self.python };
+                let base = PathCtx { elems: &self.elems[i + 1..], rows: &self.rows[i + 1..], python: self.python, calls: self.calls };
                 let pos = row.pos.last().copied().unwrap_or(0);
                 let values = it.call.seek_row(&base, pos, &stored)?;
                 return Ok(values.get(*idx).cloned().unwrap_or(Value::Null));
@@ -365,6 +368,10 @@ impl RowContext for PathCtx<'_> {
         };
         Ok(self.rows.get(i).map(|r| (r.rowid, r.pos.clone())))
     }
+
+    fn call_result(&self, e: &crate::expr::Expr) -> Option<Result<Value>> {
+        self.calls?.get(e)
+    }
 }
 
 /// Where `eval_into()` records evaluation results and failures.
@@ -378,14 +385,16 @@ pub struct EvalSink<'a> {
 }
 
 impl EvalSink<'_> {
-    /// Stores the outcome of evaluating column `c` of `row`; a failure, or a value the column cannot store (unless it
-    /// is an interrupt or `fail_on_exception` holds, which are errors), becomes a NULL cell with the error recorded.
-    fn record(&mut self, row: &mut StoredRow, c: &ComputedCol, outcome: Result<Value>) -> Result<()> {
+    /// Stores the outcome of evaluating column `c` of `row`; a failure, or a value the column cannot store, becomes a
+    /// NULL cell with the error recorded and is returned (with `fail_on_exception` it is returned as the abort error
+    /// instead, and an interrupt is always returned as an error).
+    fn record(&mut self, row: &mut StoredRow, c: &ComputedCol, outcome: Result<Value>) -> Result<Option<Error>> {
         self.stats.computed_values += 1;
         match outcome.and_then(|v| c.storable(v)) {
             Ok(v) => {
                 row.set_cell(c.col_id, v);
                 row.set_error(c.col_id, None);
+                Ok(None)
             }
             Err(err) => {
                 if crate::functions::udf::is_interrupt(&err) {
@@ -396,9 +405,9 @@ impl EvalSink<'_> {
                     return Err(eval_error(&c.expr, err));
                 }
                 self.store_error(row, c, cell_error(&err));
+                Ok(Some(err))
             }
         }
-        Ok(())
     }
 
     fn store_error(&mut self, row: &mut StoredRow, c: &ComputedCol, err: CellError) {
@@ -430,12 +439,13 @@ pub fn eval_into(
 ) -> Result<()> {
     let mut sink = EvalSink { tbl_name, fail_on_exception, stats, cols_with_excs };
     for k in 0..cols.len() {
-        eval_col_into(row, cols, k, infos, base, &mut sink)?;
+        eval_col_into(row, cols, k, infos, base, &mut sink, None)?;
     }
     Ok(())
 }
 
-/// Evaluates `cols[k]` into `row` (see `eval_into()`); `cols[..k]` were evaluated into it before.
+/// Evaluates `cols[k]` into `row` (see `eval_into()`); the columns of `cols[..k]` it reads were evaluated into it
+/// before. Returns the failure it recorded, if any (not an inherited error).
 fn eval_col_into(
     row: &mut StoredRow,
     cols: &[ComputedCol],
@@ -443,13 +453,14 @@ fn eval_col_into(
     infos: &[&ElemInfo],
     base: &[&StoredRow],
     sink: &mut EvalSink<'_>,
-) -> Result<()> {
+    calls: Option<CallSlot<'_>>,
+) -> Result<Option<Error>> {
     let c = &cols[k];
     let outcome = {
         let mut rows: Vec<&StoredRow> = Vec::with_capacity(base.len() + 1);
         rows.push(row);
         rows.extend_from_slice(base);
-        let ctx = PathCtx { elems: infos, rows: &rows, python: true };
+        let ctx = PathCtx { elems: infos, rows: &rows, python: true, calls };
         match inherited_error(&ctx, cols, k)? {
             Some(e) => Err(e),
             None => Ok(eval(&c.expr, &ctx)),
@@ -460,7 +471,7 @@ fn eval_col_into(
         Err(inherited) => {
             sink.stats.computed_values += 1;
             sink.store_error(row, c, inherited);
-            Ok(())
+            Ok(None)
         }
     }
 }
@@ -484,9 +495,9 @@ fn inherited_error(ctx: &PathCtx<'_>, cols: &[ComputedCol], k: usize) -> Result<
     Ok(None)
 }
 
-/// `eval_into()` for a batch of rows of table `infos[0]` (`rows[i]` belongs to the base path rows `bases[i]`). A column
-/// computed with window functions is evaluated over the whole batch, in window order (upstream evaluates computed
-/// columns with a query plan over the rows being inserted or updated); the other columns row by row.
+/// `eval_into()` for a batch of rows of table `infos[0]` (`rows[i]` belongs to the base path rows `bases[i]`); with
+/// `fail_on_exception`, the first failure in sequential order (row, then column) is the error. See
+/// `eval_rows_batch()`.
 #[allow(clippy::too_many_arguments)]
 pub fn eval_rows_into(
     rows: &mut [StoredRow],
@@ -498,28 +509,94 @@ pub fn eval_rows_into(
     stats: &mut RowCountStats,
     cols_with_excs: &mut Vec<String>,
 ) -> Result<()> {
-    if !cols.iter().any(|c| super::query::has_window_calls(&c.expr)) {
-        for (row, base) in rows.iter_mut().zip(bases) {
-            eval_into(row, cols, infos, base, tbl_name, fail_on_exception, stats, cols_with_excs)?;
-        }
-        return Ok(());
+    match eval_rows_batch(rows, bases, cols, infos, tbl_name, fail_on_exception, stats, cols_with_excs)? {
+        Some((_, k, err)) if fail_on_exception => Err(eval_error(&cols[k].expr, err)),
+        _ => Ok(()),
     }
-    let mut sink = EvalSink { tbl_name, fail_on_exception, stats, cols_with_excs };
-    for (k, c) in cols.iter().enumerate() {
-        if !super::query::has_window_calls(&c.expr) {
-            for (row, base) in rows.iter_mut().zip(bases) {
-                eval_col_into(row, cols, k, infos, base, &mut sink)?;
+}
+
+/// Evaluates the computed columns `cols` into `rows` (rows of table `infos[0]`; `rows[i]` belongs to the base path
+/// rows `bases[i]`), recording failures as cell errors (`eval_into()` semantics). Wave by wave (`compute::waves()`),
+/// the user-function calls of a wave's columns are made for all rows together (`prefetch`), then the rows are
+/// evaluated in order; a column with window functions is evaluated over the whole batch in window order (upstream
+/// evaluates computed columns with a query plan over the rows being inserted or updated). With `abort`, rows after
+/// the first failing row are skipped in later waves. Returns the first failure in sequential order (row, then column;
+/// inherited errors excluded) as (row, index in `cols`, error). `cols_with_excs` gets the failing columns in the
+/// order row-by-row evaluation meets them.
+#[allow(clippy::too_many_arguments)]
+pub fn eval_rows_batch(
+    rows: &mut [StoredRow],
+    bases: &[&[&StoredRow]],
+    cols: &[ComputedCol],
+    infos: &[&ElemInfo],
+    tbl_name: &str,
+    abort: bool,
+    stats: &mut RowCountStats,
+    cols_with_excs: &mut Vec<String>,
+) -> Result<Option<(usize, usize, Error)>> {
+    let known_errors = cols_with_excs.len();
+    let derived = |c: &ColumnRef| infos.iter().find(|e| e.tbl_id == c.tbl_id).and_then(|e| e.unstored.get(&c.col_id).cloned());
+    let mut sink = EvalSink { tbl_name, fail_on_exception: false, stats, cols_with_excs };
+    let mut first: Option<(usize, usize, Error)> = None;
+    let mut limit = rows.len();
+    let earlier = |first: &Option<(usize, usize, Error)>, r: usize, k: usize| first.as_ref().is_none_or(|(fr, fk, _)| (r, k) < (*fr, *fk));
+    for wave in super::compute::waves(cols, &derived) {
+        let (windowed, plain): (Vec<usize>, Vec<usize>) =
+            wave.into_iter().partition(|k| super::query::has_window_calls(&cols[*k].expr));
+        if !plain.is_empty() {
+            let exprs: Vec<&ExprRef> = plain.iter().map(|k| &cols[*k].expr).collect();
+            let calls = {
+                let rows: &[StoredRow] = rows;
+                super::prefetch::prefetch(&exprs, &derived, limit, abort, &|i, slot, f| {
+                    let path: Vec<&StoredRow> = std::iter::once(&rows[i]).chain(bases[i].iter().copied()).collect();
+                    f(&PathCtx { elems: infos, rows: &path, python: true, calls: Some(slot) })
+                })?
+            };
+            'rows: for i in 0..limit {
+                let slot = calls.as_ref().map(|results| CallSlot { results, row: i });
+                for &k in &plain {
+                    if let Some(err) = eval_col_into(&mut rows[i], cols, k, infos, bases[i], &mut sink, slot)? {
+                        if abort {
+                            if earlier(&first, i, k) {
+                                first = Some((i, k, err));
+                            }
+                            limit = i + 1;
+                            // the rest of this row's columns are evaluated (an earlier column may fail in a later wave)
+                            for &k2 in plain.iter().filter(|k2| **k2 > k) {
+                                eval_col_into(&mut rows[i], cols, k2, infos, bases[i], &mut sink, slot)?;
+                            }
+                            break 'rows;
+                        }
+                    }
+                }
             }
-            continue;
         }
-        let results = {
-            let paths: Vec<Vec<&StoredRow>> =
-                rows.iter().zip(bases).map(|(r, b)| std::iter::once(r).chain(b.iter().copied()).collect()).collect();
-            super::query::eval_rows_with_windows(infos, &paths, &c.expr, true)?
-        };
-        for (row, result) in rows.iter_mut().zip(results) {
-            sink.record(row, c, result)?;
+        for k in windowed {
+            let c = &cols[k];
+            let results = {
+                let paths: Vec<Vec<&StoredRow>> =
+                    rows.iter().zip(bases).map(|(r, b)| std::iter::once(r).chain(b.iter().copied()).collect()).collect();
+                super::query::eval_rows_with_windows(infos, &paths, &c.expr, true)?
+            };
+            for (i, (row, result)) in rows.iter_mut().zip(results).enumerate() {
+                if let Some(err) = sink.record(row, c, result)? {
+                    if abort && earlier(&first, i, k) {
+                        first = Some((i, k, err));
+                        limit = limit.min(i + 1);
+                    }
+                }
+            }
         }
     }
-    Ok(())
+    if cols_with_excs.len() > known_errors {
+        let names: Vec<(ColId, String)> = cols.iter().map(|c| (c.col_id, format!("{tbl_name}.{}", c.name))).collect();
+        let ordered = super::compute::errors_in_order(rows, &names);
+        cols_with_excs.truncate(known_errors);
+        for n in ordered {
+            if !cols_with_excs.contains(&n) {
+                cols_with_excs.push(n);
+            }
+        }
+    }
+    Ok(first)
 }

@@ -4,6 +4,7 @@
 
 pub mod bindings;
 pub mod catalog;
+pub mod config;
 pub mod error;
 pub mod exec;
 pub mod expr;

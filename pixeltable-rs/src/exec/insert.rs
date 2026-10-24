@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use super::compute::{ComputedCol, MediaTarget, cell_error, discard_media, eval_computed, unstored_exprs};
+use super::compute::{ComputedCol, MediaTarget, cell_error, discard_media, errors_in_order, eval_computed_batch, unstored_exprs};
 use super::propagate::{InsertedViewRows, ViewNode, add_stats, commit_inserted_rows, compute_inserted_rows, record_version_status};
 use super::scan::ElemInfo;
 use crate::catalog::Catalog;
@@ -323,57 +323,45 @@ fn build_rows_inner(
     let mut stats = RowCountStats::default();
     let mut cols_with_excs = Vec::new();
     let mut rows = Vec::with_capacity(inputs.len());
-    let has_windows = computed.iter().any(|c| super::query::has_window_calls(&c.expr));
+    // with fail_on_exception: the error of the first row whose media inputs failed (rows after it are not built)
+    let mut media_error: Option<Error> = None;
     for (i, input) in inputs.into_iter().enumerate() {
         let mut row = StoredRow::new(plan.first_rowid + i as i64, Vec::new());
         for (col_id, v) in input {
             row.set_cell(col_id, v);
         }
-        prepare_media_inputs(plan, &mut row, fail_on_exception, &mut stats, &mut cols_with_excs, Some(&mut *saved))?;
-        if !has_windows {
-            eval_computed(&mut row, &computed, Some(&plan.unstored), fail_on_exception, &mut stats, &mut cols_with_excs)?;
-            for c in computed.iter().filter(|c| c.is_media) {
-                plan.media.materialize(&mut row, c.col_id, saved)?;
+        if let Err(err) = prepare_media_inputs(plan, &mut row, fail_on_exception, &mut stats, &mut cols_with_excs, Some(&mut *saved)) {
+            if !fail_on_exception {
+                return Err(err);
             }
+            media_error = Some(err);
+            break;
         }
         stats.ins_rows += 1;
         rows.push(row);
     }
-    if has_windows {
-        // column by column: a column with window functions is evaluated over the whole batch in window order
-        for col in &computed {
-            if super::query::has_window_calls(&col.expr) {
-                let paths: Vec<Vec<&StoredRow>> = rows.iter().map(|r| vec![r]).collect();
-                let results = super::query::eval_rows_with_windows(&[&plan.info], &paths, &col.expr, true)?;
-                for (row, res) in rows.iter_mut().zip(results) {
-                    stats.computed_values += 1;
-                    match res {
-                        Ok(v) => row.set_cell(col.col_id, v),
-                        Err(err) => {
-                            if fail_on_exception {
-                                return Err(super::compute::eval_error(&col.expr, err));
-                            }
-                            stats.num_excs += 1;
-                            if !cols_with_excs.contains(&col.name) {
-                                cols_with_excs.push(col.name.clone());
-                            }
-                            row.set_cell(col.col_id, Value::Null);
-                            row.set_error(col.col_id, Some(super::compute::cell_error(&err)));
-                        }
-                    }
-                }
-            } else {
-                for row in rows.iter_mut() {
-                    eval_computed(row, std::slice::from_ref(col), Some(&plan.unstored), fail_on_exception, &mut stats, &mut cols_with_excs)?;
-                }
-            }
-        }
-        for row in rows.iter_mut() {
-            for c in computed.iter().filter(|c| c.is_media) {
-                plan.media.materialize(row, c.col_id, saved)?;
-            }
+    let first = eval_computed_batch(&mut rows, &computed, &plan.unstored, &plan.info, fail_on_exception, &mut stats, &mut cols_with_excs)?;
+    if let Some((_, k, err)) = first {
+        // the rows before a media failure are all built, so a computed column's failure comes first
+        return Err(super::compute::eval_error(&computed[k].expr, err));
+    }
+    if let Some(err) = media_error {
+        return Err(err);
+    }
+    for row in rows.iter_mut() {
+        for c in computed.iter().filter(|c| c.is_media) {
+            plan.media.materialize(row, c.col_id, saved)?;
         }
     }
+    // the order in which sequential evaluation would have met the errors: per row, media inputs, then computed columns
+    let mut error_cols: Vec<(ColId, String)> = plan
+        .columns
+        .iter()
+        .filter(|c| c.media_validation.is_some() && !c.is_computed())
+        .map(|c| (c.col_id, c.name.clone()))
+        .collect();
+    error_cols.extend(computed.iter().map(|c| (c.col_id, c.name.clone())));
+    let cols_with_excs = if cols_with_excs.is_empty() { cols_with_excs } else { errors_in_order(&rows, &error_cols) };
     let paths: Vec<Vec<&StoredRow>> = rows.iter().map(|r| vec![r]).collect();
     let views = compute_inserted_rows(&plan.views, &[&plan.info], &paths, saved)?;
     Ok(BuiltRows { rows, stats, cols_with_excs, saved_media: Vec::new(), views })

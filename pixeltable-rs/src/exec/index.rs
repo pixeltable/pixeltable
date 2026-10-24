@@ -6,12 +6,13 @@ use uuid::Uuid;
 use super::compute::{ComputedCol, KeyedValue};
 use super::insert::UpdateStatus;
 use super::propagate::record_version_status;
-use super::scan::{PathInput, eval_into};
+use super::scan::{PathInput, eval_rows_batch};
 use crate::catalog::Catalog;
 use crate::catalog::indexes::IndexSpec;
 use crate::catalog::table::{ColId, RowCountStats};
 use crate::error::{Result, py_repr};
 use crate::expr::ExprRef;
+use crate::store::rows::StoredRow;
 use crate::types::ColumnType;
 
 pub struct AddIndexPlan {
@@ -61,14 +62,12 @@ impl AddIndexPlan {
     pub fn compute(&self, stats: &mut RowCountStats, cols_with_excs: &mut Vec<String>) -> Result<Vec<KeyedValue>> {
         let col = ComputedCol { col_id: self.eval_col_id, name: self.val_col_name.clone(), expr: self.expr.clone(), is_media: false };
         let infos = self.path.infos();
-        let mut out = Vec::new();
-        for r in self.path.rows()? {
-            stats.upd_rows += 1;
-            let mut row = r[0].clone();
-            eval_into(&mut row, std::slice::from_ref(&col), &infos, &r[1..], &self.tbl_name, false, stats, cols_with_excs)?;
-            out.push(((row.rowid, row.pos.clone()), row.cell(col.col_id).clone(), row.error(col.col_id).cloned()));
-        }
-        Ok(out)
+        let path_rows = self.path.rows()?;
+        let mut rows: Vec<StoredRow> = path_rows.iter().map(|r| r[0].clone()).collect();
+        let bases: Vec<&[&StoredRow]> = path_rows.iter().map(|r| &r[1..]).collect();
+        stats.upd_rows += rows.len() as i64;
+        eval_rows_batch(&mut rows, &bases, std::slice::from_ref(&col), &infos, &self.tbl_name, false, stats, cols_with_excs)?;
+        Ok(rows.into_iter().map(|row| ((row.rowid, row.pos.clone()), row.cell(col.col_id).clone(), row.error(col.col_id).cloned())).collect())
     }
 
     pub fn commit(

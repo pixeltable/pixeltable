@@ -41,6 +41,12 @@ pub trait RowContext {
     fn row_key(&self, _tbl_id: uuid::Uuid) -> Result<Option<(i64, Vec<i64>)>> {
         Err(Error::internal("row keys are not available in this context"))
     }
+
+    /// The outcome of the Python function call `e` for this row if it was made ahead of evaluation
+    /// (`exec::prefetch`); None: evaluate (call) it now.
+    fn call_result(&self, _e: &Expr) -> Option<Result<Value>> {
+        None
+    }
 }
 
 /// A context that binds a mapper's relative root to one element and delegates everything else.
@@ -68,6 +74,9 @@ impl RowContext for ScopedCtx<'_> {
     }
     fn row_key(&self, tbl_id: uuid::Uuid) -> Result<Option<(i64, Vec<i64>)>> {
         self.parent.row_key(tbl_id)
+    }
+    fn call_result(&self, e: &Expr) -> Option<Result<Value>> {
+        self.parent.call_result(e)
     }
 }
 
@@ -470,7 +479,14 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
                 _ => Ok(Value::Null),
             }
         }
-        ExprKind::FunctionCall(fc) => crate::functions::eval_call(fc, e, ctx),
+        ExprKind::FunctionCall(fc) => {
+            if matches!(fc.func, crate::functions::FuncRef::Udf(_)) {
+                if let Some(r) = ctx.call_result(e) {
+                    return r;
+                }
+            }
+            crate::functions::eval_call(fc, e, ctx)
+        }
         ExprKind::RowidRef { tbl_id, idx } => Ok(match ctx.row_key(*tbl_id)? {
             Some((rowid, pos)) => match idx {
                 0 => Value::Int(rowid),

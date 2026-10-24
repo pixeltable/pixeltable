@@ -16,6 +16,7 @@
 use std::collections::HashMap;
 use uuid::Uuid;
 
+use super::prefetch::{CallResults, CallSlot};
 use super::scan::{ElemInfo, PathCtx, PathInput};
 use super::{JoinType, QuerySpec, ResultData, SampleClause};
 use crate::catalog::Catalog;
@@ -121,6 +122,8 @@ struct Ctx<'a> {
     row: &'a [Option<&'a StoredRow>],
     pre: &'a [Value],
     slots: &'a HashMap<usize, usize>,
+    /// the outcomes of prefetched calls for this row (`exec::prefetch`)
+    calls: Option<CallSlot<'a>>,
 }
 
 fn node_key(e: &Expr) -> usize {
@@ -144,7 +147,7 @@ impl Ctx<'_> {
             }
         }
         let infos = source.path.infos();
-        f(&PathCtx::new(&infos, &rows)).map(Some)
+        f(&PathCtx { elems: &infos, rows: &rows, python: false, calls: self.calls }).map(Some)
     }
 }
 
@@ -166,6 +169,10 @@ impl RowContext for Ctx<'_> {
             return None;
         }
         self.slots.get(&node_key(e)).map(|i| self.pre[*i].clone())
+    }
+
+    fn call_result(&self, e: &Expr) -> Option<Result<Value>> {
+        self.calls?.get(e)
     }
 
 }
@@ -587,7 +594,7 @@ fn scan_and_join<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
                     for (j, r) in right.iter().enumerate() {
                         let mut jr = vec![None; n];
                         input.place(&mut jr, slot, r);
-                        let ctx = Ctx { input, row: &jr, pre: &[], slots: &empty };
+                        let ctx = Ctx { input, row: &jr, pre: &[], slots: &empty, calls: None };
                         let vals = rkeys.iter().map(|e| eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
                         if vals.iter().any(Value::is_null) {
                             continue;
@@ -600,7 +607,7 @@ fn scan_and_join<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
                     let candidates: &[usize] = if lkeys.is_empty() {
                         &all
                     } else {
-                        let ctx = Ctx { input, row: l, pre: &[], slots: &empty };
+                        let ctx = Ctx { input, row: l, pre: &[], slots: &empty, calls: None };
                         let vals = lkeys.iter().map(|e| eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
                         if vals.iter().any(Value::is_null) {
                             &[]
@@ -611,7 +618,7 @@ fn scan_and_join<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
                     let mut matched = false;
                     for &j in candidates {
                         let jr = combined(l, &right[j]);
-                        let ctx = Ctx { input, row: &jr, pre: &[], slots: &empty };
+                        let ctx = Ctx { input, row: &jr, pre: &[], slots: &empty, calls: None };
                         if matches!(eval(pred, &ctx)?, Value::Bool(true)) {
                             matched = true;
                             right_matched[j] = true;
@@ -639,15 +646,36 @@ fn scan_and_join<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
 }
 
 /// The rows after joins and the where clause.
+/// Phase A of evaluating `exprs` over `n` rows of a query (`row_of(i)`: the row and its precomputed values): makes
+/// their user-function calls together (see `exec::prefetch`); a query stops at its first error.
+fn prefetch_calls<'a>(
+    input: &'a QueryInput,
+    exprs: &[&ExprRef],
+    n: usize,
+    row_of: &dyn Fn(usize) -> (&'a [Option<&'a StoredRow>], &'a [Value]),
+    slots: &'a HashMap<usize, usize>,
+) -> Result<Option<CallResults>> {
+    let derived = |c: &ColumnRef| input.unstored.get(&(c.tbl_id, c.col_id)).cloned();
+    super::prefetch::prefetch(exprs, &derived, n, true, &|i, slot, f| {
+        let (row, pre) = row_of(i);
+        f(&Ctx { input, row, pre, slots, calls: Some(slot) })
+    })
+}
+
+fn slot_of(calls: &Option<CallResults>, row: usize) -> Option<CallSlot<'_>> {
+    calls.as_ref().map(|results| CallSlot { results, row })
+}
+
 fn filtered<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
     let rows = scan_and_join(input)?;
     let Some(w) = &input.q.where_ else { return Ok(rows) };
     let empty = HashMap::new();
+    let calls = prefetch_calls(input, &[w], rows.len(), &|i| (&rows[i], &[]), &empty)?;
     let mut out = Vec::with_capacity(rows.len());
-    for r in rows {
-        let ctx = Ctx { input, row: &r, pre: &[], slots: &empty };
+    for (i, r) in rows.iter().enumerate() {
+        let ctx = Ctx { input, row: r, pre: &[], slots: &empty, calls: slot_of(&calls, i) };
         match eval(w, &ctx) {
-            Ok(Value::Bool(true)) => out.push(r),
+            Ok(Value::Bool(true)) => out.push(r.clone()),
             Ok(_) => {}
             Err(err) => return Err(super::compute::eval_error(w, err)),
         }
@@ -727,7 +755,7 @@ fn apply_sample<'a>(input: &'a QueryInput, rows: Vec<JRow<'a>>, s: &SampleClause
         let empty = HashMap::new();
         let mut keys = Vec::with_capacity(rows.len());
         for r in &rows {
-            let ctx = Ctx { input, row: r, pre: &[], slots: &empty };
+            let ctx = Ctx { input, row: r, pre: &[], slots: &empty, calls: None };
             keys.push(keys_of(&s.stratify_by.iter().map(|e| eval(e, &ctx)).collect::<Result<Vec<_>>>()?));
         }
         Some(keys)
@@ -765,8 +793,15 @@ fn aggregate<'a>(input: &'a QueryInput, plan: &Plan, rows: Vec<JRow<'a>>, groupi
     let new_states = || -> Result<Vec<Box<dyn AggState>>> {
         plan.aggs.iter().map(|a| a.plan.new_state().map_err(|e| agg_error(&a.expr, e))).collect()
     };
-    for r in rows {
-        let ctx = Ctx { input, row: &r, pre: &[], slots: &empty };
+    let mut exprs: Vec<&ExprRef> = grouping.iter().collect();
+    for a in &plan.aggs {
+        if let Some(fc) = a.expr.as_function_call() {
+            exprs.extend(fc.args.iter().chain(fc.kwargs.iter().map(|(_, e)| e)));
+        }
+    }
+    let calls = prefetch_calls(input, &exprs, rows.len(), &|i| (&rows[i], &[]), &empty)?;
+    for (i, r) in rows.iter().enumerate() {
+        let ctx = Ctx { input, row: r, pre: &[], slots: &empty, calls: slot_of(&calls, i) };
         let key = match plan.group_slot {
             // the key of the base row (rowid, then iterator positions)
             Some(slot) => match r[slot] {
@@ -818,10 +853,14 @@ fn sort_rows<'a>(input: &'a QueryInput, plan: &Plan, rows: Vec<OutRow<'a>>, orde
     if ordering.is_empty() {
         return Ok(rows);
     }
+    let exprs: Vec<&ExprRef> = ordering.iter().map(|(e, _)| e).collect();
+    let calls = prefetch_calls(input, &exprs, rows.len(), &|i| (&rows[i].row, &rows[i].pre), &plan.slots)?;
     let mut keyed: Vec<(Vec<Value>, OutRow<'a>)> = Vec::with_capacity(rows.len());
-    for r in rows {
-        let ctx = Ctx { input, row: &r.row, pre: &r.pre, slots: &plan.slots };
-        let keys = ordering.iter().map(|(e, _)| eval(e, &ctx).map_err(|err| super::compute::eval_error(e, err))).collect::<Result<Vec<_>>>()?;
+    for (i, r) in rows.into_iter().enumerate() {
+        let keys = {
+            let ctx = Ctx { input, row: &r.row, pre: &r.pre, slots: &plan.slots, calls: slot_of(&calls, i) };
+            ordering.iter().map(|(e, _)| eval(e, &ctx).map_err(|err| super::compute::eval_error(e, err))).collect::<Result<Vec<_>>>()?
+        };
         keyed.push((keys, r));
     }
     keyed.sort_by(|(a, _), (b, _)| {
@@ -851,7 +890,7 @@ fn eval_windows<'a>(input: &'a QueryInput, plan: &Plan, rows: &mut [OutRow<'a>])
         let mut state: Option<Box<dyn AggState>> = None;
         let mut partition: Option<String> = None;
         for r in rows.iter_mut() {
-            let ctx = Ctx { input, row: &r.row, pre: &[], slots: &empty };
+            let ctx = Ctx { input, row: &r.row, pre: &[], slots: &empty, calls: None };
             let part_vals = fc.group_by.iter().map(|e| eval(e, &ctx)).collect::<Result<Vec<_>>>().map_err(|e| agg_error(&w.expr, e))?;
             let pkey = keys_of(&part_vals);
             if state.is_none() || partition.as_ref() != Some(&pkey) {
@@ -915,9 +954,11 @@ pub fn execute(input: &QueryInput, rowid_desc: bool) -> Result<ResultData> {
         Some(n) => rows.into_iter().skip(offset).take(n.max(0) as usize).collect(),
         None => rows.into_iter().skip(offset).collect(),
     };
+    let exprs: Vec<&ExprRef> = input.select.iter().map(|(e, _)| e).collect();
+    let calls = prefetch_calls(input, &exprs, rows.len(), &|i| (&rows[i].row, &rows[i].pre), &plan.slots)?;
     let mut out_rows = Vec::with_capacity(rows.len());
-    for r in &rows {
-        let ctx = Ctx { input, row: &r.row, pre: &r.pre, slots: &plan.slots };
+    for (i, r) in rows.iter().enumerate() {
+        let ctx = Ctx { input, row: &r.row, pre: &r.pre, slots: &plan.slots, calls: slot_of(&calls, i) };
         let mut vals = Vec::with_capacity(input.select.len());
         for (e, _) in &input.select {
             vals.push(eval(e, &ctx).map_err(|err| super::compute::eval_error(e, err))?);
@@ -970,7 +1011,7 @@ pub fn count(input: &QueryInput) -> Result<usize> {
             let empty = HashMap::new();
             let mut keys = std::collections::HashSet::new();
             for r in &rows {
-                let ctx = Ctx { input, row: r, pre: &[], slots: &empty };
+                let ctx = Ctx { input, row: r, pre: &[], slots: &empty, calls: None };
                 let vals = g.iter().map(|e| eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
                 keys.insert(keys_of(&vals));
             }
@@ -1004,6 +1045,9 @@ impl RowContext for WindowCtx<'_> {
     }
     fn row_key(&self, tbl_id: Uuid) -> Result<Option<(i64, Vec<i64>)>> {
         self.path.row_key(tbl_id)
+    }
+    fn call_result(&self, e: &Expr) -> Option<Result<Value>> {
+        self.path.call_result(e)
     }
 }
 
@@ -1072,7 +1116,7 @@ pub fn eval_rows_with_windows(
     let no_slots = HashMap::new();
     let mut order: Vec<(Vec<Value>, usize)> = Vec::with_capacity(rows.len());
     for (i, r) in rows.iter().enumerate() {
-        let ctx = WindowCtx { path: PathCtx { elems: infos, rows: r, python }, pre: &[], slots: &no_slots };
+        let ctx = WindowCtx { path: PathCtx { elems: infos, rows: r, python, calls: None }, pre: &[], slots: &no_slots };
         order.push((ordering.iter().map(|(e, _)| eval(e, &ctx)).collect::<Result<Vec<_>>>()?, i));
     }
     order.sort_by(|(a, _), (b, _)| {
@@ -1091,7 +1135,7 @@ pub fn eval_rows_with_windows(
         let mut state: Option<Box<dyn AggState>> = None;
         let mut partition: Option<String> = None;
         for (_, i) in &order {
-            let ctx = WindowCtx { path: PathCtx { elems: infos, rows: &rows[*i], python }, pre: &[], slots: &no_slots };
+            let ctx = WindowCtx { path: PathCtx { elems: infos, rows: &rows[*i], python, calls: None }, pre: &[], slots: &no_slots };
             let pkey = keys_of(&fc.group_by.iter().map(|g| eval(g, &ctx)).collect::<Result<Vec<_>>>()?);
             if state.is_none() || partition.as_ref() != Some(&pkey) {
                 state = Some(plan.new_state()?);
@@ -1107,6 +1151,6 @@ pub fn eval_rows_with_windows(
     Ok(rows
         .iter()
         .enumerate()
-        .map(|(i, r)| eval(expr, &WindowCtx { path: PathCtx { elems: infos, rows: r, python }, pre: &pre[i], slots: &slots }))
+        .map(|(i, r)| eval(expr, &WindowCtx { path: PathCtx { elems: infos, rows: r, python, calls: None }, pre: &pre[i], slots: &slots }))
         .collect())
 }

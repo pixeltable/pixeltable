@@ -220,6 +220,17 @@ class Function(abc.ABC):
             return None
         return self._conditional_return_type(**crt_kwargs)
 
+    def _call_resource_pool(self, sig_idx: int, bound_args: dict[str, Any]) -> str | None:
+        """Called by the backend before it runs calls: the resource pool of a call (None: no pool, or one of the
+        arguments the pool depends on is not a constant)."""
+        if not self._has_resource_pool:
+            return None
+        resolved = self._resolved_fns[sig_idx]
+        rp_kwargs = resolved._assemble_callable_args(self._resource_pool, bound_args)
+        if rp_kwargs is None:
+            return None
+        return self._resource_pool(**rp_kwargs)
+
     def _assemble_callable_args(self, callable: Callable, bound_args: dict[str, Any]) -> dict[str, Any] | None:
         """The kwargs for `callable` (which takes a subset of this function's parameters, typed as expressions or
         as Python values), or None if a parameter that expects a constant gets a non-constant argument."""

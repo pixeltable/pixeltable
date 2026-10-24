@@ -37,6 +37,7 @@ class CallableFunction(Function):
         is_method: bool = False,
         is_property: bool = False,
         is_deterministic: bool = True,
+        max_concurrency: int | None = None,
     ):
         assert len(signatures) > 0
         assert len(signatures) == len(py_fns)
@@ -49,6 +50,7 @@ class CallableFunction(Function):
         self.self_name = self_name
         self._display_name = display_name
         self.batch_size = batch_size
+        self.max_concurrency = max_concurrency
         self.__doc__ = self.py_fns[0].__doc__
         super().__init__(
             signatures, self_path=self_path, is_method=is_method, is_property=is_property, is_deterministic=is_deterministic
@@ -68,6 +70,7 @@ class CallableFunction(Function):
             'py_fns': self.py_fns,
             'batch_size': self.batch_size,
             'has_resource_pool': self._has_resource_pool,
+            'max_concurrency': self.max_concurrency,
             'is_method': self.is_method,
             'is_property': self.is_property,
         }
@@ -170,7 +173,9 @@ class CallableFunction(Function):
 
     def to_store(self) -> tuple[dict, bytes]:
         assert not self.is_polymorphic
-        md = {'signature': self.signature.as_dict(), 'batch_size': self.batch_size}
+        md: dict[str, Any] = {'signature': self.signature.as_dict(), 'batch_size': self.batch_size}
+        if self.max_concurrency is not None:
+            md['max_concurrency'] = self.max_concurrency
         return md, cloudpickle.dumps(self.py_fn)
 
     @classmethod
@@ -178,7 +183,9 @@ class CallableFunction(Function):
         py_fn = cloudpickle.loads(binary_obj)
         assert callable(py_fn)
         sig = Signature.from_dict(md['signature'])
-        return CallableFunction([sig], [py_fn], self_name=name, batch_size=md['batch_size'])
+        return CallableFunction(
+            [sig], [py_fn], self_name=name, batch_size=md['batch_size'], max_concurrency=md.get('max_concurrency')
+        )
 
     def __repr__(self) -> str:
         return f'<Pixeltable UDF {self.name}>'

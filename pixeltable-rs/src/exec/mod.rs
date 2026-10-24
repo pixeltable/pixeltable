@@ -8,8 +8,10 @@
 
 pub mod compute;
 pub mod compute_rows;
+pub mod dispatch;
 pub mod index;
 pub mod insert;
+pub mod prefetch;
 pub mod propagate;
 pub mod query;
 pub mod sample;

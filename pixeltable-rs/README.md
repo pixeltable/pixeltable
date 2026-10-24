@@ -20,6 +20,38 @@ the internals are different (no Postgres, no SQLAlchemy).
 | `tests_rs/` | The clone's own tests |
 | `tools/` | Generators (function stubs from upstream's source) |
 
+## Concurrency of UDFs
+
+Unlike upstream Pixeltable, which runs sync UDFs one call at a time, pixeltable-rs runs the calls of a UDF for many
+rows concurrently:
+
+- Calls of a **sync UDF** may run in parallel on a pool of worker threads, in any order. Calls that wait on I/O or
+  release the GIL (network requests, `time.sleep`, numpy, PIL, torch) overlap; pure-Python CPU-bound calls, which
+  would only contend for the GIL, are detected and run one after the other as before.
+- Calls of an **async UDF** are all in flight together on one event loop (up to `max_concurrency` per function), and
+  functions with a `resource_pool` follow the pool's request rate and retry failed calls that look retryable, as
+  upstream does.
+- A **batched UDF** (`batch_size=...`) gets full batches, several in flight at once.
+- Independent UDF calls of one operation (two computed columns filled by one insert, two calls in one expression) run
+  concurrently.
+
+Results are the same as with sequential execution: each value is placed in its row, an exception is recorded for the
+row that raised it (a failed batch fails each of its rows), `on_error='abort'` reports the error of the first failing
+row in row order, and a `KeyboardInterrupt` aborts the operation.
+
+A UDF that is not thread-safe (it mutates shared state without a lock, or uses a library that must not be called
+from several threads) declares `@pxt.udf(max_concurrency=1)`: its calls then run one at a time, in row order, in the
+thread that runs the operation. `max_concurrency=n` caps the calls in flight at `n` for sync and async UDFs alike.
+
+| Setting (environment variable / `[pixeltable]` key in `$PIXELTABLE_HOME/config.toml`) | Default |
+|---|---|
+| `PIXELTABLE_UDF_THREADS` / `udf_threads`: worker threads for sync UDFs; 1 runs every call in the calling thread, in row order (upstream's behavior) | 4 per CPU, 4 to 32 |
+| `PIXELTABLE_UDF_ASYNC_CONCURRENCY` / `udf_async_concurrency`: calls of one async UDF in flight at once | 1024 |
+| `<ENDPOINT>_RATE_LIMIT` / `[<endpoint>] rate_limit`: requests per minute of `resource_pool='request-rate:<endpoint>'` | 600 |
+
+`bench/run.py` measures these paths (and builtin-only queries); see [ARCHITECTURE.md](ARCHITECTURE.md), "Concurrency of
+user code", for how it works.
+
 ## Setup
 
 The harness copies tests from, and links test data into, an upstream Pixeltable checkout one directory up, so clone

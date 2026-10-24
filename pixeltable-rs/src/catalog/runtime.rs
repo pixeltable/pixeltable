@@ -32,6 +32,11 @@ thread_local! {
     static HELD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// True while this thread holds the catalog lock.
+pub fn lock_held() -> bool {
+    HELD.with(|h| h.get())
+}
+
 struct HeldGuard;
 
 impl Drop for HeldGuard {

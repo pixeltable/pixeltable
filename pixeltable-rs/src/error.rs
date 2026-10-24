@@ -138,6 +138,34 @@ impl Error {
         }
     }
 
+    /// A copy of this error (a Python exception is shared by reference).
+    pub fn clone_ref(&self, py: Python<'_>) -> Error {
+        match self {
+            Error::Python(e) => Error::Python(e.clone_ref(py)),
+            other => other.clone_plain(),
+        }
+    }
+
+    /// `clone_ref()`, attaching to the interpreter only for a Python exception.
+    pub fn duplicate(&self) -> Error {
+        match self {
+            Error::Python(_) => Python::attach(|py| self.clone_ref(py)),
+            other => other.clone_plain(),
+        }
+    }
+
+    fn clone_plain(&self) -> Error {
+        match self {
+            Error::Pxt { code, message } => Error::Pxt { code: *code, message: message.clone() },
+            Error::Type(m) => Error::Type(m.clone()),
+            Error::Attribute(m) => Error::Attribute(m.clone()),
+            Error::Value(m) => Error::Value(m.clone()),
+            Error::NotImplemented(m) => Error::NotImplemented(m.clone()),
+            Error::PyExc(name, m) => Error::PyExc(name, m.clone()),
+            Error::Python(e) => Python::attach(|py| Error::Python(e.clone_ref(py))),
+        }
+    }
+
     /// The name of the Python exception class this error is raised as.
     pub fn py_type_name(&self) -> String {
         match self {

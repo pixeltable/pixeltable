@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use super::compute::{ComputedCol, MediaTarget};
 use super::insert::UpdateStatus;
-use super::scan::{ElemInfo, PathCtx, PathInput, eval_into};
+use super::scan::{ElemInfo, PathCtx, PathInput};
 use crate::catalog::Catalog;
 use crate::catalog::table::{RowCountStats, TableMd};
 use crate::error::{Result, py_repr};
@@ -105,32 +105,6 @@ impl ViewCompute {
         Ok(true)
     }
 
-    /// Evaluates `cols` into `row`, a row of this view belonging to the base path row `base`. Evaluation errors
-    /// become cell errors; in-memory media results are written to the view's media directory (recorded in `saved`).
-    /// `materialized`: the row holds all iterator outputs in its cells (it is being generated).
-    #[allow(clippy::too_many_arguments)]
-    pub fn eval_columns(
-        &self,
-        row: &mut StoredRow,
-        cols: &[ComputedCol],
-        base_infos: &[&ElemInfo],
-        base: &[&StoredRow],
-        status: &mut UpdateStatus,
-        saved: &mut Vec<std::path::PathBuf>,
-        materialized: bool,
-    ) -> Result<()> {
-        let mut infos: Vec<&ElemInfo> = Vec::with_capacity(base_infos.len() + 1);
-        infos.push(if materialized { &self.compute_info } else { &self.info });
-        infos.extend_from_slice(base_infos);
-        eval_into(row, cols, &infos, base, &self.name, self.fail_on_exception, &mut status.row_count_stats, &mut status.cols_with_excs)?;
-        if let Some(media) = &self.media {
-            for c in cols.iter().filter(|c| c.is_media) {
-                media.materialize(row, c.col_id, saved)?;
-            }
-        }
-        Ok(())
-    }
-
     /// The new view rows for one base path row (`base[0]` is the base's row): none if the filter rejects it.
     pub fn rows_for(
         &self,
@@ -153,11 +127,14 @@ impl ViewCompute {
     ) -> Result<Vec<(usize, StoredRow)>> {
         let materialized = self.info.iterator.is_some();
         let mut out: Vec<(usize, StoredRow)> = Vec::new();
-        if !self.computed.iter().any(|c| super::query::has_window_calls(&c.expr)) {
-            // row by row, so that only one base row's unstored iterator outputs are held at a time
+        if materialized && !self.computed.iter().any(|c| super::query::has_window_calls(&c.expr)) {
+            // a component view: base row by base row, so that only one base row's unstored iterator outputs are held
+            // at a time
             for (i, base) in bases.iter().enumerate() {
-                for mut row in self.new_rows(base_infos, base)? {
-                    self.eval_columns(&mut row, &self.computed, base_infos, base, status, saved, materialized)?;
+                let mut rows = self.new_rows(base_infos, base)?;
+                let row_bases: Vec<&[&StoredRow]> = rows.iter().map(|_| *base).collect();
+                self.eval_rows(&mut rows, &row_bases, &self.computed, base_infos, status, saved, materialized)?;
+                for mut row in rows {
                     self.finish_row(&mut row, saved)?;
                     out.push((i, row));
                 }
@@ -182,8 +159,10 @@ impl ViewCompute {
         Ok(out)
     }
 
-    /// `eval_columns()` for a batch of rows of this view (`rows[i]` belongs to the base path row `bases[i]`); columns
-    /// computed with window functions are evaluated over the whole batch.
+    /// Evaluates `cols` into `rows`, rows of this view (`rows[i]` belongs to the base path row `bases[i]`), as
+    /// `scan::eval_rows_into()` does. Evaluation errors become cell errors; in-memory media results are written to the
+    /// view's media directory (recorded in `saved`). `materialized`: the rows hold all iterator outputs in their cells
+    /// (they are being generated).
     #[allow(clippy::too_many_arguments)]
     pub fn eval_rows(
         &self,
