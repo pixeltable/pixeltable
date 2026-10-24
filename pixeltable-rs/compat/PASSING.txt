@@ -96,6 +96,9 @@ tests/test_function.py::TestFunction::test_serialize_anonymous
 tests/test_function.py::TestFunction::test_stored_udf
 tests/test_function.py::TestFunction::test_sync_udf_with_resource_pool
 tests/test_function.py::TestFunction::test_udf_docstring
+tests/test_function.py::TestFunction::test_udf_evolution[False]
+tests/test_function.py::TestFunction::test_udf_evolution[True]
+tests/test_function.py::TestFunction::test_udf_import_error
 tests/test_function.py::TestFunction::test_udf_in_global_namespace
 tests/test_function.py::TestFunction::test_using_storable
 tests/test_history.py::TestHistory::test_history[get_versions]

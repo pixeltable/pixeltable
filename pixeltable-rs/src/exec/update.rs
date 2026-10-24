@@ -155,7 +155,9 @@ pub fn view_update_tree(
         let compute = ViewCompute::of(&md, cat.store().media_dir(v))?;
         let mut changed = changed.clone();
         let recompute = dependent_columns(&md, &mut changed)?;
+        let tbl_display = crate::functions::udf::tbl_version_display(&md);
         for c in &recompute {
+            crate::functions::udf::check_valid_column(&tbl_display, &c.name, &c.expr, "updated in")?;
             updated_cols.push(format!("{}.{}", md.name, c.name));
         }
         let membership_change = base_membership_change
