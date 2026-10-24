@@ -26,7 +26,8 @@ are not.
 A `pyproject.toml` is a project root only if it has `[tool.pixeltable]`.
 If both files sit in the same directory, `pixeltable.toml` wins. `pxt init`
 writes one or the other, not both. Nested `pxt init` is refused: one
-project, one root.
+project, one root. So is `pxt init` in your home directory or above it,
+since the project would then include every file in your home directory.
 
 Create tables, then start HTTP:
 

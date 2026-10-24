@@ -27,7 +27,7 @@ from tqdm import tqdm
 
 import pixeltable
 from pixeltable import exceptions as excs
-from pixeltable.config import PROJECT_CONFIG_FILE, PYPROJECT_FILE, ConfigSections, DatabaseConfig
+from pixeltable.config import PROJECT_CONFIG_FILE, PYPROJECT_FILE, Config, ConfigSections, DatabaseConfig
 from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
@@ -73,7 +73,8 @@ def _is_gitignored(path: Path, is_dir: bool, specs: list[tuple[Path, PathSpec]])
 
 def _is_venv(dir_path: Path) -> bool:
     """Whether dir_path is a Python virtual environment."""
-    return (dir_path / 'pyvenv.cfg').is_file() or (dir_path / 'conda-meta').is_dir()
+    # os.path returns False for an unreadable dir_path, where Path.is_file() can raise PermissionError
+    return os.path.isfile(dir_path / 'pyvenv.cfg') or os.path.isdir(dir_path / 'conda-meta')
 
 
 def _collect_unignored_files(project_dir: Path) -> set[Path]:
@@ -91,14 +92,22 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
     reaches it, which a project that derives its version from VCS metadata needs. A virtual environment is
     skipped whether or not a .gitignore covers it, since the pod installs the packages from the lockfile.
     __pycache__ is ignored: we don't want to ship bytecode
+
+    A directory removed during the walk is skipped; one that cannot be read raises.
     """
     files: set[Path] = set()
 
     def visit(dir_path: Path, specs: list[tuple[Path, PathSpec]]) -> None:
-        spec = _gitignore_spec(dir_path)
+        try:
+            spec = _gitignore_spec(dir_path)
+            entries = list(dir_path.iterdir())
+        except FileNotFoundError:
+            return
+        except OSError as e:
+            raise _unreadable_error(dir_path, e) from e
         if spec is not None:
             specs = [*specs, (dir_path, spec)]
-        for entry in dir_path.iterdir():
+        for entry in entries:
             if entry.name in ('.git', '__pycache__'):
                 continue
             is_dir = entry.is_dir() and not entry.is_symlink()
@@ -121,7 +130,16 @@ def _archive_files(project_root: Path, config: DatabaseConfig | None) -> list[Pa
     - the files git does not ignore, adjusted by the entry's include/exclude patterns
     - the lockfile and pyproject.toml, whatever the patterns say
     - never pixeltable.toml
+    - never a file in the Pixeltable home
+
+    Raises if project_root is the user's home directory or a directory above it.
     """
+    if Path.home().resolve().is_relative_to(project_root):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'the project root {project_root} would include every file in your home directory; move the project '
+            'configuration into a directory made for the project',
+        )
     exclude = config.exclude if config is not None else None
     include = config.include if config is not None else None
     include_only = config.include_only if config is not None else None
@@ -149,6 +167,10 @@ def _archive_files(project_root: Path, config: DatabaseConfig | None) -> list[Pa
     files |= {project_root / name for name in IMAGE_INPUT_FILES if (project_root / name).is_file()}
     files |= set(_installed_from_project(project_root))
     files.discard(project_root / PROJECT_CONFIG_FILE)  # its settings are in the fingerprint's config
+    pxt_home = Config.get().home.resolve()
+    if pxt_home.is_relative_to(project_root):
+        # the Pixeltable home stores the local database and credentials, not project files
+        files = {f for f in files if not f.is_relative_to(pxt_home)}
     return sorted(files)
 
 
@@ -192,8 +214,21 @@ def _path_hashes(root: Path, paths: Iterable[Path]) -> dict[str, str]:
     result: dict[str, str] = {}
     for path in paths:
         relpath = path.relative_to(root).as_posix()
-        result[relpath] = _path_hash(path, relpath)
+        try:
+            result[relpath] = _path_hash(path, relpath)
+        except FileNotFoundError:
+            continue  # removed since it was listed
+        except OSError as e:
+            raise _unreadable_error(path, e) from e
     return result
+
+
+def _unreadable_error(path: Path, e: OSError) -> excs.RequestError:
+    reason = e.strerror if e.strerror is not None else e
+    return excs.RequestError(
+        excs.ErrorCode.INVALID_STATE,
+        f'{path} cannot be read: {reason}; add it to .gitignore to leave it out of the project',
+    )
 
 
 def _path_hash(path: Path, relpath: str) -> str:
@@ -251,8 +286,10 @@ def _add_hashed(tf: tarfile.TarFile, path: Path, relpath: str) -> str:
     if info.islnk():
         # gettarinfo() writes a second path to one inode as a hard link, which extracts as a regular
         # file with the same bytes; the member itself carries no content
+        # hash first, so a file removed since it was listed raises before its member is written
+        content_hash = _path_hash(path, relpath)
         tf.addfile(info)
-        return _path_hash(path, relpath)
+        return content_hash
     if relpath == PYPROJECT_FILE:
         data = path.read_bytes()
         info.size = len(data)
@@ -260,7 +297,16 @@ def _add_hashed(tf: tarfile.TarFile, path: Path, relpath: str) -> str:
         return member_hash(pyproject_hash(data), symlink=False)
     with path.open('rb') as raw:
         reader = _HashingReader(raw)
-        tf.addfile(info, reader)
+        try:
+            tf.addfile(info, reader)
+        except OSError as e:
+            # tarfile raises when the file has fewer than info.size bytes
+            if os.fstat(raw.fileno()).st_size >= info.size:
+                raise
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE,
+                f'the project changed while it was being packaged ({relpath}); run the command again',
+            ) from e
     return member_hash(reader.hexdigest(), symlink=False)
 
 
@@ -308,19 +354,26 @@ def package_project_archive(
     archive_path = Path(name)
 
     max_pathlen = 40
-    with (
-        tarfile.open(archive_path, 'w:bz2') as tf,
-        tqdm(desc='Packaging project', total=len(files), unit=' files', disable=not show_progress) as bar,
-    ):
-        hashes: dict[str, str] = {}
-        for f in files:
-            relpath = f.relative_to(project_dir).as_posix()
-            abbrev_path = relpath if len(relpath) <= max_pathlen else '…' + relpath[-(max_pathlen - 1) :]
-            # refresh=False: the postfix is drawn by the following update(), which respects tqdm's redraw interval
-            bar.set_postfix_str(abbrev_path, refresh=False)
-            hashes[relpath] = _add_hashed(tf, f, relpath)
-            bar.update(1)
-        bar.set_postfix_str('', refresh=False)
+    try:
+        with (
+            tarfile.open(archive_path, 'w:bz2') as tf,
+            tqdm(desc='Packaging project', total=len(files), unit=' files', disable=not show_progress) as bar,
+        ):
+            hashes: dict[str, str] = {}
+            for f in files:
+                relpath = f.relative_to(project_dir).as_posix()
+                abbrev_path = relpath if len(relpath) <= max_pathlen else '...' + relpath[-(max_pathlen - 3) :]
+                # refresh=False: the postfix is drawn by the following update(), which respects tqdm's redraw interval
+                bar.set_postfix_str(abbrev_path, refresh=False)
+                try:
+                    hashes[relpath] = _add_hashed(tf, f, relpath)
+                except FileNotFoundError:
+                    pass  # removed since it was listed
+                bar.update(1)
+            bar.set_postfix_str('', refresh=False)
+    except BaseException:
+        archive_path.unlink(missing_ok=True)
+        raise
 
     _logger.info(f'Project archive created: {archive_path}')
     return PackagedContext(path=archive_path, files=hashes)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import tarfile
+import tempfile
 import textwrap
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ from pixeltable.service.management_protocol import (
     PrepareUpdateResponse,
 )
 from pixeltable.utils.project import (
+    _archive_files,
     check_hosted_pixeltable,
     create_image_context,
     create_project_archive,
@@ -200,6 +202,46 @@ class TestProjectArchive:
         (tmp_path / 'app.py').write_text('x = 2\n')
 
         assert package_project_archive(tmp_path).files != before
+
+    def test_removed_while_packaging(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A file removed after the project was listed is left out of the archive."""
+        (tmp_path / 'app.py').write_text('x = 1\n')
+        (tmp_path / 'scratch.py').write_text('')
+
+        # only patching can place a removal between listing a path and reading it
+        def list_then_remove(root: Path, config: DatabaseConfig | None) -> list[Path]:
+            files = _archive_files(root, config)
+            (tmp_path / 'scratch.py').unlink()
+            return files
+
+        monkeypatch.setattr('pixeltable.utils.project._archive_files', list_then_remove)
+        archive = package_project_archive(tmp_path)
+        assert list(archive.files) == ['app.py']
+        with tarfile.open(archive.path, 'r:bz2') as tar:
+            assert tar.getnames() == ['project/app.py']
+
+    def test_shrinks_while_packaging(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A file cut short while it is being packaged fails the archive, and leaves no partial archive behind."""
+        project = tmp_path / 'project'
+        project.mkdir()
+        (project / 'app.py').write_text('x = 1\n')
+        temp_dir = tmp_path / 'temp'
+        temp_dir.mkdir()
+        monkeypatch.setattr(tempfile, 'tempdir', str(temp_dir))
+        # only patching can place a truncation between gettarinfo() and the read
+        gettarinfo = tarfile.TarFile.gettarinfo
+
+        def record_then_truncate(
+            tf: tarfile.TarFile, name: Path, arcname: str | None = None, fileobj: Any = None
+        ) -> tarfile.TarInfo:
+            info = gettarinfo(tf, name, arcname, fileobj)
+            name.write_bytes(b'')
+            return info
+
+        monkeypatch.setattr(tarfile.TarFile, 'gettarinfo', record_then_truncate)
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'changed while it was being packaged \(app\.py\)'):
+            package_project_archive(project)
+        assert list(temp_dir.iterdir()) == []
 
     def test_context_matches_fingerprint(self, tmp_path: Path) -> None:
         """An unchanged project fingerprints to the context it packages, or an upload could never match."""

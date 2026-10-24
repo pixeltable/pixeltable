@@ -1,7 +1,11 @@
 """The project's file selection and its fingerprint."""
 
 import hashlib
+import os
 import pathlib
+import re
+import shutil
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -16,6 +20,7 @@ from pixeltable.utils.project import (
     digest,
     image_object_name,
     member_hash,
+    package_project_archive,
     project_fingerprint,
     pyproject_hash,
 )
@@ -98,6 +103,75 @@ class TestProject:
     def test_include_only_with_include(self, project: pathlib.Path) -> None:
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='include_only'):
             _archive_files(project, DatabaseConfig(include_only=['app.py'], exclude=['*.log']))
+
+    def test_home_directory_is_refused(self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        for home in (project, project / 'me'):
+            # Path.home() reads HOME on POSIX and USERPROFILE on Windows
+            monkeypatch.setenv('HOME', str(home))
+            monkeypatch.setenv('USERPROFILE', str(home))
+            with pxt_raises(
+                excs.ErrorCode.INVALID_CONFIGURATION, match='would include every file in your home directory'
+            ):
+                project_fingerprint(project, None)
+
+    def test_pixeltable_home_is_excluded(self, project: pathlib.Path, private_home: pathlib.Path) -> None:
+        """A Pixeltable home inside the project is left out, even when a pattern selects it."""
+        (private_home / 'auth').mkdir(exist_ok=True)
+        (private_home / 'auth' / 'sessions.json').write_text('{}\n')
+        (private_home / 'config.toml').write_text('[openai]\napi_key = "sk-test"\n')
+        assert private_home.parent == project
+
+        assert sorted(project_fingerprint(project, None).files) == ['.gitignore', 'app.py', 'uv.lock']
+        archive = package_project_archive(project)
+        archive.path.unlink()
+        assert sorted(archive.files) == ['.gitignore', 'app.py', 'uv.lock']
+        for config in (DatabaseConfig(include=[f'{private_home.name}/**']), DatabaseConfig(include_only=['**'])):
+            files = project_fingerprint(project, config).files
+            assert 'app.py' in files, files
+            assert not any(path.startswith(f'{private_home.name}/') for path in files), files
+
+    def test_removed_while_reading(self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A path removed after its directory was listed is left out, as if it had never been there."""
+        (project / 'tmp').mkdir()
+        (project / 'tmp' / 'scratch.py').write_text('')
+        # only patching can place a removal between listing a path and reading it
+        list_dir = pathlib.Path.iterdir
+
+        def remove_then_list(path: pathlib.Path) -> Iterator[pathlib.Path]:
+            if path == project / 'tmp':
+                shutil.rmtree(path)
+            return list_dir(path)
+
+        with monkeypatch.context() as m:
+            m.setattr(pathlib.Path, 'iterdir', remove_then_list)
+            assert sorted(project_fingerprint(project, None).files) == ['.gitignore', 'app.py', 'uv.lock']
+
+        def list_then_remove(root: pathlib.Path, config: DatabaseConfig | None) -> list[pathlib.Path]:
+            files = _archive_files(root, config)
+            (project / 'app.py').unlink()
+            return files
+
+        monkeypatch.setattr('pixeltable.utils.project._archive_files', list_then_remove)
+        assert sorted(project_fingerprint(project, None).files) == ['.gitignore', 'uv.lock']
+
+    @pytest.mark.skipif(
+        os.name == 'nt' or os.geteuid() == 0, reason='chmod(0) blocks reads only for a non-root POSIX user'
+    )
+    def test_unreadable_path(self, project: pathlib.Path) -> None:
+        secret = project / 'secret.txt'
+        secret.write_text('')
+        secret.chmod(0)
+        data = project / 'data'
+        data.mkdir()
+        try:
+            with pxt_raises(excs.ErrorCode.INVALID_STATE, match=f'{re.escape(str(secret))} cannot be read'):
+                project_fingerprint(project, None)
+            secret.chmod(0o644)
+            data.chmod(0)
+            with pxt_raises(excs.ErrorCode.INVALID_STATE, match=f'{re.escape(str(data))} cannot be read'):
+                project_fingerprint(project, None)
+        finally:
+            data.chmod(0o755)
 
     def test_file_contents(self, project: pathlib.Path) -> None:
         before = project_fingerprint(project, None)

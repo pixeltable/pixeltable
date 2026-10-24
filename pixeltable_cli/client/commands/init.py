@@ -36,7 +36,8 @@ The project root:
 Exit codes:
   0  the directory is a project root
   1  error: the project configuration could not be written
-  3  refused: a project root already sits above this directory"""
+  3  refused: a project root already sits above this directory, or the project root would be your home
+     directory or a directory above it"""
 
 # the shared set has no name for this one: init reports whether the directory is a project root
 EXIT_OK = 0
@@ -53,6 +54,22 @@ def run(argv: list[str]) -> None:
     except RuntimeError as e:
         print(f'pxt init: {e}', file=sys.stderr)
         sys.exit(EXIT_ERROR)
+    project_root = root if existing is None else existing.parent
+    if pathlib.Path.home().resolve().is_relative_to(project_root.resolve()):
+        if existing is None:
+            print(
+                f'pxt init: a project rooted at {root} would include every file in your home directory.\n'
+                'Make a directory for the project, and run pxt init there.',
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f'pxt init: {existing} makes {existing.parent} a project root, so the project would include every '
+                f'file in your home directory.\nRemove the project configuration from {existing}, then run '
+                'pxt init in a directory made for the project.',
+                file=sys.stderr,
+            )
+        sys.exit(EXIT_REFUSED)
     if existing is not None and existing.parent == root:
         _report(root, existing, created=False, as_json=args.as_json)
         return
