@@ -220,6 +220,7 @@ class ObjectStoreSaveNode(ExecNode):
 
     def __process_input_row(self, row: exprs.DataRow) -> list[ObjectStoreSaveNode.WorkItem]:
         """Process a batch of input rows, generating a list of work"""
+        from pixeltable.env import Env
         from pixeltable.utils.local_store import LocalStore, TempStore
 
         # Create a list of work to do for media storage in this row
@@ -256,8 +257,15 @@ class ObjectStoreSaveNode(ExecNode):
                 continue
 
             if destination is None and not TempStore.contains_path(src_path):
-                # Do not copy local file URLs to the LocalStore
-                continue
+                media_dir = Env.get().media_dir
+                owned_by_other_tbl = src_path.is_relative_to(media_dir) and src_path.relative_to(media_dir).parts[
+                    0
+                ] != ObjectPath.table_prefix(col.tbl_handle.id)
+                if not owned_by_other_tbl:
+                    # Do not copy local file URLs to the LocalStore, except managed media owned by
+                    # another table: dropping that table deletes its media directory and would leave
+                    # this row's fileurl dangling
+                    continue
 
             file_size = src_path.stat().st_size
             work_designator = ObjectStoreSaveNode.WorkDesignator(str(src_path), destination, file_size)
