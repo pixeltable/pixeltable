@@ -48,7 +48,7 @@ This command takes precedence where a skill requires execution, file writes, pub
    source-backed claims with a trigger, impact, attribution, and smallest correction. Return structured pass checks,
    exclusions, candidates, rejected claims, and questions. A failed or malformed result gets at most one fresh retry
    when capacity remains. Otherwise record incomplete work. Keep source-backed rejection notes separate from findings.
-   Only independently checked rejections enter reusable history. Do not make the cross-checker repeat every self-rejected idea.
+   Self-rejected ideas stay in the pass result. Do not make the cross-checker repeat every self-rejected idea.
    - `abstractions`, Opus: articulate-the-abstraction steps 2 and 3 on the core files.
    - `lines`, Sonnet: its step 4, including deletions, tests, and relevant peripheral supporting checks.
    - `design`, Opus: challenge-the-design across the whole change, including requirement and forced deletion.
@@ -60,7 +60,7 @@ This command takes precedence where a skill requires execution, file writes, pub
    Apply articulate-the-abstraction step 5. Re-read callers, guards, transactions, schemas, and error paths to refute
    each candidate. Apply walk-the-job's critic and challenge-the-design's final challenge. Merge established duplicate
    root causes and calibrate noise. Return keep, narrow, question, or reject decisions with accepted final records.
-   Maintenance suggestions need evidence but can skip independent checking. Every prior claim needs revalidation.
+   Maintenance suggestions need evidence but can skip independent checking. Every open prior claim needs revalidation.
    Preserve established IDs and subject/mechanism identity. A resolved decision needs the source change that removes
    a previously posted trigger. An unchanged comment file alone never establishes an unchanged claim.
 4. **Assemble the final envelope.** Copy the checked records verbatim into decisions. Order and filter findings without
@@ -70,7 +70,7 @@ This command takes precedence where a skill requires execution, file writes, pub
 ## Contract
 
 Return exactly one fenced JSON object and no other final text. Use `schema_version: 1` and the manifest's `snapshot_id`.
-The host checks structure, source references, coverage accounting, and verification links. It cannot prove agent reasoning
+The host checks structure, source references, coverage accounting, and declared checker labels. It cannot prove agent reasoning
 or recover child payloads that the runtime does not expose. Do not claim those stronger guarantees.
 
 Use this envelope, with empty arrays when appropriate:
@@ -96,7 +96,9 @@ Use this envelope, with empty arrays when appropriate:
 `status` is `complete`, `incomplete`, or `skipped`. Incomplete and skipped outcomes require a reason. Skipping requires
 the manifest's nonempty `skip_reason`, copied exactly, and no findings. Without that host-approved policy, review the
 change or report incomplete work. No findings is a valid result, but does not establish
-complete coverage. Decisive unresolved questions also require `incomplete`. The host records failed validation separately. A complete review must account for every required pass.
+complete coverage. Decisive unresolved questions also require `incomplete`. The host downgrades recoverable coverage gaps
+to incomplete while preserving valid checked findings. Invalid snapshots, source references, and claim identities still
+fail validation. A complete review must account for every required pass.
 
 Each pass entry has this shape:
 
@@ -115,6 +117,8 @@ Paths are repository-relative. `side` is RIGHT or LEFT. `start_line` defaults to
 For renamed files, references use the new repository path and LEFT maps to the old path. The `lines` and `rules` passes
 must cover every changed line or give an explicit per-file exclusion. Other passes follow the relevant whole change
 and downstream contracts. Checks need source references and a specific check description, even when no finding survives.
+Files without text hunks retain status, rename, and mode metadata. They have no changed lines to cover, but relevant
+passes still inspect their effects or give an exclusion. Do not silently skip binary, rename, or permission changes.
 
 Each finding has this shape:
 
@@ -122,7 +126,7 @@ Each finding has this shape:
 {
   "id": "<stable established claim ID, or a new unique ID>",
   "producer": "lines",
-  "subject": "<canonical repository path and symbol or contract>",
+  "subject": "src/example.py#symbol-or-contract",
   "mechanism": "<specific violated invariant or root cause>",
   "kind": "defect",
   "title": "<short title>",
@@ -142,7 +146,9 @@ established impact. Other kinds omit severity. Rule findings also have `rule` wi
 Attribution is `new`, `newly_exposed`, or `existing`. Existing debt is at most a maintenance suggestion. A finding needs
 an ordered source trace that accounts for visible preventing controls. `location` can be null or outside the diff. The
 host keeps only valid locations inline and renders the rest in the body. IDs exclude line numbers, agent, and severity.
-ID spelling alone cannot prove two claims equivalent. Match subject, mechanism, and evidence before preserving an ID.
+Use `path#symbol-or-contract` for the canonical subject. On a rename, change only its path prefix when the symbol or
+contract is unchanged. ID spelling alone cannot prove two claims equivalent. Match subject, mechanism, and evidence
+before preserving an ID. A different identity needs a new ID and does not replace the prior claim's revalidation.
 
 Each independent decision has this shape:
 
@@ -162,7 +168,11 @@ Use `narrow` for an accepted replacement, `reject` for a disproved claim, and `q
 A question decision also includes `unknown` and `check`. Use `resolved` only for a previously posted claim whose trigger
 new source removes. Include `fix_evidence`, a nonempty array of RIGHT-side source references to the fix.
 For a fix that deletes code, provide `removed_paths` with repository paths present in the earlier tree and absent now.
+Moving a file does not establish deletion; preparation records renames from the prior reviewed head as well as the PR diff.
 The host compares blobs or removals with the earlier reviewed tree and checks subject/mechanism identity. Unchecked work is incomplete, not rejected.
+For a non-published decision about a historical claim, retain its exact earlier evidence when that source no longer
+exists in either current tree. Historical references cannot support a published keep or narrow decision. Resolved and
+rejected claims leave reusable history; subsequent runs discover regressions through fresh source review.
 Separate questions use `{"unknown":"<exact missing fact>","check":"<smallest check that settles it>"}`.
 
 ## Writing

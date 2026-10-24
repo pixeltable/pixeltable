@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import unittest
 from typing import Any
 
@@ -36,6 +37,7 @@ def fixture() -> tuple[dict[str, Any], dict[str, Any]]:
         'base_sha': 'a' * 40,
         'head_sha': 'b' * 40,
         'merge_base_sha': 'a' * 40,
+        'metadata': {'baseRefName': 'main'},
         'diff_files': contract.parse_diff(PATCH),
         'files': ['example.py'],
         'sources': {side: {'example.py': {'lines': 20, 'sha256': 'content'}} for side in ['LEFT', 'RIGHT']},
@@ -128,6 +130,11 @@ class DiffTest(unittest.TestCase):
         patch = 'diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n--- old text\n+++ new text\n'
         self.assertEqual(contract.parse_diff(patch)['f']['changed'], {'LEFT': [1], 'RIGHT': [1]})
 
+    def test_source_separators_are_not_git_line_breaks(self) -> None:
+        for separator in ['\r', '\f', '\u2028']:
+            patch = f'diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new{separator}+same line\n'
+            self.assertEqual(contract.parse_diff(patch)['f']['changed']['RIGHT'], [1])
+
 
 class ContractTest(unittest.TestCase):
     def test_empty_complete_review(self) -> None:
@@ -139,18 +146,18 @@ class ContractTest(unittest.TestCase):
     def test_missing_pass_cannot_claim_complete(self) -> None:
         manifest, result = fixture()
         result['passes'].pop()
-        with self.assertRaisesRegex(ValueError, 'no result'):
-            contract.validate(result, manifest)
-        result.update(status='incomplete', reason='The rules pass failed')
-        review, _ = contract.render(result, manifest)
+        add_finding(result, finding())
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'incomplete')
+        self.assertTrue(any('no result' in gap for gap in stats['gaps']))
+        self.assertEqual(len(review['comments']), 1)
         self.assertIn('Coverage incomplete', review['body'])
         self.assertNotIn('No supported findings', review['body'])
 
     def test_line_and_rules_passes_account_for_all_changed_ranges(self) -> None:
         manifest, result = fixture()
         result['passes'][1]['checks'] = []
-        with self.assertRaisesRegex(ValueError, 'uncovered'):
-            contract.validate(result, manifest)
+        self.assertTrue(any('uncovered' in gap for gap in contract.validate(result, manifest)['gaps']))
         result['passes'][1]['exclusions'] = [{'path': 'example.py', 'reason': 'Generated file'}]
         contract.validate(result, manifest)
 
@@ -168,10 +175,9 @@ class ContractTest(unittest.TestCase):
     def test_unchecked_claim_cannot_publish(self) -> None:
         manifest, result = fixture()
         result['findings'].append(finding())
-        with self.assertRaisesRegex(ValueError, 'independently checked'):
-            contract.validate(result, manifest)
-        result.update(status='incomplete', reason='Verification exhausted its budget')
-        review, _ = contract.render(result, manifest)
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'incomplete')
+        self.assertTrue(any('independently checked' in gap for gap in stats['gaps']))
         self.assertEqual(review['comments'], [])
         self.assertNotIn('Validate the input', review['body'])
 
@@ -225,22 +231,18 @@ class ContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'check'):
             contract.validate(result, manifest)
         result['decisions'][0]['check'] = 'Read the external caller contract.'
-        with self.assertRaisesRegex(ValueError, 'decisive fact remains unresolved'):
-            contract.validate(result, manifest)
-        result.update(status='incomplete', reason='The external caller contract is unavailable')
-        review, _ = contract.render(result, manifest)
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'incomplete')
         self.assertIn('Which caller owns this input?', review['body'])
         self.assertEqual(review['comments'], [])
 
     def test_focus_and_user_job_require_their_passes(self) -> None:
         manifest, result = fixture()
         result['user_surface'] = True
-        with self.assertRaisesRegex(ValueError, 'walk'):
-            contract.validate(result, manifest)
+        self.assertIn('walk: no result', contract.validate(result, manifest)['gaps'])
         result['user_surface'] = False
         manifest['required_passes'].append('focus')
-        with self.assertRaisesRegex(ValueError, 'focus'):
-            contract.validate(result, manifest)
+        self.assertIn('focus: no result', contract.validate(result, manifest)['gaps'])
 
     def test_three_runs_preserve_history_and_recheck_external_changes(self) -> None:
         manifest, first = fixture()
@@ -280,8 +282,9 @@ class ContractTest(unittest.TestCase):
     def test_unrevalidated_history_is_incomplete(self) -> None:
         manifest, result = fixture()
         manifest['previous'] = {'records': [{'claim': finding(), 'posted': True, 'status': 'keep'}]}
-        with self.assertRaisesRegex(ValueError, 'prior claim not revalidated'):
-            contract.validate(result, manifest)
+        self.assertTrue(
+            any('prior claim not revalidated' in gap for gap in contract.validate(result, manifest)['gaps'])
+        )
 
     def test_prior_id_cannot_be_reused_for_another_claim(self) -> None:
         manifest, result = fixture()
@@ -306,6 +309,10 @@ class ContractTest(unittest.TestCase):
         review, _ = contract.render(result, manifest)
         self.assertIn('Resolved:', review['body'])
 
+        manifest['sources']['RIGHT']['guard.py'] = {'lines': 1, 'git_blob': 'new guard'}
+        result['decisions'][0]['fix_evidence'] = [{'path': 'guard.py', 'line': 1}]
+        self.assertIn('Resolved:', contract.render(result, manifest)[0]['body'])
+
     def test_changed_severity_is_not_suppressed(self) -> None:
         import json
 
@@ -324,8 +331,78 @@ class ContractTest(unittest.TestCase):
     def test_whole_change_pass_cannot_claim_complete_without_evidence(self) -> None:
         manifest, result = fixture()
         result['passes'][2]['checks'] = []
-        with self.assertRaisesRegex(ValueError, 'no source check'):
-            contract.validate(result, manifest)
+        self.assertTrue(any('no source check' in gap for gap in contract.validate(result, manifest)['gaps']))
+
+    def test_resolved_claim_does_not_require_another_fix_on_the_next_run(self) -> None:
+        manifest, result = fixture()
+        claim = finding()
+        manifest['previous'] = {'records': [{'claim': claim, 'posted': True, 'status': 'keep'}]}
+        manifest['previous_tree'] = {'example.py': 'old'}
+        manifest['sources']['RIGHT']['example.py']['git_blob'] = 'fixed'
+        add_finding(result, claim)
+        result['decisions'][0].update(decision='resolved', fix_evidence=[{'path': 'example.py', 'line': 2}])
+        review, _ = contract.render(result, manifest)
+        manifest['previous'] = json.loads(review['body'].split(contract.STATE_MARKER)[1].split('\n-->')[0])
+        _, later = fixture()
+        _, stats = contract.render(later, manifest)
+        self.assertEqual(stats['status'], 'complete')
+        self.assertEqual(manifest['previous']['records'], [])
+        add_finding(later, finding())
+        regressed, _ = contract.render(later, manifest)
+        self.assertEqual(len(regressed['comments']), 1)
+
+    def test_followup_deletion_uses_only_the_matching_historical_evidence(self) -> None:
+        manifest, result = fixture()
+        claim = finding()
+        claim['evidence'] = [{'path': 'added.py', 'line': 1}]
+        manifest['previous'] = {'records': [{'claim': copy.deepcopy(claim), 'posted': True, 'status': 'keep'}]}
+        manifest['previous_tree'] = {'added.py': 'old blob'}
+        add_finding(result, claim)
+        result['decisions'][0].update(decision='resolved', removed_paths=['added.py'])
+        review, _ = contract.render(result, manifest)
+        self.assertIn('Resolved:', review['body'])
+        self.assertEqual(review['comments'], [])
+        result['decisions'][0]['checked']['evidence'] = [{'path': 'invented.py', 'line': 1}]
+        with self.assertRaisesRegex(ValueError, 'does not exist'):
+            contract.render(result, manifest)
+        result['decisions'][0]['checked'] = copy.deepcopy(claim)
+        result['decisions'][0]['decision'] = 'keep'
+        with self.assertRaisesRegex(ValueError, 'does not exist'):
+            contract.render(result, manifest)
+
+    def test_hidden_state_escapes_html_comment_terminators(self) -> None:
+        manifest, result = fixture()
+        claim = finding()
+        claim['comment'] = 'The input contains --> and must be parsed.'
+        add_finding(result, claim)
+        review, _ = contract.render(result, manifest)
+        raw = review['body'].split(contract.STATE_MARKER)[1].split('\n-->')[0]
+        self.assertNotIn('-->', raw)
+        self.assertEqual(json.loads(raw)['records'][0]['claim']['comment'], claim['comment'])
+
+    def test_a_rename_is_not_removal_evidence(self) -> None:
+        manifest, result = fixture()
+        claim = finding()
+        manifest['previous'] = {'records': [{'claim': copy.deepcopy(claim), 'posted': True, 'status': 'keep'}]}
+        manifest['previous_tree'] = {'example.py': 'same blob'}
+        manifest['sources']['RIGHT']['renamed.py'] = manifest['sources']['RIGHT'].pop('example.py')
+        manifest['diff_files'] = {
+            'renamed.py': {'old_path': 'example.py', 'status': 'R100', 'hunks': [], 'changed': {}}
+        }
+        manifest['files'] = ['renamed.py']
+        for entry in result['passes']:
+            entry['checks'] = [check for check in entry['checks'] if check['side'] == 'LEFT']
+        add_finding(result, claim)
+        result['decisions'][0].update(decision='resolved', removed_paths=['example.py'])
+        with self.assertRaisesRegex(ValueError, 'moved'):
+            contract.render(result, manifest)
+
+    def test_skipped_artifact_explains_why(self) -> None:
+        manifest, result = fixture()
+        manifest.update(files=[], skip_reason='No changed paths')
+        result.update(status='skipped', reason='No changed paths', passes=[])
+        review, _ = contract.render(result, manifest)
+        self.assertIn('Skipped: No changed paths', review['body'])
 
     def test_resolution_can_show_a_removed_path(self) -> None:
         manifest, result = fixture()

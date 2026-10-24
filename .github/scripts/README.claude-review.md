@@ -16,6 +16,7 @@ python .github/scripts/prepare_claude_review.py "$pr_url" --output "$review_dir"
 Use an open PR for routine reviews. Set `PXT_REVIEW_ALLOW_CLOSED=1` only when preparing a historical evaluation case.
 Add `--focus "error paths"` during preparation to require the focus pass. Prior bot records are input for current
 verification. `--no-history` starts an independent evaluation without prior records.
+Use `--focus="--strict"` when the focus starts with a dash. Preparation rejects oversized manifests before model work.
 
 Run the command in Claude Code:
 
@@ -45,15 +46,23 @@ For an interactive result, save the final JSON to a file and pass `--result <fil
 Inspect `review.json`, `stats.json`, and `outcome.json` in the output directory. Validation-only mode makes no
 publication request. To publish an already validated result, run the same host command without `--validate-only`.
 
-Every published defect, rule finding, or design objection needs an independent decision. The renderer uses the exact
-checked record. Missing passes, decisive unresolved questions, or unverified candidates prevent a complete outcome. A review can skip
+Every published defect, rule finding, or design objection needs a declared independent decision. The renderer uses the exact
+checked record. Recoverable coverage gaps produce an incomplete result and preserve valid checked findings. Invalid
+snapshots, source references, and claim identities still fail validation. A review can skip
 only when preparation supplies a whole-change policy, currently an empty diff. Invalid inline locations move to
-the body individually. If the live head or base changes, publication stops. A push during submission records a stale
-result tied to its original revision.
+the body individually. A skipped result records its reason in the artifacts and makes no publication request.
+Binary, rename, and mode-only changes retain metadata without requiring nonexistent text lines. Relevant passes
+still inspect their effects or record an exclusion.
 
-History is cumulative and bounded. Earlier claims are revalidated even when their comment file did not change. An
+Publication stops when the head, comparison merge base, or target branch changes. An unrelated base-branch advance
+can proceed when its merge base stays the same. A source change during submission records a stale result tied to the
+original revision. The inline fallback drops optional history when needed and checks the final body size before retrying.
+
+History contains bounded open claims. Earlier open claims are revalidated even when their comment file did not change. An
 unchanged, reverified claim can avoid duplicate publication. Only a checked fix resolves a prior claim. Missing or
 incompatible history disables reuse. Local results without a workflow-run identity do not establish trusted CI history.
+Resolved and rejected claims leave history. An unchanged fix therefore needs no new resolution on the next run.
+Historical evidence can support a non-published decision only when it matches the trusted prior claim exactly.
 
 The validator checks declared producer and checker identities and coverage accounting. It cannot prove the quality of
 an agent's reasoning or independently recover child payloads the runtime does not expose. Per-pass model usage is
@@ -66,7 +75,8 @@ Run the host regression tests from either repository:
 python -m unittest discover -s .github/scripts -p 'test_*.py'
 ```
 
-When updating the shared review files in both repositories, compare them before creating the paired PRs:
+When updating the shared review files in both repositories, compare them before creating the paired PRs. This check
+is manual and requires both checkouts:
 
 ```sh
 python .github/scripts/check_claude_review_sync.py /path/to/other/checkout

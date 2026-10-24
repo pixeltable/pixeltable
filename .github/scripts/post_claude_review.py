@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from claude_review_contract import MAX_JSON_BYTES, read_json, render, verify_sources
+from claude_review_contract import MAX_JSON_BYTES, publication_body, read_json, render, verify_sources
 
 
 def final_message(execution_file: str) -> str:
@@ -27,12 +27,17 @@ def review_json(message: str) -> dict[str, Any] | None:
     if len(message.encode()) > MAX_JSON_BYTES:
         return None
     raw = message.strip()
-    if raw.startswith('```json\n') and raw.endswith('\n```'):
-        raw = raw[len('```json\n') : -len('\n```')]
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        return None
+        opens = re.findall(r'^```json[ \t]*\r?$', raw, re.M)
+        blocks = re.findall(r'^```json[ \t]*\r?\n(.*?)^```[ \t]*\r?$', raw, re.M | re.S)
+        if len(opens) != 1 or len(blocks) != 1:
+            return None
+        try:
+            data = json.loads(blocks[0])
+        except json.JSONDecodeError:
+            return None
     return data if isinstance(data, dict) else None
 
 
@@ -48,13 +53,29 @@ def post(repo: str, pr: str, review: dict[str, Any]) -> subprocess.CompletedProc
 
 def current_target(manifest: dict[str, Any]) -> bool:
     result = subprocess.run(
-        ['gh', 'pr', 'view', manifest['pr_url'], '--json', 'baseRefOid,headRefOid'],
+        ['gh', 'pr', 'view', manifest['pr_url'], '--json', 'baseRefOid,headRefOid,baseRefName'],
         text=True,
         capture_output=True,
         check=True,
     )
     current = json.loads(result.stdout)
-    return bool(current['baseRefOid'] == manifest['base_sha'] and current['headRefOid'] == manifest['head_sha'])
+    if current['headRefOid'] != manifest['head_sha'] or current['baseRefName'] != manifest['metadata']['baseRefName']:
+        return False
+    if current['baseRefOid'] == manifest['base_sha']:
+        return True
+    result = subprocess.run(
+        [
+            'gh',
+            'api',
+            f'repos/{manifest["repo"]}/compare/{current["baseRefOid"]}...{current["headRefOid"]}',
+            '--jq',
+            '.merge_base_commit.sha',
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return bool(result.stdout.strip() == manifest['merge_base_sha'])
 
 
 def publish(manifest: dict[str, Any], review: dict[str, Any]) -> dict[str, Any]:
@@ -64,9 +85,11 @@ def publish(manifest: dict[str, Any], review: dict[str, Any]) -> dict[str, Any]:
     result = post(manifest['repo'], str(manifest['pr']), review)
     if result.returncode and 'HTTP 422' in result.stderr:
         moved = '\n\n'.join(f'**{c["path"]}:{c["line"]}**\n\n{c["body"]}' for c in review['comments'])
-        fallback = {'event': 'COMMENT', 'body': review['body']}
-        if moved:
-            fallback['body'] += '\n\n### Comments not attached to lines\n\n' + moved
+        appendix = '\n\n### Comments not attached to lines\n\n' + moved if moved else ''
+        try:
+            fallback = {'event': 'COMMENT', 'body': publication_body(review['body'], appendix)}
+        except ValueError as e:
+            return {'delivery': 'failed', 'publication_fallback': False, 'reason': str(e)}
         if not current_target(manifest):
             return {'status': 'incomplete', 'delivery': 'not_posted', 'reason': 'PR source changed before retry'}
         fallback_used = True
@@ -152,10 +175,10 @@ def process_review(args: argparse.Namespace) -> int:
             stats['duration_ms'] = results[-1].get('duration_ms')
             stats['permission_denials'] = len(results[-1].get('permission_denials', []))
     (outcome_path.parent / 'stats.json').write_text(json.dumps(stats, indent=2) + '\n')
-    outcome = {'status': data['status'], 'snapshot_id': manifest['snapshot_id'], 'delivery': 'not_requested'}
-    if data['status'] == 'skipped':
-        outcome['reason'] = data['reason']
-    elif not args.validate_only:
+    outcome = {'status': stats['status'], 'snapshot_id': manifest['snapshot_id'], 'delivery': 'not_requested'}
+    if stats['reason']:
+        outcome['reason'] = stats['reason']
+    if stats['status'] != 'skipped' and not args.validate_only:
         outcome.update(publish(manifest, review))
     outcome_path.write_text(json.dumps(outcome, indent=2) + '\n')
     print(json.dumps(outcome))

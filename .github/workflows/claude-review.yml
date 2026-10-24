@@ -84,7 +84,7 @@ jobs:
         run: >-
           python3 .github/scripts/prepare_claude_review.py
           "https://github.com/${{ github.repository }}/pull/${{ env.PR_NUMBER }}"
-          --output "$RUNNER_TEMP/pxt-review" --focus "$REVIEW_FOCUS"
+          --output "$RUNNER_TEMP/pxt-review" --focus="$REVIEW_FOCUS"
       # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB fails without bubblewrap, and the action installs it only when
       # allowed_non_write_users is set. Ubuntu 24.04 blocks the unprivileged user namespaces bubblewrap needs.
       # Review execution and posting continue on error. Trusted preparation fails the job if it cannot freeze the

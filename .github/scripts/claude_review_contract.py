@@ -1,4 +1,4 @@
-"""Validate source-bound review records and render only independently checked claims."""
+"""Validate declared review decisions and render checked records or maintenance suggestions."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 VERSION = 1
 REQUIRED_PASSES = ['abstractions', 'lines', 'design', 'blast-radius', 'rules']
@@ -15,6 +16,7 @@ KINDS = {'defect', 'design', 'rule', 'maintenance'}
 AGENT_FILES = {'CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', '.claude', '.mcp.json'}
 STATE_MARKER = '<!-- pxt-review-state\n'
 MAX_JSON_BYTES = 2_000_000
+MAX_BODY_BYTES = 60_000
 
 
 def digest(value: Any) -> str:
@@ -61,7 +63,7 @@ def parse_diff(patch: str) -> dict[str, Any]:
     current: dict[str, Any] | None = None
     left = right = 0
     hunk: dict[str, list[int]] | None = None
-    for line in patch.splitlines():
+    for line in patch.split('\n'):
         if line.startswith('diff --git '):
             current = hunk = None
             old_path = None
@@ -114,7 +116,7 @@ def inline_valid(location: dict[str, Any], files: dict[str, Any]) -> bool:
         return False
 
 
-def reference(ref: Any, manifest: dict[str, Any]) -> None:
+def reference(ref: Any, manifest: dict[str, Any], historical: dict[str, Any] | None = None) -> None:
     if not isinstance(ref, dict):
         raise ValueError('Source reference must be an object')
     path = repository_path(ref.get('path'))
@@ -131,6 +133,9 @@ def reference(ref: Any, manifest: dict[str, Any]) -> None:
         source_path = manifest['diff_files'][path]['old_path'] or path
     entry = index.get(source_path)
     if entry is None or end > entry['lines']:
+        # A non-published historical decision can retain the trusted prior review's exact reference.
+        if historical is not None and ref in historical.get('evidence', []):
+            return
         raise ValueError(f'Source reference does not exist: {path}:{end}')
 
 
@@ -160,7 +165,7 @@ def verify_sources(manifest: dict[str, Any]) -> None:
                 raise ValueError(f'Prepared source changed: {path}')
 
 
-def validate_claim(claim: Any, manifest: dict[str, Any]) -> None:
+def validate_claim(claim: Any, manifest: dict[str, Any], historical: dict[str, Any] | None = None) -> None:
     if not isinstance(claim, dict):
         raise ValueError('Finding must be an object')
     for field in ['id', 'producer', 'subject', 'mechanism', 'title', 'comment', 'trigger', 'impact', 'correction']:
@@ -182,7 +187,7 @@ def validate_claim(claim: Any, manifest: dict[str, Any]) -> None:
     if not isinstance(evidence, list) or not evidence:
         raise ValueError('Finding needs a source trace')
     for ref in evidence:
-        reference(ref, manifest)
+        reference(ref, manifest, historical)
     location = claim.get('location')
     if location is not None and not isinstance(location, dict):
         raise ValueError('Location must be an object or null')
@@ -193,8 +198,9 @@ def same_identity(claim: dict[str, Any], earlier: dict[str, Any], manifest: dict
         return False
     if claim['subject'] == earlier['subject']:
         return True
-    for path, change in manifest['diff_files'].items():
-        old = change['old_path']
+    renames = {change['old_path']: path for path, change in manifest['diff_files'].items() if change['old_path']}
+    renames.update(manifest.get('previous_renames', {}))
+    for old, path in renames.items():
         if (
             old
             and old != path
@@ -267,8 +273,16 @@ def validate(data: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
         raise ValueError('user_surface must be explicit')
     gaps.extend(f'{name}: no result' for name in required if name not in passes)
     findings: dict[str, Any] = {}
+    previous = {r['claim']['id']: r for r in manifest.get('previous', {}).get('records', [])}
+    closing = {
+        d.get('finding_id')
+        for d in data['decisions']
+        if isinstance(d, dict) and d.get('decision') in {'resolved', 'reject', 'question'}
+    }
     for claim in data['findings']:
-        validate_claim(claim, manifest)
+        earlier = previous.get(claim.get('id'), {}).get('claim') if isinstance(claim, dict) else None
+        historical = earlier if isinstance(claim, dict) and claim.get('id') in closing else None
+        validate_claim(claim, manifest, historical)
         key = claim['id']
         if key in findings or claim['producer'] not in passes:
             raise ValueError('Finding has a duplicate ID or an unknown producer')
@@ -278,13 +292,14 @@ def validate(data: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
         key = text(decision.get('finding_id'), 'finding_id')
         if key in decisions or key not in findings:
             raise ValueError('Decision has a duplicate or unknown finding ID')
-        if decision.get('checker') != 'cross-check' or decision['checker'] == findings[key]['producer']:
+        if decision.get('checker') != 'cross-check':
             raise ValueError('A finding needs an independent cross-checker')
         if decision.get('decision') not in {'keep', 'narrow', 'question', 'reject', 'resolved'}:
             raise ValueError('Unknown verification decision')
         text(decision.get('reason'), 'verification reason')
         checked = decision.get('checked')
-        validate_claim(checked, manifest)
+        historical = previous.get(key, {}).get('claim') if key in closing else None
+        validate_claim(checked, manifest, historical)
         if any(checked[f] != findings[key][f] for f in ['id', 'producer', 'subject', 'mechanism']):
             raise ValueError('Verification changed the finding identity')
         if decision['decision'] == 'question':
@@ -297,39 +312,50 @@ def validate(data: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(fixes, list) or not isinstance(removed, list) or not (fixes or removed):
                 raise ValueError('Resolution needs source evidence of the fix')
             changed = False
+            renamed_from = {new: old for old, new in manifest.get('previous_renames', {}).items()}
             for ref in fixes:
                 reference(ref, manifest)
                 if ref.get('side', 'RIGHT') != 'RIGHT':
                     raise ValueError('Resolution must cite the current fix')
                 current_blob = manifest['sources']['RIGHT'][ref['path']].get('git_blob')
-                if current_blob and current_blob != manifest.get('previous_tree', {}).get(ref['path']):
+                previous_path = renamed_from.get(ref['path'], ref['path'])
+                if current_blob and current_blob != manifest.get('previous_tree', {}).get(previous_path):
                     changed = True
             for path in removed:
                 repository_path(path)
                 if path not in manifest.get('previous_tree', {}) or path in manifest['sources']['RIGHT']:
                     raise ValueError('Resolution did not remove the cited source path')
+                if path in manifest.get('previous_renames', {}) or any(
+                    change.get('old_path') == path and new_path in manifest['sources']['RIGHT']
+                    for new_path, change in manifest['diff_files'].items()
+                ):
+                    raise ValueError('Resolution moved the cited source path instead of removing it')
                 changed = True
             if not manifest.get('previous_tree') or not changed:
                 raise ValueError('Resolution has no demonstrated source change since the prior review')
         decisions[key] = decision
     for key, claim in findings.items():
         if claim['kind'] != 'maintenance' and key not in decisions:
-            gaps.append(f'{key}: not independently checked')
+            gaps.append(f'{key}: not independently checked; omitted from published findings')
     for number, question in enumerate(data['questions'], 1):
         text(question.get('unknown'), 'unknown')
         text(question.get('check'), 'check')
         gaps.append(f'question {number}: decisive fact remains unresolved')
-    previous = {r['claim']['id']: r for r in manifest.get('previous', {}).get('records', [])}
     for key, claim in findings.items():
         if key in previous and not same_identity(claim, previous[key]['claim'], manifest):
             raise ValueError('Prior finding ID was reused for a different identity')
-    previous_ids = set(previous)
+    previous_ids = {key for key, record in previous.items() if record['status'] not in {'resolved', 'reject'}}
     gaps.extend(f'{key}: prior claim not revalidated' for key in sorted(previous_ids - decisions.keys()))
     if status == 'skipped' and (findings or data['decisions']):
         raise ValueError('A skipped review cannot contain findings')
-    if gaps and status == 'complete':
-        raise ValueError('Review claims complete coverage: ' + '; '.join(gaps))
-    return {'findings': findings, 'decisions': decisions, 'gaps': gaps}
+    incomplete = bool(gaps) and status == 'complete'
+    return {
+        'findings': findings,
+        'decisions': decisions,
+        'gaps': gaps,
+        'status': 'incomplete' if incomplete else status,
+        'reason': 'The host found coverage gaps.' if incomplete else data.get('reason', ''),
+    }
 
 
 def source_link(ref: dict[str, Any], manifest: dict[str, Any]) -> str:
@@ -338,8 +364,6 @@ def source_link(ref: dict[str, Any], manifest: dict[str, Any]) -> str:
     path = ref['path']
     if side == 'LEFT' and path in manifest['diff_files']:
         path = manifest['diff_files'][path]['old_path'] or path
-    from urllib.parse import quote
-
     start = ref.get('start_line', ref['line'])
     return f'https://github.com/{manifest["repo"]}/blob/{sha}/{quote(path)}#L{start}-L{ref["line"]}'
 
@@ -357,6 +381,15 @@ def claim_digest(claim: dict[str, Any], manifest: dict[str, Any]) -> str:
     return digest([public_claim, evidence])
 
 
+def publication_body(body: str, appendix: str = '') -> str:
+    if len((body + appendix).encode()) > MAX_BODY_BYTES:
+        body = body.rsplit('\n\n' + STATE_MARKER, 1)[0]
+    body += appendix
+    if len(body.encode()) > MAX_BODY_BYTES:
+        raise ValueError('Review body exceeds the publication limit')
+    return body
+
+
 def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     checked = validate(data, manifest)
     body = [
@@ -368,13 +401,19 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
     ]
     if manifest.get('focus'):
         body += ['', '### Focus', '', data['focus_answer']]
-    if data['status'] == 'incomplete':
-        body += ['', 'Coverage incomplete: ' + data['reason']]
+    if checked['status'] == 'incomplete':
+        body += ['', 'Coverage incomplete: ' + checked['reason']]
         body += ['- ' + gap for gap in checked['gaps']]
+    elif checked['status'] == 'skipped':
+        body += ['', 'Skipped: ' + checked['reason']]
     comments: list[dict[str, Any]] = []
     questions = list(data['questions'])
     previous = {r['claim']['id']: r for r in manifest.get('previous', {}).get('records', [])}
-    records: dict[str, Any] = {key: {**value, 'status': 'unverified'} for key, value in previous.items()}
+    records: dict[str, Any] = {
+        key: {**value, 'status': 'unverified'}
+        for key, value in previous.items()
+        if value['status'] not in {'resolved', 'reject'}
+    }
     published = 0
     for key, original in checked['findings'].items():
         decision = checked['decisions'].get(key)
@@ -382,7 +421,7 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
             continue
         claim = original if decision is None else decision['checked']
         verdict = 'keep' if decision is None else decision['decision']
-        fingerprint = claim_digest(claim, manifest)
+        fingerprint = claim_digest(claim, manifest) if verdict in {'keep', 'narrow'} else ''
         earlier = previous.get(key, {})
         record = {
             'claim': claim,
@@ -421,7 +460,7 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
         else:
             body += ['', comment_body]
         published += 1
-    if not published and data['status'] == 'complete':
+    if not published and checked['status'] == 'complete':
         body += ['', 'No new supported findings.' if previous else 'No supported findings.']
     if questions:
         body += ['', '### Questions', '']
@@ -432,12 +471,12 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
         'pr': manifest['pr'],
         'run_id': manifest.get('run_id', ''),
         'head_sha': manifest['head_sha'],
-        'records': list(records.values()),
+        'records': [record for record in records.values() if record['status'] not in {'resolved', 'reject'}],
     }
-    encoded = json.dumps(state, sort_keys=True, ensure_ascii=True)
-    if len('\n'.join(body).encode()) > 60_000:
+    encoded = json.dumps(state, sort_keys=True, ensure_ascii=True).replace('>', '\\u003e')
+    if len('\n'.join(body).encode()) > MAX_BODY_BYTES:
         raise ValueError('Review body exceeds the publication limit')
-    if len(encoded.encode()) + len('\n'.join(body).encode()) <= 60_000:
+    if len(encoded.encode()) + len('\n'.join(body).encode()) <= MAX_BODY_BYTES:
         body += ['', STATE_MARKER + encoded + '\n-->']
     else:
         state = {**state, 'records': [], 'reason': 'history exceeds size limit; recheck without suppression'}
@@ -457,12 +496,17 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
             'unverified': verdicts.count('unverified'),
         }
     stats = {
-        'status': data['status'],
+        'status': checked['status'],
+        'reason': checked['reason'],
         'passes': pass_stats,
         'raised': len(checked['findings']),
         'decisions': {key: value['decision'] for key, value in checked['decisions'].items()},
         'published': published,
         'gaps': checked['gaps'],
-        'per_pass_usage': None,
     }
-    return {'commit_id': manifest['head_sha'], 'body': '\n'.join(body), 'event': 'COMMENT', 'comments': comments}, stats
+    return {
+        'commit_id': manifest['head_sha'],
+        'body': publication_body('\n'.join(body)),
+        'event': 'COMMENT',
+        'comments': comments,
+    }, stats

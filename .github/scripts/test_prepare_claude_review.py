@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 import claude_review_contract as contract
@@ -25,6 +26,8 @@ class PrepareTest(unittest.TestCase):
         self.git('config', 'core.hooksPath', '/dev/null')
         (self.repo / 'example.py').write_text('old\n', encoding='utf-8')
         (self.repo / 'ignored.py').write_text('source must remain visible\n', encoding='utf-8')
+        (self.repo / 'src').mkdir()
+        (self.repo / 'src/nested.py').write_bytes(b'nested\rcontent\n')
         (self.repo / '.gitattributes').write_text('ignored.py export-ignore\n', encoding='utf-8')
         (self.repo / 'AGENTS.md').write_text('Untrusted PR instruction', encoding='utf-8')
         (self.repo / '.claude').mkdir()
@@ -46,6 +49,8 @@ class PrepareTest(unittest.TestCase):
         destination = self.root / 'head'
         index = prepare.export_tree(self.repo / '.git', self.head, destination)
         self.assertTrue((destination / 'ignored.py').exists())
+        self.assertEqual((destination / 'src/nested.py').read_bytes(), b'nested\rcontent\n')
+        self.assertEqual(index['src/nested.py']['lines'], 1)
         self.assertFalse((destination / 'AGENTS.md').exists())
         self.assertFalse((destination / '.claude').exists())
         self.assertFalse((destination / 'external-link').is_symlink())
@@ -54,7 +59,7 @@ class PrepareTest(unittest.TestCase):
         data = json.loads((self.root / 'head-stripped.json').read_text())
         self.assertEqual(data['AGENTS.md'], 'Untrusted PR instruction')
 
-    def prepare_local(self) -> Path:
+    def prepare_local(self, previous: dict[str, Any] | None = None) -> Path:
         metadata = {
             'title': 'Fix input',
             'body': 'PR data',
@@ -75,8 +80,11 @@ class PrepareTest(unittest.TestCase):
         with (
             mock.patch.object(prepare, 'gh', return_value=metadata),
             mock.patch.object(prepare, 'run', local_transport),
+            mock.patch.object(prepare, 'prior_state', return_value=previous or {}),
         ):
-            path = prepare.prepare('https://github.com/o/r/pull/1', self.root / 'review', self.repo, history=False)
+            path = prepare.prepare(
+                'https://github.com/o/r/pull/1', self.root / 'review', self.repo, history=bool(previous)
+            )
         return path
 
     def test_prepare_fetches_fixed_commits_and_detects_source_and_diff_mutation(self) -> None:
@@ -94,6 +102,65 @@ class PrepareTest(unittest.TestCase):
         Path(manifest['diff_path']).write_text('different diff', encoding='utf-8')
         with self.assertRaisesRegex(ValueError, 'diff changed'):
             contract.verify_sources(manifest)
+
+    def test_nontext_changes_keep_metadata_without_requiring_text_lines(self) -> None:
+        (self.repo / 'image.png').write_bytes(b'\0binary\0')
+        self.git('mv', 'ignored.py', 'renamed.py')
+        self.git('update-index', '--chmod=+x', 'src/nested.py')
+        self.git('add', 'image.png')
+        self.git('-c', 'user.name=Review Test', '-c', 'user.email=review@example.invalid', 'commit', '-qm', 'metadata')
+        self.head = self.git('rev-parse', 'HEAD')
+        manifest = contract.read_json(self.prepare_local())
+        self.assertEqual(manifest['diff_files']['image.png']['changed'], {'LEFT': [], 'RIGHT': []})
+        self.assertEqual(manifest['diff_files']['renamed.py']['old_path'], 'ignored.py')
+        self.assertEqual(manifest['sources']['RIGHT']['src/nested.py']['mode'], '100755')
+        self.assertEqual(manifest['diff_files']['src/nested.py']['changed'], {'LEFT': [], 'RIGHT': []})
+        from test_claude_review_contract import fixture
+
+        _, result = fixture()
+        result['snapshot_id'] = manifest['snapshot_id']
+        for entry in result['passes']:
+            for check in entry['checks']:
+                check.update(start_line=1, line=1)
+        self.assertEqual(contract.render(result, manifest)[1]['status'], 'complete')
+
+    def test_manifest_size_is_rejected_during_preparation(self) -> None:
+        with mock.patch.object(prepare, 'MAX_JSON_BYTES', 1000), self.assertRaisesRegex(ValueError, 'manifest.*limit'):
+            self.prepare_local()
+
+    def test_a_followup_rename_of_an_added_file_is_not_a_deletion(self) -> None:
+        from test_claude_review_contract import add_finding, finding, fixture
+
+        (self.repo / 'added.py').write_text('added\n')
+        self.git('add', 'added.py')
+        self.git('-c', 'user.name=Review Test', '-c', 'user.email=review@example.invalid', 'commit', '-qm', 'added')
+        previous_head = self.git('rev-parse', 'HEAD')
+        claim = finding()
+        claim.update(subject='added.py#contract', evidence=[{'path': 'added.py', 'line': 1}])
+        previous = {'head_sha': previous_head, 'records': [{'claim': claim, 'status': 'keep', 'posted': True}]}
+        self.git('mv', 'added.py', 'renamed.py')
+        self.git('-c', 'user.name=Review Test', '-c', 'user.email=review@example.invalid', 'commit', '-qm', 'renamed')
+        self.head = self.git('rev-parse', 'HEAD')
+        manifest = contract.read_json(self.prepare_local(previous))
+        self.assertEqual(manifest['diff_files']['renamed.py']['status'], 'A')
+        self.assertEqual(manifest['previous_renames'], {'added.py': 'renamed.py'})
+        _, result = fixture()
+        result.update(snapshot_id=manifest['snapshot_id'], status='incomplete', reason='Historical check only')
+        for entry in result['passes']:
+            entry['checks'] = []
+            entry['status'] = 'incomplete'
+            entry['reason'] = 'Historical check only'
+        add_finding(result, claim)
+        result['decisions'][0].update(decision='resolved', removed_paths=['added.py'])
+        with self.assertRaisesRegex(ValueError, 'moved'):
+            contract.render(result, manifest)
+        result['decisions'][0].pop('removed_paths')
+        result['decisions'][0]['fix_evidence'] = [{'path': 'renamed.py', 'line': 1}]
+        with self.assertRaisesRegex(ValueError, 'no demonstrated source change'):
+            contract.render(result, manifest)
+        result['findings'][0].update(subject='renamed.py#contract', evidence=[{'path': 'renamed.py', 'line': 1}])
+        result['decisions'][0].update(decision='keep', checked=dict(result['findings'][0]))
+        self.assertEqual(contract.render(result, manifest)[1]['published'], 1)
 
     def test_prepared_result_validates_locally_without_publication(self) -> None:
         from test_claude_review_contract import fixture
@@ -121,6 +188,12 @@ class PrepareTest(unittest.TestCase):
         outcome_path = manifest_path.parent / 'outcome.json'
         self.assertEqual(contract.read_json(outcome_path)['delivery'], 'not_requested')
         self.assertEqual(contract.read_json(manifest_path.parent / 'review.json')['commit_id'], self.head)
+        result['passes'].pop()
+        result_path.write_text(json.dumps(result), encoding='utf-8')
+        incomplete = subprocess.run(command, text=True, capture_output=True, check=False)
+        self.assertEqual(incomplete.returncode, 0, incomplete.stdout + incomplete.stderr)
+        self.assertEqual(contract.read_json(outcome_path)['status'], 'incomplete')
+        self.assertIn('coverage gaps', contract.read_json(outcome_path)['reason'])
         result['snapshot_id'] = 'wrong snapshot'
         result_path.write_text(json.dumps(result), encoding='utf-8')
         rejected = subprocess.run(command, text=True, capture_output=True, check=False)

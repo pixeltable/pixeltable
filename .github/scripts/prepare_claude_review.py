@@ -13,6 +13,7 @@ from typing import Any
 
 from claude_review_contract import (
     AGENT_FILES,
+    MAX_JSON_BYTES,
     REQUIRED_PASSES,
     STATE_MARKER,
     VERSION,
@@ -28,6 +29,20 @@ def run(*args: str, cwd: Path | None = None) -> str:
 
 def gh(*args: str) -> Any:
     return json.loads(run('gh', *args))
+
+
+def changed_paths(git_dir: Path, base: str, head: str) -> dict[str, Any]:
+    raw = subprocess.check_output(
+        ['git', '--git-dir', str(git_dir), 'diff', '--name-status', '-z', '--find-renames', base, head]
+    )
+    changes: dict[str, Any] = {}
+    fields = iter(raw.split(b'\0')[:-1])
+    for raw_status in fields:
+        status = raw_status.decode('ascii')
+        old = repository_path(next(fields).decode('utf-8'))
+        path = repository_path(next(fields).decode('utf-8')) if status[0] in {'R', 'C'} else old
+        changes[path] = {'old_path': None if status == 'A' else old, 'status': status}
+    return changes
 
 
 def export_tree(git_dir: Path, sha: str, destination: Path) -> dict[str, Any]:
@@ -58,7 +73,7 @@ def export_tree(git_dir: Path, sha: str, destination: Path) -> dict[str, Any]:
                 raise ValueError('Git returned an incomplete source blob')
             entry: dict[str, Any] = {
                 'sha256': hashlib.sha256(content).hexdigest(),
-                'lines': len(content.splitlines()),
+                'lines': content.count(b'\n') + int(bool(content) and not content.endswith(b'\n')),
                 'mode': mode.decode(),
                 'git_blob': object_id.decode(),
             }
@@ -78,7 +93,10 @@ def export_tree(git_dir: Path, sha: str, destination: Path) -> dict[str, Any]:
         process.stdout.close()
         if process.wait() != 0:
             raise ValueError('Git source export failed')
-    (destination.parent / f'{destination.name}-stripped.json').write_text(json.dumps(stripped, ensure_ascii=True))
+    encoded = json.dumps(stripped, ensure_ascii=True)
+    if len(encoded.encode()) > MAX_JSON_BYTES:
+        raise ValueError('Stripped source JSON exceeds the review size limit')
+    (destination.parent / f'{destination.name}-stripped.json').write_text(encoded)
     return index
 
 
@@ -149,6 +167,7 @@ def state_from_review(body: str, repo: str, pr: int, reviewed_head: str | None) 
         return {}
     if not valid_records(state.get('records')):
         return {}
+    state['records'] = [r for r in state['records'] if r['status'] not in {'resolved', 'reject'}]
     return state
 
 
@@ -205,19 +224,21 @@ def prepare(pr_url: str, output: Path, tooling: Path, focus: str = '', history: 
             '--unified=3',
             merge_base,
             head,
-        ],
-        text=True,
-    )
-    names = subprocess.check_output(
-        ['git', '--git-dir', str(git_dir), 'diff', '--name-only', '-z', '--find-renames', merge_base, head]
-    )
-    files = [repository_path(path.decode('utf-8')) for path in names.split(b'\0') if path]
+        ]
+    ).decode('utf-8')
+    changes = parse_diff(patch)
+    metadata_changes = changed_paths(git_dir, merge_base, head)
+    files = list(metadata_changes)
+    for path, metadata_change in metadata_changes.items():
+        change = changes.setdefault(path, {'hunks': [], 'changed': {'LEFT': [], 'RIGHT': []}})
+        change.update(metadata_change)
     sources = {
         'LEFT': export_tree(git_dir, merge_base, output / 'base'),
         'RIGHT': export_tree(git_dir, head, output / 'head'),
     }
     previous = prior_state(repo, number) if history else {}
     previous_tree: dict[str, str] = {}
+    previous_renames: dict[str, str] = {}
     if previous.get('records'):
         try:
             run(
@@ -238,15 +259,20 @@ def prepare(pr_url: str, output: Path, tooling: Path, focus: str = '', history: 
             listing = subprocess.check_output(
                 ['git', '--git-dir', str(git_dir), 'ls-tree', '-rz', previous['head_sha']]
             )
+            previous_renames = {
+                change['old_path']: path
+                for path, change in changed_paths(git_dir, previous['head_sha'], head).items()
+                if change['status'].startswith('R')
+            }
         except subprocess.CalledProcessError:
             previous = {'records': [], 'reason': 'Previous source is unavailable; recheck without suppression'}
         else:
             for item in listing.split(b'\0'):
                 if item:
-                    details, path = item.split(b'\t', 1)
+                    details, raw_path = item.split(b'\t', 1)
                     _, kind, object_id = details.split()
                     if kind == b'blob':
-                        previous_tree[path.decode('utf-8')] = object_id.decode()
+                        previous_tree[raw_path.decode('utf-8')] = object_id.decode()
     policy_paths = [tooling / name for name in ['AGENTS.md', 'CLAUDE.md']]
     policy_paths += list((tooling / '.claude').rglob('*.md'))
     policy_paths += list((tooling / '.github/instructions').glob('*.md'))
@@ -271,12 +297,11 @@ def prepare(pr_url: str, output: Path, tooling: Path, focus: str = '', history: 
         'tooling_sha': run('git', 'rev-parse', 'HEAD', cwd=tooling),
         'tooling_root': str(tooling.resolve()),
         'tooling_files': policy_hashes,
-        'command_sha256': hashlib.sha256((tooling / '.claude/commands/pxt-review.md').read_bytes()).hexdigest(),
         'roots': {'LEFT': str(output / 'base'), 'RIGHT': str(output / 'head')},
         'sources': sources,
         'files': files,
         'skip_reason': 'The reviewed commits have no changed paths.' if not files else '',
-        'diff_files': parse_diff(patch),
+        'diff_files': changes,
         'diff_path': str(output / 'diff.patch'),
         'required_passes': [*REQUIRED_PASSES, *(['focus'] if focus else [])],
         'focus': focus,
@@ -284,6 +309,7 @@ def prepare(pr_url: str, output: Path, tooling: Path, focus: str = '', history: 
         'metadata': metadata,
         'previous': previous,
         'previous_tree': previous_tree,
+        'previous_renames': previous_renames,
     }
     manifest['snapshot_id'] = digest(
         {
@@ -295,7 +321,6 @@ def prepare(pr_url: str, output: Path, tooling: Path, focus: str = '', history: 
                 'head_sha',
                 'merge_base_sha',
                 'tooling_sha',
-                'command_sha256',
                 'tooling_files',
                 'focus',
                 'required_passes',
@@ -304,7 +329,10 @@ def prepare(pr_url: str, output: Path, tooling: Path, focus: str = '', history: 
     )
     (output / 'diff.patch').write_text(patch, encoding='utf-8')
     manifest_path = output / 'manifest.json'
-    manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
+    encoded = json.dumps(manifest, indent=2, ensure_ascii=True) + '\n'
+    if len(encoded.encode()) > MAX_JSON_BYTES:
+        raise ValueError('Prepared manifest exceeds the review size limit')
+    manifest_path.write_text(encoded)
     (output / 'outcome.json').write_text(
         json.dumps({'status': 'prepared', 'snapshot_id': manifest['snapshot_id']}) + '\n'
     )
