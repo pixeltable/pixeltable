@@ -309,6 +309,15 @@ impl PyExpr {
         Ok(wrap(crate::functions::make_call("pixeltable.functions.math.abs", vec![self.e.clone()], vec![])?))
     }
 
+    #[pyo3(signature = (ndigits=None))]
+    fn __round__(&self, ndigits: Option<&Bound<'_, PyAny>>) -> Result<PyExpr> {
+        let mut args = vec![self.e.clone()];
+        if let Some(n) = ndigits.filter(|n| !n.is_none()) {
+            args.push(operand(n)?);
+        }
+        Ok(wrap(crate::functions::make_call("pixeltable.functions.math.round", args, vec![])?))
+    }
+
     fn __and__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
         let o = as_expr(other).ok_or_else(|| Error::Type(format!("Other needs to be an expression: {}", type_repr(other))))?;
         Ok(wrap(build::logical_binary(LogicalOp::And, self.e.clone(), o)?))

@@ -354,3 +354,85 @@ mod tests {
         assert_eq!(py_float_repr(0.0001), "0.0001");
     }
 }
+
+/// Converts a value to type `t` the way `ColumnType.create_literal()` converts the corresponding Python value
+/// (used by `astype()`); failures are `Error::Type` with upstream's `validate_literal()` message.
+pub fn cast_value(v: Value, t: &crate::types::ColumnType) -> crate::error::Result<Value> {
+    use crate::error::Error;
+    use crate::types::TypeKind;
+    let v = if t.is_json() { v } else { v.json_scalar() };
+    if v.is_null() {
+        if t.nullable {
+            return Ok(Value::Null);
+        }
+        return Err(Error::Type("Expected non-None value".into()));
+    }
+    let mismatch = |expected: &str, v: &Value| Error::Type(format!("Expected {expected}, got {}", v.py_type_name()));
+    Ok(match (&t.kind, v) {
+        (TypeKind::String, v @ Value::String(_)) => v,
+        (TypeKind::String, v) => return Err(mismatch("string", &v)),
+        (TypeKind::Int, v @ Value::Int(_)) => v,
+        (TypeKind::Int, v) => return Err(mismatch("int", &v)),
+        (TypeKind::Float, v @ Value::Float(_)) => v,
+        (TypeKind::Float, Value::Int(i)) => Value::Float(i as f64),
+        (TypeKind::Float, v) => return Err(mismatch("float", &v)),
+        (TypeKind::Bool, v @ Value::Bool(_)) => v,
+        (TypeKind::Bool, Value::Int(i)) => Value::Bool(i != 0),
+        (TypeKind::Bool, v) => return Err(mismatch("bool", &v)),
+        (TypeKind::Timestamp, v @ Value::Timestamp(_)) => v,
+        (TypeKind::Timestamp, v) => return Err(mismatch("datetime.datetime", &v)),
+        (TypeKind::Date, v @ Value::Date(_)) => v,
+        (TypeKind::Date, Value::Timestamp(us)) => Value::Date(us.div_euclid(86_400_000_000) as i32),
+        (TypeKind::Date, v) => return Err(mismatch("datetime.date", &v)),
+        (TypeKind::Uuid, v @ Value::Uuid(_)) => v,
+        (TypeKind::Uuid, Value::String(s)) => {
+            Value::Uuid(uuid::Uuid::parse_str(&s).map_err(|_| Error::Value("badly formed hexadecimal UUID string".into()))?)
+        }
+        (TypeKind::Uuid, v) => return Err(mismatch("uuid.UUID", &v)),
+        (TypeKind::Binary, v @ Value::Binary(_)) => v,
+        (TypeKind::Binary, v) => return Err(Error::Type(format!("Expected `bytes`, got `{}`", v.py_type_name()))),
+        (TypeKind::Json(_), v @ Value::Json(_)) => v,
+        (TypeKind::Json(_), Value::Bool(b)) => Value::Json(Json::Bool(b)),
+        (TypeKind::Json(_), Value::Int(i)) => Value::Json(Json::from(i)),
+        (TypeKind::Json(_), Value::Float(f)) => Value::Json(serde_json::Number::from_f64(f).map_or(Json::Null, Json::Number)),
+        (TypeKind::Json(_), Value::String(s)) => Value::Json(Json::String(s)),
+        (TypeKind::Json(_), v) => {
+            return Err(Error::Type(format!("That literal is not a valid Pixeltable JSON object: {}", v.py_type_name())));
+        }
+        (TypeKind::Array { dtype, .. }, Value::Array(a)) => {
+            if let Some(d) = dtype {
+                if a.dtype() != *d {
+                    return Err(Error::Type(format!(
+                        "Expected numpy.ndarray of dtype {}, got numpy.ndarray of dtype {}",
+                        d.name(),
+                        a.dtype().name()
+                    )));
+                }
+            }
+            Value::Array(a)
+        }
+        (TypeKind::Array { .. }, v) => return Err(mismatch("numpy.ndarray", &v)),
+        (TypeKind::Image { .. } | TypeKind::Video | TypeKind::Audio | TypeKind::Document { .. }, Value::String(s)) => {
+            Value::Media(s)
+        }
+        (TypeKind::Image { .. } | TypeKind::Video | TypeKind::Audio | TypeKind::Document { .. }, v @ Value::Media(_)) => v,
+        (TypeKind::Image { .. } | TypeKind::Video | TypeKind::Audio | TypeKind::Document { .. }, v) => {
+            return Err(Error::Type(format!("expected file path or bytes, got <class '{}'>", v.py_type_name())));
+        }
+        (TypeKind::Invalid, v) => v,
+    })
+}
+
+/// A value as JSON, for building JSON values from inline lists and dicts.
+pub fn value_to_json(v: &Value) -> crate::error::Result<Json> {
+    use crate::error::Error;
+    Ok(match v {
+        Value::Null => Json::Null,
+        Value::Bool(b) => Json::Bool(*b),
+        Value::Int(i) => Json::from(*i),
+        Value::Float(f) => serde_json::Number::from_f64(*f).map_or(Json::Null, Json::Number),
+        Value::String(s) | Value::Media(s) => Json::String(s.clone()),
+        Value::Json(j) => j.clone(),
+        other => return Err(Error::not_implemented(format!("storing a value of type `{}` inside a JSON value", other.py_type_name()))),
+    })
+}

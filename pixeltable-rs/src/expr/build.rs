@@ -214,11 +214,77 @@ pub fn inline_array(items: Vec<ExprRef>) -> Result<ExprRef> {
         crate::bail!(InvalidType, "Element type is not a valid dtype for an array: {}", elem_type.repr());
     };
     if items.iter().all(|e| e.as_literal().is_some()) {
+        let vals: Vec<Value> = items.iter().filter_map(|e| e.as_literal().cloned()).collect();
+        check_homogeneous(&vals)?;
         if let Some(arr) = literal_array(&items, &col_type) {
             return Ok(Expr::literal(Value::Array(std::sync::Arc::new(arr)), col_type));
         }
     }
     Ok(Expr::new(ExprKind::InlineArray(items), col_type))
+}
+
+fn value_shape(v: &Value) -> Vec<usize> {
+    match v {
+        Value::Array(a) => a.shape.clone(),
+        _ => Vec::new(),
+    }
+}
+
+/// Numpy's error for ragged nested sequences (`np.array([[1, 2], [3]])`).
+fn check_homogeneous(vals: &[Value]) -> Result<()> {
+    let shapes: Vec<Vec<usize>> = vals.iter().map(value_shape).collect();
+    let Some(first) = shapes.first() else { return Ok(()) };
+    if shapes.iter().all(|s| s == first) {
+        return Ok(());
+    }
+    let mut common = 0;
+    while shapes.iter().all(|s| s.len() > common && s[common] == first[common]) {
+        common += 1;
+    }
+    let mut detected = vec![vals.len()];
+    detected.extend(first[..common].iter().copied());
+    let detected: Vec<Option<u64>> = detected.iter().map(|n| Some(*n as u64)).collect();
+    Err(Error::Value(format!(
+        "setting an array element with a sequence. The requested array has an inhomogeneous shape after {} dimensions. The detected shape was {} + inhomogeneous part.",
+        detected.len(),
+        crate::types::shape_repr(&detected)
+    )))
+}
+
+/// Builds the array value of an inline array from its evaluated elements.
+pub fn array_from_values(vals: &[Value], t: &ColumnType) -> Result<Value> {
+    if vals.iter().any(Value::is_null) {
+        return Err(Error::Type("Expected non-None array elements".into()));
+    }
+    check_homogeneous(vals)?;
+    let dtype = match &t.kind {
+        TypeKind::Array { dtype: Some(d), .. } => *d,
+        _ => return Err(Error::not_implemented("inline arrays without a known dtype")),
+    };
+    let mut shape = vec![vals.len()];
+    shape.extend(vals.first().map(value_shape).unwrap_or_default());
+    let mut flat: Vec<Value> = Vec::new();
+    for v in vals {
+        match v {
+            Value::Array(a) => flat.extend(array_values(a)),
+            v => flat.push(v.clone()),
+        }
+    }
+    let bad = || Error::internal("inline array element does not match the array dtype");
+    let data = match dtype {
+        DType::I64 => ArrayData::I64(flat.iter().map(Value::as_i64).collect::<Option<_>>().ok_or_else(bad)?),
+        DType::F32 => ArrayData::F32(flat.iter().map(|v| v.as_f64().map(|f| f as f32)).collect::<Option<_>>().ok_or_else(bad)?),
+        DType::F64 => ArrayData::F64(flat.iter().map(Value::as_f64).collect::<Option<_>>().ok_or_else(bad)?),
+        DType::Bool => ArrayData::Bool(flat.iter().map(Value::as_bool).collect::<Option<_>>().ok_or_else(bad)?),
+        DType::Str => ArrayData::Str(
+            flat.iter()
+                .map(|v| if let Value::String(s) = v { Some(s.clone()) } else { None })
+                .collect::<Option<_>>()
+                .ok_or_else(bad)?,
+        ),
+        _ => return Err(Error::not_implemented(format!("inline arrays of dtype {}", dtype.name()))),
+    };
+    Ok(Value::Array(std::sync::Arc::new(NdArray { shape, data })))
 }
 
 fn literal_array(items: &[ExprRef], t: &ColumnType) -> Option<NdArray> {

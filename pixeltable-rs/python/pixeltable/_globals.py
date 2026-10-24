@@ -44,11 +44,18 @@ def create_table(
     _is_data_versioned: bool = True,
 ) -> Table:
     """Create a new base table from a `schema` (a mapping of column names to types or column specs)."""
-    if source_format is not None or schema_overrides is not None or extra_args is not None or has_default_idxs:
-        raise NotImplementedError(
-            'create_table() with source_format, schema_overrides, extra_args or has_default_idxs is not implemented '
-            'yet in pixeltable-rs'
+    unsupported = [
+        name
+        for name, given in (
+            ('source_format', source_format is not None),
+            ('schema_overrides', schema_overrides is not None),
+            ('extra_args', extra_args is not None),
+            ('has_default_idxs', has_default_idxs),
         )
+        if given
+    ]
+    if len(unsupported) > 0:
+        raise NotImplementedError(f'create_table() with {", ".join(unsupported)} is not implemented yet in pixeltable-rs')
     tbl_id, kind, _ = _core.create_table(
         path,
         schema,

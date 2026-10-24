@@ -93,9 +93,21 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
             };
             Ok(Value::Bool(items.iter().any(|x| values_equal(&v, x))))
         }
-        ExprKind::TypeCast(x) => eval(x, ctx),
-        ExprKind::InlineList(_) | ExprKind::InlineDict(_) | ExprKind::InlineArray(_) => {
-            Err(Error::not_implemented(format!("evaluation of `{}`", super::display::display(e))))
+        ExprKind::TypeCast(x) => crate::value::cast_value(eval(x, ctx)?, &e.col_type),
+        ExprKind::InlineList(items) => {
+            let vals = items.iter().map(|i| crate::value::value_to_json(&eval(i, ctx)?)).collect::<Result<Vec<_>>>()?;
+            Ok(Value::Json(Json::Array(vals)))
+        }
+        ExprKind::InlineDict(items) => {
+            let mut m = serde_json::Map::new();
+            for (k, i) in items {
+                m.insert(k.clone(), crate::value::value_to_json(&eval(i, ctx)?)?);
+            }
+            Ok(Value::Json(Json::Object(m)))
+        }
+        ExprKind::InlineArray(items) => {
+            let vals = items.iter().map(|i| eval(i, ctx)).collect::<Result<Vec<_>>>()?;
+            super::build::array_from_values(&vals, &e.col_type)
         }
         ExprKind::JsonPath { .. } | ExprKind::ArraySlice { .. } => {
             Err(Error::not_implemented(format!("evaluation of `{}`", super::display::display(e))))

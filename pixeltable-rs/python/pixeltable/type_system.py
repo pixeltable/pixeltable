@@ -103,6 +103,15 @@ class ColumnType:
     def as_dict(self) -> dict:
         return self._core.as_dict()
 
+    def _as_dict(self) -> dict:
+        d = self._core.as_dict()
+        del d['_classname']
+        return d
+
+    @classmethod
+    def _from_dict(cls, d: dict) -> ColumnType:
+        return ColumnType.from_dict({'_classname': cls.__name__, **d})
+
     @classmethod
     def deserialize(cls, type_str: str) -> ColumnType:
         return cls.from_dict(json.loads(type_str))
