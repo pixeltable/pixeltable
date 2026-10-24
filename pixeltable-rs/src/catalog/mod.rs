@@ -24,7 +24,7 @@ use crate::store::history::{self, History};
 use crate::store::rows::TableData;
 use crate::store::{CatalogFile, CatalogStamp, DirMd, FORMAT_NAME, FORMAT_VERSION, HistoryRef, Store, without_gil};
 use path::Path;
-use table::TableMd;
+use table::{ColId, TableMd};
 
 pub fn now() -> f64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
@@ -341,8 +341,10 @@ impl Catalog {
             let Some(entry) = self.data.get_mut(&tbl_id) else { continue };
             let data = Arc::make_mut(entry);
             if data.has_unwritten() {
+                let md = self.tables.get(&tbl_id).ok_or_else(|| Error::internal("staged table has no metadata"))?;
+                let keys = key_indexes(md);
                 for (seg, vmax) in data.prepare_write() {
-                    written.push(self.store.write_segment(tbl_id, &seg, &vmax)?);
+                    written.push(self.store.write_segment(tbl_id, &seg, &vmax, &keys)?);
                 }
                 data.mark_written();
             }
@@ -569,6 +571,22 @@ impl Catalog {
     }
 }
 
+/// The keys whose hashes the segments of table `md` carry (see `store::table_data::KeyIndex`): its primary key
+/// (truncated as the index of a data-versioned table truncates strings) and each of its columns with a B-tree index.
+fn key_indexes(md: &TableMd) -> Vec<(Vec<ColId>, bool)> {
+    let mut out = Vec::new();
+    let pk: Vec<ColId> = if md.is_view() { Vec::new() } else { md.columns.iter().filter(|c| c.is_pk).map(|c| c.id).collect() };
+    if !pk.is_empty() {
+        out.push((pk, md.is_data_versioned));
+    }
+    for i in md.indexes.list.iter().filter(|i| i.is_btree() && i.col_tbl_id == md.id) {
+        if !out.iter().any(|(cols, t)| *cols == [i.col_id] && !*t) {
+            out.push((vec![i.col_id], false));
+        }
+    }
+    out
+}
+
 /// The files in the store's `tables/` directory that table `md` references.
 fn table_files(md: &TableMd) -> Vec<String> {
     let mut out: Vec<String> = md.storage.segments.iter().map(|id| Store::segment_file_name(md.id, *id)).collect();
@@ -591,12 +609,16 @@ mod tests {
     }
 
     fn create_table(cat: &mut Catalog, name: &str) -> Result<Uuid> {
+        create_table_pk(cat, name, false)
+    }
+
+    fn create_table_pk(cat: &mut Catalog, name: &str, is_pk: bool) -> Result<Uuid> {
         let cp = cat.checkpoint();
         let spec = tables::ColumnSpec {
             name: "c".into(),
-            col_type: crate::types::ColumnType::int(true),
+            col_type: crate::types::ColumnType::int(!is_pk),
             value_expr: None,
-            is_pk: false,
+            is_pk,
             stored: None,
             media_validation: None,
             comment: None,
@@ -696,8 +718,8 @@ mod tests {
         // what a process that crashed before its commit point leaves behind: a segment file nothing references and
         // history records past the committed length
         let h = cat.table(id)?.storage.history.ok_or_else(|| Error::internal("no history"))?;
-        let stray = crate::store::table_data::Segment { id: 99, rows: Vec::new(), vmin: Vec::new(), patches: Vec::new() };
-        store.write_segment(id, &stray, &[])?;
+        let stray = crate::store::segment::Segment::new(99, Vec::new(), Vec::new(), Vec::new());
+        store.write_segment(id, &stray, &[], &[])?;
         store.append_history(id, h.file, h.len, b"{\"version\": \"garbage\"}\n")?;
         let mut reloaded = Catalog::load(store.clone(), true)?;
         assert_eq!(rowids_at(&mut reloaded, id, None)?, (0..10).collect::<Vec<_>>());
@@ -706,6 +728,28 @@ mod tests {
         let mut again = Catalog::load(store.clone(), false)?;
         assert_eq!(again.table(id)?.versions.len(), 3);
         assert_eq!(rowids_at(&mut again, id, None)?, (0..12).collect::<Vec<_>>());
+        let _ = std::fs::remove_dir_all(store.home());
+        Ok(())
+    }
+
+    #[test]
+    fn reloaded_rows_are_decoded_when_read() -> Result<()> {
+        let store = temp_store();
+        let mut cat = Catalog::load(store.clone(), false)?;
+        let id = create_table_pk(&mut cat, "t", true)?;
+        insert(&mut cat, id, 0..150_000)?;
+        let mut cat = Catalog::load(store.clone(), false)?;
+        let data = cat.data(id)?;
+        let (decoded, total) = data.decoded_segments();
+        assert!(total >= 3 && decoded == 0, "{decoded} of {total} decoded");
+        // counting reads only version ranges; a primary-key lookup reads the stored key hashes and decodes the one
+        // segment holding the row
+        assert_eq!(data.count_at(1), 150_000);
+        let found = data.find_live_by_pk(&[0], true, &[crate::value::Value::Int(70_000)], true).map(|r| r.rowid);
+        assert_eq!(found, Some(70_000));
+        assert_eq!(data.decoded_segments().0, 1);
+        assert_eq!(rowids_at(&mut cat, id, None)?.len(), 150_000);
+        assert_eq!(data.decoded_segments().0, total);
         let _ = std::fs::remove_dir_all(store.home());
         Ok(())
     }

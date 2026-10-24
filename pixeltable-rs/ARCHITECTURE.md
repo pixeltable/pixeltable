@@ -51,8 +51,9 @@ src/
   catalog/runtime.rs the process-wide Catalog behind a mutex; reload/reset hooks; reserved column names
   store/mod.rs      files under $PIXELTABLE_HOME: catalog.json, segment and history files, the store lock, without_gil()
   store/rows.rs     StoredRow (cells, cell errors, key), LIVE/DEAD
-  store/table_data.rs TableData: a table's rows as immutable segments + current version ranges; lookups by key, the
-                    primary-key index, mutations, the compaction policy
+  store/table_data.rs TableData: a table's rows as immutable segments + current version ranges; lookups by key, key
+                    indexes, mutations, the compaction policy
+  store/segment.rs  Segment (rows decoded on first use), Patch, stored key hashes
   store/history.rs  a table's version history file: records, diffing, replay
   store/codec.rs    the binary encoding of segment files
   exec/mod.rs       QuerySpec (from-table + joins, select/where/group_by/order_by/limit/sample, validation, JSON)
@@ -348,17 +349,20 @@ Operations that may do so are split into plan (lock) -> compute (no lock) -> com
 version): see `exec/insert.rs` and `exec/compute.rs`. Queries snapshot `Arc`s of metadata and data
 (`exec::QueryInput::snapshot`) and execute without the lock.
 
-Storage (`store/`), format version 2, under `$PIXELTABLE_HOME/pxtrs/<db>/` (db = `PIXELTABLE_DB`, default
-`pixeltable`). A store of another format (including version 1) is refused with STORE_UNAVAILABLE ("... has format
-pixeltable-rs v1, which this version of pixeltable-rs (format v2) cannot read; remove that directory ...").
+Storage (`store/`), format version 3, under `$PIXELTABLE_HOME/pxtrs/<db>/` (db = `PIXELTABLE_DB`, default
+`pixeltable`). A store of another format (including versions 1 and 2) is refused with STORE_UNAVAILABLE ("... has
+format pixeltable-rs v1, which this version of pixeltable-rs (format v3) cannot read; remove that directory ...").
 - `catalog.json`: all directories and the current metadata of every table without its history (`TableMd` minus
   `versions`/`schema_versions`), plus each table's manifest (`TableMd.storage`: its segment ids in order, and its
   history file with the committed length); atomically replaced by every commit (the commit point); starts with a
   stamp (`catalog_id`, `generation`) that every commit advances. Its size does not depend on rows or versions;
-- `tables/<tbl id>.<id>.seg`: a segment (`store/codec.rs`: tagged values, varints; large ones are encoded and decoded
-  in parallel chunks, and a table's segments load in parallel): rows sorted by key then `v_min`,
-  their `v_min` and `v_max` as of writing, and the patches it carries (`v_max` changes of rows of earlier segments:
-  deletes, the old versions of updated rows, `revert()`). JSON cells are stored as JSON text;
+- `tables/<tbl id>.<id>.seg`: a segment (`store/codec.rs`): a header with the rows' keys, `v_min` and `v_max` as of
+  writing, for each key index known then (primary key, columns with a B-tree index; `catalog::key_indexes()`) the
+  (hash, row) pairs of the rows sorted by hash, and the patches it
+  carries (`v_max` changes of rows of earlier segments: deletes, the old versions of updated rows, `revert()`); then
+  the cells (tagged values, varints; JSON as text) with a checksum. Loading a table reads its files (in parallel) and
+  decodes only headers: a segment's cells are decoded on first use (`Segment::rows()`, in parallel chunks), so
+  counting needs no decoding and a key lookup decodes one segment;
 - `tables/<tbl id>.<id>.hist`: the table's version history, one `VersionMd`/`SchemaVersionMd` record per line; a
   commit appends the records that differ from the committed ones (compared by `Arc` identity), replay lets a record
   replace those of the same and later versions and drops versions after `current_version`; rewritten when most of it
@@ -389,7 +393,8 @@ it); `row_at(key, v)` binary-searches each segment; `live_rows_by_prefix()` find
 `count_at(v)`. Key indexes (`KeyIndex`) map a hash of some columns' values in a row (the primary key, truncated for
 data-versioned tables as upstream's index does; or a column with a B-tree index) to the rowids of all row versions
 that hold them; they are built on first use, extended as they see new segments, shared by all clones (lookups verify
-the rows they find, so extra entries are harmless) and rebuilt once most entries come from merged-away segments. The
+the rows they find, so extra entries are harmless) and rebuilt once most entries come from merged-away segments;
+segments written with sorted key hashes are binary-searched instead of being added to the map. The
 primary-key index (`find_live_by_pks()`, `pk_candidates()`) serves the insert uniqueness check and `batch_update()` by
 key; `scan::PathInput::rows_where()` (queries without joins, `update()`, `delete()`) serves filters that fix the
 primary key, or compare an indexed column (`eq_candidates()`), with `==`/`isin()` on literals of the column's type,
