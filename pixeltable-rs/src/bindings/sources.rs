@@ -194,10 +194,7 @@ fn validate_pydantic_model(
 ) -> Result<()> {
     let fields = model.getattr("model_fields")?;
     let fields = fields.cast::<PyDict>().map_err(|_| Error::internal("model_fields is not a dict"))?;
-    let mut model_fields: Vec<(String, Bound<'_, PyAny>)> = Vec::new();
-    for (k, v) in fields.iter() {
-        model_fields.push((fold_identifier(&k.str()?.to_string()), v));
-    }
+    let model_fields = folded_items(fields)?;
     let has_field = |name: &str| model_fields.iter().any(|(n, _)| n == name);
     let mut missing: Vec<&str> =
         plan.columns.iter().filter(|c| c.is_required() && !has_field(&c.name)).map(|c| c.name.as_str()).collect();

@@ -11,7 +11,7 @@
 //! checks, NULL handling (a NULL argument for a non-nullable parameter yields NULL without calling `eval`) and the
 //! return type's nullability follow upstream (`signature.rs`).
 //!
-//! The image/video/audio builtins (`image.rs`, `video.rs`) are older positional `PosBuiltin` entries (parameter
+//! The video/audio builtins (`video.rs`) are older positional `PosBuiltin` entries (parameter
 //! names, a return-type function over the positional argument types, strict NULL handling); they are registered
 //! next to the signature-based ones and bound with a synthesized signature.
 //!
@@ -21,6 +21,7 @@
 
 pub mod agg;
 pub mod array;
+pub mod btree;
 pub mod date;
 pub mod image;
 pub mod image_iterators;
@@ -29,7 +30,9 @@ pub mod json;
 pub mod math;
 pub mod signature;
 pub mod string;
+pub mod string_iterators;
 pub mod timestamp;
+pub mod uda;
 pub mod udf;
 pub mod uuid;
 pub mod video_iterators;
@@ -262,6 +265,8 @@ fn builtin_tables() -> Vec<(&'static str, &'static [Builtin])> {
         (json::MODULE, json::FUNCTIONS),
         (uuid::MODULE, uuid::FUNCTIONS),
         (array::MODULE, array::FUNCTIONS),
+        (btree::MODULE, btree::FUNCTIONS),
+        (image::MODULE, image::FUNCTIONS),
     ]
 }
 
@@ -279,10 +284,10 @@ fn registry() -> &'static HashMap<String, &'static BuiltinFn> {
                 add(BuiltinFn { module, name: b.name, kind: b.kind, sql: b.sql, sig, imp: BuiltinImpl::Sig(b) });
             }
         }
-        for table in [image::FUNCTIONS, video::VIDEO_FUNCTIONS, video::AUDIO_FUNCTIONS] {
+        for table in [video::VIDEO_FUNCTIONS, video::AUDIO_FUNCTIONS] {
             for b in table {
                 // every function of the media modules is a method of its first argument's type
-                let kind = if b.module == image::MODULE && image::PROPERTIES.contains(&b.name) { Kind::Property } else { Kind::Method };
+                let kind = Kind::Method;
                 add(BuiltinFn { module: b.module, name: b.name, kind, sql: false, sig: b.signature(), imp: BuiltinImpl::Pos(b) });
             }
         }

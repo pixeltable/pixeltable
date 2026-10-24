@@ -158,9 +158,6 @@ pub fn tbl_add_embedding_index<'py>(
         cat.check_mutable(id, None, "add an index to")?;
         Ok((cat.resolve_column_arg(id, &col_arg)?, cat.table(id)?.clone()))
     })?;
-    if md.is_view() {
-        return Err(crate::catalog::indexes::views_unsupported("add_embedding_index()"));
-    }
     let mut replace = Vec::new();
     let idx_name = idx_name.map(Catalog::validate_index_name).transpose()?;
     if let Some(n) = &idx_name {
@@ -256,7 +253,7 @@ pub fn tbl_add_embedding_index<'py>(
                 IndexKind::Embedding { metric: m, precision: p, embeddings: e, .. } => {
                     *m == metric && p == precision && *e == embeddings
                 }
-                IndexKind::Btree => false,
+                IndexKind::Btree { .. } => false,
             })
             .map(|i| (i.id, i.name.clone()))
             .collect();
@@ -333,7 +330,7 @@ pub fn indexes_metadata<'py>(py: Python<'py>, cat: &Catalog, tbl_id: uuid::Uuid)
         d.set_item("name", &idx.name)?;
         d.set_item("columns", vec![col_name])?;
         match &idx.kind {
-            IndexKind::Btree => {
+            IndexKind::Btree { .. } => {
                 d.set_item("index_type", "btree")?;
                 d.set_item("parameters", py.None())?;
             }
@@ -623,7 +620,7 @@ pub fn tbl_describe<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
                         };
                         row.set_item("Embedding", embedding)?;
                     }
-                    IndexKind::Btree => {
+                    IndexKind::Btree { .. } => {
                         row.set_item("Metric", "")?;
                         row.set_item("Embedding", "")?;
                     }

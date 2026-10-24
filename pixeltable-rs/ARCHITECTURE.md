@@ -115,7 +115,9 @@ the files of one table version (for revert). Write-validated media columns are v
 `exec::insert::build_rows()` (PIL/PyAV, upstream messages); read-validated ones by `media::ReadValidation` in the query
 context (an invalid file reads as NULL with a cell error). Column properties (`errortype`, `errormsg`, `fileurl`,
 `localpath`) are `ExprKind::ColumnProperty` nodes; `RowContext::column_error()` supplies cell errors. A computed column
-whose inputs have a cell error gets that error (`eval_computed()`). Timestamps: naive inputs are interpreted in the default time zone (`PIXELTABLE_TIME_ZONE`, `TZ`, the
+whose inputs got an error in the same evaluation (an earlier computed column of the row, a file validated on read)
+gets that error (`eval_computed()`, `scan::eval_into()`); an error stored by an earlier operation does not propagate
+(the cell reads as NULL, as upstream reads it from the store). Timestamps: naive inputs are interpreted in the default time zone (`PIXELTABLE_TIME_ZONE`, `TZ`, the
 system zone, else UTC) and results are returned as aware datetimes in it.
 
 Nesting limits: JSON values hold at most `value::MAX_JSON_DEPTH` (500) levels of containers and Python-visible
@@ -165,8 +167,9 @@ SQL, an optional conditional return type (`ret`, from the bound argument types a
 `make_builtin_call()` binds like `inspect.Signature.bind()` (upstream's INVALID_ARGUMENT message), checks argument
 types (TYPE_MISMATCH), and makes the result nullable when a nullable argument meets a non-nullable parameter; at
 evaluation a NULL for a non-nullable parameter short-circuits to NULL and defaults are filled in. `str()` renders
-method calls as `c.upper()` and aggregate clauses as `order_by=`/`group_by=`. The media builtins (image.rs,
-video.rs) are older positional `PosBuiltin` entries registered with a synthesized signature. The Python side needs
+method calls as `c.upper()` and aggregate clauses as `order_by=`/`group_by=`. The image builtins (image.rs)
+use upstream's signatures and conditional return types (`convert`, `crop`, `getchannel`, `resize`, ...); video.rs
+holds older positional `PosBuiltin` entries registered with a synthesized signature. The Python side needs
 nothing more: the generated stub `upper = _fn(__name__, 'upper')` resolves to a `BuiltinFunction` (which calls
 `_core.call_builtin`) once the backend registers `pixeltable.functions.string.upper`, and `t.c.upper()` works through
 `Expr.__getattr__` -> `MethodRef` (the module is chosen by the value's type, `method_module()`).
@@ -178,8 +181,11 @@ Aggregates (`functions/agg.rs`): an `AggregateFunction` (signatures, init parame
 `allows_std_agg`, `allows_window`, `create()` -> `AggState { update(), value() }`) referenced as `FuncRef::Agg`.
 `make_agg_call()` applies upstream's rules for `order_by`/`group_by` (a window call is an aggregate with
 `group_by`/`order_by`, or one that disallows plain aggregation). Builtins: `count`, `sum`, `min`, `max`, `mean`,
-`json.make_list`. A Python UDA plugs in by implementing `AggregateFunction` with `create()`/`update()`/`value()`
-calling the Aggregator class (and `resolve_uda()` for stored calls); the executor needs nothing else.
+`json.make_list`. Python UDAs (`@pxt.uda`, `functions/uda.rs`): `AggregateFunction._make_core()` ->
+`_core.Uda(fn, spec)` -> `UdaFunction`, which implements `AggregateFunction`: `create()` instantiates the
+`Aggregator` class with the init arguments, its state calls `update()` and `value()`; calls go through
+`make_agg_call()` like builtins (`AggregateFunction.__call__` -> `Uda.call`). A stored call is
+`{"uda": AggregateFunction.as_dict()}`, resolved by `resolve_uda()` through `pixeltable.func._resolve_function`.
 
 ## Python functions (UDFs, templates, iterators)
 
@@ -211,7 +217,11 @@ in `udf::register_function` (FUNCTION_ALREADY_EXISTS on duplicates); `is_method`
 
 Query templates (`@pxt.query`, `pxt.retrieval_udf()`): `UdfImpl::Query` holds the template `QuerySpec` (built by
 calling the decorated function with `Variable`s); a call binds its arguments as literals (`QuerySpec::map_exprs`),
-snapshots and executes the query and returns the rows as a JSON list. They serialize by value; their Python
+snapshots and executes the query and returns the rows as a JSON list. `limit(n, offset=k)` in a template takes an
+int constant or a parameter (`QuerySpec::limit_param`/`offset_param`, bound per call by `QuerySpec::bind_params`,
+which refuses a negative value with INVALID_ARGUMENT). A failing query is the call's exception: a query raises it
+with its code, adding a computed column with `on_error='abort'` wraps it (UNSUPPORTED_OPERATION "Error while
+evaluating computed column ...", as for any row failure, `AddComputedPlan::abort_error`). They serialize by value; their Python
 `_from_dict()` must not touch the catalog (it runs under the catalog lock: deserializing a stored expression resolves
 its functions in Python; `with_catalog` fails instead of deadlocking on re-entry).
 
@@ -237,9 +247,10 @@ and `is_stored` (false for `unstored_cols`). Python wraps the result (`_core.Ite
 
 A running iterator is a `RowSource` (`next_row`, `seek`, `close`): Python iterators run through `PyRowSource`;
 builtin iterators (`BuiltinIterator` entries in `iterator.rs::BUILTIN_ITERATORS`: `video_iterators.rs`
-`frame_iterator`/`legacy_frame_iterator` over PyAV, `image_iterators.rs` `tile_iterator` over PIL) implement it in
-Rust, and their Python objects (`func._iterator.BuiltinGeneratingFunction`, what the generated stubs resolve to) are
-resolved by path like Python iterators. A NULL argument for a non-nullable parameter yields no rows. Test hooks:
+`frame_iterator`/`legacy_frame_iterator` over PyAV, `image_iterators.rs` `tile_iterator` over PIL,
+`string_iterators.rs` `string_splitter` over spaCy) implement it in Rust. Their Python objects
+(`func._iterator.BuiltinGeneratingFunction`, which the generated stubs return for upstream iterator classes (`_cls`)
+and `@pxt.iterator` functions (`_fn`) alike) are resolved by path like Python iterators. A NULL argument for a non-nullable parameter yields no rows. Test hooks:
 `_core._iterator_rows(call, {col: value})` and `_core._iterator_seek(call, {col: value}, pos, stored)`.
 
 ## Catalog, storage and versioning
@@ -311,6 +322,14 @@ changed column) and recomputes dependent stored columns, getting a version only 
 view rows of deleted base rows (a version only if rows were removed). View rows are computed without the lock (they
 may call UDFs) and committed with the base's.
 
+Component views (`ViewMd.iterator`, a serialized `IteratorCall`): the iterator's outputs (`pos` first) are the view's
+first columns (`TableMd::is_iterator_col`). A base row yields one view row per output row, keyed by the base row's key
+plus the position (`StoredRow.pos`; `Catalog::num_pos` counts the iterator levels of a path). `pos` reads the key;
+unstored outputs are not stored and are produced again on read (`PathCtx` -> `IteratorCall::seek_row`), except while
+a row is generated, when all outputs are in its cells (`ElemInfo::with_materialized_outputs`). An update that changes
+an iterator argument, or the base row's membership, regenerates that base row's view rows (`ViewUpdateNode.reload`).
+`Table.compute()` on a view runs the same `ViewCompute` levels over the computed base row without storing anything.
+
 To add a catalog operation: implement it as a `Catalog` method in the matching `catalog/*.rs` file (validate, mutate,
 `self.commit()`), expose it as a `#[pyfunction]` in `bindings/catalog.rs` or `bindings/table.rs` (convert arguments,
 call inside `with_catalog`), register it in `bindings/mod.rs`, and forward to it from the Python method.
@@ -336,18 +355,23 @@ Data sources (`bindings/sources.rs`, upstream `TableDataConduit`): `classify()` 
 (lists, materialized iterators), pydantic models (dumped before any catalog access, validated against the table as
 upstream does) or a query (a `Table` or `Query`, executed in Rust and inserted value by value). `create_table(source=
 ...)` infers the schema from rows (`infer_schema_from_rows()`, with `schema_overrides`) or takes the query's schema,
-creates the table, then inserts. `insert(return_rows=True)` reports the stored values (media by file URL).
+creates the table, then inserts. `return_rows` (insert, update, batch_update) reports the stored columns of the new
+rows (media by file URL), index values as `<col>:<idx>` and cell errors as `<col>:md` (`exec::insert::ReturnCol`).
 `Table.compute()` (`exec/compute_rows.rs`) evaluates only the requested outputs and their dependencies (stored and
 unstored computed columns alike) for rows of the root base table, applies view filters, and stores nothing.
 Computed columns are evaluated with Python semantics (`RowContext::python_semantics()`: a division by zero raises
 `ZeroDivisionError`), query expressions with SQL semantics (NULL). `UpdateStatus.cols_with_excs` names columns
 `<table>.<column>` (`<table>.<column>:<index>` for index values).
 
-Indexes (`catalog/indexes.rs`, `TableMd.indexes`): B-tree indexes are metadata only (scans are full scans);
-`has_default_idxs` adds one to every eligible column (`push_column()`, `create_table()`). An embedding index stores the
-embeddings of its column in a hidden stored computed column (`IndexKind::Embedding::val_col_id`, not listed in any
-schema version, computed by inserts like other stored computed columns, named `<col>:<idx>` in returned rows); its
-embedding functions are kept as `Function.as_dict()` descriptors per query modality. `col.similarity(...)` builds an
+Indexes (`catalog/indexes.rs`, `TableMd.indexes`): nothing reads B-tree indexes (scans are full scans);
+`has_default_idxs` adds one to every eligible column (`push_column()`, `create_table()`). An index can have a value
+column: a hidden stored computed column (`IndexMd::val_col_id()`, not listed in any schema version, named
+`<col>:<idx>`). `exec::compute::index_value_columns()` lists them; inserts, updates (always, for indexes on updated or
+recomputed columns, as upstream) and view propagation (`ViewCompute::current()`) compute them like other stored
+computed columns. An embedding index keeps its embeddings there; a B-tree index of a data-versioned table keeps the
+indexed values (strings truncated by `pixeltable.index.btree.str_filter`), so its errors count as upstream's do.
+Embedding functions are kept as `Function.as_dict()` descriptors per query modality. `col.similarity(...)` builds an
 `ExprKind::Similarity` node that holds the embedding call of the query item (computed once per expression) and
-compares it with the row's stored embedding (cosine similarity, inner product or L2 distance). Indexes on views are
-not supported yet.
+compares it with the row's stored embedding (cosine similarity, inner product or L2 distance). A view can index its
+own and its bases' columns (`AddIndexPlan` evaluates over the view's path). Dropped indexes stay in
+`Indexes::dropped` so that `revert()` can restore them (`Indexes::revert()`).

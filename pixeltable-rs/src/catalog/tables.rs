@@ -55,6 +55,28 @@ pub fn validate_column_name(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Upstream `_verify_computed_col_value()`: a computed column cannot read the cell metadata (errortype, errormsg,
+/// cellmd) of another column.
+pub fn check_no_cellmd_refs(e: &crate::expr::Expr) -> Result<()> {
+    use crate::expr::{ColumnProp, ExprKind};
+    let mut found = None;
+    e.visit(&mut |n| {
+        if let ExprKind::ColumnProperty { prop, .. } = &n.kind {
+            if matches!(prop, ColumnProp::ErrorType | ColumnProp::ErrorMsg | ColumnProp::CellMd) && found.is_none() {
+                found = Some(prop.name());
+            }
+        }
+    });
+    if let Some(name) = found {
+        crate::bail!(
+            UnsupportedOperation,
+            "Use of a reference to the {} property of another column is not allowed in a computed column.",
+            py_repr(name)
+        );
+    }
+    Ok(())
+}
+
 /// Upstream `Column` construction checks.
 pub fn validate_column_spec(spec: &ColumnSpec) -> Result<()> {
     validate_column_name(&spec.name)?;
@@ -68,8 +90,24 @@ pub fn validate_column_spec(spec: &ColumnSpec) -> Result<()> {
             py_repr(&spec.name)
         );
     }
+    // upstream `Column.check_value_expr()`
     if let Some(e) = &spec.value_expr {
         crate::functions::udf::validate_storable(e, &format!("Computed column {}", py_repr(&spec.name)))?;
+        check_no_cellmd_refs(e)?;
+        let mut has_window_call = false;
+        e.visit(&mut |n| {
+            if let crate::expr::ExprKind::FunctionCall(fc) = &n.kind {
+                has_window_call |= fc.is_window();
+            }
+        });
+        if spec.stored == Some(false) && has_window_call {
+            crate::bail!(
+                UnsupportedOperation,
+                "Column {}: `stored=False` not supported for columns computed with window functions:\n{}",
+                py_repr(&spec.name),
+                crate::expr::display::display(e)
+            );
+        }
     }
     Ok(())
 }

@@ -16,11 +16,14 @@ use crate::value::py as vpy;
 #[pyclass(name = "Expr", module = "pixeltable", frozen)]
 pub struct PyExpr {
     pub e: ExprRef,
+    /// for a column reference obtained from a table: that table (upstream `ColumnVersionMd.tbl_id`), which is a view
+    /// of the column's table for `view.base_column`
+    pub path_tbl_id: Option<uuid::Uuid>,
 }
 
 impl PyExpr {
     pub fn new(e: ExprRef) -> Self {
-        PyExpr { e }
+        PyExpr { e, path_tbl_id: None }
     }
 }
 
@@ -214,25 +217,27 @@ impl PyExpr {
         h.finish()
     }
 
-    /// A structural identity: equal for expressions that `equals()` each other (upstream `Expr.id`).
+    /// Upstream `Expr.id`: equal for equal expressions.
     #[getter]
     fn id(&self) -> u64 {
         self.__hash__()
     }
 
-    fn as_dict<'py>(&self, py: Python<'py>) -> Result<Bound<'py, PyAny>> {
-        Ok(vpy::json_to_py(py, &crate::expr::serde::to_json(&self.e)?)?)
-    }
-
+    /// Upstream `Expr.serialize()`: the JSON of `as_dict()`.
     fn serialize(&self) -> Result<String> {
         Ok(crate::expr::serde::to_json(&self.e)?.to_string())
     }
 
+    /// Upstream `Expr.deserialize()`
     #[staticmethod]
     fn deserialize(s: &str) -> Result<PyExpr> {
         let j: serde_json::Value = crate::value::parse_json_bounded(s.as_bytes(), crate::store::MAX_CATALOG_DEPTH)
             .map_err(|e| Error::internal(format!("malformed serialized expression: {e}")))?;
         wrap(crate::expr::serde::from_json(&j)?)
+    }
+
+    fn as_dict<'py>(&self, py: Python<'py>) -> Result<Bound<'py, PyAny>> {
+        Ok(vpy::json_to_py(py, &crate::expr::serde::to_json(&self.e)?)?)
     }
 
     #[staticmethod]
@@ -473,6 +478,14 @@ impl PyExpr {
         {
             return Ok(call.def.py_obj.bind(py).call_method1("_resolved_fn", (call.sig_idx,))?.unbind());
         }
+        if let crate::expr::ExprKind::FunctionCall(fc) = &self.e.kind {
+            if let crate::functions::FuncRef::Agg(a) = &fc.func {
+                if let Some(obj) = a.py_function() {
+                    let (sig_idx, _) = crate::functions::agg::select_signature(a.as_ref(), &fc.args, &fc.kwargs)?;
+                    return Ok(obj.bind(py).call_method1("_resolved_fn", (sig_idx,))?.unbind());
+                }
+            }
+        }
         Ok(py.None())
     }
 
@@ -523,6 +536,28 @@ impl PyExpr {
             ("vector", vector.as_ref()),
         ];
         super::indexes::similarity(py, &self.e, item.as_ref(), &named, idx)
+    }
+
+    /// `col.recompute()`: `Table.recompute_columns()` for this column.
+    #[pyo3(signature = (*, cascade=true, errors_only=false))]
+    fn recompute<'py>(slf: &Bound<'py, Self>, cascade: bool, errors_only: bool) -> Result<Bound<'py, PyAny>> {
+        let py = slf.py();
+        let (e, path_tbl_id) = (slf.get().e.clone(), slf.get().path_tbl_id);
+        let Some(c) = e.as_column_ref() else {
+            return Err(Error::Attribute(format!("Unknown method (of type {}): recompute", e.col_type.repr())));
+        };
+        let tbl_id = c.tbl_id;
+        if path_tbl_id.is_some_and(|p| p != tbl_id) {
+            crate::bail!(UnsupportedOperation, "Cannot recompute column of a base.");
+        }
+        let is_snapshot = c.tbl_version.is_some()
+            || crate::catalog::runtime::with_catalog(py, |cat| Ok(cat.table(tbl_id)?.is_snapshot()))?;
+        if is_snapshot {
+            crate::bail!(UnsupportedOperation, "Cannot recompute column of a snapshot.");
+        }
+        let cols = PyList::new(py, [slf])?;
+        let d = super::mutate::tbl_recompute_columns(py, &tbl_id.to_string(), None, &cols, None, errors_only, cascade)?;
+        Ok(py.import("pixeltable._update_status")?.call_method1("_status_from_core", (d,))?)
     }
 
     fn _is_column_ref(&self) -> bool {

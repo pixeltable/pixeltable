@@ -65,6 +65,18 @@ def plus_one(x: int) -> int:
     return x + 1
 
 
+@pxt.uda
+class total(pxt.Aggregator):
+    def __init__(self, start: int = 0) -> None:
+        self.sum = start
+
+    def update(self, x: int) -> None:
+        self.sum += x
+
+    def value(self) -> int:
+        return self.sum
+
+
 evolving: Any = None
 
 
@@ -166,6 +178,32 @@ class TestUdfCalls:
         res = t.where(t.i != None).order_by(t.i).select(r=below(t.i)).collect()['r']
         assert res == [[], [{'i': 0}], [{'i': 0}, {'i': 1}], [{'i': 0}, {'i': 1}, {'i': 2}]]
 
+        @pxt.query(return_scalar=True)
+        def first(n: int, skip: int = 0) -> pxt.Query:
+            return t.where(t.i != None).select(t.i).order_by(t.i).limit(n, offset=skip)
+
+        assert t.where(t.i == 0).select(r=first(2, skip=1)).collect()[0]['r'] == [1, 2]
+        assert t.where(t.i == 0).select(r=first(0)).collect()[0]['r'] == []
+        with raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'limit' parameter must be >= 0"):
+            t.select(r=first(-1)).collect()
+        # adding a computed column wraps a row's failure (upstream `write_column()`)
+        with raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="computed column 'c':\n'offset' parameter must be >= 0"):
+            t.add_computed_column(c=first(1, skip=-1))
+        with raises(pxt.ErrorCode.INVALID_ARGUMENT, match='limit\\(\\): parameter must be an int constant'):
+
+            @pxt.query
+            def bad(n: int) -> pxt.Query:
+                return t.select(t.i).limit(n + 1)
+
+    def test_uda(self, t: pxt.Table) -> None:
+        assert t.select(s=total(t.i)).collect()[0]['s'] == 6  # NULL for a non-nullable parameter is skipped
+        res = t.where(t.i != None).group_by(t.i % 2).select(k=t.i % 2, s=total(t.i, start=10)).order_by(t.i % 2)
+        assert list(res.collect()['s']) == [12, 14]
+        reload_catalog()
+        t = pxt.get_table('t')
+        q = t.select(s=total(t.i))  # stored by reference to the class, resolved again after a reload
+        assert pxt.Query.from_dict(q.as_dict()).collect()[0]['s'] == 6
+
 
 class TestIterators:
     def test_call_rows_and_seek(self, t: pxt.Table) -> None:
@@ -177,6 +215,24 @@ class TestIterators:
             count_to(t.i, y=1)
         d = call._core.as_dict()
         assert d['fn'] == {'fqn': 'test_functions.count_to'} and list(d['outputs']) == ['pos', 'n', 's']
+
+    def test_string_splitter(self, t: pxt.Table, monkeypatch: pytest.MonkeyPatch) -> None:
+        import sys
+        import types
+
+        from pixeltable.functions.string import string_splitter
+
+        class Doc:
+            def __init__(self, text: str) -> None:
+                self.sents = [types.SimpleNamespace(text=s.strip() + '.') for s in text.split('.') if s.strip()]
+
+        fake = types.ModuleType('spacy')
+        fake.load = lambda name: Doc  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, 'spacy', fake)
+        call = string_splitter(t.s, separators='sentence', spacy_model='fake')  # the backend caches models by name
+        assert _core._iterator_rows(call, {'s': 'One. Two.'}) == [{'pos': 0, 'text': 'One.'}, {'pos': 1, 'text': 'Two.'}]
+        with raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Only 'sentence' is supported"):
+            string_splitter(t.s, separators='word')
 
     def test_frame_iterator(self) -> None:
         videos = sorted(glob.glob(os.path.join(VIDEOS, 'bangkok*.mp4')))

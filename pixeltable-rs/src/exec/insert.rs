@@ -57,6 +57,38 @@ pub struct InsertPlan {
     pub views: Vec<ViewNode>,
 }
 
+/// A column of the rows an insert or update returns (`return_rows`, upstream `RowBuilder.create_output_rows()`).
+#[derive(Debug, Clone)]
+pub struct ReturnCol {
+    /// the column name; `<column>:<index>` for the value column of an index
+    pub name: String,
+    pub col_id: ColId,
+    pub col_type: ColumnType,
+    /// true if a cell error is reported (as `<name>:md`): computed and media columns, embedding index values
+    pub records_errors: bool,
+}
+
+/// The stored columns of `tbl_id`'s own rows and the value columns of its indexes, as `return_rows` reports them.
+pub fn return_columns(cat: &Catalog, tbl_id: Uuid) -> Result<Vec<ReturnCol>> {
+    let md = cat.table(tbl_id)?;
+    let mut out: Vec<ReturnCol> = md
+        .columns_at(None)?
+        .into_iter()
+        .filter(|c| c.md.stored)
+        .map(|c| ReturnCol {
+            records_errors: c.md.is_computed() || c.md.col_type.is_media(),
+            name: c.name,
+            col_id: c.md.id,
+            col_type: c.md.col_type,
+        })
+        .collect();
+    for c in super::compute::index_value_columns(cat, tbl_id, None)? {
+        let (Some(col), Some(idx)) = (md.column(c.col_id), md.index_of_value_col(c.col_id)) else { continue };
+        out.push(ReturnCol { name: c.name, col_id: c.col_id, col_type: col.col_type.clone(), records_errors: !idx.is_btree() });
+    }
+    Ok(out)
+}
+
 /// Statistics of a completed operation (becomes a Python `UpdateStatus`).
 #[derive(Debug, Clone, Default)]
 pub struct UpdateStatus {
@@ -346,17 +378,14 @@ fn build_rows_inner(
     Ok(BuiltRows { rows, stats, cols_with_excs, saved_media: Vec::new(), views })
 }
 
-/// Upstream `BtreeIndex.MAX_STRING_LEN`: the primary key index of a data-versioned table holds string values
-/// truncated to this many characters, so strings that agree on that prefix collide.
-const MAX_PK_STRING_LEN: usize = 256;
 /// Postgres's maximum B-tree index row size, which bounds the combined size of a primary key value.
 const MAX_INDEX_ROW_BYTES: usize = 2704;
 
 fn pk_part(v: &Value, truncate: bool) -> Value {
     match v {
-        Value::String(s) if truncate && s.chars().count() > MAX_PK_STRING_LEN => {
-            Value::String(s.chars().take(MAX_PK_STRING_LEN).collect())
-        }
+        // the primary key index of a data-versioned table holds truncated strings: strings that agree on the
+        // prefix collide
+        v if truncate => crate::functions::btree::truncate(v),
         v => v.clone(),
     }
 }

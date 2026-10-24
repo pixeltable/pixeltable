@@ -15,7 +15,8 @@ use crate::catalog::{IfExists, IfNotExists};
 use crate::error::{Error, Result, py_repr};
 use crate::exec::compute::AddComputedPlan;
 use crate::exec::compute_rows::ComputeRowsPlan;
-use crate::exec::insert::{self, InputRow, InsertPlan, UpdateStatus};
+use crate::exec::insert::{self, InputRow, InsertPlan, ReturnCol, UpdateStatus};
+use crate::store::rows::StoredRow;
 use crate::types::ColumnType;
 use crate::value::Value;
 use crate::exec::column_ref_expr;
@@ -92,7 +93,7 @@ pub fn tbl_column_ref(py: Python<'_>, tbl_id: &str, version: Option<i64>, name: 
     let id = parse_uuid(tbl_id)?;
     let col = with_catalog(py, |cat| cat.resolve_column_by_name(id, version, name))?;
     match col {
-        Some(c) => Ok(PyExpr::new(column_ref_expr(&c, version))),
+        Some(c) => Ok(PyExpr { path_tbl_id: Some(id), ..PyExpr::new(column_ref_expr(&c, version)) }),
         None => Err(Error::Attribute(format!("Unknown column: {name}"))),
     }
 }
@@ -119,6 +120,26 @@ pub fn row_value_to_py<'py>(py: Python<'py>, v: &Value, t: &ColumnType) -> Resul
         Value::Media(s) => PyString::new(py, &crate::media::file_url(s)).into_any(),
         other => vpy::to_py(py, other, t)?,
     })
+}
+
+/// The rows an insert or update returns (`return_rows`) as a list of dicts: each column's value, and for a cell
+/// with an error that the column records, `<column>:md` with its `errortype` and `errormsg`.
+pub fn returned_rows_to_py<'py>(py: Python<'py>, cols: &[ReturnCol], rows: &[&StoredRow]) -> Result<Bound<'py, PyList>> {
+    let list = PyList::empty(py);
+    for r in rows {
+        let d = PyDict::new(py);
+        for c in cols {
+            d.set_item(&c.name, row_value_to_py(py, r.cell(c.col_id), &c.col_type)?)?;
+            if let Some(e) = r.error(c.col_id).filter(|_| c.records_errors) {
+                let md = PyDict::new(py);
+                md.set_item("errortype", &e.errortype)?;
+                md.set_item("errormsg", &e.errormsg)?;
+                d.set_item(format!("{}:md", c.name), md)?;
+            }
+        }
+        list.append(d)?;
+    }
+    Ok(list)
 }
 
 /// Upstream `QueryTableDataConduit.prepare_for_insert_into_table()` + the insert's query execution: the query's
@@ -197,15 +218,8 @@ pub fn insert_rows<'py>(
 ) -> Result<Bound<'py, PyDict>> {
     let built = insert::build_rows(plan, rows, fail_on_exception)?;
     let returned = if return_rows {
-        let list = PyList::empty(py);
-        for r in &built.rows {
-            let d = PyDict::new(py);
-            for c in plan.columns.iter().filter(|c| c.stored) {
-                d.set_item(&c.name, row_value_to_py(py, r.cell(c.col_id), &c.col_type)?)?;
-            }
-            list.append(d)?;
-        }
-        Some(list)
+        let cols = with_catalog(py, |cat| insert::return_columns(cat, plan.tbl_id))?;
+        Some(returned_rows_to_py(py, &cols, &built.rows.iter().collect::<Vec<_>>())?)
     } else {
         None
     };

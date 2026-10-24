@@ -9,6 +9,7 @@ from pixeltable._unimplemented import UnimplementedFunction
 from pixeltable.func import Function
 
 _BUILTINS: set[str] = set(_core.builtin_names())
+_AGGREGATES: set[str] = set(_core.builtin_agg_names())
 
 
 class BuiltinFunction(Function):
@@ -21,6 +22,10 @@ class BuiltinFunction(Function):
 
     def __call__(self, *args: Any, **kwargs: Any) -> _core.Expr:
         return _core.call_builtin(self.self_path, *args, **kwargs)
+
+    @property
+    def is_aggregate(self) -> bool:
+        return self.self_path in _AGGREGATES
 
 
 def _map(expr: Any, fn: Callable[[Any], Any]) -> _core.Expr:
@@ -63,4 +68,10 @@ def fn(module: str, name: str) -> Function | UnimplementedFunction | Callable[..
         return special
     if qualified in _BUILTINS:
         return BuiltinFunction(module, name)
+    from pixeltable.func._iterator import builtin_iterator
+
+    # upstream defines some iterators (`string_splitter`) as `@pxt.iterator` functions
+    it = builtin_iterator(module, name)
+    if it is not None:
+        return it
     return UnimplementedFunction(module, name)

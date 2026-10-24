@@ -246,7 +246,7 @@ impl RowContext for PathCtx<'_> {
 
 /// Evaluates the computed columns `cols` (in order) into `row`, a row of table `infos[0]` whose base path rows are
 /// `base` (rows of `infos[1..]`), with upstream's materialization semantics: a column whose expression reads a cell
-/// that has an error gets that error; an evaluation failure is an error with `fail_on_exception`, else a NULL cell
+/// that this evaluation set to an error gets that error; an evaluation failure is an error with `fail_on_exception`, else a NULL cell
 /// with the error recorded (and counted in `stats`, the column named `<tbl_name>.<col>` in `cols_with_excs`).
 #[allow(clippy::too_many_arguments)]
 pub fn eval_into(
@@ -259,7 +259,7 @@ pub fn eval_into(
     stats: &mut RowCountStats,
     cols_with_excs: &mut Vec<String>,
 ) -> Result<()> {
-    for c in cols {
+    for (k, c) in cols.iter().enumerate() {
         stats.computed_values += 1;
         let outcome: std::result::Result<Value, CellError> = {
             let mut rows: Vec<&StoredRow> = Vec::with_capacity(base.len() + 1);
@@ -268,7 +268,16 @@ pub fn eval_into(
             let ctx = PathCtx { elems: infos, rows: &rows, python: true };
             let mut inherited = None;
             for r in c.expr.column_refs() {
-                if let Some(e) = ctx.column_error(r)? {
+                let i = ctx.elem(r)?;
+                let Some(r_row) = rows.get(i) else { continue };
+                // errors raised by this evaluation (earlier columns of `cols`, media validated on read) propagate;
+                // an error stored earlier does not (its cell reads as NULL, as upstream reads it from the store)
+                let err = if i == 0 && cols[..k].iter().any(|p| p.col_id == r.col_id) {
+                    r_row.error(r.col_id).cloned()
+                } else {
+                    infos[i].read_validation_error(r_row, r.col_id).flatten()
+                };
+                if let Some(e) = err {
                     inherited = Some(e);
                     break;
                 }
