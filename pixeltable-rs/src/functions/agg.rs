@@ -14,6 +14,8 @@
 use std::fmt::Debug;
 use std::sync::{Arc, OnceLock};
 
+use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use serde_json::json;
 
 use super::FuncRef;
@@ -215,6 +217,7 @@ enum BuiltinKind {
     Max,
     Mean,
     MakeList,
+    MakeVideo,
 }
 
 #[derive(Debug)]
@@ -224,6 +227,8 @@ pub struct BuiltinAgg {
     module: &'static str,
     sigs: Vec<Signature>,
     allows_window: bool,
+    requires_order_by: bool,
+    init_params: Vec<String>,
 }
 
 impl AggregateFunction for BuiltinAgg {
@@ -237,10 +242,10 @@ impl AggregateFunction for BuiltinAgg {
         &self.sigs
     }
     fn init_param_names(&self) -> &[String] {
-        &[]
+        &self.init_params
     }
     fn requires_order_by(&self) -> bool {
-        false
+        self.requires_order_by
     }
     fn allows_std_agg(&self) -> bool {
         true
@@ -250,13 +255,13 @@ impl AggregateFunction for BuiltinAgg {
     }
     fn is_sql(&self, arg_types: &[ColumnType]) -> bool {
         match self.kind {
-            BuiltinKind::MakeList => false,
+            BuiltinKind::MakeList | BuiltinKind::MakeVideo => false,
             // Postgres has no min/max of booleans; upstream computes those in Python
             BuiltinKind::Min | BuiltinKind::Max => !arg_types.first().is_some_and(|t| t.is_bool()),
             _ => true,
         }
     }
-    fn create(&self, _sig_idx: usize, _init_args: &[(String, Value)]) -> Result<Box<dyn AggState>> {
+    fn create(&self, _sig_idx: usize, init_args: &[(String, Value)]) -> Result<Box<dyn AggState>> {
         Ok(match self.kind {
             BuiltinKind::Count => Box::new(CountState(0)),
             BuiltinKind::Sum => Box::new(SumState(None)),
@@ -264,6 +269,13 @@ impl AggregateFunction for BuiltinAgg {
             BuiltinKind::Max => Box::new(MinMaxState { val: None, is_min: false }),
             BuiltinKind::Mean => Box::new(MeanState { int_sum: 0, float_sum: 0.0, is_float: false, count: 0 }),
             BuiltinKind::MakeList => Box::new(MakeListState(Vec::new())),
+            BuiltinKind::MakeVideo => {
+                let fps = match init_args.iter().find(|(k, _)| k == "fps") {
+                    Some((_, Value::Int(n))) => *n,
+                    _ => 25,
+                };
+                Box::new(MakeVideoState { fps, out: None })
+            }
         })
     }
     fn to_json(&self) -> Result<Json> {
@@ -381,6 +393,64 @@ impl AggState for MakeListState {
     }
 }
 
+/// `video.make_video(order_key, frame, *, fps=25)`: encodes the frames (in order) into an H.264 MP4 file with PyAV,
+/// as upstream does; the file is written to the temporary directory of the Pixeltable home.
+struct MakeVideoState {
+    fps: i64,
+    /// (container, stream, path) once the first frame arrived
+    out: Option<(Py<PyAny>, Py<PyAny>, String)>,
+}
+
+impl AggState for MakeVideoState {
+    fn update(&mut self, args: &[Value], _: &[(String, Value)]) -> Result<()> {
+        let frame = match args.first() {
+            None | Some(Value::Null) => return Ok(()),
+            Some(v) => v,
+        };
+        Python::attach(|py| -> Result<()> {
+            let img = crate::media::open_image(py, frame)?;
+            let av = py.import("av")?;
+            if self.out.is_none() {
+                let dir = crate::store::pixeltable_home().join("tmp");
+                std::fs::create_dir_all(&dir)?;
+                let path = dir.join(format!("{}.mp4", uuid::Uuid::new_v4().simple())).to_string_lossy().to_string();
+                let kwargs = PyDict::new(py);
+                kwargs.set_item("mode", "w")?;
+                let container = av.call_method("open", (&path,), Some(&kwargs))?;
+                let kwargs = PyDict::new(py);
+                kwargs.set_item("rate", self.fps)?;
+                let stream = container.call_method("add_stream", ("h264",), Some(&kwargs))?;
+                stream.setattr("pix_fmt", "yuv420p")?;
+                stream.setattr("width", img.getattr("width")?)?;
+                stream.setattr("height", img.getattr("height")?)?;
+                self.out = Some((container.unbind(), stream.unbind(), path));
+            }
+            let (container, stream, _) = self.out.as_ref().expect("output initialized");
+            let rgb = py.import("numpy")?.call_method1("array", (img.call_method1("convert", ("RGB",))?,))?;
+            let kwargs = PyDict::new(py);
+            kwargs.set_item("format", "rgb24")?;
+            let av_frame = av.getattr("VideoFrame")?.call_method("from_ndarray", (rgb,), Some(&kwargs))?;
+            for packet in stream.bind(py).call_method1("encode", (av_frame,))?.try_iter()? {
+                container.bind(py).call_method1("mux", (packet?,))?;
+            }
+            Ok(())
+        })
+    }
+    fn value(&mut self) -> Result<Value> {
+        let Some((container, stream, path)) = self.out.take() else {
+            crate::bail!(UnsupportedOperation, "make_video(): no frames to assemble into a video");
+        };
+        Python::attach(|py| -> Result<()> {
+            for packet in stream.bind(py).call_method0("encode")?.try_iter()? {
+                container.bind(py).call_method1("mux", (packet?,))?;
+            }
+            container.bind(py).call_method0("close")?;
+            Ok(())
+        })?;
+        Ok(Value::Media(path))
+    }
+}
+
 fn sigs(specs: &[&str]) -> Vec<Signature> {
     specs.iter().map(|s| Signature::parse(s).unwrap_or_else(|e| panic!("{e:?}"))).collect()
 }
@@ -393,7 +463,7 @@ fn builtin_aggs() -> &'static Vec<AggRef> {
         let minmax: Vec<String> = ordered.iter().map(|t| format!("(val: {t} | None) -> {t} | None")).collect();
         let minmax: Vec<&str> = minmax.iter().map(String::as_str).collect();
         let mk = |kind, name, module, specs: &[&str], allows_window| -> AggRef {
-            Arc::new(BuiltinAgg { kind, name, module, sigs: sigs(specs), allows_window })
+            Arc::new(BuiltinAgg { kind, name, module, sigs: sigs(specs), allows_window, requires_order_by: false, init_params: Vec::new() })
         };
         vec![
             mk(BuiltinKind::Sum, "sum", GLOBALS, &["(val: Int | None) -> Int | None", "(val: Float | None) -> Float | None"], true),
@@ -408,6 +478,15 @@ fn builtin_aggs() -> &'static Vec<AggRef> {
                 false,
             ),
             mk(BuiltinKind::MakeList, "make_list", "pixeltable.functions.json", &["(obj: Json) -> Json"], false),
+            Arc::new(BuiltinAgg {
+                kind: BuiltinKind::MakeVideo,
+                name: "make_video",
+                module: "pixeltable.functions.video",
+                sigs: sigs(&["(frame: Image, *, fps: Int = 25) -> Video"]),
+                allows_window: false,
+                requires_order_by: true,
+                init_params: vec!["fps".to_string()],
+            }),
         ]
     })
 }
