@@ -283,7 +283,8 @@ contexts carry a `CallSlot` and `RowContext::call_result()` hands each call's ou
 are evaluated in waves (`compute::waves()`: a column is one wave after the latest column of the batch it reads,
 directly or through unstored columns), each wave with its own phase A (`compute::eval_computed_batch()` for inserts,
 `scan::eval_rows_batch()` for add_computed_column, updates, view rows and index values); queries prefetch the calls of
-their where clause, grouping and aggregate arguments, ordering and select list.
+their where clause, grouping and aggregate arguments, ordering and select list; updates those of their where clause,
+then of their new values (`update::where_values()`).
 
 `dispatch::run()` runs the calls of a level: sync functions on a pool of worker threads (Rust threads with a Python
 thread state, attached only while they run a call; `udf_threads`), async functions as tasks on one persistent event
