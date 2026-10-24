@@ -522,7 +522,10 @@ impl Catalog {
         }
         let ids = self.table(tbl_id)?.storage.segments.clone();
         let store = &self.store;
-        let segments = without_gil(|| ids.iter().map(|id| store.read_segment(tbl_id, *id)).collect::<Result<Vec<_>>>())?;
+        let segments = without_gil(|| {
+            use rayon::prelude::*;
+            ids.par_iter().map(|id| store.read_segment(tbl_id, *id)).collect::<Result<Vec<_>>>()
+        })?;
         let data = Arc::new(TableData::from_segments(segments));
         self.data.insert(tbl_id, data.clone());
         Ok(data)

@@ -346,11 +346,23 @@ impl TableMd {
     }
 
     pub fn schema_version_md(&self, schema_version: i64) -> Result<&SchemaVersionMd> {
+        // sorted by schema version
+        let i = self.schema_versions.partition_point(|s| s.schema_version < schema_version);
         self.schema_versions
-            .iter()
-            .find(|s| s.schema_version == schema_version)
+            .get(i)
+            .filter(|s| s.schema_version == schema_version)
             .map(Arc::as_ref)
             .ok_or_else(|| Error::internal(format!("table {} has no schema version {schema_version}", self.id)))
+    }
+
+    /// The position of version `version` in `versions` (which holds consecutive versions).
+    fn version_pos(&self, version: i64) -> Option<usize> {
+        let first = self.versions.first()?.version;
+        let i = usize::try_from(version.checked_sub(first)?).ok()?;
+        match self.versions.get(i) {
+            Some(v) if v.version == version => Some(i),
+            _ => self.versions.iter().position(|v| v.version == version),
+        }
     }
 
     /// The current (last) schema version, for changing it.
@@ -360,7 +372,8 @@ impl TableMd {
 
     /// The metadata of version `version`, for changing it.
     pub fn version_md_mut(&mut self, version: i64) -> Option<&mut VersionMd> {
-        self.versions.iter_mut().find(|v| v.version == version).map(Arc::make_mut)
+        let i = self.version_pos(version)?;
+        Some(Arc::make_mut(&mut self.versions[i]))
     }
 
     pub fn current_schema(&self) -> Result<&SchemaVersionMd> {
@@ -368,7 +381,7 @@ impl TableMd {
     }
 
     pub fn version_md(&self, version: i64) -> Option<&VersionMd> {
-        self.versions.iter().find(|v| v.version == version).map(Arc::as_ref)
+        self.version_pos(version).map(|i| self.versions[i].as_ref())
     }
 
     /// The schema version in effect at table version `version` (None: current).

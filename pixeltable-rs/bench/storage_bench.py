@@ -194,6 +194,9 @@ def case_time_travel(pxt: Any, home: Path, n: int) -> dict[str, Any]:
 def case_reload(pxt: Any, home: Path, n: int) -> dict[str, Any]:
     from pixeltable import _testing
 
+    if hasattr(_testing, '_initialized'):
+        # the harness's hooks for upstream Pixeltable (compat/upstream_baseline) wipe the database on their first use
+        _testing._initialized = True
     t = create(pxt, pk=True)
     fill(t, n)
     t.update({'val': 0}, where=t.id < 10)

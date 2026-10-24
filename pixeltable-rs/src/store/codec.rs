@@ -12,7 +12,8 @@
 //! ```
 //!
 //! JSON values are written as text, refusing values nested more deeply than `value::MAX_JSON_DEPTH` (so every stored
-//! value can be read back) and read with the same limit.
+//! value can be read back) and read with the same limit. Large segments are encoded and decoded in chunks of
+//! `DECODE_CHUNK` rows in parallel (rayon); decoding first skips through the rows to find where the chunks start.
 
 use uuid::Uuid;
 
@@ -219,29 +220,52 @@ pub fn encode(tbl_id: Uuid, seg: &Segment, vmax: &[i64]) -> Result<Vec<u8>> {
         w.u32(p.idx);
         w.i64(p.vmax);
     }
-    for r in &seg.rows {
-        w.int(r.rowid);
-        w.len(r.pos.len())?;
-        for p in &r.pos {
-            w.int(*p);
+    if seg.rows.len() < 2 * DECODE_CHUNK {
+        for r in &seg.rows {
+            w.row(r)?;
         }
-        w.len(r.cells.len())?;
-        for c in &r.cells {
-            w.value(c)?;
-        }
-        w.len(r.errors.len())?;
-        for e in &r.errors {
-            match e {
-                None => w.u8(0),
-                Some(e) => {
-                    w.u8(1);
-                    w.bytes(e.errortype.as_bytes())?;
-                    w.bytes(e.errormsg.as_bytes())?;
-                }
-            }
+    } else {
+        use rayon::prelude::*;
+        let parts = seg
+            .rows
+            .par_chunks(DECODE_CHUNK)
+            .map(|rows| {
+                let mut pw = Writer(Vec::with_capacity(rows.len() * 64));
+                rows.iter().try_for_each(|r| pw.row(r))?;
+                Ok(pw.0)
+            })
+            .collect::<Result<Vec<Vec<u8>>>>()?;
+        for p in parts {
+            w.0.extend_from_slice(&p);
         }
     }
     Ok(w.0)
+}
+
+impl Writer {
+    fn row(&mut self, r: &StoredRow) -> Result<()> {
+        self.int(r.rowid);
+        self.len(r.pos.len())?;
+        for p in &r.pos {
+            self.int(*p);
+        }
+        self.len(r.cells.len())?;
+        for c in &r.cells {
+            self.value(c)?;
+        }
+        self.len(r.errors.len())?;
+        for e in &r.errors {
+            match e {
+                None => self.u8(0),
+                Some(e) => {
+                    self.u8(1);
+                    self.bytes(e.errortype.as_bytes())?;
+                    self.bytes(e.errormsg.as_bytes())?;
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Decodes segment `id` of table `tbl_id`: the segment and the `v_max` its file records.
@@ -258,28 +282,94 @@ pub fn decode(bytes: &[u8], tbl_id: Uuid, id: u64) -> Result<(Segment, Vec<i64>)
     let vmin = (0..n).map(|_| r.i64()).collect::<Result<Vec<_>>>()?;
     let vmax = (0..n).map(|_| r.i64()).collect::<Result<Vec<_>>>()?;
     let patches = (0..m).map(|_| Ok(Patch { seg: r.u64()?, idx: r.u32()?, vmax: r.i64()? })).collect::<Result<Vec<_>>>()?;
-    let mut rows = Vec::with_capacity(n);
-    for _ in 0..n {
-        let rowid = r.int()?;
-        let npos = r.count()?;
-        let pos = (0..npos).map(|_| r.int()).collect::<Result<Vec<_>>>()?;
-        let ncells = r.count()?;
-        let cells = (0..ncells).map(|_| r.value()).collect::<Result<Vec<_>>>()?;
-        let nerr = r.count()?;
+    let rows = if n < 2 * DECODE_CHUNK {
+        let rows = (0..n).map(|_| r.row()).collect::<Result<Vec<_>>>()?;
+        if r.pos != bytes.len() {
+            return Err(corrupt());
+        }
+        rows
+    } else {
+        // find where every chunk of rows starts (skipping is much cheaper than decoding), then decode the chunks in
+        // parallel
+        let mut starts = Vec::with_capacity(n / DECODE_CHUNK + 1);
+        for i in 0..n {
+            if i % DECODE_CHUNK == 0 {
+                starts.push(r.pos);
+            }
+            r.skip_row()?;
+        }
+        if r.pos != bytes.len() {
+            return Err(corrupt());
+        }
+        use rayon::prelude::*;
+        let chunks = starts
+            .par_iter()
+            .enumerate()
+            .map(|(k, &start)| {
+                let mut cr = Reader { buf: bytes, pos: start };
+                let count = DECODE_CHUNK.min(n - k * DECODE_CHUNK);
+                (0..count).map(|_| cr.row()).collect::<Result<Vec<_>>>()
+            })
+            .collect::<Result<Vec<Vec<StoredRow>>>>()?;
+        chunks.into_iter().flatten().collect()
+    };
+    Ok((Segment { id, rows, vmin, patches }, vmax))
+}
+
+/// The number of rows a thread encodes or decodes at a time.
+const DECODE_CHUNK: usize = 8192;
+
+impl Reader<'_> {
+    fn row(&mut self) -> Result<StoredRow> {
+        let rowid = self.int()?;
+        let npos = self.count()?;
+        let pos = (0..npos).map(|_| self.int()).collect::<Result<Vec<_>>>()?;
+        let ncells = self.count()?;
+        let cells = (0..ncells).map(|_| self.value()).collect::<Result<Vec<_>>>()?;
+        let nerr = self.count()?;
         let mut errors = Vec::with_capacity(nerr);
         for _ in 0..nerr {
-            errors.push(match r.u8()? {
+            errors.push(match self.u8()? {
                 0 => None,
-                1 => Some(CellError { errortype: r.string()?, errormsg: r.string()? }),
+                1 => Some(CellError { errortype: self.string()?, errormsg: self.string()? }),
                 _ => return Err(corrupt()),
             });
         }
-        rows.push(StoredRow { rowid, cells, errors, pos });
+        Ok(StoredRow { rowid, cells, errors, pos })
     }
-    if r.pos != bytes.len() {
-        return Err(corrupt());
+
+    /// Moves past a row without decoding it (checking only its structure; `row()` checks the rest).
+    fn skip_row(&mut self) -> Result<()> {
+        self.varint()?;
+        for _ in 0..self.count()? {
+            self.varint()?;
+        }
+        for _ in 0..self.count()? {
+            match self.u8()? {
+                0..=2 => {}
+                3 | 6 | 7 => {
+                    self.varint()?;
+                }
+                4 => {
+                    self.take(8)?;
+                }
+                8 => {
+                    self.take(16)?;
+                }
+                5 | 9..=12 => {
+                    self.bytes()?;
+                }
+                _ => return Err(corrupt()),
+            }
+        }
+        for _ in 0..self.count()? {
+            if self.u8()? == 1 {
+                self.bytes()?;
+                self.bytes()?;
+            }
+        }
+        Ok(())
     }
-    Ok((Segment { id, rows, vmin, patches }, vmax))
 }
 
 #[cfg(test)]
@@ -331,6 +421,35 @@ mod tests {
             assert!(decode(&bytes[..cut], tbl, 9).is_err());
         }
         assert!(decode(&bytes, tbl, 10).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn large_segments_decode_in_chunks() -> Result<()> {
+        let tbl = Uuid::new_v4();
+        let n = 3 * DECODE_CHUNK + 17;
+        let rows: Vec<StoredRow> = (0..n as i64)
+            .map(|i| {
+                let mut r = StoredRow::new(i, if i % 3 == 0 { vec![i, -i] } else { Vec::new() });
+                r.set_cell(0, Value::Int(i));
+                r.set_cell(2, Value::String(format!("s{i}")));
+                if i % 5 == 0 {
+                    r.set_error(1, Some(CellError { errortype: "E".into(), errormsg: format!("m{i}") }));
+                }
+                r
+            })
+            .collect();
+        let seg = Segment { id: 1, rows, vmin: vec![1; n], patches: Vec::new() };
+        let bytes = encode(tbl, &seg, &vec![i64::MAX; n])?;
+        let (back, _) = decode(&bytes, tbl, 1)?;
+        assert_eq!(back.rows.len(), n);
+        for (a, b) in seg.rows.iter().zip(&back.rows) {
+            assert_eq!(a.rowid, b.rowid);
+            assert_eq!(a.pos, b.pos);
+            assert!(a.cells.iter().zip(&b.cells).all(|(x, y)| crate::store::table_data::values_identical(x, y)));
+            assert_eq!(a.errors, b.errors);
+        }
+        assert!(decode(&bytes[..bytes.len() - 3], tbl, 1).is_err());
         Ok(())
     }
 

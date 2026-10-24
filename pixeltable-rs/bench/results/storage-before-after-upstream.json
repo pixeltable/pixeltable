@@ -1,0 +1,180 @@
+{
+  "rows": 100000,
+  "repeat": 3,
+  "builds": {
+    "before": {
+      "label": "before",
+      "rows": 100000,
+      "repeat": 3,
+      "results": {
+        "insert_batches": {
+          "total_s": 33.718,
+          "first10_batch_ms": 2.452,
+          "last10_batch_ms": 65.556,
+          "disk_mb": 8.48
+        },
+        "insert_batches_pk": {
+          "total_s": 60.568,
+          "first10_batch_ms": 2.435,
+          "last10_batch_ms": 99.015,
+          "disk_mb": 8.48
+        },
+        "insert_one": {
+          "total_s": 0.258,
+          "disk_mb": 8.0
+        },
+        "insert_one_pk": {
+          "total_s": 0.359,
+          "disk_mb": 8.0
+        },
+        "point_lookup": {
+          "pk_lookup_ms": 60.854,
+          "filter_lookup_ms": 68.163,
+          "pk_count_ms": 60.406
+        },
+        "update": {
+          "update_1pct_ms": 155.63,
+          "batch_update_1pct_ms": 201.471,
+          "update_1row_ms": 160.203,
+          "disk_growth_mb": 0.71
+        },
+        "delete": {
+          "delete_1pct_ms": 148.653,
+          "delete_1row_ms": 100.468
+        },
+        "time_travel": {
+          "old_version_count_ms": 3.768,
+          "old_version_lookup_ms": 7.45,
+          "mid_version_filter_ms": 32.856,
+          "current_count_ms": 14.088
+        },
+        "reload": {
+          "reload_first_count_ms": 50.68,
+          "warm_count_ms": 9.92,
+          "reload_first_lookup_ms": 58.09
+        },
+        "many_versions": {
+          "commit_1_10_ms": 1.608,
+          "commit_991_1000_ms": 4.841,
+          "disk_mb": 0.39
+        }
+      }
+    },
+    "after": {
+      "label": "after",
+      "rows": 100000,
+      "repeat": 3,
+      "results": {
+        "insert_batches": {
+          "total_s": 2.462,
+          "first10_batch_ms": 1.832,
+          "last10_batch_ms": 2.107,
+          "disk_mb": 6.41
+        },
+        "insert_batches_pk": {
+          "total_s": 2.47,
+          "first10_batch_ms": 1.993,
+          "last10_batch_ms": 2.143,
+          "disk_mb": 6.41
+        },
+        "insert_one": {
+          "total_s": 0.296,
+          "disk_mb": 6.08
+        },
+        "insert_one_pk": {
+          "total_s": 0.311,
+          "disk_mb": 6.08
+        },
+        "point_lookup": {
+          "pk_lookup_ms": 0.869,
+          "filter_lookup_ms": 36.5,
+          "pk_count_ms": 3.483
+        },
+        "update": {
+          "update_1pct_ms": 41.585,
+          "batch_update_1pct_ms": 8.708,
+          "update_1row_ms": 5.888,
+          "disk_growth_mb": 0.8
+        },
+        "delete": {
+          "delete_1pct_ms": 25.613,
+          "delete_1row_ms": 2.389
+        },
+        "time_travel": {
+          "old_version_count_ms": 0.065,
+          "old_version_lookup_ms": 0.032,
+          "mid_version_filter_ms": 22.661,
+          "current_count_ms": 0.132
+        },
+        "reload": {
+          "reload_first_count_ms": 25.41,
+          "warm_count_ms": 0.12,
+          "reload_first_lookup_ms": 33.54
+        },
+        "many_versions": {
+          "commit_1_10_ms": 2.277,
+          "commit_991_1000_ms": 1.609,
+          "disk_mb": 0.39
+        }
+      }
+    },
+    "upstream": {
+      "label": "upstream",
+      "rows": 100000,
+      "repeat": 3,
+      "results": {
+        "insert_batches": {
+          "total_s": 13.019,
+          "first10_batch_ms": 12.9,
+          "last10_batch_ms": 12.186,
+          "disk_mb": 79.44
+        },
+        "insert_batches_pk": {
+          "total_s": 13.07,
+          "first10_batch_ms": 13.583,
+          "last10_batch_ms": 12.658,
+          "disk_mb": 98.48
+        },
+        "insert_one": {
+          "total_s": 3.836,
+          "disk_mb": 78.43
+        },
+        "insert_one_pk": {
+          "total_s": 4.608,
+          "disk_mb": 97.48
+        },
+        "point_lookup": {
+          "pk_lookup_ms": 6.737,
+          "filter_lookup_ms": 16.09,
+          "pk_count_ms": 9.746
+        },
+        "update": {
+          "update_1pct_ms": 67.526,
+          "batch_update_1pct_ms": 135.921,
+          "update_1row_ms": 28.13,
+          "disk_growth_mb": 3.49
+        },
+        "delete": {
+          "delete_1pct_ms": 18.944,
+          "delete_1row_ms": 13.35
+        },
+        "time_travel": {
+          "old_version_count_ms": 13.857,
+          "old_version_lookup_ms": 12.892,
+          "mid_version_filter_ms": 15.137,
+          "current_count_ms": 21.493
+        },
+        "reload": {
+          "reload_first_count_ms": 45.76,
+          "warm_count_ms": 20.39,
+          "reload_first_lookup_ms": 26.28
+        },
+        "many_versions": {
+          "commit_1_10_ms": 11.141,
+          "commit_991_1000_ms": 8.564,
+          "disk_mb": 48.63
+        }
+      }
+    }
+  }
+}

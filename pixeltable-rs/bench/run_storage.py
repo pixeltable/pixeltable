@@ -7,8 +7,9 @@
 Run it from any directory except the repository root (whose `pixeltable/` is upstream's package). `--python` selects
 the interpreter (default: the pixeltable-rs venv). `--builds` runs every case once per build per repeat, alternating
 builds so that they see the same machine load, and reports the median of the repeats; a build is a directory put first
-on `PYTHONPATH` (holding a `pixeltable` package), or empty for the interpreter's own. `--compare` prints the metrics of
-earlier runs side by side.
+on `PYTHONPATH` (holding a `pixeltable` package), empty for the interpreter's own, or `@/path/to/python` for another
+interpreter (e.g. one with upstream Pixeltable and compat/upstream_baseline/_testing.py installed). `--compare` prints
+the metrics of earlier runs side by side.
 """
 
 from __future__ import annotations
@@ -30,6 +31,8 @@ from storage_bench import CASES  # noqa: E402
 
 def run_case(case: str, rows: int, python: str, pythonpath: str = '') -> dict:
     env = dict(os.environ)
+    if pythonpath.startswith('@'):
+        python, pythonpath = pythonpath[1:], ''
     if pythonpath:
         env['PYTHONPATH'] = pythonpath + (os.pathsep + env['PYTHONPATH'] if env.get('PYTHONPATH') else '')
     t = time.perf_counter()

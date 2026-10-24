@@ -16,7 +16,7 @@
 //! index (`PkIndex`) maps primary-key values to rowids.
 
 use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -687,6 +687,7 @@ impl TableData {
     }
 
     fn pk_candidates_many<V: AsRef<[Value]>>(&self, pk_cols: &[ColId], truncate: bool, keys: &[V]) -> Vec<Vec<i64>> {
+        use rayon::prelude::*;
         let mut guard = self.pk.lock();
         let idx = match guard.as_mut() {
             Some(idx) if idx.cols == pk_cols && idx.truncate == truncate => idx,
@@ -694,8 +695,14 @@ impl TableData {
         };
         for s in &self.segs {
             if !idx.covered.contains(&s.seg.id) {
-                for r in &s.seg.rows {
-                    let h = pk_hash(idx.cols.iter().map(|c| r.cell(*c)), truncate);
+                let cols = &idx.cols;
+                let hashes: Vec<u64> = if s.len() >= 4096 {
+                    s.seg.rows.par_iter().map(|r| pk_hash(cols.iter().map(|c| r.cell(*c)), truncate)).collect()
+                } else {
+                    s.seg.rows.iter().map(|r| pk_hash(cols.iter().map(|c| r.cell(*c)), truncate)).collect()
+                };
+                idx.first.reserve(hashes.len());
+                for (h, r) in hashes.into_iter().zip(&s.seg.rows) {
                     idx.add(h, r.rowid);
                 }
                 idx.covered.insert(s.seg.id);
@@ -715,8 +722,27 @@ struct PkIndex {
     truncate: bool,
     /// ids of the segments whose rows are in the index
     covered: HashSet<u64>,
-    first: HashMap<u64, i64>,
-    more: HashMap<u64, Vec<i64>>,
+    /// keyed by `pk_hash()`, which is already well mixed
+    first: HashMap<u64, i64, std::hash::BuildHasherDefault<IdentityHasher>>,
+    more: HashMap<u64, Vec<i64>, std::hash::BuildHasherDefault<IdentityHasher>>,
+}
+
+/// The hasher of maps keyed by a hash.
+#[derive(Default)]
+struct IdentityHasher(u64);
+
+impl Hasher for IdentityHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for b in bytes {
+            self.0 = (self.0 << 8) | u64::from(*b);
+        }
+    }
+    fn write_u64(&mut self, v: u64) {
+        self.0 = v;
+    }
 }
 
 impl PkIndex {
@@ -749,28 +775,87 @@ pub fn pk_part(v: &Value, truncate: bool) -> Value {
     if truncate { crate::functions::btree::truncate(v) } else { v.clone() }
 }
 
-/// The hash of a primary-key value (`values`, one per key column) by which the index finds it.
+/// The hash of a primary-key value (`values`, one per key column) by which the index finds it: of the values as
+/// `pk_part()` makes them (without copying them).
 pub fn pk_hash<'a>(values: impl Iterator<Item = &'a Value>, truncate: bool) -> u64 {
-    let mut h = std::hash::DefaultHasher::new();
+    let mut h = KeyHasher(0);
     for v in values {
-        hash_value(&pk_part(v, truncate), &mut h);
+        hash_value(v, truncate, &mut h);
     }
-    h.finish()
+    // murmur3's finalizer, so that every bit of the result depends on every input bit
+    let mut x = h.0;
+    x ^= x >> 33;
+    x = x.wrapping_mul(0xff51_afd7_ed55_8ccd);
+    x ^= x >> 33;
+    x = x.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+    x ^ (x >> 33)
 }
 
-fn hash_value(v: &Value, h: &mut impl Hasher) {
-    std::mem::discriminant(v).hash(h);
+/// A fast, non-cryptographic hasher (rustc's FxHasher) for primary-key values; collisions only cost lookups a check.
+struct KeyHasher(u64);
+
+impl KeyHasher {
+    fn add(&mut self, w: u64) {
+        self.0 = (self.0.rotate_left(5) ^ w).wrapping_mul(0x517c_c1b7_2722_0a95);
+    }
+}
+
+impl Hasher for KeyHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        let mut chunks = bytes.chunks_exact(8);
+        for c in &mut chunks {
+            self.add(u64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]));
+        }
+        let rest = chunks.remainder();
+        if !rest.is_empty() {
+            let mut b = [0u8; 8];
+            b[..rest.len()].copy_from_slice(rest);
+            self.add(u64::from_le_bytes(b));
+        }
+        self.add(bytes.len() as u64);
+    }
+    fn write_u64(&mut self, v: u64) {
+        self.add(v);
+    }
+}
+
+fn hash_value(v: &Value, truncate: bool, h: &mut KeyHasher) {
+    use crate::functions::btree::MAX_STRING_LEN;
+    let tag: u64 = match v {
+        Value::Null => 0,
+        Value::Bool(_) => 1,
+        Value::Int(_) => 2,
+        Value::Float(_) => 3,
+        Value::String(_) => 4,
+        Value::Timestamp(_) => 5,
+        Value::Date(_) => 6,
+        Value::Uuid(_) => 7,
+        Value::Binary(_) => 8,
+        Value::Json(_) => 9,
+        Value::Array(_) => 10,
+        Value::Media(_) => 11,
+        Value::PyObj(_) => 12,
+    };
+    h.add(tag);
     match v {
         Value::Null | Value::PyObj(_) => {}
-        Value::Bool(b) => b.hash(h),
-        Value::Int(i) | Value::Timestamp(i) => i.hash(h),
-        Value::Float(f) => (if f.is_nan() { f64::NAN.to_bits() } else { f.to_bits() }).hash(h),
-        Value::String(s) | Value::Media(s) => s.hash(h),
-        Value::Date(d) => d.hash(h),
-        Value::Uuid(u) => u.hash(h),
-        Value::Binary(b) => b.hash(h),
-        Value::Json(j) => j.to_string().hash(h),
-        Value::Array(a) => format!("{a:?}").hash(h),
+        Value::Bool(b) => h.add(u64::from(*b)),
+        Value::Int(i) | Value::Timestamp(i) => h.add(*i as u64),
+        Value::Float(f) => h.add(if f.is_nan() { f64::NAN.to_bits() } else { f.to_bits() }),
+        Value::String(s) if truncate => {
+            // the first MAX_STRING_LEN characters, as `btree::truncate()` keeps them
+            let end = s.char_indices().nth(MAX_STRING_LEN).map_or(s.len(), |(i, _)| i);
+            h.write(&s.as_bytes()[..end]);
+        }
+        Value::String(s) | Value::Media(s) => h.write(s.as_bytes()),
+        Value::Date(d) => h.add(*d as u64),
+        Value::Uuid(u) => h.write(u.as_bytes()),
+        Value::Binary(b) => h.write(b),
+        Value::Json(j) => h.write(j.to_string().as_bytes()),
+        Value::Array(a) => h.write(format!("{a:?}").as_bytes()),
     }
 }
 

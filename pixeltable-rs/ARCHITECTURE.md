@@ -336,7 +336,8 @@ pixeltable-rs v1, which this version of pixeltable-rs (format v2) cannot read; r
   `versions`/`schema_versions`), plus each table's manifest (`TableMd.storage`: its segment ids in order, and its
   history file with the committed length); atomically replaced by every commit (the commit point); starts with a
   stamp (`catalog_id`, `generation`) that every commit advances. Its size does not depend on rows or versions;
-- `tables/<tbl id>.<id>.seg`: a segment (`store/codec.rs`: tagged values, varints): rows sorted by key then `v_min`,
+- `tables/<tbl id>.<id>.seg`: a segment (`store/codec.rs`: tagged values, varints; large ones are encoded and decoded
+  in parallel chunks, and a table's segments load in parallel): rows sorted by key then `v_min`,
   their `v_min` and `v_max` as of writing, and the patches it carries (`v_max` changes of rows of earlier segments:
   deletes, the old versions of updated rows, `revert()`). JSON cells are stored as JSON text;
 - `tables/<tbl id>.<id>.hist`: the table's version history, one `VersionMd`/`SchemaVersionMd` record per line; a
