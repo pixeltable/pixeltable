@@ -11,6 +11,7 @@ pub mod compute_rows;
 pub mod dispatch;
 pub mod index;
 pub mod insert;
+pub mod par;
 pub mod prefetch;
 pub mod propagate;
 pub mod query;

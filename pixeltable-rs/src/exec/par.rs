@@ -1,0 +1,99 @@
+//! Data parallelism (rayon) for the pure-Rust parts of execution: evaluating expressions over many rows, sorting.
+//!
+//! Results are always in row order (rayon's indexed collect), so output and the error reported (the first failing
+//! row's) are the same as with sequential evaluation. Only expressions that run no user code are evaluated in
+//! parallel (`is_pure()`): calls of Python functions must have been made ahead (`exec::prefetch`), since rayon's
+//! threads would run them concurrently and out of order. The calling thread is detached from the interpreter while
+//! rayon works (`detached()`), so that a worker that needs Python (media helpers) can attach.
+
+use rayon::prelude::*;
+use std::cmp::Ordering;
+
+use crate::expr::{ColumnProp, ColumnRef, Expr, ExprKind};
+use crate::functions::FuncRef;
+use crate::functions::udf::UdfImpl;
+
+/// The fewest rows worth spreading over threads.
+pub const MIN_PARALLEL_ROWS: usize = 4096;
+
+fn parallel(n: usize) -> bool {
+    n >= MIN_PARALLEL_ROWS && rayon::current_num_threads() > 1
+}
+
+/// Runs `f` detached from the interpreter if this thread is attached to it (rayon workers may need to attach).
+pub fn detached<T: Send>(f: impl FnOnce() -> T + Send) -> T {
+    // SAFETY: PyGILState_Check() may be called without holding the GIL
+    if unsafe { pyo3::ffi::PyGILState_Check() } == 1 {
+        pyo3::Python::attach(|py| py.detach(f))
+    } else {
+        f()
+    }
+}
+
+/// `(0..n).map(f).collect()`, in parallel for many rows (`f` must be pure: see `is_pure()`). Row 0 is evaluated
+/// first, alone, so that values an expression computes once (the query embedding of a similarity) are computed once.
+pub fn map_rows<T: Send>(n: usize, f: impl Fn(usize) -> T + Sync + Send) -> Vec<T> {
+    if !parallel(n) {
+        return (0..n).map(f).collect();
+    }
+    let first = f(0);
+    detached(|| {
+        let mut out = Vec::with_capacity(n);
+        out.push(first);
+        out.par_extend((1..n).into_par_iter().map(&f));
+        out
+    })
+}
+
+/// `(0..n).map(f)` up to the first error: with `pure`, every row, in parallel for many rows; else in order, stopping
+/// after the first error (evaluation that runs user code makes no call a sequential evaluation would not make). The
+/// caller consumes the results in order and stops at the first error.
+pub fn try_map_rows<T: Send>(n: usize, pure: bool, f: impl Fn(usize) -> crate::error::Result<T> + Sync + Send) -> Vec<crate::error::Result<T>> {
+    if pure {
+        return map_rows(n, f);
+    }
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        let r = f(i);
+        let failed = r.is_err();
+        out.push(r);
+        if failed {
+            break;
+        }
+    }
+    out
+}
+
+/// A stable sort, in parallel for many elements.
+pub fn sort_by<T: Send>(v: &mut [T], cmp: impl Fn(&T, &T) -> Ordering + Sync) {
+    if parallel(v.len()) {
+        detached(|| v.par_sort_by(&cmp));
+    } else {
+        v.sort_by(&cmp);
+    }
+}
+
+/// True if evaluating `e` runs no user code and no Python-backed builtin, so that rows can be evaluated on several
+/// threads: calls of Python functions are allowed only where `prefetched(node)` (their outcomes are looked up), column
+/// reads only where `col_pure(col)` (e.g. not iterator outputs, which run the iterator again), aggregate calls only as
+/// precomputed values (they are never evaluated per row).
+pub fn is_pure(e: &Expr, col_pure: &dyn Fn(&ColumnRef) -> bool, prefetched: &dyn Fn(&Expr) -> bool) -> bool {
+    let children = |e: &Expr| e.kind.children().into_iter().all(|c| is_pure(c, col_pure, prefetched));
+    match &e.kind {
+        ExprKind::ColumnRef(c) => col_pure(c),
+        ExprKind::ColumnProperty { col, prop } => *prop != ColumnProp::LocalPath && is_pure(col, col_pure, prefetched),
+        ExprKind::Variable(_) => false,
+        ExprKind::FunctionCall(fc) => match &fc.func {
+            FuncRef::Builtin(b) => !b.calls_python() && children(e),
+            FuncRef::Agg(_) => true,
+            FuncRef::Udf(call) => match (&call.def.imp, &call.instantiated) {
+                (UdfImpl::Template { .. }, Some(inst)) => is_pure(inst, col_pure, prefetched),
+                (UdfImpl::Callable { .. }, _) => prefetched(e),
+                _ => false,
+            },
+        },
+        // the embedding of the query item is computed once per expression (by the first row)
+        ExprKind::Similarity(sim) => is_pure(&sim.col, col_pure, prefetched),
+        _ => children(e),
+    }
+}

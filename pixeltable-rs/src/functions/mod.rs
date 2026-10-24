@@ -167,6 +167,11 @@ impl BuiltinFn {
             BuiltinImpl::Pos(b) => b.name,
         }
     }
+
+    /// True if the builtin calls into Python (PIL for images, PyAV for videos): it is evaluated in one thread.
+    pub fn calls_python(&self) -> bool {
+        self.module == image::MODULE || matches!(self.imp, BuiltinImpl::Pos(_))
+    }
 }
 
 /// The bound argument values of a builtin call.

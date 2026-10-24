@@ -188,6 +188,23 @@ impl AggPlan {
             || kwargs.iter().zip(self.kwarg_roles.iter()).any(|(v, (_, role))| *role == Some(true) && v.is_null())
     }
 
+    /// `update()` with borrowed arguments.
+    pub fn update_slices(&self, state: &mut dyn AggState, args: &[Value], kwargs: &[Value]) -> Result<()> {
+        if self.skips(args, kwargs) {
+            return Ok(());
+        }
+        if kwargs.is_empty() {
+            return state.update(args, &[]);
+        }
+        let mut kw = Vec::new();
+        for (v, (k, role)) in kwargs.iter().zip(self.kwarg_roles.iter()) {
+            if role.is_some() {
+                kw.push((k.clone(), v.clone()));
+            }
+        }
+        state.update(args, &kw)
+    }
+
     /// Feeds one row (the evaluated positional and keyword arguments, in call order) to `state`; a row with a NULL
     /// argument for a non-nullable parameter is skipped.
     pub fn update(&self, state: &mut dyn AggState, args: Vec<Value>, kwargs: Vec<Value>) -> Result<()> {

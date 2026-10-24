@@ -185,6 +185,19 @@ impl PathInput {
         }
     }
 
+    /// `rows_where()`, calling `f` with each joined row instead of collecting them.
+    pub fn for_each_row_where<'s>(&'s self, pred: Option<&ExprRef>, mut f: impl FnMut(&[&'s StoredRow])) -> Result<()> {
+        match pred.and_then(|p| self.pk_point_rowids(p)) {
+            Some(rowids) => {
+                for r in self.rows_for_keys(rowids.iter().map(|r| (*r, &[] as &[i64]))) {
+                    f(&r);
+                }
+                Ok(())
+            }
+            None => self.for_each_row(f),
+        }
+    }
+
     /// For a filter that fixes the primary key of the path's table (a base table), the rowids of the rows that may
     /// pass it (from the primary-key index).
     fn pk_point_rowids(&self, pred: &ExprRef) -> Option<Vec<i64>> {
@@ -257,11 +270,21 @@ impl PathInput {
 
     /// The visible joined rows, in key order: each entry has one row per table of the path (leaf first).
     pub fn rows(&self) -> Result<Vec<Vec<&StoredRow>>> {
+        let mut out = Vec::new();
+        self.for_each_row(|r| out.push(r.to_vec()))?;
+        Ok(out)
+    }
+
+    /// Calls `f` with each visible joined row (one row per table of the path, leaf first), in key order.
+    pub fn for_each_row<'s>(&'s self, mut f: impl FnMut(&[&'s StoredRow])) -> Result<()> {
         let leaf = &self.elems[0];
         let mut leaf_rows: Vec<&StoredRow> = leaf.data.visible_at(leaf.version).collect();
         leaf_rows.sort_by(|a, b| a.key().cmp(&b.key()));
         if self.elems.len() == 1 {
-            return Ok(leaf_rows.into_iter().map(|r| vec![r]).collect());
+            for r in leaf_rows {
+                f(&[r]);
+            }
+            return Ok(());
         }
         // a base's rows by key: a map of all of them, unless looking up the few needed ones costs less
         let indexes: Vec<Option<HashMap<(i64, &[i64]), &StoredRow>>> = self.elems[1..]
@@ -270,9 +293,9 @@ impl PathInput {
                 (leaf_rows.len().saturating_mul(64) > e.data.num_live()).then(|| e.data.visible_at(e.version).map(|r| (r.key(), r)).collect())
             })
             .collect();
-        let mut out = Vec::with_capacity(leaf_rows.len());
+        let mut joined = Vec::with_capacity(self.elems.len());
         'rows: for r in leaf_rows {
-            let mut joined = Vec::with_capacity(self.elems.len());
+            joined.clear();
             joined.push(r);
             for (i, idx) in indexes.iter().enumerate() {
                 let e = &self.elems[i + 1];
@@ -288,9 +311,9 @@ impl PathInput {
                     None => continue 'rows,
                 }
             }
-            out.push(joined);
+            f(&joined);
         }
-        Ok(out)
+        Ok(())
     }
 }
 
