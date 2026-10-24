@@ -225,7 +225,6 @@ impl Catalog {
                     _ => return Err(crate::error::Error::internal("create_dir(): inconsistent ancestors")),
                 });
             }
-            self.commit()?;
             last
         } else {
             match self.get_object(&path.parent(), Expected::Any, false, false)? {

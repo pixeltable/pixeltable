@@ -28,6 +28,17 @@ pub struct ColumnSpec {
     pub destination: Option<String>,
 }
 
+/// The outcome of `Catalog::check_existing_column()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExistingColumn {
+    /// no column of that name
+    Absent,
+    /// keep the existing column and skip the new one (`if_exists='ignore'`)
+    Ignore,
+    /// drop this column before adding the new one (`if_exists='replace'`)
+    Replace(ColId),
+}
+
 /// Upstream `Column.validate_name()`.
 pub fn validate_column_name(name: &str) -> Result<()> {
     let folded = fold_identifier(name);
@@ -232,12 +243,7 @@ impl Catalog {
                 crate::bail!(ConstraintViolation, "{display} cannot be dropped, {dependents}.");
             }
         }
-        if let Some(md) = self.remove_table_record(tbl_id) {
-            if let Some(f) = &md.data_file {
-                self.store.delete_table_data(f);
-            }
-            self.store.delete_media(tbl_id);
-        }
+        self.remove_table_record(tbl_id);
         Ok(())
     }
 
@@ -317,17 +323,17 @@ impl Catalog {
         Ok(id)
     }
 
-    /// Upstream `_ignore_or_drop_existing_columns()`: returns true if the column should be skipped (it exists and
-    /// `if_exists='ignore'`); drops it for `replace`.
-    pub fn handle_existing_column(&mut self, tbl_id: Uuid, name: &str, if_exists: IfExists) -> Result<bool> {
-        let md = self.table(tbl_id)?.clone();
+    /// Upstream `_ignore_or_drop_existing_columns()`, without the drop: what to do about an existing column of the
+    /// name a new column is to get.
+    pub fn check_existing_column(&self, tbl_id: Uuid, name: &str, if_exists: IfExists) -> Result<ExistingColumn> {
         if !self.resolve_columns(tbl_id, None)?.iter().any(|c| c.name == name) {
-            return Ok(false);
+            return Ok(ExistingColumn::Absent);
         }
         match if_exists {
             IfExists::Error => crate::bail!(ColumnAlreadyExists, "Duplicate column name: {name}"),
-            IfExists::Ignore => Ok(true),
+            IfExists::Ignore => Ok(ExistingColumn::Ignore),
             IfExists::Replace | IfExists::ReplaceForce => {
+                let md = self.table(tbl_id)?;
                 let Some(col) = md.column_by_name(name, None)? else {
                     crate::bail!(
                         UnsupportedOperation,
@@ -345,8 +351,7 @@ impl Catalog {
                         if if_exists == IfExists::Replace { "replace" } else { "replace_force" }
                     );
                 }
-                self.drop_column(tbl_id, name, IfNotExists::Error)?;
-                Ok(false)
+                Ok(ExistingColumn::Replace(col.md.id))
             }
         }
     }
@@ -373,8 +378,10 @@ impl Catalog {
         self.check_mutable(tbl_id, None, "add columns to")?;
         let mut to_add = Vec::new();
         for spec in specs {
-            if self.handle_existing_column(tbl_id, &spec.name, if_exists)? {
-                continue;
+            match self.check_existing_column(tbl_id, &spec.name, if_exists)? {
+                ExistingColumn::Absent => {}
+                ExistingColumn::Ignore => continue,
+                ExistingColumn::Replace(_) => self.drop_column(tbl_id, &spec.name, IfNotExists::Error)?,
             }
             validate_column_spec(&spec)?;
             if spec.value_expr.is_some() {

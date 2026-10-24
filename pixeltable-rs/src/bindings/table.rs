@@ -418,12 +418,9 @@ pub fn tbl_add_computed_column<'py>(
     schema.set_item(&folded, spec_dict)?;
     let mut specs = parse_schema(&schema)?;
     let spec = specs.pop().ok_or_else(|| Error::internal("missing column spec"))?;
-    let skip = with_catalog(py, |cat| cat.handle_existing_column(id, &folded, ie))?;
-    if skip {
+    let Some(plan) = with_catalog(py, |cat| AddComputedPlan::new(cat, id, spec, ie))? else {
         return Ok(status_dict(py, &UpdateStatus::default())?);
-    }
-    crate::catalog::tables::validate_column_spec(&spec)?;
-    let plan = with_catalog(py, |cat| AddComputedPlan::new(cat, id, spec))?;
+    };
     let mut stats = RowCountStats::default();
     let mut cols_with_excs = Vec::new();
     let values = plan.compute(fail_on_exception, &mut stats, &mut cols_with_excs)?;

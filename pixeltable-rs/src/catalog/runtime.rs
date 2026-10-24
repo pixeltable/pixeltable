@@ -21,15 +21,26 @@ use crate::store::Store;
 static CATALOG: Mutex<Option<Catalog>> = Mutex::new(None);
 static RESERVED_NAMES: RwLock<Option<HashSet<String>>> = RwLock::new(None);
 
-/// Runs `f` with exclusive access to the catalog, loading it first if needed.
+/// Runs `f` with exclusive access to the catalog, loading it first if needed. `f` is atomic: if it fails, its
+/// changes are rolled back in memory and on disk (see `Catalog::checkpoint()`).
 pub fn with_catalog<R>(py: Python<'_>, f: impl FnOnce(&mut Catalog) -> Result<R>) -> Result<R> {
     let mut guard = CATALOG.lock_py_attached(py);
     if guard.is_none() {
         *guard = Some(Catalog::load(Store::open_default()?)?);
     }
-    match guard.as_mut() {
-        Some(cat) => f(cat),
-        None => Err(Error::internal("catalog failed to initialize")),
+    let Some(cat) = guard.as_mut() else { return Err(Error::internal("catalog failed to initialize")) };
+    let checkpoint = cat.checkpoint();
+    let result = f(cat);
+    match cat.finish(checkpoint, result.is_ok()) {
+        Ok(()) => result,
+        Err(rollback_err) => {
+            // the in-memory state no longer reliably matches the store: reload it on the next operation
+            *guard = None;
+            match result {
+                Ok(_) => Err(rollback_err),
+                Err(e) => Err(e),
+            }
+        }
     }
 }
 

@@ -6,9 +6,9 @@
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::catalog::Catalog;
 use crate::catalog::table::{ColId, RowCountStats};
-use crate::catalog::tables::ColumnSpec;
+use crate::catalog::tables::{ColumnSpec, ExistingColumn};
+use crate::catalog::{Catalog, IfExists, IfNotExists};
 use crate::error::{Error, Result, py_repr};
 use crate::expr::eval::{RowContext, eval};
 use crate::expr::{ColumnRef, ExprRef};
@@ -93,15 +93,29 @@ pub struct AddComputedPlan {
     pub data: Arc<TableData>,
     /// placeholder column id used while evaluating (the real id is assigned at commit)
     pub eval_col_id: ColId,
+    /// an existing column of the same name to drop at commit (`if_exists='replace'`)
+    pub replace: Option<ColId>,
 }
 
 impl AddComputedPlan {
-    pub fn new(cat: &mut Catalog, tbl_id: Uuid, spec: ColumnSpec) -> Result<AddComputedPlan> {
+    /// None: the column exists and `if_exists='ignore'`.
+    pub fn new(cat: &mut Catalog, tbl_id: Uuid, spec: ColumnSpec, if_exists: IfExists) -> Result<Option<AddComputedPlan>> {
+        cat.check_mutable(tbl_id, None, "add columns to")?;
+        let replace = match cat.check_existing_column(tbl_id, &spec.name, if_exists)? {
+            ExistingColumn::Absent => None,
+            ExistingColumn::Ignore => return Ok(None),
+            ExistingColumn::Replace(col_id) => Some(col_id),
+        };
+        crate::catalog::tables::validate_column_spec(&spec)?;
         let expr = spec.value_expr.clone().ok_or_else(|| Error::internal("computed column without a value"))?;
         let md = cat.table(tbl_id)?.clone();
         let chain = cat.base_chain(tbl_id);
-        let visible: Vec<(Uuid, ColId)> =
-            cat.resolve_columns(tbl_id, None)?.iter().map(|c| (c.tbl_id, c.md.id)).collect();
+        let visible: Vec<(Uuid, ColId)> = cat
+            .resolve_columns(tbl_id, None)?
+            .iter()
+            .filter(|c| replace != Some(c.md.id) || c.tbl_id != tbl_id)
+            .map(|c| (c.tbl_id, c.md.id))
+            .collect();
         let bound = expr.column_refs().iter().all(|r| chain.contains(&r.tbl_id) && visible.contains(&(r.tbl_id, r.col_id)));
         if !bound {
             crate::bail!(
@@ -116,14 +130,15 @@ impl AddComputedPlan {
             return Err(Error::not_implemented("computed columns on views"));
         }
         let data = cat.data(tbl_id)?;
-        Ok(AddComputedPlan {
+        Ok(Some(AddComputedPlan {
             tbl_id,
             schema_version: md.current_schema_version,
             eval_col_id: md.next_col_id,
             spec,
             expr,
             data,
-        })
+            replace,
+        }))
     }
 
     /// Evaluates the column for every live row: (row index in `data.rows`, value, error).
@@ -163,6 +178,9 @@ impl AddComputedPlan {
                 "The schema of the table changed while column {} was being computed; retry",
                 py_repr(&self.spec.name)
             );
+        }
+        if self.replace.is_some() {
+            cat.drop_column(self.tbl_id, &self.spec.name, IfNotExists::Error)?;
         }
         let value_json = crate::expr::serde::to_json(&self.expr)?;
         let col_id = cat.push_column(self.tbl_id, self.spec.clone(), Some(value_json))?;

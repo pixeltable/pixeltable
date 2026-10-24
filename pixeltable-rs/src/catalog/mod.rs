@@ -70,12 +70,32 @@ impl IfNotExists {
     }
 }
 
+/// A file-level effect of an operation, applied only once the operation has succeeded.
+#[derive(Debug, Clone)]
+enum PendingDelete {
+    DataFile(String),
+    Media(Uuid),
+}
+
 pub struct Catalog {
     store: Store,
     root_id: Uuid,
     dirs: HashMap<Uuid, DirMd>,
     tables: HashMap<Uuid, Arc<TableMd>>,
     /// row data, loaded on first access
+    data: HashMap<Uuid, Arc<TableData>>,
+    /// files to delete when the current operation succeeds
+    pending_deletes: Vec<PendingDelete>,
+    /// data files written by the current operation (deleted if it fails)
+    written_files: Vec<String>,
+    /// true once the current operation has written catalog.json
+    committed: bool,
+}
+
+/// The in-memory state at the start of an operation (see `Catalog::checkpoint()`).
+pub struct Checkpoint {
+    dirs: HashMap<Uuid, DirMd>,
+    tables: HashMap<Uuid, Arc<TableMd>>,
     data: HashMap<Uuid, Arc<TableData>>,
 }
 
@@ -96,6 +116,9 @@ impl Catalog {
                     dirs: cf.dirs.into_iter().map(|d| (d.id, d)).collect(),
                     tables: cf.tables.into_iter().map(|t| (t.id, Arc::new(t))).collect(),
                     data: HashMap::new(),
+                    pending_deletes: Vec::new(),
+                    written_files: Vec::new(),
+                    committed: false,
                 })
             }
             None => {
@@ -106,6 +129,9 @@ impl Catalog {
                     dirs: HashMap::from([(root.id, root)]),
                     tables: HashMap::new(),
                     data: HashMap::new(),
+                    pending_deletes: Vec::new(),
+                    written_files: Vec::new(),
+                    committed: false,
                 };
                 cat.commit()?;
                 Ok(cat)
@@ -115,6 +141,53 @@ impl Catalog {
 
     pub fn store(&self) -> &Store {
         &self.store
+    }
+
+    // ---------------------------------------------------------------------------------------- atomicity
+    //
+    // Every operation runs between `checkpoint()` and `finish()` (see `runtime::with_catalog`): on success the
+    // deferred file deletions are applied; on failure the in-memory state is restored, catalog.json is rewritten if
+    // the operation had already written it, and the data files it wrote are removed. File deletions are therefore
+    // never done directly: use `defer_delete_*`.
+
+    pub fn checkpoint(&mut self) -> Checkpoint {
+        self.pending_deletes.clear();
+        self.written_files.clear();
+        self.committed = false;
+        Checkpoint { dirs: self.dirs.clone(), tables: self.tables.clone(), data: self.data.clone() }
+    }
+
+    pub fn finish(&mut self, checkpoint: Checkpoint, succeeded: bool) -> Result<()> {
+        if succeeded {
+            for d in std::mem::take(&mut self.pending_deletes) {
+                match d {
+                    PendingDelete::DataFile(f) => self.store.delete_table_data(&f),
+                    PendingDelete::Media(id) => self.store.delete_media(id),
+                }
+            }
+            self.written_files.clear();
+            return Ok(());
+        }
+        self.dirs = checkpoint.dirs;
+        self.tables = checkpoint.tables;
+        self.data = checkpoint.data;
+        self.pending_deletes.clear();
+        let written = std::mem::take(&mut self.written_files);
+        if self.committed {
+            self.commit()?;
+        }
+        for f in written {
+            self.store.delete_table_data(&f);
+        }
+        Ok(())
+    }
+
+    fn defer_delete_data_file(&mut self, file: String) {
+        self.pending_deletes.push(PendingDelete::DataFile(file));
+    }
+
+    fn defer_delete_media(&mut self, tbl_id: Uuid) {
+        self.pending_deletes.push(PendingDelete::Media(tbl_id));
     }
 
     /// Persists the metadata (the commit point of every operation).
@@ -128,7 +201,9 @@ impl Catalog {
             format_version: FORMAT_VERSION,
             dirs,
             tables,
-        })
+        })?;
+        self.committed = true;
+        Ok(())
     }
 
     // ---------------------------------------------------------------------------------------- lookups
@@ -240,20 +315,28 @@ impl Catalog {
     pub fn write_data(&mut self, tbl_id: Uuid, data: TableData) -> Result<()> {
         let version = self.table(tbl_id)?.current_version;
         let file = self.store.write_table_data(tbl_id, version, &data)?;
+        self.written_files.push(file.clone());
         let md = self.table_mut(tbl_id)?;
         let old = md.data_file.replace(file);
         self.data.insert(tbl_id, Arc::new(data));
-        self.commit()?;
         if let Some(old) = old {
-            self.store.delete_table_data(&old);
+            self.defer_delete_data_file(old);
         }
-        Ok(())
+        self.commit()
     }
 
-    /// Removes a table's record and data (no dependency checks; see `tables::drop_table`).
+    /// Removes a table's record; its files are deleted when the operation succeeds. No dependency checks (see
+    /// `tables::drop_table_by_id`).
     fn remove_table_record(&mut self, tbl_id: Uuid) -> Option<Arc<TableMd>> {
         self.data.remove(&tbl_id);
-        self.tables.remove(&tbl_id)
+        let md = self.tables.remove(&tbl_id);
+        if let Some(md) = &md {
+            if let Some(f) = &md.data_file {
+                self.defer_delete_data_file(f.clone());
+            }
+            self.defer_delete_media(tbl_id);
+        }
+        md
     }
 
     fn insert_dir(&mut self, parent_id: Uuid, name: &str) -> Uuid {
@@ -261,5 +344,39 @@ impl Catalog {
         let id = d.id;
         self.dirs.insert(id, d);
         id
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_store() -> Store {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join("test-tmp").join(Uuid::new_v4().to_string());
+        match Store::open(&dir, "test") {
+            Ok(s) => s,
+            Err(e) => panic!("cannot create test store: {e}"),
+        }
+    }
+
+    #[test]
+    fn rollback_restores_memory_and_disk() -> Result<()> {
+        let store = temp_store();
+        let mut cat = Catalog::load(store.clone())?;
+        let cp = cat.checkpoint();
+        cat.create_dir(&Path::parse("d1", false, false)?, IfExists::Error, false)?;
+        cat.finish(cp, true)?;
+
+        let cp = cat.checkpoint();
+        cat.create_dir(&Path::parse("d2", false, false)?, IfExists::Error, false)?;
+        cat.finish(cp, false)?;
+        assert!(cat.dir_at(&Path::parse("d1", false, false)?).is_some());
+        assert!(cat.dir_at(&Path::parse("d2", false, false)?).is_none());
+
+        let reloaded = Catalog::load(store.clone())?;
+        assert!(reloaded.dir_at(&Path::parse("d1", false, false)?).is_some());
+        assert!(reloaded.dir_at(&Path::parse("d2", false, false)?).is_none());
+        let _ = std::fs::remove_dir_all(store.home());
+        Ok(())
     }
 }
