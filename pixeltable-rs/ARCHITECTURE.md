@@ -33,9 +33,11 @@ src/
   expr/display.rs   str(expr) as upstream renders it
   expr/serde.rs     Expr <-> JSON, tagged Value <-> JSON
   expr/eval.rs      RowContext trait, eval(), SQL-like NULL semantics
-  functions/        builtin registry (mod.rs: Builtin, FuncRef, make_call) + one file per module (string.rs, math.rs,
-                    uuid.rs, image.rs (PIL), video.rs (PyAV metadata)); Python functions: signature.rs (binding
-                    calls like inspect.Signature.bind), udf.rs (UDF/template calls), iterator.rs (iterator calls)
+  functions/        builtin registry (mod.rs: Builtin, BuiltinFn, FuncRef, make_builtin_call, eval_call) + one file
+                    per module (string.rs, math.rs, timestamp.rs, date.rs, json.rs, uuid.rs, array.rs, image.rs (PIL),
+                    video.rs (PyAV metadata)); agg.rs (AggregateFunction/AggState, builtin aggregates); Python
+                    functions: signature.rs (binding calls like inspect.Signature.bind, builtin signature text),
+                    udf.rs (UDF/template calls), iterator.rs (iterator calls)
   media.rs          media cells: path/URL normalization, file cache, writing in-memory media, validation
   catalog/mod.rs    Catalog: dirs, tables (Arc<TableMd>), lazily loaded row data; commit(); lookups
   catalog/path.rs   Path parsing/validation/folding (upstream messages)
@@ -48,7 +50,9 @@ src/
   catalog/runtime.rs the process-wide Catalog behind a mutex; reload/reset hooks; reserved column names
   store/mod.rs      files under $PIXELTABLE_HOME, atomic writes
   store/rows.rs     TableData / StoredRow with version ranges, cell errors
-  exec/mod.rs       QuerySpec (select/where/order_by/limit, validation, JSON), QueryInput snapshot, execute(), count()
+  exec/mod.rs       QuerySpec (from-table + joins, select/where/group_by/order_by/limit/sample, validation, JSON)
+  exec/query.rs     QueryInput snapshot, execute(), count(): joins, aggregation, window functions, sampling
+  exec/sample.rs    the hash and seed source of sample()
   exec/scan.rs      PathInput (a table path captured for a scan), joined path rows, PathCtx, eval_into()
   exec/insert.rs    insert pipeline: InsertPlan -> build_rows -> commit (propagates to views)
   exec/propagate.rs ViewCompute (a view's rows from base path rows), ViewNode (live view tree), insert propagation
@@ -129,8 +133,12 @@ Python `_core.Expr` objects hold an `ExprRef`. Every operator calls a constructo
 the node type and raises upstream's construction-time errors; operands that are not expressions become literals
 (`bindings/expr.rs`, `operand()` / `from_object()`). Node kinds: ColumnRef {tbl_id, col_id, name, tbl_version},
 Literal, Arithmetic, StringOp, Comparison (a literal on the left of a column is moved right), Compound (& | ~),
-IsNull, InList/InExpr (isin), TypeCast, InlineList/Dict/Array (collapse to literals when constant), JsonPath and
-ArraySlice (IR only, evaluation not implemented), FunctionCall {func: FuncRef, args, kwargs}.
+IsNull, InList/InExpr (isin), TypeCast, InlineList/Dict/Array (collapse to literals when constant), JsonPath {base,
+path} (`t.c.f[0]`, `[*]`, slices; typed as upstream resolves paths through `Json[...]` schemas), RelativeRoot and
+JsonMapper (`map`/`filter`/`sort` over a JSON array: the target is built with a `RelativeRoot` node, `R` in `str()`,
+bound per element through `RowContext::relative_root()`), ArraySlice (numpy basic indexing, typed shape),
+ColumnProperty, Similarity, Variable (template parameters), FunctionCall {func: FuncRef, args, kwargs, group_by,
+order_by, is_method_call}.
 
 To add a node kind: variant in `ExprKind` + `children()`, constructor in `build.rs`, arms in `display.rs`,
 `serde.rs`, `eval.rs`, and the Python-facing method in `bindings/expr.rs`.
@@ -143,20 +151,35 @@ Computed columns store their value expression in `ColumnMd.value_expr`; views st
 Evaluation (`expr/eval.rs`) is row at a time against a `RowContext` (column values by `ColumnRef`). NULL
 propagates, comparisons with NULL are NULL, a NULL predicate filters the row out, division by zero is NULL, `//` is
 floor division. Integer arithmetic is checked: overflow raises Postgres' "bigint out of range" (as upstream's SQL
-does), never wraps or panics.
+does), never wraps or panics. Arithmetic that upstream would run in SQL (`exec::query::is_sql_expr()`, and not
+`RowContext::python_semantics()`) yields NULL for a zero divisor and truncates an integer `%`; computed columns use
+Python semantics (`ZeroDivisionError`, floored `%`). Aggregate and window function results are computed by the
+executor and handed to evaluation through `RowContext::precomputed()`.
 
 ## Functions
 
-Builtins: a `Builtin` (name, module, params, required count, `strict`, `return_type`, `eval`) in a static table per
-module, e.g. `functions/string.rs::FUNCTIONS`, registered in `functions/mod.rs::registry()`. `make_call()` binds
-keyword arguments by name, types the call, and makes the result nullable when a `strict` function gets a nullable
-argument (NULL arguments short-circuit to NULL). The Python side needs nothing more: the generated stub
-`upper = _fn(__name__, 'upper')` in `pixeltable/functions/string.py` resolves to a `BuiltinFunction` (which calls
-`_core.call_builtin`) as soon as the backend registers `pixeltable.functions.string.upper`, and `t.c.upper()` works
-through `Expr.__getattr__` -> `MethodRef` (the module is chosen by the value's type, `method_module()`).
+Builtins: a `Builtin` in a static table per module (e.g. `functions/string.rs::FUNCTIONS`): name, signature in
+upstream's notation (`"(self: String, width: Int, fillchar: String = ' ') -> String"`, parsed by
+`Signature::parse()`), kind (function, method `t.c.upper()`, property `t.c.year`), whether upstream evaluates it in
+SQL, an optional conditional return type (`ret`, from the bound argument types and literal values) and `eval(&Args)`.
+`make_builtin_call()` binds like `inspect.Signature.bind()` (upstream's INVALID_ARGUMENT message), checks argument
+types (TYPE_MISMATCH), and makes the result nullable when a nullable argument meets a non-nullable parameter; at
+evaluation a NULL for a non-nullable parameter short-circuits to NULL and defaults are filled in. `str()` renders
+method calls as `c.upper()` and aggregate clauses as `order_by=`/`group_by=`. The media builtins (image.rs,
+video.rs) are older positional `PosBuiltin` entries registered with a synthesized signature. The Python side needs
+nothing more: the generated stub `upper = _fn(__name__, 'upper')` resolves to a `BuiltinFunction` (which calls
+`_core.call_builtin`) once the backend registers `pixeltable.functions.string.upper`, and `t.c.upper()` works through
+`Expr.__getattr__` -> `MethodRef` (the module is chosen by the value's type, `method_module()`).
 
-To add a builtin: implement `return_type` and `eval`, add the `Builtin` entry, rebuild. Aggregates and window
-functions need a new trait (init/update/value) and a grouping stage in `exec` (not built yet).
+To add a builtin: add `Builtin::new(name, signature, eval)` (with `.method()`, `.property()`, `.sql()`, `.ret(f)`) to
+the module's table and rebuild; a new module also needs its table in `builtin_tables()`.
+
+Aggregates (`functions/agg.rs`): an `AggregateFunction` (signatures, init parameters, `requires_order_by`,
+`allows_std_agg`, `allows_window`, `create()` -> `AggState { update(), value() }`) referenced as `FuncRef::Agg`.
+`make_agg_call()` applies upstream's rules for `order_by`/`group_by` (a window call is an aggregate with
+`group_by`/`order_by`, or one that disallows plain aggregation). Builtins: `count`, `sum`, `min`, `max`, `mean`,
+`json.make_list`. A Python UDA plugs in by implementing `AggregateFunction` with `create()`/`update()`/`value()`
+calling the Aggregator class (and `resolve_uda()` for stored calls); the executor needs nothing else.
 
 ## Python functions (UDFs, templates, iterators)
 
@@ -294,11 +317,18 @@ call inside `with_catalog`), register it in `bindings/mod.rs`, and forward to it
 
 ## Queries
 
-`exec::QuerySpec` is the state of a `pxt.Query`; its `with_*` methods validate as upstream does. Execution:
-scan the table path (key order, see Table paths above) -> where clause -> stable sort (ASC nulls last, DESC nulls first)
--> offset/limit -> project. Unstored computed columns are evaluated on read. Results are a `ResultData` held in Rust
-(`_core.ResultSet`); values convert to Python objects on access. Not built yet: joins, group by/aggregates, window
-functions, distinct, sample, JSON paths, array slices.
+`exec::QuerySpec` is the state of a `pxt.Query`; its `with_*` methods validate as upstream does. Execution
+(`exec/query.rs`): `QueryInput::snapshot()` captures the table path of every from-table under the catalog lock; then,
+without the lock: scan each path (key order) and join (hash join on equality conjuncts, else nested loop; inner,
+left, full outer, cross) into `JRow`s (one slot per table of each path; None for the missing side of an outer join)
+-> where -> sample -> aggregate (groups by key, or by base row for `group_by(base_table)`; SQL semantics: one row for
+an ungrouped aggregation over no rows) -> window functions (rows sorted by the combined partition/order clauses,
+"Incompatible ordering requirements" otherwise) -> stable sort (ASC nulls last, DESC nulls first) -> offset/limit ->
+project. Unstored computed columns are evaluated on read. `count()` refuses what upstream cannot count in SQL
+(`is_sql_expr()`: non-SQL filters). Sampling ranks rows by a hash of (seed, rowid, pos), as upstream's
+`SqlSampleNode`. Results are a `ResultData` held in Rust (`_core.ResultSet`); values convert to Python objects on
+access. Window functions in computed columns are evaluated over all rows of the table
+(`eval_rows_with_windows()`).
 
 ## Data sources, compute(), indexes
 
