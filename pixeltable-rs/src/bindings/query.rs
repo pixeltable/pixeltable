@@ -109,15 +109,7 @@ impl PyQuerySpec {
     /// checking that the query can be used for `op_name` (upstream `_validate_mutable()`).
     fn mutation_target(&self, py: Python<'_>, op_name: &str) -> Result<(String, Option<i64>, Option<PyExpr>)> {
         let q = &self.q;
-        for (clause, present) in [
-            ("order_by", !q.order_by.is_empty()),
-            ("select", q.select.is_some()),
-            ("limit", q.limit.is_some() || q.offset.is_some()),
-        ] {
-            if present {
-                crate::bail!(UnsupportedOperation, "Cannot use `{op_name}` after `{clause}`.");
-            }
-        }
+        self.validate_mutable(op_name)?;
         let is_snapshot = with_catalog(py, |cat| {
             let md = cat.table(q.tbl_id)?;
             if op_name == "delete" && md.is_view() && !md.is_snapshot() {

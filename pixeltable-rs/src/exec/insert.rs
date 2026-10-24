@@ -173,7 +173,11 @@ impl InsertPlan {
             unstored: unstored_exprs(md)?,
             media: MediaTarget { tbl_id, dir: cat.store().media_dir(tbl_id), version },
             info: ElemInfo::of(md, None)?,
-            views: ViewNode::tree(cat, tbl_id)?,
+            views: {
+                let mut views = ViewNode::tree(cat, tbl_id)?;
+                ViewNode::set_rowid_offset(&mut views, md.next_rowid);
+                views
+            },
         })
     }
 
@@ -421,6 +425,14 @@ pub fn commit(cat: &mut Catalog, plan: &InsertPlan, built: BuiltRows) -> Result<
     ViewNode::check_unchanged(cat, plan.tbl_id, &plan.views)?;
     let version = if md.is_data_versioned { md.current_version + 1 } else { md.current_version };
     let rowid_offset = md.next_rowid;
+    if ViewNode::sampled_rowid_offset(&plan.views).is_some_and(|o| o != rowid_offset) {
+        // a sampled view's rows were selected by the rowids the rows were expected to get
+        crate::bail!(
+            ConcurrentModification,
+            "Table {} was modified while the insert was being prepared; retry the insert",
+            py_repr(&plan.tbl_name)
+        );
+    }
     let num_rows = built.rows.len() as i64;
     let rows: Vec<StoredRow> = built
         .rows

@@ -400,13 +400,28 @@ pub fn eval_call(fc: &FunctionCall, e: &Expr, ctx: &dyn crate::expr::eval::RowCo
 pub fn call_builtin(f: &BuiltinFn, args: Vec<Value>, kwargs: Vec<(String, Value)>) -> Result<Value> {
     match &f.imp {
         BuiltinImpl::Pos(b) => {
-            if !kwargs.is_empty() {
-                return Err(Error::internal("positional builtin calls are bound positionally"));
-            }
-            if b.strict && args.iter().any(Value::is_null) {
+            if b.strict && args.iter().chain(kwargs.iter().map(|(_, v)| v)).any(Value::is_null) {
                 return Ok(Value::Null);
             }
-            (b.eval)(&args)
+            if kwargs.is_empty() {
+                return (b.eval)(&args);
+            }
+            // positional up to the last given parameter; omitted optional ones are NULL
+            let names: Vec<String> = kwargs.iter().map(|(k, _)| k.clone()).collect();
+            let binding = f.sig.bind(args.len(), &names).map_err(|m| Error::internal(format!("binding failed at evaluation: {m}")))?;
+            let mut args = args;
+            let mut kwargs = kwargs;
+            let mut vals = Vec::with_capacity(f.sig.params.len());
+            for pi in 0..f.sig.params.len() {
+                vals.push(match binding.get(pi) {
+                    Some(BoundArg::Arg(i)) => std::mem::replace(&mut args[*i], Value::Null),
+                    Some(BoundArg::Kwarg(i)) => std::mem::replace(&mut kwargs[*i].1, Value::Null),
+                    _ => Value::Null,
+                });
+            }
+            let n = (0..f.sig.params.len()).rev().find(|pi| binding.get(*pi).is_some()).map_or(0, |pi| pi + 1);
+            vals.truncate(n);
+            (b.eval)(&vals)
         }
         BuiltinImpl::Sig(b) => match bind_values(&f.sig, args, kwargs)? {
             None => Ok(Value::Null),
@@ -527,25 +542,17 @@ pub fn make_builtin_call(
             (args, kwargs, ret)
         }
         BuiltinImpl::Pos(b) => {
-            // positional builtins take the bound arguments up to the first omitted optional parameter
+            // the return type sees the argument types positionally, up to the last given parameter (an omitted
+            // optional parameter in between is untyped)
             let bound = f.sig.bound_exprs(&binding, &args, &kwargs);
-            let n = bound.iter().take_while(|a| a.is_some()).count();
-            if let Some(pi) = bound[n..].iter().position(Option::is_some) {
-                crate::bail!(
-                    InvalidArgument,
-                    "{}() requires argument {} when {} is given",
-                    b.name,
-                    py_repr(b.params[n]),
-                    py_repr(b.params[n + pi])
-                );
-            }
-            let args: Vec<ExprRef> = bound.into_iter().flatten().collect();
-            let arg_types: Vec<ColumnType> = args.iter().map(|a| a.col_type.clone()).collect();
+            let n = bound.iter().rposition(Option::is_some).map_or(0, |i| i + 1);
+            let arg_types: Vec<ColumnType> =
+                bound[..n].iter().map(|a| a.as_ref().map_or_else(|| ColumnType::invalid(true), |e| e.col_type.clone())).collect();
             let mut ret = (b.return_type)(&arg_types)?;
-            if b.strict && arg_types.iter().any(|t| t.nullable) {
+            if b.strict && bound.iter().flatten().any(|e| e.col_type.nullable) {
                 ret = ret.with_nullable(true);
             }
-            (args, Vec::new(), ret)
+            (args, kwargs, ret)
         }
     };
     let mut fc = FunctionCall::new(FuncRef::Builtin(f), args, kwargs);

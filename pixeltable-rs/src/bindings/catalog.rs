@@ -541,7 +541,7 @@ pub fn create_view(
     if_exists: &str,
 ) -> Result<(String, String, bool)> {
     let path = &*path;
-    let (base_id, base_version, predicate, select) = if let Ok(spec) = base.getattr("_spec") {
+    let (base_id, base_version, predicate, select, sample) = if let Ok(spec) = base.getattr("_spec") {
         let spec = spec.cast::<PyQuerySpec>().map_err(|_| Error::internal("Query._spec is not a QuerySpec"))?;
         let q = spec.get().q.clone();
         for (clause, present) in [("order_by", !q.order_by.is_empty()), ("limit", q.limit.is_some() || q.offset.is_some())] {
@@ -549,10 +549,16 @@ pub fn create_view(
                 crate::bail!(UnsupportedOperation, "`{clause}` cannot be used in a view definition.");
             }
         }
-        (q.tbl_id, q.version, q.where_, q.select)
+        if q.sample.as_ref().is_some_and(|s| !is_snapshot && !s.is_repeatable()) {
+            crate::bail!(
+                UnsupportedOperation,
+                "A view that is not a snapshot can only be defined by fractional, unstratified sampling."
+            );
+        }
+        (q.tbl_id, q.version, q.where_, q.select, q.sample)
     } else if let Ok(tref) = base.getattr("_tbl_ref") {
         let (id, version): (String, Option<i64>) = tref.extract()?;
-        (parse_uuid(&id)?, version, None, None)
+        (parse_uuid(&id)?, version, None, None, None)
     } else {
         crate::bail!(TypeMismatch, "`base` must be an instance of `Table` or `Query`");
     };
@@ -576,6 +582,7 @@ pub fn create_view(
         base_id,
         base_version,
         predicate,
+        sample,
         select,
         additional_columns,
         is_snapshot,

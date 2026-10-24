@@ -235,6 +235,13 @@ impl RowContext for PathCtx<'_> {
     fn python_semantics(&self) -> bool {
         self.python
     }
+
+    fn row_key(&self, tbl_id: Uuid) -> Result<Option<(i64, Vec<i64>)>> {
+        let Some(i) = self.elems.iter().position(|e| e.tbl_id == tbl_id) else {
+            return Err(Error::internal(format!("table {tbl_id} is not in the table path")));
+        };
+        Ok(self.rows.get(i).map(|r| (r.rowid, r.pos.clone())))
+    }
 }
 
 /// Evaluates the computed columns `cols` (in order) into `row`, a row of table `infos[0]` whose base path rows are
