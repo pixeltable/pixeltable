@@ -1,0 +1,659 @@
+from pathlib import Path
+from typing import Any, Callable, Iterator, TypedDict
+
+import numpy as np
+import pandas as pd
+import PIL
+import pytest
+
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+from pixeltable.functions.video import frame_iterator, legacy_frame_iterator
+
+from .test_iterator import simple_iterator
+from .utils import (
+    DatabaseRoot,
+    assert_resultset_eq,
+    get_test_video_files,
+    pxt_raises,
+    reload_catalog,
+    validate_update_status,
+)
+
+
+class ConstantImgFrame(TypedDict):
+    frame_idx: int
+    pos_msec: float
+    pos_frame: float
+    frame: pxt.Image
+
+
+@pxt.iterator(unstored_cols=['frame'])
+class constant_img_iterator(pxt.PxtIterator):
+    """Component iterator that generates a fixed number of all-black 1280x720 images."""
+
+    def __init__(self, video: pxt.Video, *, num_frames: int = 10):
+        self.img = PIL.Image.new('RGB', (1280, 720))
+        self.next_frame_idx = 0
+        self.num_frames = num_frames
+        self.pos_msec = 0.0
+        self.pos_frame = 0.0
+
+    def __next__(self) -> ConstantImgFrame:
+        if self.next_frame_idx == self.num_frames:
+            raise StopIteration
+        result: ConstantImgFrame = {
+            'frame_idx': self.next_frame_idx,
+            'pos_msec': self.pos_msec,
+            'pos_frame': self.pos_frame,
+            'frame': self.img,
+        }
+        self.next_frame_idx += 1
+        return result
+
+    def close(self) -> None:
+        pass
+
+    def seek(self, pos: int, **kwargs: Any) -> None:
+        assert 0 <= pos < self.num_frames
+        self.next_frame_idx = pos
+
+
+class FloatRow(TypedDict):
+    f: float
+
+
+@pxt.iterator
+def error_iterator(n: int, error_idx: int) -> Iterator[FloatRow]:
+    for i in range(n):
+        if i == error_idx:
+            raise ValueError('Intentional error in iterator')
+        yield {'f': float(i)}
+
+
+class ScaledRow(TypedDict):
+    idx: int
+    scaled: int
+
+
+@pxt.iterator(unstored_cols=['scaled'])
+class scaled_iterator(pxt.PxtIterator):
+    """Emits 3 rows whose unstored scaled value derives from the base scalar n, so two different versions of
+    the same base table produce different output."""
+
+    def __init__(self, n: int):
+        self.n = n
+        self.i = 0
+
+    def __next__(self) -> ScaledRow:
+        if self.i >= 3:
+            raise StopIteration
+        row: ScaledRow = {'idx': self.i, 'scaled': self.n * 10 + self.i}
+        self.i += 1
+        return row
+
+    def close(self) -> None:
+        pass
+
+    def seek(self, pos: int, **kwargs: Any) -> None:
+        self.i = pos
+
+
+class MixedCaseRow(TypedDict):
+    MyOutput: int
+    Frame: int
+
+
+@pxt.iterator(unstored_cols=['Frame'])
+class mixed_case_iterator(pxt.PxtIterator):
+    """Declares mixed-case outputs."""
+
+    def __init__(self, n: int):
+        self.n = n
+        self.i = 0
+
+    def __next__(self) -> MixedCaseRow:
+        if self.i >= self.n:
+            raise StopIteration
+        row: MixedCaseRow = {'MyOutput': self.i * 2, 'Frame': self.i}
+        self.i += 1
+        return row
+
+    def close(self) -> None:
+        pass
+
+    def seek(self, pos: int, **kwargs: Any) -> None:
+        self.i = pos
+
+
+class PosHolder(TypedDict):
+    Pos: int
+
+
+class CollidingRow(TypedDict):
+    Foo: int
+    foo: int
+
+
+@pxt.iterator
+class colliding_iterator(pxt.PxtIterator):
+    """Declares two outputs that differ only in case; they name one view column, so the call is rejected."""
+
+    def __init__(self, n: int):
+        self.n = n
+
+    def __next__(self) -> CollidingRow:
+        raise StopIteration
+
+    def close(self) -> None:
+        pass
+
+
+class TestComponentView:
+    @pytest.mark.skip(reason='surfaces a bug (DuplicateAlias)')
+    def test_same_base_join(self, db_root: DatabaseRoot) -> None:
+        # Two distinct component views over the same base, one live and one snapshotted, joined with both unstored
+        # iterator columns selected: the base table appears at two versions in one plan. Per-view iterator-arg
+        # retargeting binds each view to its own base version, but join SQL generation currently gives the shared
+        # base store table the same alias in both branches.
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('join_base'), {'k': pxt.Int | None, 'n': pxt.Int | None})
+        validate_update_status(t.insert([{'k': 0, 'n': 5}]), expected_rows=1)
+        view_a = pxt.create_view(p('join_view_a'), t, iterator=scaled_iterator(t.n))
+        view_b = pxt.create_view(p('join_view_b'), t, iterator=scaled_iterator(t.n))
+        snap_b = pxt.create_snapshot(p('join_snap_b'), view_b)  # pins the base at n=5
+        validate_update_status(t.update({'n': 9}), expected_rows=1)  # diverge live base from the snapshot
+
+        res = (
+            view_a.join(snap_b, on=view_a.idx == snap_b.idx)
+            .select(live=view_a.scaled, pinned=snap_b.scaled)
+            .order_by(view_a.idx)
+            .collect()
+        )
+        assert res['live'] == [90, 91, 92]
+        assert res['pinned'] == [50, 51, 52]
+
+    def test_basic(self, db_root: DatabaseRoot) -> None:
+        # create video table
+        p = db_root.make_catalog_path
+        schema: dict[str, Any] = {'video': pxt.Video | None, 'angle': pxt.Int | None, 'other_angle': pxt.Int | None}
+        video_t = pxt.create_table(p('video_tbl'), schema)
+        video_filepaths = get_test_video_files()
+
+        # bad parameter type
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as excinfo:
+            _ = pxt.create_view(p('test_view'), video_t, iterator=frame_iterator(1, fps=1))
+        assert 'argument type Int does not match parameter type Video' in str(excinfo.value)
+
+        # create frame view
+        view_t = pxt.create_view(p('test_view'), video_t, iterator=legacy_frame_iterator(video_t.video, fps=1))
+        # computed column that references a column from the base
+        view_t.add_computed_column(angle2=view_t.angle + 1)
+        # computed column that references an unstored and a stored computed view column
+        view_t.add_computed_column(v1=view_t.frame.rotate(view_t.angle2), stored=True)
+        # computed column that references a stored computed column from the view
+        view_t.add_computed_column(v2=view_t.frame_idx - 1)
+        # computed column that references an unstored view column and a column from the base; the stored value
+        # cannot be materialized in SQL directly
+        view_t.add_computed_column(v3=view_t.frame.rotate(video_t.other_angle), stored=True)
+
+        # and load data
+        rows = [{'video': p, 'angle': 30, 'other_angle': -30} for p in video_filepaths]
+        status = video_t.insert(rows)
+        assert status.num_excs == 0
+        reload_catalog()
+        view_t = pxt.get_table(p('test_view'))
+        # pos and frame_idx are identical
+        res = view_t.select(view_t.pos, view_t.frame_idx).collect().to_pandas()
+        assert np.all(res['pos'] == res['frame_idx'])
+
+        # matching a media column against its own .fileurl in a filter only works when the value the query
+        # returns is the same one stored server-side; over the proxy .fileurl yields a fetchable daemon URL, not
+        # the daemon's stored file:// path, so this round-trip is exercised in local mode only
+        if db_root.id == 'local':
+            video_url = video_t.select(video_t.video.fileurl).collect()[0, 0]
+            result = (
+                view_t.where(view_t.video == video_url)
+                .select(view_t.frame_idx)
+                .order_by(view_t.frame_idx)
+                .collect()
+                .to_pandas()
+            )
+            assert len(result) > 0
+            assert np.all(result['frame_idx'] == pd.Series(range(len(result))))
+
+    def test_add_column(self, db_root: DatabaseRoot) -> None:
+        # create video table
+        p = db_root.make_catalog_path
+        video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video | None})
+        video_filepaths = get_test_video_files()
+        # create frame view
+        view_t = pxt.create_view(p('test_view'), video_t, iterator=frame_iterator(video_t.video, fps=1))
+
+        rows = [{'video': p} for p in video_filepaths]
+        validate_update_status(video_t.insert(rows))
+        # adding a non-computed column backfills it with nulls
+        validate_update_status(view_t.add_column(annotation=pxt.Json | None))
+        assert view_t.count() == view_t.where(view_t.annotation == None).count()
+        # adding more data via the base table sets the column values to null
+        validate_update_status(video_t.insert(rows))
+        assert view_t.count() == view_t.where(view_t.annotation == None).count()
+
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: annotation'):
+            view_t.add_column(annotation=pxt.Json)
+
+    def test_nondeterministic(self, db_root: DatabaseRoot) -> None:
+        """Test that a nondeterministic expr in a view column is recomputed for each row"""
+        p = db_root.make_catalog_path
+        video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video | None})
+        video_filepaths = get_test_video_files()
+        # Scenario 1: additional_columns
+        view_t = pxt.create_view(
+            p('test_view1'),
+            video_t,
+            iterator=frame_iterator(video_t.video, fps=1),
+            additional_columns={'id': pxtf.uuid.uuid4()},
+        )
+
+        rows = [{'video': p} for p in video_filepaths]
+        status = video_t.insert(rows)
+        assert status.num_excs == 0
+        assert status.num_rows > len(video_filepaths)
+        res = view_t.select(view_t.id).collect()
+        assert len(res) > 0 and len(set(res['id'])) == len(res)
+
+        # Scenario 2: add_computed_column()
+        view_t = pxt.create_view(p('test_view2'), video_t, iterator=frame_iterator(video_t.video, fps=1))
+        view_t.add_computed_column(id=pxtf.uuid.uuid4())
+        status = video_t.insert(rows)
+        assert status.num_excs == 0
+        assert status.num_rows > len(video_filepaths)
+        res = view_t.select(view_t.id).collect()
+        assert len(res) > 0 and len(set(res['id'])) == len(res)
+
+    def test_update(self, db_root: DatabaseRoot) -> None:
+        # create video table
+        p = db_root.make_catalog_path
+        video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video | None})
+        # create frame view with manually updated column
+        view_t = pxt.create_view(
+            p('test_view'),
+            video_t,
+            additional_columns={'annotation': pxt.Json | None},
+            iterator=frame_iterator(video_t.video, fps=1),
+        )
+
+        video_filepaths = get_test_video_files()
+        rows = [{'video': p} for p in video_filepaths]
+        status = video_t.insert(rows)
+        assert status.num_excs == 0
+        video_url = Path(video_filepaths[0]).as_uri()
+        validate_update_status(
+            view_t.update({'annotation': {'a': 1}}, where=view_t.video == video_url),
+            expected_rows=view_t.where(view_t.video == video_url).count(),
+        )
+        assert view_t.where(view_t.annotation != None).count() == view_t.where(view_t.video == video_url).count()
+
+        # batch update with _rowid works
+        validate_update_status(
+            view_t.batch_update(
+                [{'annotation': {'a': 1}, '_rowid': (1, 0)}, {'annotation': {'a': 1}, '_rowid': (1, 1)}]
+            ),
+            expected_rows=2,
+        )
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match='Malformed _rowid'):
+            # malformed _rowid
+            view_t.batch_update([{'annotation': {'a': 1}, '_rowid': (1,)}])
+
+        # a view of the component view has the same rowid columns as the component view
+        v = pxt.create_view(p('view_of_view'), view_t, additional_columns={'note': pxt.String | None})
+        validate_update_status(v.batch_update([{'note': 'x', '_rowid': (1, 0)}]), expected_rows=1)
+        assert v.where(v.note == 'x').count() == 1
+
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as excinfo:
+            _ = pxt.create_view(
+                p('bad_view'),
+                video_t,
+                additional_columns={'annotation': pxt.Json},
+                iterator=frame_iterator(video_t.video, fps=1),
+            )
+        assert 'must be nullable' in str(excinfo.value)
+
+    @pytest.mark.parametrize('has_column,has_filter', [(False, False), (True, False), (False, True), (True, True)])
+    def test_snapshot(self, has_column: bool, has_filter: bool, db_root: DatabaseRoot) -> None:
+        for reload_md in [False, True]:
+            reload_catalog()
+            self.run_snapshot_test(
+                db_root.make_catalog_path, has_column=has_column, has_filter=has_filter, reload_md=reload_md
+            )
+
+    def run_snapshot_test(self, p: Callable[[str], str], has_column: bool, has_filter: bool, reload_md: bool) -> None:
+        base_path = p('video_tbl')
+        view_path = p('test_view')
+        snap_path = p('test_snap')
+
+        # create video table
+        video_t = pxt.create_table(base_path, {'video': pxt.Video | None, 'margin': pxt.Int | None})
+        video_filepaths = get_test_video_files()
+        rows = [{'video': path, 'margin': i * 10} for i, path in enumerate(video_filepaths)]
+        status = video_t.insert(rows)
+        assert status.num_rows == len(rows)
+        assert status.num_excs == 0
+
+        # create frame view with a computed column
+        view_t = pxt.create_view(view_path, video_t, iterator=constant_img_iterator(video_t.video))
+        view_t.add_computed_column(
+            cropped=view_t.frame.crop([view_t.margin, view_t.margin, view_t.frame.width, view_t.frame.height]),
+            stored=True,
+        )
+        snap_col_expr = [view_t.cropped.width * view_t.cropped.height] if has_column else []
+        view_query = view_t.select(
+            view_t.margin,
+            view_t.frame.width,
+            view_t.frame.height,
+            view_t.cropped.width,
+            view_t.cropped.height,
+            *snap_col_expr,
+        ).order_by(view_t.video, view_t.pos)
+        if has_filter:
+            view_query = view_query.where(view_t.frame_idx < 10)
+        orig_resultset = view_query.collect()
+
+        # create snapshot of view
+        query: pxt.Table | pxt.Query = view_t.where(view_t.frame_idx < 10) if has_filter else view_t
+        schema = {'c1': view_t.cropped.width * view_t.cropped.height} if has_column else {}
+        snap_t = pxt.create_snapshot(snap_path, query, additional_columns=schema)
+        snap_cols = [snap_t.c1] if has_column else []
+        snap_query = snap_t.select(
+            snap_t.margin,
+            snap_t.frame.width,
+            snap_t.frame.height,
+            snap_t.cropped.width,
+            snap_t.cropped.height,
+            *snap_cols,
+        ).order_by(snap_t.video, snap_t.pos)
+        assert_resultset_eq(snap_query.collect(), orig_resultset)
+
+        if reload_md:
+            reload_catalog()
+            video_t = pxt.get_table(base_path)
+            snap_t = pxt.get_table(snap_path)
+            snap_cols = [snap_t.c1] if has_column else []
+            snap_query = snap_t.select(
+                snap_t.margin,
+                snap_t.frame.width,
+                snap_t.frame.height,
+                snap_t.cropped.width,
+                snap_t.cropped.height,
+                *snap_cols,
+            ).order_by(snap_t.video, snap_t.pos)
+
+        # snapshot is unaffected by base insert()
+        status = video_t.insert(rows)
+        assert status.num_excs == 0
+        assert_resultset_eq(snap_query.collect(), orig_resultset)
+
+        # snapshot is unaffected by base update()
+        status = video_t.update({'margin': video_t.margin + 1})
+        assert status.num_excs == 0
+        assert_resultset_eq(snap_query.collect(), orig_resultset)
+
+        # snapshot is unaffected by base delete()
+        status = video_t.delete()
+        assert status.num_excs == 0
+        assert_resultset_eq(snap_query.collect(), orig_resultset)
+
+        pxt.drop_table(snap_path)
+        pxt.drop_table(view_path)
+        pxt.drop_table(base_path)
+
+    def test_chained_views(self, db_root: DatabaseRoot) -> None:
+        """Component view followed by a standard view"""
+        # create video table
+        p = db_root.make_catalog_path
+        schema: dict[str, Any] = {'video': pxt.Video | None, 'int1': pxt.Int | None, 'int2': pxt.Int | None}
+        video_t = pxt.create_table(p('video_tbl'), schema)
+        video_filepaths = get_test_video_files()
+
+        # create first view
+        v1 = pxt.create_view(p('test_view'), video_t, iterator=constant_img_iterator(video_t.video))
+        # computed column that references stored base column
+        v1.add_computed_column(int3=v1.int1 + 1)
+        # stored computed column that references an unstored and a stored computed view column
+        v1.add_computed_column(img1=v1.frame.crop([v1.int3, v1.int3, v1.frame.width, v1.frame.height]), stored=True)
+        # computed column that references a stored computed view column
+        v1.add_computed_column(int4=v1.frame_idx + 1)
+        # unstored computed column that references an unstored and a stored computed view column
+        v1.add_computed_column(img2=v1.frame.crop([v1.int4, v1.int4, v1.frame.width, v1.frame.height]), stored=False)
+
+        # create second view
+        v2 = pxt.create_view(p('chained_view'), v1)
+        # computed column that references stored video_t column
+        v2.add_computed_column(int5=v2.int1 + 1)
+        v2.add_computed_column(int6=v2.int2 + 1)
+        # stored computed column that references a stored base column and a stored computed view column;
+        # indirectly references int1
+        v2.add_computed_column(img3=v2.img1.crop([v2.int5, v2.int5, v2.img1.width, v2.img1.height]), stored=True)
+        # stored computed column that references an unstored base column and a manually updated column from video_t;
+        # indirectly references int2
+        v2.add_computed_column(img4=v2.img2.crop([v2.int6, v2.int6, v2.img2.width, v2.img2.height]), stored=True)
+        # comuted column that indirectly references int1 and int2
+        v2.add_computed_column(int7=v2.img3.width + v2.img4.width)
+
+        def check_view() -> None:
+            assert_resultset_eq(
+                v1.select(v1.int3).order_by(v1.video, v1.pos).collect(),
+                v1.select(v1.int1 + 1).order_by(v1.video, v1.pos).collect(),
+            )
+            assert_resultset_eq(
+                v1.select(v1.int4).order_by(v1.video, v1.pos).collect(),
+                v1.select(v1.frame_idx + 1).order_by(v1.video, v1.pos).collect(),
+            )
+            assert_resultset_eq(
+                v1.select(v1.video, v1.img1.width, v1.img1.height).order_by(v1.video, v1.pos).collect(),
+                v1.select(v1.video, v1.frame.width - v1.int1 - 1, v1.frame.height - v1.int1 - 1)
+                .order_by(v1.video, v1.pos)
+                .collect(),
+            )
+            assert_resultset_eq(
+                v2.select(v2.int5).order_by(v2.video, v2.pos).collect(),
+                v2.select(v2.int1 + 1).order_by(v2.video, v2.pos).collect(),
+            )
+            assert_resultset_eq(
+                v2.select(v2.int6).order_by(v2.video, v2.pos).collect(),
+                v2.select(v2.int2 + 1).order_by(v2.video, v2.pos).collect(),
+            )
+            assert_resultset_eq(
+                v2.select(v2.video, v2.img3.width, v2.img3.height).order_by(v2.video, v2.pos).collect(),
+                v2.select(v2.video, v2.frame.width - v2.int1 * 2 - 2, v2.frame.height - v2.int1 * 2 - 2)
+                .order_by(v2.video, v2.pos)
+                .collect(),
+            )
+            assert_resultset_eq(
+                v2.select(v2.video, v2.img4.width, v2.img4.height).order_by(v2.video, v2.pos).collect(),
+                v2.select(
+                    v2.video, v2.frame.width - v2.frame_idx - v2.int2 - 2, v2.frame.height - v2.frame_idx - v2.int2 - 2
+                )
+                .order_by(v2.video, v2.pos)
+                .collect(),
+            )
+            assert_resultset_eq(
+                v2.select(v2.int7).order_by(v2.video, v2.pos).collect(),
+                v2.select(v2.img3.width + v2.img4.width).order_by(v2.video, v2.pos).collect(),
+            )
+            assert_resultset_eq(
+                v2.select(v2.int7).order_by(v2.video, v2.pos).collect(),
+                v2.select(v2.frame.width - v2.int1 * 2 - 2 + v2.frame.width - v2.frame_idx - v2.int2 - 2)
+                .order_by(v2.video, v2.pos)
+                .collect(),
+            )
+
+        # load data
+        rows = [{'video': p, 'int1': i, 'int2': len(video_filepaths) - i} for i, p in enumerate(video_filepaths)]
+        status = video_t.insert(rows)
+        assert status.num_rows == video_t.count() + v1.count() + v2.count()
+        check_view()
+
+        # update int1: propagates to int3, img1, int5, img3, int7
+        # TODO: how to test that img4 doesn't get recomputed as part of the computation of int7?
+        # need to collect more runtime stats (eg, called functions)
+        # the where clause matches the video column against a source-file URL, which only identifies the stored
+        # row when the value isn't reshipped server-side; over the proxy the daemon stores its own copy, so the
+        # update-propagation scenario runs in local mode only
+        if db_root.id == 'local':
+            video_url = Path(video_filepaths[0]).as_uri()
+            status = video_t.update({'int1': video_t.int1 + 1}, where=video_t.video == video_url)
+            assert (
+                status.num_rows == 1 + v1.where(v1.video == video_url).count() + v2.where(v2.video == video_url).count()
+            )
+            assert sorted(str.split('.')[1] for str in status.updated_cols) == [
+                'img1',
+                'img3',
+                'int1',
+                'int3',
+                'int5',
+                'int7',
+            ]
+            check_view()
+
+            # update int2: propagates to img4, int6, int7
+            status = video_t.update({'int2': video_t.int2 + 1}, where=video_t.video == video_url)
+            assert status.num_rows == 1 + v2.where(v2.video == video_url).count()
+            assert sorted(str.split('.')[1] for str in status.updated_cols) == ['img4', 'int2', 'int6', 'int7']
+            check_view()
+
+    def test_create_view_error(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'i': pxt.Int | None})
+        status = t.insert({'i': i} for i in range(100))
+        assert status.num_excs == 0
+
+        # view creation fails with an exception
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match='aborted'):
+            _ = pxt.create_view(p('view'), t, iterator=error_iterator(t.i, 50))
+
+        # the view metadata got cleaned up
+        assert p('view') not in pxt.list_tables(p(''))
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
+            _ = pxt.get_table(p('view'))
+
+        # the second attempt succeeds
+        _ = pxt.create_view(p('view'), t, iterator=error_iterator(t.i, 100))
+
+    def test_update_iterator_param(self, db_root: DatabaseRoot) -> None:
+        """Updating a base table column used as an iterator parameter re-evaluates the iterator."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
+        v = pxt.create_view(p('view'), t, iterator=simple_iterator(t.n, str_text='t'))
+        t.insert([{'n': 5}])
+
+        rows = v.collect()
+        assert len(rows) == 5, f'expected 5 rows, got {len(rows)}'
+        t.update({'n': 6})
+
+        rows = v.order_by(v.pos).collect()
+        assert len(rows) == 6, f'expected 6 rows after update, got {len(rows)}'
+        for row in rows:
+            assert row['n'] == 6
+        scol_values = [row['scol'] for row in rows]
+        assert scol_values == ['t 0', 't 1', 't 2', 't 3', 't 4', 't 5']
+
+    def test_update_changes_view_membership(self, db_root: DatabaseRoot) -> None:
+        """A base update that changes whether a row satisfies a component view's filter updates its component rows."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
+        t.insert([{'n': 2}, {'n': 3}])
+        v = pxt.create_view(p('view'), t.where(t.n > 2), iterator=simple_iterator(t.n))
+        # only n=3 satisfies the filter, and it yields 3 component rows
+        assert len(v.collect()) == 3
+
+        # n=2 becomes n=4, which satisfies the filter and yields 4 component rows
+        t.update({'n': 4}, where=t.n == 2)
+        assert len(v.collect()) == 7
+
+        # n=3 becomes n=1, which no longer satisfies the filter
+        t.update({'n': 1}, where=t.n == 3)
+        assert len(v.collect()) == 4
+
+    def test_update_iterator_param_with_dependent_view(self, db_root: DatabaseRoot) -> None:
+        """A view on an iterator view also updates when the base iterator param changes."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
+        v = pxt.create_view(p('iter_view'), t, iterator=simple_iterator(t.n, str_text='t'))
+        # non-iterator child view: additional column references the parent iterator's scol output
+        v2 = pxt.create_view(p('child_view'), v, additional_columns={'derived': v.scol + '_suffix'})
+        # nested iterator child view: a second iterator runs on each row of v.
+        # The inner iterator's outputs (icol/scol/acol/pos) have the same names as v's and shadow them, so v3's
+        # icol/scol/pos are the inner iterator's; derived identifies the row of v that each one came from.
+        v3 = pxt.create_view(
+            p('child_iterator_view'),
+            v,
+            iterator=simple_iterator(v.icol, str_text='s'),
+            additional_columns={'derived': v.scol + '_suffix'},
+        )
+
+        t.insert([{'n': 3}])
+
+        rows = v2.order_by(v2.pos).collect()
+        assert len(rows) == 3
+        assert [r['derived'] for r in rows] == ['t 0_suffix', 't 1_suffix', 't 2_suffix']
+
+        # v3 nested iterator: for v.icol in (0, 1, 2), yields 0 + 1 + 2 = 3 rows.
+        v3_rows = v3.order_by(v3.derived, v3.pos).collect()
+        assert len(v3_rows) == 3
+        assert [r['icol'] for r in v3_rows] == [0, 0, 1]
+        assert [r['scol'] for r in v3_rows] == ['s 0', 's 0', 's 1']
+        assert [r['derived'] for r in v3_rows] == ['t 1_suffix', 't 2_suffix', 't 2_suffix']
+
+        t.update({'n': 2})
+
+        rows = v2.order_by(v2.pos).collect()
+        assert len(rows) == 2
+        assert [r['n'] for r in rows] == [2, 2]
+        assert [r['scol'] for r in rows] == ['t 0', 't 1']
+        assert [r['derived'] for r in rows] == ['t 0_suffix', 't 1_suffix']
+
+        # After update n=2: v has icol in (0, 1); nested iterator yields 0 + 1 = 1 row.
+        v3_rows = v3.order_by(v3.derived, v3.pos).collect()
+        assert len(v3_rows) == 1
+        assert [r['icol'] for r in v3_rows] == [0]
+        assert [r['scol'] for r in v3_rows] == ['s 0']
+        assert [r['derived'] for r in v3_rows] == ['t 1_suffix']
+
+    def test_case_insensitive_iterator_outputs(self, db_root: DatabaseRoot) -> None:
+        """Iterator output names become view columns and fold."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('base'), {'n': pxt.Int})
+        t.insert([{'n': 3}])
+        v = pxt.create_view(p('v'), t, iterator=mixed_case_iterator(n=t.n))
+
+        assert 'myoutput' in v.columns()
+        assert 'frame' in v.columns()
+        assert sorted(v.select(v.MyOutput).collect()['myoutput']) == [0, 2, 4]
+        assert sorted(v.select(v.FRAME).collect()['frame']) == [0, 1, 2]
+
+        # a declared view column that folds onto an iterator output is rejected
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_SCHEMA, match=r'Column.+are produced by the iterator and also declared by the view'
+        ):
+            pxt.create_view(
+                p('bad'), t, iterator=mixed_case_iterator(n=t.n), additional_columns={'MYOUTPUT': pxt.Int | None}
+            )
+
+        # and so is an iterator whose own outputs collide once folded
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match=r"'Foo', 'foo' were specified"):
+            pxt.create_view(p('bad'), t, iterator=colliding_iterator(n=t.n))
+
+        # pos is reserved in every casing
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='is reserved'):
+
+            @pxt.iterator
+            class pos_iterator(pxt.PxtIterator):
+                def __init__(self, n: int):
+                    self.n = n
+
+                def __next__(self) -> PosHolder:
+                    raise StopIteration
+
+                def close(self) -> None:
+                    pass
