@@ -81,6 +81,10 @@ class Table(SchemaObject):
         cols = ', '.join(f'{name}: {col_type!r}' for name, col_type in self._get_schema().items())
         return f'{kind[0].upper()}{kind[1:]} {self._path()!r} ({cols})'
 
+    def _get_version(self) -> int:
+        """The version this handle reads: its pinned version, else the table's current version."""
+        return self._version if self._version is not None else _core.tbl_version(str(self._id))
+
     def _get_schema(self) -> dict[str, Any]:
         return _core.tbl_schema(str(self._id), self._version)
 
@@ -325,7 +329,8 @@ class View(Table):
 
 
 def _make_table(tbl_id: str, kind: str, version: int | None = None) -> Table:
-    cls = InsertableTable if kind == 'table' else View
+    # a handle pinned to a version is a (anonymous) snapshot, as upstream
+    cls = InsertableTable if kind == 'table' and version is None else View
     return cls(UUID(tbl_id), version)
 
 

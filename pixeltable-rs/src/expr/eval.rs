@@ -43,7 +43,8 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
         }
         ExprKind::Compound { op, operands } => match op {
             LogicalOp::Not => {
-                let v = eval(&operands[0], ctx)?;
+                let operand = operands.first().ok_or_else(|| Error::internal("~ without an operand"))?;
+                let v = eval(operand, ctx)?;
                 Ok(match v {
                     Value::Bool(b) => Value::Bool(!b),
                     _ => Value::Null,

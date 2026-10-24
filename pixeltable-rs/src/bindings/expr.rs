@@ -193,6 +193,14 @@ impl PyExpr {
         Ok(wrap(crate::expr::serde::from_json(&j)?))
     }
 
+    fn __copy__(slf: Bound<'_, Self>) -> Bound<'_, Self> {
+        slf
+    }
+
+    fn __deepcopy__<'py>(slf: Bound<'py, Self>, _memo: &Bound<'py, PyAny>) -> Bound<'py, Self> {
+        slf
+    }
+
     fn __bool__(&self) -> Result<bool> {
         Err(Error::Type(format!(
             "Pixeltable expressions cannot be used in conjunction with Python boolean operators (and/or/not)\n{}",
