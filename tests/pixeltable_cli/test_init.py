@@ -71,14 +71,14 @@ class TestInit:
         """A project root at or above the home directory, or at the Pixeltable home, is refused."""
         home = tmp_path / 'me'
         home.mkdir()
-        pxt_home = tmp_path / 'pxt'
-        pxt_home.mkdir()
+        pixeltable_home = tmp_path / 'pxt'
+        pixeltable_home.mkdir()
         # Path.home() reads HOME on POSIX and USERPROFILE on Windows
-        env = {'HOME': str(home), 'USERPROFILE': str(home), 'PIXELTABLE_HOME': str(pxt_home)}
+        env = {'HOME': str(home), 'USERPROFILE': str(home), 'PIXELTABLE_HOME': str(pixeltable_home)}
         for cwd, problem in (
             (home, 'the project would include every file in your home directory'),
             (tmp_path, 'the project would include every file in your home directory'),
-            (pxt_home, 'it is the Pixeltable home'),
+            (pixeltable_home, 'it is the Pixeltable home'),
         ):
             r = cli('init', cwd=cwd, env_overrides=env, check=False)
             assert r.returncode == 3

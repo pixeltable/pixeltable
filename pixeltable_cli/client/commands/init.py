@@ -4,7 +4,7 @@ import json
 import pathlib
 import sys
 
-from pixeltable_cli.utils import _resolve_pixeltable_home, project_root_refusal
+from pixeltable_cli.utils import _resolve_pixeltable_home, project_root_error
 
 from ..parser import Parser
 from ..project_config import find_project_config, write_project_config
@@ -57,17 +57,17 @@ def run(argv: list[str]) -> None:
         print(f'pxt init: {e}', file=sys.stderr)
         sys.exit(EXIT_ERROR)
     project_root = (root if existing is None else existing.parent).resolve()
-    refusal = project_root_refusal(project_root, pathlib.Path(_resolve_pixeltable_home()))
-    if refusal is not None:
+    error = project_root_error(project_root, pathlib.Path(_resolve_pixeltable_home()))
+    if error is not None:
         if existing is None:
             print(
-                f'pxt init: {root} cannot be a project root: {refusal}.\n'
+                f'pxt init: {root} cannot be a project root: {error}.\n'
                 'Make a directory for the project, and run pxt init there.',
                 file=sys.stderr,
             )
         else:
             print(
-                f'pxt init: {existing} makes {existing.parent} a project root, but {refusal}.\n'
+                f'pxt init: {existing} makes {existing.parent} a project root, but {error}.\n'
                 f'Remove the project configuration from {existing}, then run pxt init in a directory made for '
                 'the project.',
                 file=sys.stderr,

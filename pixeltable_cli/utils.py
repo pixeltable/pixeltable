@@ -213,11 +213,11 @@ def find_project_root(start: Path) -> Path | None:
     return None
 
 
-def project_root_refusal(root: Path, pxt_home: Path) -> str | None:
-    """Return why root cannot be a project root, or None if it can. root and pxt_home must be resolved."""
+def project_root_error(root: Path, pixeltable_home: Path) -> str | None:
+    """Return why root cannot be a project root, or None if it can. root and pixeltable_home must be resolved."""
     if Path.home().resolve().is_relative_to(root):
         return 'the project would include every file in your home directory'
-    if root == pxt_home:
+    if root == pixeltable_home:
         return 'it is the Pixeltable home, which stores the local database'
     return None
 

@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+import stat
 import sys
 import sysconfig
 import tarfile
@@ -29,7 +30,7 @@ import pixeltable
 from pixeltable import exceptions as excs
 from pixeltable.config import PROJECT_CONFIG_FILE, PYPROJECT_FILE, Config, ConfigSections, DatabaseConfig
 from pixeltable.env import Env
-from pixeltable_cli.utils import project_root_refusal
+from pixeltable_cli.utils import project_root_error
 
 _logger = logging.getLogger('pixeltable')
 
@@ -52,7 +53,7 @@ def _resolve_patterns(project_dir: Path, patterns: list[str]) -> set[Path]:
 def _gitignore_spec(dir_path: Path) -> PathSpec | None:
     """The PathSpec for dir_path's own .gitignore, or None if it has none."""
     gitignore = dir_path / '.gitignore'
-    # os.path.isfile() returns False in a dir_path without search permission, where Path.is_file() raises
+    # os.path.isfile() returns False in a dir_path without search permission; Path.is_file() raises before 3.14
     if not os.path.isfile(gitignore):
         return None
     try:
@@ -81,7 +82,7 @@ def _is_gitignored(path: Path, is_dir: bool, specs: list[tuple[Path, PathSpec]])
 
 def _is_venv(dir_path: Path) -> bool:
     """Whether dir_path is a Python virtual environment."""
-    # os.path returns False for an unreadable dir_path, where Path.is_file() can raise PermissionError
+    # os.path returns False for an unreadable dir_path; Path.is_file() raises PermissionError before 3.14
     return os.path.isfile(dir_path / 'pyvenv.cfg') or os.path.isdir(dir_path / 'conda-meta')
 
 
@@ -107,8 +108,14 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
 
     def visit(dir_path: Path, specs: list[tuple[Path, PathSpec]]) -> None:
         try:
-            # is_dir() stats the entry, which needs search permission on dir_path
-            entries = [(entry, entry.is_dir() and not entry.is_symlink()) for entry in dir_path.iterdir()]
+            entries: list[tuple[Path, bool]] = []
+            for entry in dir_path.iterdir():
+                try:
+                    # lstat() raises in a dir_path without search permission; Path.is_dir() returns False on 3.14
+                    is_dir = stat.S_ISDIR(entry.lstat().st_mode)
+                except FileNotFoundError:
+                    continue  # removed since dir_path was listed
+                entries.append((entry, is_dir))
         except FileNotFoundError:
             return
         except OSError as e:
@@ -145,12 +152,12 @@ def _archive_files(project_root: Path, config: DatabaseConfig | None) -> list[Pa
 
     Raises if project_root is the user's home directory, a directory above it, or the Pixeltable home.
     """
-    pxt_home = Config.get().home.resolve()
-    refusal = project_root_refusal(project_root, pxt_home)
-    if refusal is not None:
+    pixeltable_home = Config.get().home.resolve()
+    error = project_root_error(project_root, pixeltable_home)
+    if error is not None:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            f'{project_root} cannot be a project root: {refusal}; remove its {PROJECT_CONFIG_FILE} (or the '
+            f'{project_root} cannot be a project root: {error}; remove its {PROJECT_CONFIG_FILE} (or the '
             f'[tool.pixeltable] table of its {PYPROJECT_FILE}), then run pxt init in a directory made for the project',
         )
     exclude = config.exclude if config is not None else None
@@ -180,9 +187,9 @@ def _archive_files(project_root: Path, config: DatabaseConfig | None) -> list[Pa
     files |= {project_root / name for name in IMAGE_INPUT_FILES if (project_root / name).is_file()}
     files |= set(_installed_from_project(project_root))
     files.discard(project_root / PROJECT_CONFIG_FILE)  # its settings are in the fingerprint's config
-    if pxt_home.is_relative_to(project_root):
+    if pixeltable_home.is_relative_to(project_root):
         # the Pixeltable home stores the local database and credentials, not project files
-        files = {f for f in files if not f.is_relative_to(pxt_home)}
+        files = {f for f in files if not f.is_relative_to(pixeltable_home)}
     return sorted(files)
 
 
@@ -223,13 +230,17 @@ def member_hash(content_hash: str, *, symlink: bool) -> str:
 
 
 def _path_hashes(root: Path, paths: Iterable[Path]) -> dict[str, str]:
+    """Hash each of paths as _path_hash() does, keyed by its path relative to root.
+
+    A path removed since it was listed is left out; one that cannot be read raises.
+    """
     result: dict[str, str] = {}
     for path in paths:
         relpath = path.relative_to(root).as_posix()
         try:
             result[relpath] = _path_hash(path, relpath)
         except FileNotFoundError:
-            continue  # removed since it was listed
+            continue
         except OSError as e:
             raise _unreadable_error(path, e) from e
     return result
