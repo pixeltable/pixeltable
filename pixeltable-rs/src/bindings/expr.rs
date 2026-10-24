@@ -16,11 +16,14 @@ use crate::value::py as vpy;
 #[pyclass(name = "Expr", module = "pixeltable", frozen)]
 pub struct PyExpr {
     pub e: ExprRef,
+    /// for a column reference obtained from a table: that table (upstream `ColumnVersionMd.tbl_id`), which is a view
+    /// of the column's table for `view.base_column`
+    pub path_tbl_id: Option<uuid::Uuid>,
 }
 
 impl PyExpr {
     pub fn new(e: ExprRef) -> Self {
-        PyExpr { e }
+        PyExpr { e, path_tbl_id: None }
     }
 }
 
@@ -212,6 +215,25 @@ impl PyExpr {
         let mut h = DefaultHasher::new();
         crate::expr::serde::to_json(&self.e).map(|j| j.to_string()).unwrap_or_default().hash(&mut h);
         h.finish()
+    }
+
+    /// Upstream `Expr.id`: equal for equal expressions.
+    #[getter]
+    fn id(&self) -> u64 {
+        self.__hash__()
+    }
+
+    /// Upstream `Expr.serialize()`: the JSON of `as_dict()`.
+    fn serialize(&self) -> Result<String> {
+        Ok(crate::expr::serde::to_json(&self.e)?.to_string())
+    }
+
+    /// Upstream `Expr.deserialize()`
+    #[staticmethod]
+    fn deserialize(s: &str) -> Result<PyExpr> {
+        let j: serde_json::Value = crate::value::parse_json_bounded(s.as_bytes(), crate::store::MAX_CATALOG_DEPTH)
+            .map_err(|e| Error::internal(format!("malformed serialized expression: {e}")))?;
+        wrap(crate::expr::serde::from_json(&j)?)
     }
 
     fn as_dict<'py>(&self, py: Python<'py>) -> Result<Bound<'py, PyAny>> {
@@ -520,11 +542,14 @@ impl PyExpr {
     #[pyo3(signature = (*, cascade=true, errors_only=false))]
     fn recompute<'py>(slf: &Bound<'py, Self>, cascade: bool, errors_only: bool) -> Result<Bound<'py, PyAny>> {
         let py = slf.py();
-        let e = slf.borrow().e.clone();
+        let (e, path_tbl_id) = (slf.get().e.clone(), slf.get().path_tbl_id);
         let Some(c) = e.as_column_ref() else {
             return Err(Error::Attribute(format!("Unknown method (of type {}): recompute", e.col_type.repr())));
         };
         let tbl_id = c.tbl_id;
+        if path_tbl_id.is_some_and(|p| p != tbl_id) {
+            crate::bail!(UnsupportedOperation, "Cannot recompute column of a base.");
+        }
         let is_snapshot = c.tbl_version.is_some()
             || crate::catalog::runtime::with_catalog(py, |cat| Ok(cat.table(tbl_id)?.is_snapshot()))?;
         if is_snapshot {

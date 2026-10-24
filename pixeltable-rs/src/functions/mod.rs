@@ -266,6 +266,7 @@ fn builtin_tables() -> Vec<(&'static str, &'static [Builtin])> {
         (uuid::MODULE, uuid::FUNCTIONS),
         (array::MODULE, array::FUNCTIONS),
         (btree::MODULE, btree::FUNCTIONS),
+        (image::MODULE, image::FUNCTIONS),
     ]
 }
 
@@ -283,10 +284,10 @@ fn registry() -> &'static HashMap<String, &'static BuiltinFn> {
                 add(BuiltinFn { module, name: b.name, kind: b.kind, sql: b.sql, sig, imp: BuiltinImpl::Sig(b) });
             }
         }
-        for table in [image::FUNCTIONS, video::VIDEO_FUNCTIONS, video::AUDIO_FUNCTIONS] {
+        for table in [video::VIDEO_FUNCTIONS, video::AUDIO_FUNCTIONS] {
             for b in table {
                 // every function of the media modules is a method of its first argument's type
-                let kind = if b.module == image::MODULE && image::PROPERTIES.contains(&b.name) { Kind::Property } else { Kind::Method };
+                let kind = Kind::Method;
                 add(BuiltinFn { module: b.module, name: b.name, kind, sql: false, sig: b.signature(), imp: BuiltinImpl::Pos(b) });
             }
         }

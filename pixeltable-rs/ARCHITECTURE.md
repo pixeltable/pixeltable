@@ -167,8 +167,9 @@ SQL, an optional conditional return type (`ret`, from the bound argument types a
 `make_builtin_call()` binds like `inspect.Signature.bind()` (upstream's INVALID_ARGUMENT message), checks argument
 types (TYPE_MISMATCH), and makes the result nullable when a nullable argument meets a non-nullable parameter; at
 evaluation a NULL for a non-nullable parameter short-circuits to NULL and defaults are filled in. `str()` renders
-method calls as `c.upper()` and aggregate clauses as `order_by=`/`group_by=`. The media builtins (image.rs,
-video.rs) are older positional `PosBuiltin` entries registered with a synthesized signature. The Python side needs
+method calls as `c.upper()` and aggregate clauses as `order_by=`/`group_by=`. The image builtins (image.rs)
+use upstream's signatures and conditional return types (`convert`, `crop`, `getchannel`, `resize`, ...); video.rs
+holds older positional `PosBuiltin` entries registered with a synthesized signature. The Python side needs
 nothing more: the generated stub `upper = _fn(__name__, 'upper')` resolves to a `BuiltinFunction` (which calls
 `_core.call_builtin`) once the backend registers `pixeltable.functions.string.upper`, and `t.c.upper()` works through
 `Expr.__getattr__` -> `MethodRef` (the module is chosen by the value's type, `method_module()`).

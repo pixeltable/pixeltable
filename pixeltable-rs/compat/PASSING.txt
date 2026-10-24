@@ -108,6 +108,7 @@ tests/test_exprs.py::TestExprs::test_null_args
 tests/test_exprs.py::TestExprs::test_pow
 tests/test_exprs.py::TestExprs::test_props
 tests/test_exprs.py::TestExprs::test_select_list
+tests/test_exprs.py::TestExprs::test_similarity
 tests/test_exprs.py::TestExprs::test_string_operations
 tests/test_exprs.py::TestExprs::test_udas
 tests/test_exprs.py::test_gc_bug_leaked_slot
@@ -275,6 +276,7 @@ tests/test_table.py::TestTable::test_bulk_json_collect
 tests/test_table.py::TestTable::test_bulk_scalar_collect
 tests/test_table.py::TestTable::test_cascading_update[data_versioned]
 tests/test_table.py::TestTable::test_cascading_update[operational]
+tests/test_table.py::TestTable::test_case_insensitive_column_name_resolution
 tests/test_table.py::TestTable::test_case_insensitive_columns
 tests/test_table.py::TestTable::test_column_comment[no_reload_catalog]
 tests/test_table.py::TestTable::test_column_comment[reload_catalog]
@@ -294,6 +296,8 @@ tests/test_table.py::TestTable::test_computed_col_apply
 tests/test_table.py::TestTable::test_computed_col_exceptions[data_versioned]
 tests/test_table.py::TestTable::test_computed_col_exceptions[operational]
 tests/test_table.py::TestTable::test_computed_col_with_interrupts
+tests/test_table.py::TestTable::test_computed_cols[data_versioned]
+tests/test_table.py::TestTable::test_computed_cols[operational]
 tests/test_table.py::TestTable::test_computed_column_types
 tests/test_table.py::TestTable::test_computed_img_cols
 tests/test_table.py::TestTable::test_computed_window_fn[data_versioned]
@@ -339,6 +343,7 @@ tests/test_table.py::TestTable::test_pydantic_media
 tests/test_table.py::TestTable::test_pydantic_serializer_reads_table
 tests/test_table.py::TestTable::test_query[data_versioned]
 tests/test_table.py::TestTable::test_query[operational]
+tests/test_table.py::TestTable::test_recompute_column
 tests/test_table.py::TestTable::test_rename_column[data_versioned]
 tests/test_table.py::TestTable::test_rename_column[operational]
 tests/test_table.py::TestTable::test_revert

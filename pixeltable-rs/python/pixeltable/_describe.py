@@ -59,11 +59,30 @@ def to_string(d: dict[str, Any]) -> str:
     return '\n\n'.join(b if isinstance(b, str) else _render_df(b, seps) for b, seps in _blocks(d))
 
 
+def _styled(block: Any, separators: list[int] | None) -> Any:
+    """The block as a pandas `Styler` (pandas renders it to HTML through jinja2), styled as upstream does."""
+    if isinstance(block, str):
+        return (
+            pd.DataFrame([block])
+            .style.set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left', 'font-weight': 'bold'})
+            .hide(axis='index')
+            .hide(axis='columns')
+        )
+    styler = block.style.set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left'}).set_table_styles(
+        [{'selector': 'th', 'props': [('text-align', 'left'), ('border-bottom', '2px solid #666')]}]
+    )
+    if separators:
+        seps = set(separators)
+
+        def borders(df: pd.DataFrame) -> pd.DataFrame:
+            styles = pd.DataFrame('', index=df.index, columns=df.columns)
+            for i in seps:
+                styles.iloc[i, :] = 'border-bottom: 1px solid #bbb'
+            return styles
+
+        styler = styler.apply(borders, axis=None)
+    return styler.hide(axis='index')
+
+
 def to_html(d: dict[str, Any]) -> str:
-    html = []
-    for b, _ in _blocks(d):
-        if isinstance(b, str):
-            html.append(pd.DataFrame([b]).style.hide(axis='index').hide(axis='columns').to_html())
-        else:
-            html.append(b.style.hide(axis='index').to_html())
-    return '\n'.join(html)
+    return '\n'.join(_styled(b, seps).to_html() for b, seps in _blocks(d))
