@@ -1030,7 +1030,6 @@ def capture_console_output(match: str | None = None) -> Iterator[StringIO]:
 
 
 try:
-
     # Mock UDF for testing LLM tool invocations
     @pxt.udf
     def stock_price(ticker: str) -> float:

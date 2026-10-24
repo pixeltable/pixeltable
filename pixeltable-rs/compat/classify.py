@@ -324,9 +324,7 @@ def main() -> int:
                 print(f'  {nodeid}: {"; ".join(sorted(reasons))}')
         totals.update(tests=len(results), public=n_public, internal=n_internal, deselected=n_deselected)
         print(f'tests/{name + ".py":28} {len(results):6} {n_public:7} {n_internal:9} {n_deselected:11}')
-    print(
-        f'{"TOTAL":34} {totals["tests"]:6} {totals["public"]:7} {totals["internal"]:9} {totals["deselected"]:11}'
-    )
+    print(f'{"TOTAL":34} {totals["tests"]:6} {totals["public"]:7} {totals["internal"]:9} {totals["deselected"]:11}')
     print('\nmost common reasons for exclusion (internal):')
     for reason, n in reason_counts.most_common(15):
         print(f'  {n:5}  {reason}')

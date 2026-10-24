@@ -12,9 +12,10 @@ Two mechanisms, both limited to names that the copied test files import (compute
    module that pixeltable-rs provides is never shadowed. Only when no finder can locate an allow-listed
    `pixeltable.*` module does it create a stub module whose every public attribute is a placeholder.
 2. Missing names in modules that do exist. For `from pixeltable.x import Name` at the top of a test file, where
-   `pixeltable.x` exists but lacks `Name` (and Name is not a module in the upstream source tree), `install_attribute_fallbacks()` gives the real module a module-level
-   `__getattr__` (PEP 562) that answers with a placeholder for exactly those allow-listed names. Real attributes
-   are untouched, and any other missing name still raises AttributeError.
+   `pixeltable.x` exists but lacks `Name` (and Name is not a module in the upstream source tree),
+   `install_attribute_fallbacks()` gives the real module a module-level `__getattr__` (PEP 562) that answers with a
+   placeholder for exactly those allow-listed names. Real attributes are untouched, and any other missing name still
+   raises AttributeError.
 
 A placeholder is a class (so it works as a base class, in annotations, in `X | None` and as `X[...]`) whose
 attributes are further placeholders. Calling it, instantiating it, or using it in isinstance()/issubclass() raises
@@ -108,19 +109,46 @@ def _unavailable_operator(name: str) -> Any:
 # Arithmetic, ordering, containment and conversions on a placeholder (`'a' * BtreeIndex.MAX_STRING_LEN`) raise the
 # stub error. Left alone: `|` (for `X | None` annotations), `==`/hash (identity, so placeholders work as dict keys),
 # and truth tests.
-for _op in 'add mul sub truediv floordiv mod pow matmul lshift rshift and xor divmod'.split():
+for _op in (
+    'add',
+    'mul',
+    'sub',
+    'truediv',
+    'floordiv',
+    'mod',
+    'pow',
+    'matmul',
+    'lshift',
+    'rshift',
+    'and',
+    'xor',
+    'divmod',
+):
     setattr(_PlaceholderMeta, f'__{_op}__', _unavailable_operator(f'__{_op}__'))
     setattr(_PlaceholderMeta, f'__r{_op}__', _unavailable_operator(f'__r{_op}__'))
-for _op in ('neg', 'pos', 'abs', 'invert', 'index', 'int', 'float', 'complex', 'len', 'lt', 'le', 'gt', 'ge', 'contains'):
+for _op in (
+    'neg',
+    'pos',
+    'abs',
+    'invert',
+    'index',
+    'int',
+    'float',
+    'complex',
+    'len',
+    'lt',
+    'le',
+    'gt',
+    'ge',
+    'contains',
+):
     setattr(_PlaceholderMeta, f'__{_op}__', _unavailable_operator(f'__{_op}__'))
 
 
 def make_placeholder(qualname: str) -> Any:
     name = qualname.rsplit('.', 1)[-1]
     module = qualname.rsplit('.', 1)[0] if '.' in qualname else qualname
-    return _PlaceholderMeta(
-        name, (), {'_pxt_qualname': qualname, '__module__': module, '__qualname__': name}
-    )
+    return _PlaceholderMeta(name, (), {'_pxt_qualname': qualname, '__module__': module, '__qualname__': name})
 
 
 class StubModule(types.ModuleType):
@@ -266,7 +294,7 @@ def _add_fallback(module: types.ModuleType, names: set[str]) -> None:
     _stubbed_attrs[module.__name__] = sorted(allowed)
     module_name = module.__name__
 
-    def __getattr__(name: str) -> Any:
+    def module_getattr(name: str) -> Any:
         if previous is not None:
             try:
                 return previous(name)
@@ -277,8 +305,7 @@ def _add_fallback(module: types.ModuleType, names: set[str]) -> None:
             return make_placeholder(f'{module_name}.{name}')
         raise AttributeError(f'module {module_name!r} has no attribute {name!r}')
 
-    __getattr__.__pxt_compat_fallback__ = True  # type: ignore[attr-defined]
-    module.__getattr__ = __getattr__  # type: ignore[method-assign]
+    module.__getattr__ = module_getattr  # type: ignore[method-assign]
 
 
 def report() -> dict[str, Any]:

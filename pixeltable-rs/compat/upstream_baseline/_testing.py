@@ -73,8 +73,8 @@ def validate_store() -> None:
 
 def _wrap_query_from_dict() -> None:
     """Upstream requires Query.from_dict() to run in a transaction; its own ReloadTester wraps the call in
-    catalog.retry_loop(). The harness's ReloadTester calls the public pxt.Query.from_dict() directly, which pixeltable-rs
-    must support, so for upstream the call is wrapped here when it is not already inside a transaction."""
+    catalog.retry_loop(). The harness's ReloadTester calls the public pxt.Query.from_dict() directly, which
+    pixeltable-rs must support, so for upstream the call is wrapped here when it is not already inside a transaction."""
     from pixeltable.catalog import retry_loop
 
     original = pxt.Query.from_dict.__func__  # type: ignore[attr-defined]
