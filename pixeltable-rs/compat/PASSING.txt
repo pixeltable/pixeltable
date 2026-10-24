@@ -64,6 +64,8 @@ tests/test_function.py::TestFunction::test_sync_udf_with_resource_pool
 tests/test_function.py::TestFunction::test_udf_docstring
 tests/test_function.py::TestFunction::test_udf_in_global_namespace
 tests/test_function.py::TestFunction::test_using_storable
+tests/test_iterator.py::TestIterator::test_create_view_schema_errors
+tests/test_iterator.py::TestIterator::test_iterator_errors
 tests/test_pixeltable.py::TestPixeltable::test_version
 tests/test_primary_key_index.py::TestPrimaryKeyIndex::test_batch_with_duplicate_fails_atomically[data_versioned]
 tests/test_primary_key_index.py::TestPrimaryKeyIndex::test_batch_with_duplicate_fails_atomically[operational]
