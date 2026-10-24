@@ -187,6 +187,39 @@ class TestPrimaryKeyIndex:
         assert sorted(t.select(t.v).collect()['v']) == [2, 3, 4, 20]
         assert t.where((t.k == 'p') & (t.n == 1)).select(t.v).collect()['v'] == [20]
 
+    def test_indexed_column_lookups_agree_with_scans(self) -> None:
+        t = pxt.create_table('t', {'id': pxt.Int, 'k': pxt.String, 'n': pxt.Int | None})
+        t.add_btree_index('k')
+        t.add_btree_index('n')
+        t.insert({'id': i, 'k': f'key{i % 300}', 'n': i % 7 if i % 11 else None} for i in range(3000))
+        v = pxt.create_view('v', t.where(t.id % 2 == 0), additional_columns={'m': t.n + 1})
+        v.add_btree_index('m')
+        v1 = t.get_metadata()['version']
+        t.update({'k': 'changed'}, where=t.id < 20)
+        t.delete(where=t.id >= 2990)
+
+        def check(tbl: Any, col: str, value: Any) -> None:
+            expected = sorted(r['id'] for r in tbl.select(tbl.id, x=tbl[col]).collect() if r['x'] == value)
+            got = sorted(tbl.where(tbl[col] == value).select(tbl.id).collect()['id'])
+            assert got == expected, (col, value)
+
+        for value in ['key5', 'key299', 'changed', 'nope']:
+            check(t, 'k', value)
+            check(v, 'k', value)
+        for value in [0, 3, 6]:
+            check(t, 'n', value)
+        for value in [1, 4]:
+            check(v, 'm', value)
+        old = pxt.get_table(f't:{v1}')
+        check(old, 'k', 'key5')
+        assert old.where(old.k == 'changed').count() == 0
+        assert sorted(t.where(t.k.isin(['key1', 'key2'])).select(t.id).collect()['id']) == sorted(
+            i for i in range(20, 2990) if i % 300 in (1, 2)
+        )
+        reload_catalog()
+        t = pxt.get_table('t')
+        check(t, 'k', 'key7')
+
     def test_operational_table(self) -> None:
         t = pxt.create_table('o', {'id': pxt.Int, 'v': pxt.String}, primary_key='id', _is_data_versioned=False)
         t.insert({'id': i, 'v': str(i)} for i in range(50))

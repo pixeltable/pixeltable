@@ -357,20 +357,24 @@ without serde_json's 128-level limit but with the limit its writer enforced (`va
 Row data (`store/table_data.rs`): a `TableData` is a list of `Arc`ed immutable `Segment`s plus the current `v_max` of
 their rows (one copy-on-write array per segment), so clones are cheap and the catalog, its checkpoint and query
 snapshots share segments. Mutations (`append`, `retire`, `retire_by_prefix`, `revert`, `set_live_cells`,
-`update_all_rows`) touch only the rows they change: `append` adds an unwritten segment, a `v_max` change of a written
-segment's row is recorded as a pending patch, a cell change rewrites the segment holding the row. `flush()` calls
+`update_all_rows`) touch only the rows they change: `append` adds unwritten segments, a `v_max` change of a written
+segment's row is recorded as a pending patch, a cell change rewrites the segment holding the row. Segments hold at most
+`MAX_SEGMENT_ROWS` (65536) rows, so the copy-on-write of a segment's `v_max` array stays small. `flush()` calls
 `prepare_write()` (merges per the compaction policy, attaches the pending patches to the last segment) and writes the
-unwritten segments. Compaction: every segment after the last large one (`MAX_MERGE_WEIGHT` rows+patches) must be
-heavier than all later ones together, else the trailing ones merge (O(log n) segments, each row rewritten O(log n)
-times); a large segment that is mostly dead rows, or mostly patched, is rewritten alone. Merged segments drop dead rows (`v_max = DEAD`: inserts undone by `revert()`, rows
+unwritten segments. Compaction: every segment after the last full one (`MAX_SEGMENT_ROWS` rows+patches) must be
+heavier than all later ones together, else the trailing ones merge (O(log n) small segments, each row rewritten
+O(log n) times); a large segment that is mostly dead rows, or mostly patched, is rewritten alone. Merged segments drop dead rows (`v_max = DEAD`: inserts undone by `revert()`, rows
 deleted from operational tables) and carry the patches of the merged ones that target earlier segments. Reads:
 `visible_at(v)` skips segments that cannot hold a row visible at `v` (all inserted after `v`, or all retired before
 it); `row_at(key, v)` binary-searches each segment; `live_rows_by_prefix()` finds the view rows of base rows;
-`count_at(v)`. The primary-key index (`find_live_by_pks()`, `pk_candidates()`) maps a hash of a row's (truncated, for
-data-versioned tables) key values to rowids of any version; it is built on first use, extended as it sees new
-segments, and shared by all clones (it only grows; lookups verify the rows they find). It serves the insert uniqueness
-check, `batch_update()` by key, and filters that fix the key with `==`/`isin()` on literals
-(`scan::PathInput::rows_where()`, used by queries without joins, `update()` and `delete()`).
+`count_at(v)`. Key indexes (`KeyIndex`) map a hash of some columns' values in a row (the primary key, truncated for
+data-versioned tables as upstream's index does; or a column with a B-tree index) to the rowids of all row versions
+that hold them; they are built on first use, extended as they see new segments, shared by all clones (lookups verify
+the rows they find, so extra entries are harmless) and rebuilt once most entries come from merged-away segments. The
+primary-key index (`find_live_by_pks()`, `pk_candidates()`) serves the insert uniqueness check and `batch_update()` by
+key; `scan::PathInput::rows_where()` (queries without joins, `update()`, `delete()`) serves filters that fix the
+primary key, or compare an indexed column (`eq_candidates()`), with `==`/`isin()` on literals of the column's type,
+unless that finds more than an eighth of the rows.
 
 Several processes may share a store. Every `with_catalog` call holds an exclusive OS file lock on `catalog.lock`
 (`Store::lock()`, taken after the in-process mutex, detached from the interpreter while waiting) and compares the stamp
@@ -456,8 +460,8 @@ Computed columns are evaluated with Python semantics (`RowContext::python_semant
 `ZeroDivisionError`), query expressions with SQL semantics (NULL). `UpdateStatus.cols_with_excs` names columns
 `<table>.<column>` (`<table>.<column>:<index>` for index values).
 
-Indexes (`catalog/indexes.rs`, `TableMd.indexes`): nothing reads B-tree indexes (only the primary-key index of the
-store, above, avoids scans);
+Indexes (`catalog/indexes.rs`, `TableMd.indexes`): equality filters on a column with a B-tree index use a key index of
+the store (above) instead of a scan;
 `has_default_idxs` adds one to every eligible column (`push_column()`, `create_table()`; for a view, its own
 columns, `add_default_view_indexes()`). An index can have a value
 column: a hidden stored computed column (`IndexMd::val_col_id()`, not listed in any schema version, named

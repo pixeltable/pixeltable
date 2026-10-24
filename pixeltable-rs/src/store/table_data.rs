@@ -12,8 +12,8 @@
 //! the pending patches to the last segment; the store writes every segment that is not in a file yet; `mark_written()`
 //! records that. Reading (`from_segments()`) applies the patches of every segment in order.
 //!
-//! Lookups by key binary-search each segment (a key has at most one visible row per version); the primary-key
-//! index (`PkIndex`) maps primary-key values to rowids.
+//! Lookups by key binary-search each segment (a key has at most one visible row per version); key indexes
+//! (`KeyIndex`) map the values of the primary key, or of a column with a B-tree index, to rowids.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::Hasher;
@@ -29,9 +29,11 @@ use crate::value::Value;
 /// A version at which exactly the live rows (`v_max == LIVE`) are visible.
 const NOW: i64 = LIVE - 1;
 
-/// Segments with at least this many rows (or patches) are not merged with others; they are only rewritten on their
-/// own (see `TableData::plan_merge()`), which bounds the cost of a single commit.
-const MAX_MERGE_WEIGHT: usize = 1 << 16;
+/// The most rows a segment holds (larger appends and merges produce several), so that the copy of a segment's `v_max`
+/// array that a change to it makes stays small. Segments of at least this many rows (or rows and patches) are not
+/// merged with others; they are only rewritten on their own (see `TableData::plan_merge()`), which bounds the cost of
+/// a single commit.
+const MAX_SEGMENT_ROWS: usize = 1 << 16;
 /// A segment of at least this many rows is rewritten when half of it is dead, or a quarter of it is patched by later
 /// segments.
 const MIN_REWRITE_ROWS: usize = 1024;
@@ -152,8 +154,8 @@ pub struct TableData {
     segs: Vec<Seg>,
     /// `v_max` changes of rows of written segments made since the data was last written
     patches: Vec<Patch>,
-    /// the primary-key index, shared by all clones (see `PkIndex`)
-    pk: Arc<Mutex<Option<PkIndex>>>,
+    /// the key indexes (primary key, indexed columns), built on first use and shared by all clones (see `KeyIndex`)
+    indexes: Arc<Mutex<Vec<KeyIndex>>>,
 }
 
 impl std::fmt::Debug for TableData {
@@ -188,12 +190,12 @@ impl TableData {
             }
         }
         let segs = segs.into_iter().zip(vmaxes).map(|(s, v)| Seg::new(s, Arc::new(v), true)).collect();
-        TableData { segs, patches: Vec::new(), pk: Default::default() }
+        TableData { segs, patches: Vec::new(), indexes: Default::default() }
     }
 
     /// This data followed by the segments `more` (that another process wrote after it), with their patches applied.
     pub fn extended(&self, more: Vec<(Segment, Vec<i64>)>) -> TableData {
-        let mut out = TableData { segs: self.segs.clone(), patches: Vec::new(), pk: self.pk.clone() };
+        let mut out = TableData { segs: self.segs.clone(), patches: Vec::new(), indexes: self.indexes.clone() };
         let first_new = out.segs.len();
         for (s, v) in more {
             out.segs.push(Seg::new(Arc::new(s), Arc::new(v), true));
@@ -270,18 +272,19 @@ impl TableData {
     }
 
     /// The next merge the compaction policy asks for, as a range of segment positions. Segments of at least
-    /// `MAX_MERGE_WEIGHT` rows and patches are not merged with others; among the segments after the last of them, the
-    /// policy keeps every segment heavier than all later ones together (so there are O(log rows) of them, and a row
-    /// is rewritten O(log rows) times), merging the trailing segments from the first one that is not. Besides, a
-    /// large segment that is mostly dead rows, or mostly patched by later segments, is rewritten alone. (Retired rows
-    /// stay: older versions read them; scans of other versions skip them by their version ranges without reading
-    /// them.) Every merge removes a segment or the condition that called for it, so `prepare_write()` terminates.
+    /// `MAX_SEGMENT_ROWS` rows and patches ("full" ones) are not merged with others; among the segments after the last
+    /// of them, the policy keeps every segment heavier than all later ones together (so there are O(log rows) of them,
+    /// and a row is rewritten O(log rows) times), merging the trailing segments from the first one that is not.
+    /// Besides, a large segment that is mostly dead rows, or mostly patched by later segments, is rewritten alone.
+    /// (Retired rows stay: older versions read them; scans of other versions skip them by their version ranges without
+    /// reading them.) Every merge removes a segment, adds a full one, or removes the condition that called for it, so
+    /// `prepare_write()` terminates.
     fn plan_merge(&self) -> Option<std::ops::RangeInclusive<usize>> {
         let n = self.segs.len();
         if n == 0 {
             return None;
         }
-        let start = self.segs.iter().rposition(|s| s.weight() >= MAX_MERGE_WEIGHT).map_or(0, |p| p + 1);
+        let start = self.segs.iter().rposition(|s| s.weight() >= MAX_SEGMENT_ROWS).map_or(0, |p| p + 1);
         let mut later = 0;
         let mut first_violation = None;
         for j in (start..n).rev() {
@@ -314,9 +317,10 @@ impl TableData {
         None
     }
 
-    /// Replaces the segments in `range` by one holding their rows that are not dead, with their current `v_max` (none
-    /// if nothing is left). It carries the patches of the old ones that target earlier segments, with the targets'
-    /// current `v_max` (which is what a later patch of the same row, if any, also records).
+    /// Replaces the segments in `range` by new ones holding their rows that are not dead, in key order, with their
+    /// current `v_max` (at most `MAX_SEGMENT_ROWS` rows each; none if nothing is left). The last one carries the patches
+    /// of the old ones that target earlier segments, with the targets' current `v_max` (which is what a later patch of
+    /// the same row, if any, also records).
     fn merge(&mut self, range: std::ops::RangeInclusive<usize>) {
         let (start, end) = (*range.start(), *range.end());
         let members: Vec<Seg> = self.segs[range.clone()].to_vec();
@@ -344,19 +348,22 @@ impl TableData {
             }
         }
         rows.sort_by(|a, b| a.2.key().cmp(&b.2.key()).then(a.0.cmp(&b.0)));
-        let mut vmin = Vec::with_capacity(rows.len());
-        let mut vmax = Vec::with_capacity(rows.len());
-        let mut out = Vec::with_capacity(rows.len());
-        for (a, b, r) in rows {
-            vmin.push(a);
-            vmax.push(b);
-            out.push(r);
+        let mut new_segs = Vec::new();
+        let mut rows = rows.into_iter().peekable();
+        while rows.peek().is_some() || (new_segs.is_empty() && !carried.is_empty()) {
+            let mut vmin = Vec::new();
+            let mut vmax = Vec::new();
+            let mut out = Vec::new();
+            for (a, b, r) in rows.by_ref().take(MAX_SEGMENT_ROWS) {
+                vmin.push(a);
+                vmax.push(b);
+                out.push(r);
+            }
+            let patches = if rows.peek().is_none() { std::mem::take(&mut carried) } else { Vec::new() };
+            let seg = Segment { id: new_segment_id(), rows: out, vmin, patches };
+            new_segs.push(Seg::new(Arc::new(seg), Arc::new(vmax), false));
         }
-        let new_seg = (!out.is_empty() || !carried.is_empty()).then(|| {
-            let seg = Segment { id: new_segment_id(), rows: out, vmin, patches: carried };
-            Seg::new(Arc::new(seg), Arc::new(vmax), false)
-        });
-        self.segs.splice(start..=end, new_seg);
+        self.segs.splice(start..=end, new_segs);
     }
 
     // ------------------------------------------------------------------------------------------- reading
@@ -553,15 +560,19 @@ impl TableData {
         keys
     }
 
-    /// Adds rows that become visible at `version`.
+    /// Adds rows that become visible at `version` (as segments of at most `MAX_SEGMENT_ROWS` rows).
     pub fn append(&mut self, mut rows: Vec<StoredRow>, version: i64) {
-        if rows.is_empty() {
-            return;
-        }
         rows.sort_by(|a, b| a.key().cmp(&b.key()));
-        let n = rows.len();
-        let seg = Segment { id: new_segment_id(), rows, vmin: vec![version; n], patches: Vec::new() };
-        self.segs.push(Seg::new(Arc::new(seg), Arc::new(vec![LIVE; n]), false));
+        let mut rows = rows.into_iter();
+        loop {
+            let chunk: Vec<StoredRow> = rows.by_ref().take(MAX_SEGMENT_ROWS).collect();
+            if chunk.is_empty() {
+                break;
+            }
+            let n = chunk.len();
+            let seg = Segment { id: new_segment_id(), rows: chunk, vmin: vec![version; n], patches: Vec::new() };
+            self.segs.push(Seg::new(Arc::new(seg), Arc::new(vec![LIVE; n]), false));
+        }
     }
 
     /// Undoes the changes made at `version`: removes the rows added at it and makes the rows retired at it live
@@ -686,45 +697,100 @@ impl TableData {
         self.pk_candidates_many(pk_cols, truncate, std::slice::from_ref(&values)).pop().unwrap_or_default()
     }
 
-    fn pk_candidates_many<V: AsRef<[Value]>>(&self, pk_cols: &[ColId], truncate: bool, keys: &[V]) -> Vec<Vec<i64>> {
-        use rayon::prelude::*;
-        let mut guard = self.pk.lock();
-        let idx = match guard.as_mut() {
-            Some(idx) if idx.cols == pk_cols && idx.truncate == truncate => idx,
-            _ => guard.insert(PkIndex { cols: pk_cols.to_vec(), truncate, ..Default::default() }),
-        };
-        for s in &self.segs {
-            if !idx.covered.contains(&s.seg.id) {
-                let cols = &idx.cols;
-                let hashes: Vec<u64> = if s.len() >= 4096 {
-                    s.seg.rows.par_iter().map(|r| pk_hash(cols.iter().map(|c| r.cell(*c)), truncate)).collect()
-                } else {
-                    s.seg.rows.iter().map(|r| pk_hash(cols.iter().map(|c| r.cell(*c)), truncate)).collect()
-                };
-                idx.first.reserve(hashes.len());
-                for (h, r) in hashes.into_iter().zip(&s.seg.rows) {
-                    idx.add(h, r.rowid);
-                }
-                idx.covered.insert(s.seg.id);
+    /// The rowids of the rows (of any version) in which column `col_id` may hold one of `values` (a superset), by the
+    /// column's key index; sorted.
+    pub fn eq_candidates(&self, col_id: ColId, values: &[Value]) -> Vec<i64> {
+        let keys: Vec<&[Value]> = values.iter().map(std::slice::from_ref).collect();
+        let mut out: Vec<i64> = self.pk_candidates_many(&[col_id], false, &keys).into_iter().flatten().collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    fn pk_candidates_many<V: AsRef<[Value]>>(&self, cols: &[ColId], truncate: bool, keys: &[V]) -> Vec<Vec<i64>> {
+        let mut guard = self.indexes.lock();
+        let i = match guard.iter().position(|x| x.cols == cols && x.truncate == truncate) {
+            Some(i) => i,
+            None => {
+                guard.push(KeyIndex { cols: cols.to_vec(), truncate, ..Default::default() });
+                guard.len() - 1
             }
-        }
+        };
+        let idx = &mut guard[i];
+        idx.cover(&self.segs);
         keys.iter().map(|values| idx.get(pk_hash(values.as_ref().iter(), truncate))).collect()
     }
 }
 
-/// Maps the primary-key values of the rows of a table (of every version) to their rowids, by a hash of the values
-/// (truncated as the index of a data-versioned table truncates strings). It only grows: the rows of a segment are
-/// added when a lookup first sees the segment, and entries of rows that are gone are harmless (lookups check the
-/// rows they find), so all clones of a `TableData` share one index.
+/// Maps the values of some columns (the primary key, or an indexed column) in the rows of a table, of every version,
+/// to their rowids, by a hash of the values (truncated as the primary-key index of a data-versioned table truncates
+/// strings). The rows of a segment are added when a lookup first sees the segment. Lookups check the rows they find,
+/// so entries that lead nowhere are harmless, and rowids stay valid across merges (which keep every row version that
+/// is visible at some version): all clones of a `TableData` share the index, and it is rebuilt from the segments
+/// of the clone at hand once most of its entries come from segments that clone no longer has.
 #[derive(Default)]
-struct PkIndex {
+struct KeyIndex {
     cols: Vec<ColId>,
     truncate: bool,
-    /// ids of the segments whose rows are in the index
-    covered: HashSet<u64>,
+    /// the segments whose rows are in the index, with their number of rows
+    covered: HashMap<u64, usize>,
     /// keyed by `pk_hash()`, which is already well mixed
     first: HashMap<u64, i64, std::hash::BuildHasherDefault<IdentityHasher>>,
     more: HashMap<u64, Vec<i64>, std::hash::BuildHasherDefault<IdentityHasher>>,
+}
+
+impl KeyIndex {
+    /// Adds the rows of the segments in `segs` that the index does not cover yet (rebuilding it if most of its
+    /// entries come from segments not in `segs`).
+    fn cover(&mut self, segs: &[Seg]) {
+        use rayon::prelude::*;
+        let current: HashSet<u64> = segs.iter().map(|s| s.seg.id).collect();
+        let stale: usize = self.covered.iter().filter(|(id, _)| !current.contains(id)).map(|(_, n)| n).sum();
+        let total: usize = self.covered.values().sum();
+        if stale > 1024 && stale * 2 > total {
+            self.covered.clear();
+            self.first.clear();
+            self.more.clear();
+        }
+        for s in segs {
+            if self.covered.contains_key(&s.seg.id) {
+                continue;
+            }
+            let (cols, truncate) = (&self.cols, self.truncate);
+            let hashes: Vec<u64> = if s.len() >= 4096 {
+                s.seg.rows.par_iter().map(|r| pk_hash(cols.iter().map(|c| r.cell(*c)), truncate)).collect()
+            } else {
+                s.seg.rows.iter().map(|r| pk_hash(cols.iter().map(|c| r.cell(*c)), truncate)).collect()
+            };
+            self.first.reserve(hashes.len());
+            for (h, r) in hashes.into_iter().zip(&s.seg.rows) {
+                self.add(h, r.rowid);
+            }
+            self.covered.insert(s.seg.id, s.len());
+        }
+    }
+
+    fn add(&mut self, h: u64, rowid: i64) {
+        match self.first.get(&h) {
+            None => {
+                self.first.insert(h, rowid);
+            }
+            Some(&r) if r == rowid => {}
+            // (a rowid may repeat here; `get()` removes duplicates)
+            Some(_) => self.more.entry(h).or_default().push(rowid),
+        }
+    }
+
+    /// The rowids with hash `h`, without duplicates.
+    fn get(&self, h: u64) -> Vec<i64> {
+        let mut out: Vec<i64> = self.first.get(&h).copied().into_iter().collect();
+        if let Some(more) = self.more.get(&h) {
+            out.extend(more.iter().copied());
+            out.sort_unstable();
+            out.dedup();
+        }
+        out
+    }
 }
 
 /// The hasher of maps keyed by a hash.
@@ -742,31 +808,6 @@ impl Hasher for IdentityHasher {
     }
     fn write_u64(&mut self, v: u64) {
         self.0 = v;
-    }
-}
-
-impl PkIndex {
-    fn add(&mut self, h: u64, rowid: i64) {
-        match self.first.get(&h) {
-            None => {
-                self.first.insert(h, rowid);
-            }
-            Some(&r) if r == rowid => {}
-            Some(_) => {
-                let more = self.more.entry(h).or_default();
-                if !more.contains(&rowid) {
-                    more.push(rowid);
-                }
-            }
-        }
-    }
-
-    fn get(&self, h: u64) -> Vec<i64> {
-        let mut out: Vec<i64> = self.first.get(&h).copied().into_iter().collect();
-        if let Some(more) = self.more.get(&h) {
-            out.extend(more.iter().copied());
-        }
-        out
     }
 }
 
@@ -1057,6 +1098,53 @@ mod tests {
         r.revert(3);
         r.revert(2);
         assert_eq!(r.find_live_by_pk(&pk, true, &[Value::Int(420)], true).map(|r| r.rowid), Some(42));
+    }
+
+    #[test]
+    fn segments_are_capped() {
+        let mut d = TableData::default();
+        let n = 2 * MAX_SEGMENT_ROWS as i64 + 100;
+        d.append((0..n).map(|i| row(i, i)).collect(), 1);
+        assert_eq!(d.segs.len(), 3);
+        d.prepare_write();
+        d.mark_written();
+        // small commits merge among themselves, never into the full segments
+        for v in 2..20 {
+            d.retire(&keys(&[v * 1000]), v, true);
+            d.append((n + v * 10..n + v * 10 + 10).map(|i| row(i, i)).collect(), v);
+            d.prepare_write();
+            d.mark_written();
+        }
+        assert!(d.segs.iter().all(|s| s.len() <= MAX_SEGMENT_ROWS));
+        assert_eq!(d.count_at(19), n as usize + 18 * 10 - 18);
+        let r = roundtrip(&mut d);
+        assert_eq!(visible(&r, 19), visible(&d, 19));
+        assert_eq!(visible(&r, 5), visible(&d, 5));
+    }
+
+    #[test]
+    fn column_index() {
+        let mut d = TableData::default();
+        d.append((0..5000).map(|i| row(i, i % 7)).collect(), 1);
+        let c = d.eq_candidates(0, &[Value::Int(3)]);
+        assert_eq!(c, (0..5000).filter(|i| i % 7 == 3).collect::<Vec<_>>());
+        // a new version of a row with another value: both rowid lists name it (lookups check the rows)
+        d.retire(&keys(&[3]), 2, true);
+        d.append(vec![row(3, 5)], 2);
+        assert!(d.eq_candidates(0, &[Value::Int(5)]).contains(&3));
+        assert!(d.eq_candidates(0, &[Value::Int(3), Value::Int(5)]).windows(2).all(|w| w[0] < w[1]));
+        // merges rewrite segments; the index is rebuilt once most of it refers to segments that are gone
+        for v in 3..40 {
+            d.append((5000 + v * 200..5200 + v * 200).map(|i| row(i, i % 7)).collect(), v);
+            d.prepare_write();
+            d.mark_written();
+            let c = d.eq_candidates(0, &[Value::Int(1)]);
+            let expected: Vec<i64> = d.live_rows().filter(|r| matches!(r.cell(0), Value::Int(1))).map(|r| r.rowid).collect();
+            assert!(expected.iter().all(|r| c.binary_search(r).is_ok()), "version {v}");
+        }
+        let idx = d.indexes.lock();
+        let total: usize = idx.iter().map(|i| i.covered.values().sum::<usize>()).sum();
+        assert!(total < 3 * d.num_rows(), "{total} indexed rows for {} rows", d.num_rows());
     }
 
     #[test]
