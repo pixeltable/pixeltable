@@ -29,6 +29,20 @@ pub struct ComputedCol {
     pub is_media: bool,
 }
 
+impl ComputedCol {
+    /// A value of the column as the store holds it: an in-flight Python object in a column that is not a media column
+    /// (the rows of a query function that hold images, `functions::udf`) is converted to the column's type, which
+    /// fails for what has no stored form.
+    pub fn storable(&self, v: Value) -> Result<Value> {
+        match v {
+            Value::PyObj(o) if !self.is_media => {
+                pyo3::Python::attach(|py| crate::value::py::coerce(o.bind(py), &self.expr.col_type))
+            }
+            v => Ok(v),
+        }
+    }
+}
+
 /// Evaluates against the cells of a stored (or about-to-be-stored) row; unstored computed columns are evaluated
 /// from their value expressions.
 pub struct RowCells<'a> {
@@ -159,7 +173,7 @@ pub fn eval_computed(
         let inherited = c.expr.column_refs().iter().find_map(|r| row.error(r.col_id).cloned());
         let outcome: std::result::Result<Value, CellError> = match inherited {
             Some(e) => Err(e),
-            None => match eval(&c.expr, &RowCells { row, unstored }) {
+            None => match eval(&c.expr, &RowCells { row, unstored }).and_then(|v| c.storable(v)) {
                 Ok(v) => Ok(v),
                 Err(err) => {
                     if crate::functions::udf::is_interrupt(&err) {
