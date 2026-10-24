@@ -783,8 +783,14 @@ pub fn agg_call_from_py(
         let g = kwargs.remove(pos).1;
         match as_expr(&g) {
             Some(e) => group_by.push(e),
-            None if g.hasattr("_tbl_version_path").unwrap_or(false) || g.hasattr("_id").unwrap_or(false) => {
-                return Err(Error::not_implemented("group_by=<table> in a window function"));
+            None if g.hasattr("_tbl_ref").unwrap_or(false) => {
+                // partition by the rows of a table: the components of its row key (upstream `RowidRef`s)
+                let (id, _version): (String, Option<i64>) = g.getattr("_tbl_ref")?.extract()?;
+                let tbl_id = super::catalog::parse_uuid(&id)?;
+                let n = crate::catalog::runtime::with_catalog(g.py(), |cat| crate::exec::query::num_rowid_columns(cat, tbl_id))?;
+                for idx in 0..n {
+                    group_by.push(Expr::new(ExprKind::RowidRef { tbl_id, idx }, crate::types::ColumnType::int(false)));
+                }
             }
             None => crate::bail!(InvalidExpression, "group_by argument needs to be a Pixeltable expression: {}", obj_str(&g)),
         }

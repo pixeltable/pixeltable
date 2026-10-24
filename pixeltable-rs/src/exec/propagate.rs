@@ -293,50 +293,24 @@ pub fn select_sample<'a>(
     infos: &[&ElemInfo],
     sc: &super::SampleClause,
 ) -> Result<Vec<Vec<&'a StoredRow>>> {
-    use super::sample::{fraction_keeps, key_hash, random_u64};
-    let seed = sc.seed.map(|s| s as u64).unwrap_or_else(random_u64);
-    let mut keyed: Vec<(u64, Vec<&StoredRow>)> = rows.into_iter().map(|r| (key_hash(seed, r[0].rowid, &r[0].pos), r)).collect();
-    keyed.sort_by_key(|(k, _)| *k);
-    if !sc.is_stratified() {
-        return Ok(match (sc.fraction, sc.n) {
-            (Some(f), _) => keyed.into_iter().filter(|(k, _)| fraction_keeps(*k, f)).map(|(_, r)| r).collect(),
-            (None, Some(n)) => keyed.into_iter().take(n.max(0) as usize).map(|(_, r)| r).collect(),
-            _ => keyed.into_iter().map(|(_, r)| r).collect(),
-        });
-    }
-    let mut strata: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    let mut counts: Vec<usize> = Vec::new();
-    let mut ranked: Vec<(usize, usize, u64, Vec<&StoredRow>)> = Vec::new();
-    for (k, r) in keyed {
-        let ctx = PathCtx::new(infos, &r);
-        let vals = sc.stratify_by.iter().map(|e| crate::expr::eval::eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
-        let skey = format!("{vals:?}");
-        let next = strata.len();
-        let sid = *strata.entry(skey).or_insert(next);
-        if sid == counts.len() {
-            counts.push(0);
+    // the same selection as `Query.sample()` (`exec::query::sample_select()`), so a seeded snapshot holds the rows
+    // its query returns
+    let seed = super::query::sample_seed(sc);
+    let hashes: Vec<u64> = rows.iter().map(|r| super::sample::key_hash(seed, r[0].rowid, &r[0].pos)).collect();
+    let strata = if sc.is_stratified() {
+        let mut keys = Vec::with_capacity(rows.len());
+        for r in &rows {
+            let ctx = PathCtx::new(infos, r);
+            let vals = sc.stratify_by.iter().map(|e| crate::expr::eval::eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
+            keys.push(super::query::keys_of(&vals));
         }
-        let rank = counts[sid];
-        counts[sid] += 1;
-        ranked.push((sid, rank, k, r));
-    }
-    let mut out: Vec<(usize, u64, Vec<&StoredRow>)> = match (sc.n_per_stratum, sc.n, sc.fraction) {
-        (Some(per), _, _) => ranked.into_iter().filter(|(_, rank, _, _)| (*rank as i64) < per).map(|(_, rk, k, r)| (rk, k, r)).collect(),
-        (None, Some(n), _) => {
-            let mut v: Vec<(usize, u64, Vec<&StoredRow>)> = ranked.into_iter().map(|(_, rk, k, r)| (rk, k, r)).collect();
-            v.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
-            v.truncate(n.max(0) as usize);
-            v
-        }
-        (None, None, Some(f)) => ranked
-            .into_iter()
-            .filter(|(sid, rank, _, _)| (*rank as f64) < (f * counts[*sid] as f64).ceil())
-            .map(|(_, rk, k, r)| (rk, k, r))
-            .collect(),
-        _ => Vec::new(),
+        Some(keys)
+    } else {
+        None
     };
-    out.sort_by_key(|(_, k, _)| *k);
-    Ok(out.into_iter().map(|(_, _, r)| r).collect())
+    let selected = super::query::sample_select(&hashes, strata.as_deref(), sc);
+    let mut rows: Vec<Option<Vec<&StoredRow>>> = rows.into_iter().map(Some).collect();
+    Ok(selected.into_iter().filter_map(|i| rows[i].take()).collect())
 }
 
 /// A live view of a table, with its own live views.

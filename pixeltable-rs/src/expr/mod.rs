@@ -324,6 +324,9 @@ pub enum ExprKind {
     Variable(String),
     /// `col.similarity(item)` against an embedding index of `col` (a ColumnRef node)
     Similarity(Similarity),
+    /// component `idx` of the row key of table `tbl_id` (0: rowid, then iterator positions; upstream `RowidRef`),
+    /// used for `group_by=<table>` of window functions
+    RowidRef { tbl_id: Uuid, idx: usize },
 }
 
 /// A similarity lookup against an embedding index (upstream `SimilarityExpr`).
@@ -362,7 +365,11 @@ impl ExprKind {
     /// Direct sub-expressions.
     pub fn children(&self) -> Vec<&ExprRef> {
         match self {
-            ExprKind::ColumnRef(_) | ExprKind::Literal(_) | ExprKind::RelativeRoot { .. } | ExprKind::Variable(_) => vec![],
+            ExprKind::ColumnRef(_)
+            | ExprKind::Literal(_)
+            | ExprKind::RelativeRoot { .. }
+            | ExprKind::Variable(_)
+            | ExprKind::RowidRef { .. } => vec![],
             ExprKind::Arithmetic { lhs, rhs, .. }
             | ExprKind::StringOp { lhs, rhs, .. }
             | ExprKind::Comparison { lhs, rhs, .. }
@@ -392,7 +399,11 @@ impl ExprKind {
         let mut it = children.into_iter();
         let mut next = || it.next().expect("with_children(): too few children");
         match self {
-            ExprKind::ColumnRef(_) | ExprKind::Literal(_) | ExprKind::Variable(_) | ExprKind::RelativeRoot { .. } => {
+            ExprKind::ColumnRef(_)
+            | ExprKind::Literal(_)
+            | ExprKind::Variable(_)
+            | ExprKind::RelativeRoot { .. }
+            | ExprKind::RowidRef { .. } => {
                 self.clone()
             }
             ExprKind::Arithmetic { op, .. } => ExprKind::Arithmetic { op: *op, lhs: next(), rhs: next() },

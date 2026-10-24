@@ -89,6 +89,11 @@ impl QueryInput {
             .map(|(src, _)| *src)
     }
 
+    /// The from-table that provides the rows of `tbl_id` (the first one that has its table).
+    fn source_of_tbl(&self, tbl_id: &Uuid) -> Option<usize> {
+        self.slot_of.get(tbl_id).map(|(src, _)| *src)
+    }
+
     /// A row with only the slots of source `i` set.
     fn place<'a>(&self, jr: &mut JRow<'a>, i: usize, rows: &[&'a StoredRow]) {
         let off = self.sources[i].offset;
@@ -121,9 +126,9 @@ fn node_key(e: &Expr) -> usize {
 impl Ctx<'_> {
     /// Runs `f` with the path context of the from-table that provides `col` (None: the missing side of an outer
     /// join). Column reads go through `PathCtx`: unstored and iterator-produced columns, read validation.
-    fn with_path<T>(&self, col: &ColumnRef, f: impl FnOnce(&PathCtx<'_>) -> Result<T>) -> Result<Option<T>> {
-        let Some(src) = self.input.source_of(col) else {
-            return Err(Error::internal(format!("column {} is not provided by the query's tables", col.name)));
+    fn with_path<T>(&self, src: Option<usize>, f: impl FnOnce(&PathCtx<'_>) -> Result<T>) -> Result<Option<T>> {
+        let Some(src) = src else {
+            return Err(Error::internal("a table of the expression is not provided by the query's tables"));
         };
         let source = &self.input.sources[src];
         let n = source.path.elems.len();
@@ -141,11 +146,15 @@ impl Ctx<'_> {
 
 impl RowContext for Ctx<'_> {
     fn column_value(&self, col: &ColumnRef) -> Result<Value> {
-        Ok(self.with_path(col, |ctx| ctx.column_value(col))?.unwrap_or(Value::Null))
+        Ok(self.with_path(self.input.source_of(col), |ctx| ctx.column_value(col))?.unwrap_or(Value::Null))
     }
 
     fn column_error(&self, col: &ColumnRef) -> Result<Option<crate::store::rows::CellError>> {
-        Ok(self.with_path(col, |ctx| ctx.column_error(col))?.flatten())
+        Ok(self.with_path(self.input.source_of(col), |ctx| ctx.column_error(col))?.flatten())
+    }
+
+    fn row_key(&self, tbl_id: Uuid) -> Result<Option<(i64, Vec<i64>)>> {
+        Ok(self.with_path(self.input.source_of_tbl(&tbl_id), |ctx| ctx.row_key(tbl_id))?.flatten())
     }
 
     fn precomputed(&self, e: &Expr) -> Option<Value> {
@@ -168,7 +177,7 @@ pub fn is_sql_expr(e: &Expr, unstored: &HashMap<(Uuid, ColId), ExprRef>) -> bool
             Some(v) => is_sql_expr(v, unstored),
             None => true,
         },
-        ExprKind::Literal(_) => true,
+        ExprKind::Literal(_) | ExprKind::RowidRef { .. } => true,
         // properties of stored columns read the stored value or its cell metadata
         ExprKind::ColumnProperty { col, prop } => *prop != crate::expr::ColumnProp::LocalPath && is_sql_expr(col, unstored),
         // upstream evaluates a float `%` and an int `**` in Python
@@ -473,7 +482,7 @@ fn group_key(v: &Value) -> String {
     }
 }
 
-fn keys_of(vals: &[Value]) -> String {
+pub fn keys_of(vals: &[Value]) -> String {
     let mut s = String::new();
     for v in vals {
         s.push_str(&group_key(v));
@@ -635,68 +644,86 @@ fn filtered<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
 
 // ------------------------------------------------------------------------------------------------ sampling
 
+/// The rank of a row in a sample (`sample::key_hash()` of the key of its first table's row).
 fn row_hash(seed: u64, row: &JRow<'_>) -> u64 {
-    use super::sample::splitmix64;
-    let Some(r) = row.first().copied().flatten() else { return splitmix64(seed) };
-    super::sample::key_hash(seed, r.rowid, &r.pos)
+    match row.first().copied().flatten() {
+        Some(r) => super::sample::key_hash(seed, r.rowid, &r.pos),
+        None => super::sample::splitmix64(seed),
+    }
 }
 
-/// Upstream `SqlSampleNode`: rows are ranked by a hash of (seed, rowid); a fraction keeps the rows whose hash falls
-/// below the fraction of the hash space; `n` takes the lowest-ranked rows; stratified samples rank within strata.
-fn apply_sample<'a>(input: &'a QueryInput, rows: Vec<JRow<'a>>, s: &SampleClause) -> Result<Vec<JRow<'a>>> {
-    let seed = match s.seed {
+/// The seed of a sample: the given one, or a fresh random one per execution.
+pub fn sample_seed(s: &SampleClause) -> u64 {
+    match s.seed {
         Some(sd) => sd as u64,
         None => super::sample::random_u64(),
-    };
-    let mut keyed: Vec<(u64, JRow<'a>)> = rows.into_iter().map(|r| (row_hash(seed, &r), r)).collect();
-    keyed.sort_by_key(|(k, _)| *k);
-    let threshold = |f: f64| -> u64 { if f >= 1.0 { u64::MAX } else { (f * u64::MAX as f64) as u64 } };
-    if !s.is_stratified() {
-        return Ok(match (s.fraction, s.n) {
-            (Some(f), _) => {
-                let t = threshold(f);
-                keyed.into_iter().filter(|(k, _)| *k < t || (f >= 1.0)).map(|(_, r)| r).collect()
-            }
-            (None, Some(n)) => keyed.into_iter().take(n.max(0) as usize).map(|(_, r)| r).collect(),
-            _ => keyed.into_iter().map(|(_, r)| r).collect(),
-        });
     }
-    // stratified: rank within strata (in hash order)
-    let empty = HashMap::new();
-    let mut strata: HashMap<String, usize> = HashMap::new();
+}
+
+/// Upstream `SqlSampleNode`: rows are ranked by their hash; a fraction keeps the rows whose hash falls below the
+/// fraction of the hash space; `n` takes the lowest-ranked rows; stratified samples (`strata`: one key per row) rank
+/// within strata (`n_per_stratum` per stratum, a fraction rounded up per stratum, `n` in rank order across strata).
+/// Returns the indices of the selected rows, in rank order.
+pub fn sample_select(hashes: &[u64], strata: Option<&[String]>, s: &SampleClause) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..hashes.len()).collect();
+    order.sort_by_key(|i| hashes[*i]);
+    let Some(strata) = strata else {
+        return match (s.fraction, s.n) {
+            (Some(f), _) => order.into_iter().filter(|i| super::sample::fraction_keeps(hashes[*i], f)).collect(),
+            (None, Some(n)) => order.into_iter().take(n.max(0) as usize).collect(),
+            _ => order,
+        };
+    };
+    let mut ids: HashMap<&str, usize> = HashMap::new();
     let mut counts: Vec<usize> = Vec::new();
-    let mut ranked: Vec<(usize, usize, u64, JRow<'a>)> = Vec::with_capacity(keyed.len());
-    for (k, r) in keyed {
-        let ctx = Ctx { input, row: &r, pre: &[], slots: &empty };
-        let vals = s.stratify_by.iter().map(|e| eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
-        let skey = keys_of(&vals);
-        let next = strata.len();
-        let sid = *strata.entry(skey).or_insert(next);
+    // (stratum, rank in stratum, row)
+    let mut ranked: Vec<(usize, usize, usize)> = Vec::with_capacity(order.len());
+    for i in order {
+        let next = ids.len();
+        let sid = *ids.entry(strata[i].as_str()).or_insert(next);
         if sid == counts.len() {
             counts.push(0);
         }
-        let rank = counts[sid];
+        ranked.push((sid, counts[sid], i));
         counts[sid] += 1;
-        ranked.push((sid, rank, k, r));
     }
-    let out: Vec<(usize, u64, JRow<'a>)> = match (s.n_per_stratum, s.n, s.fraction) {
-        (Some(per), _, _) => ranked.into_iter().filter(|(_, rank, _, _)| (*rank as i64) < per).map(|(_, rk, k, r)| (rk, k, r)).collect(),
+    let mut out: Vec<(usize, usize)> = match (s.n_per_stratum, s.n, s.fraction) {
+        (Some(per), _, _) => ranked.into_iter().filter(|(_, rank, _)| (*rank as i64) < per).map(|(_, rk, i)| (rk, i)).collect(),
         (None, Some(n), _) => {
-            let mut v: Vec<(usize, u64, JRow<'a>)> = ranked.into_iter().map(|(_, rk, k, r)| (rk, k, r)).collect();
-            v.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+            let mut v: Vec<(usize, usize)> = ranked.into_iter().map(|(_, rk, i)| (rk, i)).collect();
+            v.sort_by(|a, b| a.0.cmp(&b.0).then(hashes[a.1].cmp(&hashes[b.1])));
             v.truncate(n.max(0) as usize);
             v
         }
         (None, None, Some(f)) => ranked
             .into_iter()
-            .filter(|(sid, rank, _, _)| (*rank as f64) < (f * counts[*sid] as f64).ceil())
-            .map(|(_, rk, k, r)| (rk, k, r))
+            .filter(|(sid, rank, _)| (*rank as f64) < (f * counts[*sid] as f64).ceil())
+            .map(|(_, rk, i)| (rk, i))
             .collect(),
         _ => Vec::new(),
     };
-    let mut out = out;
-    out.sort_by_key(|(_, k, _)| *k);
-    Ok(out.into_iter().map(|(_, _, r)| r).collect())
+    out.sort_by_key(|(_, i)| hashes[*i]);
+    out.into_iter().map(|(_, i)| i).collect()
+}
+
+/// Samples the rows of a query (see `sample_select()`).
+fn apply_sample<'a>(input: &'a QueryInput, rows: Vec<JRow<'a>>, s: &SampleClause) -> Result<Vec<JRow<'a>>> {
+    let seed = sample_seed(s);
+    let hashes: Vec<u64> = rows.iter().map(|r| row_hash(seed, r)).collect();
+    let strata = if s.is_stratified() {
+        let empty = HashMap::new();
+        let mut keys = Vec::with_capacity(rows.len());
+        for r in &rows {
+            let ctx = Ctx { input, row: r, pre: &[], slots: &empty };
+            keys.push(keys_of(&s.stratify_by.iter().map(|e| eval(e, &ctx)).collect::<Result<Vec<_>>>()?));
+        }
+        Some(keys)
+    } else {
+        None
+    };
+    let selected = sample_select(&hashes, strata.as_deref(), s);
+    let mut rows: Vec<Option<JRow<'a>>> = rows.into_iter().map(Some).collect();
+    Ok(selected.into_iter().filter_map(|i| rows[i].take()).collect())
 }
 
 // ------------------------------------------------------------------------------------------------ aggregation
@@ -949,6 +976,21 @@ impl RowContext for WindowCtx<'_> {
     fn python_semantics(&self) -> bool {
         self.path.python_semantics()
     }
+    fn row_key(&self, tbl_id: Uuid) -> Result<Option<(i64, Vec<i64>)>> {
+        self.path.row_key(tbl_id)
+    }
+}
+
+/// The number of components of the row keys of table `tbl_id`: the rowid, then one iterator position per component
+/// view in its path.
+pub fn num_rowid_columns(cat: &Catalog, tbl_id: Uuid) -> Result<usize> {
+    let mut n = 1;
+    for e in cat.tbl_path(tbl_id, None)? {
+        if cat.table(e.tbl_id)?.is_component_view() {
+            n += 1;
+        }
+    }
+    Ok(n)
 }
 
 /// True if `e` contains a window function call.

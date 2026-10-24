@@ -196,6 +196,12 @@ pub fn to_json(e: &Expr) -> Result<Json> {
             m.insert("name".into(), json!(name));
             "Variable"
         }
+        ExprKind::RowidRef { tbl_id, idx } => {
+            m.insert("tbl_id".into(), json!(tbl_id.to_string()));
+            m.insert("normalized_base_id".into(), json!(tbl_id.to_string()));
+            m.insert("idx".into(), json!(idx));
+            "RowidRef"
+        }
         ExprKind::ColumnProperty { prop, .. } => {
             m.insert("prop".into(), json!(*prop as i64));
             "ColumnPropertyRef"
@@ -367,6 +373,10 @@ pub fn from_json(d: &Json) -> Result<ExprRef> {
                 is_method_call: d.get("is_method_call").and_then(Json::as_bool).unwrap_or(false),
             })
         }
+        "RowidRef" => ExprKind::RowidRef {
+            tbl_id: d.get("tbl_id").and_then(Json::as_str).and_then(|s| uuid::Uuid::parse_str(s).ok()).ok_or_else(|| bad(d))?,
+            idx: d.get("idx").and_then(Json::as_u64).ok_or_else(|| bad(d))? as usize,
+        },
         "Variable" => ExprKind::Variable(d.get("name").and_then(Json::as_str).ok_or_else(|| bad(d))?.to_string()),
         _ => return Err(bad(d)),
     };

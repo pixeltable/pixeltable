@@ -739,15 +739,7 @@ impl QuerySpec {
             "offset_param": self.offset_param,
             "sample_clause": match &self.sample {
                 None => J::Null,
-                Some(s) => json!({
-                    "_classname": "SampleClause",
-                    "version": 1,
-                    "n": s.n,
-                    "n_per_stratum": s.n_per_stratum,
-                    "fraction": s.fraction,
-                    "seed": s.seed,
-                    "stratify_exprs": exprs(&s.stratify_by)?,
-                }),
+                Some(s) => s.to_json()?,
             },
         }))
     }
@@ -819,13 +811,7 @@ impl QuerySpec {
             .and_then(|s| Uuid::parse_str(s).ok());
         let sample = match d.get("sample_clause") {
             None | Some(J::Null) => None,
-            Some(s) => Some(SampleClause {
-                n: s.get("n").and_then(J::as_i64),
-                n_per_stratum: s.get("n_per_stratum").and_then(J::as_i64),
-                fraction: s.get("fraction").and_then(J::as_f64),
-                seed: s.get("seed").and_then(J::as_i64),
-                stratify_by: exprs(s.get("stratify_exprs"))?.unwrap_or_default(),
-            }),
+            Some(s) => Some(SampleClause::from_json(s)?),
         };
         Ok(QuerySpec {
             tbl_id,

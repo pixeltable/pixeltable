@@ -35,6 +35,12 @@ pub trait RowContext {
     fn python_semantics(&self) -> bool {
         false
     }
+
+    /// The key (rowid, iterator positions) of the row of table `tbl_id` (None: no such row, e.g. the missing side of
+    /// an outer join).
+    fn row_key(&self, _tbl_id: uuid::Uuid) -> Result<Option<(i64, Vec<i64>)>> {
+        Err(Error::internal("row keys are not available in this context"))
+    }
 }
 
 /// A context that binds a mapper's relative root to one element and delegates everything else.
@@ -59,6 +65,9 @@ impl RowContext for ScopedCtx<'_> {
     }
     fn python_semantics(&self) -> bool {
         self.parent.python_semantics()
+    }
+    fn row_key(&self, tbl_id: uuid::Uuid) -> Result<Option<(i64, Vec<i64>)>> {
+        self.parent.row_key(tbl_id)
     }
 }
 
@@ -455,6 +464,13 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
             }
         }
         ExprKind::FunctionCall(fc) => crate::functions::eval_call(fc, e, ctx),
+        ExprKind::RowidRef { tbl_id, idx } => Ok(match ctx.row_key(*tbl_id)? {
+            Some((rowid, pos)) => match idx {
+                0 => Value::Int(rowid),
+                i => pos.get(i - 1).map_or(Value::Null, |p| Value::Int(*p)),
+            },
+            None => Value::Null,
+        }),
         ExprKind::Variable(name) => Err(Error::internal(format!("unbound variable {name} in an evaluated expression"))),
     }
 }
