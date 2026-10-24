@@ -46,8 +46,6 @@ pub struct QueryInput {
     width: usize,
     /// table id -> (source index, slot) of the first slot that provides its columns
     slot_of: HashMap<Uuid, (usize, usize)>,
-    /// slot -> (source index, index in the source's path)
-    slot_elems: Vec<(usize, usize)>,
 }
 
 impl QueryInput {
@@ -57,21 +55,20 @@ impl QueryInput {
         let mut sources = Vec::new();
         let mut unstored = HashMap::new();
         let mut slot_of = HashMap::new();
-        let mut slot_elems = Vec::new();
+        let mut width = 0;
         for (i, (tbl_id, version)) in q.from_tbls().into_iter().enumerate() {
             let path = PathInput::snapshot(cat, &cat.tbl_path(tbl_id, version)?)?;
-            let offset = slot_elems.len();
+            let offset = width;
             for (k, e) in path.elems.iter().enumerate() {
                 for (col_id, x) in &e.info.unstored {
                     unstored.insert((e.info.tbl_id, *col_id), x.clone());
                 }
                 slot_of.entry(e.info.tbl_id).or_insert((i, offset + k));
-                slot_elems.push((i, k));
             }
+            width += path.elems.len();
             sources.push(Source { path, offset });
         }
-        let width = slot_elems.len();
-        Ok(QueryInput { q: q.clone(), sources, select, unstored, width, slot_of, slot_elems })
+        Ok(QueryInput { q: q.clone(), sources, select, unstored, width, slot_of })
     }
 
     fn slot(&self, tbl_id: &Uuid) -> Option<usize> {
@@ -81,11 +78,6 @@ impl QueryInput {
     /// The from-table (source index) that provides the columns of `tbl_id`.
     fn source_of(&self, tbl_id: &Uuid) -> Option<usize> {
         self.slot_of.get(tbl_id).map(|(src, _)| *src)
-    }
-
-    fn info(&self, slot: usize) -> &ElemInfo {
-        let (src, k) = self.slot_elems[slot];
-        &self.sources[src].path.elems[k].info
     }
 
     /// A row with only the slots of source `i` set.
@@ -118,41 +110,33 @@ fn node_key(e: &Expr) -> usize {
 }
 
 impl Ctx<'_> {
-    /// The source slot and stored row (None: the missing side of an outer join) that provide `col`.
-    fn row_of(&self, col: &ColumnRef) -> Result<(usize, Option<&StoredRow>)> {
-        let Some(slot) = self.input.slot(&col.tbl_id) else {
+    /// Runs `f` with the path context of the from-table that provides `col` (None: the missing side of an outer
+    /// join). Column reads go through `PathCtx`: unstored and iterator-produced columns, read validation.
+    fn with_path<T>(&self, col: &ColumnRef, f: impl FnOnce(&PathCtx<'_>) -> Result<T>) -> Result<Option<T>> {
+        let Some(src) = self.input.source_of(&col.tbl_id) else {
             return Err(Error::internal(format!("column {} is not provided by the query's tables", col.name)));
         };
-        Ok((slot, self.row.get(slot).copied().flatten()))
-    }
-
-    /// For a read-validated media column with a file: the validation error, if any.
-    fn read_validation_error(&self, slot: usize, r: &StoredRow, col: &ColumnRef) -> Option<Option<crate::store::rows::CellError>> {
-        self.input.info(slot).read_validation_error(r, col.col_id)
+        let source = &self.input.sources[src];
+        let n = source.path.elems.len();
+        let mut rows = Vec::with_capacity(n);
+        for r in &self.row[source.offset..source.offset + n] {
+            match r {
+                Some(r) => rows.push(*r),
+                None => return Ok(None),
+            }
+        }
+        let infos = source.path.infos();
+        f(&PathCtx::new(&infos, &rows)).map(Some)
     }
 }
 
 impl RowContext for Ctx<'_> {
     fn column_value(&self, col: &ColumnRef) -> Result<Value> {
-        let (slot, row) = self.row_of(col)?;
-        let Some(r) = row else { return Ok(Value::Null) };
-        if let Some(e) = self.input.unstored.get(&(col.tbl_id, col.col_id)) {
-            return eval(e, self);
-        }
-        if let Some(Some(_)) = self.read_validation_error(slot, r, col) {
-            // an invalid file reads as NULL; its error is the cell's error
-            return Ok(Value::Null);
-        }
-        Ok(r.cell(col.col_id).clone())
+        Ok(self.with_path(col, |ctx| ctx.column_value(col))?.unwrap_or(Value::Null))
     }
 
     fn column_error(&self, col: &ColumnRef) -> Result<Option<crate::store::rows::CellError>> {
-        let (slot, row) = self.row_of(col)?;
-        let Some(r) = row else { return Ok(None) };
-        if let Some(e) = self.read_validation_error(slot, r, col) {
-            return Ok(e);
-        }
-        Ok(r.error(col.col_id).cloned())
+        Ok(self.with_path(col, |ctx| ctx.column_error(col))?.flatten())
     }
 
     fn precomputed(&self, e: &Expr) -> Option<Value> {
