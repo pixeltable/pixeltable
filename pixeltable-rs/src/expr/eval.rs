@@ -2,7 +2,8 @@
 //!
 //! Semantics follow what upstream produces on its usual (SQL) evaluation path: NULL propagates through operators,
 //! comparisons with NULL are NULL (and a NULL predicate filters the row out), division by zero yields NULL, and
-//! `//` is floor division.
+//! `//` is floor division. Integer arithmetic is checked: a result outside the 64-bit range raises upstream's
+//! (Postgres') "bigint out of range" error instead of wrapping or panicking.
 
 use std::cmp::Ordering;
 
@@ -31,7 +32,11 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
                 (_, Value::Null, _) | (_, _, Value::Null) => Value::Null,
                 (StringOp::Concat, Value::String(x), Value::String(y)) => Value::String(format!("{x}{y}")),
                 (StringOp::Repeat, Value::String(s), Value::Int(n)) | (StringOp::Repeat, Value::Int(n), Value::String(s)) => {
-                    Value::String(s.repeat((*n).max(0) as usize))
+                    let n = usize::try_from(*n).unwrap_or(0);
+                    if s.len().checked_mul(n).is_none_or(|len| len > MAX_STRING_BYTES) {
+                        crate::bail!(UnsupportedOperation, "requested length too large");
+                    }
+                    Value::String(s.repeat(n))
                 }
                 _ => return Err(Error::internal("string operator applied to non-string values")),
             })
@@ -157,9 +162,24 @@ fn numeric_operand(v: &Value, is_json: bool, side: &str, op: ArithOp) -> Result<
     }
 }
 
-fn floor_div_i64(a: i64, b: i64) -> i64 {
-    let q = a / b;
-    if (a % b != 0) && ((a < 0) != (b < 0)) { q - 1 } else { q }
+/// The largest string `*` may produce (Postgres' limit for `repeat()`, 1 GB).
+const MAX_STRING_BYTES: usize = (1 << 30) - 1;
+
+/// Python's `//` on integers (rounds toward negative infinity); None on overflow (`i64::MIN // -1`) or `b == 0`.
+fn floor_div_i64(a: i64, b: i64) -> Option<i64> {
+    let q = a.checked_div(b)?;
+    if a.checked_rem(b)? != 0 && ((a < 0) != (b < 0)) { q.checked_sub(1) } else { Some(q) }
+}
+
+/// `a ** exp` for a non-negative exponent; None on overflow.
+fn pow_i64(a: i64, exp: i64) -> Option<i64> {
+    match (a, u32::try_from(exp)) {
+        (_, Ok(e)) => a.checked_pow(e),
+        // an exponent beyond u32 overflows unless the base is 0, 1 or -1
+        (0 | 1, Err(_)) if exp > 0 => Some(a),
+        (-1, Err(_)) if exp > 0 => Some(if exp % 2 == 0 { 1 } else { -1 }),
+        _ => None,
+    }
 }
 
 pub fn arithmetic(op: ArithOp, a: &Value, b: &Value, a_json: bool, b_json: bool, result_type: &ColumnType) -> Result<Value> {
@@ -168,7 +188,7 @@ pub fn arithmetic(op: ArithOp, a: &Value, b: &Value, a_json: bool, b_json: bool,
     if a.is_null() || b.is_null() {
         return Ok(Value::Null);
     }
-    let overflow = || crate::pxt_err!(UnsupportedOperation, "integer out of range in `{}`", op.symbol());
+    let overflow = || crate::pxt_err!(UnsupportedOperation, "bigint out of range");
     if let (Value::Int(x), Value::Int(y), true) = (&a, &b, result_type.is_int()) {
         let (x, y) = (*x, *y);
         return Ok(match op {
@@ -179,20 +199,18 @@ pub fn arithmetic(op: ArithOp, a: &Value, b: &Value, a_json: bool, b_json: bool,
                 if y == 0 {
                     Value::Null
                 } else {
-                    Value::Int(x.checked_rem(y).ok_or_else(overflow)?)
+                    // truncated remainder, as in Postgres; i64::MIN % -1 is 0
+                    Value::Int(x.wrapping_rem(y))
                 }
             }
             ArithOp::FloorDiv => {
                 if y == 0 {
                     Value::Null
                 } else {
-                    Value::Int(floor_div_i64(x, y))
+                    Value::Int(floor_div_i64(x, y).ok_or_else(overflow)?)
                 }
             }
-            ArithOp::Pow => {
-                let exp = u32::try_from(y).map_err(|_| overflow())?;
-                Value::Int(x.checked_pow(exp).ok_or_else(overflow)?)
-            }
+            ArithOp::Pow => Value::Int(pow_i64(x, y).ok_or_else(overflow)?),
             ArithOp::Div => {
                 if y == 0 {
                     Value::Null
@@ -232,4 +250,35 @@ pub fn arithmetic(op: ArithOp, a: &Value, b: &Value, a_json: bool, b_json: bool,
         }
         ArithOp::Pow => Value::Float(x.powf(y)),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn int_op(op: ArithOp, a: i64, b: i64) -> Result<Value> {
+        arithmetic(op, &Value::Int(a), &Value::Int(b), false, false, &ColumnType::int(false))
+    }
+
+    fn overflows(r: Result<Value>) -> bool {
+        matches!(r, Err(Error::Pxt { message, .. }) if message == "bigint out of range")
+    }
+
+    #[test]
+    fn integer_ops_are_checked() {
+        assert!(overflows(int_op(ArithOp::FloorDiv, i64::MIN, -1)));
+        assert!(overflows(int_op(ArithOp::Mul, i64::MIN, -1)));
+        assert!(overflows(int_op(ArithOp::Add, i64::MAX, 1)));
+        assert!(overflows(int_op(ArithOp::Sub, i64::MIN, 1)));
+        assert!(overflows(int_op(ArithOp::Pow, 2, 63)));
+        assert!(overflows(int_op(ArithOp::Pow, 2, i64::MAX)));
+        assert!(matches!(int_op(ArithOp::Mod, i64::MIN, -1), Ok(Value::Int(0))));
+        assert!(matches!(int_op(ArithOp::FloorDiv, i64::MIN, 0), Ok(Value::Null)));
+        assert!(matches!(int_op(ArithOp::FloorDiv, -7, 2), Ok(Value::Int(-4))));
+        assert!(matches!(int_op(ArithOp::FloorDiv, 7, -2), Ok(Value::Int(-4))));
+        assert!(matches!(int_op(ArithOp::FloorDiv, i64::MIN, 1), Ok(Value::Int(i64::MIN))));
+        assert!(matches!(int_op(ArithOp::Pow, -1, (1 << 40) + 1), Ok(Value::Int(-1))));
+        assert!(matches!(int_op(ArithOp::Pow, 1, i64::MAX), Ok(Value::Int(1))));
+        assert!(matches!(int_op(ArithOp::Pow, 3, 4), Ok(Value::Int(81))));
+    }
 }
