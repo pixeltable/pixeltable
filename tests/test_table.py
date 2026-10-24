@@ -3615,6 +3615,14 @@ class TestTable:
         new_t.insert(rows)
         _ = new_t.collect()
 
+        # an aggregate function outside a window has no value per row
+        match = 'aggregate functions are not supported in computed columns'
+        for value, stored in ((pxtf.sum(t.c2), True), (pxtf.sum(t.c2), False), (pxtf.sum(t.c2) + 1, True)):
+            with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=match):
+                t.add_computed_column(total=value, stored=stored)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=match):
+            t.alter_computed_column(c9=pxtf.sum(t.c2), recompute=False)
+
     def test_revert(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t1 = make_tbl(p('test1'), ['c1', 'c2'])

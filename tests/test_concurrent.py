@@ -306,7 +306,7 @@ class TestConcurrentOps:
                 assert len(template_rows) == 1
                 top_k_result = template_rows[0]['top_k']
                 assert len(top_k_result) == min(limit_k, cur_len)
-                assert [row['id'] for row in top_k_result] == sorted(cur_ids)[:limit_k]
+                assert top_k_result == sorted(cur_ids)[:limit_k]
 
                 time.sleep(0.005)
 
