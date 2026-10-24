@@ -174,20 +174,27 @@ class TestProject:
     def test_unreadable_path(self, project: pathlib.Path) -> None:
         (project / 'secret.txt').write_text('')
         (project / 'data').mkdir()
+        (project / 'data' / 'rows.csv').write_text('')
         (project / 'pkg').mkdir()
         (project / 'pkg' / '.gitignore').write_text('*.tmp\n')
-        for path, problem in (
-            (project / 'secret.txt', 'cannot be read'),
-            (project / 'data', r'cannot be listed: .*add it to \.gitignore'),
-            (project / 'pkg' / '.gitignore', 'cannot be read'),
+        for path, mode, problem in (
+            (project / 'secret.txt', 0, 'cannot be read'),
+            (project / 'data', 0, r'cannot be listed: .*add it to \.gitignore'),
+            # readable but not searchable: listing works, stat() on an entry fails
+            (project / 'data', 0o644, r'cannot be listed: .*add it to \.gitignore'),
+            (project / 'pkg' / '.gitignore', 0, 'cannot be read'),
         ):
-            mode = path.stat().st_mode
-            path.chmod(0)
+            original_mode = path.stat().st_mode
+            path.chmod(mode)
             try:
                 with pxt_raises(excs.ErrorCode.INVALID_STATE, match=f'{re.escape(str(path))} {problem}'):
                     project_fingerprint(project, None)
             finally:
-                path.chmod(mode)
+                path.chmod(original_mode)
+
+        # an empty directory without search permission has no entry to stat
+        (project / 'empty').mkdir(mode=0o644)
+        assert 'app.py' in project_fingerprint(project, None).files
 
     def test_file_contents(self, project: pathlib.Path) -> None:
         before = project_fingerprint(project, None)

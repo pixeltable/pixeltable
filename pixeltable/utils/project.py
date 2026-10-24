@@ -52,7 +52,8 @@ def _resolve_patterns(project_dir: Path, patterns: list[str]) -> set[Path]:
 def _gitignore_spec(dir_path: Path) -> PathSpec | None:
     """The PathSpec for dir_path's own .gitignore, or None if it has none."""
     gitignore = dir_path / '.gitignore'
-    if not gitignore.is_file():
+    # os.path.isfile() returns False in a dir_path without search permission, where Path.is_file() raises
+    if not os.path.isfile(gitignore):
         return None
     try:
         lines = gitignore.read_text().splitlines()
@@ -106,7 +107,8 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
 
     def visit(dir_path: Path, specs: list[tuple[Path, PathSpec]]) -> None:
         try:
-            entries = list(dir_path.iterdir())
+            # is_dir() stats the entry, which needs search permission on dir_path
+            entries = [(entry, entry.is_dir() and not entry.is_symlink()) for entry in dir_path.iterdir()]
         except FileNotFoundError:
             return
         except OSError as e:
@@ -117,10 +119,9 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
         spec = _gitignore_spec(dir_path)
         if spec is not None:
             specs = [*specs, (dir_path, spec)]
-        for entry in entries:
+        for entry, is_dir in entries:
             if entry.name in ('.git', '__pycache__'):
                 continue
-            is_dir = entry.is_dir() and not entry.is_symlink()
             if _is_gitignored(entry, is_dir, specs):
                 continue
             if is_dir and _is_venv(entry):
