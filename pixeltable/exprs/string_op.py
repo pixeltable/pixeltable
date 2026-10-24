@@ -59,6 +59,9 @@ class StringOp(Expr):
         op2_str = f'({self._op2})' if isinstance(self._op2, StringOp) else str(self._op2)
         return f'{op1_str} {self.operator} {op2_str}'
 
+    def default_column_name(self) -> str | None:
+        return self.operator.name.lower()
+
     def _equals(self, other: StringOp) -> bool:
         return self.operator == other.operator
 

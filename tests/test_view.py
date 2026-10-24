@@ -775,11 +775,11 @@ class TestView:
             p('test_view1'), t.select(t.c2, t.c2 + 99, foo=t.c2, bar=t.c2 + 27, c3=t.c3 * 2), additional_columns=schema
         )
         res = v1.select().limit(5).collect()
-        assert res._col_names == ['c2', 'col_1', 'foo', 'bar', 'c3', 'v1']
+        assert res._col_names == ['c2', 'add', 'foo', 'bar', 'c3', 'v1']
 
         v1.add_computed_column(bar2=t.c3, stored=False)
         res = reload_tester.run_query(v1.select().order_by(v1.c2).limit(5))
-        assert res._col_names == ['c2', 'col_1', 'foo', 'bar', 'c3', 'v1', 'bar2']
+        assert res._col_names == ['c2', 'add', 'foo', 'bar', 'c3', 'v1', 'bar2']
 
         res2a = v1.select(t.c2, t.c3 * 2).order_by(t.c2)
         res2b = v1.select(v1.c2, v1.c3).order_by(v1.c2)
@@ -807,7 +807,7 @@ class TestView:
         reload_tester.run_query(snap.order_by(v2.c2).limit(5))
 
         res = reload_tester.run_query(v1.select().order_by(v1.c2).limit(5))
-        assert res._col_names == ['c2', 'col_1', 'foo', 'bar', 'c3', 'v1', 'bar2']
+        assert res._col_names == ['c2', 'add', 'foo', 'bar', 'c3', 'v1', 'bar2']
 
         reload_tester.run_reload_test()
 

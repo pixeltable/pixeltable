@@ -325,19 +325,16 @@ class TestDocument:
         )
         assert res[0]['page'] is None
 
-        # test with different separators.
-        # Until we add support to split text into paragraphs,
-        # the 'paragraph' separator is ignored and has no effect.
+        # 'paragraph' splits a .txt file on blank lines
         pxt.drop_table('chunks')
         chunks_t = pxt.create_view(
             'chunks', doc_t, iterator=document_splitter(document=doc_t.doc, separators='paragraph', metadata='page')
         )
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
-        assert len(res) == 1
-        assert len(res[0]['text']) == 2793
-        assert str(res[0]['text']).startswith(
-            'Pixeltable Briefing Doc\nSource: GitHub Repository: pixeltable/pixeltable\n'
-        )
+        assert len(res) == 11
+        assert res[0]['text'].startswith('Pixeltable Briefing Doc')
+        assert res[1]['text'].startswith('Main Themes:')
+        assert all(r['page'] is None for r in res)
 
         # test with 'sentence' separator
         # The text is split into 22 sentences.

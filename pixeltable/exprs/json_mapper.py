@@ -76,6 +76,9 @@ class JsonMapper(Expr):
             return f'{self._src_expr}.sort(lambda R: {self._target_expr}{asc_repr})'
         return f'{self._src_expr}.map(lambda R: {self._target_expr})'
 
+    def default_column_name(self) -> str | None:
+        return self.op.name.lower()
+
     @property
     def _src_expr(self) -> Expr:
         return self.components[0].src_expr

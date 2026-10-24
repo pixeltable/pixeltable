@@ -65,6 +65,9 @@ class InlineArray(Expr):
         elem_strs = [str(expr) for expr in self.components]
         return f'[{", ".join(elem_strs)}]'
 
+    def default_column_name(self) -> str | None:
+        return 'array'
+
     def _equals(self, _: InlineArray) -> bool:
         return True  # Always true if components match
 
@@ -114,6 +117,9 @@ class InlineList(Expr):
         elem_strs = [str(expr) for expr in self.components]
         return f'[{", ".join(elem_strs)}]'
 
+    def default_column_name(self) -> str | None:
+        return 'list'
+
     def _equals(self, _: InlineList) -> bool:
         return True  # Always true if components match
 
@@ -162,6 +168,9 @@ class InlineDict(Expr):
     def __repr__(self) -> str:
         item_strs = [f"'{key}': {expr}" for key, expr in zip(self.keys, self.components)]
         return '{' + ', '.join(item_strs) + '}'
+
+    def default_column_name(self) -> str | None:
+        return 'dict'
 
     def _equals(self, other: InlineDict) -> bool:
         # The dict values are just the components, which have already been checked

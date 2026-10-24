@@ -3739,11 +3739,11 @@ class TestTable:
         # test using the bool column in a conditional expression
         res = v.select((v.c1 > 1) & v.bool_const).order_by(v.c1).collect()
         assert len(res) == 4
-        assert res['col_0'] == [False, True, True, True]
+        assert res['and'] == [False, True, True, True]
         # reversing the condition order should not affect the result
         res = v.select(v.bool_const & (v.c1 > 1)).order_by(v.c1).collect()
         assert len(res) == 4
-        assert res['col_0'] == [False, True, True, True]
+        assert res['and'] == [False, True, True, True]
 
         # test adding a bool column with a computed value
         t1.add_computed_column(bool_computed=t1.c1 > 1)
@@ -4202,6 +4202,12 @@ class TestTable:
         assert status.num_excs == 1
         result = t.where(t.add2.errortype != None).select(t.c6.f2, t.add2, t.add2.errortype, t.add2.errormsg).show()
         assert len(result) == 1
+
+        # a literal value defaults to unstored and is materialized on read
+        status = t.add_computed_column(const=7)
+        assert status.num_excs == 0
+        assert not t.get_metadata()['columns']['const']['is_stored']
+        assert set(t.select(t.const).collect()['const']) == {7}
 
         # test case: exceptions in dependencies prevent execution of dependent exprs
         status = t.add_computed_column(add3=self.f2(self.f1(t.c2)), on_error='ignore')

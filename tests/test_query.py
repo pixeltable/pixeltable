@@ -147,7 +147,7 @@ class TestQuery:
         assert 'Repeated column name' in str(exc_info.value)
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
-            _ = t.select(t.c2 + 1, col_0=t.c2).collect()
+            _ = t.select(t.c2 + 1, add=t.c2).collect()
         assert 'Repeated column name' in str(exc_info.value)
 
         # select list contains invalid references
@@ -569,7 +569,7 @@ class TestQuery:
                ---------------------------
                     c1  String          c1
                  upper  String  c1.upper()
-                 col_2     Int      c2 + 5
+                  add     Int      c2 + 5
 
                From      test_tbl
                Where      c2 < 10
@@ -643,6 +643,11 @@ class TestQuery:
         t = test_tbl
         res = t.select(1.0).where(t.c2 < 10).collect()
         assert res[next(iter(res.schema.keys()))] == [1.0] * 10
+
+    def test_default_column_names(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        res = t.select(t.c2 + 1, t.c2 > 1, (t.c2 > 1) & (t.c3 < 1000.0), t.c1 + t.c1).collect()
+        assert list(res.schema.keys()) == ['add', 'gt', 'and', 'concat']
 
     def test_html_media_url(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

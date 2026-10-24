@@ -2,6 +2,7 @@
 Pixeltable UDFs for `DocumentType`.
 """
 
+import re
 from contextlib import closing
 from dataclasses import dataclass
 from enum import Enum
@@ -504,11 +505,17 @@ class document_splitter(pxt.PxtIterator):
     def _txt_sections(self) -> Iterator[DocumentSection]:
         """Create DocumentSections for text files.
 
-        Currently, it returns the entire text as a single section.
-        TODO: Add support for paragraphs.
+        Splits on blank lines when the 'paragraph' separator is requested; otherwise returns the entire
+        text as a single section.
         """
         assert self._doc_handle.txt_doc is not None
-        yield DocumentSection(text=ftfy.fix_text(self._doc_handle.txt_doc), metadata=DocumentSectionMetadata())
+        text = ftfy.fix_text(self._doc_handle.txt_doc)
+        if Separator.PARAGRAPH not in self._separators:
+            yield DocumentSection(text=text, metadata=DocumentSectionMetadata())
+            return
+        for part in re.split(r'\n\s*\n', text):
+            if part.strip():
+                yield DocumentSection(text=part.strip(), metadata=DocumentSectionMetadata())
 
     def _sentence_sections(self, input_sections: Iterable[DocumentSection]) -> Iterator[DocumentSection]:
         """Split the input sections into sentences"""

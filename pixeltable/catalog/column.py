@@ -236,11 +236,18 @@ class Column:
             # create copy so we can modify it
             value_expr = spec.copy()
             value_expr.bind_rel_paths()
-            sa_col_type = value_expr.col_type.to_sa_type()
+            if isinstance(value_expr, exprs.Literal):
+                stored = False
+            else:
+                sa_col_type = value_expr.col_type.to_sa_type()
         elif isinstance(spec, dict):
             stored = spec.get('stored', True)
             cls._validate_column_spec(name, spec)
             value_expr = spec.get('value')
+            resolved_expr = exprs.Expr.from_object(value_expr) if value_expr is not None else None
+            if 'stored' not in spec and isinstance(resolved_expr, exprs.Literal):
+                # a constant value doesn't need storage; it is materialized on read
+                stored = False
             if value_expr is not None and isinstance(value_expr, exprs.Expr):
                 # create copy so we can modify it
                 value_expr = value_expr.copy()

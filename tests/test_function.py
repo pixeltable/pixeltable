@@ -1009,6 +1009,11 @@ class TestFunction:
     def add2_with_default(x: int, y: int = 1) -> int:
         return x + y
 
+    @staticmethod
+    @pxt.expr_udf
+    def kw_add(x: int, *, y: int) -> int:
+        return x + y
+
     def test_expr_udf(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         t.add_computed_column(other_int=t.c2 + 5)
@@ -1046,16 +1051,17 @@ class TestFunction:
 
         assert "missing type for parameter 'y'" in str(exc_info.value).lower()
 
-        with pytest.raises(TypeError, match='takes 0 positional arguments'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='missing a required keyword-only argument'):
             # signature has correct parameter kind
-            @pxt.expr_udf
-            def add1(*, x: int) -> int:
-                return x
-
-            _ = t.select(add1(t.c2)).collect()
+            _ = t.select(self.kw_add(t.c2)).collect()
 
         res1 = t.select(out=self.add2_with_default(t.c2)).order_by(t.c2).collect()
         res2 = t.select(out=self.add2(t.c2, 1)).order_by(t.c2).collect()
+        assert_resultset_eq(res1, res2)
+
+        # keyword-only parameter
+        res1 = t.select(out=self.kw_add(t.c2, y=5)).order_by(t.c2).collect()
+        res2 = t.select(t.c2 + 5).order_by(t.c2).collect()
         assert_resultset_eq(res1, res2)
 
     def test_expr_udf_method_property(self, test_tbl: pxt.Table) -> None:

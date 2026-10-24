@@ -236,6 +236,9 @@ class SqlNode(ExecNode):
 
         order_by_clause: list[sql.ColumnElement] = []
         for e, asc in self.order_by_clause:
+            if isinstance(e, exprs.Literal):
+                # ordering by a constant is a no-op; a literal int would also be read as a positional reference
+                continue
             if isinstance(e, exprs.SimilarityExpr):
                 order_by_clause.append(e.as_order_by_clause(asc))
             else:

@@ -315,7 +315,7 @@ def create_test_tbl(name: str = 'test_tbl', is_data_versioned: bool = True) -> p
         'c7': pxt.Json,
     }
     t = pxt.create_table(name, schema, primary_key='c2', _is_data_versioned=is_data_versioned)
-    t.add_computed_column(c8=pxt.array([[1, 2, 3], [4, 5, 6]]))
+    t.add_computed_column(c8=pxt.array([[1, 2, 3], [4, 5, 6]]), stored=True)
 
     num_rows = 100
     d1 = {

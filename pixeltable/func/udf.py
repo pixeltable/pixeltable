@@ -305,8 +305,18 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         sig = Signature.create(py_fn=py_fn, param_types=param_types, return_type=ts.InvalidType())
 
         var_exprs = [exprs.Variable(param.name, param.col_type) for param in sig.parameters.values()]
+        pos_exprs = [
+            var_expr
+            for param, var_expr in zip(sig.parameters.values(), var_exprs)
+            if param.kind != inspect.Parameter.KEYWORD_ONLY
+        ]
+        kw_exprs = {
+            param.name: var_expr
+            for param, var_expr in zip(sig.parameters.values(), var_exprs)
+            if param.kind == inspect.Parameter.KEYWORD_ONLY
+        }
         # call the function with the parameter expressions to construct an Expr with parameters
-        expr = py_fn(*var_exprs)
+        expr = py_fn(*pos_exprs, **kw_exprs)
         assert isinstance(expr, exprs.Expr)
         sig.return_type = expr.col_type
         if function_path is not None:

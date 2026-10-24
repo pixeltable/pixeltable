@@ -42,6 +42,9 @@ class Comparison(Expr):
     def __repr__(self) -> str:
         return f'{self._op1} {self.operator} {self._op2}'
 
+    def default_column_name(self) -> str | None:
+        return self.operator.name.lower()
+
     def _equals(self, other: Comparison) -> bool:
         return self.operator == other.operator
 
