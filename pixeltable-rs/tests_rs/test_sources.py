@@ -86,3 +86,32 @@ class TestFileSources:
         json_path.write_text(json.dumps([{'x': 7, 'y': 't'}]))
         t3 = pxt.create_table('json_src', source=str(json_path))
         assert t3.collect()['x'] == [7]
+
+    def test_parquet(self, tmp_path: Path) -> None:
+        import datetime
+
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        path = tmp_path / 'rows.parquet'
+        table = pa.table(
+            {
+                'i': pa.array([1, 2, None], type=pa.int32()),
+                'f': pa.array([1.5, None, 2.5], type=pa.float64()),
+                's': pa.array(['a', 'b', None]),
+                'd': pa.array([datetime.date(2024, 1, 1), None, datetime.date(2024, 1, 3)]),
+                'st': pa.array([{'x': 1}, None, {'x': 2}]),
+            }
+        )
+        pq.write_table(table, path)
+        t = pxt.create_table('pq_src', source=str(path))
+        types = {name: md['type_'] for name, md in t.get_metadata()['columns'].items()}
+        assert types == {'i': 'Int | None', 'f': 'Float | None', 's': 'String | None', 'd': 'Date | None', 'st': 'Json | None'}
+        res = t.order_by(t.f).collect()
+        assert res['st'] == [{'x': 1}, {'x': 2}, None]
+        t.insert(str(path))
+        assert t.count() == 6
+        with raises(pxt.ErrorCode.INVALID_TYPE, match=r'Could not infer pixeltable type for column\(s\): n'):
+            bad = tmp_path / 'bad.parquet'
+            pq.write_table(pa.table({'n': pa.array([None, None], type=pa.null())}), bad)
+            pxt.create_table('pq_bad', source=str(bad))

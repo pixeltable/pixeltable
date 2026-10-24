@@ -1,6 +1,6 @@
 //! Data sources of `insert()`, `create_table(source=...)` and `compute()` (upstream `TableDataConduit`): lists and
-//! iterators of dicts, sequences of pydantic models, tables/queries, pandas DataFrames, and CSV, Excel and JSON
-//! files (read with pandas and `json`). Python objects are converted to values here, at the boundary; everything
+//! iterators of dicts, sequences of pydantic models, tables/queries, pandas DataFrames, and CSV, Excel, JSON and
+//! Parquet files (read with pandas, `json` and pyarrow). Python objects are converted to values here, at the boundary; everything
 //! after that (computed columns, storage) is in `exec`.
 
 use pyo3::prelude::*;
@@ -24,6 +24,8 @@ pub enum Conduit<'py> {
     Query(QuerySpec),
     /// a pandas DataFrame (a CSV or Excel file is read into one); `overrides`: `schema_overrides` for its columns
     Pandas { df: Bound<'py, PyAny>, overrides: Vec<(String, ColumnType)> },
+    /// a Parquet file, as a `pyarrow.parquet.ParquetDataset`
+    Parquet { ds: Bound<'py, PyAny>, overrides: Vec<(String, ColumnType)> },
 }
 
 fn type_name(obj: &Bound<'_, PyAny>) -> String {
@@ -176,7 +178,11 @@ pub fn classify_with<'py>(
                 Ok(Conduit::Pandas { df: pd.call_method(reader, (path,), extra)?, overrides: Vec::new() })
             }
             "json" => Ok(Conduit::Rows(json_rows(py, &source_file_path(py, source)?, extra)?)),
-            _ => Err(Error::not_implemented("a Parquet file as a data source")),
+            _ => {
+                let path = source_file_path(py, source)?;
+                let ds = py.import("pyarrow.parquet")?.getattr("ParquetDataset")?.call1((path,))?;
+                Ok(Conduit::Parquet { ds, overrides: Vec::new() })
+            }
         };
     }
     let base_model = py.import("pydantic")?.getattr("BaseModel")?;
@@ -414,6 +420,10 @@ pub fn convert_rows(py: Python<'_>, conduit: &Conduit<'_>, plan: &InsertPlan, ch
             let cols = pandas_schema(py, df, overrides, &[])?;
             pandas_rows(py, df, &cols, plan)
         }
+        Conduit::Parquet { ds, overrides } => {
+            let cols = parquet_schema(py, ds, overrides, &[])?;
+            parquet_rows(py, ds, &cols, plan)
+        }
     }
 }
 
@@ -488,34 +498,19 @@ fn normalize_pxt_col_name(name: &str) -> String {
     fold_identifier(&id)
 }
 
-/// Upstream `df_infer_schema()` and `normalize_schema_names()` for a DataFrame: its columns with their types
-/// (`overrides` first) and Pixeltable names (normalized, made unique with a numeric suffix).
-pub fn pandas_schema(
-    py: Python<'_>,
-    df: &Bound<'_, PyAny>,
+/// Upstream `normalize_schema_names()`: the source columns (name, type, None if none could be inferred) with
+/// Pixeltable names (normalized to identifiers, made unique with a numeric suffix).
+fn normalize_source_names(
+    typed: Vec<(String, Option<ColumnType>)>,
     overrides: &[(String, ColumnType)],
     primary_key: &[String],
 ) -> Result<Vec<PdColumn>> {
-    let mut cols: Vec<PdColumn> = Vec::new();
-    let dtypes = df.getattr("dtypes")?;
-    for (src_obj, dtype) in df.getattr("columns")?.try_iter()?.zip(dtypes.try_iter()?) {
-        let (src_obj, dtype) = (src_obj?, dtype?);
-        let src: String = src_obj.str()?.to_string();
-        let col_type = match overrides.iter().find(|(o, _)| *o == src) {
-            Some((_, t)) => t.clone(),
-            None => pandas_column_type(py, df, &src_obj, &dtype, !primary_key.contains(&src))?,
-        };
-        let base = normalize_pxt_col_name(&src);
-        let mut name = base.clone();
-        let mut n = 1;
-        while crate::catalog::runtime::is_reserved_name(&name) || cols.iter().any(|c| c.name == name) {
-            name = format!("{base}_{n}");
-            n += 1;
-        }
-        cols.push(PdColumn { src, name, col_type });
+    let untyped: Vec<&str> = typed.iter().filter(|(_, t)| t.is_none()).map(|(n, _)| n.as_str()).collect();
+    if !untyped.is_empty() {
+        crate::bail!(InvalidType, "Could not infer pixeltable type for column(s): {}", untyped.join(", "));
     }
     let extraneous: Vec<&str> =
-        overrides.iter().filter(|(o, _)| !cols.iter().any(|c| c.src == *o)).map(|(o, _)| o.as_str()).collect();
+        overrides.iter().filter(|(o, _)| !typed.iter().any(|(s, _)| s == o)).map(|(o, _)| o.as_str()).collect();
     if !extraneous.is_empty() {
         crate::bail!(
             UnsupportedOperation,
@@ -523,24 +518,28 @@ pub fn pandas_schema(
             extraneous.join(", ")
         );
     }
+    let mut cols: Vec<PdColumn> = Vec::new();
+    for (src, col_type) in typed {
+        let base = normalize_pxt_col_name(&src);
+        let mut name = base.clone();
+        let mut n = 1;
+        while crate::catalog::runtime::is_reserved_name(&name) || cols.iter().any(|c| c.name == name) {
+            name = format!("{base}_{n}");
+            n += 1;
+        }
+        cols.push(PdColumn { src, name, col_type: col_type.unwrap_or_else(|| ColumnType::invalid(true)) });
+    }
     let missing_pk: Vec<&str> =
         primary_key.iter().filter(|pk| !cols.iter().any(|c| c.src == **pk)).map(|s| s.as_str()).collect();
     if !missing_pk.is_empty() {
         crate::bail!(ColumnNotFound, "Primary key column(s) are not found in the source: {}", missing_pk.join(", "));
     }
-    for pk in primary_key {
-        let series = df.get_item(pk)?;
-        if series.call_method0("count")?.extract::<usize>()? < df.len()? {
-            crate::bail!(UnsupportedOperation, "Primary key column `{pk}` cannot contain null values.");
-        }
-    }
     Ok(cols)
 }
 
-/// Upstream `PandasTableDataConduit.prepare_insert()`: checks that the DataFrame's columns can be inserted into the
-/// table of `plan` and converts its rows (`_df_row_to_pxt_row()`: values by the inferred type of their column, NaN
-/// and NaT as None).
-fn pandas_rows(py: Python<'_>, df: &Bound<'_, PyAny>, cols: &[PdColumn], plan: &InsertPlan) -> Result<Vec<InputRow>> {
+/// Upstream `check_source_columns_are_insertable()`: every source column maps to a non-computed column of the table
+/// of `plan`, and every required column has a source column.
+fn check_insertable(cols: &[PdColumn], plan: &InsertPlan) -> Result<()> {
     let mut seen: Vec<(&str, &str)> = Vec::new();
     for c in cols {
         if let Some((_, prev)) = seen.iter().find(|(n, _)| *n == c.name) {
@@ -566,6 +565,43 @@ fn pandas_rows(py: Python<'_>, df: &Bound<'_, PyAny>, cols: &[PdColumn], plan: &
     if !missing.is_empty() {
         crate::bail!(MissingRequired, "Missing required column(s) ({})", missing.join(", "));
     }
+    Ok(())
+}
+
+/// Upstream `df_infer_schema()` and `normalize_schema_names()` for a DataFrame: its columns with their types
+/// (`overrides` first) and Pixeltable names (normalized, made unique with a numeric suffix).
+pub fn pandas_schema(
+    py: Python<'_>,
+    df: &Bound<'_, PyAny>,
+    overrides: &[(String, ColumnType)],
+    primary_key: &[String],
+) -> Result<Vec<PdColumn>> {
+    let mut typed: Vec<(String, Option<ColumnType>)> = Vec::new();
+    let dtypes = df.getattr("dtypes")?;
+    for (src_obj, dtype) in df.getattr("columns")?.try_iter()?.zip(dtypes.try_iter()?) {
+        let (src_obj, dtype) = (src_obj?, dtype?);
+        let src: String = src_obj.str()?.to_string();
+        let col_type = match overrides.iter().find(|(o, _)| *o == src) {
+            Some((_, t)) => t.clone(),
+            None => pandas_column_type(py, df, &src_obj, &dtype, !primary_key.contains(&src))?,
+        };
+        typed.push((src, Some(col_type)));
+    }
+    let cols = normalize_source_names(typed, overrides, primary_key)?;
+    for pk in primary_key {
+        let series = df.get_item(pk)?;
+        if series.call_method0("count")?.extract::<usize>()? < df.len()? {
+            crate::bail!(UnsupportedOperation, "Primary key column `{pk}` cannot contain null values.");
+        }
+    }
+    Ok(cols)
+}
+
+/// Upstream `PandasTableDataConduit.prepare_insert()`: checks that the DataFrame's columns can be inserted into the
+/// table of `plan` and converts its rows (`_df_row_to_pxt_row()`: values by the inferred type of their column, NaN
+/// and NaT as None).
+fn pandas_rows(py: Python<'_>, df: &Bound<'_, PyAny>, cols: &[PdColumn], plan: &InsertPlan) -> Result<Vec<InputRow>> {
+    check_insertable(cols, plan)?;
     let builtins = py.import("builtins")?;
     let pd = py.import("pandas")?;
     let uuid_cls = py.import("uuid")?.getattr("UUID")?;
@@ -732,4 +768,137 @@ pub fn check_source_names(
 /// `py_tuple` helper for building result rows.
 pub fn tuple<'py>(py: Python<'py>, items: Vec<Bound<'py, PyAny>>) -> PyResult<Bound<'py, PyTuple>> {
     PyTuple::new(py, items)
+}
+
+/// Upstream `utils.arrow.to_pxt_type()`: the type of an Arrow column (None if it has none).
+fn arrow_column_type(py: Python<'_>, t: &Bound<'_, PyAny>, nullable: bool) -> Result<Option<ColumnType>> {
+    use crate::types::TypeKind;
+    let pa = py.import("pyarrow")?;
+    if t.is_instance(&pa.getattr("TimestampType")?)? {
+        return Ok(Some(ColumnType::new(TypeKind::Timestamp, nullable)));
+    }
+    if t.is_instance(&pa.getattr("StructType")?)? {
+        return Ok(Some(ColumnType::json(nullable)));
+    }
+    if t.is_instance(&pa.getattr("FixedShapeTensorType")?)? {
+        let Some(dtype) = arrow_column_type(py, &t.getattr("value_type")?, nullable)? else { return Ok(None) };
+        let Some(dtype) = crate::types::DType::for_scalar(&dtype.kind) else { return Ok(None) };
+        let shape: Vec<Option<u64>> = t.getattr("shape")?.extract::<Vec<u64>>()?.into_iter().map(Some).collect();
+        return Ok(Some(ColumnType::new(TypeKind::Array { shape: Some(shape), dtype: Some(dtype) }, nullable)));
+    }
+    let kinds: [(&str, TypeKind); 18] = [
+        ("string", TypeKind::String),
+        ("large_string", TypeKind::String),
+        ("bool_", TypeKind::Bool),
+        ("int8", TypeKind::Int),
+        ("int16", TypeKind::Int),
+        ("int32", TypeKind::Int),
+        ("int64", TypeKind::Int),
+        ("uint8", TypeKind::Int),
+        ("uint16", TypeKind::Int),
+        ("uint32", TypeKind::Int),
+        ("uint64", TypeKind::Int),
+        ("float32", TypeKind::Float),
+        ("float64", TypeKind::Float),
+        ("date32", TypeKind::Date),
+        ("date64", TypeKind::Date),
+        ("uuid", TypeKind::Uuid),
+        ("binary", TypeKind::Binary),
+        ("large_binary", TypeKind::Invalid),
+    ];
+    for (ctor, kind) in kinds {
+        if matches!(kind, TypeKind::Invalid) || !pa.hasattr(ctor)? {
+            continue;
+        }
+        if t.call_method1("equals", (pa.call_method0(ctor)?,))?.is_truthy()? {
+            return Ok(Some(ColumnType::new(kind, nullable)));
+        }
+    }
+    Ok(None)
+}
+
+/// Upstream `ParquetTableDataConduit`: the columns of a Parquet dataset (`pyarrow.parquet.ParquetDataset`), typed
+/// by their Arrow types (`overrides` first).
+pub fn parquet_schema(
+    py: Python<'_>,
+    ds: &Bound<'_, PyAny>,
+    overrides: &[(String, ColumnType)],
+    primary_key: &[String],
+) -> Result<Vec<PdColumn>> {
+    let mut typed: Vec<(String, Option<ColumnType>)> = Vec::new();
+    for field in ds.getattr("schema")?.try_iter()? {
+        let field = field?;
+        let src: String = field.getattr("name")?.extract()?;
+        let col_type = match overrides.iter().find(|(o, _)| *o == src) {
+            Some((_, t)) => Some(t.clone()),
+            None => arrow_column_type(py, &field.getattr("type")?, !primary_key.contains(&src))?,
+        };
+        typed.push((src, col_type));
+    }
+    normalize_source_names(typed, overrides, primary_key)
+}
+
+/// Upstream `ParquetTableDataConduit.valid_row_batch()`: the rows of a Parquet dataset, each value converted by the
+/// type of the table column it goes to (`utils.arrow._ar_val_to_pxt_val()`).
+fn parquet_rows(py: Python<'_>, ds: &Bound<'_, PyAny>, cols: &[PdColumn], plan: &InsertPlan) -> Result<Vec<InputRow>> {
+    check_insertable(cols, plan)?;
+    let pa = py.import("pyarrow")?;
+    let builtins = py.import("builtins")?;
+    let uuid_cls = py.import("uuid")?.getattr("UUID")?;
+    let tensor_type = pa.getattr("FixedShapeTensorType")?;
+    let mut rows = Vec::new();
+    for fragment in ds.getattr("fragments")?.try_iter()? {
+        for batch in fragment?.call_method0("to_batches")?.try_iter()? {
+            let batch = batch?;
+            // column by column, as Python values (fixed-shape tensors as arrays)
+            let mut columns: Vec<Vec<Bound<'_, PyAny>>> = Vec::with_capacity(cols.len());
+            for k in 0..cols.len() {
+                let mut col = batch.call_method1("column", (k,))?;
+                let values = if col.getattr("type")?.is_instance(&tensor_type)? {
+                    if col.hasattr("combine_chunks")? {
+                        col = col.call_method0("combine_chunks")?;
+                    }
+                    col.call_method0("to_numpy_ndarray")?
+                } else {
+                    col.call_method0("to_pylist")?
+                };
+                columns.push(values.try_iter()?.collect::<PyResult<_>>()?);
+            }
+            let n = columns.first().map_or(0, Vec::len);
+            for i in 0..n {
+                let row = PyDict::new(py);
+                for (c, values) in cols.iter().zip(&columns) {
+                    let val = &values[i];
+                    let t = plan.column(&c.name).map(|x| x.col_type.clone()).unwrap_or_else(|| c.col_type.clone());
+                    let nval = if val.is_none() {
+                        val.clone()
+                    } else if t.is_float() {
+                        builtins.getattr("float")?.call1((val,))?
+                    } else if t.is_int() {
+                        builtins.getattr("int")?.call1((val,))?
+                    } else if t.is_bool() {
+                        builtins.getattr("bool")?.call1((val,))?
+                    } else if t.is_string() {
+                        builtins.getattr("str")?.call1((val,))?
+                    } else if t.is_uuid() && !val.is_instance(&uuid_cls)? {
+                        if val.is_instance_of::<pyo3::types::PyBytes>() {
+                            let kwargs = PyDict::new(py);
+                            kwargs.set_item("bytes", val)?;
+                            uuid_cls.call((), Some(&kwargs))?
+                        } else {
+                            uuid_cls.call1((val,))?
+                        }
+                    } else if (t.is_date() || t.is_timestamp()) && val.is_instance_of::<PyString>() {
+                        let cls = py.import("datetime")?.getattr(if t.is_date() { "date" } else { "datetime" })?;
+                        cls.call_method1("fromisoformat", (val,))?
+                    } else {
+                        val.clone()
+                    };
+                    row.set_item(&c.name, nval)?;
+                }
+                rows.push(convert_row(row.as_any(), plan, false)?);
+            }
+        }
+    }
+    Ok(rows)
 }
