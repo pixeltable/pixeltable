@@ -487,9 +487,12 @@ fn similarity_item<'py>(
 
 /// `col.similarity(...)` (a method of column references).
 #[allow(clippy::too_many_arguments)]
+/// `col.similarity(...)`; `path_tbl_id`: the table the column reference was obtained from (a view for its base's
+/// column), whose path is searched for the index, leaf first (upstream `TablePath.get_idx_md()`).
 pub fn similarity<'py>(
     py: Python<'py>,
     col_expr: &ExprRef,
+    path_tbl_id: Option<uuid::Uuid>,
     item: Option<&Bound<'py, PyAny>>,
     named: &[(&'static str, Option<&Bound<'py, PyAny>>)],
     idx: Option<&str>,
@@ -505,15 +508,26 @@ pub fn similarity<'py>(
         py.import("warnings")?.call_method("warn", (msg, builtins.getattr("DeprecationWarning")?), Some(&kwargs))?;
     }
     let item_expr = similarity_item(py, item, named)?;
-    let (col, idx_md) = with_catalog(py, |cat| -> Result<(ResolvedColumn, crate::catalog::table::IndexMd)> {
+    let (col, idx_tbl_id, idx_md) = with_catalog(py, |cat| -> Result<(ResolvedColumn, uuid::Uuid, crate::catalog::table::IndexMd)> {
         let md = cat.table(c.tbl_id)?;
         let col = md
             .column_by_name(&c.name, c.tbl_version)?
             .filter(|r| r.md.id == c.col_id)
             .or_else(|| md.columns_at(None).ok()?.into_iter().find(|r| r.md.id == c.col_id))
             .ok_or_else(|| crate::pxt_err!(ColumnNotFound, "Unknown column: {}", c.name))?;
-        let idx = cat.embedding_index(c.tbl_id, c.tbl_id, c.col_id, &col.name, idx)?;
-        Ok((col, idx))
+        // the first table of the path with an embedding index on the column (the column's own table if none has)
+        let ctx_tbl = path_tbl_id.unwrap_or(c.tbl_id);
+        let path = cat.base_chain(ctx_tbl);
+        let idx_tbl = path
+            .iter()
+            .copied()
+            .find(|t| {
+                cat.table(*t)
+                    .is_ok_and(|m| m.indexes.list.iter().any(|i| !i.is_btree() && i.col_tbl_id == c.tbl_id && i.col_id == c.col_id))
+            })
+            .unwrap_or(ctx_tbl);
+        let idx = cat.embedding_index(idx_tbl, c.tbl_id, c.col_id, &col.name, idx)?;
+        Ok((col, idx_tbl, idx))
     })?;
     let IndexKind::Embedding { metric, embeddings, val_col_id, .. } = &idx_md.kind else {
         return Err(Error::internal("embedding_index() returned a B-tree index"));
@@ -540,7 +554,7 @@ pub fn similarity<'py>(
         col: col_expr.clone(),
         item: item_expr,
         idx_name: idx_md.name.clone(),
-        idx_tbl_id: c.tbl_id,
+        idx_tbl_id,
         val_col_id: *val_col_id,
         metric: metric.clone(),
         item_embedding,
