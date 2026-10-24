@@ -108,14 +108,47 @@ pub fn build_rows(plan: &InsertPlan, inputs: Vec<InputRow>, fail_on_exception: b
     let mut stats = RowCountStats::default();
     let mut cols_with_excs = Vec::new();
     let mut rows = Vec::with_capacity(inputs.len());
+    let has_windows = computed.iter().any(|c| super::query::has_window_calls(&c.expr));
     for input in inputs {
         let mut row = StoredRow { rowid: 0, v_min: 0, v_max: LIVE, cells: Vec::new(), errors: Vec::new() };
         for (col_id, v) in input {
             row.set_cell(col_id, v);
         }
-        eval_computed(&mut row, &computed, fail_on_exception, &mut stats, &mut cols_with_excs)?;
+        if !has_windows {
+            eval_computed(&mut row, &computed, fail_on_exception, &mut stats, &mut cols_with_excs)?;
+        }
         stats.ins_rows += 1;
         rows.push(row);
+    }
+    if has_windows {
+        // column by column: a column with window functions is evaluated over the whole batch in window order
+        for col in &computed {
+            if super::query::has_window_calls(&col.expr) {
+                let refs: Vec<&StoredRow> = rows.iter().collect();
+                let results = super::query::eval_rows_with_windows(&refs, &col.expr)?;
+                for (row, res) in rows.iter_mut().zip(results) {
+                    stats.computed_values += 1;
+                    match res {
+                        Ok(v) => row.set_cell(col.col_id, v),
+                        Err(err) => {
+                            if fail_on_exception {
+                                return Err(super::compute::eval_error(&col.expr, err));
+                            }
+                            stats.num_excs += 1;
+                            if !cols_with_excs.contains(&col.name) {
+                                cols_with_excs.push(col.name.clone());
+                            }
+                            row.set_cell(col.col_id, Value::Null);
+                            row.set_error(col.col_id, Some(super::compute::cell_error(&err)));
+                        }
+                    }
+                }
+            } else {
+                for row in rows.iter_mut() {
+                    eval_computed(row, std::slice::from_ref(col), fail_on_exception, &mut stats, &mut cols_with_excs)?;
+                }
+            }
+        }
     }
     Ok(BuiltRows { rows, stats, cols_with_excs })
 }

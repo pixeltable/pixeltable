@@ -77,7 +77,7 @@ fn one_us(py: Python<'_>) -> PyResult<&Bound<'_, PyAny>> {
 }
 
 /// The name of the default time zone: `PIXELTABLE_TIME_ZONE`, then `TZ`, then the system zone, else UTC.
-fn default_tz_name() -> String {
+pub fn default_tz_name() -> String {
     for var in ["PIXELTABLE_TIME_ZONE", "TZ"] {
         if let Ok(v) = std::env::var(var) {
             let v = v.trim_start_matches(':').to_string();

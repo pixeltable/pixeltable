@@ -101,6 +101,9 @@ pub enum Error {
     Value(String),
     /// Python `NotImplementedError`: API that exists but is not implemented yet.
     NotImplemented(String),
+    /// Another Python builtin exception (by class name, e.g. `ZeroDivisionError`), for failures of builtin
+    /// functions and operators that upstream reports as the exception Python raises.
+    PyExc(&'static str, String),
     /// An exception raised by Python code that the backend called; re-raised unchanged.
     Python(PyErr),
 }
@@ -114,6 +117,10 @@ impl Error {
 
     pub fn internal(message: impl Into<String>) -> Self {
         Error::new(ErrorCode::InternalError, message)
+    }
+
+    pub fn py_exc(class_name: &'static str, message: impl Into<String>) -> Self {
+        Error::PyExc(class_name, message.into())
     }
 
     pub fn not_implemented(what: impl fmt::Display) -> Self {
@@ -151,6 +158,7 @@ impl Error {
             Error::Attribute(_) => "AttributeError".to_string(),
             Error::Value(_) => "ValueError".to_string(),
             Error::NotImplemented(_) => "NotImplementedError".to_string(),
+            Error::PyExc(name, _) => name.to_string(),
             Error::Python(e) => Python::attach(|py| {
                 e.get_type(py).name().map(|n| n.to_string()).unwrap_or_else(|_| "Exception".to_string())
             }),
@@ -163,8 +171,9 @@ impl Error {
             | Error::Type(message)
             | Error::Attribute(message)
             | Error::Value(message)
-            | Error::NotImplemented(message) => message.clone(),
-            Error::Python(e) => e.to_string(),
+            | Error::NotImplemented(message)
+            | Error::PyExc(_, message) => message.clone(),
+            Error::Python(e) => Python::attach(|py| e.value(py).str().map(|s| s.to_string()).unwrap_or_default()),
         }
     }
 }
@@ -227,6 +236,12 @@ impl From<Error> for PyErr {
             Error::Attribute(m) => PyAttributeError::new_err(m),
             Error::Value(m) => PyValueError::new_err(m),
             Error::NotImplemented(m) => PyNotImplementedError::new_err(m),
+            Error::PyExc(name, m) => Python::attach(|py| {
+                match py.import("builtins").and_then(|b| b.getattr(name)).and_then(|cls| cls.call1((m.clone(),))) {
+                    Ok(exc) => PyErr::from_value(exc),
+                    Err(e) => e,
+                }
+            }),
             Error::Python(e) => e,
         }
     }

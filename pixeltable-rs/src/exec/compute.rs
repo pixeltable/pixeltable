@@ -153,6 +153,31 @@ impl AddComputedPlan {
             return Ok(out);
         }
         let col = ComputedCol { col_id: self.eval_col_id, name: self.spec.name.clone(), expr: self.expr.clone() };
+        if super::query::has_window_calls(&self.expr) {
+            // window functions are evaluated over all live rows in window order
+            let live: Vec<(usize, &StoredRow)> =
+                self.data.rows.iter().enumerate().filter(|(_, r)| r.v_max == crate::store::rows::LIVE).collect();
+            let rows: Vec<&StoredRow> = live.iter().map(|(_, r)| *r).collect();
+            let results = super::query::eval_rows_with_windows(&rows, &self.expr)?;
+            for ((i, _), res) in live.iter().zip(results) {
+                stats.upd_rows += 1;
+                stats.computed_values += 1;
+                match res {
+                    Ok(v) => out.push((*i, v, None)),
+                    Err(err) => {
+                        if fail_on_exception {
+                            return Err(eval_error(&self.expr, err));
+                        }
+                        stats.num_excs += 1;
+                        if !cols_with_excs.contains(&col.name) {
+                            cols_with_excs.push(col.name.clone());
+                        }
+                        out.push((*i, Value::Null, Some(cell_error(&err))));
+                    }
+                }
+            }
+            return Ok(out);
+        }
         for (i, r) in self.data.rows.iter().enumerate() {
             if r.v_max != crate::store::rows::LIVE {
                 continue;

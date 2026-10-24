@@ -13,16 +13,243 @@ use crate::value::{Json, cmp_values, values_equal};
 /// Supplies column values for the row being evaluated.
 pub trait RowContext {
     fn column_value(&self, col: &ColumnRef) -> Result<Value>;
+
+    /// The element a JSON mapper currently binds its relative root `id` to.
+    fn relative_root(&self, _id: u64) -> Option<Value> {
+        None
+    }
+
+    /// A value computed outside of row evaluation (aggregate and window function results), keyed by node.
+    fn precomputed(&self, _e: &Expr) -> Option<Value> {
+        None
+    }
+
+    /// True in queries, where upstream evaluates SQL-expressible arithmetic in SQL (division by zero yields NULL
+    /// there); false when evaluating computed columns (Python semantics: ZeroDivisionError).
+    fn sql_semantics(&self) -> bool {
+        false
+    }
+}
+
+/// A context that binds a mapper's relative root to one element and delegates everything else.
+struct ScopedCtx<'a> {
+    parent: &'a dyn RowContext,
+    root_id: u64,
+    value: Value,
+}
+
+impl RowContext for ScopedCtx<'_> {
+    fn column_value(&self, col: &ColumnRef) -> Result<Value> {
+        self.parent.column_value(col)
+    }
+    fn relative_root(&self, id: u64) -> Option<Value> {
+        if id == self.root_id { Some(self.value.clone()) } else { self.parent.relative_root(id) }
+    }
+    fn precomputed(&self, e: &Expr) -> Option<Value> {
+        self.parent.precomputed(e)
+    }
+    fn sql_semantics(&self) -> bool {
+        self.parent.sql_semantics()
+    }
+}
+
+/// A JSON value as the value of an expression of type `t` (scalar types unwrap the JSON scalar).
+pub fn json_as(j: Json, t: &ColumnType) -> Value {
+    match j {
+        Json::Null => Value::Null,
+        j if t.is_json() => Value::Json(j),
+        j => Value::Json(j).json_scalar(),
+    }
+}
+
+/// Upstream `JsonPath._eval_path()`: a wildcard or slice projects the rest of the path over each element (one
+/// result per element, null where it does not resolve).
+fn eval_json_path(v: &Json, path: &[JsonPathElem]) -> Json {
+    let mut cur = v;
+    for (i, el) in path.iter().enumerate() {
+        match el {
+            JsonPathElem::Wildcard | JsonPathElem::Slice(..) => {
+                let Json::Array(items) = cur else { return Json::Null };
+                let selected: Vec<Json> = match el {
+                    JsonPathElem::Slice(a, b, c) => crate::functions::string::py_slice(items, *a, *b, *c).unwrap_or_default(),
+                    _ => items.clone(),
+                };
+                return Json::Array(selected.iter().map(|x| eval_json_path(x, &path[i + 1..])).collect());
+            }
+            JsonPathElem::Index(idx) => match cur {
+                Json::Array(items) => {
+                    let n = items.len() as i64;
+                    if -n <= *idx && *idx < n {
+                        cur = &items[(if *idx < 0 { idx + n } else { *idx }) as usize];
+                    } else {
+                        return Json::Null;
+                    }
+                }
+                _ => return Json::Null,
+            },
+            JsonPathElem::Key(k) => match cur {
+                Json::Object(m) => match m.get(k) {
+                    Some(x) => cur = x,
+                    None => return Json::Null,
+                },
+                _ => return Json::Null,
+            },
+        }
+    }
+    cur.clone()
+}
+
+/// Python truthiness of a value.
+pub fn py_truthy(v: &Value) -> bool {
+    match v {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Int(i) => *i != 0,
+        Value::Float(f) => *f != 0.0,
+        Value::String(s) | Value::Media(s) => !s.is_empty(),
+        Value::Json(j) => match j {
+            Json::Null => false,
+            Json::Bool(b) => *b,
+            Json::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
+            Json::String(s) => !s.is_empty(),
+            Json::Array(a) => !a.is_empty(),
+            Json::Object(m) => !m.is_empty(),
+        },
+        Value::Binary(b) => !b.is_empty(),
+        _ => true,
+    }
+}
+
+/// Python's ordering of two values (sort keys); None where Python raises TypeError.
+pub fn py_cmp_values(a: &Value, b: &Value) -> Option<Ordering> {
+    use crate::value::{py_cmp_json, value_to_json};
+    match (a, b) {
+        (Value::Null, _) | (_, Value::Null) => None,
+        (Value::Timestamp(x), Value::Timestamp(y)) => Some(x.cmp(y)),
+        (Value::Date(x), Value::Date(y)) => Some(x.cmp(y)),
+        (Value::Uuid(x), Value::Uuid(y)) => Some(x.cmp(y)),
+        (Value::Binary(x), Value::Binary(y)) => Some(x.cmp(y)),
+        _ => py_cmp_json(&value_to_json(a).ok()?, &value_to_json(b).ok()?),
+    }
+}
+
+fn eval_mapper(op: MapperOp, asc: bool, src: &Expr, target: &Expr, root_id: u64, ctx: &dyn RowContext) -> Result<Value> {
+    let items = match eval(src, ctx)? {
+        Value::Json(Json::Array(items)) => items,
+        _ => return Ok(Value::Null),
+    };
+    let root_type = root_type_of(target, root_id).unwrap_or_else(|| ColumnType::json(true));
+    let mut targets: Vec<Value> = Vec::with_capacity(items.len());
+    for it in &items {
+        let scoped = ScopedCtx { parent: ctx, root_id, value: json_as(it.clone(), &root_type) };
+        targets.push(eval(target, &scoped)?);
+    }
+    Ok(Value::Json(match op {
+        MapperOp::Map => Json::Array(targets.iter().map(crate::value::value_to_json).collect::<Result<_>>()?),
+        MapperOp::Filter => Json::Array(items.into_iter().zip(targets.iter()).filter(|(_, t)| py_truthy(t)).map(|(i, _)| i).collect()),
+        MapperOp::Sort => {
+            let mut keyed: Vec<(Value, Json)> = targets.into_iter().zip(items).collect();
+            let mut ok = true;
+            keyed.sort_by(|(a, _), (b, _)| {
+                let ord = py_cmp_values(a, b).unwrap_or_else(|| {
+                    ok = false;
+                    Ordering::Equal
+                });
+                if asc { ord } else { ord.reverse() }
+            });
+            if !ok && keyed.len() > 1 {
+                crate::bail!(
+                    InvalidArgument,
+                    "sort(): the sort keys are not orderable (e.g. a mix of incompatible types or a null value)"
+                );
+            }
+            Json::Array(keyed.into_iter().map(|(_, j)| j).collect())
+        }
+    }))
+}
+
+/// The type of the relative root `id` within `e` (the root node's own type).
+fn root_type_of(e: &Expr, id: u64) -> Option<ColumnType> {
+    let mut found = None;
+    e.visit(&mut |x| {
+        if let ExprKind::RelativeRoot { id: rid } = &x.kind {
+            if *rid == id && found.is_none() {
+                found = Some(x.col_type.clone());
+            }
+        }
+    });
+    found
+}
+
+/// numpy basic indexing (ints and slices); an int drops its dimension.
+pub fn eval_array_index(a: &crate::value::NdArray, index: &[crate::types::ArrayIndex]) -> Result<Value> {
+    use crate::types::ArrayIndex;
+    let shape = &a.shape;
+    if index.len() > shape.len() {
+        return Err(Error::py_exc(
+            "IndexError",
+            format!("too many indices for array: array is {}-dimensional, but {} were indexed", shape.len(), index.len()),
+        ));
+    }
+    // per dimension: the selected positions, and whether the dimension is kept
+    let mut dims: Vec<(Vec<usize>, bool)> = Vec::with_capacity(shape.len());
+    for (axis, &n) in shape.iter().enumerate() {
+        match index.get(axis) {
+            Some(ArrayIndex::Int(i)) => {
+                let ni = n as i64;
+                if !(-ni <= *i && *i < ni) {
+                    return Err(Error::py_exc("IndexError", format!("index {i} is out of bounds for axis {axis} with size {n}")));
+                }
+                dims.push((vec![(if *i < 0 { i + ni } else { *i }) as usize], false));
+            }
+            Some(ArrayIndex::Slice(st, en, step)) => {
+                let all: Vec<usize> = (0..n).collect();
+                dims.push((crate::functions::string::py_slice(&all, *st, *en, *step)?, true));
+            }
+            None => dims.push(((0..n).collect(), true)),
+        }
+    }
+    let mut strides = vec![1usize; shape.len()];
+    for k in (0..shape.len().saturating_sub(1)).rev() {
+        strides[k] = strides[k + 1] * shape[k + 1];
+    }
+    let mut flat: Vec<usize> = vec![0];
+    for (k, (positions, _)) in dims.iter().enumerate() {
+        let mut next = Vec::with_capacity(flat.len() * positions.len());
+        for base in &flat {
+            for p in positions {
+                next.push(base + p * strides[k]);
+            }
+        }
+        flat = next;
+    }
+    let out_shape: Vec<usize> = dims.iter().filter(|(_, keep)| *keep).map(|(p, _)| p.len()).collect();
+    if out_shape.is_empty() {
+        return Ok(a.element(flat[0]));
+    }
+    Ok(Value::Array(std::sync::Arc::new(a.gather(&flat, out_shape))))
 }
 
 pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
+    if let Some(v) = ctx.precomputed(e) {
+        return Ok(v);
+    }
     match &e.kind {
         ExprKind::ColumnRef(c) => ctx.column_value(c),
         ExprKind::Literal(v) => Ok(v.clone()),
         ExprKind::Arithmetic { op, lhs, rhs } => {
             let a = eval(lhs, ctx)?;
             let b = eval(rhs, ctx)?;
-            arithmetic(*op, &a, &b, lhs.col_type.is_json(), rhs.col_type.is_json(), &e.col_type)
+            match arithmetic(*op, &a, &b, lhs.col_type.is_json(), rhs.col_type.is_json(), &e.col_type) {
+                Err(Error::PyExc("ZeroDivisionError", _))
+                    if ctx.sql_semantics()
+                        && crate::exec::query::is_sql_expr(lhs, &Default::default())
+                        && crate::exec::query::is_sql_expr(rhs, &Default::default()) =>
+                {
+                    Ok(Value::Null)
+                }
+                r => r,
+            }
         }
         ExprKind::StringOp { op, lhs, rhs } => {
             let a = eval(lhs, ctx)?;
@@ -84,14 +311,20 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
         ExprKind::InExpr { lhs, rhs } => {
             let v = eval(lhs, ctx)?;
             let set = eval(rhs, ctx)?;
-            if v.is_null() || set.is_null() {
-                return Ok(Value::Null);
-            }
+            // upstream `InPredicate._normalize_value_set()`: the value set must be an iterable
             let items: Vec<Value> = match &set {
                 Value::Json(Json::Array(a)) => a.iter().map(|j| Value::Json(j.clone()).json_scalar()).collect(),
                 Value::Json(Json::Object(m)) => m.keys().map(|k| Value::String(k.clone())).collect(),
-                other => vec![other.json_scalar()],
+                Value::Json(Json::String(s)) | Value::String(s) => s.chars().map(|c| Value::String(c.to_string())).collect(),
+                other => crate::bail!(
+                    InvalidArgument,
+                    "isin(): argument must be an Iterable (eg, list, dict, ...), not {}",
+                    crate::value::py_repr_value(&other.json_scalar())
+                ),
             };
+            if v.is_null() {
+                return Ok(Value::Bool(false));
+            }
             Ok(Value::Bool(items.iter().any(|x| values_equal(&v, x))))
         }
         ExprKind::TypeCast(x) => crate::value::cast_value(eval(x, ctx)?, &e.col_type),
@@ -110,14 +343,25 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
             let vals = items.iter().map(|i| eval(i, ctx)).collect::<Result<Vec<_>>>()?;
             super::build::array_from_values(&vals, &e.col_type)
         }
-        ExprKind::JsonPath { .. } | ExprKind::ArraySlice { .. } => {
-            Err(Error::not_implemented(format!("evaluation of `{}`", super::display::display(e))))
+        ExprKind::JsonPath { base, path } => match eval(base, ctx)? {
+            Value::Null => Ok(Value::Null),
+            Value::Json(j) => Ok(json_as(eval_json_path(&j, path), &e.col_type)),
+            other => Ok(json_as(eval_json_path(&crate::value::value_to_json(&other)?, path), &e.col_type)),
+        },
+        ExprKind::RelativeRoot { id } => {
+            ctx.relative_root(*id).ok_or_else(|| Error::internal("relative JSON path evaluated outside of its mapper"))
         }
+        ExprKind::JsonMapper { op, asc, src, target, root_id } => eval_mapper(*op, *asc, src, target, *root_id, ctx),
+        ExprKind::ArraySlice { base, index } => match eval(base, ctx)? {
+            Value::Null => Ok(Value::Null),
+            Value::Array(a) => eval_array_index(&a, index),
+            other => Err(Error::internal(format!("array index applied to a {}", other.py_type_name()))),
+        },
         ExprKind::FunctionCall(fc) => {
             let args: Vec<Value> = fc.args.iter().map(|a| eval(a, ctx)).collect::<Result<_>>()?;
             let kwargs: Vec<(String, Value)> =
                 fc.kwargs.iter().map(|(k, a)| Ok((k.clone(), eval(a, ctx)?))).collect::<Result<_>>()?;
-            fc.func.call(&args, &kwargs, &e.col_type)
+            fc.func.call(args, kwargs, &e.col_type)
         }
     }
 }
@@ -169,7 +413,12 @@ pub fn arithmetic(op: ArithOp, a: &Value, b: &Value, a_json: bool, b_json: bool,
         return Ok(Value::Null);
     }
     let overflow = || crate::pxt_err!(UnsupportedOperation, "integer out of range in `{}`", op.symbol());
-    if let (Value::Int(x), Value::Int(y), true) = (&a, &b, result_type.is_int()) {
+    // int operands keep int semantics when the result is an Int, and for JSON operands (evaluated like Python)
+    let int_semantics = match (&a, &b) {
+        (Value::Int(_), Value::Int(y)) => (result_type.is_int() || a_json || b_json) && !(op == ArithOp::Pow && *y < 0),
+        _ => false,
+    };
+    if let (Value::Int(x), Value::Int(y), true) = (&a, &b, int_semantics) {
         let (x, y) = (*x, *y);
         return Ok(match op {
             ArithOp::Add => Value::Int(x.checked_add(y).ok_or_else(overflow)?),
@@ -177,17 +426,17 @@ pub fn arithmetic(op: ArithOp, a: &Value, b: &Value, a_json: bool, b_json: bool,
             ArithOp::Mul => Value::Int(x.checked_mul(y).ok_or_else(overflow)?),
             ArithOp::Mod => {
                 if y == 0 {
-                    Value::Null
-                } else {
-                    Value::Int(x.checked_rem(y).ok_or_else(overflow)?)
+                    return Err(Error::py_exc("ZeroDivisionError", "integer modulo by zero"));
                 }
+                // Python modulo: the result has the sign of the divisor
+                let r = x.checked_rem(y).ok_or_else(overflow)?;
+                Value::Int(if r != 0 && ((r < 0) != (y < 0)) { r + y } else { r })
             }
             ArithOp::FloorDiv => {
                 if y == 0 {
-                    Value::Null
-                } else {
-                    Value::Int(floor_div_i64(x, y))
+                    return Err(Error::py_exc("ZeroDivisionError", "integer division or modulo by zero"));
                 }
+                Value::Int(floor_div_i64(x, y))
             }
             ArithOp::Pow => {
                 let exp = u32::try_from(y).map_err(|_| overflow())?;
@@ -195,13 +444,13 @@ pub fn arithmetic(op: ArithOp, a: &Value, b: &Value, a_json: bool, b_json: bool,
             }
             ArithOp::Div => {
                 if y == 0 {
-                    Value::Null
-                } else {
-                    Value::Float(x as f64 / y as f64)
+                    return Err(Error::py_exc("ZeroDivisionError", "division by zero"));
                 }
+                Value::Float(x as f64 / y as f64)
             }
         });
     }
+    let a_float = matches!(a, Value::Float(_)) || matches!(b, Value::Float(_));
     let (x, y) = (a.as_f64().unwrap_or(f64::NAN), b.as_f64().unwrap_or(f64::NAN));
     Ok(match op {
         ArithOp::Add => Value::Float(x + y),
@@ -209,14 +458,14 @@ pub fn arithmetic(op: ArithOp, a: &Value, b: &Value, a_json: bool, b_json: bool,
         ArithOp::Mul => Value::Float(x * y),
         ArithOp::Div => {
             if y == 0.0 {
-                Value::Null
-            } else {
-                Value::Float(x / y)
+                let msg = if a_float { "float division by zero" } else { "division by zero" };
+                return Err(Error::py_exc("ZeroDivisionError", msg));
             }
+            Value::Float(x / y)
         }
         ArithOp::Mod => {
             if y == 0.0 {
-                Value::Null
+                return Err(Error::py_exc("ZeroDivisionError", if a_float { "float modulo by zero" } else { "integer modulo by zero" }));
             } else {
                 // Python float modulo: the result has the sign of the divisor
                 let r = x % y;
@@ -225,10 +474,10 @@ pub fn arithmetic(op: ArithOp, a: &Value, b: &Value, a_json: bool, b_json: bool,
         }
         ArithOp::FloorDiv => {
             if y == 0.0 {
-                Value::Null
-            } else {
-                Value::Float((x / y).floor())
+                let msg = if a_float { "float floor division by zero" } else { "integer division or modulo by zero" };
+                return Err(Error::py_exc("ZeroDivisionError", msg));
             }
+            Value::Float((x / y).floor())
         }
         ArithOp::Pow => Value::Float(x.powf(y)),
     })

@@ -15,6 +15,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<types::PyColumnType>()?;
     m.add_class::<expr::PyExpr>()?;
     m.add_class::<expr::PyMethodRef>()?;
+    m.add_class::<expr::PyMapperRef>()?;
     m.add_class::<query::PyCursor>()?;
     m.add_class::<query::PyQuerySpec>()?;
     m.add_class::<query::PyResultSet>()?;
@@ -23,6 +24,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(expr::array, m)?)?;
     m.add_function(wrap_pyfunction!(expr::call_builtin, m)?)?;
     m.add_function(wrap_pyfunction!(expr::builtin_names, m)?)?;
+    m.add_function(wrap_pyfunction!(expr::json_mapper, m)?)?;
+    m.add_function(wrap_pyfunction!(expr::cast, m)?)?;
 
     m.add_function(wrap_pyfunction!(catalog::init, m)?)?;
     m.add_function(wrap_pyfunction!(catalog::home, m)?)?;

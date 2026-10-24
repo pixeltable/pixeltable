@@ -1,34 +1,10 @@
 //! `pixeltable.functions.math`
 
-use super::{Builtin, expect_arg};
+use super::{Args, Builtin};
 use crate::error::{Error, Result};
-use crate::types::ColumnType;
 use crate::value::Value;
 
-const MODULE: &str = "pixeltable.functions.math";
-
-fn numeric_to_float(name: &'static str) -> impl Fn(&[ColumnType]) -> Result<ColumnType> {
-    move |args: &[ColumnType]| {
-        let t = args.first().ok_or_else(|| Error::internal("missing argument"))?;
-        expect_arg(name, "self", t, t.is_numeric(), "Float")?;
-        Ok(ColumnType::float(false))
-    }
-}
-
-fn abs_type(args: &[ColumnType]) -> Result<ColumnType> {
-    numeric_to_float("abs")(args)
-}
-
-fn round_type(args: &[ColumnType]) -> Result<ColumnType> {
-    if let Some(d) = args.get(1) {
-        expect_arg("round", "digits", d, d.is_int(), "Int")?;
-    }
-    numeric_to_float("round")(args)
-}
-
-fn float_arg(args: &[Value]) -> Result<f64> {
-    args.first().and_then(Value::as_f64).ok_or_else(|| Error::internal("expected a numeric argument"))
-}
+pub const MODULE: &str = "pixeltable.functions.math";
 
 /// Python's `round(x, digits)` for floats (round half to even on the exact binary value).
 pub fn py_round(x: f64, digits: i64) -> f64 {
@@ -44,28 +20,63 @@ pub fn py_round(x: f64, digits: i64) -> f64 {
     }
 }
 
+fn f(x: f64) -> Result<Value> {
+    Ok(Value::Float(x))
+}
+
+fn math_domain() -> Error {
+    Error::py_exc("ValueError", "math domain error")
+}
+
 pub static FUNCTIONS: &[Builtin] = &[
-    Builtin {
-        name: "abs",
-        module: MODULE,
-        params: &["self"],
-        required: 1,
-        strict: true,
-        return_type: abs_type,
-        eval: |args| Ok(Value::Float(float_arg(args)?.abs())),
-    },
-    Builtin {
-        name: "round",
-        module: MODULE,
-        params: &["self", "digits"],
-        required: 1,
-        strict: true,
-        return_type: round_type,
-        eval: |args| {
-            let digits = args.get(1).and_then(Value::as_i64).unwrap_or(0);
-            Ok(Value::Float(py_round(float_arg(args)?, digits)))
-        },
-    },
+    Builtin::new("abs", "(self: Float) -> Float", |a| f(a.float(0)?.abs())).method().sql(),
+    Builtin::new("ceil", "(self: Float) -> Float", |a| f(a.float(0)?.ceil())).method().sql(),
+    Builtin::new("floor", "(self: Float) -> Float", |a| f(a.float(0)?.floor())).method().sql(),
+    Builtin::new("round", "(self: Float, digits: Int | None = None) -> Float", |a: &Args<'_>| {
+        let x = a.float(0)?;
+        f(match a.opt_int(1)? {
+            None => x.round_ties_even(),
+            Some(d) => py_round(x, d),
+        })
+    })
+    .method()
+    .sql(),
+    Builtin::new("pow", "(self: Float, other: Float) -> Float", |a| f(a.float(0)?.powf(a.float(1)?))).method().sql(),
+    Builtin::new("sqrt", "(self: Float) -> Float", |a| {
+        let x = a.float(0)?;
+        if x < 0.0 { Err(math_domain()) } else { f(x.sqrt()) }
+    })
+    .method()
+    .sql(),
+    Builtin::new("exp", "(self: Float) -> Float", |a| f(a.float(0)?.exp())).method().sql(),
+    Builtin::new("log", "(self: Float) -> Float", |a| {
+        let x = a.float(0)?;
+        if x <= 0.0 { Err(math_domain()) } else { f(x.ln()) }
+    })
+    .method()
+    .sql(),
+    Builtin::new("log10", "(self: Float) -> Float", |a| {
+        let x = a.float(0)?;
+        if x <= 0.0 { Err(math_domain()) } else { f(x.log10()) }
+    })
+    .method()
+    .sql(),
+    Builtin::new("bitwise_and", "(self: Int, other: Int) -> Int", |a| Ok(Value::Int(a.int(0)? & a.int(1)?))).method().sql(),
+    Builtin::new("bitwise_or", "(self: Int, other: Int) -> Int", |a| Ok(Value::Int(a.int(0)? | a.int(1)?))).method().sql(),
+    Builtin::new("bitwise_xor", "(self: Int, other: Int) -> Int", |a| Ok(Value::Int(a.int(0)? ^ a.int(1)?))).method().sql(),
+    Builtin::new("to_int", "(self: Float) -> Int", |a| {
+        let x = a.float(0)?;
+        if !x.is_finite() {
+            return Err(Error::py_exc(
+                if x.is_nan() { "ValueError" } else { "OverflowError" },
+                if x.is_nan() { "cannot convert float NaN to integer" } else { "cannot convert float infinity to integer" },
+            ));
+        }
+        Ok(Value::Int(x.trunc() as i64))
+    })
+    .method()
+    .sql(),
+    Builtin::new("to_float", "(self: Int) -> Float", |a| f(a.float(0)?)).method().sql(),
 ];
 
 #[cfg(test)]

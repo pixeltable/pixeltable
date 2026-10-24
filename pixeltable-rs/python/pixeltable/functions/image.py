@@ -8,7 +8,6 @@ from pixeltable._unimplemented import unimplemented_class as _cls
 
 Tile = _cls(__name__, 'Tile')
 tile_iterator = _cls(__name__, 'tile_iterator')
-stitch_tiles = _cls(__name__, 'stitch_tiles')
 b64_encode = _fn(__name__, 'b64_encode')
 alpha_composite = _fn(__name__, 'alpha_composite')
 blend = _fn(__name__, 'blend')
@@ -38,4 +37,5 @@ width = _fn(__name__, 'width')
 height = _fn(__name__, 'height')
 mode = _fn(__name__, 'mode')
 size = _fn(__name__, 'size')
+stitch_tiles = _fn(__name__, 'stitch_tiles')
 to_video = _fn(__name__, 'to_video')

@@ -41,24 +41,22 @@ pub fn display(e: &Expr) -> String {
             items.iter().map(|(k, v)| format!("'{}': {}", k, display(v))).collect::<Vec<_>>().join(", ")
         ),
         ExprKind::JsonPath { base, path } => {
-            let mut s = display(base);
-            for el in path {
-                match el {
-                    JsonPathElem::Key(k) => {
-                        if crate::catalog::path::is_valid_identifier(k, false) {
-                            s.push('.');
-                            s.push_str(k);
-                        } else {
-                            s.push_str(&format!("[{}]", py_repr(k)));
-                        }
-                    }
-                    JsonPathElem::Index(i) => s.push_str(&format!("[{i}]")),
-                    JsonPathElem::Slice(a, b, c) => s.push_str(&format!("[{}]", slice_str(*a, *b, *c))),
-                    JsonPathElem::Wildcard => s.push_str("[*]"),
-                }
+            let anchor = display(base);
+            if path.is_empty() {
+                return anchor;
             }
-            s
+            let sep = if matches!(path.first(), Some(JsonPathElem::Key(_))) { "." } else { "" };
+            format!("{anchor}{sep}{}", json_path_str(path))
         }
+        ExprKind::RelativeRoot { .. } => "R".to_string(),
+        ExprKind::JsonMapper { op, asc, src, target, .. } => match op {
+            MapperOp::Map => format!("{}.map(lambda R: {})", display(src), display(target)),
+            MapperOp::Filter => format!("{}.filter(lambda R: {})", display(src), display(target)),
+            MapperOp::Sort => {
+                let asc_repr = if *asc { "" } else { ", asc=False" };
+                format!("{}.sort(lambda R: {}{asc_repr})", display(src), display(target))
+            }
+        },
         ExprKind::ArraySlice { base, index } => {
             let parts: Vec<String> = index
                 .iter()
@@ -70,11 +68,54 @@ pub fn display(e: &Expr) -> String {
             format!("{}[{}]", display(base), parts.join(", "))
         }
         ExprKind::FunctionCall(fc) => {
-            let mut args: Vec<String> = fc.args.iter().map(|a| display(a)).collect();
+            let skip = if fc.is_method_call { 1 } else { 0 };
+            let mut args: Vec<String> = fc.args.iter().skip(skip).map(|a| display(a)).collect();
             args.extend(fc.kwargs.iter().map(|(k, v)| format!("{k}={}", display(v))));
-            format!("{}({})", fc.func.name(), args.join(", "))
+            if !fc.order_by.is_empty() {
+                let ob = print_list(&fc.order_by);
+                let requires = matches!(&fc.func, crate::functions::FuncRef::Agg(a) if a.requires_order_by());
+                if requires {
+                    args.insert(0, ob);
+                } else {
+                    args.push(format!("order_by={ob}"));
+                }
+            }
+            if !fc.group_by.is_empty() {
+                args.push(format!("group_by={}", print_list(&fc.group_by)));
+            }
+            match (fc.is_method_call, fc.args.first()) {
+                (true, Some(first)) => format!("{}.{}({})", display(first), fc.func.name(), args.join(", ")),
+                _ => format!("{}({})", fc.func.name(), args.join(", ")),
+            }
         }
     }
+}
+
+/// Upstream `Expr.print_list()`.
+fn print_list(items: &[ExprRef]) -> String {
+    if items.len() == 1 {
+        return display(&items[0]);
+    }
+    format!("({})", items.iter().map(|e| display(e)).collect::<Vec<_>>().join(", "))
+}
+
+/// The path part of a JSON path's display (upstream `JsonPath._json_path()`).
+pub fn json_path_str(path: &[JsonPathElem]) -> String {
+    let mut out = String::new();
+    for (i, el) in path.iter().enumerate() {
+        match el {
+            JsonPathElem::Wildcard => out.push_str("[*]"),
+            JsonPathElem::Key(k) => {
+                if i > 0 {
+                    out.push('.');
+                }
+                out.push_str(k);
+            }
+            JsonPathElem::Index(n) => out.push_str(&format!("[{n}]")),
+            JsonPathElem::Slice(a, b, c) => out.push_str(&format!("[{}]", slice_str(*a, *b, *c))),
+        }
+    }
+    out
 }
 
 fn slice_str(a: Option<i64>, b: Option<i64>, c: Option<i64>) -> String {
@@ -119,12 +160,7 @@ pub fn literal_str(v: &Value, _t: &ColumnType) -> String {
         Value::Media(s) => s.clone(),
         Value::Uuid(u) => format!("'{u}'"),
         Value::Date(d) => crate::value::date_from_days(*d).map(|d| format!("'{}'", d.format("%Y-%m-%d"))).unwrap_or_default(),
-        Value::Timestamp(us) => pyo3::Python::attach(|py| {
-            crate::value::py::micros_to_timestamp(py, *us)
-                .and_then(|dt| dt.call_method0("isoformat"))
-                .map(|s| format!("'{s}'"))
-                .unwrap_or_else(|_| us.to_string())
-        }),
+        Value::Timestamp(us) => format!("'{}'", crate::value::time::isoformat(&crate::value::time::to_local(*us), 'T')),
         Value::Binary(b) => format!("{b:?}"),
         Value::Json(j) => json_py_str(j, true),
         Value::Array(a) => pyo3::Python::attach(|py| {

@@ -79,8 +79,20 @@ class ResultSet:
 
     BaseModelT = TypeVar('BaseModelT', bound=pydantic.BaseModel)
 
-    @unimplemented('ResultSet.to_pydantic()')
-    def to_pydantic(self, model: type[BaseModelT]) -> Iterator[BaseModelT]: ...
+    def to_pydantic(self, model: type[BaseModelT]) -> Iterator[BaseModelT]:
+        """
+        Convert the `ResultSet` to Pydantic model instances.
+
+        Args:
+            model: A Pydantic model class.
+
+        Returns:
+            An iterator over Pydantic model instances, one for each row in the result set.
+
+        Raises:
+            Error: If the row data doesn't match the model schema.
+        """
+        return iter(self._core.to_pydantic(model))
 
 
 class ResultCursor:
@@ -169,7 +181,7 @@ class Query:
         return ResultSet(self._spec.collect())
 
     def show(self, n: int = 20) -> ResultSet:
-        return self.limit(n).collect()
+        return ResultSet(self._spec.show(n))
 
     def head(self, n: int = 10) -> ResultSet:
         """The first n rows, in insertion order of the underlying table."""
@@ -190,28 +202,64 @@ class Query:
     def from_dict(cls, d: dict[str, Any]) -> Query:
         return cls(_core.QuerySpec.from_dict(d))
 
-    def _descriptors(self) -> pd.DataFrame:
+    def _col_descriptor(self) -> pd.DataFrame:
         return pd.DataFrame(
             [{'Name': n, 'Type': t, 'Expression': e} for n, t, e in self._spec.describe_rows()],
             columns=['Name', 'Type', 'Expression'],
         )
 
+    def _query_descriptor(self) -> pd.DataFrame:
+        rows = self._spec.query_descriptor()
+        return pd.DataFrame([info for _, info in rows], index=[heading for heading, _ in rows])
+
     def __repr__(self) -> str:
-        return self._descriptors().to_string(index=False)
+        cols = self._col_descriptor()
+        cols.index = [''] * len(cols)  # type: ignore[assignment]
+        lines = cols.to_string(max_colwidth=50).split('\n')
+        width = max(len(line) for line in lines)
+        blocks = ['\n'.join([lines[0], '-' * width, *lines[1:]])]
+        qd = self._query_descriptor()
+        if not qd.empty:
+            blocks.append(qd.to_string(header=False, max_colwidth=50))
+        return '\n\n'.join(blocks)
 
     def _repr_html_(self) -> str:
-        return self._descriptors().to_html(index=False)
+        html = [self._col_descriptor().to_html(index=False)]
+        qd = self._query_descriptor()
+        if not qd.empty:
+            html.append(qd.to_html(header=False))
+        return '\n'.join(html)
 
     def describe(self) -> None:
         print(repr(self))
 
-    @unimplemented('Query.join()')
-    def join(self, other: Table, on: Any = None, how: str = 'inner') -> Query: ...
+    def join(self, other: Table, on: Any = None, how: str = 'inner') -> Query:
+        """
+        Join this Query with a table.
 
-    @unimplemented('Query.group_by()')
-    def group_by(self, *grouping_items: Any) -> Query: ...
+        Args:
+            other: the table to join with
+            on: the join condition: one or more column references (an equality predicate on the column of that name
+                in both sides), or a boolean expression.
+            how: `'inner'`, `'left'`, `'full_outer'` or `'cross'`.
+        """
+        return Query(self._spec.join(other._tbl_ref, on, how))
 
-    @unimplemented('Query.distinct()')
+    def group_by(self, *grouping_items: Any) -> Query:
+        """Add a group-by clause: group by the given expressions, or (for a view) by the rows of a base table."""
+        from pixeltable._table import Table
+
+        tables = [item for item in grouping_items if isinstance(item, Table)]
+        if len(tables) > 0:
+            if len(grouping_items) > 1:
+                from pixeltable import exceptions as excs
+
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, 'group_by(): only one Table can be specified'
+                )
+            return Query(self._spec.group_by([], str(tables[0]._id)))
+        return Query(self._spec.group_by(list(grouping_items)))
+
     def distinct(self) -> Query:
         """
         Remove duplicate rows from this Query.
@@ -232,9 +280,27 @@ class Query:
 
             >>> results = addresses.select(addresses.city).distinct()
         """
+        return Query(self._spec.distinct())
 
-    @unimplemented('Query.sample()')
-    def sample(self, *args: Any, **kwargs: Any) -> Query: ...
+    def sample(
+        self,
+        n: int | None = None,
+        n_per_stratum: int | None = None,
+        fraction: float | None = None,
+        seed: int | None = None,
+        stratify_by: Any = None,
+    ) -> Query:
+        """
+        Return a new query specifying a sample of rows from this query, considered in a shuffled order.
+
+        Args:
+            n: Total number of rows to produce as a sample.
+            n_per_stratum: Number of rows to produce per stratum (requires `stratify_by`).
+            fraction: Fraction of available rows to produce as a sample (between 0.0 and 1.0).
+            seed: Random seed for reproducible shuffling.
+            stratify_by: If specified, the sample will be stratified by these values.
+        """
+        return Query(self._spec.sample(n, n_per_stratum, fraction, seed, stratify_by))
 
     def cursor(self) -> ResultCursor:
         """A [`ResultCursor`][pixeltable.ResultCursor] over the query results."""
