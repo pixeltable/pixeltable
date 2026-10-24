@@ -28,7 +28,7 @@ use uuid::Uuid;
 use crate::catalog::table::TableMd;
 use crate::error::{Error, Result};
 use crate::expr::MAX_EXPR_DEPTH;
-use crate::value::{MAX_JSON_DEPTH, json_nesting_depth, parse_json_bounded};
+use crate::value::{MAX_JSON_DEPTH, json_nesting_depth, json_too_deep_msg, parse_json_bounded};
 use rows::TableData;
 
 pub const FORMAT_NAME: &str = "pixeltable-rs";
@@ -210,7 +210,15 @@ impl Store {
 
     /// Writes the rows of `tbl_id` as of `version`; returns the file name to record in the metadata.
     pub fn write_table_data(&self, tbl_id: Uuid, version: i64, data: &TableData) -> Result<String> {
-        let bytes = rmp_serde::to_vec(data).map_err(|e| Error::internal(format!("cannot serialize table data: {e}")))?;
+        let bytes = rmp_serde::to_vec(data).map_err(|e| {
+            let msg = e.to_string();
+            if msg.contains(&json_too_deep_msg()) {
+                // a computed JSON value nested more deeply than the store accepts (see `value::MAX_JSON_DEPTH`)
+                Error::new(crate::error::ErrorCode::UnsupportedOperation, msg)
+            } else {
+                Error::internal(format!("cannot serialize table data: {msg}"))
+            }
+        })?;
         // the sequence number makes the name unique even when an operational table rewrites rows at one version
         let seq = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
