@@ -73,6 +73,7 @@ def prepare_model(
         )
         # Build substitutions for the iterator's output columns.
         for name, output in iterator.outputs.items():
+            catalog.Column.validate_name(name)
             catalog_col = catalog.Column.create(name, {'type': output.col_type, 'stored': output.is_stored})  # type: ignore[arg-type]
             catalog_col.tbl_handle = tbl_handle
             user_cols[name] = catalog_col

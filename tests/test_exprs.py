@@ -335,6 +335,15 @@ class TestExprs:
             _ = img_t.select(img_t.c9.errortype).show()
         assert 'only valid for' in str(excinfo.value)
 
+    def test_agg_cellmd_prop(self, test_tbl: pxt.Table) -> None:
+        """Aggregating a cellmd property of an array column must not take the SQL-agg path (PXT-1092)."""
+        t = test_tbl
+        res = t.group_by(t.c4).select(t.c4, n=pxtf.count(t.c8.errortype)).collect()
+        # all cells computed without errors: every group's errortype is null, so count() is 0
+        assert all(r['n'] == 0 for r in res)
+        res = t.group_by(t.c8.errortype).select(t.c8.errortype).collect()
+        assert res.to_pandas()['c8_errortype'].isna().all()
+
     def test_null_args(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         # create table with two columns

@@ -1384,11 +1384,13 @@ class Planner:
             # function call overhead
             ctx.batch_size = 16
 
-            # do aggregation in SQL if all agg exprs can be translated
+            # do aggregation in SQL if all agg exprs can be translated; the input must not produce cellmd,
+            # which SqlAggregationNode cannot propagate
             if (
-                sql_elements.contains_all(analyzer.select_list)
+                isinstance(plan, exec.SqlNode)
+                and len(plan.cell_md_refs) == 0
+                and sql_elements.contains_all(analyzer.select_list)
                 and sql_elements.contains_all(analyzer.grouping_exprs)
-                and isinstance(plan, exec.SqlNode)
             ):
                 assert isinstance(plan, exec.SqlNode)
                 plan = exec.SqlAggregationNode(

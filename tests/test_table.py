@@ -78,6 +78,16 @@ def raises_when_evaluated(x: str) -> str:
     raise AssertionError()
 
 
+class _PydanticUdfOut(pydantic.BaseModel):
+    x: int
+    y: str
+
+
+@pxt.udf
+def pydantic_model_udf(x: int) -> _PydanticUdfOut:
+    return _PydanticUdfOut(x=x, y=f's_{x}')
+
+
 @pxt.udf
 def reciprocal(n: int) -> float:
     return 1.0 / n
@@ -1326,6 +1336,32 @@ class TestTable:
         # mixed models
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='Expected an instance of `TestModel1`; got `TestModel2`'):
             _ = t.insert(cast(list[pydantic.BaseModel], rows1 + rows2))
+
+    def test_computed_pydantic_col(self, db_root: DatabaseRoot) -> None:
+        """A UDF returning a pydantic model stores its json serialization, not the raw object (PXT-1602)."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_pydantic_computed'), {'i': pxt.Int})
+        t.add_computed_column(m=pydantic_model_udf(t.i))
+        status = t.insert([{'i': 1}, {'i': 2}], on_error='ignore')
+        assert status.num_excs == 0
+        assert t.select(t.m).order_by(t.i).collect()['m'] == [{'x': 1, 'y': 's_1'}, {'x': 2, 'y': 's_2'}]
+        # the stored json supports path access
+        assert t.select(t.m.x).order_by(t.i).collect()['m_x'] == [1, 2]
+
+    def test_return_rows_array_col(self, db_root: DatabaseRoot) -> None:
+        """return_rows reconstructs array cells instead of returning their npy serialization (PXT-1171)."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_return_rows_array'), {'a': pxt.Array | None, 'i': pxt.Int})
+        status = t.insert([{'a': np.array([1.0, 2.0]), 'i': 0}, {'a': np.array([3.0]), 'i': 1}], return_rows=True)
+        assert status.rows is not None
+        assert all(isinstance(r['a'], np.ndarray) for r in status.rows)
+        assert np.array_equal(status.rows[0]['a'], np.array([1.0, 2.0]))
+
+        status = t.update({'a': np.array([4.0])}, where=t.i == 1, return_rows=True)
+        assert status.rows is not None
+        assert len(status.rows) == 1
+        assert isinstance(status.rows[0]['a'], np.ndarray)
+        assert np.array_equal(status.rows[0]['a'], np.array([4.0]))
 
     def test_pydantic_serializer_reads_table(self, db_root: DatabaseRoot) -> None:
         """A model serializer can call Pixeltable during insert() and compute()."""

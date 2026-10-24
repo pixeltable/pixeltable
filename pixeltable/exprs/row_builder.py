@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import io
 import sys
 import time
 from typing import TYPE_CHECKING, Any, Collection, Iterable, NamedTuple, Sequence, TypeVar
@@ -119,7 +120,7 @@ class RowBuilder:
     output_row_has_pk: bool | None  # value of has_pk arg of create_output_row()
 
     # for create_output_row(table_rows): mappings of index into table row -> key in output row
-    table_row_output_vals: list[tuple[int, str]] | None
+    table_row_output_vals: list[tuple[catalog.Column, int, str]] | None
     table_row_output_error_vals: list[tuple[int, str]] | None
 
     # for create_row_batch(): per-output-column conversion info plus the batch's column types
@@ -587,7 +588,7 @@ class RowBuilder:
                     display_name = f'{indexed_col_name}:{idx_name}'
                 else:
                     display_name = col.name
-                self.table_row_output_vals.append((tbl_row_idx, display_name))
+                self.table_row_output_vals.append((col, tbl_row_idx, display_name))
                 tbl_row_idx += 1
 
                 if col.stores_cellmd:
@@ -603,8 +604,11 @@ class RowBuilder:
         output_rows: list[dict[str, Any]] = []
         for table_row in table_rows:
             row: dict[str, Any] = {}
-            for idx, key in output_row_vals:
+            for col, idx, key in output_row_vals:
                 v = table_row[idx]
+                if col.col_type.is_array_type() and isinstance(v, (bytes, memoryview)):
+                    # the store keeps arrays in their npy serialization
+                    v = np.load(io.BytesIO(v))
                 row[key] = None if type(v) is null_type else v
             for idx, key in output_row_error_vals:
                 cell = table_row[idx]

@@ -1,7 +1,7 @@
 import datetime
 import logging
 import re
-from typing import Any, Callable
+from typing import Any, Callable, Iterator, TypedDict
 
 import PIL
 import pytest
@@ -43,6 +43,17 @@ def tracked(x: int) -> int:
     """Records each invocation in tracked_calls, so a test can tell computation from carry-over."""
     tracked_calls.append(x)
     return x * 10
+
+
+class ReservedNameIterOut(TypedDict):
+    # 'count' is a reserved column name: it collides with a method on Table
+    count: int
+
+
+@pxt.iterator
+def reserved_name_iter(limit: int) -> Iterator[ReservedNameIterOut]:
+    for i in range(limit):
+        yield ReservedNameIterOut(count=i)
 
 
 class TestView:
@@ -1424,6 +1435,26 @@ class TestView:
 
         # should work
         v1.rename_column('v1', 'new_v1')
+
+    def test_rename_onto_base_col(self, db_root: DatabaseRoot) -> None:
+        """A view's own column cannot be renamed onto a base column name (PXT-1173)."""
+        p = db_root.make_catalog_path
+        t = self.create_tbl(p)
+        v = pxt.create_view(p('test_view'), t, additional_columns={'v1': t.c3 * 2.0})
+
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match="Column 'c3' already exists"):
+            v.rename_column('v1', 'c3')
+        # a self-rename is still a no-op, and a rename to a new name still works
+        v.rename_column('v1', 'v1')
+        v.rename_column('v1', 'new_v1')
+        assert 'new_v1' in v.columns()
+
+    def test_iterator_reserved_col_name(self, db_root: DatabaseRoot) -> None:
+        """Iterator output column names go through the same validation as declared columns (PXT-1036)."""
+        p = db_root.make_catalog_path
+        t = self.create_tbl(p)
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='reserved name'):
+            pxt.create_view(p('test_view'), t, iterator=reserved_name_iter(t.c2))
 
     def test_update_base_column(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

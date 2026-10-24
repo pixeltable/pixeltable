@@ -157,6 +157,7 @@ class View(LocalTable):
                 )
 
             for col_name, output_info in iterator_call.outputs.items():
+                Column.validate_name(col_name)
                 stores_cellmd = Column.should_store_cellmd(
                     col_type=output_info.col_type, is_stored=output_info.is_stored, is_computed=False
                 )

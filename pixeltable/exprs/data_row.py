@@ -12,6 +12,7 @@ from uuid import UUID
 import numpy as np
 import pgvector.sqlalchemy
 import PIL.Image
+import pydantic
 import sqlalchemy as sql
 
 import pixeltable.utils.image as image_utils
@@ -348,6 +349,9 @@ class DataRow:
                 self.vals[idx] = self.file_paths[idx] if self.file_paths[idx] is not None else self.file_urls[idx]
         elif idx in self.array_slot_idxs and isinstance(val, bytes):
             self.vals[idx] = np.load(io.BytesIO(val))
+        elif idx in self.json_slot_idxs and isinstance(val, pydantic.BaseModel):
+            # pydantic models have json type; a BaseModel itself isn't json-serializable
+            self.vals[idx] = val.model_dump(mode='json')
         else:
             self.vals[idx] = val
         self.has_val[idx] = True

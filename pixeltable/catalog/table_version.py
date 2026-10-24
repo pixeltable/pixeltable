@@ -1105,7 +1105,7 @@ class TableVersion:
         if old_name == new_name:
             # no-op: return early and do not create a new schema version
             return
-        if new_name in self.cols_by_name:
+        if self.path.get_column(new_name) is not None:
             raise excs.AlreadyExistsError(excs.ErrorCode.COLUMN_ALREADY_EXISTS, f'Column {new_name!r} already exists')
         col.name = new_name
         # Rebuild col_by_name as it must maintain the order.

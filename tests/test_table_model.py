@@ -6,7 +6,7 @@ import os
 import pathlib
 import re
 import textwrap
-from typing import Any
+from typing import Any, Iterator, TypedDict
 
 import numpy as np
 import pytest
@@ -81,6 +81,17 @@ def is_long(text: str) -> bool:
 @pxt.udf
 def embed(text: str) -> pxt.Array[(4,), pxt.Float]:
     return np.zeros(4, dtype=np.float32)
+
+
+class ReservedNameIterOut(TypedDict):
+    # 'count' is a reserved column name: it collides with a method on Table
+    count: int
+
+
+@pxt.iterator
+def reserved_name_iter(limit: int) -> Iterator[ReservedNameIterOut]:
+    for i in range(limit):
+        yield ReservedNameIterOut(count=i)
 
 
 class TestTableModel:
@@ -443,6 +454,20 @@ class TestTableModel:
             },
             tbl.get_metadata(),
         )
+
+    def test_iterator_reserved_col_name(self, db_root: DatabaseRoot) -> None:
+        """Iterator output column names go through the same validation as declared columns (PXT-1036)."""
+        root = db_root.make_catalog_path('')
+        TableModel = pxt.model_base()
+
+        class Base(TableModel, name='iter_base'):
+            n: pxt.Int
+
+        class Chunks(TableModel, name='iter_chunks', base=Base, iterator=reserved_name_iter(Base.n)):
+            pass
+
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='reserved name'):
+            TableModel.create_all(root)
 
     def test_btree_index_declaration(self, db_root: DatabaseRoot) -> None:
         root = db_root.make_catalog_path('')

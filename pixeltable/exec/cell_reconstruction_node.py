@@ -238,7 +238,10 @@ class CellReconstructionNode(ExecNode):
             self.reader.release(keep=urls)
             await self.reader.prefetch(urls)
             for row in batch:
+                # a ColumnRef that is only referenced by a sql-translated expr never gets its slot materialized
                 for col_ref in self.json_refs:
+                    if not row.has_val[col_ref.slot_idx]:
+                        continue
                     val = row[col_ref.slot_idx]
                     if val is None:
                         continue
@@ -248,6 +251,8 @@ class CellReconstructionNode(ExecNode):
                     row[col_ref.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.reader)
 
                 for col_ref in self.json_path_anchors:
+                    if not row.has_val[col_ref.slot_idx]:
+                        continue
                     val = row[col_ref.slot_idx]
                     if val is None:
                         continue
@@ -257,6 +262,8 @@ class CellReconstructionNode(ExecNode):
                     row[col_ref.slot_idx] = load_remote_objects(val, cell_md.file_urls, self.reader)
 
                 for col_ref in self.array_refs:
+                    if not row.has_val[col_ref.slot_idx]:
+                        continue
                     cell_md = row.slot_md.get(col_ref.slot_idx)
                     if cell_md is not None and cell_md.array_md is not None:
                         assert row[col_ref.slot_idx] is None
@@ -265,6 +272,8 @@ class CellReconstructionNode(ExecNode):
                         assert isinstance(row[col_ref.slot_idx], (NoneType, np.ndarray))
 
                 for col_ref in self.binary_refs:
+                    if not row.has_val[col_ref.slot_idx]:
+                        continue
                     cell_md = row.slot_md.get(col_ref.slot_idx)
                     if cell_md is not None and cell_md.binary_md is not None:
                         assert row[col_ref.slot_idx] is None
@@ -287,6 +296,8 @@ class CellReconstructionNode(ExecNode):
                     assert cell_md.file_urls is not None
                     urls.add(cell_md.file_urls[0])
             for col_ref in itertools.chain(self.json_refs, self.json_path_anchors):
+                if not row.has_val[col_ref.slot_idx]:
+                    continue
                 val = row[col_ref.slot_idx]
                 cell_md = row.slot_md.get(col_ref.slot_idx)
                 if val is not None and cell_md is not None and cell_md.file_urls is not None:

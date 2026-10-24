@@ -160,9 +160,9 @@ class TestJson:
         with pytest.raises(Exception, match='scalar'):
             tnum.select(tnum.scalar, n=tnum.scalar.len()).collect()
 
-        # TODO: selecting a pushed-down json function without also selecting the source column fails, because the
-        # column's slot is never materialized (cell-reconstruction bug); re-enable once fixed.
-        # assert [r['n'] for r in t.order_by(t.id).select(n=t.j.len()).collect()] == [3, 0, 2, 0, 5, 0, None]
+        # a pushed-down json function without its source column: the column's slot is never materialized and
+        # must be skipped by cell reconstruction (PXT-1415)
+        assert [r['n'] for r in t.order_by(t.id).select(n=t.j.len()).collect()] == [3, 0, 2, 0, 5, 0, None]
 
     def test_contains(self, uses_db: None) -> None:
         t = pxt.create_table('json_contains', {'id': pxt.Int | None, 'j': pxt.Json | None})
@@ -268,6 +268,11 @@ class TestJson:
         assert sorted(r['id'] for r in t.where(t.j.min() < 1.5).select(t.id).collect()) == [1]
         assert sorted(r['id'] for r in t.where(t.j.max() > 2.5).select(t.id).collect()) == [1]
         assert sorted(r['id'] for r in t.where(t.j.mean() >= 2.0).select(t.id).collect()) == [1, 2]
+
+        # a pushed-down aggregate without its source column: the column's slot is never materialized and
+        # must be skipped by cell reconstruction (PXT-1415)
+        assert [r['o'] for r in t.order_by(t.id).select(o=t.j.sum()).collect()] == [6.0, 4.0, 0.0, None]
+        assert [r['o'] for r in t.order_by(t.id).select(o=t.j.min()).collect()] == [1.0, 1.5, None, None]
 
         # map() evaluates the aggregates per element in Python, including the empty-array cases
         tm = pxt.create_table('json_reduce_map', {'rows': pxt.Json | None})
