@@ -78,9 +78,14 @@ class Table(SchemaObject):
         return f'{self._display_name()} {self._path()!r}'
 
     def __repr__(self) -> str:
-        kind = self._display_name()
-        cols = ', '.join(f'{name}: {col_type!r}' for name, col_type in self._get_schema().items())
-        return f'{kind[0].upper()}{kind[1:]} {self._path()!r} ({cols})'
+        from pixeltable import _describe
+
+        return _describe.to_string(_core.tbl_describe(str(self._id), self._version))
+
+    def _repr_html_(self) -> str:
+        from pixeltable import _describe
+
+        return _describe.to_html(_core.tbl_describe(str(self._id), self._version))
 
     def _get_version(self) -> int:
         """The version this handle reads: its pinned version, else the table's current version."""
@@ -234,17 +239,62 @@ class Table(SchemaObject):
     @unimplemented('alter_computed_column()')
     def alter_computed_column(self, *args: Any, **kwargs: Any) -> UpdateStatus: ...
 
-    @unimplemented('embedding indexes')
-    def add_embedding_index(self, *args: Any, **kwargs: Any) -> None: ...
+    def add_embedding_index(
+        self,
+        column: str | _core.Expr,
+        *,
+        idx_name: str | None = None,
+        embedding: Any = None,
+        string_embed: Any = None,
+        image_embed: Any = None,
+        audio_embed: Any = None,
+        video_embed: Any = None,
+        document_embed: Any = None,
+        metric: Literal['cosine', 'ip', 'l2'] = 'cosine',
+        precision: Literal['fp16', 'fp32'] = 'fp16',
+        if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
+    ) -> None:
+        """Add an embedding index to a column (see upstream `Table.add_embedding_index()`)."""
+        _core.tbl_add_embedding_index(
+            str(self._id),
+            column,
+            idx_name,
+            embedding,
+            string_embed,
+            image_embed,
+            audio_embed,
+            video_embed,
+            document_embed,
+            metric,
+            precision,
+            if_exists,
+        )
 
-    @unimplemented('B-tree indexes')
-    def add_btree_index(self, *args: Any, **kwargs: Any) -> None: ...
+    def add_btree_index(
+        self, column: str | _core.Expr, *, idx_name: str | None = None, if_exists: Literal['error', 'ignore'] = 'error'
+    ) -> None:
+        """Add a B-tree index to a column."""
+        _core.tbl_add_btree_index(str(self._id), column, idx_name, if_exists)
 
-    @unimplemented('embedding indexes')
-    def drop_embedding_index(self, *args: Any, **kwargs: Any) -> None: ...
+    def drop_embedding_index(
+        self,
+        *,
+        column: str | _core.Expr | None = None,
+        idx_name: str | None = None,
+        if_not_exists: Literal['error', 'ignore'] = 'error',
+    ) -> None:
+        """Drop an embedding index, given by column (with exactly one embedding index) or by name."""
+        _core.tbl_drop_index(str(self._id), column, idx_name, True, if_not_exists)
 
-    @unimplemented('indexes')
-    def drop_index(self, *args: Any, **kwargs: Any) -> None: ...
+    def drop_index(
+        self,
+        *,
+        column: str | _core.Expr | None = None,
+        idx_name: str | None = None,
+        if_not_exists: Literal['error', 'ignore'] = 'error',
+    ) -> None:
+        """Drop an index, given by column (with exactly one index) or by name."""
+        _core.tbl_drop_index(str(self._id), column, idx_name, False, if_not_exists)
 
     # ---- data changes
 

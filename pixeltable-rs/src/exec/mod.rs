@@ -10,6 +10,7 @@
 
 pub mod compute;
 pub mod compute_rows;
+pub mod index;
 pub mod insert;
 
 use std::sync::Arc;

@@ -5,6 +5,7 @@
 
 pub mod catalog;
 pub mod expr;
+pub mod indexes;
 pub mod func;
 pub mod query;
 pub mod sources;
@@ -62,6 +63,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(table::tbl_list_views, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_insert, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_compute, m)?)?;
+    m.add_function(wrap_pyfunction!(indexes::tbl_add_btree_index, m)?)?;
+    m.add_function(wrap_pyfunction!(indexes::tbl_add_embedding_index, m)?)?;
+    m.add_function(wrap_pyfunction!(indexes::tbl_drop_index, m)?)?;
+    m.add_function(wrap_pyfunction!(indexes::tbl_describe, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_metadata, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_add_columns, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_add_column, m)?)?;

@@ -43,14 +43,19 @@ src/
   catalog/dirs.rs   directory ops, path-collision handling (if_exists), listings
   catalog/tables.rs create/get/drop table, add/drop/rename column, version bumps
   catalog/views.rs  views/snapshots (filter over a base, live or pinned), column resolution through bases
+  catalog/indexes.rs B-tree and embedding index metadata, default indexes, drop/cascade
   catalog/runtime.rs the process-wide Catalog behind a mutex; reload/reset hooks; reserved column names
   store/mod.rs      files under $PIXELTABLE_HOME, atomic writes
   store/rows.rs     TableData / StoredRow with version ranges, cell errors
   exec/mod.rs       QuerySpec (select/where/order_by/limit, validation, JSON), QueryInput snapshot, execute(), count()
   exec/insert.rs    insert pipeline: InsertPlan -> build_rows -> commit
   exec/compute.rs   computed columns: eval_computed(), AddComputedPlan (plan -> compute -> commit)
+  exec/compute_rows.rs Table.compute(): rows a table would hold for some input rows, nothing stored
+  exec/index.rs     AddIndexPlan: embeddings of existing rows for a new embedding index
   bindings/         PyO3 glue only: types.rs (_core.ColumnType), expr.rs (_core.Expr, MethodRef), catalog.rs
                     (module-level functions), table.rs (tbl_* functions), query.rs (QuerySpec, ResultSet, cursor),
+                    sources.rs (data sources: rows, iterators, pydantic models, queries; schema inference),
+                    indexes.rs (index operations, similarity(), describe data),
                     func.rs (_core.Udf, _core.Iterator, _core.IteratorCall, the function registry)
 python/pixeltable/
   __init__.py       the public names (same as upstream's __init__)
@@ -232,3 +237,25 @@ scan visible rows (rowid order) -> view predicates and where clause -> stable so
 -> offset/limit -> project. Unstored computed columns are evaluated on read. Results are a `ResultData` held in Rust
 (`_core.ResultSet`); values convert to Python objects on access. Not built yet: joins, group by/aggregates, window
 functions, distinct, sample, update/delete, JSON paths, array slices.
+
+## Data sources, compute(), indexes
+
+Data sources (`bindings/sources.rs`, upstream `TableDataConduit`): `classify()` sorts a source into rows of dicts
+(lists, materialized iterators), pydantic models (dumped before any catalog access, validated against the table as
+upstream does) or a query (a `Table` or `Query`, executed in Rust and inserted value by value). `create_table(source=
+...)` infers the schema from rows (`infer_schema_from_rows()`, with `schema_overrides`) or takes the query's schema,
+creates the table, then inserts. `insert(return_rows=True)` reports the stored values (media by file URL).
+`Table.compute()` (`exec/compute_rows.rs`) evaluates only the requested outputs and their dependencies (stored and
+unstored computed columns alike) for rows of the root base table, applies view filters, and stores nothing.
+Computed columns are evaluated with Python semantics (`RowContext::python_semantics()`: a division by zero raises
+`ZeroDivisionError`), query expressions with SQL semantics (NULL). `UpdateStatus.cols_with_excs` names columns
+`<table>.<column>` (`<table>.<column>:<index>` for index values).
+
+Indexes (`catalog/indexes.rs`, `TableMd.indexes`): B-tree indexes are metadata only (scans are full scans);
+`has_default_idxs` adds one to every eligible column (`push_column()`, `create_table()`). An embedding index stores the
+embeddings of its column in a hidden stored computed column (`IndexKind::Embedding::val_col_id`, not listed in any
+schema version, computed by inserts like other stored computed columns, named `<col>:<idx>` in returned rows); its
+embedding functions are kept as `Function.as_dict()` descriptors per query modality. `col.similarity(...)` builds an
+`ExprKind::Similarity` node that holds the embedding call of the query item (computed once per expression) and
+compares it with the row's stored embedding (cosine similarity, inner product or L2 distance). Indexes on views are
+not supported yet (views have no rows of their own).
