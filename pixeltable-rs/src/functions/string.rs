@@ -688,42 +688,117 @@ fn apply_spec(val: &Value, spec: &str) -> Result<String> {
 
 // ------------------------------------------------------------------------------------------------ textwrap
 
-/// `textwrap.wrap(text, width)` with the default options (`break_long_words`, whitespace collapsing).
+/// Python's `textwrap` whitespace (`_whitespace`).
+const TW_WHITESPACE: &str = "\t\n\x0b\x0c\r ";
+
+/// `textwrap.TextWrapper.wordsep_re` (with `break_on_hyphens`): whitespace runs, em-dashes between words, and words
+/// split after the hyphens of hyphenated words.
+fn wordsep_re() -> &'static Regex {
+    static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| {
+        let ws = r"[\t\n\x0b\x0c\r ]";
+        let nws = r"[^\t\n\x0b\x0c\r ]";
+        let wp = r#"[\w!"'&.,?]"#;
+        let lt = r"[^\d\W]";
+        let pattern = format!(
+            r"({ws}+|(?<={wp})-{{2,}}(?=\w)|{nws}+?(?:-(?:(?<={lt}{{2}}-)|(?<={lt}-{lt}-))(?={lt}-?{lt})|(?={ws}|\z)|(?<={wp})(?=-{{2,}}\w)))"
+        );
+        Regex::new(&pattern).unwrap_or_else(|e| panic!("textwrap pattern: {e}"))
+    })
+}
+
+/// `textwrap.wrap(text, width)` with the default options: tabs expanded, whitespace replaced by spaces, words
+/// split at hyphens, long words broken (filling the rest of the current line), whitespace dropped at line ends.
 fn wrap_text(text: &str, width: i64) -> Result<Vec<String>> {
     if width <= 0 {
         return Err(Error::py_exc("ValueError", format!("invalid width {width} (must be > 0)")));
     }
     let width = width as usize;
-    let mut lines = Vec::new();
-    let mut cur = String::new();
-    for word in text.split(is_py_space).filter(|w| !w.is_empty()) {
-        let mut word = word.to_string();
-        loop {
-            let cur_len = cur.chars().count();
-            let wlen = word.chars().count();
-            let needed = if cur.is_empty() { wlen } else { cur_len + 1 + wlen };
-            if needed <= width {
-                if !cur.is_empty() {
-                    cur.push(' ');
-                }
-                cur.push_str(&word);
-                break;
+    // expandtabs(8), then each whitespace character becomes a space
+    let mut expanded = String::with_capacity(text.len());
+    let mut col = 0usize;
+    for c in text.chars() {
+        match c {
+            '\t' => {
+                let n = 8 - col % 8;
+                expanded.extend(std::iter::repeat_n(' ', n));
+                col += n;
             }
-            if cur.is_empty() {
-                // break the long word
-                let head: String = word.chars().take(width).collect();
-                lines.push(head);
-                word = word.chars().skip(width).collect();
-                if word.is_empty() {
-                    break;
-                }
-            } else {
-                lines.push(std::mem::take(&mut cur));
+            '\n' | '\r' => {
+                expanded.push(' ');
+                col = 0;
+            }
+            c if TW_WHITESPACE.contains(c) => {
+                expanded.push(' ');
+                col += 1;
+            }
+            c => {
+                expanded.push(c);
+                col += 1;
             }
         }
     }
-    if !cur.is_empty() {
-        lines.push(cur);
+    // the chunks (re.split with the capturing pattern, empty pieces dropped)
+    let mut chunks: Vec<String> = Vec::new();
+    let mut last = 0;
+    for m in wordsep_re().find_iter(&expanded) {
+        let m = m.map_err(re_err)?;
+        if m.start() > last {
+            chunks.push(expanded[last..m.start()].to_string());
+        }
+        if !m.as_str().is_empty() {
+            chunks.push(m.as_str().to_string());
+        }
+        last = m.end();
+    }
+    if last < expanded.len() {
+        chunks.push(expanded[last..].to_string());
+    }
+    let len = |c: &str| c.chars().count();
+    let is_blank = |c: &str| c.chars().all(is_py_space);
+    chunks.reverse();
+    let mut lines = Vec::new();
+    while !chunks.is_empty() {
+        let mut cur_line: Vec<String> = Vec::new();
+        let mut cur_len = 0usize;
+        if !lines.is_empty() && chunks.last().is_some_and(|c| is_blank(c)) {
+            chunks.pop();
+        }
+        while let Some(c) = chunks.last() {
+            let l = len(c);
+            if cur_len + l > width {
+                break;
+            }
+            cur_len += l;
+            cur_line.push(chunks.pop().expect("chunk"));
+        }
+        if chunks.last().is_some_and(|c| len(c) > width) {
+            // `_handle_long_word()`: the head of the chunk fills the line, preferably up to a hyphen
+            let space_left = width.saturating_sub(cur_len);
+            if space_left > 0 {
+                let chunk = chunks.pop().expect("chunk");
+                let chars: Vec<char> = chunk.chars().collect();
+                let mut end = space_left;
+                if chars.len() > space_left {
+                    if let Some(h) = chars[..space_left].iter().rposition(|c| *c == '-') {
+                        if h > 0 && chars[..h].iter().any(|c| *c != '-') {
+                            end = h + 1;
+                        }
+                    }
+                }
+                let end = end.min(chars.len());
+                cur_line.push(chars[..end].iter().collect());
+                chunks.push(chars[end..].iter().collect());
+            } else if cur_line.is_empty() {
+                cur_line.push(chunks.pop().expect("chunk"));
+            }
+        }
+        if cur_line.last().is_some_and(|c| is_blank(c)) {
+            cur_line.pop();
+        }
+        if !cur_line.is_empty() {
+            lines.push(cur_line.concat());
+        }
     }
     Ok(lines)
 }
