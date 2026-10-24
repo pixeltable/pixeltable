@@ -1137,6 +1137,16 @@ class TestTable:
         assert res2['c1'] == [r['c1'] for r in rows]
         assert res2['c2'] == [r['c2'] for r in rows]
 
+    @pytest.mark.db_roots('local', reason='asserts on the local insert error and the resulting catalog state')
+    def test_create_from_rows_insert_error(self, db_root: DatabaseRoot) -> None:
+        # a source that fails to load must not leave the created table behind [PXT-636]
+        p = db_root.make_catalog_path
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Error in column'):
+            _ = pxt.create_table(p('bad_source'), source=[{'c1': 1}, {'c1': 'abc'}], schema_overrides={'c1': pxt.Int})
+        assert p('bad_source') not in pxt.list_tables(p(''))
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
+            _ = pxt.get_table(p('bad_source'))
+
     def test_bulk_scalar_collect(self, db_root: DatabaseRoot) -> None:
         t = pxt.create_table(db_root.make_catalog_path('bulk'), {'id': pxt.Int, 'val': pxt.String})
         for i in range(10):

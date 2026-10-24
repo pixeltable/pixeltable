@@ -3,6 +3,7 @@ from __future__ import annotations
 import enum
 import json
 import logging
+import os
 import sys
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -85,6 +86,8 @@ class TableDataConduit:
         assert source_format is None or TableDataConduitFormat.is_valid(source_format), (
             f'Invalid source_format {source_format}'
         )
+        if isinstance(source, os.PathLike):
+            source = str(source)
         if isinstance(source, Sequence) and len(source) > 0 and isinstance(source[0], pydantic.BaseModel):
             return PydanticTableDataConduit(source)
 
