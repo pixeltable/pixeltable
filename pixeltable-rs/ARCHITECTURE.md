@@ -370,9 +370,9 @@ format pixeltable-rs v1, which this version of pixeltable-rs (format v4) cannot 
   is superseded;
 - `catalog.lock`: the file lock below.
 
-A commit (`Catalog::flush()`) writes the new segment files (fsync), appends to history files (fsync; bytes past the
-committed length, left by a failed commit, are overwritten), fsyncs `tables/`, then writes `catalog.json` to a temp
-file, fsyncs and renames it. A failure or crash before the rename leaves the previous state: unreferenced files are
+A commit (`Catalog::flush()`) plans its writes in memory, then writes the new segment files and appends to history
+files in parallel, each fsynced (bytes past a history file's committed length, left by a failed commit, are
+overwritten), fsyncs `tables/`, then writes `catalog.json` to a temp file, fsyncs and renames it. A failure or crash before the rename leaves the previous state: unreferenced files are
 deleted by the failed operation or by `Store::gc()` when a process first loads the catalog (under the store lock).
 All store I/O runs detached from the interpreter (`store::without_gil()`, `py.detach` in `runtime`). JSON is read
 without serde_json's 128-level limit but with the limit its writer enforced (`value::parse_json_bounded`:
@@ -384,7 +384,7 @@ snapshots share segments. Mutations (`append`, `retire`, `retire_by_prefix`, `re
 `update_all_rows`) touch only the rows they change: `append` adds unwritten segments, a `v_max` change of a written
 segment's row is recorded as a pending patch, a cell change rewrites the segment holding the row. Segments hold at most
 `MAX_SEGMENT_ROWS` (65536) rows, so the copy-on-write of a segment's `v_max` array stays small. `flush()` calls
-`prepare_write()` (merges per the compaction policy, attaches the pending patches to the last segment) and writes the
+`prepare_write()` (attaches the pending patches to the last segment, merges per the compaction policy) and writes the
 unwritten segments. Compaction: every segment after the last full one (`MAX_SEGMENT_ROWS` rows+patches) must be
 heavier than all later ones together, else the trailing ones merge (O(log n) small segments, each row rewritten
 O(log n) times); a large segment that is mostly dead rows, or mostly patched, is rewritten alone. Merged segments drop dead rows (`v_max = DEAD`: inserts undone by `revert()`, rows

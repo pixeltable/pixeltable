@@ -19,9 +19,9 @@
 //! (`TableStorage`: the segment list and the valid length of the history file), so its size does not grow with
 //! rows or versions.
 //!
-//! A commit writes the new segment files (fsync), appends to the history files (fsync), fsyncs `tables/`, and then
-//! atomically replaces `catalog.json` (temp file, fsync, rename, fsync of the directory): the rename is the commit
-//! point. A crash or error before it leaves the previous state intact: new segment files are not referenced yet
+//! A commit writes the new segment files and appends to the history files (in parallel, each fsynced), fsyncs
+//! `tables/`, and then atomically replaces `catalog.json` (temp file, fsync, rename, fsync of the directory): the
+//! rename is the commit point. A crash or error before it leaves the previous state intact: new segment files are not referenced yet
 //! (`gc()` removes them), and history bytes past the recorded length are ignored and overwritten. Superseded files
 //! are deleted after the rename.
 //!
