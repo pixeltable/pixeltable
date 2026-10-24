@@ -581,6 +581,18 @@ class TestExprs:
                 assert results['gt'] == [a > b for a, b in zip(a_results, b_results)], f'{a_expr} > {b_expr}'
                 assert results['ge'] == [a >= b for a, b in zip(a_results, b_results)], f'{a_expr} >= {b_expr}'
 
+    def test_comparison_with_nulls(self, test_tbl: pxt.Table) -> None:
+        # comparisons evaluated in Python apply three-valued logic to null operands instead of raising
+        t = test_tbl
+        c1n_py = t.c1n.apply(lambda x: x, col_type=pxt.String | None)
+        res = t.select(c1n=t.c1n, eq=c1n_py == 'test string 42', lt=c1n_py < 'test string 42').collect()
+        assert res['eq'] == [None if s is None else s == 'test string 42' for s in res['c1n']]
+        assert res['lt'] == [None if s is None else s < 'test string 42' for s in res['c1n']]
+
+        # a null comparison result is non-matching in a where clause
+        filtered = t.where(c1n_py < 'test string 42').select(t.c1n).collect()
+        assert filtered['c1n'] == [s for s in res['c1n'] if s is not None and s < 'test string 42']
+
     def test_inline_dict(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         query = t.select({'a': t.c1, 'b': {'c': t.c2}, 'd': 1, 'e': {'f': 2}})
@@ -1945,6 +1957,17 @@ class TestExprs:
         )
         pd_result = df.groupby('c_int', dropna=True).agg(out=('c_int', 'sum')).reset_index().sort_values('c_int')
         assert pxt_sql_result['out'] == series_to_list(pd_result['out'])
+
+        # sum() over a boolean column counts the True values (PostgreSQL has no sum(boolean))
+        res = (
+            t.where(t.c_bool != None)
+            .group_by(t.c_bool)
+            .select(t.c_bool, out=pxtf.sum(t.c_bool))
+            .order_by(t.c_bool)
+            .collect()
+        )
+        assert res['c_bool'] == [False, True]
+        assert res['out'] == [0, int(df.c_bool.sum())]
 
     def test_agg_errors(self, test_tbl: pxt.Table) -> None:
         t = test_tbl

@@ -555,7 +555,19 @@ class FunctionCall(Expr):
             self.aggregator.update(*args)
             data_row[self.slot_idx] = self.aggregator.value()
         else:
-            data_row[self.slot_idx] = self.fn.exec(args, kwargs)
+            data_row[self.slot_idx] = self.check_return_value(self.fn.exec(args, kwargs))
+
+    def check_return_value(self, result: Any) -> Any:
+        """Verify that a UDF return value is storable as this call's declared return type."""
+        if result is None:
+            return result
+        try:
+            self.return_type.validate_literal(result)
+        except TypeError as e:
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH, f'{self.fn.display_name}() returned an invalid value: {e}'
+            ) from e
+        return result
 
     def _as_dict(self) -> dict:
         return {
