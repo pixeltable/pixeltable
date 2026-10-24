@@ -299,6 +299,15 @@ class _ModelNamespace(dict):
         # our recorder rather than a plain dict it would otherwise create.
         self['__annotations__'] = _AnnotationRecorder(self)
 
+    def _base_models(self) -> set[TableModelMeta]:
+        """The models whose columns may be referenced in this model's body: the declared base and its ancestry."""
+        models: set[TableModelMeta] = set()
+        base = self.table_spec['base']
+        while base is not None:
+            models.add(base.model_cls)
+            base = base.model_cls.__table_spec__['base']
+        return models
+
     def __setitem__(self, key: str, value: Any) -> None:
         if key.startswith('__') and key.endswith('__'):
             # "Dunder" methods and attributes are not table columns.
@@ -355,6 +364,21 @@ class _ModelNamespace(dict):
                     excs.ErrorCode.INVALID_SCHEMA,
                     f'Column {name!r} aggregates over the table: {expr}\nA computed column is evaluated one '
                     'row at a time, so it cannot aggregate.',
+                )
+            # A column reference belonging to a model outside this one's base ancestry (its model_cls is set
+            # by then) would bind to a same-named column of this model at resolution -- ColumnRefByName._equals
+            # ignores model_cls -- so reject it here while its model is still identifiable.
+            base_models = self._base_models()
+            foreign_refs = [
+                ref
+                for ref in expr.subexprs(exprs.ColumnRefByName)
+                if ref.model_cls is not None and ref.model_cls not in base_models
+            ]
+            if len(foreign_refs) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'Column {name!r} references columns of models outside its base: '
+                    f'{[f"{ref.model_cls.__name__}.{ref.name}" for ref in foreign_refs]}',
                 )
             spec = {'value': expr}
         self.known_cols[name] = spec
@@ -647,6 +671,14 @@ class TableModelMeta(type):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
                     f'model `{cls_name}`: Invalid {type(idx).__name__} column reference: {idx.column!r}',
+                )
+            if idx.column.model_cls is not None and idx.column.model_cls not in namespace._base_models():
+                # this reference belongs to a model outside the base ancestry; at this point the model's own
+                # columns are still unclaimed placeholders (their model_cls is assigned only once the class exists)
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'model `{cls_name}`: {type(idx).__name__} references a column of a model outside its base: '
+                    f'`{idx.column.model_cls.__name__}.{idx.column.name}`',
                 )
             if (
                 isinstance(idx, EmbeddingIndex)

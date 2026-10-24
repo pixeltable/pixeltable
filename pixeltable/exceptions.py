@@ -253,6 +253,10 @@ class ConcurrencyError(Error):
     """Serialization failure, deadlock, or concurrent modification conflict."""
 
 
+# bound on the formatted size of each input value reported in an expression-evaluation error
+_PRINT_VALUE_MAX_LEN = 256
+
+
 class ExprEvalError(Exception):
     """
     Used during query execution to signal expr evaluation failures.
@@ -292,7 +296,13 @@ def raise_from_expr_eval_err(e: ExprEvalError) -> NoReturn:
     """Convert an ExprEvalError (internal) into a user-facing Error."""
     msg = f'In row {e.row_num} the {e.expr_msg} encountered exception {type(e.exc).__name__}:\n{e.exc}'
     if len(e.input_vals) > 0:
-        input_msgs = [f"'{d}' = {d.col_type.print_value(e.input_vals[i])}" for i, d in enumerate(e.expr.dependencies())]
+        input_msgs = []
+        for i, d in enumerate(e.expr.dependencies()):
+            # print_value() renders the entire value (e.g. a document); bound it so the message stays readable
+            val_str = d.col_type.print_value(e.input_vals[i])
+            if len(val_str) > _PRINT_VALUE_MAX_LEN:
+                val_str = f'{val_str[:_PRINT_VALUE_MAX_LEN]}...'
+            input_msgs.append(f"'{d}' = {val_str}")
         msg += f'\nwith {", ".join(input_msgs)}'
     assert e.exc_tb is not None
     stack_trace = traceback.format_tb(e.exc_tb)

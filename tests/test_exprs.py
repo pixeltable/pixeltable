@@ -192,6 +192,14 @@ class TestExprs:
         _ = t.where(t.c1n != None).collect()
         print(_)
 
+    def test_filter_on_unstored_col(self, test_tbl: pxt.Table) -> None:
+        # a comparison on an unstored computed column substitutes the ColumnRef with the value expr, so it is
+        # no longer a search argument; the substitution must not break the where clause
+        t = test_tbl
+        t.add_computed_column(cplus=t.c2 + 1, stored=False)
+        res = t.where(t.cplus == 8).select(t.c2, t.cplus).collect()
+        assert all(r['cplus'] == 8 and r['c2'] == 7 for r in res)
+
     def test_exception_handling(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
@@ -223,6 +231,15 @@ class TestExprs:
         # error in agg.value()
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             _ = t.where(t.c2 <= 2).select(self.value_exc(t.c2 - 1)).show()
+
+    @pytest.mark.db_roots('local', reason='asserts on the error message text')
+    def test_eval_error_input_truncated(self, uses_db: None) -> None:
+        # an expression-evaluation error reports its input values, bounded in length
+        t = pxt.create_table('test_eval_err', {'s': pxt.String})
+        validate_update_status(t.insert([{'s': 'x' * 10000}]), expected_rows=1)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as excinfo:
+            _ = t.select(t.s.apply(lambda s: 1 / 0, col_type=pxt.Float)).collect()
+        assert len(excinfo.value.message) < 2000
 
     @staticmethod
     @pxt.udf

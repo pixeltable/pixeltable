@@ -700,6 +700,7 @@ def _(
     if start is not None:
         start = start.cast(sql.types.INT)  # Postgres won't accept a BIGINT
         start = sql.case(
+            (start == None, 1),  # an explicit None arrives as a NULL literal: from the start
             (start >= 0, start + 1),  # SQL is 1-based, Python is 0-based
             else_=sql.func.char_length(self) + start + 1,  # negative index
         )
@@ -708,6 +709,7 @@ def _(
     if stop is not None:
         stop = stop.cast(sql.types.INT)  # Postgres won't accept a BIGINT
         stop = sql.case(
+            (stop == None, sql.func.char_length(self) + 1),  # an explicit None arrives as a NULL literal: to the end
             (stop >= 0, stop + 1),  # SQL is 1-based, Python is 0-based
             else_=sql.func.char_length(self) + stop + 1,  # negative index
         )
@@ -716,7 +718,7 @@ def _(
     if start is None:
         if stop is None:
             return self
-        return sql.func.substr(self, 1, stop)
+        return sql.func.substr(self, 1, sql.func.greatest(stop - 1, 0))
     if stop is None:
         return sql.func.substr(self, start)
     return sql.func.substr(self, start, sql.func.greatest(stop - start, 0))

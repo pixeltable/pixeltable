@@ -74,9 +74,9 @@ class Comparison(Expr):
         """The value column of a B-tree index that can answer this comparison, or None if no such index is present"""
         import pixeltable.index as index
 
-        if not self.is_search_arg_comparison:
+        if not self.is_search_arg_comparison or not isinstance(self._op1, ColumnRef):
+            # _op1 is no longer a ColumnRef if substitution (e.g. of an unstored computed column) replaced it
             return None
-        assert isinstance(self._op1, ColumnRef)
         col = self._op1.col
         tbl = col.get_tbl()
         if not tbl.supports_idxs:

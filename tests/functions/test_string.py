@@ -257,6 +257,17 @@ class TestString:
         for row in res:
             assert row['out'] == row['s'][0:4]
 
+        # mixed positive/negative/omitted/explicit-None bounds (regression: explicit Nones arrive as NULL literals)
+        bounds = [(0, 3), (None, 3), (3, None), (-3, None), (None, -1), (-3, -1), (0, 0), (None, None), (-10, None)]
+        for start, stop in bounds:
+            res = t.select(t.s, out=t.s.slice(start, stop)).collect()
+            for row in res:
+                assert row['out'] == row['s'][start:stop], f'slice({start}, {stop})'
+        for start, stop in [(0, 1), (0, 3), (3, None), (-10, None), (None, -5)]:
+            for val in ('a', 'the', ''):
+                n = sum(1 for s in self.TEST_STRS if s[start:stop] == val)
+                assert len(t.where(t.s.slice(start, stop) == val).collect()) == n, f'where slice({start}, {stop})'
+
     def test_match(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
