@@ -27,6 +27,9 @@ pub enum UdfImpl {
     Callable { py_fns: Vec<Py<PyAny>>, batch_size: Option<usize>, is_async: Vec<bool>, has_resource_pool: bool },
     /// template expressions, one per signature; parameters appear as `Variable` nodes
     Template { exprs: Vec<ExprRef> },
+    /// a query template (`@pxt.query`, `pxt.retrieval_udf()`): parameters appear as `Variable` nodes in the query; a
+    /// call returns the result rows as a JSON list (of dicts, or of the single column's values with `return_scalar`)
+    Query { spec: crate::exec::QuerySpec, return_scalar: bool },
     /// a stored function that no longer resolves (`pixeltable.func.InvalidFunction`)
     Invalid { error_msg: String },
 }
@@ -346,7 +349,7 @@ fn finish_call(
             let inst = instantiate(def, sig_idx, &binding, &args, &kwargs)?;
             (inst.col_type.clone(), Some(inst))
         }
-        UdfImpl::Callable { .. } => {
+        UdfImpl::Callable { .. } | UdfImpl::Query { .. } => {
             let sig = &def.signatures[sig_idx];
             let rt = conditional_return_type(def, sig_idx, &binding, &args, &kwargs)?
                 .unwrap_or_else(|| sig.return_type.clone());
@@ -459,6 +462,7 @@ pub fn eval_call(call: &UdfCall, fc: &FunctionCall, e: &Expr, ctx: &dyn RowConte
         UdfImpl::Invalid { error_msg } => {
             crate::bail!(InvalidState, "The UDF `{}` cannot be located, because\n{error_msg}", call.def.path_str())
         }
+        UdfImpl::Query { spec, return_scalar } => eval_query_call(call, fc, spec, *return_scalar, ctx),
         UdfImpl::Callable { py_fns, batch_size, is_async, has_resource_pool } => {
             if *has_resource_pool && !is_async.get(call.sig_idx).copied().unwrap_or(false) {
                 crate::bail!(
@@ -515,6 +519,68 @@ pub fn eval_call(call: &UdfCall, fc: &FunctionCall, e: &Expr, ctx: &dyn RowConte
             })
         }
     }
+}
+
+/// The values bound to the parameters of a call for one row (defaults for unbound parameters), as literals; None
+/// if a NULL is bound to a non-nullable parameter (the call yields NULL).
+fn bound_literals(call: &UdfCall, fc: &FunctionCall, ctx: &dyn RowContext) -> Result<Option<Vec<(String, ExprRef)>>> {
+    let sig = call.signature().ok_or_else(|| Error::internal("unresolved call"))?;
+    let mut out: Vec<(String, ExprRef)> = Vec::new();
+    for (pi, b) in &call.binding.bound {
+        let p = &sig.params[*pi];
+        let e = match b {
+            BoundArg::Arg(i) => &fc.args[*i],
+            BoundArg::Kwarg(i) => &fc.kwargs[*i].1,
+            _ => continue,
+        };
+        let v = eval(e, ctx)?;
+        if v.is_null() && p.col_type.as_ref().is_some_and(|t| !t.nullable) {
+            return Ok(None);
+        }
+        let t = p.col_type.clone().unwrap_or_else(|| e.col_type.clone());
+        out.push((p.name.clone(), Expr::literal(v, t.with_nullable(true))));
+    }
+    for p in &sig.params {
+        if !out.iter().any(|(n, _)| *n == p.name) {
+            if let Some(d) = &p.default {
+                out.push((p.name.clone(), d.clone()));
+            }
+        }
+    }
+    Ok(Some(out))
+}
+
+/// Runs a query template with the call's arguments bound to its parameters.
+fn eval_query_call(
+    call: &UdfCall,
+    fc: &FunctionCall,
+    spec: &crate::exec::QuerySpec,
+    return_scalar: bool,
+    ctx: &dyn RowContext,
+) -> Result<Value> {
+    let Some(values) = bound_literals(call, fc, ctx)? else { return Ok(Value::Null) };
+    let subst = |e: &Expr| match &e.kind {
+        ExprKind::Variable(name) => values.iter().find(|(n, _)| n == name).map(|(_, v)| v.clone()),
+        _ => None,
+    };
+    let q = spec.map_exprs(&|e| substitute(e, &subst))?;
+    let data = Python::attach(|py| -> Result<crate::exec::ResultData> {
+        let input = crate::catalog::runtime::with_catalog(py, |cat| crate::exec::QueryInput::snapshot(cat, &q))?;
+        crate::exec::execute(&input, &q, false)
+    })?;
+    let mut rows = Vec::with_capacity(data.rows.len());
+    for row in &data.rows {
+        if return_scalar {
+            rows.push(row.first().map(crate::value::value_to_json).transpose()?.unwrap_or(Json::Null));
+        } else {
+            let mut m = serde_json::Map::new();
+            for (name, v) in data.names.iter().zip(row.iter()) {
+                m.insert(name.clone(), crate::value::value_to_json(v)?);
+            }
+            rows.push(Json::Object(m));
+        }
+    }
+    Ok(Value::Json(Json::Array(rows)))
 }
 
 pub fn is_coroutine(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
@@ -775,4 +841,78 @@ pub fn lookup_type_method(py: Python<'_>, t: i64, name: &str) -> Option<Py<PyAny
 
 pub fn registered_functions(py: Python<'_>) -> Vec<Py<PyAny>> {
     registry().lock().map(|r| r.module_fns.iter().map(|(_, f)| f.clone_ref(py)).collect()).unwrap_or_default()
+}
+
+// ------------------------------------------------------------------------------------------------ validity
+
+/// Upstream's INVALID_STATE error for an operation that would evaluate a computed column whose stored expression
+/// no longer matches the code; `op` is e.g. "inserted into", `tbl_display` e.g. "Table 't'".
+pub fn check_valid_column(tbl_display: &str, col_name: &str, e: &Expr, op: &str) -> Result<()> {
+    if let Some(msg) = validation_errors(e).into_iter().next() {
+        crate::bail!(
+            InvalidState,
+            "Data cannot be {op} the {tbl_display},\nbecause the column {} is currently invalid:\n{msg}",
+            py_repr(col_name)
+        );
+    }
+    Ok(())
+}
+
+/// Upstream `TableVersion.display_str()`: "Table 'name'" or "View 'name'".
+pub fn tbl_version_display(md: &crate::catalog::table::TableMd) -> String {
+    format!("{} {}", if md.is_view() { "View" } else { "Table" }, py_repr(&md.name))
+}
+
+/// Tables whose computed columns were checked since the catalog was (re)loaded.
+fn checked_tables() -> &'static Mutex<std::collections::HashSet<uuid::Uuid>> {
+    static S: OnceLock<Mutex<std::collections::HashSet<uuid::Uuid>>> = OnceLock::new();
+    S.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+}
+
+/// Forgets which tables were checked (called when the catalog is reloaded or reset).
+pub fn reset_load_state() {
+    if let Ok(mut s) = checked_tables().lock() {
+        s.clear();
+    }
+}
+
+/// The warnings upstream emits when it loads a table (and its bases) whose computed columns no longer match the
+/// code; each table is checked once per catalog load.
+pub fn load_warnings(cat: &crate::catalog::Catalog, tbl_id: uuid::Uuid) -> Result<Vec<String>> {
+    let mut out = Vec::new();
+    for id in cat.base_chain(tbl_id).into_iter().rev() {
+        {
+            let mut checked = checked_tables().lock().map_err(|_| Error::internal("poisoned"))?;
+            if !checked.insert(id) {
+                continue;
+            }
+        }
+        let md = cat.table(id)?;
+        for c in md.columns_at(None)? {
+            let Some(j) = &c.md.value_expr else { continue };
+            let e = crate::expr::serde::from_json(j)?;
+            if let Some(msg) = validation_errors(&e).into_iter().next() {
+                out.push(format!(
+                    "The computed column {} in table {} is no longer valid.\n{msg}\n\
+                     You can continue to query existing data from this column, but evaluating it on new data will raise an error.",
+                    py_repr(&c.name),
+                    py_repr(&md.name)
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Emits warnings as `PixeltableWarning`s (call without holding the catalog lock).
+pub fn emit_warnings(py: Python<'_>, warnings: &[String]) -> Result<()> {
+    if warnings.is_empty() {
+        return Ok(());
+    }
+    let category = py.import("pixeltable.exceptions")?.getattr("PixeltableWarning")?;
+    let warn = py.import("warnings")?.getattr("warn")?;
+    for w in warnings {
+        warn.call1((w, &category, 2))?;
+    }
+    Ok(())
 }

@@ -26,7 +26,9 @@ tests/test_dirs.py::TestDirs::test_drop_force
 tests/test_dirs.py::TestDirs::test_get_dir_tree
 tests/test_dirs.py::TestDirs::test_get_dir_tree_error_count
 tests/test_dirs.py::TestDirs::test_move
+tests/test_exprs.py::TestExprs::test_apply
 tests/test_exprs.py::TestExprs::test_astype_str_to_img_data_url
+tests/test_exprs.py::TestExprs::test_comparison
 tests/test_exprs.py::TestExprs::test_compound_predicates
 tests/test_exprs.py::TestExprs::test_constant_literals
 tests/test_exprs.py::TestExprs::test_expr_not_iterable
@@ -58,6 +60,9 @@ tests/test_function.py::TestFunction::test_list
 tests/test_function.py::TestFunction::test_member_access_udf
 tests/test_function.py::TestFunction::test_nested_partial_binding
 tests/test_function.py::TestFunction::test_partial_binding
+tests/test_function.py::TestFunction::test_query2
+tests/test_function.py::TestFunction::test_query_errors
+tests/test_function.py::TestFunction::test_query_storable
 tests/test_function.py::TestFunction::test_serialize_anonymous
 tests/test_function.py::TestFunction::test_stored_udf
 tests/test_function.py::TestFunction::test_sync_udf_with_resource_pool
@@ -117,6 +122,7 @@ tests/test_table.py::TestTable::test_column_custom_metadata[reload_catalog]
 tests/test_table.py::TestTable::test_columns[data_versioned]
 tests/test_table.py::TestTable::test_columns[operational]
 tests/test_table.py::TestTable::test_common_col_names
+tests/test_table.py::TestTable::test_computed_col_apply
 tests/test_table.py::TestTable::test_computed_column_types
 tests/test_table.py::TestTable::test_create[data_versioned]
 tests/test_table.py::TestTable::test_create[operational]

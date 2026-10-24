@@ -87,7 +87,13 @@ impl InsertPlan {
                     media_validation,
                 })
             })
-            .collect::<Result<_>>()?;
+            .collect::<Result<Vec<InsertColumn>>>()?;
+        let tbl_display = crate::functions::udf::tbl_version_display(md);
+        for c in columns.iter().filter(|c| c.stored) {
+            if let Some(e) = &c.value_expr {
+                crate::functions::udf::check_valid_column(&tbl_display, &c.name, e, "inserted into")?;
+            }
+        }
         let version = if md.is_data_versioned { md.current_version + 1 } else { md.current_version };
         Ok(InsertPlan {
             tbl_id,

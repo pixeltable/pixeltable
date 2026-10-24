@@ -410,6 +410,17 @@ impl PyExpr {
         Ok(py.None())
     }
 
+    /// `expr.apply(fn, col_type=None)`: a call of `fn` (an arbitrary Python callable) on this expression.
+    #[pyo3(signature = (fn_, *, col_type=None))]
+    fn apply<'py>(slf: &Bound<'py, Self>, fn_: &Bound<'py, PyAny>, col_type: Option<&Bound<'py, PyAny>>) -> Result<Bound<'py, PyAny>> {
+        let py = slf.py();
+        let arg_type = slf.getattr("col_type")?;
+        let f = py
+            .import("pixeltable.func._apply")?
+            .call_method1("make_applicator", (fn_, col_type.map(|c| c.clone()).unwrap_or_else(|| py.None().into_bound(py)), arg_type))?;
+        Ok(f.call1((slf,))?)
+    }
+
     /// For a literal: (True, value); else (False, None).
     fn _literal_value<'py>(&self, py: Python<'py>) -> Result<(bool, Bound<'py, PyAny>)> {
         match self.e.as_literal() {

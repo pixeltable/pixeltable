@@ -166,6 +166,16 @@ non-storable functions (`udf::validate_storable`, called by `validate_column_spe
 in `udf::register_function` (FUNCTION_ALREADY_EXISTS on duplicates); `is_method`/`is_property` UDFs are found by
 `Expr.__getattr__` through `bindings::func::udf_attribute`.
 
+Query templates (`@pxt.query`, `pxt.retrieval_udf()`): `UdfImpl::Query` holds the template `QuerySpec` (built by
+calling the decorated function with `Variable`s); a call binds its arguments as literals (`QuerySpec::map_exprs`),
+snapshots and executes the query and returns the rows as a JSON list. They serialize by value; their Python
+`_from_dict()` must not touch the catalog (it runs under the catalog lock: deserializing a stored expression resolves
+its functions in Python; `with_catalog` fails instead of deadlocking on re-entry).
+
+Stored calls that no longer match the code: `get_table()` emits upstream's "no longer valid" `PixeltableWarning` once
+per catalog load per table (`udf::load_warnings`), and inserting raises INVALID_STATE "Data cannot be inserted into
+..." (`udf::check_valid_column`, also meant for update/recompute with op "updated in"/"computed for").
+
 Iterators (`functions/iterator.rs`, for component views): `GeneratingFunction._core_iterator()` -> `_core.Iterator`
 -> `IteratorDef`; calling it (`iterator::make_call`) binds/type-checks (UNSUPPORTED_OPERATION "Invalid iterator
 arguments: ..."), runs the iterator's `validate()` on constant arguments and gets the output schema from Python

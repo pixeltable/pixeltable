@@ -101,6 +101,14 @@ impl PyUdf {
                 }
                 UdfImpl::Template { exprs }
             }
+            "query" => {
+                let q = spec_item(spec, "query")?.ok_or_else(|| Error::internal("query template without a query"))?;
+                let q = q
+                    .cast::<super::query::PyQuerySpec>()
+                    .map_err(|_| Error::internal("a query template needs a _core.QuerySpec"))?;
+                let return_scalar = flag("return_scalar")?;
+                UdfImpl::Query { spec: q.get().q.clone(), return_scalar }
+            }
             "invalid" => UdfImpl::Invalid {
                 error_msg: spec_item(spec, "error_msg")?.map(|m| m.extract()).transpose()?.unwrap_or_default(),
             },
@@ -109,6 +117,7 @@ impl PyUdf {
         let storable = match &imp {
             UdfImpl::Callable { .. } => self_path.is_some(),
             UdfImpl::Template { exprs } => self_path.is_some() || exprs.iter().all(|e| udf::is_storable(e)),
+            UdfImpl::Query { spec, .. } => spec.exprs().iter().all(|e| udf::is_storable(e)),
             UdfImpl::Invalid { .. } => false,
         };
         let def = UdfDef::new(
