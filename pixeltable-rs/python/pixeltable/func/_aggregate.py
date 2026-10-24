@@ -12,6 +12,7 @@ from typing import Any, ClassVar, Sequence
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable import _core
 
 from ._function import Function, validate_symbol_path
 from ._signature import Parameter, Signature, _literal
@@ -164,9 +165,7 @@ class AggregateFunction(Function):
 
     def _core_spec(self) -> dict[str, Any]:
         return {
-            'kind': 'aggregate',
             'name': self.name,
-            'display_name': self.display_name,
             'self_path': self.self_path,
             'signatures': [sig._to_core() for sig in self.signatures],
             'agg_classes': self.agg_classes,
@@ -176,10 +175,11 @@ class AggregateFunction(Function):
             'allows_window': self.allows_window,
         }
 
+    def _make_core(self) -> Any:
+        return _core.Uda(self, self._core_spec())
+
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        raise NotImplementedError(
-            f'calling the aggregate function `{self.name}` is not implemented yet in pixeltable-rs'
-        )
+        return self._core_udf().call(*args, **kwargs)
 
     def __repr__(self) -> str:
         return f'<Pixeltable Aggregator {self.name}>'

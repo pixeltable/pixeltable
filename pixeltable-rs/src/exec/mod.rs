@@ -115,6 +115,9 @@ pub struct QuerySpec {
     pub order_by: Vec<(ExprRef, bool)>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    /// in a `@pxt.query` template: the parameters that give the limit / offset (bound per call, `bind_params()`)
+    pub limit_param: Option<String>,
+    pub offset_param: Option<String>,
     pub sample: Option<SampleClause>,
 }
 
@@ -139,6 +142,8 @@ impl QuerySpec {
             order_by: Vec::new(),
             limit: None,
             offset: None,
+            limit_param: None,
+            offset_param: None,
             sample: None,
         }
     }
@@ -283,6 +288,36 @@ impl QuerySpec {
         let mut q = self.clone();
         q.limit = Some(n);
         q.offset = offset;
+        Ok(q)
+    }
+
+    /// `Query.limit()` in a `@pxt.query` template: each of limit and offset is a constant or a parameter.
+    pub fn with_limit_args(&self, n: LimitArg, offset: Option<LimitArg>) -> Result<QuerySpec> {
+        let mut q = self.with_limit(n.constant().unwrap_or(0), offset.as_ref().and_then(LimitArg::constant))?;
+        q.limit = n.constant();
+        q.limit_param = n.param();
+        q.offset_param = offset.as_ref().and_then(LimitArg::param);
+        Ok(q)
+    }
+
+    /// Binds the limit / offset parameters of a template to the call's values (`value(name)`).
+    pub fn bind_params(&self, value: &dyn Fn(&str) -> Option<Value>) -> Result<QuerySpec> {
+        let mut q = self.clone();
+        let resolve = |p: &str, role: &str| -> Result<i64> {
+            let Some(v) = value(p).and_then(|v| v.as_i64()) else {
+                crate::bail!(InvalidArgument, "{} parameter must be an int; got None", py_repr(role));
+            };
+            if v < 0 {
+                crate::bail!(InvalidArgument, "{} parameter must be >= 0", py_repr(role));
+            }
+            Ok(v)
+        };
+        if let Some(p) = q.limit_param.take() {
+            q.limit = Some(resolve(&p, "limit")?);
+        }
+        if let Some(p) = q.offset_param.take() {
+            q.offset = Some(resolve(&p, "offset")?);
+        }
         Ok(q)
     }
 
@@ -447,7 +482,7 @@ impl QuerySpec {
         if !self.order_by.is_empty() {
             crate::bail!(UnsupportedOperation, "sample() cannot be used with order_by()");
         }
-        if self.limit.is_some() {
+        if self.limit.is_some() || self.limit_param.is_some() {
             crate::bail!(UnsupportedOperation, "sample() cannot be used with limit()");
         }
         if self.has_joins() {
@@ -572,9 +607,8 @@ impl QuerySpec {
             let label = if i == 0 { "Order By".into() } else { String::new() };
             out.push((label, format!("{} {}", display(e), if *asc { "asc" } else { "desc" })));
         }
-        if let Some(n) = self.limit {
-            let mut s = n.to_string();
-            if let Some(o) = self.offset {
+        if let Some(mut s) = self.limit.map(|n| n.to_string()).or_else(|| self.limit_param.clone()) {
+            if let Some(o) = self.offset.map(|o| o.to_string()).or_else(|| self.offset_param.clone()) {
                 s.push_str(&format!(",{o}"));
             }
             out.push(("Limit".into(), s));
@@ -589,8 +623,21 @@ impl QuerySpec {
     /// template). Every expression-holding field must be mapped here (the destructuring makes a new field a compile
     /// error until it is).
     pub fn map_exprs(&self, f: &dyn Fn(&ExprRef) -> Result<ExprRef>) -> Result<QuerySpec> {
-        let QuerySpec { tbl_id, version, joins, select, where_, group_by, grouping_tbl, order_by, limit, offset, sample } =
-            self;
+        let QuerySpec {
+            tbl_id,
+            version,
+            joins,
+            select,
+            where_,
+            group_by,
+            grouping_tbl,
+            order_by,
+            limit,
+            offset,
+            limit_param,
+            offset_param,
+            sample,
+        } = self;
         let map_all = |items: &[ExprRef]| -> Result<Vec<ExprRef>> { items.iter().map(f).collect() };
         Ok(QuerySpec {
             tbl_id: *tbl_id,
@@ -609,6 +656,8 @@ impl QuerySpec {
             order_by: order_by.iter().map(|(e, asc)| Ok((f(e)?, *asc))).collect::<Result<_>>()?,
             limit: *limit,
             offset: *offset,
+            limit_param: limit_param.clone(),
+            offset_param: offset_param.clone(),
             sample: sample
                 .as_ref()
                 .map(|s| Ok::<_, Error>(SampleClause { stratify_by: map_all(&s.stratify_by)?, ..s.clone() }))
@@ -658,6 +707,8 @@ impl QuerySpec {
             },
             "limit_val": self.limit,
             "offset_val": self.offset,
+            "limit_param": self.limit_param,
+            "offset_param": self.offset_param,
             "sample_clause": match &self.sample {
                 None => J::Null,
                 Some(s) => json!({
@@ -759,8 +810,32 @@ impl QuerySpec {
             order_by,
             limit: d.get("limit_val").and_then(|v| v.as_i64()),
             offset: d.get("offset_val").and_then(|v| v.as_i64()),
+            limit_param: d.get("limit_param").and_then(|v| v.as_str()).map(str::to_owned),
+            offset_param: d.get("offset_param").and_then(|v| v.as_str()).map(str::to_owned),
             sample,
         })
+    }
+}
+
+/// A limit or offset: a constant, or (in a `@pxt.query` template) a parameter.
+pub enum LimitArg {
+    Const(i64),
+    Param(String),
+}
+
+impl LimitArg {
+    fn constant(&self) -> Option<i64> {
+        match self {
+            LimitArg::Const(c) => Some(*c),
+            LimitArg::Param(_) => None,
+        }
+    }
+
+    fn param(&self) -> Option<String> {
+        match self {
+            LimitArg::Param(p) => Some(p.clone()),
+            LimitArg::Const(_) => None,
+        }
     }
 }
 

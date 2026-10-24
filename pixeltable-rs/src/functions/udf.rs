@@ -569,6 +569,7 @@ fn eval_query_call(
         _ => None,
     };
     let q = spec.map_exprs(&|e| substitute(e, &subst))?;
+    let q = q.bind_params(&|name| values.iter().find(|(n, _)| n == name).and_then(|(_, e)| e.as_literal().cloned()))?;
     let data = Python::attach(|py| -> Result<crate::exec::ResultData> {
         let input = crate::catalog::runtime::with_catalog(py, |cat| crate::exec::QueryInput::snapshot(cat, &q))?;
         crate::exec::execute(&input, false)

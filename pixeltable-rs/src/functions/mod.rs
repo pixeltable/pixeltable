@@ -30,6 +30,7 @@ pub mod math;
 pub mod signature;
 pub mod string;
 pub mod timestamp;
+pub mod uda;
 pub mod udf;
 pub mod uuid;
 pub mod video_iterators;

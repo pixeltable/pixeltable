@@ -269,7 +269,7 @@ impl AddComputedPlan {
                             return Err(err);
                         }
                         if fail_on_exception {
-                            return Err(eval_error(&self.expr, err));
+                            return Err(self.abort_error(&cell_error(&err)));
                         }
                         stats.num_excs += 1;
                         if !cols_with_excs.contains(&col.name) {
@@ -284,13 +284,27 @@ impl AddComputedPlan {
         for r in path_rows {
             stats.upd_rows += 1;
             let mut row = r[0].clone();
-            eval_into(&mut row, std::slice::from_ref(&col), &infos, &r[1..], &self.tbl_name, fail_on_exception, stats, cols_with_excs)?;
+            eval_into(&mut row, std::slice::from_ref(&col), &infos, &r[1..], &self.tbl_name, false, stats, cols_with_excs)?;
+            if let Some(err) = row.error(col.col_id).filter(|_| fail_on_exception) {
+                return Err(self.abort_error(err));
+            }
             if col.is_media {
                 self.media.materialize(&mut row, col.col_id, saved)?;
             }
             out.push(((row.rowid, row.pos.clone()), row.cell(col.col_id).clone(), row.error(col.col_id).cloned()));
         }
         Ok(out)
+    }
+
+    /// The error a failed evaluation raises with `on_error='abort'` (upstream `StoreBase.write_column()`): the
+    /// failure of the row, an exception of the column's expression or one it inherits from a cell it reads.
+    fn abort_error(&self, err: &CellError) -> Error {
+        crate::pxt_err!(
+            UnsupportedOperation,
+            "Error while evaluating computed column {}:\n{}",
+            py_repr(&self.spec.name),
+            err.errormsg
+        )
     }
 
     pub fn commit(

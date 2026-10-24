@@ -10,7 +10,8 @@ use super::types::wrap_type;
 use crate::catalog::path::fold_identifier;
 use crate::catalog::runtime::with_catalog;
 use crate::error::{Error, Result, py_repr};
-use crate::exec::{JoinOn, QueryInput, QuerySpec, ResultData, SampleClause, count, execute};
+use crate::expr::ExprKind;
+use crate::exec::{JoinOn, LimitArg, QueryInput, QuerySpec, ResultData, SampleClause, count, execute};
 use crate::value::Value;
 use crate::value::py as vpy;
 
@@ -36,13 +37,39 @@ fn int_param(obj: &Bound<'_, PyAny>, name: &str) -> Result<i64> {
     crate::bail!(TypeMismatch, "{} parameter must be of type `Int`; got `{t}`", crate::error::py_repr(name))
 }
 
-/// A non-negative int parameter (`limit()`, `offset`): negative values are refused before the type check, as
-/// upstream does.
-fn nonneg_int_param(obj: &Bound<'_, PyAny>, name: &str) -> Result<i64> {
+/// Refuses a negative int constant for `limit()` / `offset` (before any type check, as upstream does).
+fn reject_negative(obj: &Bound<'_, PyAny>, name: &str) -> Result<()> {
     if obj.is_instance_of::<PyInt>() && !obj.is_instance_of::<PyBool>() && obj.lt(0)? {
-        crate::bail!(InvalidArgument, "{} parameter must be >= 0", crate::error::py_repr(name));
+        crate::bail!(InvalidArgument, "{} parameter must be >= 0", py_repr(name));
     }
+    Ok(())
+}
+
+/// A non-negative int parameter (`head()`, `tail()`).
+fn nonneg_int_param(obj: &Bound<'_, PyAny>, name: &str) -> Result<i64> {
+    reject_negative(obj, name)?;
     int_param(obj, name)
+}
+
+/// A limit or offset: an int constant or, in a `@pxt.query` template, a query parameter (upstream accepts a
+/// `Literal` or a `Variable`).
+fn limit_arg(obj: &Bound<'_, PyAny>, name: &str) -> Result<LimitArg> {
+    let Some(e) = as_expr(obj) else { return Ok(LimitArg::Const(int_param(obj, name)?)) };
+    if !e.col_type.is_int() {
+        crate::bail!(TypeMismatch, "{} parameter must be of type `Int`; got `{}`", py_repr(name), e.col_type.repr());
+    }
+    match &e.kind {
+        ExprKind::Literal(Value::Int(v)) if *v < 0 => {
+            crate::bail!(InvalidArgument, "{} parameter must be >= 0", py_repr(name))
+        }
+        ExprKind::Literal(Value::Int(v)) => Ok(LimitArg::Const(*v)),
+        ExprKind::Variable(p) => Ok(LimitArg::Param(p.clone())),
+        _ => crate::bail!(
+            InvalidArgument,
+            "{name}: parameter must be an int constant or query parameter; got: {}",
+            crate::expr::display::display(&e)
+        ),
+    }
 }
 
 fn run(py: Python<'_>, q: &QuerySpec, rowid_desc: bool) -> Result<ResultData> {
@@ -190,13 +217,14 @@ impl PyQuerySpec {
         if n.is_none() {
             crate::bail!(MissingRequired, "'limit()' parameter must be present");
         }
-        let n = nonneg_int_param(n, "limit()")?;
-        let offset = match offset {
-            None => None,
-            Some(o) if o.is_none() => None,
-            Some(o) => Some(nonneg_int_param(o, "offset")?),
-        };
-        Ok(wrap(self.q.with_limit(n, offset)?))
+        let offset = offset.filter(|o| !o.is_none());
+        reject_negative(n, "limit()")?;
+        if let Some(o) = offset {
+            reject_negative(o, "offset")?;
+        }
+        let n = limit_arg(n, "limit()")?;
+        let offset = offset.map(|o| limit_arg(o, "offset")).transpose()?;
+        Ok(wrap(self.q.with_limit_args(n, offset)?))
     }
 
     fn collect(&self, py: Python<'_>) -> Result<PyResultSet> {

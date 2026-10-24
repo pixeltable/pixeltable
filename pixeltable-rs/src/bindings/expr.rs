@@ -456,6 +456,14 @@ impl PyExpr {
         {
             return Ok(call.def.py_obj.bind(py).call_method1("_resolved_fn", (call.sig_idx,))?.unbind());
         }
+        if let crate::expr::ExprKind::FunctionCall(fc) = &self.e.kind {
+            if let crate::functions::FuncRef::Agg(a) = &fc.func {
+                if let Some(obj) = a.py_function() {
+                    let (sig_idx, _) = crate::functions::agg::select_signature(a.as_ref(), &fc.args, &fc.kwargs)?;
+                    return Ok(obj.bind(py).call_method1("_resolved_fn", (sig_idx,))?.unbind());
+                }
+            }
+        }
         Ok(py.None())
     }
 

@@ -461,3 +461,67 @@ pub fn _iterator_seek<'py>(
     }
     Ok(d)
 }
+
+// ------------------------------------------------------------------------------------------------ aggregates
+
+/// `pixeltable._core.Uda`: the backend half of a `pixeltable.func.AggregateFunction` (`@pxt.uda`).
+#[pyclass(name = "Uda", module = "pixeltable._core", frozen)]
+pub struct PyUda {
+    pub f: Arc<crate::functions::uda::UdaFunction>,
+}
+
+#[pymethods]
+impl PyUda {
+    /// `spec`: `name`, `self_path`, `signatures`, `agg_classes`, `init_param_names` (per signature),
+    /// `requires_order_by`, `allows_std_agg`, `allows_window`.
+    #[new]
+    fn new(py_obj: Bound<'_, PyAny>, spec: &Bound<'_, PyDict>) -> Result<Self> {
+        let get = |k: &str| -> Result<Bound<'_, PyAny>> {
+            spec_item(spec, k)?.ok_or_else(|| Error::internal(format!("UDA spec without {k:?}")))
+        };
+        let mut signatures = Vec::new();
+        for s in get("signatures")?.try_iter()? {
+            signatures.push(Signature::from_py(&s?)?);
+        }
+        let agg_classes: Vec<Py<PyAny>> = get("agg_classes")?.try_iter()?.map(|c| Ok(c?.unbind())).collect::<Result<_>>()?;
+        let init_names: Vec<Vec<String>> = get("init_param_names")?.extract()?;
+        let flag = |k: &str| -> Result<bool> { Ok(spec_item(spec, k)?.map(|v| v.is_truthy()).transpose()?.unwrap_or(false)) };
+        let f = crate::functions::uda::UdaFunction::new(
+            get("name")?.extract()?,
+            get("self_path")?.extract()?,
+            signatures,
+            agg_classes,
+            init_names.into_iter().next().unwrap_or_default(),
+            flag("requires_order_by")?,
+            flag("allows_std_agg")?,
+            flag("allows_window")?,
+            py_obj.unbind(),
+        );
+        Ok(PyUda { f: Arc::new(f) })
+    }
+
+    /// `uda(*args, **kwargs)`: an aggregate call (`order_by` / `group_by` as upstream).
+    #[pyo3(signature = (*args, **kwargs))]
+    fn call(&self, args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Result<PyExpr> {
+        let a: Vec<Bound<'_, PyAny>> = args.iter().collect();
+        let mut kw = Vec::new();
+        if let Some(kwargs) = kwargs {
+            for (k, v) in kwargs.iter() {
+                kw.push((k.extract::<String>()?, v));
+            }
+        }
+        let f: crate::functions::agg::AggRef = self.f.clone();
+        wrap(super::expr::agg_call_from_py(f, a, kw)?)
+    }
+
+    #[getter]
+    fn is_storable(&self) -> bool {
+        true
+    }
+}
+
+/// Qualified names of the builtin aggregate functions.
+#[pyfunction]
+pub fn builtin_agg_names() -> Vec<String> {
+    crate::functions::agg::builtin_agg_names()
+}
