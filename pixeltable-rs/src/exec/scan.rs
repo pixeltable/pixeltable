@@ -101,6 +101,8 @@ pub struct ElemInput {
     pub info: ElemInfo,
     /// the version read
     pub version: i64,
+    /// the version the path pins (None: live); column references of a pinned table carry it
+    pub pinned: Option<i64>,
     pub data: Arc<TableData>,
     /// the number of iterator positions in this table's row keys
     pub num_pos: usize,
@@ -119,7 +121,7 @@ impl PathInput {
             let version = e.pinned.unwrap_or(md.current_version);
             let info = ElemInfo::of(&md, e.pinned)?;
             let data = cat.data(e.tbl_id)?;
-            elems.push(ElemInput { info, version, data, num_pos: 0 });
+            elems.push(ElemInput { info, version, pinned: e.pinned, data, num_pos: 0 });
         }
         if elems.is_empty() {
             return Err(Error::internal("empty table path"));

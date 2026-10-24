@@ -137,23 +137,25 @@ impl PyQuerySpec {
     fn mutation_target(&self, py: Python<'_>, op_name: &str) -> Result<(String, Option<i64>, Option<PyExpr>)> {
         let q = &self.q;
         for (clause, present) in [
+            ("group_by", q.group_by.is_some() || q.grouping_tbl.is_some()),
             ("order_by", !q.order_by.is_empty()),
             ("select", q.select.is_some()),
             ("limit", q.limit.is_some() || q.offset.is_some()),
+            ("join", !q.joins.is_empty()),
         ] {
             if present {
                 crate::bail!(UnsupportedOperation, "Cannot use `{op_name}` after `{clause}`.");
             }
         }
-        let is_snapshot = with_catalog(py, |cat| {
+        let (is_snapshot, is_view) = with_catalog(py, |cat| {
             let md = cat.table(q.tbl_id)?;
-            if op_name == "delete" && md.is_view() && !md.is_snapshot() {
-                crate::bail!(UnsupportedOperation, "Cannot use `delete` on a view.");
-            }
-            Ok(md.is_snapshot() || q.version.is_some())
+            Ok((md.is_snapshot() || q.version.is_some(), md.is_view()))
         })?;
         if is_snapshot {
             crate::bail!(UnsupportedOperation, "Cannot use `{op_name}` on a snapshot.");
+        }
+        if op_name == "delete" && is_view {
+            crate::bail!(UnsupportedOperation, "Cannot use `delete` on a view.");
         }
         Ok((q.tbl_id.to_string(), q.version, q.where_.clone().map(PyExpr::new)))
     }
