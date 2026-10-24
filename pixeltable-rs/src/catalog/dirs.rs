@@ -34,7 +34,7 @@ pub enum Creating {
 }
 
 impl Creating {
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Creating::Dir => "directory",
             Creating::Table => "table",

@@ -233,11 +233,15 @@ class Table(SchemaObject):
         """Rename a column."""
         _core.tbl_rename_column(str(self._id), old_name, new_name)
 
-    @unimplemented('alter_column()')
-    def alter_column(self, column: Any, *, type_: Any) -> None: ...
+    def alter_column(self, column: str | _core.Expr, *, type_: Any) -> None:
+        """Change the type of a column (currently: make a column nullable)."""
+        _core.tbl_alter_column(str(self._id), self._version, column, type_)
 
-    @unimplemented('alter_computed_column()')
-    def alter_computed_column(self, *args: Any, **kwargs: Any) -> UpdateStatus: ...
+    def alter_computed_column(self, *, recompute: bool = True, cascade: bool = True, **kwargs: Any) -> UpdateStatus:
+        """Replace the value expression of a computed column, given as `name=expression`."""
+        return _status_from_core(
+            _core.tbl_alter_computed_column(str(self._id), self._version, kwargs, recompute, cascade)
+        )
 
     def add_embedding_index(
         self,
@@ -339,43 +343,70 @@ class Table(SchemaObject):
         data, col_types, errors = _core.tbl_compute(str(self._id), self._version, source, outputs, on_error)
         return RowBatch(data, col_types, errors=errors)
 
-    @unimplemented('update()')
-    def update(self, value_spec: dict[str, Any], where: Any = None, cascade: bool = True) -> UpdateStatus: ...
+    def update(
+        self,
+        value_spec: dict[str, Any],
+        where: _core.Expr | None = None,
+        cascade: bool = True,
+        return_rows: bool = False,
+    ) -> UpdateStatus:
+        """Update the rows that satisfy `where` (all rows without it), setting columns to literals or expressions."""
+        return _status_from_core(
+            _core.tbl_update(str(self._id), self._version, value_spec, where, cascade, return_rows)
+        )
 
-    @unimplemented('batch_update()')
-    def batch_update(self, rows: Iterable[dict[str, Any]], **kwargs: Any) -> UpdateStatus: ...
+    def batch_update(
+        self,
+        rows: Iterable[dict[str, Any]],
+        cascade: bool = True,
+        if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
+        return_rows: bool = False,
+    ) -> UpdateStatus:
+        """Update rows identified by their primary key (or `_rowid`), each with its own values."""
+        return _status_from_core(
+            _core.tbl_batch_update(str(self._id), self._version, rows, cascade, if_not_exists, return_rows)
+        )
 
-    @unimplemented('recompute_columns()')
-    def recompute_columns(self, *columns: Any, **kwargs: Any) -> UpdateStatus: ...
+    def recompute_columns(
+        self,
+        *columns: str | _core.Expr,
+        where: _core.Expr | None = None,
+        errors_only: bool = False,
+        cascade: bool = True,
+    ) -> UpdateStatus:
+        """Recompute the values of computed columns (and, with `cascade`, of the columns that depend on them)."""
+        return _status_from_core(
+            _core.tbl_recompute_columns(str(self._id), self._version, list(columns), where, errors_only, cascade)
+        )
 
-    @unimplemented('delete()')
-    def delete(self, where: Any = None) -> UpdateStatus: ...
+    def delete(self, where: _core.Expr | None = None) -> UpdateStatus:
+        """Delete the rows that satisfy `where` (all rows without it)."""
+        return _status_from_core(_core.tbl_delete(str(self._id), self._version, where))
 
-    @unimplemented('revert()')
-    def revert(self) -> None: ...
+    def revert(self) -> None:
+        """Revert the table to its previous version."""
+        _core.tbl_revert(str(self._id), self._version)
 
     def get_versions(self, n: int | None = None) -> list[VersionMetadata]:
         """Metadata of the most recent versions of this table, newest first."""
         import datetime
 
-        result: list[VersionMetadata] = []
-        for version, created_at, change_type, ins, upd, dels, errs, schema_change in _core.tbl_versions(
-            str(self._id), n
-        ):
-            result.append(
-                VersionMetadata(
-                    version=version,
-                    created_at=datetime.datetime.fromtimestamp(created_at, tz=datetime.timezone.utc),
-                    user=None,
-                    change_type=change_type,
-                    inserts=ins,
-                    updates=upd,
-                    deletes=dels,
-                    errors=errs,
-                    schema_change=schema_change,
-                )
+        return [
+            VersionMetadata(
+                version=version,
+                created_at=datetime.datetime.fromtimestamp(created_at, tz=datetime.timezone.utc),
+                user=user,
+                change_type=change_type,
+                inserts=ins,
+                updates=upd,
+                deletes=dels,
+                errors=errs,
+                schema_change=schema_change,
             )
-        return result
+            for version, created_at, user, change_type, ins, upd, dels, errs, schema_change in _core.tbl_versions(
+                str(self._id), n
+            )
+        ]
 
     def history(self, n: int | None = None) -> pd.DataFrame:
         """A human-readable version history of this table."""

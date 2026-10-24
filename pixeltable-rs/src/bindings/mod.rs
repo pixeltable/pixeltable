@@ -7,6 +7,7 @@ pub mod catalog;
 pub mod expr;
 pub mod indexes;
 pub mod func;
+pub mod mutate;
 pub mod query;
 pub mod sources;
 pub mod table;
@@ -77,7 +78,14 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(table::tbl_add_computed_column, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_drop_column, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_rename_column, m)?)?;
-    m.add_function(wrap_pyfunction!(table::tbl_versions, m)?)?;
+    m.add_function(wrap_pyfunction!(mutate::tbl_versions, m)?)?;
+    m.add_function(wrap_pyfunction!(mutate::tbl_update, m)?)?;
+    m.add_function(wrap_pyfunction!(mutate::tbl_batch_update, m)?)?;
+    m.add_function(wrap_pyfunction!(mutate::tbl_recompute_columns, m)?)?;
+    m.add_function(wrap_pyfunction!(mutate::tbl_delete, m)?)?;
+    m.add_function(wrap_pyfunction!(mutate::tbl_revert, m)?)?;
+    m.add_function(wrap_pyfunction!(mutate::tbl_alter_column, m)?)?;
+    m.add_function(wrap_pyfunction!(mutate::tbl_alter_computed_column, m)?)?;
     Ok(())
 }
 

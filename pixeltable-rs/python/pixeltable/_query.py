@@ -240,14 +240,26 @@ class Query:
         """A [`ResultCursor`][pixeltable.ResultCursor] over the query results."""
         return ResultCursor(self)
 
-    @unimplemented('Query.update()')
-    def update(self, value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus: ...
+    def _mutation_target(self, op_name: str) -> tuple[Table, _core.Expr | None]:
+        from pixeltable._table import _make_table
 
-    @unimplemented('Query.delete()')
-    def delete(self) -> UpdateStatus: ...
+        tbl_id, version, where = self._spec.mutation_target(op_name)
+        return _make_table(tbl_id, _core.tbl_kind(tbl_id), version), where
 
-    @unimplemented('Query.recompute_columns()')
-    def recompute_columns(self, *columns: Any, errors_only: bool = False, cascade: bool = True) -> UpdateStatus: ...
+    def update(self, value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus:
+        """Update the rows of the underlying table that this Query selects."""
+        tbl, where = self._mutation_target('update')
+        return tbl.update(value_spec, where=where, cascade=cascade)
+
+    def delete(self) -> UpdateStatus:
+        """Delete the rows of the underlying table that this Query selects."""
+        tbl, where = self._mutation_target('delete')
+        return tbl.delete(where=where)
+
+    def recompute_columns(self, *columns: Any, errors_only: bool = False, cascade: bool = True) -> UpdateStatus:
+        """Recompute computed columns of the underlying table for the rows that this Query selects."""
+        tbl, where = self._mutation_target('recompute_columns')
+        return tbl.recompute_columns(*columns, where=where, errors_only=errors_only, cascade=cascade)
 
     @unimplemented('Query.to_pytorch_dataset()')
     def to_pytorch_dataset(self, image_format: str = 'pt') -> Any: ...
