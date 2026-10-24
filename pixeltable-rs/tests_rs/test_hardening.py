@@ -130,6 +130,10 @@ class TestExprDepth:
         assert t.select(x=e).collect()['x'] == []
 
 
+# a row error wraps the overflow as upstream does: In row N the expression ... encountered exception ...
+_OVERFLOW = r'encountered exception RequestError:\nbigint out of range$'
+
+
 class TestIntegerOverflow:
     @pytest.fixture
     def tbl(self) -> pxt.Table:
@@ -140,9 +144,9 @@ class TestIntegerOverflow:
     def test_overflow_raises(self, tbl: pxt.Table) -> None:
         t = tbl
         for expr in [t.a // -1, t.a + 1, t.a - 1, t.a * 2, -t.a, t.a**100]:
-            with raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='^bigint out of range$'):
+            with raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=_OVERFLOW):
                 t.select(x=expr).collect()
-        with raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='^bigint out of range$'):
+        with raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=_OVERFLOW):
             t.where(t.a // -1 > 0).count()
         assert t.select(x=t.a % -1).collect()['x'] == [0, 0]
         assert t.count() == 2  # still usable
