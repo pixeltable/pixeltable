@@ -12,6 +12,7 @@
 //! evaluation happen there; evaluation calls back into Python for the function body.
 
 pub mod image;
+pub mod iterator;
 pub mod math;
 pub mod signature;
 pub mod string;

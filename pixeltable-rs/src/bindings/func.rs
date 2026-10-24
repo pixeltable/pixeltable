@@ -227,3 +227,83 @@ pub fn variable(name: &str, col_type: &Bound<'_, PyAny>) -> Result<PyExpr> {
     let t = super::types::core_type(col_type).ok_or_else(|| Error::Type("expected a ColumnType".into()))?;
     Ok(PyExpr::new(Expr::new(ExprKind::Variable(name.to_string()), t)))
 }
+
+// ------------------------------------------------------------------------------------------------ iterators
+
+use crate::functions::iterator::{self, IteratorCall, IteratorDef};
+
+/// `pixeltable._core.Iterator`: the backend half of a `pixeltable.func.GeneratingFunction`.
+#[pyclass(name = "Iterator", module = "pixeltable._core", frozen)]
+pub struct PyIterator {
+    pub def: Arc<IteratorDef>,
+}
+
+#[pymethods]
+impl PyIterator {
+    /// `spec`: `fqn`, `signature` (a dict, see `Signature::from_py`; None for an iterator that no longer resolves),
+    /// `unstored_cols`, `has_seek`, `error_msg`.
+    #[new]
+    fn new(py_obj: Bound<'_, PyAny>, spec: &Bound<'_, PyDict>) -> Result<Self> {
+        let fqn: String = spec_item(spec, "fqn")?.ok_or_else(|| Error::internal("iterator spec without fqn"))?.extract()?;
+        let signature = spec_item(spec, "signature")?.map(|s| Signature::from_py(&s)).transpose()?;
+        let unstored_cols: Vec<String> = spec_item(spec, "unstored_cols")?.map(|u| u.extract()).transpose()?.unwrap_or_default();
+        let has_seek = spec_item(spec, "has_seek")?.map(|v| v.is_truthy()).transpose()?.unwrap_or(false);
+        let error_msg: Option<String> = spec_item(spec, "error_msg")?.map(|m| m.extract()).transpose()?;
+        Ok(PyIterator { def: Arc::new(IteratorDef::new(fqn, signature, unstored_cols, has_seek, py_obj.unbind(), error_msg)) })
+    }
+
+    /// `iterator(*args, **kwargs)`
+    #[pyo3(signature = (*args, **kwargs))]
+    fn call(&self, args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Result<PyIteratorCall> {
+        let (a, k) = call_args(Some(&self.def.fqn), args, kwargs)?;
+        Ok(PyIteratorCall { call: Arc::new(iterator::make_call(&self.def, a, k)?) })
+    }
+}
+
+/// `pixeltable._core.IteratorCall`: a bound iterator call (what `create_view(iterator=...)` receives, inside a
+/// `pixeltable.func.GeneratingFunctionCall`).
+#[pyclass(name = "IteratorCall", module = "pixeltable._core", frozen)]
+pub struct PyIteratorCall {
+    pub call: Arc<IteratorCall>,
+}
+
+#[pymethods]
+impl PyIteratorCall {
+    fn display_str(&self) -> String {
+        self.call.display()
+    }
+
+    /// (folded name, ColumnType) of each output, `pos` first.
+    fn outputs<'py>(&self, py: Python<'py>) -> Result<Vec<(String, Bound<'py, PyAny>)>> {
+        self.call
+            .outputs
+            .iter()
+            .map(|o| Ok((o.name.clone(), super::types::wrap_type(py, &o.col_type)?)))
+            .collect()
+    }
+
+    fn as_dict<'py>(&self, py: Python<'py>) -> Result<Bound<'py, PyAny>> {
+        Ok(crate::value::py::json_to_py(py, &self.call.to_json()?)?)
+    }
+
+    #[getter]
+    fn is_valid(&self) -> bool {
+        self.call.validation_error.is_none()
+    }
+}
+
+/// The iterator call passed as `create_view(iterator=...)`: a `GeneratingFunctionCall` (or a `_core.IteratorCall`).
+pub fn iterator_call_from_py(obj: &Bound<'_, PyAny>) -> Result<Arc<IteratorCall>> {
+    if let Ok(c) = obj.cast::<PyIteratorCall>() {
+        return Ok(c.get().call.clone());
+    }
+    if let Ok(inner) = obj.getattr("_core") {
+        if let Ok(c) = inner.cast::<PyIteratorCall>() {
+            return Ok(c.get().call.clone());
+        }
+    }
+    Err(Error::Type(format!(
+        "iterator must be a call of a @pxt.iterator, not {}",
+        obj.get_type().name().map(|n| n.to_string()).unwrap_or_default()
+    )))
+}

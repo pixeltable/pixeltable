@@ -21,6 +21,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<query::PyResultSet>()?;
     m.add_class::<func::PyUdf>()?;
     m.add_class::<func::PyUdfMethodRef>()?;
+    m.add_class::<func::PyIterator>()?;
+    m.add_class::<func::PyIteratorCall>()?;
 
     m.add_function(wrap_pyfunction!(expr::expr_from_object, m)?)?;
     m.add_function(wrap_pyfunction!(expr::array, m)?)?;

@@ -34,7 +34,8 @@ src/
   expr/serde.rs     Expr <-> JSON, tagged Value <-> JSON
   expr/eval.rs      RowContext trait, eval(), SQL-like NULL semantics
   functions/        builtin registry (mod.rs: Builtin, FuncRef, make_call) + one file per module (string.rs, math.rs,
-                    uuid.rs, image.rs (PIL), video.rs (PyAV metadata))
+                    uuid.rs, image.rs (PIL), video.rs (PyAV metadata)); Python functions: signature.rs (binding
+                    calls like inspect.Signature.bind), udf.rs (UDF/template calls), iterator.rs (iterator calls)
   media.rs          media cells: path/URL normalization, file cache, writing in-memory media, validation
   catalog/mod.rs    Catalog: dirs, tables (Arc<TableMd>), lazily loaded row data; commit(); lookups
   catalog/path.rs   Path parsing/validation/folding (upstream messages)
@@ -49,7 +50,8 @@ src/
   exec/insert.rs    insert pipeline: InsertPlan -> build_rows -> commit
   exec/compute.rs   computed columns: eval_computed(), AddComputedPlan (plan -> compute -> commit)
   bindings/         PyO3 glue only: types.rs (_core.ColumnType), expr.rs (_core.Expr, MethodRef), catalog.rs
-                    (module-level functions), table.rs (tbl_* functions), query.rs (QuerySpec, ResultSet, cursor)
+                    (module-level functions), table.rs (tbl_* functions), query.rs (QuerySpec, ResultSet, cursor),
+                    func.rs (_core.Udf, _core.Iterator, _core.IteratorCall, the function registry)
 python/pixeltable/
   __init__.py       the public names (same as upstream's __init__)
   exceptions.py     copy of upstream's public module
@@ -59,7 +61,9 @@ python/pixeltable/
   _table.py         Table/InsertableTable/View handles (id + pinned version), Dir
   _query.py         Query (wraps _core.QuerySpec), ResultSet (wraps _core.ResultSet), ResultCursor
   _exprs.py         Expr = _core.Expr
-  func/__init__.py  placeholder Function/udf/uda/... (decorators work, calls raise NotImplementedError)
+  func/             introspection of user functions: _signature.py (Signature from type hints), _function.py
+                    (Function base, serialization, symbol resolution), _callable.py (@pxt.udf), _expr_template.py
+                    (@pxt.expr_udf, using()), _iterator.py (@pxt.iterator), _udf.py (decorators, registry), ...
   functions/, iterators/, io/   generated stubs; functions/_registry.py resolves names to Rust builtins
   _metadata.py, _update_status.py, _row.py   public data classes copied from upstream
   _testing.py       reset_db(), reload_catalog()
@@ -134,11 +138,49 @@ through `Expr.__getattr__` -> `MethodRef` (the module is chosen by the value's t
 To add a builtin: implement `return_type` and `eval`, add the `Builtin` entry, rebuild. Aggregates and window
 functions need a new trait (init/update/value) and a grouping stage in `exec` (not built yet).
 
-Python UDFs (not built yet): `FuncRef::Udf(Arc<UdfRef>)` holds the callable and a descriptor (module + qualname, or
-pickled bytes) that `pixeltable.func` produces and resolves when an expression is deserialized
-(`FuncRef::from_json` has the hook). `FuncRef::call` is where evaluation calls back into Python (`Python::attach`,
-convert args with `value::py::to_py`, convert the result with `value::py::coerce` against the declared return type).
-The placeholder decorators in `python/pixeltable/func/__init__.py` already capture the callables.
+## Python functions (UDFs, templates, iterators)
+
+The boundary: `pixeltable.func` introspects user code (type hints -> `Signature`, the callables, template
+expressions built by calling an `@pxt.expr_udf` body with `Variable` nodes) and creates the backend half once, on
+first use: `Function._core_udf()` -> `_core.Udf(fn, spec)` (`bindings/func.rs`) -> `functions::udf::UdfDef`. Calling a
+function (`Function.__call__` -> `Udf.call`) happens entirely in Rust (`udf::make_call`): `Signature::bind` reproduces
+`inspect.Signature.bind` and its TypeError texts (upstream shows them verbatim), overloads are tried in declaration
+order, `validate_args` type-checks, the result type is the declared (or conditional, computed by calling back
+`Function._call_conditional_return_type`) return type, made nullable when a nullable argument meets a non-nullable
+parameter. The node is a `FunctionCall` whose `FuncRef::Udf` holds a `UdfCall` (def, chosen signature, binding,
+`is_method_call`, for templates the instantiated expression, and `validation_error` for stored calls that no longer
+match the code). `Expr.fn` returns the resolved Python `Function`.
+
+Evaluation (`udf::eval_call`): NULL arguments of non-nullable parameters yield NULL without calling; the Python
+callable gets `value::py::to_py` values (batched UDFs get singleton batches; coroutines run via
+`pixeltable.func._runtime`); the result goes through `value::py::coerce`. A Python exception propagates as
+`Error::Python`, so `on_error='ignore'` records `errortype` = its class name and `errormsg` = `str(exc)`. Templates
+evaluate their instantiated expression (`udf::substitute` replaces `Variable`s and re-binds nested calls).
+
+Persistence: a UDF call serializes as `{"udf": Function.as_dict(), "is_method_call": ...}` (by path for module
+functions, pickled for local ones; computed once per def). `udf::call_from_json` (from `expr/serde.rs`) resolves the
+descriptor through `pixeltable.func._resolve_function` (an unresolvable path becomes an `InvalidFunction`), re-binds
+the stored call pattern and checks the stored type against the current return type; failures become the call's
+`validation_error` with upstream's texts (`udf::validation_errors(expr)` lists them). Computed columns reject
+non-storable functions (`udf::validate_storable`, called by `validate_column_spec`). Module functions are registered
+in `udf::register_function` (FUNCTION_ALREADY_EXISTS on duplicates); `is_method`/`is_property` UDFs are found by
+`Expr.__getattr__` through `bindings::func::udf_attribute`.
+
+Iterators (`functions/iterator.rs`, for component views): `GeneratingFunction._core_iterator()` -> `_core.Iterator`
+-> `IteratorDef`; calling it (`iterator::make_call`) binds/type-checks (UNSUPPORTED_OPERATION "Invalid iterator
+arguments: ..."), runs the iterator's `validate()` on constant arguments and gets the output schema from Python
+(`GeneratingFunction._check_call`), then fixes `outputs`: `pos` (not stored) followed by the fields with folded names
+and `is_stored` (false for `unstored_cols`). Python wraps the result (`_core.IteratorCall`) in a
+`GeneratingFunctionCall`; `bindings::func::iterator_call_from_py(obj)` gets the `Arc<IteratorCall>` back for
+`create_view(iterator=...)`. The API a component view uses:
+- `call.value_outputs()`: the output columns other than `pos`, in order; `call.arg_exprs()`: what it reads of the base;
+- `call.eval_rows(ctx)`: runs the iterator for one base row (`ctx` resolves the base columns): one `Vec<Value>` per
+  output row (values of `value_outputs()`), in `pos` order; user exceptions propagate as `Error::Python`;
+- `call.seek_row(ctx, pos, stored)`: the outputs of row `pos` again (for unstored outputs), via `seek(pos, **stored)`;
+- `call.to_json()` / `IteratorCall::from_json()` for `ViewMd`; `from_json` re-binds against the current code and
+  sets `validation_error` (signature or output-schema changes, unresolvable iterator);
+- `call.check_valid("View 'v'", "v", "updated in")`: upstream's INVALID_STATE error for an invalid stored call;
+- `call.display()`: `iterator_call` in `get_metadata()`.
 
 ## Catalog, storage and versioning
 
