@@ -15,7 +15,7 @@ Examples:
 def run(argv: list[str]) -> None:
     ap = Parser(prog='pxt history', epilog=EPILOG)
     ap.add_argument('path')
-    ap.add_argument('-n', type=int, default=None, help='show at most N most recent versions')
+    ap.add_argument('-n', '--limit', dest='n', type=int, default=None, help='show at most N most recent versions')
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 

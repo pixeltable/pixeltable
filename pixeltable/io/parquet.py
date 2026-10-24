@@ -120,7 +120,7 @@ def import_parquet(
     return pxt.create_table(
         table,
         source=parquet_path,
-        source_format=value,
+        source_format=value if value is not None else 'parquet',
         schema_overrides=schema_overrides,
         primary_key=primary_key,
         extra_args=kwargs,

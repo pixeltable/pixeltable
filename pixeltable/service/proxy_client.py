@@ -24,7 +24,7 @@ import urllib.parse
 import urllib.request
 import weakref
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterator
@@ -838,9 +838,23 @@ class ProxyClient:
 
             # the transport handles every other supported scheme (the daemon's media URLs as well as external s3/http
             # media); fetch concurrently, but keep FileCache bookkeeping on this thread (not thread-safe)
-            with ThreadPoolExecutor(max_workers=min(16, len(to_fetch))) as executor:
-                tmp_paths = list(executor.map(fetch, to_fetch))
-            for url, tmp in zip(to_fetch, tmp_paths):
+            futs: dict[Future, str] = {}
+            tmp_paths: dict[str, Path] = {}
+            try:
+                with ThreadPoolExecutor(max_workers=min(16, len(to_fetch))) as executor:
+                    futs = {executor.submit(fetch, url): url for url in to_fetch}
+                    for fut in as_completed(futs):
+                        tmp_paths[futs[fut]] = fut.result()
+            except Exception:
+                # a failed fetch orphans the temp files the other fetches produced (the executor's shutdown already
+                # waited for stragglers); collect and delete them before propagating
+                for fut in futs:
+                    if fut.done() and not fut.cancelled() and fut.exception() is None:
+                        tmp_paths[futs[fut]] = fut.result()
+                for tmp in tmp_paths.values():
+                    TempStore.delete_media_file(tmp)
+                raise
+            for url, tmp in tmp_paths.items():
                 resolved[url] = str(cache.add(_PROXY_MEDIA_TBL_ID, _PROXY_MEDIA_COL_ID, url, tmp))
 
         return resolved

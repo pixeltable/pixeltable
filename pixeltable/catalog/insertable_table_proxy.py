@@ -4,12 +4,14 @@ import os
 import pathlib
 import shutil
 import tempfile
+import time
 from typing import TYPE_CHECKING, Any, Iterator, Literal, cast
 from uuid import UUID
 
 import pyarrow.parquet as pq
 
 from pixeltable import exceptions as excs
+from pixeltable.env import Env
 from pixeltable.utils import arrow, parse_local_file_path
 
 from .globals import is_hf_dataset
@@ -42,6 +44,13 @@ class InsertableTableProxy(TableProxy):
 
     def _get_base_table(self) -> 'Table' | None:
         return None
+
+    def _dispatch_insert(self, op: str, args: dict[str, Any]) -> UpdateStatus:
+        """Dispatch an insert-family op and report the result the way the local insert path does."""
+        start_ts = time.perf_counter()
+        status = self._dispatch(op, args)
+        Env.get().console_logger.info(status.insert_msg(start_ts))
+        return status
 
     def insert(
         self,
@@ -90,7 +99,7 @@ class InsertableTableProxy(TableProxy):
                 data_source.infer_schema()
                 data_source.prepare_for_insert_into_table()
                 rows = self._convert_local_paths(row for batch in data_source.valid_row_batch() for row in batch)
-                return self._dispatch(
+                return self._dispatch_insert(
                     'insert',
                     {'rows': rows, 'on_error': on_error, 'print_stats': print_stats, 'return_rows': return_rows},
                 )
@@ -144,7 +153,7 @@ class InsertableTableProxy(TableProxy):
                 f'Hosted insert does not support a {type(source).__name__} source yet.',
             )
         rows = self._convert_local_paths(rows)
-        return self._dispatch(
+        return self._dispatch_insert(
             'insert', {'rows': rows, 'on_error': on_error, 'print_stats': print_stats, 'return_rows': return_rows}
         )
 
@@ -158,7 +167,7 @@ class InsertableTableProxy(TableProxy):
                 'Inserting from a query against a different database not supported.',
             )
         bound_args['query'] = query.as_dict()
-        return self._dispatch('insert_query', bound_args)
+        return self._dispatch_insert('insert_query', bound_args)
 
     def _insert_sql_source(
         self,
@@ -236,7 +245,7 @@ class InsertableTableProxy(TableProxy):
         """Send the source connection URL (incl credentials) + compiled SQL so the daemon can run the query itself."""
         engine = sql_source.conn.engine
         sql_text = str(sql_source.select_stmt.compile(dialect=engine.dialect, compile_kwargs={'literal_binds': True}))
-        return self._dispatch(
+        return self._dispatch_insert(
             'insert_sql_source',
             {
                 'connect_url': engine.url.render_as_string(hide_password=False),
@@ -275,7 +284,7 @@ class InsertableTableProxy(TableProxy):
                 )
         else:
             wire_source = LocalFile(str(local))
-        return self._dispatch(
+        return self._dispatch_insert(
             'insert_source',
             {
                 'source': wire_source,
@@ -321,7 +330,7 @@ class InsertableTableProxy(TableProxy):
         tmp_dir = tempfile.mkdtemp()
         try:
             dataset.save_to_disk(tmp_dir)
-            return self._dispatch(
+            return self._dispatch_insert(
                 'insert_hf_dataset',
                 {
                     'files': encode_dir_tree(pathlib.Path(tmp_dir)),

@@ -963,7 +963,7 @@ def vit_for_image_classification(
         logits = outputs.logits
 
     probs = torch.softmax(logits, dim=-1)
-    top_k_probs, top_k_indices = torch.topk(probs, top_k, dim=-1)
+    top_k_probs, top_k_indices = torch.topk(probs, min(top_k, probs.shape[-1]), dim=-1)
 
     # There is no official post_process method for ViT models; for consistency, we structure the output
     # the same way as the output of the DETR model given by `post_process_object_detection`.
@@ -1216,7 +1216,7 @@ def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> B
         logits = outputs.logits
 
     probs = torch.softmax(logits, dim=-1)
-    top_k_probs, top_k_indices = torch.topk(probs, top_k, dim=-1)
+    top_k_probs, top_k_indices = torch.topk(probs, min(top_k, probs.shape[-1]), dim=-1)
 
     results: list[list[TextClassificationResponse]] = []
     for i in range(len(text)):

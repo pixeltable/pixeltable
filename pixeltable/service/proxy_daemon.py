@@ -242,11 +242,12 @@ def reinitialize(db: str) -> None:
 
 def delete(db: str) -> None:
     """Stop the daemon, drop its database, and remove its home directory."""
+    home = proxy_home(db)
+    if not home.exists():
+        raise excs.NotFoundError(excs.ErrorCode.DEPLOYMENT_NOT_FOUND, f'No local proxy daemon for {db!r}')
     stop(db)
     _drop_database(db)
-    home = proxy_home(db)
-    if home.exists():
-        shutil.rmtree(home)
+    shutil.rmtree(home)
 
 
 def _reinitialize() -> None:

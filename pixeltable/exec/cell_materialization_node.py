@@ -291,12 +291,12 @@ class CellMaterializationNode(ExecNode):
     def _open_chunk(self) -> None:
         tbl = self.row_builder.tbl
         if self.dest is None:
-            local_path = LocalStore(Env.get().media_dir)._prepare_path_raw(tbl.id, 0, tbl.version)
+            local_path = LocalStore(Env.get().media_dir)._prepare_path_raw(tbl.id, 0, tbl.version, ext='.chunk')
             chunk = self.Chunk(url=local_path.as_uri(), path=local_path, dest=None)
         else:
             if self.store is None:
                 self.store = ObjectOps.get_store(self.dest, False)
-            file_dest = self.store.resolve_destination(tbl.id, 0, tbl.version)
+            file_dest = self.store.resolve_destination(tbl.id, 0, tbl.version, ext='.chunk')
             chunk = self.Chunk(url=file_dest.url, path=TempStore.create_path(), dest=file_dest)
         self.chunks.append(chunk)
         fh = open(chunk.path, 'wb', buffering=self.MIN_FILE_SIZE * 2)  # noqa: SIM115

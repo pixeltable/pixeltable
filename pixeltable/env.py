@@ -524,7 +524,9 @@ class Env:
         # Create catalog tables and system metadata
         self._init_metadata()
 
-        self.console_logger.info(f'Connected to Pixeltable database at: {self.redacted_db_url}')
+        # a cloud-targeted call also boots the embedded/local store first; say which store this names
+        store_desc = 'local Pixeltable store' if self.is_local else 'Pixeltable database'
+        self.console_logger.info(f'Connected to {store_desc} at: {self.redacted_db_url}')
 
         # we now have a home directory and db; start other services
         self._set_up_runtime()

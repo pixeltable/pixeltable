@@ -136,7 +136,7 @@ def _serves_another_project(daemon: dict[str, Any]) -> bool:
     return root is not None and daemon.get('project_root') != root
 
 
-def spawn_detached() -> None:
+def spawn_detached() -> subprocess.Popen:
     log_path = _daemon_log_path()
     try:
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
@@ -163,7 +163,9 @@ def spawn_detached() -> None:
         if root is not None:
             args += ['--project-root', root]
         with open(log_path, 'a', encoding='utf-8') as log:
-            subprocess.Popen(args, stdout=log, stderr=log, cwd=_resolve_pixeltable_home(), env=env, **popen_kwargs)
+            return subprocess.Popen(
+                args, stdout=log, stderr=log, cwd=_resolve_pixeltable_home(), env=env, **popen_kwargs
+            )
     except OSError as e:
         reason = e.strerror or e.__class__.__name__
         raise RuntimeError(f'pxt daemon log unavailable ({log_path}): {reason}') from None
@@ -185,13 +187,19 @@ def _tail_daemon_log(n_lines: int = 10) -> str:
     return '\n'.join(lines[-n_lines:]).rstrip()
 
 
-def _await_health(timeout: float) -> dict[str, Any] | None:
-    """Poll /api/health until it responds or the timeout elapses. Returns what it reported, if anything."""
+def _await_health(timeout: float, proc: subprocess.Popen | None = None) -> dict[str, Any] | None:
+    """Poll /api/health until it responds or the timeout elapses. Returns what it reported, if anything.
+
+    When `proc` is the daemon we spawned, its exit ends the wait early once nothing holds the port: a live
+    port means the child deferred to another daemon that can still answer, so the wait continues.
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
         health = fetch_health()
         if health is not None:
             return health
+        if proc is not None and proc.poll() is not None and not port_is_open():
+            return None
         time.sleep(0.1)
     return None
 
@@ -203,13 +211,18 @@ def _await_health(timeout: float) -> dict[str, Any] | None:
 _STARTUP_HEALTH_TIMEOUT_SECS = 45.0
 
 
-def wait_for_health(timeout: float = _STARTUP_HEALTH_TIMEOUT_SECS) -> dict[str, Any]:
+def wait_for_health(
+    timeout: float = _STARTUP_HEALTH_TIMEOUT_SECS, proc: subprocess.Popen | None = None
+) -> dict[str, Any]:
     """Wait for the daemon to serve /api/health, and return what it reported. Raises if it never answers."""
-    health = _await_health(timeout)
+    health = _await_health(timeout, proc)
     if health is not None:
         return health
     tail = _tail_daemon_log()
-    msg = f'pxt daemon did not come up within {timeout}s'
+    if proc is not None and proc.poll() is not None and not port_is_open():
+        msg = f'pxt daemon exited during startup (exit code {proc.returncode})'
+    else:
+        msg = f'pxt daemon did not come up within {timeout}s'
     if tail != '':
         msg += f'\n--- daemon log tail ---\n{tail}'
     raise RuntimeError(msg)
@@ -310,8 +323,8 @@ def _restart_if_mismatched(health: dict[str, Any]) -> None:
     if not isinstance(reported_pid, int) or isinstance(reported_pid, bool) or reported_pid <= 0:
         raise RuntimeError(f'daemon on port {get_port()} reported an invalid pid ({reported_pid!r}); not restarting it')
     kill_and_wait(reported_pid)
-    spawn_detached()
-    new_health = wait_for_health()
+    proc = spawn_detached()
+    new_health = wait_for_health(proc=proc)
     # Cross-verify: the new responder must have a fresh PID and an identity that fully matches the client.
     # Anything else means the restart did not actually swap in a daemon belonging to this install/env.
     if new_health.get('pid') == reported_pid:
@@ -345,10 +358,10 @@ def ensure_running() -> str:
             if health is None:
                 kill_and_wait(stale_pid)
         if health is None:
-            spawn_detached()
+            proc = spawn_detached()
             # the daemon we spawn defers to one that already holds the port, so the responder is not
             # necessarily the process we started
-            health = wait_for_health()
+            health = wait_for_health(proc=proc)
     _restart_if_mismatched(health)
     return base_url()
 

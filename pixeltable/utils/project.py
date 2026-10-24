@@ -27,7 +27,7 @@ from tqdm import tqdm
 
 import pixeltable
 from pixeltable import exceptions as excs
-from pixeltable.config import PROJECT_CONFIG_FILE, PYPROJECT_FILE, ConfigSections, DatabaseConfig
+from pixeltable.config import PROJECT_CONFIG_FILE, PYPROJECT_FILE, Config, ConfigSections, DatabaseConfig
 from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
@@ -93,6 +93,9 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
     __pycache__ is ignored: we don't want to ship bytecode
     """
     files: set[Path] = set()
+    # the pixeltable home (sessions.json, media, pgdata) is runtime state, not project input; keep it out of
+    # the archive even when it lives inside the project and no .gitignore covers it
+    pxt_home = Config.get().home.resolve()
 
     def visit(dir_path: Path, specs: list[tuple[Path, PathSpec]]) -> None:
         spec = _gitignore_spec(dir_path)
@@ -100,6 +103,8 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
             specs = [*specs, (dir_path, spec)]
         for entry in dir_path.iterdir():
             if entry.name in ('.git', '__pycache__'):
+                continue
+            if entry.resolve() == pxt_home:
                 continue
             is_dir = entry.is_dir() and not entry.is_symlink()
             if _is_gitignored(entry, is_dir, specs):

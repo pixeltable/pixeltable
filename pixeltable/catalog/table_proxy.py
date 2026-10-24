@@ -189,7 +189,10 @@ class TableProxy(Table):
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset': ...
 
-    def to_coco_dataset(self) -> Path: ...
+    def to_coco_dataset(self) -> Path:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, 'to_coco_dataset() is not supported for hosted tables'
+        )
 
     def add_columns(
         self,

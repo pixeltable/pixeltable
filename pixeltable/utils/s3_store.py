@@ -464,7 +464,7 @@ class S3Store(ObjectStoreBase):
     @classmethod
     def create_boto_client(cls, profile_name: str | None = None, extra_args: dict[str, Any] | None = None) -> Any:
         config_args: dict[str, Any] = {
-            'max_pool_connections': 30,
+            'max_pool_connections': 128,  # must exceed concurrent prefetch workers to avoid pool starvation warnings
             'connect_timeout': 15,
             'read_timeout': 30,
             'retries': {'max_attempts': 3, 'mode': 'adaptive'},

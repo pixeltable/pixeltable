@@ -980,7 +980,10 @@ class Query(QueryBase):
             assert data_file_path.is_file()
             return data_file_path
         else:
-            assert self._from_clause.is_local
+            if not self._from_clause.is_local:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, 'to_coco_dataset() is not supported for hosted tables'
+                )
             with get_runtime().catalog.begin_xact(
                 for_write=False, read_tvps=self._from_clause.tvps, read_tbl_ids=self.referenced_tbl_ids()
             ):

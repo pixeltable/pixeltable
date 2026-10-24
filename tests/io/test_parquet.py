@@ -153,8 +153,9 @@ class TestParquet:
         parquet_dir.mkdir()
         _ = make_test_arrow_table(parquet_dir)
 
-        # This test passes only a directory to the parquet reader. The source_format must be explicit in this case.
-        tab = pxt.io.import_parquet(p('test_parquet'), parquet_path=str(parquet_dir), source_format='parquet')
+        # This test passes only a directory to the parquet reader; a bare directory name cannot be sniffed,
+        # so import_parquet must default its source_format to 'parquet' (PXT-1381).
+        tab = pxt.io.import_parquet(p('test_parquet'), parquet_path=str(parquet_dir))
         assert p('test_parquet') in pxt.list_tables(p(''))
         assert tab is not None
         num_elts = tab.count()

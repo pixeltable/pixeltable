@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from ..parser import Parser
 
 EPILOG = """\
@@ -21,6 +23,7 @@ def run(argv: list[str]) -> None:
         p.add_argument('db', help='the proxy database name (the <db> in pxt://local:<db>/...)')
     args = parser.parse_args(argv)
 
+    from pixeltable import exceptions as excs
     from pixeltable.service import proxy_daemon
 
     if args.action == 'create':
@@ -33,5 +36,9 @@ def run(argv: list[str]) -> None:
         proxy_daemon.stop(args.db)
         print(f'Stopped local proxy {args.db!r}.')
     elif args.action == 'delete':
-        proxy_daemon.delete(args.db)
+        try:
+            proxy_daemon.delete(args.db)
+        except excs.NotFoundError:
+            print(f'pxt localproxy: nothing to delete for {args.db!r}', file=sys.stderr)
+            sys.exit(1)
         print(f'Deleted local proxy {args.db!r}.')
