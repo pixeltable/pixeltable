@@ -289,9 +289,12 @@ pub fn substitute(e: &ExprRef, f: &dyn Fn(&Expr) -> Option<ExprRef>) -> Result<E
         let mut it = new_children.into_iter();
         let args: Vec<ExprRef> = (&mut it).take(n).collect();
         let kwargs: Vec<(String, ExprRef)> = fc.kwargs.iter().map(|(k, _)| (k.clone(), it.next().unwrap())).collect();
+        let group_by: Vec<ExprRef> = (&mut it).take(fc.group_by.len()).collect();
+        let order_by: Vec<ExprRef> = it.collect();
         return match &fc.func {
             FuncRef::Udf(call) => remake_call(call, args, kwargs),
-            FuncRef::Builtin(b) => super::make_call(&b.qualified_name(), args, kwargs),
+            FuncRef::Builtin(b) => super::make_builtin_call(b, args, kwargs, fc.is_method_call),
+            FuncRef::Agg(a) => super::agg::make_agg_call(a.clone(), args, kwargs, order_by.into_iter().next(), group_by),
         };
     }
     Ok(Expr::new(e.kind.with_children(new_children), e.col_type.clone()))
@@ -358,7 +361,9 @@ fn finish_call(
         UdfImpl::Invalid { .. } => return Err(Error::internal("call of an invalid function")),
     };
     let call = UdfCall { def: def.clone(), sig_idx, binding, is_method_call, instantiated, validation_error: None };
-    Ok(Expr::new(ExprKind::FunctionCall(FunctionCall { func: FuncRef::Udf(Arc::new(call)), args, kwargs }), return_type))
+    let mut fc = FunctionCall::new(FuncRef::Udf(Arc::new(call)), args, kwargs);
+    fc.is_method_call = is_method_call;
+    Ok(Expr::new(ExprKind::FunctionCall(fc), return_type))
 }
 
 /// `fn(*args, **kwargs)` (`is_method_call`: `args[0].fn(*args[1:], **kwargs)`).
@@ -566,7 +571,7 @@ fn eval_query_call(
     let q = spec.map_exprs(&|e| substitute(e, &subst))?;
     let data = Python::attach(|py| -> Result<crate::exec::ResultData> {
         let input = crate::catalog::runtime::with_catalog(py, |cat| crate::exec::QueryInput::snapshot(cat, &q))?;
-        crate::exec::execute(&input, &q, false)
+        crate::exec::execute(&input, false)
     })?;
     let mut rows = Vec::with_capacity(data.rows.len());
     for row in &data.rows {
@@ -707,7 +712,9 @@ fn invalid_call(
         instantiated: None,
         validation_error: Some(msg),
     };
-    Expr::new(ExprKind::FunctionCall(FunctionCall { func: FuncRef::Udf(Arc::new(call)), args, kwargs }), col_type)
+    let mut fc = FunctionCall::new(FuncRef::Udf(Arc::new(call)), args, kwargs);
+    fc.is_method_call = is_method_call;
+    Expr::new(ExprKind::FunctionCall(fc), col_type)
 }
 
 /// Deserializes a stored call of a Python function (upstream `FunctionCall._from_dict()`): the function is

@@ -322,6 +322,171 @@ fn array_values(a: &NdArray) -> Vec<Value> {
     }
 }
 
+// ------------------------------------------------------------------------------------------------ JSON paths
+
+fn path_elem_errstr(el: &JsonPathElem) -> String {
+    match el {
+        JsonPathElem::Key(k) => crate::error::py_repr(k),
+        JsonPathElem::Wildcard => crate::error::py_repr("*"),
+        JsonPathElem::Index(i) => format!("[{i}]"),
+        JsonPathElem::Slice(a, b, c) => {
+            let f = |x: &Option<i64>| x.map(|n| n.to_string()).unwrap_or_default();
+            let step = c.map(|n| format!(":{n}")).unwrap_or_default();
+            format!("[{}:{}{step}]", f(a), f(b))
+        }
+    }
+}
+
+fn json_type(schema: JsonSchema) -> ColumnType {
+    ColumnType::new(TypeKind::Json(Some(Box::new(schema))), true)
+}
+
+fn list_schema(items: Vec<ColumnType>, variadic: Option<ColumnType>) -> JsonSchema {
+    JsonSchema { spec: JsonSpec::List(items), variadic, optional_keys: Default::default() }
+}
+
+/// Python list slicing of a type list.
+fn slice_types(items: &[ColumnType], a: Option<i64>, b: Option<i64>, c: Option<i64>) -> Vec<ColumnType> {
+    crate::functions::string::py_slice(items, a, b, c).unwrap_or_default()
+}
+
+/// The type of `path` applied to a value of type `t` (upstream `JsonPath.__resolve_type()`); JSON paths are always
+/// nullable.
+pub fn resolve_json_path_type(t: &ColumnType, path: &[JsonPathElem]) -> Result<ColumnType> {
+    let Some((el, rest)) = path.split_first() else { return Ok(t.with_nullable(true)) };
+    let TypeKind::Json(schema) = &t.kind else {
+        crate::bail!(
+            UnsupportedOperation,
+            "Invalid JsonPath: cannot resolve {} on primitive type `{}`",
+            path_elem_errstr(el),
+            t.repr()
+        );
+    };
+    let Some(schema) = schema else { return Ok(ColumnType::json(true)) };
+    let fail = || -> Result<ColumnType> {
+        crate::bail!(
+            UnsupportedOperation,
+            "Invalid JsonPath: cannot resolve {}, because it does not match the expected type schema:\n{}",
+            path_elem_errstr(el),
+            t.repr()
+        )
+    };
+    match (&schema.spec, el) {
+        (JsonSpec::List(_), JsonPathElem::Wildcard) => resolve_json_path_type(t, rest),
+        (JsonSpec::Dict(fields), JsonPathElem::Key(k)) => match fields.get(k) {
+            Some(ft) => resolve_json_path_type(ft, rest),
+            None => fail(),
+        },
+        (JsonSpec::List(items), JsonPathElem::Key(_)) => {
+            // a key applies to every element of a list
+            let items = items.iter().map(|it| resolve_json_path_type(it, path)).collect::<Result<Vec<_>>>()?;
+            let variadic = schema.variadic.as_ref().map(|v| resolve_json_path_type(v, path)).transpose()?;
+            Ok(json_type(list_schema(items, variadic)))
+        }
+        (JsonSpec::List(items), JsonPathElem::Index(i)) => {
+            let i = *i;
+            let n = items.len() as i64;
+            if i >= 0 {
+                if i < n {
+                    return resolve_json_path_type(&items[i as usize], rest);
+                } else if let Some(v) = &schema.variadic {
+                    return resolve_json_path_type(v, rest);
+                }
+            } else if schema.variadic.is_none() {
+                if -i <= n {
+                    return resolve_json_path_type(&items[(n + i) as usize], rest);
+                }
+            } else {
+                let start = (n + i).max(0) as usize;
+                let mut relevant: Vec<ColumnType> = items[start..].to_vec();
+                relevant.extend(schema.variadic.iter().cloned());
+                if let Some(st) = ColumnType::common_supertype(relevant.iter(), false) {
+                    return resolve_json_path_type(&st, rest);
+                }
+            }
+            fail()
+        }
+        (JsonSpec::List(items), JsonPathElem::Slice(a, b, c)) => {
+            if schema.variadic.is_none() {
+                return resolve_json_path_type(&json_type(list_schema(slice_types(items, *a, *b, *c), None)), rest);
+            }
+            if a.is_none_or(|x| x >= 0) && b.is_none_or(|x| x >= 0) {
+                let sliced = slice_types(items, *a, *b, *c);
+                let variadic = if b.is_some_and(|x| x <= items.len() as i64) { None } else { schema.variadic.clone() };
+                return resolve_json_path_type(&json_type(list_schema(sliced, variadic)), rest);
+            }
+            let mut all: Vec<ColumnType> = items.clone();
+            all.extend(schema.variadic.iter().cloned());
+            match ColumnType::common_supertype(all.iter(), false) {
+                Some(st) => resolve_json_path_type(&json_type(list_schema(vec![], Some(st))), rest),
+                None => fail(),
+            }
+        }
+        _ => fail(),
+    }
+}
+
+/// True if a JSON expression's type is a typed list (a field access then projects over its elements).
+fn resolves_to_json_array(t: &ColumnType) -> bool {
+    matches!(&t.kind, TypeKind::Json(Some(s)) if matches!(s.spec, JsonSpec::List(_)))
+}
+
+/// `e.key` / `e[...]` on a JSON expression (upstream `JsonPath._append()`): extends a path, or starts one.
+pub fn json_path_append(e: &ExprRef, el: JsonPathElem) -> Result<ExprRef> {
+    let (base, mut path) = match &e.kind {
+        ExprKind::JsonPath { base, path } => (base.clone(), path.clone()),
+        _ => (e.clone(), Vec::new()),
+    };
+    let ends_with_slice = matches!(path.last(), Some(JsonPathElem::Slice(..) | JsonPathElem::Wildcard));
+    if matches!(el, JsonPathElem::Key(_)) && resolves_to_json_array(&e.col_type) && !ends_with_slice {
+        path.push(JsonPathElem::Wildcard);
+    }
+    path.push(el);
+    let col_type = resolve_json_path_type(&base.col_type, &path)?;
+    Ok(Expr::new(ExprKind::JsonPath { base, path }, col_type))
+}
+
+/// A relative path root for a mapper over a list of `src`'s type: typed as the list's element type, if known.
+pub fn relative_root(src_type: &ColumnType) -> ExprRef {
+    let elem = array_element_type(src_type);
+    let t = elem.map(|t| t.with_nullable(true)).unwrap_or_else(|| ColumnType::json(true));
+    let id = crate::exec::sample::random_u64();
+    Expr::new(ExprKind::RelativeRoot { id }, t)
+}
+
+/// Upstream `JsonType.array_element_type()`.
+pub fn array_element_type(t: &ColumnType) -> Option<ColumnType> {
+    let TypeKind::Json(Some(s)) = &t.kind else { return None };
+    let JsonSpec::List(items) = &s.spec else { return None };
+    if let Some(v) = &s.variadic {
+        return Some(v.clone());
+    }
+    if !items.is_empty() {
+        return ColumnType::common_supertype(items.iter(), false);
+    }
+    None
+}
+
+/// `src.map(...)` / `.filter(...)` / `.sort(...)` with the target built from the relative root `root_id`.
+pub fn json_mapper(op: MapperOp, asc: bool, src: ExprRef, target: ExprRef, root_id: u64) -> ExprRef {
+    let elem = match op {
+        MapperOp::Map => Some(target.col_type.clone()),
+        _ => array_element_type(&src.col_type),
+    };
+    let col_type = match elem {
+        None => ColumnType::json(true),
+        Some(t) if matches!(t.kind, TypeKind::Json(None)) => ColumnType::json(true),
+        Some(t) => json_type(list_schema(vec![], Some(t))),
+    };
+    Expr::new(ExprKind::JsonMapper { op, asc, src, target, root_id }, col_type)
+}
+
+/// `arr[index]` (upstream `ArraySlice`).
+pub fn array_slice(base: ExprRef, index: Vec<ArrayIndex>) -> Result<ExprRef> {
+    let t = base.col_type.array_subscript_type(&index)?;
+    Ok(Expr::new(ExprKind::ArraySlice { base, index }, t))
+}
+
 /// `col.<prop>`: a String (or, for `cellmd`, Json) property of a column reference.
 pub fn column_property(col: ExprRef, prop: ColumnProp) -> ExprRef {
     let t = if prop == ColumnProp::CellMd { ColumnType::json(true) } else { ColumnType::string(true) };

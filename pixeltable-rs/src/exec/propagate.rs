@@ -28,6 +28,8 @@ pub struct ViewCompute {
     pub computed: Vec<ComputedCol>,
     /// where in-memory media results are written
     pub media: MediaTarget,
+    /// `info` with the iterator's unstored outputs read from the row's cells (for rows being generated)
+    pub compute_info: ElemInfo,
 }
 
 impl ViewCompute {
@@ -51,7 +53,9 @@ impl ViewCompute {
             }
         }
         let media = MediaTarget { tbl_id: md.id, dir: media_dir, version: md.current_version + 1 };
-        Ok(ViewCompute { info: ElemInfo::of(md, None)?, name: md.name.clone(), predicate, computed, media })
+        let info = ElemInfo::of(md, None)?;
+        let compute_info = info.with_materialized_outputs();
+        Ok(ViewCompute { info, name: md.name.clone(), predicate, computed, media, compute_info })
     }
 
     /// The current definition of view `tbl_id` in the catalog, including the hidden value columns of its embedding
@@ -72,6 +76,8 @@ impl ViewCompute {
 
     /// Evaluates `cols` into `row`, a row of this view belonging to the base path row `base`. Evaluation errors
     /// become cell errors; in-memory media results are written to the view's media directory (recorded in `saved`).
+    /// `materialized`: the row holds all iterator outputs in its cells (it is being generated).
+    #[allow(clippy::too_many_arguments)]
     pub fn eval_columns(
         &self,
         row: &mut StoredRow,
@@ -80,9 +86,10 @@ impl ViewCompute {
         base: &[&StoredRow],
         status: &mut UpdateStatus,
         saved: &mut Vec<std::path::PathBuf>,
+        materialized: bool,
     ) -> Result<()> {
         let mut infos: Vec<&ElemInfo> = Vec::with_capacity(base_infos.len() + 1);
-        infos.push(&self.info);
+        infos.push(if materialized { &self.compute_info } else { &self.info });
         infos.extend_from_slice(base_infos);
         eval_into(row, cols, &infos, base, &self.name, false, &mut status.row_count_stats, &mut status.cols_with_excs)?;
         for c in cols.iter().filter(|c| c.is_media) {
@@ -102,10 +109,34 @@ impl ViewCompute {
         if !self.accepts(base_infos, base)? {
             return Ok(Vec::new());
         }
-        let mut row = StoredRow::new(base[0].rowid, base[0].pos.clone());
-        self.eval_columns(&mut row, &self.computed, base_infos, base, status, saved)?;
-        status.row_count_stats.ins_rows += 1;
-        Ok(vec![row])
+        let Some(it) = &self.info.iterator else {
+            let mut row = StoredRow::new(base[0].rowid, base[0].pos.clone());
+            self.eval_columns(&mut row, &self.computed, base_infos, base, status, saved, false)?;
+            status.row_count_stats.ins_rows += 1;
+            return Ok(vec![row]);
+        };
+        // a component view: one row per iterator output row, keyed by the base row's key and the position
+        let outputs = it.call.eval_rows(&PathCtx::new(base_infos, base))?;
+        let mut rows = Vec::with_capacity(outputs.len());
+        for (p, values) in outputs.into_iter().enumerate() {
+            let mut pos = base[0].pos.clone();
+            pos.push(p as i64);
+            let mut row = StoredRow::new(base[0].rowid, pos);
+            for ((col_id, _, _), v) in it.outputs.iter().zip(values) {
+                row.set_cell(*col_id, v);
+            }
+            self.eval_columns(&mut row, &self.computed, base_infos, base, status, saved, true)?;
+            for (col_id, _, stored) in &it.outputs {
+                if *stored {
+                    self.media.materialize(&mut row, *col_id, saved)?;
+                } else {
+                    row.set_cell(*col_id, crate::value::Value::Null);
+                }
+            }
+            status.row_count_stats.ins_rows += 1;
+            rows.push(row);
+        }
+        Ok(rows)
     }
 
     /// The rows of a new view over the base path `base` (its initial population).
@@ -135,6 +166,7 @@ impl ViewNode {
             .into_iter()
             .map(|v| {
                 let md = cat.table(v)?;
+                check_view_valid(md, "updated in")?;
                 Ok(ViewNode {
                     compute: ViewCompute::current(cat, v)?,
                     schema_version: md.current_schema_version,
@@ -171,6 +203,20 @@ impl ViewNode {
         }
         Ok(())
     }
+}
+
+/// Fails with upstream's INVALID_STATE error if the view's iterator or computed columns no longer match the code.
+pub fn check_view_valid(md: &TableMd, op: &str) -> Result<()> {
+    let display = crate::functions::udf::tbl_version_display(md);
+    if let Some(j) = md.view.as_ref().and_then(|v| v.iterator.as_ref()) {
+        crate::functions::iterator::IteratorCall::from_json(j)?.check_valid(&display, &md.name, op)?;
+    }
+    for c in md.columns_at(None)?.iter().filter(|c| c.md.stored) {
+        if let Some(e) = &c.md.value_expr {
+            crate::functions::udf::check_valid_column(&display, &c.name, &*crate::expr::serde::from_json(e)?, op)?;
+        }
+    }
+    Ok(())
 }
 
 /// The rows a base insert adds to a view (and to the view's views).

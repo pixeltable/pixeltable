@@ -318,18 +318,56 @@ fn build_rows_inner(
     let mut stats = RowCountStats::default();
     let mut cols_with_excs = Vec::new();
     let mut rows = Vec::with_capacity(inputs.len());
+    let has_windows = computed.iter().any(|c| super::query::has_window_calls(&c.expr));
     for (i, input) in inputs.into_iter().enumerate() {
         let mut row = StoredRow::new(i as i64, Vec::new());
         for (col_id, v) in input {
             row.set_cell(col_id, v);
         }
         prepare_media_inputs(plan, &mut row, fail_on_exception, &mut stats, &mut cols_with_excs, Some(&mut *saved))?;
-        eval_computed(&mut row, &computed, Some(&plan.unstored), fail_on_exception, &mut stats, &mut cols_with_excs)?;
-        for c in computed.iter().filter(|c| c.is_media) {
-            plan.media.materialize(&mut row, c.col_id, saved)?;
+        if !has_windows {
+            eval_computed(&mut row, &computed, Some(&plan.unstored), fail_on_exception, &mut stats, &mut cols_with_excs)?;
+            for c in computed.iter().filter(|c| c.is_media) {
+                plan.media.materialize(&mut row, c.col_id, saved)?;
+            }
         }
         stats.ins_rows += 1;
         rows.push(row);
+    }
+    if has_windows {
+        // column by column: a column with window functions is evaluated over the whole batch in window order
+        for col in &computed {
+            if super::query::has_window_calls(&col.expr) {
+                let paths: Vec<Vec<&StoredRow>> = rows.iter().map(|r| vec![r]).collect();
+                let results = super::query::eval_rows_with_windows(&[&plan.info], &paths, &col.expr, true)?;
+                for (row, res) in rows.iter_mut().zip(results) {
+                    stats.computed_values += 1;
+                    match res {
+                        Ok(v) => row.set_cell(col.col_id, v),
+                        Err(err) => {
+                            if fail_on_exception {
+                                return Err(super::compute::eval_error(&col.expr, err));
+                            }
+                            stats.num_excs += 1;
+                            if !cols_with_excs.contains(&col.name) {
+                                cols_with_excs.push(col.name.clone());
+                            }
+                            row.set_cell(col.col_id, Value::Null);
+                            row.set_error(col.col_id, Some(super::compute::cell_error(&err)));
+                        }
+                    }
+                }
+            } else {
+                for row in rows.iter_mut() {
+                    eval_computed(row, std::slice::from_ref(col), Some(&plan.unstored), fail_on_exception, &mut stats, &mut cols_with_excs)?;
+                }
+            }
+        }
+        for row in rows.iter_mut() {
+            for c in computed.iter().filter(|c| c.is_media) {
+                plan.media.materialize(row, c.col_id, saved)?;
+            }
+        }
     }
     let paths: Vec<Vec<&StoredRow>> = rows.iter().map(|r| vec![r]).collect();
     let views = compute_inserted_rows(&plan.views, &[&plan.info], &paths, saved)?;

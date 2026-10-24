@@ -8,7 +8,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 use std::sync::Arc;
 
-use super::{Builtin, expect_arg};
+use super::{PosBuiltin as Builtin, expect_arg};
 use crate::error::{Error, Result};
 use crate::media;
 use crate::types::{ColumnType, TypeKind};

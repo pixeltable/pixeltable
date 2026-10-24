@@ -146,7 +146,7 @@ pub fn returned_rows_to_py<'py>(py: Python<'py>, cols: &[ReturnCol], rows: &[&St
 /// result rows as input rows of `plan`.
 pub fn query_input_rows(py: Python<'_>, q: &crate::exec::QuerySpec, plan: &InsertPlan) -> Result<Vec<InputRow>> {
     let input = with_catalog(py, |cat| crate::exec::QueryInput::snapshot(cat, q))?;
-    let result = crate::exec::execute(&input, q, false)?;
+    let result = crate::exec::execute(&input, false)?;
     let mut targets = Vec::with_capacity(result.names.len());
     for name in &result.names {
         let col = plan.column(name).ok_or_else(|| crate::pxt_err!(ColumnNotFound, "Unknown column name {name}"))?;
@@ -442,7 +442,7 @@ pub fn tbl_metadata<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
             cm.set_item("defined_in", &owner.name)?;
             cm.set_item("comment", &c.md.comment)?;
             cm.set_item("custom_metadata", vpy::json_to_py(py, &c.md.custom_metadata)?)?;
-            cm.set_item("is_iterator_col", false)?;
+            cm.set_item("is_iterator_col", owner.is_iterator_col(c.md.id))?;
             cm.set_item("destination", &c.md.destination)?;
             columns.set_item(&c.name, cm)?;
         }
@@ -489,7 +489,11 @@ pub fn tbl_metadata<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
         };
         d.set_item("view_filter", view_filter)?;
         d.set_item("view_sample", py.None())?;
-        d.set_item("iterator_call", py.None())?;
+        let iterator_call = match md.view.as_ref().and_then(|v| v.iterator.as_ref()) {
+            Some(j) => Some(crate::functions::iterator::IteratorCall::from_json(j)?.display()),
+            None => None,
+        };
+        d.set_item("iterator_call", iterator_call)?;
         Ok(d)
     })
 }

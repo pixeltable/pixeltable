@@ -2,13 +2,15 @@
 
 use pyo3::basic::CompareOp;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyFloat, PyInt, PyList, PyString, PyTuple};
+use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PySlice, PyString, PyTuple};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use super::types::{PyColumnType, normalize_type, wrap_type};
 use crate::error::{Error, Result};
-use crate::expr::{ArithOp, CmpOp, ColumnProp, Expr, ExprRef, LogicalOp, StringOp, build, display};
+use crate::expr::{ArithOp, CmpOp, ColumnProp, Expr, ExprKind, ExprRef, JsonPathElem, LogicalOp, MapperOp, StringOp, build, display};
+use crate::types::ArrayIndex;
+use crate::value::Value;
 use crate::value::py as vpy;
 
 #[pyclass(name = "Expr", module = "pixeltable", frozen)]
@@ -345,7 +347,8 @@ impl PyExpr {
     }
 
     fn __abs__(&self) -> Result<PyExpr> {
-        wrap(crate::functions::make_call("pixeltable.functions.math.abs", vec![self.e.clone()], vec![])?)
+        let f = builtin("pixeltable.functions.math.abs")?;
+        wrap(crate::functions::make_builtin_call(f, vec![self.e.clone()], vec![], false)?)
     }
 
     #[pyo3(signature = (ndigits=None))]
@@ -354,7 +357,8 @@ impl PyExpr {
         if let Some(n) = ndigits.filter(|n| !n.is_none()) {
             args.push(operand(n)?);
         }
-        wrap(crate::functions::make_call("pixeltable.functions.math.round", args, vec![])?)
+        let f = builtin("pixeltable.functions.math.round")?;
+        wrap(crate::functions::make_builtin_call(f, args, vec![], false)?)
     }
 
     fn __and__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
@@ -407,20 +411,34 @@ impl PyExpr {
     }
 
     fn __getitem__(&self, index: &Bound<'_, PyAny>) -> Result<PyExpr> {
-        if self.e.col_type.is_json() {
-            return Err(Error::not_implemented("JSON path expressions (`expr[...]` on a Json value)"));
+        if self.e.col_type.is_json() || matches!(self.e.kind, ExprKind::JsonPath { .. }) {
+            let el = json_path_elem(index)?;
+            return wrap(build::json_path_append(&self.e, el)?);
         }
         if self.e.col_type.is_array() {
-            return Err(Error::not_implemented("array slicing (`expr[...]` on an Array value)"));
+            let py = index.py();
+            let tuple = match index.cast::<PyTuple>() {
+                Ok(t) => t.clone(),
+                Err(_) => PyTuple::new(py, [index])?,
+            };
+            let mut idx = Vec::new();
+            for item in tuple.iter() {
+                match array_index(&item)? {
+                    Some(i) => idx.push(i),
+                    None => {
+                        return Err(Error::Attribute(format!("Invalid array indices: {}", tuple.repr()?)));
+                    }
+                }
+            }
+            return wrap(build::array_slice(self.e.clone(), idx)?);
         }
-        let _ = index;
         Err(Error::Attribute(format!("Type {} is not subscriptable", self.e.col_type.repr())))
     }
 
-    /// `expr.method`: a method of the expression's type (a builtin of the type's function module), returned as a
-    /// `MethodRef` to call; a property builtin (`t.img.width`) or a column property (`t.img.localpath`) is returned as
-    /// an expression; a method or property registered by a UDF (`is_method`/`is_property`) takes precedence; for Json
-    /// values, a JSON path (not implemented yet).
+    /// `expr.name`: a method or property registered by a UDF (`is_method`/`is_property`) takes precedence; then a
+    /// column property (`t.img.localpath`), a builtin method or property of the expression's type (a property such as
+    /// `t.img.width` is called implicitly), the `map`/`filter`/`sort` mappers or a field (a JSON path) of a JSON
+    /// expression.
     fn __getattr__<'py>(&self, py: Python<'py>, name: &str) -> Result<Bound<'py, PyAny>> {
         if let Some(m) = super::func::udf_attribute(py, &self.e, name)? {
             return Ok(m);
@@ -520,7 +538,8 @@ impl PyExpr {
 }
 
 impl PyExpr {
-    /// `expr.name` for builtins: column properties and builtin methods/properties of the expression's type.
+    /// `expr.name` for builtins: column properties, builtin methods/properties of the expression's type, JSON
+    /// mappers and JSON paths.
     fn builtin_attribute<'py>(&self, py: Python<'py>, name: &str) -> Result<Bound<'py, PyAny>> {
         if name.starts_with('_') {
             return Err(Error::Attribute(format!("'Expr' object has no attribute {}", crate::error::py_repr(name))));
@@ -530,30 +549,35 @@ impl PyExpr {
                 return Ok(Bound::new(py, wrap(column_property(py, &self.e, c, prop)?)?)?.into_any());
             }
         }
-        if name == "apply" {
-            return Err(Error::not_implemented("Expr.apply()"));
-        }
-        let module = method_module(&self.e.col_type);
-        if let Some(module) = module {
-            let qualified = format!("{module}.{name}");
-            if crate::functions::lookup(&qualified).is_some() {
-                if crate::functions::is_property(&qualified) {
-                    let call = crate::functions::make_call(&qualified, vec![self.e.clone()], vec![])?;
-                    return Ok(Bound::new(py, wrap(call)?)?.into_any());
-                }
-                let mref = PyMethodRef { base: self.e.clone(), qualified, name: name.to_string() };
-                return Ok(Bound::new(py, mref)?.into_any());
+        let t = &self.e.col_type;
+        if t.is_json() {
+            let op = match name {
+                "map" => Some(MapperOp::Map),
+                "filter" => Some(MapperOp::Filter),
+                "sort" => Some(MapperOp::Sort),
+                _ => None,
+            };
+            if let Some(op) = op {
+                return Ok(Bound::new(py, PyMapperRef { src: self.e.clone(), op })?.into_any());
             }
         }
-        if self.e.col_type.is_json() {
-            return Err(Error::not_implemented(format!("JSON path expressions (`.{name}` on a Json value)")));
+        if let Some(f) = crate::functions::lookup_method(t, name) {
+            if f.kind == crate::functions::Kind::Property {
+                let call = crate::functions::make_builtin_call(f, vec![self.e.clone()], vec![], false)?;
+                return Ok(Bound::new(py, wrap(call)?)?.into_any());
+            }
+            return Ok(Bound::new(py, PyMethodRef { base: self.e.clone(), f, name: name.to_string() })?.into_any());
         }
-        if let Some(module) = module {
+        if t.is_json() {
+            let e = build::json_path_append(&self.e, JsonPathElem::Key(name.to_string()))?;
+            return Ok(Bound::new(py, wrap(e)?)?.into_any());
+        }
+        if let Some(module) = crate::functions::method_module(t) {
             if py.import(module).and_then(|m| m.hasattr(name)).unwrap_or(false) {
                 return Err(Error::not_implemented(format!("`{module}.{name}()`")));
             }
         }
-        Err(Error::Attribute(format!("Unknown method (of type {}): {name}", self.e.col_type.repr())))
+        Err(Error::Attribute(format!("Unknown method (of type {}): {name}", t.repr())))
     }
 }
 
@@ -582,30 +606,176 @@ fn column_property(py: Python<'_>, col_expr: &ExprRef, c: &crate::expr::ColumnRe
     Ok(build::column_property(col_expr.clone(), prop))
 }
 
-/// The function module whose functions are methods of values of type `t`.
-fn method_module(t: &crate::types::ColumnType) -> Option<&'static str> {
-    use crate::types::TypeKind::*;
-    Some(match t.kind {
-        String => "pixeltable.functions.string",
-        Int | Float => "pixeltable.functions.math",
-        Timestamp => "pixeltable.functions.timestamp",
-        Date => "pixeltable.functions.date",
-        Uuid => "pixeltable.functions.uuid",
-        Json(_) => "pixeltable.functions.json",
-        Array { .. } => "pixeltable.functions.array",
-        Image { .. } => "pixeltable.functions.image",
-        Video => "pixeltable.functions.video",
-        Audio => "pixeltable.functions.audio",
-        Document { .. } => "pixeltable.functions.document",
-        _ => return None,
-    })
+/// A JSON path element from a subscript (`'key'`, `'*'`, an int or a slice).
+fn json_path_elem(index: &Bound<'_, PyAny>) -> Result<JsonPathElem> {
+    if index.is_instance_of::<PyString>() {
+        let k: String = index.extract()?;
+        return Ok(if k == "*" { JsonPathElem::Wildcard } else { JsonPathElem::Key(k) });
+    }
+    if index.is_instance_of::<PyInt>() && !index.is_instance_of::<PyBool>() {
+        return Ok(JsonPathElem::Index(index.extract()?));
+    }
+    if let Ok(sl) = index.cast::<PySlice>() {
+        let part = |name: &str| -> Result<Option<i64>> {
+            let v = sl.getattr(name)?;
+            if v.is_none() { Ok(None) } else { Ok(Some(v.extract::<i64>()?)) }
+        };
+        return Ok(JsonPathElem::Slice(part("start")?, part("stop")?, part("step")?));
+    }
+    crate::bail!(UnsupportedOperation, "Invalid json list index: {}", index.str()?)
+}
+
+/// An array index item (an int or a slice of ints with a nonzero step); None if invalid.
+fn array_index(item: &Bound<'_, PyAny>) -> Result<Option<ArrayIndex>> {
+    if item.is_instance_of::<PyInt>() && !item.is_instance_of::<PyBool>() {
+        return Ok(Some(ArrayIndex::Int(item.extract()?)));
+    }
+    if let Ok(sl) = item.cast::<PySlice>() {
+        let mut parts = [None, None, None];
+        for (i, name) in ["start", "stop", "step"].iter().enumerate() {
+            let v = sl.getattr(*name)?;
+            if v.is_none() {
+                continue;
+            }
+            if !v.is_instance_of::<PyInt>() {
+                return Ok(None);
+            }
+            parts[i] = Some(v.extract::<i64>()?);
+        }
+        if parts[2] == Some(0) {
+            return Ok(None);
+        }
+        return Ok(Some(ArrayIndex::Slice(parts[0], parts[1], parts[2])));
+    }
+    Ok(None)
+}
+
+fn builtin(qualified: &str) -> Result<&'static crate::functions::BuiltinFn> {
+    crate::functions::lookup(qualified).ok_or_else(|| Error::internal(format!("builtin {qualified} is not registered")))
+}
+
+fn obj_str(obj: &Bound<'_, PyAny>) -> String {
+    obj.str().map(|s| s.to_string()).unwrap_or_default()
+}
+
+fn type_str(obj: &Bound<'_, PyAny>) -> String {
+    obj.get_type().str().map(|s| s.to_string()).unwrap_or_default()
+}
+
+/// Converts call arguments (Python objects) to expressions, with upstream's error for an argument that is not one.
+pub fn call_args(
+    qualified: &str,
+    args: &[Bound<'_, PyAny>],
+    kwargs: &[(String, Bound<'_, PyAny>)],
+) -> Result<(Vec<ExprRef>, Vec<(String, ExprRef)>)> {
+    let mut arg_exprs = Vec::with_capacity(args.len());
+    for (i, a) in args.iter().enumerate() {
+        match from_object(a)? {
+            Some(e) => arg_exprs.push(e),
+            None => crate::bail!(
+                InvalidExpression,
+                "Argument {} in call to {} is not a valid Pixeltable expression",
+                i + 1,
+                crate::error::py_repr(qualified)
+            ),
+        }
+    }
+    let mut kw = Vec::with_capacity(kwargs.len());
+    for (k, v) in kwargs {
+        match from_object(v)? {
+            Some(e) => kw.push((k.clone(), e)),
+            None => crate::bail!(
+                InvalidExpression,
+                "Argument {} in call to {} is not a valid Pixeltable expression",
+                crate::error::py_repr(k),
+                crate::error::py_repr(qualified)
+            ),
+        }
+    }
+    Ok((arg_exprs, kw))
+}
+
+fn split_call<'py>(args: &Bound<'py, PyTuple>, kwargs: Option<&Bound<'py, PyDict>>) -> Result<(Vec<Bound<'py, PyAny>>, Vec<(String, Bound<'py, PyAny>)>)> {
+    let a: Vec<Bound<'py, PyAny>> = args.iter().collect();
+    let mut kw = Vec::new();
+    if let Some(kwargs) = kwargs {
+        for (k, v) in kwargs.iter() {
+            kw.push((k.extract::<String>()?, v));
+        }
+    }
+    Ok((a, kw))
+}
+
+/// A call of an aggregate function from Python arguments (upstream `AggregateFunction.__call__`): extracts and
+/// checks `order_by` / `group_by`, converts the arguments and builds the call. Python UDAs use this too.
+pub fn agg_call_from_py(
+    f: crate::functions::agg::AggRef,
+    args: Vec<Bound<'_, PyAny>>,
+    kwargs: Vec<(String, Bound<'_, PyAny>)>,
+) -> Result<ExprRef> {
+    let name = f.name().to_string();
+    let mut args = args;
+    let mut kwargs = kwargs;
+    let mut order_by_obj: Option<Bound<'_, PyAny>> = None;
+    if let Some(pos) = kwargs.iter().position(|(k, _)| k == "order_by") {
+        if f.requires_order_by() {
+            crate::bail!(
+                UnsupportedOperation,
+                "{name}(): order_by invalid, this function requires the first argument to be the ordering expression"
+            );
+        }
+        if !f.allows_window() {
+            crate::bail!(UnsupportedOperation, "{name}(): order_by invalid with an aggregate function that does not allow windows");
+        }
+        order_by_obj = Some(kwargs.remove(pos).1);
+    } else if f.requires_order_by() {
+        if args.is_empty() {
+            crate::bail!(UnsupportedOperation, "{name}(): requires an ordering expression as its first argument");
+        }
+        let first = args.remove(0);
+        if as_expr(&first).is_none() {
+            crate::bail!(
+                UnsupportedOperation,
+                "{name}(): the first argument needs to be a Pixeltable expression, but instead is a {}",
+                type_str(&first)
+            );
+        }
+        order_by_obj = Some(first);
+    }
+    let mut group_by = Vec::new();
+    if let Some(pos) = kwargs.iter().position(|(k, _)| k == "group_by") {
+        if !f.allows_window() {
+            crate::bail!(UnsupportedOperation, "{name}(): group_by invalid with an aggregate function that does not allow windows");
+        }
+        let g = kwargs.remove(pos).1;
+        match as_expr(&g) {
+            Some(e) => group_by.push(e),
+            None if g.hasattr("_tbl_version_path").unwrap_or(false) || g.hasattr("_id").unwrap_or(false) => {
+                return Err(Error::not_implemented("group_by=<table> in a window function"));
+            }
+            None => crate::bail!(InvalidExpression, "group_by argument needs to be a Pixeltable expression: {}", obj_str(&g)),
+        }
+    }
+    let order_by = match order_by_obj {
+        None => None,
+        Some(o) => match as_expr(&o) {
+            Some(e) => Some(e),
+            None => crate::bail!(
+                UnsupportedOperation,
+                "order_by argument needs to be a Pixeltable expression, but instead is a {}",
+                type_str(&o)
+            ),
+        },
+    };
+    let (args, kwargs) = call_args(&f.qualified_name(), &args, &kwargs)?;
+    crate::functions::agg::make_agg_call(f, args, kwargs, order_by, group_by)
 }
 
 /// A method of an expression (`t.c.upper`), called to build the function call (`t.c.upper()`).
 #[pyclass(name = "MethodRef", module = "pixeltable", frozen)]
 pub struct PyMethodRef {
     base: ExprRef,
-    qualified: String,
+    f: &'static crate::functions::BuiltinFn,
     name: String,
 }
 
@@ -613,23 +783,95 @@ pub struct PyMethodRef {
 impl PyMethodRef {
     #[pyo3(signature = (*args, **kwargs))]
     fn __call__(&self, args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Result<PyExpr> {
-        let mut arg_exprs = vec![self.base.clone()];
-        for a in args.iter() {
-            arg_exprs.push(from_object(&a)?.ok_or_else(|| Error::Type(format!("Not a valid argument: {}", a.str().map(|s| s.to_string()).unwrap_or_default())))?);
-        }
-        let mut kw = Vec::new();
-        if let Some(kwargs) = kwargs {
-            for (k, v) in kwargs.iter() {
-                let e = from_object(&v)?.ok_or_else(|| Error::Type(format!("Not a valid argument: {}", v.str().map(|s| s.to_string()).unwrap_or_default())))?;
-                kw.push((k.extract::<String>()?, e));
-            }
-        }
-        wrap(crate::functions::make_call(&self.qualified, arg_exprs, kw)?)
+        let (a, kw) = split_call(args, kwargs)?;
+        let (mut arg_exprs, kw) = call_args(&self.f.qualified_name(), &a, &kw)?;
+        arg_exprs.insert(0, self.base.clone());
+        wrap(crate::functions::make_builtin_call(self.f, arg_exprs, kw, true)?)
     }
 
     fn __repr__(&self) -> String {
         format!("{}.{}", display::display(&self.base), self.name)
     }
+}
+
+/// `json_expr.map` / `.filter` / `.sort`, called with the element function.
+#[pyclass(name = "JsonMapperRef", module = "pixeltable", frozen)]
+pub struct PyMapperRef {
+    src: ExprRef,
+    op: MapperOp,
+}
+
+#[pymethods]
+impl PyMapperRef {
+    #[pyo3(signature = (fn_=None, *, key=None, asc=true))]
+    fn __call__(&self, py: Python<'_>, fn_: Option<Bound<'_, PyAny>>, key: Option<Bound<'_, PyAny>>, asc: bool) -> Result<PyExpr> {
+        let f = fn_.or(key);
+        wrap(json_mapper_call(py, self.op, &self.src, f.as_ref(), asc)?)
+    }
+
+    fn __repr__(&self) -> String {
+        let name = match self.op {
+            MapperOp::Map => "map",
+            MapperOp::Filter => "filter",
+            MapperOp::Sort => "sort",
+        };
+        format!("{}.{name}", display::display(&self.src))
+    }
+}
+
+/// Builds a JSON mapper: calls `f` (a Python callable) once with the relative root to obtain the target expression
+/// (upstream `pixeltable.functions.map/filter/sort`). A keyless sort is `json._sort()`.
+pub fn json_mapper_call(py: Python<'_>, op: MapperOp, src: &ExprRef, f: Option<&Bound<'_, PyAny>>, asc: bool) -> Result<ExprRef> {
+    let Some(f) = f.filter(|f| !f.is_none()) else {
+        if op != MapperOp::Sort {
+            return Err(Error::Type(format!("{}() missing required argument", if op == MapperOp::Map { "map" } else { "filter" })));
+        }
+        let sort_fn = builtin("pixeltable.functions.json._sort")?;
+        let mut kwargs = Vec::new();
+        if !asc {
+            kwargs.push(("asc".to_string(), Expr::literal(Value::Bool(false), crate::types::ColumnType::bool(false))));
+        }
+        return crate::functions::make_builtin_call(sort_fn, vec![src.clone()], kwargs, true);
+    };
+    let root = build::relative_root(&src.col_type);
+    let ExprKind::RelativeRoot { id } = root.kind else { return Err(Error::internal("relative root expected")) };
+    let failure = match op {
+        MapperOp::Map => "Failed to evaluate map function. (The `fn` argument to `map()` must produce a valid Pixeltable expression.)",
+        MapperOp::Filter => {
+            "Failed to evaluate filter predicate. (The `predicate` argument to `filter()` must produce a valid Pixeltable expression.)"
+        }
+        MapperOp::Sort => "Failed to evaluate sort key. (The `key` argument to `sort()` must produce a valid Pixeltable expression.)",
+    };
+    let target = match f.call1((PyExpr::new(root),)) {
+        Ok(result) => match from_object(&result) {
+            Ok(Some(e)) => e,
+            _ => crate::bail!(UnsupportedOperation, "{failure}"),
+        },
+        Err(_) => crate::bail!(UnsupportedOperation, "{failure}"),
+    };
+    let _ = py;
+    Ok(build::json_mapper(op, asc, src.clone(), target, id))
+}
+
+/// `pixeltable.functions.map/filter/sort(expr, fn, ...)`
+#[pyfunction]
+#[pyo3(signature = (op, expr, f=None, asc=true))]
+pub fn json_mapper(py: Python<'_>, op: &str, expr: &Bound<'_, PyAny>, f: Option<Bound<'_, PyAny>>, asc: bool) -> Result<PyExpr> {
+    let op = match op {
+        "map" => MapperOp::Map,
+        "filter" => MapperOp::Filter,
+        _ => MapperOp::Sort,
+    };
+    let src = from_object(expr)?.ok_or_else(|| crate::pxt_err!(InvalidExpression, "Invalid expression: {}", obj_str(expr)))?;
+    wrap(json_mapper_call(py, op, &src, f.as_ref(), asc)?)
+}
+
+/// `pixeltable.functions.cast(expr, type)`: the same expression with another static type (no conversion).
+#[pyfunction]
+pub fn cast(expr: &Bound<'_, PyAny>, target_type: &Bound<'_, PyAny>) -> Result<PyExpr> {
+    let e = from_object(expr)?.ok_or_else(|| crate::pxt_err!(InvalidExpression, "Invalid expression: {}", obj_str(expr)))?;
+    let t = normalize_type(target_type, true)?;
+    wrap(Expr::new(e.kind.clone(), t))
 }
 
 /// `Literal(val)` / `Expr.from_object(val)`: None if the object cannot become an expression.
@@ -652,18 +894,14 @@ pub fn call_builtin(
     args: &Bound<'_, PyTuple>,
     kwargs: Option<&Bound<'_, PyDict>>,
 ) -> Result<PyExpr> {
-    let mut arg_exprs = Vec::new();
-    for a in args.iter() {
-        arg_exprs.push(from_object(&a)?.ok_or_else(|| Error::Type(format!("Not a valid argument: {}", a.str().map(|s| s.to_string()).unwrap_or_default())))?);
+    let (a, kw) = split_call(args, kwargs)?;
+    if let Some(f) = crate::functions::agg::lookup_builtin_agg(qualified_name) {
+        return wrap(agg_call_from_py(f, a, kw)?);
     }
-    let mut kw = Vec::new();
-    if let Some(kwargs) = kwargs {
-        for (k, v) in kwargs.iter() {
-            let e = from_object(&v)?.ok_or_else(|| Error::Type(format!("Not a valid argument: {}", v.str().map(|s| s.to_string()).unwrap_or_default())))?;
-            kw.push((k.extract::<String>()?, e));
-        }
-    }
-    wrap(crate::functions::make_call(qualified_name, arg_exprs, kw)?)
+    let f = crate::functions::lookup(qualified_name)
+        .ok_or_else(|| crate::pxt_err!(FunctionNotFound, "Function {} not found", crate::error::py_repr(qualified_name)))?;
+    let (arg_exprs, kw) = call_args(qualified_name, &a, &kw)?;
+    wrap(crate::functions::make_builtin_call(f, arg_exprs, kw, false)?)
 }
 
 #[pyfunction]

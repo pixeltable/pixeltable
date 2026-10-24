@@ -177,7 +177,7 @@ pub struct ColumnRef {
     pub tbl_version: Option<i64>,
 }
 
-/// One step of a JSON path (`t.c['a'][0]`, `t.c.a[1:3]`, `t.c['*']`): extension point for the JSON work.
+/// One step of a JSON path (`t.c['a'][0]`, `t.c.a[1:3]`, `t.c['*']`).
 #[derive(Debug, Clone, PartialEq)]
 pub enum JsonPathElem {
     Key(String),
@@ -232,11 +232,62 @@ impl ColumnProp {
     }
 }
 
+/// How a `JsonMapper` combines the per-element values of its target expression.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MapperOp {
+    /// replace each element by the target value
+    Map = 0,
+    /// keep the elements for which the target is true
+    Filter = 1,
+    /// order the elements by the target value
+    Sort = 2,
+}
+
+impl MapperOp {
+    pub fn from_i64(v: i64) -> Option<MapperOp> {
+        Some(match v {
+            0 => MapperOp::Map,
+            1 => MapperOp::Filter,
+            2 => MapperOp::Sort,
+            _ => return None,
+        })
+    }
+}
+
+/// A call of a function: `args`/`kwargs` as given in the call (upstream displays them that way); `group_by` and
+/// `order_by` are the window/ordering clauses of an aggregate call; `is_method_call` renders `c.upper()` instead
+/// of `upper(c)`.
 #[derive(Debug, Clone)]
 pub struct FunctionCall {
     pub func: FuncRef,
     pub args: Vec<ExprRef>,
     pub kwargs: Vec<(String, ExprRef)>,
+    pub group_by: Vec<ExprRef>,
+    pub order_by: Vec<ExprRef>,
+    pub is_method_call: bool,
+}
+
+impl FunctionCall {
+    pub fn new(func: FuncRef, args: Vec<ExprRef>, kwargs: Vec<(String, ExprRef)>) -> Self {
+        FunctionCall { func, args, kwargs, group_by: Vec::new(), order_by: Vec::new(), is_method_call: false }
+    }
+
+    pub fn is_agg(&self) -> bool {
+        matches!(self.func, FuncRef::Agg(_))
+    }
+
+    /// An aggregate call that is evaluated per row over a window (upstream `is_window_fn_call`).
+    pub fn is_window(&self) -> bool {
+        match &self.func {
+            FuncRef::Agg(a) => {
+                a.allows_window()
+                    && (!a.allows_std_agg()
+                        || !self.group_by.is_empty()
+                        || (!self.order_by.is_empty() && !a.requires_order_by()))
+            }
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -257,7 +308,13 @@ pub enum ExprKind {
     InlineList(Vec<ExprRef>),
     InlineDict(Vec<(String, ExprRef)>),
     InlineArray(Vec<ExprRef>),
+    /// `base.path...`; `base` is never itself a JsonPath (paths are flattened as they are extended)
     JsonPath { base: ExprRef, path: Vec<JsonPathElem> },
+    /// The element a `JsonMapper` is currently evaluating its target for (shown as `R`); `id` ties it to its mapper.
+    RelativeRoot { id: u64 },
+    /// `src.map(lambda R: target)` / `.filter(...)` / `.sort(...)`: `target` is evaluated once per element of the
+    /// list `src` evaluates to, with the `RelativeRoot` `root_id` bound to that element.
+    JsonMapper { op: MapperOp, asc: bool, src: ExprRef, target: ExprRef, root_id: u64 },
     ArraySlice { base: ExprRef, index: Vec<ArrayIndex> },
     FunctionCall(FunctionCall),
     /// `col.<prop>`: `col` is a ColumnRef node
@@ -305,7 +362,7 @@ impl ExprKind {
     /// Direct sub-expressions.
     pub fn children(&self) -> Vec<&ExprRef> {
         match self {
-            ExprKind::ColumnRef(_) | ExprKind::Literal(_) | ExprKind::Variable(_) => vec![],
+            ExprKind::ColumnRef(_) | ExprKind::Literal(_) | ExprKind::RelativeRoot { .. } | ExprKind::Variable(_) => vec![],
             ExprKind::Arithmetic { lhs, rhs, .. }
             | ExprKind::StringOp { lhs, rhs, .. }
             | ExprKind::Comparison { lhs, rhs, .. }
@@ -318,7 +375,14 @@ impl ExprKind {
             ExprKind::InlineList(items) | ExprKind::InlineArray(items) => items.iter().collect(),
             ExprKind::InlineDict(items) => items.iter().map(|(_, e)| e).collect(),
             ExprKind::JsonPath { base, .. } | ExprKind::ArraySlice { base, .. } => vec![base],
-            ExprKind::FunctionCall(fc) => fc.args.iter().chain(fc.kwargs.iter().map(|(_, e)| e)).collect(),
+            ExprKind::JsonMapper { src, target, .. } => vec![src, target],
+            ExprKind::FunctionCall(fc) => fc
+                .args
+                .iter()
+                .chain(fc.kwargs.iter().map(|(_, e)| e))
+                .chain(fc.group_by.iter())
+                .chain(fc.order_by.iter())
+                .collect(),
         }
     }
 
@@ -328,7 +392,9 @@ impl ExprKind {
         let mut it = children.into_iter();
         let mut next = || it.next().expect("with_children(): too few children");
         match self {
-            ExprKind::ColumnRef(_) | ExprKind::Literal(_) | ExprKind::Variable(_) => self.clone(),
+            ExprKind::ColumnRef(_) | ExprKind::Literal(_) | ExprKind::Variable(_) | ExprKind::RelativeRoot { .. } => {
+                self.clone()
+            }
             ExprKind::Arithmetic { op, .. } => ExprKind::Arithmetic { op: *op, lhs: next(), rhs: next() },
             ExprKind::StringOp { op, .. } => ExprKind::StringOp { op: *op, lhs: next(), rhs: next() },
             ExprKind::Comparison { op, .. } => ExprKind::Comparison { op: *op, lhs: next(), rhs: next() },
@@ -348,10 +414,16 @@ impl ExprKind {
             ExprKind::InlineDict(items) => ExprKind::InlineDict(items.iter().map(|(k, _)| (k.clone(), next())).collect()),
             ExprKind::JsonPath { path, .. } => ExprKind::JsonPath { base: next(), path: path.clone() },
             ExprKind::ArraySlice { index, .. } => ExprKind::ArraySlice { base: next(), index: index.clone() },
+            ExprKind::JsonMapper { op, asc, root_id, .. } => {
+                ExprKind::JsonMapper { op: *op, asc: *asc, src: next(), target: next(), root_id: *root_id }
+            }
             ExprKind::FunctionCall(fc) => ExprKind::FunctionCall(FunctionCall {
                 func: fc.func.clone(),
                 args: fc.args.iter().map(|_| next()).collect(),
                 kwargs: fc.kwargs.iter().map(|(k, _)| (k.clone(), next())).collect(),
+                group_by: fc.group_by.iter().map(|_| next()).collect(),
+                order_by: fc.order_by.iter().map(|_| next()).collect(),
+                is_method_call: fc.is_method_call,
             }),
         }
     }
@@ -444,7 +516,42 @@ impl Expr {
             ExprKind::Literal(_) => Some("Literal".to_string()),
             ExprKind::FunctionCall(fc) => Some(fc.func.name().to_string()),
             ExprKind::ColumnProperty { .. } => Some(crate::expr::display::display(self).replace('.', "_")),
+            ExprKind::JsonPath { base, path } => {
+                let anchor = base.default_column_name().unwrap_or_default();
+                let raw = format!("{anchor}.{}", display::json_path_str(path));
+                let mut clean = String::new();
+                for c in raw.chars() {
+                    match c {
+                        '.' => clean.push('_'),
+                        '*' => clean.push_str("star"),
+                        c if c.is_ascii_alphanumeric() => clean.push(c),
+                        _ => {}
+                    }
+                }
+                let clean = clean.trim_start_matches('_').to_string();
+                if clean.is_empty() { None } else { Some(clean) }
+            }
             ExprKind::Similarity(_) => Some("similarity".to_string()),
+            _ => None,
+        }
+    }
+
+    /// True if this expression contains an aggregate call (that is not a window function call).
+    pub fn contains_agg(&self) -> bool {
+        let mut found = false;
+        self.visit(&mut |e| {
+            if let ExprKind::FunctionCall(fc) = &e.kind {
+                if fc.is_agg() && !fc.is_window() {
+                    found = true;
+                }
+            }
+        });
+        found
+    }
+
+    pub fn as_function_call(&self) -> Option<&FunctionCall> {
+        match &self.kind {
+            ExprKind::FunctionCall(fc) => Some(fc),
             _ => None,
         }
     }

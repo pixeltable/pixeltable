@@ -23,6 +23,9 @@ parking_lot = "0.12"
 base64 = "0.22"
 serde_bytes = "0.11"
 indexmap = { version = "2", features = ["serde"] }
+fancy-regex = "0.14"
+chrono-tz = "0.10"
+unicode-normalization = "0.1"
 
 [profile.release]
 opt-level = 3

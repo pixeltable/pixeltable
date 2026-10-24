@@ -1,0 +1,45 @@
+//! Randomness for `Query.sample()` and for ids that must be unique (relative path roots).
+
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// splitmix64: a fast, well-distributed 64-bit mixer (also used as a seeded PRNG step).
+pub fn splitmix64(mut x: u64) -> u64 {
+    x = x.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    x = (x ^ (x >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    x ^ (x >> 31)
+}
+
+/// A random u64 (time- and counter-seeded; not cryptographic).
+pub fn random_u64() -> u64 {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0);
+    let c = COUNTER.fetch_add(1, Ordering::Relaxed);
+    splitmix64(t ^ splitmix64(c ^ (std::process::id() as u64) << 32))
+}
+
+/// A small seeded PRNG.
+pub struct Rng(u64);
+
+impl Rng {
+    pub fn new(seed: u64) -> Rng {
+        Rng(splitmix64(seed))
+    }
+    pub fn next_u64(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        splitmix64(self.0)
+    }
+    /// uniform in [0, n)
+    pub fn below(&mut self, n: u64) -> u64 {
+        if n == 0 {
+            return 0;
+        }
+        ((self.next_u64() as u128 * n as u128) >> 64) as u64
+    }
+    pub fn shuffle<T>(&mut self, v: &mut [T]) {
+        for i in (1..v.len()).rev() {
+            let j = self.below(i as u64 + 1) as usize;
+            v.swap(i, j);
+        }
+    }
+}
