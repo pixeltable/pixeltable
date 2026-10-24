@@ -74,6 +74,8 @@ python/pixeltable/
   _globals.py       pxt.create_table() etc.: argument forwarding
   _table.py         Table/InsertableTable/View handles (id + pinned version), Dir
   _query.py         Query (wraps _core.QuerySpec), ResultSet (wraps _core.ResultSet), ResultCursor
+  _formatter.py     HTML rendering of results (upstream's Formatter); media links via _http_server.py (a local file
+                    server on 127.0.0.1, started on first use)
   _exprs.py         Expr = _core.Expr
   func/             introspection of user functions: _signature.py (Signature from type hints), _function.py
                     (Function base, serialization, symbol resolution), _callable.py (@pxt.udf), _expr_template.py
@@ -139,8 +141,9 @@ IsNull, InList/InExpr (isin), TypeCast, InlineList/Dict/Array (collapse to liter
 path} (`t.c.f[0]`, `[*]`, slices; typed as upstream resolves paths through `Json[...]` schemas), RelativeRoot and
 JsonMapper (`map`/`filter`/`sort` over a JSON array: the target is built with a `RelativeRoot` node, `R` in `str()`,
 bound per element through `RowContext::relative_root()`), ArraySlice (numpy basic indexing, typed shape),
-ColumnProperty, Similarity, Variable (template parameters), FunctionCall {func: FuncRef, args, kwargs, group_by,
-order_by, is_method_call}.
+ColumnProperty, Similarity, Variable (template parameters), RowidRef {tbl_id, idx} (a component of a table's row
+key, read through `RowContext::row_key()`; `group_by=<table>` of window functions), FunctionCall {func: FuncRef, args,
+kwargs, group_by, order_by, is_method_call}.
 
 To add a node kind: variant in `ExprKind` + `children()`, constructor in `build.rs`, arms in `display.rs`,
 `serde.rs`, `eval.rs`, and the Python-facing method in `bindings/expr.rs`.
@@ -181,7 +184,7 @@ Aggregates (`functions/agg.rs`): an `AggregateFunction` (signatures, init parame
 `allows_std_agg`, `allows_window`, `create()` -> `AggState { update(), value() }`) referenced as `FuncRef::Agg`.
 `make_agg_call()` applies upstream's rules for `order_by`/`group_by` (a window call is an aggregate with
 `group_by`/`order_by`, or one that disallows plain aggregation). Builtins: `count`, `sum`, `min`, `max`, `mean`,
-`json.make_list`. Python UDAs (`@pxt.uda`, `functions/uda.rs`): `AggregateFunction._make_core()` ->
+`json.make_list`, `video.make_video` (encodes frames with PyAV into `$PIXELTABLE_HOME/tmp`). Python UDAs (`@pxt.uda`, `functions/uda.rs`): `AggregateFunction._make_core()` ->
 `_core.Uda(fn, spec)` -> `UdaFunction`, which implements `AggregateFunction`: `create()` instantiates the
 `Aggregator` class with the init arguments, its state calls `update()` and `value()`; calls go through
 `make_agg_call()` like builtins (`AggregateFunction.__call__` -> `Uda.call`). A stored call is
@@ -343,10 +346,12 @@ call inside `with_catalog`), register it in `bindings/mod.rs`, and forward to it
 (`exec/query.rs`): `QueryInput::snapshot()` captures the table path of every from-table under the catalog lock; then,
 without the lock: scan each path (key order) and join (hash join on equality conjuncts, else nested loop; inner,
 left, full outer, cross) into `JRow`s (one slot per table of each path; None for the missing side of an outer join)
--> where -> sample -> aggregate (groups by key, or by base row for `group_by(base_table)`; SQL semantics: one row for
-an ungrouped aggregation over no rows) -> window functions (rows sorted by the combined partition/order clauses,
+-> where -> sample -> aggregate (groups by key, or by base row for `group_by(base_table)`; rows sorted first for
+aggregates with an ordering requirement; SQL semantics: one row for an ungrouped aggregation over no rows) -> window functions (rows sorted by the combined partition/order clauses,
 "Incompatible ordering requirements" otherwise) -> stable sort (ASC nulls last, DESC nulls first) -> offset/limit ->
-project. Unstored computed columns are evaluated on read. `count()` refuses what upstream cannot count in SQL
+project. Column reads go through `scan::PathCtx` of the from-table that holds the column at the version the reference
+names (a table can be joined with a snapshot of itself). `where()`/`order_by()` expressions are checked against the
+query's tables when it runs, as upstream. Unstored computed columns are evaluated on read. `count()` refuses what upstream cannot count in SQL
 (`is_sql_expr()`: non-SQL filters). Sampling ranks rows by a hash of (seed, rowid, pos), as upstream's
 `SqlSampleNode`. Results are a `ResultData` held in Rust (`_core.ResultSet`); values convert to Python objects on
 access. Window functions in computed columns are evaluated over all rows of the table when the column is added, and
