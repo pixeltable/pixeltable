@@ -64,6 +64,27 @@ pub fn try_map_rows<T: Send>(n: usize, pure: bool, f: impl Fn(usize) -> crate::e
     out
 }
 
+/// Calls `f(i, &mut items[i])` for every item, in parallel for many items (`f` must be pure), and returns the results
+/// in order.
+pub fn map_mut<T: Send, R: Send>(items: &mut [T], f: impl Fn(usize, &mut T) -> R + Sync + Send) -> Vec<R> {
+    if !parallel(items.len()) {
+        return items.iter_mut().enumerate().map(|(i, x)| f(i, x)).collect();
+    }
+    let (first, rest) = items.split_at_mut(1);
+    let r0 = f(0, &mut first[0]);
+    detached(|| {
+        let mut out = Vec::with_capacity(rest.len() + 1);
+        out.push(r0);
+        out.par_extend(rest.par_iter_mut().enumerate().map(|(i, x)| f(i + 1, x)));
+        out
+    })
+}
+
+/// True if `n` items are worth spreading over threads.
+pub fn worth_parallel(n: usize) -> bool {
+    parallel(n)
+}
+
 /// A stable sort, in parallel for many elements.
 pub fn sort_by<T: Send>(v: &mut [T], cmp: impl Fn(&T, &T) -> Ordering + Sync) {
     if parallel(v.len()) {

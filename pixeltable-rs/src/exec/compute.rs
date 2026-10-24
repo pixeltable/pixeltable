@@ -299,7 +299,32 @@ pub fn eval_computed_batch(
                     f(&RowCells { row: &rows[i], unstored: Some(unstored), calls: Some(slot) })
                 })?
             };
-            for i in 0..limit {
+            let pure = super::par::worth_parallel(limit) && exprs.iter().all(|e| cells_expr_pure(e, unstored, &calls, 0));
+            if pure {
+                // rows are independent: evaluate them on several threads, then account as sequential evaluation would
+                let calls_ref = &calls;
+                let outcomes = super::par::map_mut(&mut rows[..limit], |i, row| -> Result<(RowCountStats, Option<(usize, Error)>)> {
+                    let mut row_stats = RowCountStats::default();
+                    let mut names = Vec::new();
+                    let slot = calls_ref.as_ref().map(|results| CallSlot { results, row: i });
+                    let failed = eval_computed_row(row, cols, &plain, Some(unstored), slot, &mut row_stats, &mut names)?;
+                    Ok((row_stats, failed))
+                });
+                for (i, outcome) in outcomes.into_iter().enumerate() {
+                    let (row_stats, failed) = outcome?;
+                    *stats = super::propagate::add_stats(stats, &row_stats);
+                    if let Some((k, err)) = failed {
+                        if !cols_with_excs.contains(&cols[k].name) {
+                            cols_with_excs.push(cols[k].name.clone());
+                        }
+                        if fail_on_exception && earlier(&first, i, k) {
+                            first = Some((i, k, err));
+                            limit = limit.min(i + 1);
+                        }
+                    }
+                }
+            }
+            for i in 0..if pure { 0 } else { limit } {
                 let slot = calls.as_ref().map(|results| CallSlot { results, row: i });
                 if let Some((k, err)) = eval_computed_row(&mut rows[i], cols, &plain, Some(unstored), slot, stats, cols_with_excs)? {
                     if fail_on_exception {
@@ -342,6 +367,16 @@ pub fn eval_computed_batch(
         }
     }
     Ok(first)
+}
+
+/// True if `e` can be evaluated for many new rows on several threads (`par::is_pure()`), with the calls in `calls` made
+/// (cells are read as they are; unstored columns are evaluated).
+fn cells_expr_pure(e: &ExprRef, unstored: &HashMap<ColId, ExprRef>, calls: &Option<super::prefetch::CallResults>, depth: usize) -> bool {
+    let col_pure = |c: &ColumnRef| match unstored.get(&c.col_id) {
+        Some(x) => depth < 64 && cells_expr_pure(x, unstored, calls, depth + 1),
+        None => true,
+    };
+    super::par::is_pure(e, &col_pure, &|n| calls.as_ref().is_some_and(|r| r.contains(n)))
 }
 
 /// The names of the columns with errors in `rows`, in the order in which row-by-row evaluation meets them (row by row,
