@@ -521,8 +521,10 @@ def _messages_resource_estimate(
                             assert isinstance(part.get('text'), str)
                             num_tokens += len(part['text']) / 4
                         elif part.get('type') == image_type:
-                            assert isinstance(part.get('image_url'), PIL.Image.Image)
-                            num_tokens += _token_count_for_image(part['image_url'])
+                            image_url = part.get('image_url')
+                            img = image_url.get('url') if isinstance(image_url, dict) else image_url
+                            if isinstance(img, PIL.Image.Image):
+                                num_tokens += _token_count_for_image(img)
             if key == 'name':  # if there's a name, the role is omitted
                 num_tokens -= 1  # role is always required and always 1 token
 
@@ -615,13 +617,13 @@ async def chat_completions(
         content = message.get('content')
         if isinstance(content, list):
             for part in content:
-                if (
-                    isinstance(part, dict)
-                    and part.get('type') == 'image_url'
-                    and isinstance(part.get('image_url'), PIL.Image.Image)
-                ):
-                    b64_encoded_image = to_base64(part['image_url'], format='png')
-                    part['image_url'] = {'url': f'data:image/png;base64,{b64_encoded_image}'}
+                if isinstance(part, dict) and part.get('type') == 'image_url':
+                    image_url = part.get('image_url')
+                    # a PIL image may arrive directly or nested under 'url' (the wire shape);
+                    # URL strings pass through untouched
+                    img = image_url.get('url') if isinstance(image_url, dict) else image_url
+                    if isinstance(img, PIL.Image.Image):
+                        part['image_url'] = {'url': f'data:image/png;base64,{to_base64(img, format="png")}'}
 
     # make sure the pool info exists prior to making the request
     resource_pool = _rate_limits_pool(model)
@@ -748,13 +750,11 @@ async def responses(
         content = item.get('content') if isinstance(item, dict) else None
         if isinstance(content, list):
             for part in content:
-                if (
-                    isinstance(part, dict)
-                    and part.get('type') == 'input_image'
-                    and isinstance(part.get('image_url'), PIL.Image.Image)
-                ):
-                    b64_encoded_image = to_base64(part['image_url'], format='png')
-                    part['image_url'] = f'data:image/png;base64,{b64_encoded_image}'
+                if isinstance(part, dict) and part.get('type') == 'input_image':
+                    image_url = part.get('image_url')
+                    img = image_url.get('url') if isinstance(image_url, dict) else image_url
+                    if isinstance(img, PIL.Image.Image):
+                        part['image_url'] = f'data:image/png;base64,{to_base64(img, format="png")}'
 
     resource_pool = _rate_limits_pool(model)
     rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool, OpenAIRateLimitsInfo)

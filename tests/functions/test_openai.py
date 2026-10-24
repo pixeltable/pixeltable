@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import random
@@ -26,6 +27,58 @@ from .tool_utils import run_tool_invocations_test, server_state, stock_price, we
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 _logger = logging.getLogger('pixeltable_test')
+
+
+def test_image_url_content_block(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """image_url blocks accept a PIL image directly or nested under 'url' (the OpenAI wire shape)."""
+    skip_test_if_not_installed('openai')
+    from typing import Any, ClassVar
+
+    import pixeltable.functions.openai as openai_fn
+
+    captured: dict[str, Any] = {}
+
+    class FakeRaw:
+        headers: ClassVar[dict] = {}
+        text = '{}'
+
+    class FakeWithRaw:
+        async def create(self, **kwargs: Any) -> FakeRaw:
+            captured.update(kwargs)
+            return FakeRaw()
+
+    class FakeClient:
+        class chat:
+            class completions:
+                with_raw_response = FakeWithRaw()
+
+    monkeypatch.setattr(openai_fn, '_openai_client', lambda: FakeClient())
+    img = PIL.Image.open(SAMPLE_IMAGE_FILE_PATH)
+    for shape in (img, {'url': img}):
+        asyncio.run(
+            openai_fn.chat_completions.aexec(
+                [{'role': 'user', 'content': [{'type': 'image_url', 'image_url': shape}]}], model='gpt-4o-mini'
+            )
+        )
+        sent_url = captured['messages'][0]['content'][0]['image_url']['url']
+        assert sent_url.startswith('data:image/png;base64,'), sent_url
+
+    # the resource estimator must not assert on the nested or URL-string shapes
+    openai_fn._messages_resource_estimate(
+        [
+            {
+                'role': 'user',
+                'content': [
+                    {'type': 'image_url', 'image_url': {'url': img}},
+                    {'type': 'image_url', 'image_url': {'url': 'https://example.com/x.png'}},
+                    {'type': 'image_url', 'image_url': img},
+                ],
+            }
+        ],
+        max_completion_tokens=10,
+        text_type='text',
+        image_type='image_url',
+    )
 
 
 @pytest.mark.remote_api
