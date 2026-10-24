@@ -9,6 +9,7 @@
 //! (a grouping stage between filter and project), distinct, sample.
 
 pub mod compute;
+pub mod compute_rows;
 pub mod insert;
 
 use std::sync::Arc;

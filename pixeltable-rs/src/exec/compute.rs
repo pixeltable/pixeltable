@@ -52,6 +52,10 @@ impl RowContext for RowCells<'_> {
     fn column_error(&self, col: &ColumnRef) -> Result<Option<CellError>> {
         Ok(self.row.error(col.col_id).cloned())
     }
+
+    fn python_semantics(&self) -> bool {
+        true
+    }
 }
 
 /// The value expressions of a table's unstored computed columns, by column id.

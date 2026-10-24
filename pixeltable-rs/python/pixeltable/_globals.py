@@ -43,14 +43,13 @@ def create_table(
     extra_args: dict[str, Any] | None = None,
     _is_data_versioned: bool = True,
 ) -> Table:
-    """Create a new base table from a `schema` (a mapping of column names to types or column specs)."""
+    """Create a new base table from a `schema` (a mapping of column names to types or column specs), or from a
+    `source` (rows, a table or a query) whose schema is inferred."""
     unsupported = [
         name
         for name, given in (
             ('source_format', source_format is not None),
-            ('schema_overrides', schema_overrides is not None),
             ('extra_args', extra_args is not None),
-            ('has_default_idxs', has_default_idxs),
         )
         if given
     ]
@@ -66,6 +65,9 @@ def create_table(
         media_validation,
         if_exists,
         _is_data_versioned,
+        schema_overrides,
+        on_error,
+        has_default_idxs,
     )
     return _make_table(tbl_id, kind)
 

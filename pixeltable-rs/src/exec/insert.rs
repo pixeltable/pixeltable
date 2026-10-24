@@ -154,16 +154,19 @@ fn media_abort_error(col_name: &str, err: Error) -> Error {
 /// Prepares the media inputs of a row: writes in-memory media to the media directory and validates the files of
 /// write-validated columns. A failed validation is an error with `fail_on_exception`, else a NULL cell with the
 /// error recorded.
-fn prepare_media_inputs(
+/// `saved`: None to leave in-memory media in memory (`compute()`).
+pub fn prepare_media_inputs(
     plan: &InsertPlan,
     row: &mut StoredRow,
     fail_on_exception: bool,
     stats: &mut RowCountStats,
     cols_with_excs: &mut Vec<String>,
-    saved: &mut Vec<std::path::PathBuf>,
+    mut saved: Option<&mut Vec<std::path::PathBuf>>,
 ) -> Result<()> {
     for c in plan.columns.iter().filter(|c| c.media_validation.is_some() && !c.is_computed()) {
-        plan.media.materialize(row, c.col_id, saved)?;
+        if let Some(saved) = saved.as_deref_mut() {
+            plan.media.materialize(row, c.col_id, saved)?;
+        }
         let (Some(MediaValidation::OnWrite), Some(kind)) = (c.media_validation, MediaKind::of(&c.col_type)) else {
             continue;
         };
@@ -214,7 +217,7 @@ fn build_rows_inner(
         for (col_id, v) in input {
             row.set_cell(col_id, v);
         }
-        prepare_media_inputs(plan, &mut row, fail_on_exception, &mut stats, &mut cols_with_excs, saved)?;
+        prepare_media_inputs(plan, &mut row, fail_on_exception, &mut stats, &mut cols_with_excs, Some(&mut *saved))?;
         eval_computed(&mut row, &computed, Some(&plan.unstored), fail_on_exception, &mut stats, &mut cols_with_excs)?;
         for c in computed.iter().filter(|c| c.is_media) {
             plan.media.materialize(&mut row, c.col_id, saved)?;
