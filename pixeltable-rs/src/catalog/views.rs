@@ -63,7 +63,6 @@ impl Catalog {
             ),
             None => None,
         };
-<<<<<<< HEAD
         let mut out = vec![PathElem { tbl_id, pinned: version }];
         for (i, (id, pin)) in view.bases.iter().enumerate() {
             let pinned = match (pin, &recorded) {
@@ -77,55 +76,6 @@ impl Catalog {
             out.push(PathElem { tbl_id: *id, pinned });
         }
         Ok(out)
-=======
-        let base = self.table(base_id)?.clone();
-        let pinned_version = if is_snapshot { Some(base_version.unwrap_or(base.current_version)) } else { base_version };
-        let ts = now();
-        let id = Uuid::new_v4();
-        let md = TableMd {
-            id,
-            dir_id,
-            name: path.name().to_string(),
-            kind: if is_snapshot { TableKind::Snapshot } else { TableKind::View },
-            is_data_versioned: true,
-            has_default_idxs: false,
-            created_at: ts,
-            current_version: 0,
-            current_schema_version: 0,
-            next_col_id: 0,
-            next_rowid: 0,
-            columns: Vec::new(),
-            schema_versions: vec![SchemaVersionMd {
-                schema_version: 0,
-                preceding_schema_version: None,
-                columns: Vec::new(),
-                comment,
-                custom_metadata,
-                media_validation,
-            }],
-            versions: vec![VersionMd {
-                version: 0,
-                created_at: ts,
-                schema_version: 0,
-                user: None,
-                change_type: "schema".to_string(),
-                schema_change: None,
-                row_count_stats: RowCountStats::default(),
-                cascade_row_count_stats: RowCountStats::default(),
-            }],
-            view: Some(ViewMd {
-                base_id,
-                base_version: pinned_version,
-                predicate: predicate.as_ref().map(|p| crate::expr::serde::to_json(p)).transpose()?,
-                is_snapshot,
-            }),
-            data_file: None,
-            indexes: Default::default(),
-        };
-        self.tables.insert(id, Arc::new(md));
-        self.commit()?;
-        Ok((id, true))
->>>>>>> claude/eager-edison-12cqei
     }
 
     /// The path with every live table pinned to its current version.
@@ -495,6 +445,7 @@ impl Catalog {
                 include_base_columns: def.select.is_none(),
             }),
             data_file: None,
+            indexes: Default::default(),
         };
         Ok(ViewPlanOutcome::New(Box::new(md), base_path))
     }

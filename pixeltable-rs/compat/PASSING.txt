@@ -16,6 +16,7 @@ tests/test_alter_column.py::TestAlterColumn::test_alter_computed_column[data_ver
 tests/test_alter_column.py::TestAlterColumn::test_alter_computed_column[data_versioned-reload_catalog]
 tests/test_alter_column.py::TestAlterColumn::test_alter_computed_column[operational-no_reload_catalog]
 tests/test_alter_column.py::TestAlterColumn::test_alter_computed_column[operational-reload_catalog]
+tests/test_alter_column.py::TestAlterColumn::test_alter_computed_column_cascade[cascade]
 tests/test_alter_column.py::TestAlterColumn::test_alter_computed_column_on_view
 tests/test_alter_column.py::TestAlterColumn::test_alter_computed_column_refs[no_reload_catalog]
 tests/test_alter_column.py::TestAlterColumn::test_alter_computed_column_refs[reload_catalog]
@@ -186,6 +187,7 @@ tests/test_table.py::TestTable::test_column_comment[no_reload_catalog]
 tests/test_table.py::TestTable::test_column_comment[reload_catalog]
 tests/test_table.py::TestTable::test_column_custom_metadata[no_reload_catalog]
 tests/test_table.py::TestTable::test_column_custom_metadata[reload_catalog]
+tests/test_table.py::TestTable::test_column_metadata
 tests/test_table.py::TestTable::test_columns[data_versioned]
 tests/test_table.py::TestTable::test_columns[operational]
 tests/test_table.py::TestTable::test_common_col_names
@@ -212,6 +214,8 @@ tests/test_table.py::TestTable::test_drop_table_force_via_handle
 tests/test_table.py::TestTable::test_drop_table_if_not_exists
 tests/test_table.py::TestTable::test_drop_table_via_handle
 tests/test_table.py::TestTable::test_empty_table
+tests/test_table.py::TestTable::test_expr_udf_computed_cols[data_versioned]
+tests/test_table.py::TestTable::test_expr_udf_computed_cols[operational]
 tests/test_table.py::TestTable::test_file_paths
 tests/test_table.py::TestTable::test_image_formats
 tests/test_table.py::TestTable::test_insert[data_versioned]
@@ -279,6 +283,7 @@ tests/test_view.py::TestView::test_selected_cols
 tests/test_view.py::TestView::test_table_time_travel
 tests/test_view.py::TestView::test_time_travel_over_snapshot
 tests/test_view.py::TestView::test_unstored_columns
+tests/test_view.py::TestView::test_unstored_columns_non_image
 tests/test_view.py::TestView::test_update_base_column
 tests/test_view.py::TestView::test_update_changes_view_membership[computed]
 tests/test_view.py::TestView::test_update_changes_view_membership[plain]
