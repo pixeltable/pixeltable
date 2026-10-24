@@ -263,6 +263,60 @@ pub struct UpdateOutput {
 /// A view row's base as an update leaves it: the new base path row, or None if the base row is gone.
 type BaseChange<'a> = (RowKey, Option<Vec<&'a StoredRow>>);
 
+/// For an update with a where clause: the candidates (joined rows of the path) that pass `pred`, with their new values
+/// (`targets` evaluated against them), in order; the user-function calls of the predicate, then those of the values,
+/// are made for all rows together (`exec::prefetch`). Evaluation stops at the first row that fails (in the predicate or
+/// the values), whose error is returned alongside the rows before it; an interrupt is returned as the error.
+fn where_values(
+    infos: &[&ElemInfo],
+    candidates: &[Vec<&StoredRow>],
+    pred: Option<&ExprRef>,
+    targets: &[(ColId, ExprRef)],
+) -> Result<(Vec<(usize, Vec<(ColId, Value)>)>, Option<crate::error::Error>)> {
+    use super::prefetch::{CallSlot, prefetch};
+    let derived = |c: &crate::expr::ColumnRef| infos.iter().find(|e| e.tbl_id == c.tbl_id).and_then(|e| e.unstored.get(&c.col_id).cloned());
+    fn ctx<'a>(infos: &'a [&'a ElemInfo], rows: &'a [&'a StoredRow], calls: Option<CallSlot<'a>>) -> PathCtx<'a> {
+        PathCtx { elems: infos, rows, python: false, calls }
+    }
+    let fail = |err: crate::error::Error| -> Result<crate::error::Error> {
+        if crate::functions::udf::is_interrupt(&err) { Err(err) } else { Ok(err) }
+    };
+    let mut error = None;
+    let mut keep: Vec<usize> = Vec::new();
+    match pred {
+        None => keep.extend(0..candidates.len()),
+        Some(p) => {
+            let calls = prefetch(&[p], &derived, candidates.len(), true, &|i, slot, f| f(&ctx(infos, &candidates[i], Some(slot))))?;
+            for i in 0..candidates.len() {
+                let slot = calls.as_ref().map(|results| CallSlot { results, row: i });
+                match eval_predicate(p, &ctx(infos, &candidates[i], slot)) {
+                    Ok(true) => keep.push(i),
+                    Ok(false) => {}
+                    Err(err) => {
+                        error = Some(fail(err)?);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    let exprs: Vec<&ExprRef> = targets.iter().map(|(_, e)| e).collect();
+    let calls = prefetch(&exprs, &derived, keep.len(), true, &|k, slot, f| f(&ctx(infos, &candidates[keep[k]], Some(slot))))?;
+    let mut out = Vec::with_capacity(keep.len());
+    for (k, &i) in keep.iter().enumerate() {
+        let ctx = ctx(infos, &candidates[i], calls.as_ref().map(|results| CallSlot { results, row: k }));
+        match targets.iter().map(|(c, e)| Ok((*c, eval(e, &ctx)?))).collect::<Result<Vec<_>>>() {
+            Ok(values) => out.push((i, values)),
+            Err(err) => {
+                // this row comes before the predicate's failure (if any)
+                error = Some(fail(err)?);
+                break;
+            }
+        }
+    }
+    Ok((out, error))
+}
+
 impl UpdatePlan {
     /// Computes the new rows (no catalog lock held). Media files written along the way are deleted again if this
     /// fails; otherwise they are in `UpdateOutput::saved_media` (adopted by the commit).
@@ -296,44 +350,37 @@ impl UpdatePlan {
         // with fail_on_exception: the failure of the first row whose new values could not be computed (rows after it
         // are not updated; a computed column's failure in an earlier row comes first)
         let mut value_error: Option<crate::error::Error> = None;
-        let candidates = match &self.selection {
+        let candidates: Vec<Vec<&StoredRow>> = match &self.selection {
             RowSelection::Where { pred, .. } => self.path.rows_where(pred.as_ref())?,
             RowSelection::Keys(rows) => self.path.rows_for_keys(rows.keys().map(|(r, p)| (*r, p.as_slice()))),
-        };
-        for r in candidates {
-            let key: RowKey = (r[0].rowid, r[0].pos.clone());
-            if self.errors_only.is_some_and(|c| r[0].error(c).is_none()) {
-                continue;
-            }
-            let values: Vec<(ColId, Value)> = match &self.selection {
-                RowSelection::Where { pred, targets } => {
-                    let ctx = PathCtx::new(&infos, &r);
-                    let values = (|| -> Result<Option<Vec<(ColId, Value)>>> {
-                        if let Some(p) = pred {
-                            if !eval_predicate(p, &ctx)? {
-                                return Ok(None);
-                            }
-                        }
-                        Ok(Some(targets.iter().map(|(c, e)| Ok((*c, eval(e, &ctx)?))).collect::<Result<_>>()?))
-                    })();
-                    match values {
-                        Ok(Some(v)) => v,
-                        Ok(None) => continue,
-                        Err(err) if fail_on_exception && !crate::functions::udf::is_interrupt(&err) => {
-                            value_error = Some(err);
-                            break;
-                        }
-                        Err(err) => return Err(err),
-                    }
+        }
+        .into_iter()
+        .filter(|r| self.errors_only.is_none_or(|c| r[0].error(c).is_some()))
+        .collect();
+        // the rows to update and their new values
+        let updates: Vec<(usize, Vec<(ColId, Value)>)> = match &self.selection {
+            RowSelection::Where { pred, targets } => {
+                let (updates, err) = where_values(&infos, &candidates, pred.as_ref(), targets)?;
+                match err {
+                    Some(err) if fail_on_exception => value_error = Some(err),
+                    Some(err) => return Err(err),
+                    None => {}
                 }
-                RowSelection::Keys(rows) => match rows.get(&key) {
-                    Some(v) => {
-                        matched.insert(key.clone());
-                        v.clone()
-                    }
-                    None => continue,
-                },
-            };
+                updates
+            }
+            RowSelection::Keys(rows) => candidates
+                .iter()
+                .enumerate()
+                .filter_map(|(i, r)| {
+                    let key: RowKey = (r[0].rowid, r[0].pos.clone());
+                    let v = rows.get(&key)?.clone();
+                    matched.insert(key);
+                    Some((i, v))
+                })
+                .collect(),
+        };
+        for (i, values) in updates {
+            let r = &candidates[i];
             let mut row = r[0].clone();
             for (c, v) in values {
                 row.set_cell(c, v);
@@ -341,9 +388,9 @@ impl UpdatePlan {
                 self.media.materialize(&mut row, c, saved)?;
             }
             own.status.row_count_stats.upd_rows += 1;
-            own.retire.insert(key);
+            own.retire.insert((r[0].rowid, r[0].pos.clone()));
             own.new_rows.push(row);
-            olds.push(r);
+            olds.push(r.clone());
         }
         // the computed columns of all updated rows together (columns with window functions in window order)
         let bases: Vec<&[&StoredRow]> = olds.iter().map(|o| &o[1..]).collect();

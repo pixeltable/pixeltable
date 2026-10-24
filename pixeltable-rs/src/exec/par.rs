@@ -17,16 +17,44 @@ use crate::functions::udf::UdfImpl;
 pub const MIN_PARALLEL_ROWS: usize = 4096;
 
 fn parallel(n: usize) -> bool {
-    n >= MIN_PARALLEL_ROWS && rayon::current_num_threads() > 1
+    n >= MIN_PARALLEL_ROWS && pool().current_num_threads() > 1
 }
 
-/// Runs `f` detached from the interpreter if this thread is attached to it (rayon workers may need to attach).
+/// The thread pool of this process. Not rayon's global pool: after a fork, the child has none of the parent's threads,
+/// and the global pool would wait for them forever; a child builds its own pool.
+fn pool() -> std::sync::Arc<rayon::ThreadPool> {
+    static POOL: parking_lot::Mutex<Option<(u32, std::sync::Arc<rayon::ThreadPool>)>> = parking_lot::Mutex::new(None);
+    let mut guard = POOL.lock();
+    let pid = std::process::id();
+    match guard.as_ref() {
+        Some((p, pool)) if *p == pid => pool.clone(),
+        _ => {
+            if let Some(stale) = guard.take() {
+                // the parent's pool: its threads do not exist here, so it must not be dropped (that would wait for them)
+                std::mem::forget(stale);
+            }
+            let pool = std::sync::Arc::new(
+                rayon::ThreadPoolBuilder::new()
+                    .thread_name(|i| format!("pixeltable-par-{i}"))
+                    .stack_size(16 << 20)
+                    .build()
+                    .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().num_threads(1).build().expect("a one-thread pool")),
+            );
+            *guard = Some((pid, pool.clone()));
+            pool
+        }
+    }
+}
+
+/// Runs `f` (which uses rayon) in this process's pool, detached from the interpreter if this thread is attached to it
+/// (pool threads may need to attach).
 pub fn detached<T: Send>(f: impl FnOnce() -> T + Send) -> T {
+    let pool = pool();
     // SAFETY: PyGILState_Check() may be called without holding the GIL
     if unsafe { pyo3::ffi::PyGILState_Check() } == 1 {
-        pyo3::Python::attach(|py| py.detach(f))
+        pyo3::Python::attach(|py| py.detach(|| pool.install(f)))
     } else {
-        f()
+        pool.install(f)
     }
 }
 

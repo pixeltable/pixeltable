@@ -4,8 +4,12 @@ limits, async calls overlap, batches, resource pools."""
 
 import asyncio
 import os
+import signal
+import subprocess
+import sys
 import threading
 import time
+from pathlib import Path
 from typing import Iterator
 
 import pytest
@@ -39,6 +43,12 @@ def slow_inc(x: int) -> int:
 def slow_double(x: int) -> int:
     time.sleep(0.02)
     return x * 2
+
+
+@pxt.udf
+def sleep_200ms(x: int) -> int:
+    time.sleep(0.2)
+    return x
 
 
 @pxt.udf
@@ -205,6 +215,24 @@ class TestSyncDispatch:
         assert sorted(x for x, _ in CALLS) == list(range(40))
         assert t.order_by(t.x).select(t.v).collect()['v'] == list(range(1, 41))
 
+    def test_update_with_udfs(self) -> None:
+        t = pxt.create_table('t', {'x': pxt.Int, 'y': pxt.Int | None})
+        t.add_computed_column(z=slow_double(t.y))
+        t.insert({'x': i, 'y': None} for i in range(100))
+        start = time.monotonic()
+        status = t.update({'y': slow_inc(t.x)}, where=t.x % 2 == 1)
+        elapsed = time.monotonic() - start
+        assert status.num_rows == 50
+        res = t.order_by(t.x).select(t.x, t.y, t.z).collect()
+        assert res['y'] == [x + 1 if x % 2 == 1 else None for x in res['x']]
+        assert res['z'] == [2 * (x + 1) if x % 2 == 1 else None for x in res['x']]
+        # sequentially: 50 calls for the values and 50 for z, of 20 ms each
+        assert elapsed < 1.0
+        # the first failing row's exception, raised as is (as before calls were made ahead)
+        with pytest.raises(ValueError, match='bad 5'):
+            t.update({'y': late_failure(t.x)})
+        assert t.where(t.y != None).count() == 50
+
     def test_errors_per_row(self) -> None:
         t = pxt.create_table('t', {'x': pxt.Int})
         t.add_computed_column(y=fails_on_3_mod_7(t.x))
@@ -256,6 +284,33 @@ class TestSyncDispatch:
         with pytest.raises(KeyboardInterrupt):
             t2.add_computed_column(y=interrupting(t2.x), on_error='ignore')
         assert 'y' not in t2.columns()
+
+    def test_sigint_aborts(self, tmp_path: Path) -> None:
+        # a KeyboardInterrupt delivered to the main thread while it waits for the workers aborts the insert
+        script = f"""
+import os, sys
+os.environ['PIXELTABLE_HOME'] = {str(tmp_path)!r}
+sys.path.insert(0, {str(Path(__file__).parent)!r})
+import pixeltable as pxt
+import test_concurrency as tc
+t = pxt.create_table('t', {{'x': pxt.Int}})
+t.add_computed_column(y=tc.sleep_200ms(t.x))
+print('ready', flush=True)
+try:
+    t.insert({{'x': i}} for i in range(400))
+    print('finished', flush=True)
+except KeyboardInterrupt:
+    print('interrupted', t.count(), flush=True)
+"""
+        proc = subprocess.Popen([sys.executable, '-c', script], stdout=subprocess.PIPE, text=True, cwd=tmp_path)
+        assert proc.stdout is not None
+        assert proc.stdout.readline().strip() == 'ready'
+        time.sleep(0.8)
+        sent = time.monotonic()
+        proc.send_signal(signal.SIGINT)
+        out, _ = proc.communicate(timeout=30)
+        assert out.strip() == 'interrupted 0'
+        assert time.monotonic() - sent < 3.0
 
     def test_max_concurrency_one_runs_in_order_in_caller(self) -> None:
         t = int_table('t', 50)
