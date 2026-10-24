@@ -207,6 +207,7 @@ pub fn source_input_rows<'py>(
         Some(s) => match super::sources::classify_with(py, s, source_format, kwargs.filter(|k| !k.is_empty()))? {
             Conduit::Query(q) => query_input_rows(py, &q, plan),
             Conduit::Pandas { df, .. } => super::sources::convert_rows(py, &Conduit::Pandas { df, overrides }, plan, true),
+            Conduit::Parquet { ds, .. } => super::sources::convert_rows(py, &Conduit::Parquet { ds, overrides }, plan, true),
             c => super::sources::convert_rows(py, &c, plan, true),
         },
     }

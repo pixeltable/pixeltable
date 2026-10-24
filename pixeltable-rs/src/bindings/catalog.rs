@@ -480,13 +480,18 @@ pub fn create_table(
                 None => None,
             };
             let mut c = super::sources::classify_with(py, source, source_format, extra.as_ref())?;
-            if let Conduit::Pandas { overrides: o, .. } = &mut c {
+            if let Conduit::Pandas { overrides: o, .. } | Conduit::Parquet { overrides: o, .. } = &mut c {
                 *o = overrides.clone();
             }
             let inferred: Vec<(String, crate::types::ColumnType)> = match &c {
                 Conduit::Pandas { df, overrides } => {
                     let cols = super::sources::pandas_schema(py, df, overrides, &pk)?;
                     // the primary key, by the Pixeltable names of its columns
+                    pk = pk.iter().filter_map(|p| cols.iter().find(|c| c.src == *p).map(|c| c.name.clone())).collect();
+                    cols.into_iter().map(|c| (c.name, c.col_type)).collect()
+                }
+                Conduit::Parquet { ds, overrides } => {
+                    let cols = super::sources::parquet_schema(py, ds, overrides, &pk)?;
                     pk = pk.iter().filter_map(|p| cols.iter().find(|c| c.src == *p).map(|c| c.name.clone())).collect();
                     cols.into_iter().map(|c| (c.name, c.col_type)).collect()
                 }
