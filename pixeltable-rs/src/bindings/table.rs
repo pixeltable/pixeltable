@@ -2,7 +2,6 @@
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString, PyTuple};
-use uuid::Uuid;
 
 use super::catalog::{parse_schema, parse_uuid};
 use super::expr::{PyExpr, as_expr};
@@ -15,7 +14,6 @@ use crate::error::{Error, Result, py_repr};
 use crate::exec::compute::AddComputedPlan;
 use crate::exec::insert::{self, InputRow, InsertPlan, UpdateStatus};
 use crate::exec::column_ref_expr;
-use crate::value::Value;
 use crate::value::py as vpy;
 
 fn stats_dict<'py>(py: Python<'py>, s: &RowCountStats) -> PyResult<Bound<'py, PyDict>> {
@@ -141,25 +139,8 @@ fn lower_first(msg: &str) -> String {
     }
 }
 
-/// Saves in-memory media (PIL images, bytes) to the table's media directory; returns the file path.
-fn save_media(obj: &Bound<'_, PyAny>, media_dir: &std::path::Path) -> Result<String> {
-    std::fs::create_dir_all(media_dir)?;
-    let py = obj.py();
-    if obj.is_instance(vpy::pil_image_cls(py)?)? {
-        let path = media_dir.join(format!("{}.png", Uuid::new_v4().simple()));
-        obj.call_method1("save", (path.to_string_lossy().to_string(),))?;
-        return Ok(path.to_string_lossy().to_string());
-    }
-    if let Ok(b) = obj.extract::<Vec<u8>>() {
-        let path = media_dir.join(Uuid::new_v4().simple().to_string());
-        std::fs::write(&path, b)?;
-        return Ok(path.to_string_lossy().to_string());
-    }
-    Err(Error::internal("unsupported in-memory media value"))
-}
-
 /// Upstream `RowDataTableDataConduit._translate_row()`.
-fn convert_row(row: &Bound<'_, PyAny>, plan: &InsertPlan, media_dir: &std::path::Path) -> Result<InputRow> {
+fn convert_row(row: &Bound<'_, PyAny>, plan: &InsertPlan) -> Result<InputRow> {
     let row_str = row.str().map(|s| s.to_string()).unwrap_or_default();
     let dict = row
         .cast::<PyDict>()
@@ -196,7 +177,7 @@ fn convert_row(row: &Bound<'_, PyAny>, plan: &InsertPlan, media_dir: &std::path:
         if col.is_computed() {
             crate::bail!(UnsupportedOperation, "Value for computed column {name} in row {row_str}");
         }
-        let mut value = match vpy::coerce(&v, &col.col_type) {
+        let value = match vpy::coerce(&v, &col.col_type) {
             Ok(value) => value,
             Err(Error::Type(msg)) => crate::bail!(
                 UnsupportedOperation,
@@ -205,9 +186,6 @@ fn convert_row(row: &Bound<'_, PyAny>, plan: &InsertPlan, media_dir: &std::path:
             ),
             Err(e) => return Err(e),
         };
-        if let Value::PyObj(o) = &value {
-            value = Value::Media(save_media(o.bind(row.py()), media_dir)?);
-        }
         out.push((col.col_id, value));
     }
     Ok(out)
@@ -241,9 +219,9 @@ pub fn tbl_insert<'py>(
         None => vec![kwargs.cloned().unwrap_or_else(|| PyDict::new(py)).into_any()],
         Some(s) => source_rows(s)?,
     };
-    let (plan, media_dir) = with_catalog(py, |cat| Ok((InsertPlan::new(cat, id, version)?, cat.store().media_dir(id))))?;
+    let plan = with_catalog(py, |cat| InsertPlan::new(cat, id, version))?;
     // conversion and computed columns run Python code (pydantic, generators, PIL, UDFs): no catalog lock here
-    let converted: Vec<InputRow> = rows.iter().map(|r| convert_row(r, &plan, &media_dir)).collect::<Result<_>>()?;
+    let converted: Vec<InputRow> = rows.iter().map(|r| convert_row(r, &plan)).collect::<Result<_>>()?;
     let built = insert::build_rows(&plan, converted, fail_on_exception)?;
     let status = with_catalog(py, |cat| insert::commit(cat, &plan, built))?;
     Ok(status_dict(py, &status)?)
@@ -423,8 +401,18 @@ pub fn tbl_add_computed_column<'py>(
     };
     let mut stats = RowCountStats::default();
     let mut cols_with_excs = Vec::new();
-    let values = plan.compute(fail_on_exception, &mut stats, &mut cols_with_excs)?;
-    let status = with_catalog(py, |cat| plan.commit(cat, values, stats, cols_with_excs))?;
+    let mut saved = Vec::new();
+    let values = match plan.compute(fail_on_exception, &mut stats, &mut cols_with_excs, &mut saved) {
+        Ok(v) => v,
+        Err(e) => {
+            crate::exec::compute::discard_media(&saved);
+            return Err(e);
+        }
+    };
+    let status = with_catalog(py, |cat| {
+        cat.adopt_media(saved);
+        plan.commit(cat, values, stats, cols_with_excs)
+    })?;
     Ok(status_dict(py, &status)?)
 }
 

@@ -8,6 +8,7 @@ pub mod error;
 pub mod exec;
 pub mod expr;
 pub mod functions;
+pub mod media;
 pub mod store;
 pub mod types;
 pub mod value;

@@ -13,6 +13,11 @@ use crate::value::{Json, cmp_values, values_equal};
 /// Supplies column values for the row being evaluated.
 pub trait RowContext {
     fn column_value(&self, col: &ColumnRef) -> Result<Value>;
+
+    /// The error recorded for (or, for read-validated media, found in) the column's cell, if any.
+    fn column_error(&self, _col: &ColumnRef) -> Result<Option<crate::store::rows::CellError>> {
+        Ok(None)
+    }
 }
 
 pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
@@ -112,6 +117,27 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
         }
         ExprKind::JsonPath { .. } | ExprKind::ArraySlice { .. } => {
             Err(Error::not_implemented(format!("evaluation of `{}`", super::display::display(e))))
+        }
+        ExprKind::ColumnProperty { col, prop } => {
+            let c = col.as_column_ref().ok_or_else(|| Error::internal("column property of a non-column"))?;
+            if prop.is_cellmd() {
+                return Ok(match (prop, ctx.column_error(c)?) {
+                    (_, None) => Value::Null,
+                    (ColumnProp::ErrorType, Some(err)) => Value::String(err.errortype),
+                    (ColumnProp::ErrorMsg, Some(err)) => Value::String(err.errormsg),
+                    (_, Some(err)) => Value::Json(serde_json::json!({"errortype": err.errortype, "errormsg": err.errormsg})),
+                });
+            }
+            match ctx.column_value(c)? {
+                Value::Media(s) => match prop {
+                    ColumnProp::FileUrl => Ok(Value::String(crate::media::file_url(&s))),
+                    _ => {
+                        let path = pyo3::Python::attach(|py| crate::media::local_path(py, &s))?;
+                        Ok(Value::String(path.to_string_lossy().into_owned()))
+                    }
+                },
+                _ => Ok(Value::Null),
+            }
         }
         ExprKind::FunctionCall(fc) => {
             let args: Vec<Value> = fc.args.iter().map(|a| eval(a, ctx)).collect::<Result<_>>()?;

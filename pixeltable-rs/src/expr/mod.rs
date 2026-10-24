@@ -186,6 +186,52 @@ pub enum JsonPathElem {
     Wildcard,
 }
 
+/// A property of a column (`t.c.errortype`, `t.img.localpath`, ...), upstream `ColumnPropertyRef.Property`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColumnProp {
+    ErrorType = 0,
+    ErrorMsg = 1,
+    FileUrl = 2,
+    LocalPath = 3,
+    CellMd = 4,
+}
+
+impl ColumnProp {
+    pub fn name(self) -> &'static str {
+        match self {
+            ColumnProp::ErrorType => "errortype",
+            ColumnProp::ErrorMsg => "errormsg",
+            ColumnProp::FileUrl => "fileurl",
+            ColumnProp::LocalPath => "localpath",
+            ColumnProp::CellMd => "cellmd",
+        }
+    }
+    pub fn from_name(name: &str) -> Option<ColumnProp> {
+        Some(match name {
+            "errortype" => ColumnProp::ErrorType,
+            "errormsg" => ColumnProp::ErrorMsg,
+            "fileurl" => ColumnProp::FileUrl,
+            "localpath" => ColumnProp::LocalPath,
+            "cellmd" => ColumnProp::CellMd,
+            _ => return None,
+        })
+    }
+    pub fn from_i64(v: i64) -> Option<ColumnProp> {
+        Some(match v {
+            0 => ColumnProp::ErrorType,
+            1 => ColumnProp::ErrorMsg,
+            2 => ColumnProp::FileUrl,
+            3 => ColumnProp::LocalPath,
+            4 => ColumnProp::CellMd,
+            _ => return None,
+        })
+    }
+    /// True for the properties read from a cell's error (errortype, errormsg, cellmd).
+    pub fn is_cellmd(self) -> bool {
+        matches!(self, ColumnProp::ErrorType | ColumnProp::ErrorMsg | ColumnProp::CellMd)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FunctionCall {
     pub func: FuncRef,
@@ -214,6 +260,8 @@ pub enum ExprKind {
     JsonPath { base: ExprRef, path: Vec<JsonPathElem> },
     ArraySlice { base: ExprRef, index: Vec<ArrayIndex> },
     FunctionCall(FunctionCall),
+    /// `col.<prop>`: `col` is a ColumnRef node
+    ColumnProperty { col: ExprRef, prop: ColumnProp },
 }
 
 #[derive(Debug, Clone)]
@@ -233,6 +281,7 @@ impl ExprKind {
             | ExprKind::InExpr { lhs, rhs } => vec![lhs, rhs],
             ExprKind::Compound { operands, .. } => operands.iter().collect(),
             ExprKind::IsNull(e) | ExprKind::TypeCast(e) => vec![e],
+            ExprKind::ColumnProperty { col, .. } => vec![col],
             ExprKind::InList { lhs, .. } => vec![lhs],
             ExprKind::InlineList(items) | ExprKind::InlineArray(items) => items.iter().collect(),
             ExprKind::InlineDict(items) => items.iter().map(|(_, e)| e).collect(),
@@ -297,6 +346,7 @@ impl Expr {
             ExprKind::ColumnRef(c) => Some(c.name.clone()),
             ExprKind::Literal(_) => Some("Literal".to_string()),
             ExprKind::FunctionCall(fc) => Some(fc.func.name().to_string()),
+            ExprKind::ColumnProperty { .. } => Some(crate::expr::display::display(self).replace('.', "_")),
             _ => None,
         }
     }

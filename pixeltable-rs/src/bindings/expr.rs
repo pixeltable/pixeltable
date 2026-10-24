@@ -8,7 +8,7 @@ use std::hash::{Hash, Hasher};
 
 use super::types::{PyColumnType, normalize_type, wrap_type};
 use crate::error::{Error, Result};
-use crate::expr::{ArithOp, CmpOp, Expr, ExprRef, LogicalOp, StringOp, build, display};
+use crate::expr::{ArithOp, CmpOp, ColumnProp, Expr, ExprRef, LogicalOp, StringOp, build, display};
 use crate::value::py as vpy;
 
 #[pyclass(name = "Expr", module = "pixeltable", frozen)]
@@ -387,13 +387,16 @@ impl PyExpr {
     }
 
     /// `expr.method`: a method of the expression's type (a builtin of the type's function module), returned as a
-    /// `MethodRef` to call; for Json values, a JSON path (not implemented yet).
-    fn __getattr__(&self, py: Python<'_>, name: &str) -> Result<PyMethodRef> {
+    /// `MethodRef` to call; a property builtin (`t.img.width`) or a column property (`t.img.localpath`) is returned as
+    /// an expression; for Json values, a JSON path (not implemented yet).
+    fn __getattr__<'py>(&self, py: Python<'py>, name: &str) -> Result<Bound<'py, PyAny>> {
         if name.starts_with('_') {
             return Err(Error::Attribute(format!("'Expr' object has no attribute {}", crate::error::py_repr(name))));
         }
-        if self.e.as_column_ref().is_some() && COLUMN_PROPERTIES.contains(&name) {
-            return Err(Error::not_implemented(format!("the column property `.{name}`")));
+        if let Some(c) = self.e.as_column_ref() {
+            if let Some(prop) = ColumnProp::from_name(name).filter(|p| *p != ColumnProp::CellMd) {
+                return Ok(Bound::new(py, wrap(column_property(py, &self.e, c, prop)?))?.into_any());
+            }
         }
         if name == "apply" {
             return Err(Error::not_implemented("Expr.apply()"));
@@ -402,7 +405,12 @@ impl PyExpr {
         if let Some(module) = module {
             let qualified = format!("{module}.{name}");
             if crate::functions::lookup(&qualified).is_some() {
-                return Ok(PyMethodRef { base: self.e.clone(), qualified, name: name.to_string() });
+                if crate::functions::is_property(&qualified) {
+                    let call = crate::functions::make_call(&qualified, vec![self.e.clone()], vec![])?;
+                    return Ok(Bound::new(py, wrap(call))?.into_any());
+                }
+                let mref = PyMethodRef { base: self.e.clone(), qualified, name: name.to_string() };
+                return Ok(Bound::new(py, mref)?.into_any());
             }
         }
         if self.e.col_type.is_json() {
@@ -426,8 +434,30 @@ impl PyExpr {
     }
 }
 
-/// Properties of column references (`t.img.localpath`, `t.c.errortype`, ...).
-const COLUMN_PROPERTIES: [&str; 5] = ["errortype", "errormsg", "fileurl", "localpath", "cellmd"];
+/// `col.<prop>` (upstream `ColumnRef.__getattr__()`): checks that the property applies to the column.
+fn column_property(py: Python<'_>, col_expr: &ExprRef, c: &crate::expr::ColumnRef, prop: ColumnProp) -> Result<ExprRef> {
+    let md = crate::catalog::runtime::with_catalog(py, |cat| {
+        cat.table(c.tbl_id)?
+            .column(c.col_id)
+            .cloned()
+            .ok_or_else(|| crate::pxt_err!(ColumnNotFound, "Unknown column: {}", c.name))
+    })?;
+    let name = prop.name();
+    let shown = display::display(col_expr);
+    if prop.is_cellmd() {
+        if !((md.is_computed() || md.col_type.is_media()) && md.stored) {
+            crate::bail!(UnsupportedOperation, "{name} only valid for a stored computed or media column: {shown}");
+        }
+    } else {
+        if !md.col_type.is_media() {
+            crate::bail!(UnsupportedOperation, "{name} only valid for image/video/audio/document columns: {shown}");
+        }
+        if md.is_computed() && !md.stored {
+            crate::bail!(UnsupportedOperation, "{name} not valid for computed unstored columns: {shown}");
+        }
+    }
+    Ok(build::column_property(col_expr.clone(), prop))
+}
 
 /// The function module whose functions are methods of values of type `t`.
 fn method_module(t: &crate::types::ColumnType) -> Option<&'static str> {

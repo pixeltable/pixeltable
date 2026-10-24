@@ -174,6 +174,10 @@ pub fn to_json(e: &Expr) -> Result<Json> {
             m.insert("index".into(), Json::Array(index.iter().map(index_to_json).collect()));
             "ArraySlice"
         }
+        ExprKind::ColumnProperty { prop, .. } => {
+            m.insert("prop".into(), json!(*prop as i64));
+            "ColumnPropertyRef"
+        }
         ExprKind::FunctionCall(fc) => {
             m.insert("fn".into(), fc.func.to_json()?);
             m.insert("kwarg_names".into(), Json::Array(fc.kwargs.iter().map(|(k, _)| json!(k)).collect()));
@@ -269,6 +273,10 @@ pub fn from_json(d: &Json) -> Result<ExprRef> {
                 Some(Json::Array(p)) => p.iter().map(index_from_json).collect::<Result<_>>()?,
                 _ => return Err(bad(d)),
             },
+        },
+        "ColumnPropertyRef" => ExprKind::ColumnProperty {
+            col: one(&comps)?,
+            prop: d.get("prop").and_then(Json::as_i64).and_then(ColumnProp::from_i64).ok_or_else(|| bad(d))?,
         },
         "FunctionCall" => {
             let func = crate::functions::FuncRef::from_json(d.get("fn").ok_or_else(|| bad(d))?)?;
