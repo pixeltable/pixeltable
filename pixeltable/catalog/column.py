@@ -525,6 +525,14 @@ class Column:
                 f'Column {self.name!r}: `stored={self.stored}` not supported for columns '
                 f'computed with window functions:\n{self.value_expr}',
             )
+        if self.stored and self._value_expr.contains_(cls=exprs.SimilarityExpr):
+            # similarity() has no in-memory implementation; a stored column's value_expr is evaluated
+            # per-row on insert, which would fail every time
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Column {self.name!r}: `stored={self.stored}` not supported for columns '
+                f'computed with similarity():\n{self.value_expr}',
+            )
 
     def has_window_fn_call(self) -> bool:
         from pixeltable import exprs

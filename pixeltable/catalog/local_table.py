@@ -1122,6 +1122,23 @@ class LocalTable(Table):
                     f'Cannot drop index {idx_info.name!r} because the following columns depend on it:\n'
                     f'{", ".join(c.name for c in dependent_user_cols)}',
                 )
+        # A similarity() expression references the index by name rather than through the index's value column,
+        # so computed columns containing one are not covered by the check above.
+        sim_dependent_cols = [
+            c
+            for c in self._tbl_version.get().cols_by_name.values()
+            if c.value_expr is not None
+            and any(
+                e.qcol_id == idx_info.col.qid and (e.idx_name is None or e.idx_name == idx_info.name)
+                for e in c.value_expr.subexprs(expr_class=exprs.SimilarityExpr)
+            )
+        ]
+        if len(sim_dependent_cols) > 0:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Cannot drop index {idx_info.name!r} because the following columns depend on it:\n'
+                f'{", ".join(c.name for c in sim_dependent_cols)}',
+            )
         self._tbl_version.get().drop_index(idx_info.id)
 
     @overload
