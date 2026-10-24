@@ -456,6 +456,14 @@ impl PyExpr {
         {
             return Ok(call.def.py_obj.bind(py).call_method1("_resolved_fn", (call.sig_idx,))?.unbind());
         }
+        if let crate::expr::ExprKind::FunctionCall(fc) = &self.e.kind {
+            if let crate::functions::FuncRef::Agg(a) = &fc.func {
+                if let Some(obj) = a.py_function() {
+                    let (sig_idx, _) = crate::functions::agg::select_signature(a.as_ref(), &fc.args, &fc.kwargs)?;
+                    return Ok(obj.bind(py).call_method1("_resolved_fn", (sig_idx,))?.unbind());
+                }
+            }
+        }
         Ok(py.None())
     }
 
@@ -506,6 +514,25 @@ impl PyExpr {
             ("vector", vector.as_ref()),
         ];
         super::indexes::similarity(py, &self.e, item.as_ref(), &named, idx)
+    }
+
+    /// `col.recompute()`: `Table.recompute_columns()` for this column.
+    #[pyo3(signature = (*, cascade=true, errors_only=false))]
+    fn recompute<'py>(slf: &Bound<'py, Self>, cascade: bool, errors_only: bool) -> Result<Bound<'py, PyAny>> {
+        let py = slf.py();
+        let e = slf.borrow().e.clone();
+        let Some(c) = e.as_column_ref() else {
+            return Err(Error::Attribute(format!("Unknown method (of type {}): recompute", e.col_type.repr())));
+        };
+        let tbl_id = c.tbl_id;
+        let is_snapshot = c.tbl_version.is_some()
+            || crate::catalog::runtime::with_catalog(py, |cat| Ok(cat.table(tbl_id)?.is_snapshot()))?;
+        if is_snapshot {
+            crate::bail!(UnsupportedOperation, "Cannot recompute column of a snapshot.");
+        }
+        let cols = PyList::new(py, [slf])?;
+        let d = super::mutate::tbl_recompute_columns(py, &tbl_id.to_string(), None, &cols, None, errors_only, cascade)?;
+        Ok(py.import("pixeltable._update_status")?.call_method1("_status_from_core", (d,))?)
     }
 
     fn _is_column_ref(&self) -> bool {

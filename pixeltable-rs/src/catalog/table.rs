@@ -193,7 +193,12 @@ impl VersionMd {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum IndexKind {
-    Btree,
+    Btree {
+        /// the hidden stored column with the indexed values (upstream `BtreeIndex.uses_value_col`, set for
+        /// data-versioned tables); string values are truncated to `MAX_STRING_LEN`
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        val_col_id: Option<ColId>,
+    },
     Embedding {
         /// `cosine`, `ip` or `l2`
         metric: String,
@@ -220,22 +225,37 @@ pub struct IndexMd {
 
 impl IndexMd {
     pub fn is_btree(&self) -> bool {
-        matches!(self.kind, IndexKind::Btree)
+        matches!(self.kind, IndexKind::Btree { .. })
     }
 
     pub fn val_col_id(&self) -> Option<ColId> {
         match &self.kind {
             IndexKind::Embedding { val_col_id, .. } => Some(*val_col_id),
-            IndexKind::Btree => None,
+            IndexKind::Btree { val_col_id } => *val_col_id,
         }
     }
 }
 
-/// The live indexes of a table (dropped indexes are removed).
+/// The indexes of a table.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Indexes {
+    /// the live indexes
     pub list: Vec<IndexMd>,
     pub next_id: u32,
+    /// dropped indexes with the schema version that dropped them (for `revert()`)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dropped: Vec<(i64, IndexMd)>,
+}
+
+impl Indexes {
+    /// Undoes the index changes of schema version `version`: drops the indexes it added and restores those it dropped.
+    pub fn revert(&mut self, version: i64) {
+        self.list.retain(|i| i.schema_version_add != version);
+        let (restored, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.dropped).into_iter().partition(|(v, _)| *v == version);
+        self.dropped = kept;
+        self.list.extend(restored.into_iter().map(|(_, i)| i));
+        self.list.sort_by_key(|i| i.id);
+    }
 }
 
 fn default_true() -> bool {

@@ -27,6 +27,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<func::PyUdfMethodRef>()?;
     m.add_class::<func::PyIterator>()?;
     m.add_class::<func::PyIteratorCall>()?;
+    m.add_class::<func::PyUda>()?;
 
     m.add_function(wrap_pyfunction!(expr::expr_from_object, m)?)?;
     m.add_function(wrap_pyfunction!(expr::array, m)?)?;
@@ -39,6 +40,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(func::variable, m)?)?;
     m.add_function(wrap_pyfunction!(func::table_udf, m)?)?;
     m.add_function(wrap_pyfunction!(func::builtin_iterator_names, m)?)?;
+    m.add_function(wrap_pyfunction!(func::builtin_agg_names, m)?)?;
     m.add_function(wrap_pyfunction!(func::_iterator_rows, m)?)?;
     m.add_function(wrap_pyfunction!(func::_iterator_seek, m)?)?;
 

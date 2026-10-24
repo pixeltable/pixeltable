@@ -50,6 +50,10 @@ pub trait AggregateFunction: Send + Sync + Debug {
     /// A fresh state for signature `sig_idx`, with the init arguments of the call.
     fn create(&self, sig_idx: usize, init_args: &[(String, Value)]) -> Result<Box<dyn AggState>>;
     fn to_json(&self) -> Result<Json>;
+    /// For a Python UDA: its `pixeltable.func.AggregateFunction` object.
+    fn py_function(&self) -> Option<&pyo3::Py<pyo3::PyAny>> {
+        None
+    }
 }
 
 /// Picks the signature for a call: a single signature reports binding/type errors; with several, the first one
@@ -419,5 +423,5 @@ pub fn builtin_agg_names() -> Vec<String> {
 /// Resolves a stored reference to a Python UDA (`{"uda": <descriptor>, ...}`); the functions work provides the
 /// resolution (through `pixeltable.func`).
 pub fn resolve_uda(j: &Json) -> Result<AggRef> {
-    Err(Error::not_implemented(format!("resolving the stored Python UDA {j}")))
+    super::uda::resolve(j)
 }

@@ -76,19 +76,19 @@ pub struct UpdatePlan {
     pub recompute: Vec<ComputedCol>,
     /// qualified names of the updated and recomputed columns (`UpdateStatus.updated_cols`)
     pub updated_cols: Vec<String>,
+    /// false: the views are left alone (`cascade=False`), and `views` is empty
+    pub cascade: bool,
     pub views: Vec<ViewUpdateNode>,
     /// `recompute_columns(errors_only=True)`: only rows with an error in this column
     pub errors_only: Option<ColId>,
-    /// `return_rows`: the columns to return for each updated row
-    pub return_cols: Option<Vec<(String, ExprRef)>>,
+    /// `return_rows`: the columns to return for each updated row (read from `UpdateOutput::own.new_rows`)
+    pub return_cols: Option<Vec<super::insert::ReturnCol>>,
     /// `alter_computed_column()`: the column whose value expression changes in the same (schema) version
     pub schema_change: Option<(ColId, ExprRef)>,
     /// false: only the schema change (`alter_computed_column(recompute=False)`), no rows are written
     pub writes_rows: bool,
     /// where in-memory media values and results are written
     pub media: MediaTarget,
-    /// false: the views are not revisited (`cascade=False`)
-    pub cascade: bool,
 }
 
 /// The stored computed columns of `md` (current schema) that depend, transitively, on a column in `changed`, in
@@ -96,7 +96,7 @@ pub struct UpdatePlan {
 pub fn dependent_columns(md: &TableMd, changed: &mut HashSet<QCol>) -> Result<Vec<ComputedCol>> {
     let mut candidates: Vec<(ComputedCol, Vec<QCol>)> = Vec::new();
     let visible = md.columns_at(None)?;
-    let mut stored: HashSet<ColId> = visible.iter().filter(|c| c.md.stored).map(|c| c.md.id).collect();
+    let stored: HashSet<ColId> = visible.iter().filter(|c| c.md.stored).map(|c| c.md.id).collect();
     for c in &visible {
         if let Some(e) = &c.md.value_expr {
             let expr = crate::expr::serde::from_json(e)?;
@@ -104,20 +104,6 @@ pub fn dependent_columns(md: &TableMd, changed: &mut HashSet<QCol>) -> Result<Ve
             let is_media = c.md.col_type.is_media();
             candidates.push((ComputedCol { col_id: c.md.id, name: c.name.clone(), expr, is_media }, refs));
         }
-    }
-    // the hidden value columns of embedding indexes (named `<column>:<index>`) follow their indexed column
-    for idx in &md.indexes.list {
-        let Some(val_col_id) = idx.val_col_id() else { continue };
-        let (Some(val_col), Some(indexed)) = (md.column(val_col_id), visible.iter().find(|c| c.md.id == idx.col_id && idx.col_tbl_id == md.id))
-        else {
-            continue;
-        };
-        let Some(e) = &val_col.value_expr else { continue };
-        let expr = crate::expr::serde::from_json(e)?;
-        let refs: Vec<QCol> = expr.column_refs().iter().map(|r| (r.tbl_id, r.col_id)).collect();
-        let name = format!("{}:{}", indexed.name, idx.name);
-        candidates.push((ComputedCol { col_id: val_col_id, name, expr, is_media: false }, refs));
-        stored.insert(val_col_id);
     }
     // the dependents (unstored columns propagate the dependency but are not recomputed)
     let mut selected: HashSet<ColId> = HashSet::new();
@@ -175,7 +161,7 @@ pub fn view_update_tree(
     for v in cat.mutable_view_ids(tbl_id) {
         let md = cat.table(v)?.clone();
         super::propagate::check_view_valid(&md, "updated in")?;
-        let compute = ViewCompute::of(&md, cat.store().media_dir(v))?;
+        let compute = ViewCompute::current(cat, v)?;
         let mut changed = changed.clone();
         let reads_changed = |e: &ExprRef| e.column_refs().iter().any(|r| changed.contains(&(r.tbl_id, r.col_id)));
         let membership_change = base_membership_change || compute.predicate.as_ref().is_some_and(reads_changed);
@@ -189,11 +175,14 @@ pub fn view_update_tree(
                 changed.insert((v, c as ColId));
             }
         }
-        let recompute = dependent_columns(&md, &mut changed)?;
+        let mut recompute = dependent_columns(&md, &mut changed)?;
+        for c in &recompute {
+            updated_cols.push(format!("{}.{}", md.name, c.name));
+        }
+        recompute.extend(super::compute::index_value_columns(cat, v, Some(&changed))?);
         let tbl_display = crate::functions::udf::tbl_version_display(&md);
         for c in &recompute {
             crate::functions::udf::check_valid_column(&tbl_display, &c.name, &c.expr, "updated in")?;
-            updated_cols.push(format!("{}.{}", md.name, c.name));
         }
         let data = cat.data(v)?;
         let children = view_update_tree(cat, v, &changed, membership_change || reload, updated_cols)?;
@@ -264,8 +253,6 @@ pub struct ViewChanges {
 
 pub struct UpdateOutput {
     pub own: TableChanges,
-    /// `return_rows`: the visible columns of each updated row, after the update
-    pub rows: Vec<Vec<Value>>,
     pub views: Vec<ViewChanges>,
     /// `batch_update()`: keys that matched no row
     pub unmatched: Vec<RowKey>,
@@ -297,7 +284,6 @@ impl UpdatePlan {
         if !self.writes_rows {
             return Ok(UpdateOutput {
                 own: TableChanges::default(),
-                rows: Vec::new(),
                 views: Vec::new(),
                 unmatched: Vec::new(),
                 saved_media: Vec::new(),
@@ -373,16 +359,7 @@ impl UpdatePlan {
             })
             .collect();
         let views = compute_view_changes(&self.views, &infos, &changes, saved)?;
-        let mut rows = Vec::new();
-        if let Some(cols) = &self.return_cols {
-            for (_, path) in &changes {
-                if let Some(p) = path {
-                    let ctx = PathCtx::new(&infos, p);
-                    rows.push(cols.iter().map(|(_, e)| eval(e, &ctx)).collect::<Result<Vec<_>>>()?);
-                }
-            }
-        }
-        Ok(UpdateOutput { own, rows, views, unmatched, saved_media: Vec::new() })
+        Ok(UpdateOutput { own, views, unmatched, saved_media: Vec::new() })
     }
 
     /// Fails if the schemas or views involved changed since the update was planned.

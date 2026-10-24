@@ -24,7 +24,7 @@ pub struct ViewCompute {
     pub info: ElemInfo,
     pub name: String,
     pub predicate: Option<ExprRef>,
-    /// the stored computed columns, in schema order
+    /// the stored computed columns, in schema order (and, see `current()`, the hidden index value columns)
     pub computed: Vec<ComputedCol>,
     /// where in-memory media results are written (None: they stay in memory, `Table.compute()`)
     pub media: Option<MediaTarget>,
@@ -73,6 +73,14 @@ impl ViewCompute {
             fail_on_exception: false,
             sample,
         })
+    }
+
+    /// The current definition of view `tbl_id` in the catalog, including the hidden value columns of its embedding
+    /// indexes.
+    pub fn current(cat: &Catalog, tbl_id: Uuid) -> Result<ViewCompute> {
+        let mut vc = ViewCompute::of(cat.table(tbl_id)?, cat.store().media_dir(tbl_id))?;
+        vc.computed.extend(super::compute::index_value_columns(cat, tbl_id, None)?);
+        Ok(vc)
     }
 
     /// True if the base path row passes the view's filter (and is in its fractional sample).
@@ -260,7 +268,7 @@ impl ViewNode {
                 let md = cat.table(v)?;
                 check_view_valid(md, "updated in")?;
                 Ok(ViewNode {
-                    compute: ViewCompute::of(md, cat.store().media_dir(v))?,
+                    compute: ViewCompute::current(cat, v)?,
                     schema_version: md.current_schema_version,
                     children: ViewNode::tree(cat, v)?,
                 })
