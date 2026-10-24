@@ -271,7 +271,14 @@ pub enum ExprKind {
 pub struct Expr {
     pub kind: ExprKind,
     pub col_type: ColumnType,
+    /// nesting depth (1 for a leaf), computed by `Expr::new()`
+    depth: usize,
 }
+
+/// Maximum nesting depth of an expression handed to Python (`bindings::expr`), which bounds the recursion of
+/// evaluation, display, serialization and drop, and the nesting of serialized expressions in `catalog.json`.
+/// Upstream has no explicit limit; its Python recursion fails at a few hundred levels.
+pub const MAX_EXPR_DEPTH: usize = 500;
 
 impl ExprKind {
     /// Direct sub-expressions.
@@ -344,7 +351,23 @@ impl Expr {
     }
 
     pub fn new(kind: ExprKind, col_type: ColumnType) -> ExprRef {
-        Arc::new(Expr { kind, col_type })
+        let depth = 1 + kind.children().iter().map(|c| c.depth).max().unwrap_or(0);
+        Arc::new(Expr { kind, col_type, depth })
+    }
+
+    pub fn depth(&self) -> usize {
+        self.depth
+    }
+
+    /// Fails if this expression is nested more deeply than `MAX_EXPR_DEPTH`.
+    pub fn check_depth(&self) -> crate::error::Result<()> {
+        if self.depth > MAX_EXPR_DEPTH {
+            crate::bail!(
+                UnsupportedOperation,
+                "Expression is nested too deeply (more than {MAX_EXPR_DEPTH} levels)"
+            );
+        }
+        Ok(())
     }
 
     pub fn literal(v: Value, t: ColumnType) -> ExprRef {

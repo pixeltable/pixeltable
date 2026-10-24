@@ -33,6 +33,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(func::register_function, m)?)?;
     m.add_function(wrap_pyfunction!(func::registered_functions, m)?)?;
     m.add_function(wrap_pyfunction!(func::variable, m)?)?;
+    m.add_function(wrap_pyfunction!(func::table_udf, m)?)?;
 
     m.add_function(wrap_pyfunction!(catalog::init, m)?)?;
     m.add_function(wrap_pyfunction!(catalog::home, m)?)?;

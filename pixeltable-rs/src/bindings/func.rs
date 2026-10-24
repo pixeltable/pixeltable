@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 use std::sync::Arc;
 
-use super::expr::{PyExpr, as_expr, from_object};
+use super::expr::{PyExpr, as_expr, from_object, wrap};
 use crate::error::{Error, Result, py_repr};
 use crate::expr::{Expr, ExprKind, ExprRef};
 use crate::functions::signature::Signature;
@@ -138,7 +138,7 @@ impl PyUdf {
     #[pyo3(signature = (*args, **kwargs))]
     fn call(&self, args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Result<PyExpr> {
         let (a, k) = call_args(self.def.self_path.as_deref(), args, kwargs)?;
-        Ok(PyExpr::new(udf::make_call(&self.def, a, k, false)?))
+        wrap(udf::make_call(&self.def, a, k, false)?)
     }
 
     /// `base.fn(*args, **kwargs)` (a method call)
@@ -152,7 +152,7 @@ impl PyUdf {
         let base = as_expr(base).ok_or_else(|| Error::internal("method call on a non-expression"))?;
         let (mut a, k) = call_args(self.def.self_path.as_deref(), args, kwargs)?;
         a.insert(0, base);
-        Ok(PyExpr::new(udf::make_call(&self.def, a, k, true)?))
+        wrap(udf::make_call(&self.def, a, k, true)?)
     }
 
     /// `Function.using(**kwargs)`: (signature index, template call) for each signature that accepts the bindings.
@@ -197,7 +197,7 @@ impl PyUdfMethodRef {
     fn __call__(&self, args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Result<PyExpr> {
         let (mut a, k) = call_args(self.def.self_path.as_deref(), args, kwargs)?;
         a.insert(0, self.base.clone());
-        Ok(PyExpr::new(udf::make_call(&self.def, a, k, true)?))
+        wrap(udf::make_call(&self.def, a, k, true)?)
     }
 
     fn __repr__(&self) -> String {
@@ -212,7 +212,7 @@ pub fn udf_attribute<'py>(py: Python<'py>, base: &ExprRef, name: &str) -> Result
     let def = udf::def_of(f.bind(py))?;
     if def.is_property {
         let call = udf::make_call(&def, vec![base.clone()], vec![], true)?;
-        return Ok(Some(Bound::new(py, PyExpr::new(call))?.into_any()));
+        return Ok(Some(Bound::new(py, wrap(call)?)?.into_any()));
     }
     Ok(Some(Bound::new(py, PyUdfMethodRef { base: base.clone(), def })?.into_any()))
 }
@@ -315,4 +315,59 @@ pub fn iterator_call_from_py(obj: &Bound<'_, PyAny>) -> Result<Arc<IteratorCall>
         "iterator must be a call of a @pxt.iterator, not {}",
         obj.get_type().name().map(|n| n.to_string()).unwrap_or_default()
     )))
+}
+
+/// Upstream `udf.from_table()`: the template of `pxt.udf(table)`: (template expression, parameters as
+/// (name, ColumnType)). Data columns of the table and its bases become variables (the parameters); computed columns
+/// become their value expressions with the substitutions applied; the template is a dict of all columns, or
+/// `return_value` with the same substitutions.
+#[pyfunction]
+#[pyo3(signature = (tbl_id, return_value=None))]
+pub fn table_udf<'py>(
+    py: Python<'py>,
+    tbl_id: &str,
+    return_value: Option<&Bound<'py, PyAny>>,
+) -> Result<(PyExpr, Vec<(String, Bound<'py, PyAny>)>)> {
+    let id = super::catalog::parse_uuid(tbl_id)?;
+    let return_value = match return_value.filter(|r| !r.is_none()) {
+        None => None,
+        Some(r) => Some(from_object(r)?.ok_or_else(|| Error::Type("return_value must be an expression".into()))?),
+    };
+    let (expr, params) = crate::catalog::runtime::with_catalog(py, |cat| {
+        let mut subst: Vec<((uuid::Uuid, u32), ExprRef)> = Vec::new();
+        let mut result: Vec<(String, ExprRef)> = Vec::new();
+        let mut params: Vec<(String, crate::types::ColumnType)> = Vec::new();
+        for t in cat.base_chain(id).into_iter().rev() {
+            for c in cat.table(t)?.columns_at(None)? {
+                let key = (c.tbl_id, c.md.id);
+                let e = match &c.md.value_expr {
+                    Some(j) => {
+                        let value = crate::expr::serde::from_json(j)?;
+                        udf::substitute(&value, &|x| substitution(&subst, x))?
+                    }
+                    None => {
+                        params.push((c.name.clone(), c.md.col_type.clone()));
+                        Expr::new(ExprKind::Variable(c.name.clone()), c.md.col_type.clone())
+                    }
+                };
+                subst.push((key, e.clone()));
+                result.push((c.name.clone(), e));
+            }
+        }
+        let expr = match &return_value {
+            None => crate::expr::build::inline_dict(result),
+            Some(r) => udf::substitute(r, &|x| substitution(&subst, x))?,
+        };
+        Ok((expr, params))
+    })?;
+    let params = params
+        .into_iter()
+        .map(|(n, t)| Ok((n, super::types::wrap_type(py, &t)?)))
+        .collect::<Result<Vec<_>>>()?;
+    Ok((PyExpr::new(expr), params))
+}
+
+fn substitution(subst: &[((uuid::Uuid, u32), ExprRef)], x: &Expr) -> Option<ExprRef> {
+    let c = x.as_column_ref()?;
+    subst.iter().find(|(k, _)| *k == (c.tbl_id, c.col_id)).map(|(_, e)| e.clone())
 }

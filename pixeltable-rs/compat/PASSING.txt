@@ -192,6 +192,7 @@ tests/test_table.py::TestTable::test_compute_media_errors
 tests/test_table.py::TestTable::test_compute_pydantic_scalars
 tests/test_table.py::TestTable::test_compute_with_errors
 tests/test_table.py::TestTable::test_computed_col_apply
+tests/test_table.py::TestTable::test_computed_col_with_interrupts
 tests/test_table.py::TestTable::test_computed_column_types
 tests/test_table.py::TestTable::test_computed_img_cols
 tests/test_table.py::TestTable::test_create[data_versioned]
