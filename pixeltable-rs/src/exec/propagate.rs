@@ -152,35 +152,70 @@ impl ViewCompute {
         saved: &mut Vec<std::path::PathBuf>,
     ) -> Result<Vec<(usize, StoredRow)>> {
         let materialized = self.info.iterator.is_some();
-        let mut rows: Vec<(usize, StoredRow)> = Vec::new();
+        let mut out: Vec<(usize, StoredRow)> = Vec::new();
         if !self.computed.iter().any(|c| super::query::has_window_calls(&c.expr)) {
             // row by row, so that only one base row's unstored iterator outputs are held at a time
             for (i, base) in bases.iter().enumerate() {
                 for mut row in self.new_rows(base_infos, base)? {
                     self.eval_columns(&mut row, &self.computed, base_infos, base, status, saved, materialized)?;
                     self.finish_row(&mut row, saved)?;
-                    rows.push((i, row));
+                    out.push((i, row));
                 }
             }
         } else {
+            let mut parents = Vec::new();
+            let mut rows = Vec::new();
             for (i, base) in bases.iter().enumerate() {
-                rows.extend(self.new_rows(base_infos, base)?.into_iter().map(|r| (i, r)));
-            }
-            for col in &self.computed {
-                if super::query::has_window_calls(&col.expr) {
-                    self.eval_window_column(&mut rows, col, base_infos, bases, status, saved, materialized)?;
-                } else {
-                    for (i, row) in rows.iter_mut() {
-                        self.eval_columns(row, std::slice::from_ref(col), base_infos, bases[*i], status, saved, materialized)?;
-                    }
+                for row in self.new_rows(base_infos, base)? {
+                    parents.push(i);
+                    rows.push(row);
                 }
             }
-            for (_, row) in rows.iter_mut() {
+            let row_bases: Vec<&[&StoredRow]> = parents.iter().map(|i| bases[*i]).collect();
+            self.eval_rows(&mut rows, &row_bases, &self.computed, base_infos, status, saved, materialized)?;
+            for row in rows.iter_mut() {
                 self.finish_row(row, saved)?;
             }
+            out = parents.into_iter().zip(rows).collect();
         }
-        status.row_count_stats.ins_rows += rows.len() as i64;
-        Ok(rows)
+        status.row_count_stats.ins_rows += out.len() as i64;
+        Ok(out)
+    }
+
+    /// `eval_columns()` for a batch of rows of this view (`rows[i]` belongs to the base path row `bases[i]`); columns
+    /// computed with window functions are evaluated over the whole batch.
+    #[allow(clippy::too_many_arguments)]
+    pub fn eval_rows(
+        &self,
+        rows: &mut [StoredRow],
+        bases: &[&[&StoredRow]],
+        cols: &[ComputedCol],
+        base_infos: &[&ElemInfo],
+        status: &mut UpdateStatus,
+        saved: &mut Vec<std::path::PathBuf>,
+        materialized: bool,
+    ) -> Result<()> {
+        let mut infos: Vec<&ElemInfo> = Vec::with_capacity(base_infos.len() + 1);
+        infos.push(if materialized { &self.compute_info } else { &self.info });
+        infos.extend_from_slice(base_infos);
+        super::scan::eval_rows_into(
+            rows,
+            bases,
+            cols,
+            &infos,
+            &self.name,
+            self.fail_on_exception,
+            &mut status.row_count_stats,
+            &mut status.cols_with_excs,
+        )?;
+        if let Some(media) = &self.media {
+            for row in rows.iter_mut() {
+                for c in cols.iter().filter(|c| c.is_media) {
+                    media.materialize(row, c.col_id, saved)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The rows of this view for one base path row before their computed columns are evaluated: one row keyed by the
@@ -215,60 +250,6 @@ impl ViewCompute {
                 row.set_cell(*col_id, crate::value::Value::Null);
             } else if let Some(media) = &self.media {
                 media.materialize(row, *col_id, saved)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Evaluates column `col`, computed with window functions, over the new rows `rows`.
-    #[allow(clippy::too_many_arguments)]
-    fn eval_window_column(
-        &self,
-        rows: &mut [(usize, StoredRow)],
-        col: &ComputedCol,
-        base_infos: &[&ElemInfo],
-        bases: &[&[&StoredRow]],
-        status: &mut UpdateStatus,
-        saved: &mut Vec<std::path::PathBuf>,
-        materialized: bool,
-    ) -> Result<()> {
-        let mut infos: Vec<&ElemInfo> = Vec::with_capacity(base_infos.len() + 1);
-        infos.push(if materialized { &self.compute_info } else { &self.info });
-        infos.extend_from_slice(base_infos);
-        let results = {
-            let paths: Vec<Vec<&StoredRow>> = rows
-                .iter()
-                .map(|(i, r)| std::iter::once(r).chain(bases[*i].iter().copied()).collect())
-                .collect();
-            super::query::eval_rows_with_windows(&infos, &paths, &col.expr, true)?
-        };
-        for ((_, row), res) in rows.iter_mut().zip(results) {
-            status.row_count_stats.computed_values += 1;
-            match res {
-                Ok(v) => {
-                    row.set_cell(col.col_id, v);
-                    row.set_error(col.col_id, None);
-                }
-                Err(err) => {
-                    if crate::functions::udf::is_interrupt(&err) {
-                        return Err(err);
-                    }
-                    if self.fail_on_exception {
-                        return Err(super::compute::eval_error(&col.expr, err));
-                    }
-                    status.row_count_stats.num_excs += 1;
-                    let qualified = format!("{}.{}", self.name, col.name);
-                    if !status.cols_with_excs.contains(&qualified) {
-                        status.cols_with_excs.push(qualified);
-                    }
-                    row.set_cell(col.col_id, crate::value::Value::Null);
-                    row.set_error(col.col_id, Some(super::compute::cell_error(&err)));
-                }
-            }
-            if col.is_media {
-                if let Some(media) = &self.media {
-                    media.materialize(row, col.col_id, saved)?;
-                }
             }
         }
         Ok(())

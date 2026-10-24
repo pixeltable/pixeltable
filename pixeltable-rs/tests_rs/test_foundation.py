@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
 from pixeltable._testing import reload_catalog
@@ -173,6 +174,21 @@ class TestTables:
             pxt.drop_table('t')
         pxt.drop_table('t', force=True)
         assert pxt.list_tables() == []
+
+    def test_window_columns_on_inserts_and_updates(self) -> None:
+        # as upstream's plans do, a window column is computed over the rows an insert adds or an update changes
+        t = pxt.create_table('t', {'g': pxt.Int, 'o': pxt.Int, 'x': pxt.Int})
+        t.add_computed_column(s=pxtf.sum(t.x, group_by=t.g, order_by=t.o))
+        v = pxt.create_view('v', t)
+        v.add_computed_column(vs=pxtf.sum(t.x, group_by=t.g, order_by=t.o))
+        status = t.insert({'g': i % 2, 'o': i, 'x': i} for i in range(6))
+        assert status.num_excs == 0
+        assert list(t.order_by(t.o).collect()['s']) == [0, 1, 2, 4, 6, 9]
+        assert list(v.order_by(v.o).collect()['vs']) == [0, 1, 2, 4, 6, 9]
+        status = t.update({'x': t.x + 10}, where=t.o < 3)
+        assert status.num_excs == 0
+        assert list(t.order_by(t.o).collect()['s']) == [10, 11, 22, 4, 6, 9]
+        assert list(v.order_by(v.o).collect()['vs']) == [10, 11, 22, 4, 6, 9]
 
 
 class TestPersistence:
