@@ -408,6 +408,8 @@ cd ~/proj
 pxt init                             # writes pixeltable.toml, making ~/proj the project root
 ```
 
+`pxt init` refuses (exit 3) your home directory, any directory above it and the Pixeltable home.
+
 That file has one entry for each database in the project:
 
 ```toml
@@ -1090,7 +1092,8 @@ db_exporter_otlp_protocol = 'http/protobuf'  # or 'grpc'
 
 # which project files the database gets. Glob patterns relative to the project root; everything git
 # would not ignore is uploaded by default, the lockfile and pyproject.toml always are, and pixeltable.toml
-# never is: pxt db update sends its settings, and the pods get them as their own pixeltable.toml. Patterns
+# never is: pxt db update sends its settings, and the pods get them as their own pixeltable.toml. A Pixeltable
+# home (PIXELTABLE_HOME) inside the project is never uploaded either. Patterns
 # use git wildmatch, so a bare `*.py` matches at every depth while a leading slash anchors it: `/*.py` is
 # the root only.
 include = ["app/**", "models/**"]
