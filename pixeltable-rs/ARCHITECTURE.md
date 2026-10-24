@@ -346,8 +346,9 @@ an ungrouped aggregation over no rows) -> window functions (rows sorted by the c
 project. Unstored computed columns are evaluated on read. `count()` refuses what upstream cannot count in SQL
 (`is_sql_expr()`: non-SQL filters). Sampling ranks rows by a hash of (seed, rowid, pos), as upstream's
 `SqlSampleNode`. Results are a `ResultData` held in Rust (`_core.ResultSet`); values convert to Python objects on
-access. Window functions in computed columns are evaluated over all rows of the table
-(`eval_rows_with_windows()`).
+access. Window functions in computed columns are evaluated over all rows of the table when the column is added, and
+over the rows being inserted afterwards (`eval_rows_with_windows()`; for views, the new view rows of one insert,
+`ViewCompute::rows_for_all()`).
 
 ## Data sources, compute(), indexes
 

@@ -132,16 +132,60 @@ impl ViewCompute {
         status: &mut UpdateStatus,
         saved: &mut Vec<std::path::PathBuf>,
     ) -> Result<Vec<StoredRow>> {
+        Ok(self.rows_for_all(base_infos, &[base], status, saved)?.into_iter().map(|(_, r)| r).collect())
+    }
+
+    /// The new view rows for base path rows `bases`, each with the index of its base path row. Columns computed
+    /// with window functions are evaluated over all the new rows, in window order (as for a base table insert).
+    pub fn rows_for_all(
+        &self,
+        base_infos: &[&ElemInfo],
+        bases: &[&[&StoredRow]],
+        status: &mut UpdateStatus,
+        saved: &mut Vec<std::path::PathBuf>,
+    ) -> Result<Vec<(usize, StoredRow)>> {
+        let materialized = self.info.iterator.is_some();
+        let mut rows: Vec<(usize, StoredRow)> = Vec::new();
+        if !self.computed.iter().any(|c| super::query::has_window_calls(&c.expr)) {
+            // row by row, so that only one base row's unstored iterator outputs are held at a time
+            for (i, base) in bases.iter().enumerate() {
+                for mut row in self.new_rows(base_infos, base)? {
+                    self.eval_columns(&mut row, &self.computed, base_infos, base, status, saved, materialized)?;
+                    self.finish_row(&mut row, saved)?;
+                    rows.push((i, row));
+                }
+            }
+        } else {
+            for (i, base) in bases.iter().enumerate() {
+                rows.extend(self.new_rows(base_infos, base)?.into_iter().map(|r| (i, r)));
+            }
+            for col in &self.computed {
+                if super::query::has_window_calls(&col.expr) {
+                    self.eval_window_column(&mut rows, col, base_infos, bases, status, saved, materialized)?;
+                } else {
+                    for (i, row) in rows.iter_mut() {
+                        self.eval_columns(row, std::slice::from_ref(col), base_infos, bases[*i], status, saved, materialized)?;
+                    }
+                }
+            }
+            for (_, row) in rows.iter_mut() {
+                self.finish_row(row, saved)?;
+            }
+        }
+        status.row_count_stats.ins_rows += rows.len() as i64;
+        Ok(rows)
+    }
+
+    /// The rows of this view for one base path row before their computed columns are evaluated: one row keyed by the
+    /// base row's key, or a component view's rows (keyed by the base row's key and the position) holding all the
+    /// iterator's outputs.
+    fn new_rows(&self, base_infos: &[&ElemInfo], base: &[&StoredRow]) -> Result<Vec<StoredRow>> {
         if !self.accepts(base_infos, base)? {
             return Ok(Vec::new());
         }
         let Some(it) = &self.info.iterator else {
-            let mut row = StoredRow::new(base[0].rowid, base[0].pos.clone());
-            self.eval_columns(&mut row, &self.computed, base_infos, base, status, saved, false)?;
-            status.row_count_stats.ins_rows += 1;
-            return Ok(vec![row]);
+            return Ok(vec![StoredRow::new(base[0].rowid, base[0].pos.clone())]);
         };
-        // a component view: one row per iterator output row, keyed by the base row's key and the position
         let outputs = it.call.eval_rows(&PathCtx::new(base_infos, base))?;
         let mut rows = Vec::with_capacity(outputs.len());
         for (p, values) in outputs.into_iter().enumerate() {
@@ -151,18 +195,76 @@ impl ViewCompute {
             for ((col_id, _, _), v) in it.outputs.iter().zip(values) {
                 row.set_cell(*col_id, v);
             }
-            self.eval_columns(&mut row, &self.computed, base_infos, base, status, saved, true)?;
-            for (col_id, _, stored) in &it.outputs {
-                if !*stored {
-                    row.set_cell(*col_id, crate::value::Value::Null);
-                } else if let Some(media) = &self.media {
-                    media.materialize(&mut row, *col_id, saved)?;
-                }
-            }
-            status.row_count_stats.ins_rows += 1;
             rows.push(row);
         }
         Ok(rows)
+    }
+
+    /// Drops the unstored iterator outputs of a new row and writes its in-memory media outputs to files.
+    fn finish_row(&self, row: &mut StoredRow, saved: &mut Vec<std::path::PathBuf>) -> Result<()> {
+        let Some(it) = &self.info.iterator else { return Ok(()) };
+        for (col_id, _, stored) in &it.outputs {
+            if !*stored {
+                row.set_cell(*col_id, crate::value::Value::Null);
+            } else if let Some(media) = &self.media {
+                media.materialize(row, *col_id, saved)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Evaluates column `col`, computed with window functions, over the new rows `rows`.
+    #[allow(clippy::too_many_arguments)]
+    fn eval_window_column(
+        &self,
+        rows: &mut [(usize, StoredRow)],
+        col: &ComputedCol,
+        base_infos: &[&ElemInfo],
+        bases: &[&[&StoredRow]],
+        status: &mut UpdateStatus,
+        saved: &mut Vec<std::path::PathBuf>,
+        materialized: bool,
+    ) -> Result<()> {
+        let mut infos: Vec<&ElemInfo> = Vec::with_capacity(base_infos.len() + 1);
+        infos.push(if materialized { &self.compute_info } else { &self.info });
+        infos.extend_from_slice(base_infos);
+        let results = {
+            let paths: Vec<Vec<&StoredRow>> = rows
+                .iter()
+                .map(|(i, r)| std::iter::once(r).chain(bases[*i].iter().copied()).collect())
+                .collect();
+            super::query::eval_rows_with_windows(&infos, &paths, &col.expr, true)?
+        };
+        for ((_, row), res) in rows.iter_mut().zip(results) {
+            status.row_count_stats.computed_values += 1;
+            match res {
+                Ok(v) => {
+                    row.set_cell(col.col_id, v);
+                    row.set_error(col.col_id, None);
+                }
+                Err(err) => {
+                    if crate::functions::udf::is_interrupt(&err) {
+                        return Err(err);
+                    }
+                    if self.fail_on_exception {
+                        return Err(super::compute::eval_error(&col.expr, err));
+                    }
+                    status.row_count_stats.num_excs += 1;
+                    let qualified = format!("{}.{}", self.name, col.name);
+                    if !status.cols_with_excs.contains(&qualified) {
+                        status.cols_with_excs.push(qualified);
+                    }
+                    row.set_cell(col.col_id, crate::value::Value::Null);
+                    row.set_error(col.col_id, Some(super::compute::cell_error(&err)));
+                }
+            }
+            if col.is_media {
+                if let Some(media) = &self.media {
+                    media.materialize(row, col.col_id, saved)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The rows of a new view over the base path `base` (its initial population). A snapshot's sample that is not
@@ -185,14 +287,12 @@ impl ViewCompute {
             }
             rows = select_sample(candidates, &infos, sc)?;
             let unsampled = ViewCompute { predicate: None, sample: None, ..self.clone() };
-            for r in rows {
-                data.rows.extend(unsampled.rows_for(&infos, &r, &mut status, saved)?);
-            }
+            let refs: Vec<&[&StoredRow]> = rows.iter().map(|r| r.as_slice()).collect();
+            data.rows.extend(unsampled.rows_for_all(&infos, &refs, &mut status, saved)?.into_iter().map(|(_, r)| r));
             return Ok((data, status));
         }
-        for r in rows {
-            data.rows.extend(self.rows_for(&infos, &r, &mut status, saved)?);
-        }
+        let refs: Vec<&[&StoredRow]> = rows.iter().map(|r| r.as_slice()).collect();
+        data.rows.extend(self.rows_for_all(&infos, &refs, &mut status, saved)?.into_iter().map(|(_, r)| r));
         Ok((data, status))
     }
 }
@@ -343,14 +443,9 @@ pub fn compute_inserted_rows(
     let mut out = Vec::with_capacity(nodes.len());
     for node in nodes {
         let mut status = UpdateStatus::default();
-        let mut rows = Vec::new();
-        let mut parents = Vec::new();
-        for (i, bp) in base_paths.iter().enumerate() {
-            for r in node.compute.rows_for(base_infos, bp, &mut status, saved)? {
-                rows.push(r);
-                parents.push(i);
-            }
-        }
+        let refs: Vec<&[&StoredRow]> = base_paths.iter().map(|p| p.as_slice()).collect();
+        let (parents, rows): (Vec<usize>, Vec<StoredRow>) =
+            node.compute.rows_for_all(base_infos, &refs, &mut status, saved)?.into_iter().unzip();
         let children = {
             let mut infos: Vec<&ElemInfo> = vec![&node.compute.info];
             infos.extend_from_slice(base_infos);
