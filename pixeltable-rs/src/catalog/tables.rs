@@ -192,17 +192,17 @@ impl Catalog {
             next_col_id: col_mds.len() as ColId,
             next_rowid: 0,
             columns: col_mds,
-            schema_versions: vec![SchemaVersionMd {
+            schema_versions: vec![Arc::new(SchemaVersionMd {
                 schema_version: 0,
                 preceding_schema_version: None,
                 columns: schema_cols,
                 comment,
                 custom_metadata,
                 media_validation,
-            }],
-            versions: vec![VersionMd::new(0, ts, 0, "schema", None)],
+            })],
+            versions: vec![Arc::new(VersionMd::new(0, ts, 0, "schema", None))],
             view: None,
-            data_file: None,
+            storage: Default::default(),
             indexes: Default::default(),
         };
         let col_ids: Vec<ColId> = md.columns.iter().map(|c| c.id).collect();
@@ -326,17 +326,17 @@ impl Catalog {
         let new_version = md.current_version + 1;
         md.current_version = new_version;
         if is_schema {
-            let mut sv = md.current_schema()?.clone();
+            let mut sv: SchemaVersionMd = md.current_schema()?.clone();
             sv.preceding_schema_version = Some(sv.schema_version);
             sv.schema_version = new_version;
-            md.schema_versions.push(sv);
+            md.schema_versions.push(Arc::new(sv));
             md.current_schema_version = new_version;
         }
         let schema_version = md.current_schema_version;
         let mut vmd =
             VersionMd::new(new_version, now(), schema_version, if is_schema { "schema" } else { "data" }, schema_change);
         vmd.base_versions = base_versions;
-        md.versions.push(vmd);
+        md.versions.push(Arc::new(vmd));
         Ok(new_version)
     }
 
@@ -344,7 +344,7 @@ impl Catalog {
     pub fn current_version_md_mut(&mut self, tbl_id: Uuid) -> Result<&mut VersionMd> {
         let md = self.table_mut(tbl_id)?;
         let v = md.current_version;
-        md.versions.iter_mut().find(|m| m.version == v).ok_or_else(|| Error::internal("table has no current version record"))
+        md.version_md_mut(v).ok_or_else(|| Error::internal("table has no current version record"))
     }
 
     /// Adds a column at a new schema version; returns its id. Does not commit.
@@ -374,7 +374,7 @@ impl Catalog {
             custom_metadata: spec.custom_metadata,
             destination: spec.destination,
         });
-        let sv = md.schema_versions.last_mut().ok_or_else(|| Error::internal("table has no schema versions"))?;
+        let sv = md.last_schema_version_mut().ok_or_else(|| Error::internal("table has no schema versions"))?;
         sv.columns.push(SchemaColumn::new(id, spec.name));
         self.add_default_index(tbl_id, id)?;
         Ok(id)
@@ -547,7 +547,7 @@ impl Catalog {
         if let Some(c) = md.column_mut(col.md.id) {
             c.schema_version_drop = Some(new_version);
         }
-        if let Some(sv) = md.schema_versions.last_mut() {
+        if let Some(sv) = md.last_schema_version_mut() {
             sv.columns.retain(|c| c.col_id != col.md.id);
         }
         self.remove_indexes_on_column(tbl_id, col.md.id, new_version)?;
@@ -589,7 +589,7 @@ impl Catalog {
         }
         self.bump_version(tbl_id, Some(format!("Altered {}", py_repr(&col.name))))?;
         let md = self.table_mut(tbl_id)?;
-        let sv = md.schema_versions.last_mut().ok_or_else(|| Error::internal("table has no schema versions"))?;
+        let sv = md.last_schema_version_mut().ok_or_else(|| Error::internal("table has no schema versions"))?;
         for c in sv.columns.iter_mut().filter(|c| c.col_id == col.md.id) {
             c.col_type = Some(new_type.clone());
         }
@@ -644,7 +644,7 @@ impl Catalog {
         }
         self.bump_version(tbl_id, Some(format!("Renamed {} to {}", py_repr(&col.name), py_repr(&folded_new))))?;
         let md = self.table_mut(tbl_id)?;
-        if let Some(sv) = md.schema_versions.last_mut() {
+        if let Some(sv) = md.last_schema_version_mut() {
             for c in sv.columns.iter_mut() {
                 if c.col_id == col.md.id {
                     c.name = folded_new.clone();

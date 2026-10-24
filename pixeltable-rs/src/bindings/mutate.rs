@@ -423,15 +423,26 @@ pub fn tbl_batch_update<'py>(
     }
     // resolve the rows (primary key lookups need the table's rows) and plan
     let (plan, unmatched_idx) = with_catalog(py, |cat| {
-        let mut by_pk: HashMap<String, RowKey> = HashMap::new();
-        if !has_rowid {
-            let path = cat.tbl_path(id, None)?;
-            let input = PathInput::snapshot(cat, &path)?;
-            for r in input.rows()? {
-                let k: Vec<String> = pk_cols.iter().map(|c| format!("{:?}", r[0].cell(c.md.id))).collect();
-                by_pk.insert(k.join("\u{1f}"), (r[0].rowid, r[0].pos.clone()));
-            }
+        // the live rows with the given primary keys (by the table's primary-key index)
+        let pk_keys: Vec<Vec<Value>> = updates
+            .iter()
+            .filter_map(|(_, ident, _)| match ident {
+                RowIdent::Pk(pk) => Some(pk.clone()),
+                RowIdent::Rowid(_) => None,
+            })
+            .collect();
+        let mut by_pk: Vec<Option<RowKey>> = Vec::new();
+        if !pk_keys.is_empty() {
+            let data = cat.data(id)?;
+            let pk_ids: Vec<ColId> = pk_cols.iter().map(|c| c.md.id).collect();
+            let truncate = cat.table(id)?.is_data_versioned;
+            by_pk = data
+                .find_live_by_pks(&pk_ids, truncate, &pk_keys, true)
+                .into_iter()
+                .map(|r| r.map(|r| (r.rowid, r.pos.clone())))
+                .collect();
         }
+        let mut by_pk = by_pk.into_iter();
         let mut sel: HashMap<RowKey, Vec<(ColId, Value)>> = HashMap::new();
         let mut keys_in_order: Vec<Option<RowKey>> = Vec::new();
         let mut changed: HashSet<QCol> = HashSet::new();
@@ -449,7 +460,7 @@ pub fn tbl_batch_update<'py>(
             }
             let key = match ident {
                 RowIdent::Rowid(k) => Some(k.clone()),
-                RowIdent::Pk(pk) => by_pk.get(&pk.iter().map(|v| format!("{v:?}")).collect::<Vec<_>>().join("\u{1f}")).cloned(),
+                RowIdent::Pk(_) => by_pk.next().flatten(),
             };
             if let Some(k) = &key {
                 sel.entry(k.clone()).or_default().extend(values.iter().cloned());

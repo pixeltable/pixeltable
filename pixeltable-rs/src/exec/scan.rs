@@ -17,7 +17,7 @@ use crate::catalog::table::{ColId, RowCountStats, TableMd};
 use crate::catalog::views::PathElem;
 use crate::error::{Error, Result};
 use crate::expr::eval::{RowContext, eval};
-use crate::expr::{ColumnRef, ExprRef};
+use crate::expr::{ColumnRef, ExprKind, ExprRef};
 use crate::store::rows::{CellError, StoredRow, TableData};
 use crate::value::Value;
 
@@ -106,6 +106,10 @@ pub struct ElemInput {
     pub data: Arc<TableData>,
     /// the number of iterator positions in this table's row keys
     pub num_pos: usize,
+    /// the primary-key columns of a base table, with their types
+    pub pk: Vec<(ColId, crate::types::ColumnType)>,
+    /// true if the table's primary-key index truncates strings (data-versioned tables)
+    pub pk_truncates: bool,
 }
 
 /// A table path (leaf first) captured for a scan.
@@ -121,7 +125,13 @@ impl PathInput {
             let version = e.pinned.unwrap_or(md.current_version);
             let info = ElemInfo::of(&md, e.pinned)?;
             let data = cat.data(e.tbl_id)?;
-            elems.push(ElemInput { info, version, pinned: e.pinned, data, num_pos: 0 });
+            let pk = if md.is_view() {
+                Vec::new()
+            } else {
+                md.columns.iter().filter(|c| c.is_pk).map(|c| (c.id, c.col_type.clone())).collect()
+            };
+            let pk_truncates = md.is_data_versioned;
+            elems.push(ElemInput { info, version, pinned: e.pinned, data, num_pos: 0, pk, pk_truncates });
         }
         if elems.is_empty() {
             return Err(Error::internal("empty table path"));
@@ -141,6 +151,109 @@ impl PathInput {
         self.elems.iter().map(|e| &e.info).collect()
     }
 
+    /// The visible joined rows whose leaf rows have the given keys, in key order (keys without a visible row are
+    /// skipped).
+    pub fn rows_for_keys<'k>(&self, keys: impl IntoIterator<Item = (i64, &'k [i64])>) -> Vec<Vec<&StoredRow>> {
+        let leaf = &self.elems[0];
+        let mut leaf_rows: Vec<&StoredRow> = keys.into_iter().filter_map(|k| leaf.data.row_at(k, leaf.version)).collect();
+        leaf_rows.sort_by(|a, b| a.key().cmp(&b.key()));
+        leaf_rows.dedup_by(|a, b| a.key() == b.key());
+        let mut out = Vec::with_capacity(leaf_rows.len());
+        'rows: for r in leaf_rows {
+            let mut joined = Vec::with_capacity(self.elems.len());
+            joined.push(r);
+            for e in &self.elems[1..] {
+                let n = e.num_pos.min(r.pos.len());
+                match e.data.row_at((r.rowid, &r.pos[..n]), e.version) {
+                    Some(b) => joined.push(b),
+                    None => continue 'rows,
+                }
+            }
+            out.push(joined);
+        }
+        out
+    }
+
+    /// The rows a filter `pred` can select, a superset of those that pass it (the caller evaluates it): when `pred`
+    /// fixes the primary key of a base table with equality (or `isin()`) conjuncts on literals, only the rows with
+    /// such a key (found by the table's primary-key index); else all visible rows. In key order.
+    pub fn rows_where(&self, pred: Option<&ExprRef>) -> Result<Vec<Vec<&StoredRow>>> {
+        match pred.and_then(|p| self.pk_point_rowids(p)) {
+            Some(rowids) => Ok(self.rows_for_keys(rowids.iter().map(|r| (*r, &[] as &[i64])))),
+            None => self.rows(),
+        }
+    }
+
+    /// For a filter that fixes the primary key of the path's table (a base table), the rowids of the rows that may
+    /// pass it (from the primary-key index).
+    fn pk_point_rowids(&self, pred: &ExprRef) -> Option<Vec<i64>> {
+        let leaf = &self.elems[0];
+        if self.elems.len() != 1 || leaf.pk.is_empty() {
+            return None;
+        }
+        // per primary-key column, the values the filter allows
+        let mut allowed: Vec<Option<Vec<Value>>> = vec![None; leaf.pk.len()];
+        let mut todo = vec![pred.clone()];
+        while let Some(e) = todo.pop() {
+            match &e.kind {
+                ExprKind::Compound { op: crate::expr::LogicalOp::And, operands } => todo.extend(operands.iter().cloned()),
+                ExprKind::Comparison { op: crate::expr::CmpOp::Eq, lhs, rhs } => {
+                    let (col, lit) = match (&lhs.kind, &rhs.kind) {
+                        (ExprKind::ColumnRef(c), ExprKind::Literal(v)) | (ExprKind::Literal(v), ExprKind::ColumnRef(c)) => (c, v),
+                        _ => continue,
+                    };
+                    if let Some(i) = self.pk_position(col, lit) {
+                        allowed[i] = Some(vec![lit.clone()]);
+                    }
+                }
+                ExprKind::InList { lhs, values, .. } => {
+                    let ExprKind::ColumnRef(col) = &lhs.kind else { continue };
+                    if let Some(i) = values.first().and_then(|v| self.pk_position(col, v)) {
+                        if values.iter().all(|v| self.pk_position(col, v) == Some(i)) && values.len() <= 10_000 {
+                            allowed[i] = Some(values.clone());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let allowed: Vec<Vec<Value>> = allowed.into_iter().collect::<Option<_>>()?;
+        if allowed.iter().map(Vec::len).product::<usize>() > 10_000 {
+            return None;
+        }
+        // every combination of allowed values
+        let mut keys: Vec<Vec<Value>> = vec![Vec::new()];
+        for vals in &allowed {
+            keys = keys.into_iter().flat_map(|k| vals.iter().map(move |v| [k.clone(), vec![v.clone()]].concat())).collect();
+        }
+        let cols: Vec<ColId> = leaf.pk.iter().map(|(c, _)| *c).collect();
+        let mut rowids: Vec<i64> = keys.iter().flat_map(|k| leaf.data.pk_candidates(&cols, leaf.pk_truncates, k)).collect();
+        rowids.sort();
+        rowids.dedup();
+        Some(rowids)
+    }
+
+    /// The position of `col` among the primary-key columns of the path's table, if `col` is one and `v` is a value
+    /// of its type that the index can look up (for others, SQL equality may hold between values of different kinds).
+    fn pk_position(&self, col: &ColumnRef, v: &Value) -> Option<usize> {
+        let leaf = &self.elems[0];
+        if col.tbl_id != leaf.info.tbl_id {
+            return None;
+        }
+        let i = leaf.pk.iter().position(|(c, _)| *c == col.col_id)?;
+        let t = &leaf.pk[i].1;
+        let fits = match v {
+            Value::Int(_) => t.is_int(),
+            Value::String(_) => t.is_string(),
+            Value::Bool(_) => t.is_bool(),
+            Value::Timestamp(_) => t.is_timestamp(),
+            Value::Date(_) => t.is_date(),
+            Value::Uuid(_) => t.is_uuid(),
+            _ => false,
+        };
+        fits.then_some(i)
+    }
+
     /// The visible joined rows, in key order: each entry has one row per table of the path (leaf first).
     pub fn rows(&self) -> Result<Vec<Vec<&StoredRow>>> {
         let leaf = &self.elems[0];
@@ -149,18 +262,26 @@ impl PathInput {
         if self.elems.len() == 1 {
             return Ok(leaf_rows.into_iter().map(|r| vec![r]).collect());
         }
-        let indexes: Vec<HashMap<(i64, &[i64]), &StoredRow>> = self.elems[1..]
+        // a base's rows by key: a map of all of them, unless looking up the few needed ones costs less
+        let indexes: Vec<Option<HashMap<(i64, &[i64]), &StoredRow>>> = self.elems[1..]
             .iter()
-            .map(|e| e.data.visible_at(e.version).map(|r| (r.key(), r)).collect())
+            .map(|e| {
+                (leaf_rows.len().saturating_mul(64) > e.data.num_live()).then(|| e.data.visible_at(e.version).map(|r| (r.key(), r)).collect())
+            })
             .collect();
         let mut out = Vec::with_capacity(leaf_rows.len());
         'rows: for r in leaf_rows {
             let mut joined = Vec::with_capacity(self.elems.len());
             joined.push(r);
             for (i, idx) in indexes.iter().enumerate() {
-                let n = self.elems[i + 1].num_pos.min(r.pos.len());
-                match idx.get(&(r.rowid, &r.pos[..n])) {
-                    Some(b) => joined.push(*b),
+                let e = &self.elems[i + 1];
+                let n = e.num_pos.min(r.pos.len());
+                let base = match idx {
+                    Some(idx) => idx.get(&(r.rowid, &r.pos[..n])).copied(),
+                    None => e.data.row_at((r.rowid, &r.pos[..n]), e.version),
+                };
+                match base {
+                    Some(b) => joined.push(b),
                     // a view row whose base row is not visible at the base version read (cannot happen for a
                     // consistent path); skip it rather than fail the query
                     None => continue 'rows,

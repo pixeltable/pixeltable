@@ -295,7 +295,11 @@ impl UpdatePlan {
         let mut matched: HashSet<RowKey> = HashSet::new();
         // columns computed with window functions are recomputed over all updated rows, in window order
         let windows = self.recompute.iter().any(|c| super::query::has_window_calls(&c.expr));
-        for r in self.path.rows()? {
+        let candidates = match &self.selection {
+            RowSelection::Where { pred, .. } => self.path.rows_where(pred.as_ref())?,
+            RowSelection::Keys(rows) => self.path.rows_for_keys(rows.keys().map(|(r, p)| (*r, p.as_slice()))),
+        };
+        for r in candidates {
             let key: RowKey = (r[0].rowid, r[0].pos.clone());
             if self.errors_only.is_some_and(|c| r[0].error(c).is_none()) {
                 continue;
@@ -407,7 +411,7 @@ impl UpdatePlan {
             let version = cat.bump_version(self.tbl_id, Some("Altered value expression".to_string()))?;
             let json = crate::expr::serde::to_json(expr)?;
             let md = cat.table_mut(self.tbl_id)?;
-            if let Some(sv) = md.schema_versions.last_mut() {
+            if let Some(sv) = md.last_schema_version_mut() {
                 for c in sv.columns.iter_mut().filter(|c| c.col_id == *col_id) {
                     c.value_expr = Some(json.clone());
                 }
@@ -473,15 +477,9 @@ fn compute_view_changes(
 ) -> Result<Vec<ViewChanges>> {
     let mut out = Vec::with_capacity(nodes.len());
     for node in nodes {
-        // the view's live rows, grouped by the key of their base row
-        let mut by_base: HashMap<(i64, &[i64]), Vec<&StoredRow>> = HashMap::new();
-        for r in node.data.rows.iter().filter(|r| r.v_max == crate::store::rows::LIVE) {
-            let n = node.base_num_pos.min(r.pos.len());
-            by_base.entry((r.rowid, &r.pos[..n])).or_default().push(r);
-        }
-        for rows in by_base.values_mut() {
-            rows.sort_by(|a, b| a.key().cmp(&b.key()));
-        }
+        // the view's live rows of the changed base rows, grouped by the key of their base row
+        let base_keys: HashSet<RowKey> = changes.iter().map(|(k, _)| k.clone()).collect();
+        let by_base = node.data.live_rows_by_prefix(&base_keys, node.base_num_pos);
         let rewrites = node.membership_change || node.reload || !node.recompute.is_empty();
         let mut ch = TableChanges::default();
         // columns computed with window functions are recomputed over all of the view's updated rows: (index in
@@ -491,7 +489,7 @@ fn compute_view_changes(
         // (view row key, the row as the view's views see it, index of its base change)
         let mut child_bases: Vec<(RowKey, ChildBase<'_>, usize)> = Vec::new();
         for (ci, (key, base)) in changes.iter().enumerate() {
-            let olds: Vec<&StoredRow> = by_base.get(&(key.0, key.1.as_slice())).cloned().unwrap_or_default();
+            let olds: Vec<&StoredRow> = by_base.get(key).cloned().unwrap_or_default();
             let Some(bp) = base else {
                 for o in olds {
                     ch.retire.insert((o.rowid, o.pos.clone()));
@@ -643,7 +641,7 @@ pub fn delete(cat: &mut Catalog, tbl_id: Uuid, pred: Option<&ExprRef>) -> Result
     let input = PathInput::snapshot(cat, &path)?;
     let infos = input.infos();
     let mut keys: HashSet<RowKey> = HashSet::new();
-    for r in input.rows()? {
+    for r in input.rows_where(pred)? {
         if let Some(p) = pred {
             if !eval_predicate(p, &PathCtx::new(&infos, &r))? {
                 continue;

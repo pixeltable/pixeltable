@@ -15,13 +15,14 @@ pub mod tables;
 pub mod versions;
 pub mod views;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
+use crate::store::history::{self, History};
 use crate::store::rows::TableData;
-use crate::store::{CatalogFile, CatalogStamp, DirMd, FORMAT_NAME, FORMAT_VERSION, Store};
+use crate::store::{CatalogFile, CatalogStamp, DirMd, FORMAT_NAME, FORMAT_VERSION, HistoryRef, Store, without_gil};
 use path::Path;
 use table::TableMd;
 
@@ -75,7 +76,8 @@ impl IfNotExists {
 /// A file-level effect of an operation, applied only once the operation has succeeded.
 #[derive(Debug, Clone)]
 enum PendingDelete {
-    DataFile(String),
+    /// a file in the store's `tables/` directory (a superseded segment or history file, or one of a dropped table)
+    TableFile(String),
     Media(Uuid),
     /// the media files a table version wrote (revert)
     MediaVersion(Uuid, i64),
@@ -91,14 +93,16 @@ pub struct Catalog {
     tables: HashMap<Uuid, Arc<TableMd>>,
     /// row data, loaded on first access
     data: HashMap<Uuid, Arc<TableData>>,
+    /// the metadata of each table as last written or loaded; `flush()` appends the history records that differ
+    persisted: HashMap<Uuid, Arc<TableMd>>,
+    /// tables whose rows the current operation changed (`stage_data()`), written by `flush()`
+    staged: HashSet<Uuid>,
+    /// true once the current operation has committed (`commit()`), so `flush()` writes `catalog.json`
+    dirty: bool,
     /// files to delete when the current operation succeeds
     pending_deletes: Vec<PendingDelete>,
-    /// data files written by the current operation (deleted if it fails)
-    written_files: Vec<String>,
     /// media files written for the current operation (deleted if it fails)
     written_media: Vec<std::path::PathBuf>,
-    /// true once the current operation has written catalog.json
-    committed: bool,
 }
 
 /// The in-memory state at the start of an operation (see `Catalog::checkpoint()`).
@@ -109,48 +113,113 @@ pub struct Checkpoint {
 }
 
 impl Catalog {
-    /// Loads the catalog from the store, initializing an empty one if the store is new.
-    pub fn load(store: Store) -> Result<Catalog> {
-        match store.load_catalog()? {
-            Some(cf) => {
-                let root = cf
-                    .dirs
-                    .iter()
-                    .find(|d| d.parent_id.is_none())
-                    .ok_or_else(|| Error::internal("catalog has no root directory"))?;
-                let root_id = root.id;
-                Ok(Catalog {
-                    store,
-                    catalog_id: cf.catalog_id,
-                    generation: cf.generation,
-                    root_id,
-                    dirs: cf.dirs.into_iter().map(|d| (d.id, d)).collect(),
-                    tables: cf.tables.into_iter().map(|t| (t.id, Arc::new(t))).collect(),
-                    data: HashMap::new(),
-                    pending_deletes: Vec::new(),
-                    written_files: Vec::new(),
-                    written_media: Vec::new(),
-                    committed: false,
-                })
+    /// Loads the catalog from the store, initializing an empty one if the store is new. With `gc`, also deletes the
+    /// files in the store that the catalog does not reference (see `Store::gc()`). The caller holds the store lock.
+    pub fn load(store: Store, gc: bool) -> Result<Catalog> {
+        let Some(cf) = store.load_catalog()? else {
+            let root = DirMd { id: Uuid::new_v4(), parent_id: None, name: String::new(), created_at: now() };
+            let mut cat = Catalog::new(store, Uuid::new_v4(), 0, root.id, HashMap::from([(root.id, root)]), HashMap::new());
+            cat.commit()?;
+            cat.flush()?;
+            return Ok(cat);
+        };
+        let root_id = cf
+            .dirs
+            .iter()
+            .find(|d| d.parent_id.is_none())
+            .ok_or_else(|| Error::internal("catalog has no root directory"))?
+            .id;
+        let mut tables = HashMap::with_capacity(cf.tables.len());
+        for mut md in cf.tables {
+            let h = md.storage.history.ok_or_else(|| Error::internal(format!("table {} has no version history", md.id)))?;
+            let records = history::parse(&store.read_history(md.id, &h)?)?;
+            let mut hist = History::default();
+            history::replay(&mut hist, records, md.current_version);
+            md.versions = hist.versions;
+            md.schema_versions = hist.schema_versions;
+            tables.insert(md.id, Arc::new(md));
+        }
+        let dirs = cf.dirs.into_iter().map(|d| (d.id, d)).collect();
+        let cat = Catalog::new(store, cf.catalog_id, cf.generation, root_id, dirs, tables);
+        if gc {
+            let mut keep = HashSet::new();
+            for md in cat.tables.values() {
+                keep.extend(table_files(md));
             }
-            None => {
-                let root = DirMd { id: Uuid::new_v4(), parent_id: None, name: String::new(), created_at: now() };
-                let mut cat = Catalog {
-                    store,
-                    catalog_id: Uuid::new_v4(),
-                    generation: 0,
-                    root_id: root.id,
-                    dirs: HashMap::from([(root.id, root)]),
-                    tables: HashMap::new(),
-                    data: HashMap::new(),
-                    pending_deletes: Vec::new(),
-                    written_files: Vec::new(),
-                    written_media: Vec::new(),
-                    committed: false,
-                };
-                cat.commit()?;
-                Ok(cat)
+            cat.store.gc(&keep)?;
+        }
+        Ok(cat)
+    }
+
+    /// Loads the catalog that another process committed, reusing what `previous` (this process's catalog, between
+    /// operations) holds that is still valid: the history of a table whose history file only grew, and the rows of
+    /// a table whose segment list only grew (segments are immutable; the new ones are read and their patches
+    /// applied).
+    pub fn reload(store: Store, previous: Catalog) -> Result<Catalog> {
+        let Some(cf) = store.load_catalog()? else { return Catalog::load(store, false) };
+        let root_id = cf
+            .dirs
+            .iter()
+            .find(|d| d.parent_id.is_none())
+            .ok_or_else(|| Error::internal("catalog has no root directory"))?
+            .id;
+        let same_catalog = cf.catalog_id == previous.catalog_id;
+        let mut tables = HashMap::with_capacity(cf.tables.len());
+        let mut data = HashMap::new();
+        for mut md in cf.tables {
+            let h = md.storage.history.ok_or_else(|| Error::internal(format!("table {} has no version history", md.id)))?;
+            let old = previous.persisted.get(&md.id).filter(|_| same_catalog);
+            let mut hist = History::default();
+            let records = match old.and_then(|o| o.storage.history.map(|oh| (o, oh))) {
+                Some((o, oh)) if oh.file == h.file && oh.len <= h.len => {
+                    hist.versions = o.versions.clone();
+                    hist.schema_versions = o.schema_versions.clone();
+                    history::parse(&store.read_history_range(md.id, h.file, oh.len, h.len)?)?
+                }
+                _ => history::parse(&store.read_history(md.id, &h)?)?,
+            };
+            history::replay(&mut hist, records, md.current_version);
+            md.versions = hist.versions;
+            md.schema_versions = hist.schema_versions;
+            if let (Some(o), Some(d)) = (old, previous.data.get(&md.id)) {
+                let (old_segs, new_segs) = (&o.storage.segments, &md.storage.segments);
+                if new_segs.starts_with(old_segs) {
+                    let more = new_segs[old_segs.len()..]
+                        .iter()
+                        .map(|id| store.read_segment(md.id, *id))
+                        .collect::<Result<Vec<_>>>()?;
+                    data.insert(md.id, if more.is_empty() { d.clone() } else { Arc::new(d.extended(more)) });
+                }
             }
+            tables.insert(md.id, Arc::new(md));
+        }
+        let dirs = cf.dirs.into_iter().map(|d| (d.id, d)).collect();
+        let mut cat = Catalog::new(store, cf.catalog_id, cf.generation, root_id, dirs, tables);
+        cat.data = data;
+        Ok(cat)
+    }
+
+    fn new(
+        store: Store,
+        catalog_id: Uuid,
+        generation: u64,
+        root_id: Uuid,
+        dirs: HashMap<Uuid, DirMd>,
+        tables: HashMap<Uuid, Arc<TableMd>>,
+    ) -> Catalog {
+        Catalog {
+            store,
+            catalog_id,
+            generation,
+            root_id,
+            dirs,
+            persisted: tables.clone(),
+            tables,
+            data: HashMap::new(),
+            staged: HashSet::new(),
+            dirty: false,
+            pending_deletes: Vec::new(),
+            written_media: Vec::new(),
         }
     }
 
@@ -165,47 +234,66 @@ impl Catalog {
 
     // ---------------------------------------------------------------------------------------- atomicity
     //
-    // Every operation runs between `checkpoint()` and `finish()` (see `runtime::with_catalog`): on success the
-    // deferred file deletions are applied; on failure the in-memory state is restored, catalog.json is rewritten if
-    // the operation had already written it, and the data files it wrote are removed. File deletions are therefore
-    // never done directly: use `defer_delete_*`.
+    // Every operation runs between `checkpoint()` and `finish()` (see `runtime::with_catalog`). Its changes stay in
+    // memory (`commit()` and `stage_data()` only mark what to write) until `finish()`, which on success writes them
+    // (`flush()`) and then applies the deferred file deletions; on failure, or if writing fails, the in-memory state
+    // is restored and the files the operation wrote are removed. File deletions are therefore never done directly:
+    // use `defer_delete_*`.
 
     pub fn checkpoint(&mut self) -> Checkpoint {
         self.pending_deletes.clear();
-        self.written_files.clear();
         self.written_media.clear();
-        self.committed = false;
+        self.staged.clear();
+        self.dirty = false;
         Checkpoint { dirs: self.dirs.clone(), tables: self.tables.clone(), data: self.data.clone() }
     }
 
     pub fn finish(&mut self, checkpoint: Checkpoint, succeeded: bool) -> Result<()> {
         if succeeded {
-            for d in std::mem::take(&mut self.pending_deletes) {
-                match d {
-                    PendingDelete::DataFile(f) => self.store.delete_table_data(&f),
-                    PendingDelete::Media(id) => self.store.delete_media(id),
-                    PendingDelete::MediaVersion(id, version) => self.store.delete_media_version(id, version),
+            match self.flush() {
+                Ok(()) => {
+                    let deletes = std::mem::take(&mut self.pending_deletes);
+                    let store = &self.store;
+                    without_gil(|| {
+                        for d in deletes {
+                            match d {
+                                PendingDelete::TableFile(f) => store.delete_table_file(&f),
+                                PendingDelete::Media(id) => store.delete_media(id),
+                                PendingDelete::MediaVersion(id, version) => store.delete_media_version(id, version),
+                            }
+                        }
+                    });
+                    self.written_media.clear();
+                    return Ok(());
+                }
+                Err(e) => {
+                    self.rollback(checkpoint);
+                    return Err(e);
                 }
             }
-            self.written_files.clear();
-            self.written_media.clear();
-            return Ok(());
+        }
+        self.rollback(checkpoint);
+        Ok(())
+    }
+
+    /// Restores the state at `checkpoint` and deletes the media files written for the operation. Row data that the
+    /// operation only loaded is kept.
+    fn rollback(&mut self, checkpoint: Checkpoint) {
+        let mut data = checkpoint.data;
+        for (id, d) in self.data.drain() {
+            if !data.contains_key(&id) && !self.staged.contains(&id) && checkpoint.tables.contains_key(&id) {
+                data.insert(id, d);
+            }
         }
         self.dirs = checkpoint.dirs;
         self.tables = checkpoint.tables;
-        self.data = checkpoint.data;
+        self.data = data;
         self.pending_deletes.clear();
-        let written = std::mem::take(&mut self.written_files);
-        if self.committed {
-            self.commit()?;
-        }
-        for f in written {
-            self.store.delete_table_data(&f);
-        }
+        self.staged.clear();
+        self.dirty = false;
         for f in std::mem::take(&mut self.written_media) {
             let _ = std::fs::remove_file(f);
         }
-        Ok(())
     }
 
     /// Makes media files written (without the lock) for the current operation part of it: they are deleted if the
@@ -219,30 +307,118 @@ impl Catalog {
         self.pending_deletes.push(PendingDelete::MediaVersion(tbl_id, version));
     }
 
-    fn defer_delete_data_file(&mut self, file: String) {
-        self.pending_deletes.push(PendingDelete::DataFile(file));
-    }
-
     fn defer_delete_media(&mut self, tbl_id: Uuid) {
         self.pending_deletes.push(PendingDelete::Media(tbl_id));
     }
 
-    /// Persists the metadata (the commit point of every operation).
+    /// Marks the operation's changes to be persisted when it finishes (every operation that changes metadata or
+    /// rows calls it once its changes are complete).
     pub fn commit(&mut self) -> Result<()> {
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Writes what the current operation changed, detached from the interpreter: the new segments of the tables
+    /// whose rows changed, the new history records, then `catalog.json` (the commit point). On failure the files it
+    /// wrote are removed and the store is unchanged.
+    fn flush(&mut self) -> Result<()> {
+        if !self.dirty && self.staged.is_empty() {
+            return Ok(());
+        }
+        let mut written: Vec<String> = Vec::new();
+        let result = without_gil(|| self.flush_inner(&mut written));
+        if result.is_err() {
+            let store = &self.store;
+            without_gil(|| written.iter().for_each(|f| store.delete_table_file(f)));
+        }
+        result
+    }
+
+    fn flush_inner(&mut self, written: &mut Vec<String>) -> Result<()> {
+        let mut staged: Vec<Uuid> = self.staged.iter().copied().filter(|id| self.tables.contains_key(id)).collect();
+        staged.sort();
+        for tbl_id in staged {
+            let Some(entry) = self.data.get_mut(&tbl_id) else { continue };
+            let data = Arc::make_mut(entry);
+            if !data.has_unwritten() {
+                continue;
+            }
+            for (seg, vmax) in data.prepare_write() {
+                written.push(self.store.write_segment(tbl_id, &seg, &vmax)?);
+            }
+            data.mark_written();
+            let ids = data.segment_ids();
+            let md = self.table_mut(tbl_id)?;
+            let old = std::mem::replace(&mut md.storage.segments, ids);
+            let current: HashSet<u64> = md.storage.segments.iter().copied().collect();
+            for id in old.into_iter().filter(|id| !current.contains(id)) {
+                self.pending_deletes.push(PendingDelete::TableFile(Store::segment_file_name(tbl_id, id)));
+            }
+        }
+        let mut changed: Vec<Uuid> = self
+            .tables
+            .iter()
+            .filter(|(id, md)| self.persisted.get(*id).is_none_or(|p| !Arc::ptr_eq(p, md)))
+            .map(|(id, _)| *id)
+            .collect();
+        changed.sort();
+        for tbl_id in changed {
+            self.write_history(tbl_id, written)?;
+        }
+        self.store.sync_tables()?;
         let mut dirs: Vec<DirMd> = self.dirs.values().cloned().collect();
         dirs.sort_by(|a, b| a.created_at.total_cmp(&b.created_at).then(a.id.cmp(&b.id)));
         let mut tables: Vec<TableMd> = self.tables.values().map(|t| t.as_ref().clone()).collect();
         tables.sort_by(|a, b| a.created_at.total_cmp(&b.created_at).then(a.id.cmp(&b.id)));
-        self.generation += 1;
-        self.store.save_catalog(&CatalogFile {
+        let generation = self.generation + 1;
+        let bytes = Store::serialize_catalog(&CatalogFile {
             format: FORMAT_NAME.to_string(),
             format_version: FORMAT_VERSION,
             catalog_id: self.catalog_id,
-            generation: self.generation,
+            generation,
             dirs,
             tables,
         })?;
-        self.committed = true;
+        self.store.save_catalog_bytes(&bytes)?;
+        self.generation = generation;
+        self.persisted = self.tables.clone();
+        self.staged.clear();
+        self.dirty = false;
+        Ok(())
+    }
+
+    /// Appends the history records of table `tbl_id` that differ from what is committed (rewriting the history file
+    /// when most of it is superseded records) and records the new length in its manifest.
+    fn write_history(&mut self, tbl_id: Uuid, written: &mut Vec<String>) -> Result<()> {
+        let md = self.table(tbl_id)?.clone();
+        let records = match self.persisted.get(&tbl_id) {
+            Some(old) => history::changed_records(&old.versions, &old.schema_versions, &md.versions, &md.schema_versions),
+            None => history::changed_records(&[], &[], &md.versions, &md.schema_versions),
+        };
+        let live = (md.versions.len() + md.schema_versions.len()) as u64;
+        let new_ref = match md.storage.history {
+            Some(h) if records.is_empty() => h,
+            Some(h) if h.records + (records.len() as u64) <= 2 * live + 64 => {
+                let bytes = history::serialize(&records)?;
+                let len = self.store.append_history(tbl_id, h.file, h.len, &bytes)?;
+                HistoryRef { file: h.file, len, records: h.records + records.len() as u64 }
+            }
+            old => {
+                // a new history file with every record
+                let all = history::changed_records(&[], &[], &md.versions, &md.schema_versions);
+                let bytes = history::serialize(&all)?;
+                let file = crate::store::table_data::new_segment_id();
+                written.push(Store::history_file_name(tbl_id, file));
+                let len = self.store.append_history(tbl_id, file, 0, &bytes)?;
+                if let Some(old) = old {
+                    self.pending_deletes.push(PendingDelete::TableFile(Store::history_file_name(tbl_id, old.file)));
+                }
+                HistoryRef { file, len, records: all.len() as u64 }
+            }
+        };
+        if md.storage.history != Some(new_ref) {
+            self.table_mut(tbl_id)?.storage.history = Some(new_ref);
+        }
         Ok(())
     }
 
@@ -342,33 +518,26 @@ impl Catalog {
         if let Some(d) = self.data.get(&tbl_id) {
             return Ok(d.clone());
         }
-        let md = self.table(tbl_id)?;
-        let data = match &md.data_file {
-            Some(f) => Arc::new(self.store.load_table_data(f)?),
-            None => Arc::new(TableData::default()),
-        };
+        let ids = self.table(tbl_id)?.storage.segments.clone();
+        let store = &self.store;
+        let segments = without_gil(|| ids.iter().map(|id| store.read_segment(tbl_id, *id)).collect::<Result<Vec<_>>>())?;
+        let data = Arc::new(TableData::from_segments(segments));
         self.data.insert(tbl_id, data.clone());
         Ok(data)
     }
 
-    /// Replaces the row data of a table: writes the data file, records it in the metadata and commits.
+    /// Replaces the row data of a table and commits; it is written when the operation finishes.
     pub fn write_data(&mut self, tbl_id: Uuid, data: TableData) -> Result<()> {
         self.stage_data(tbl_id, data)?;
         self.commit()
     }
 
-    /// Replaces the row data of a table: writes the data file and records it in the metadata, without committing
-    /// (the operation commits once all its tables are staged).
+    /// Replaces the row data of a table, without committing (the operation commits once all its tables are staged).
+    /// Only the changes (`TableData` tracks them) are written, when the operation finishes.
     pub fn stage_data(&mut self, tbl_id: Uuid, data: TableData) -> Result<()> {
-        let version = self.table(tbl_id)?.current_version;
-        let file = self.store.write_table_data(tbl_id, version, &data)?;
-        self.written_files.push(file.clone());
-        let md = self.table_mut(tbl_id)?;
-        let old = md.data_file.replace(file);
+        self.table(tbl_id)?;
         self.data.insert(tbl_id, Arc::new(data));
-        if let Some(old) = old {
-            self.defer_delete_data_file(old);
-        }
+        self.staged.insert(tbl_id);
         Ok(())
     }
 
@@ -376,10 +545,11 @@ impl Catalog {
     /// `tables::drop_table_by_id`).
     fn remove_table_record(&mut self, tbl_id: Uuid) -> Option<Arc<TableMd>> {
         self.data.remove(&tbl_id);
+        self.staged.remove(&tbl_id);
         let md = self.tables.remove(&tbl_id);
         if let Some(md) = &md {
-            if let Some(f) = &md.data_file {
-                self.defer_delete_data_file(f.clone());
+            for f in table_files(md) {
+                self.pending_deletes.push(PendingDelete::TableFile(f));
             }
             self.defer_delete_media(tbl_id);
         }
@@ -394,6 +564,15 @@ impl Catalog {
     }
 }
 
+/// The files in the store's `tables/` directory that table `md` references.
+fn table_files(md: &TableMd) -> Vec<String> {
+    let mut out: Vec<String> = md.storage.segments.iter().map(|id| Store::segment_file_name(md.id, *id)).collect();
+    if let Some(h) = &md.storage.history {
+        out.push(Store::history_file_name(md.id, h.file));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,10 +585,162 @@ mod tests {
         }
     }
 
+    fn create_table(cat: &mut Catalog, name: &str) -> Result<Uuid> {
+        let cp = cat.checkpoint();
+        let spec = tables::ColumnSpec {
+            name: "c".into(),
+            col_type: crate::types::ColumnType::int(true),
+            value_expr: None,
+            is_pk: false,
+            stored: None,
+            media_validation: None,
+            comment: None,
+            custom_metadata: serde_json::Value::Null,
+            destination: None,
+        };
+        let path = Path::parse(name, false, false)?;
+        let (id, _) = cat.create_table(&path, vec![spec], IfExists::Error, None, serde_json::Value::Null, table::MediaValidation::OnWrite, true, false)?;
+        cat.finish(cp, true)?;
+        Ok(id)
+    }
+
+    /// Inserts rows with the given rowids (cell `c` = rowid) at a new version, as one operation.
+    fn insert(cat: &mut Catalog, id: Uuid, rowids: std::ops::Range<i64>) -> Result<()> {
+        let cp = cat.checkpoint();
+        let mut data = cat.data(id)?.as_ref().clone();
+        let v = cat.bump_version(id, None)?;
+        let rows = rowids
+            .map(|i| {
+                let mut r = crate::store::rows::StoredRow::new(i, Vec::new());
+                r.set_cell(0, crate::value::Value::Int(i));
+                r
+            })
+            .collect();
+        data.append(rows, v);
+        cat.stage_data(id, data)?;
+        cat.commit()?;
+        cat.finish(cp, true)
+    }
+
+    fn delete(cat: &mut Catalog, id: Uuid, rowids: std::ops::Range<i64>) -> Result<()> {
+        let cp = cat.checkpoint();
+        let mut data = cat.data(id)?.as_ref().clone();
+        let v = cat.bump_version(id, None)?;
+        data.retire(&rowids.map(|r| (r, Vec::new())).collect(), v, true);
+        cat.stage_data(id, data)?;
+        cat.commit()?;
+        cat.finish(cp, true)
+    }
+
+    fn rowids_at(cat: &mut Catalog, id: Uuid, version: Option<i64>) -> Result<Vec<i64>> {
+        let v = version.unwrap_or(cat.table(id)?.current_version);
+        let mut out: Vec<i64> = cat.data(id)?.visible_at(v).map(|r| r.rowid).collect();
+        out.sort();
+        Ok(out)
+    }
+
+    fn table_dir_files(store: &Store) -> Vec<String> {
+        let mut out: Vec<String> = std::fs::read_dir(store.home().join("pxtrs").join("test").join("tables"))
+            .map(|d| d.flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect())
+            .unwrap_or_default();
+        out.sort();
+        out
+    }
+
+    fn referenced_files(cat: &Catalog) -> Vec<String> {
+        let mut out: Vec<String> = cat.tables.values().flat_map(|md| table_files(md)).collect();
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn failure_before_the_commit_point_keeps_the_previous_state() -> Result<()> {
+        let store = temp_store();
+        let mut cat = Catalog::load(store.clone(), false)?;
+        let id = create_table(&mut cat, "t")?;
+        insert(&mut cat, id, 0..10)?;
+        let stamp = cat.stamp();
+        crate::store::FAIL_BEFORE_COMMIT.with(|f| f.set(true));
+        let failed = insert(&mut cat, id, 10..20);
+        crate::store::FAIL_BEFORE_COMMIT.with(|f| f.set(false));
+        assert!(failed.is_err());
+        // the in-memory state is the previous one, and so is the store; the failed commit's files are gone
+        assert_eq!(cat.stamp(), stamp);
+        assert_eq!(cat.table(id)?.current_version, 1);
+        assert_eq!(rowids_at(&mut cat, id, None)?, (0..10).collect::<Vec<_>>());
+        assert_eq!(table_dir_files(&store), referenced_files(&cat));
+        let mut reloaded = Catalog::load(store.clone(), false)?;
+        assert_eq!(reloaded.stamp(), stamp);
+        assert_eq!(reloaded.table(id)?.versions.len(), 2);
+        assert_eq!(rowids_at(&mut reloaded, id, None)?, (0..10).collect::<Vec<_>>());
+        // the next operation commits normally
+        insert(&mut cat, id, 10..15)?;
+        let mut reloaded = Catalog::load(store.clone(), false)?;
+        assert_eq!(rowids_at(&mut reloaded, id, None)?, (0..15).collect::<Vec<_>>());
+        assert_eq!(rowids_at(&mut reloaded, id, Some(1))?, (0..10).collect::<Vec<_>>());
+        let _ = std::fs::remove_dir_all(store.home());
+        Ok(())
+    }
+
+    #[test]
+    fn leftovers_of_a_crash_are_ignored_and_collected() -> Result<()> {
+        let store = temp_store();
+        let mut cat = Catalog::load(store.clone(), false)?;
+        let id = create_table(&mut cat, "t")?;
+        insert(&mut cat, id, 0..10)?;
+        // what a process that crashed before its commit point leaves behind: a segment file nothing references and
+        // history records past the committed length
+        let h = cat.table(id)?.storage.history.ok_or_else(|| Error::internal("no history"))?;
+        let stray = crate::store::table_data::Segment { id: 99, rows: Vec::new(), vmin: Vec::new(), patches: Vec::new() };
+        store.write_segment(id, &stray, &[])?;
+        store.append_history(id, h.file, h.len, b"{\"version\": \"garbage\"}\n")?;
+        let mut reloaded = Catalog::load(store.clone(), true)?;
+        assert_eq!(rowids_at(&mut reloaded, id, None)?, (0..10).collect::<Vec<_>>());
+        assert_eq!(table_dir_files(&store), referenced_files(&reloaded));
+        insert(&mut reloaded, id, 10..12)?;
+        let mut again = Catalog::load(store.clone(), false)?;
+        assert_eq!(again.table(id)?.versions.len(), 3);
+        assert_eq!(rowids_at(&mut again, id, None)?, (0..12).collect::<Vec<_>>());
+        let _ = std::fs::remove_dir_all(store.home());
+        Ok(())
+    }
+
+    #[test]
+    fn reload_picks_up_another_process_commits() -> Result<()> {
+        let store = temp_store();
+        let mut a = Catalog::load(store.clone(), false)?;
+        let id = create_table(&mut a, "t")?;
+        insert(&mut a, id, 0..100)?;
+        let mut b = Catalog::load(store.clone(), false)?;
+        assert_eq!(rowids_at(&mut b, id, None)?.len(), 100);
+        // a appends (b's cached rows are extended), then deletes (a patch of an older segment)
+        insert(&mut a, id, 100..110)?;
+        delete(&mut a, id, 0..5)?;
+        let mut b = Catalog::reload(store.clone(), b)?;
+        assert_eq!(b.stamp(), a.stamp());
+        assert_eq!(rowids_at(&mut b, id, None)?, (5..110).collect::<Vec<_>>());
+        assert_eq!(rowids_at(&mut b, id, Some(2))?, (0..110).collect::<Vec<_>>());
+        assert_eq!(b.table(id)?.versions.len(), 4);
+        // many commits by b (merging segments), then a reloads
+        for k in 0..20 {
+            insert(&mut b, id, 110 + k * 3..113 + k * 3)?;
+        }
+        delete(&mut b, id, 5..50)?;
+        let mut a = Catalog::reload(store.clone(), a)?;
+        let expected = rowids_at(&mut Catalog::load(store.clone(), false)?, id, None)?;
+        assert_eq!(rowids_at(&mut a, id, None)?, expected);
+        assert_eq!(expected.len(), 110 + 60 - 50);
+        for v in 0..=a.table(id)?.current_version {
+            assert_eq!(rowids_at(&mut a, id, Some(v))?, rowids_at(&mut b, id, Some(v))?, "version {v}");
+        }
+        let _ = std::fs::remove_dir_all(store.home());
+        Ok(())
+    }
+
     #[test]
     fn rollback_restores_memory_and_disk() -> Result<()> {
         let store = temp_store();
-        let mut cat = Catalog::load(store.clone())?;
+        let mut cat = Catalog::load(store.clone(), false)?;
         let cp = cat.checkpoint();
         cat.create_dir(&Path::parse("d1", false, false)?, IfExists::Error, false)?;
         cat.finish(cp, true)?;
@@ -420,7 +751,7 @@ mod tests {
         assert!(cat.dir_at(&Path::parse("d1", false, false)?).is_some());
         assert!(cat.dir_at(&Path::parse("d2", false, false)?).is_none());
 
-        let reloaded = Catalog::load(store.clone())?;
+        let reloaded = Catalog::load(store.clone(), false)?;
         assert!(reloaded.dir_at(&Path::parse("d1", false, false)?).is_some());
         assert!(reloaded.dir_at(&Path::parse("d2", false, false)?).is_none());
         let _ = std::fs::remove_dir_all(store.home());

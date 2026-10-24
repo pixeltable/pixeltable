@@ -43,7 +43,13 @@ def schema(pxt: Any) -> dict[str, Any]:
 
 
 def avg_ms(times: list[float]) -> float:
-    return round(sum(times) / len(times) * 1000, 3) if times else 0.0
+    """The median in milliseconds (robust against other load on the machine; totals capture rare slow operations)."""
+    if not times:
+        return 0.0
+    s = sorted(times)
+    mid = len(s) // 2
+    med = s[mid] if len(s) % 2 else (s[mid - 1] + s[mid]) / 2
+    return round(med * 1000, 3)
 
 
 def timed(f: Callable[[], Any]) -> tuple[float, Any]:
@@ -125,16 +131,23 @@ def case_point_lookup(pxt: Any, home: Path, n: int) -> dict[str, Any]:
 def case_update(pxt: Any, home: Path, n: int) -> dict[str, Any]:
     t = create(pxt, pk=True)
     fill(t, n)
+    t.count()  # loads the table
     before = disk_bytes(home)
     k = max(n // 100, 1)
-    upd_s, _ = timed(lambda: t.update({'val': t.val + 1}, where=t.id < k))
-    rows = [{'id': i, 'val': -i} for i in range(k, 2 * k)]
-    batch_s, _ = timed(lambda: t.batch_update(rows))
-    one_s, _ = timed(lambda: t.update({'val': 7}, where=t.id == n // 2))
+    upd, batch, one = [], [], []
+    for r in range(5):
+        lo = r * 2 * k
+        dt, _ = timed(lambda: t.update({'val': t.val + 1}, where=(t.id >= lo) & (t.id < lo + k)))
+        upd.append(dt)
+        rows = [{'id': i, 'val': -i} for i in range(lo + k, lo + 2 * k)]
+        dt, _ = timed(lambda: t.batch_update(rows))
+        batch.append(dt)
+        dt, _ = timed(lambda: t.update({'val': 7}, where=t.id == n // 2 + r))
+        one.append(dt)
     return {
-        'update_1pct_ms': round(upd_s * 1000, 2),
-        'batch_update_1pct_ms': round(batch_s * 1000, 2),
-        'update_1row_ms': round(one_s * 1000, 2),
+        'update_1pct_ms': avg_ms(upd),
+        'batch_update_1pct_ms': avg_ms(batch),
+        'update_1row_ms': avg_ms(one),
         'disk_growth_mb': round((disk_bytes(home) - before) / 1e6, 2),
     }
 
@@ -142,10 +155,16 @@ def case_update(pxt: Any, home: Path, n: int) -> dict[str, Any]:
 def case_delete(pxt: Any, home: Path, n: int) -> dict[str, Any]:
     t = create(pxt, pk=True)
     fill(t, n)
+    t.count()  # loads the table
     k = max(n // 100, 1)
-    del_s, _ = timed(lambda: t.delete(where=t.id >= n - k))
-    one_s, _ = timed(lambda: t.delete(where=t.id == 0))
-    return {'delete_1pct_ms': round(del_s * 1000, 2), 'delete_1row_ms': round(one_s * 1000, 2)}
+    pct, one = [], []
+    for r in range(5):
+        hi = n - r * k
+        dt, _ = timed(lambda: t.delete(where=(t.id >= hi - k) & (t.id < hi)))
+        pct.append(dt)
+        dt, _ = timed(lambda: t.delete(where=t.id == r))
+        one.append(dt)
+    return {'delete_1pct_ms': avg_ms(pct), 'delete_1row_ms': avg_ms(one)}
 
 
 def case_time_travel(pxt: Any, home: Path, n: int) -> dict[str, Any]:
@@ -158,18 +177,17 @@ def case_time_travel(pxt: Any, home: Path, n: int) -> dict[str, Any]:
     # version 3 holds 3/10 of the rows; the current version (30) holds all of them
     old = pxt.get_table('bench.t:3')
     old.count()  # warm-up
-    old_count_s, cnt = timed(lambda: old.count())
-    assert cnt == 3 * (n // 10), cnt
-    old_collect_s, _ = timed(lambda: old.where(old.id == 5).collect())
-    cur_count_s, _ = timed(lambda: t.count())
+    assert old.count() == 3 * (n // 10)
     v15 = pxt.get_table('bench.t:15')
-    v15.count()
-    mid_s, _ = timed(lambda: v15.where(v15.val > 990).count())
+    old_count = [timed(lambda: old.count())[0] for _ in range(5)]
+    old_lookup = [timed(lambda: old.where(old.id == 5).collect())[0] for _ in range(5)]
+    mid_filter = [timed(lambda: v15.where(v15.val > 990).count())[0] for _ in range(5)]
+    cur_count = [timed(lambda: t.count())[0] for _ in range(5)]
     return {
-        'old_version_count_ms': round(old_count_s * 1000, 2),
-        'old_version_lookup_ms': round(old_collect_s * 1000, 2),
-        'mid_version_filter_ms': round(mid_s * 1000, 2),
-        'current_count_ms': round(cur_count_s * 1000, 2),
+        'old_version_count_ms': avg_ms(old_count),
+        'old_version_lookup_ms': avg_ms(old_lookup),
+        'mid_version_filter_ms': avg_ms(mid_filter),
+        'current_count_ms': avg_ms(cur_count),
     }
 
 
@@ -183,7 +201,7 @@ def case_reload(pxt: Any, home: Path, n: int) -> dict[str, Any]:
     first_s, cnt = timed(lambda: pxt.get_table('bench.t').count())
     assert cnt == n
     t2 = pxt.get_table('bench.t')
-    second_s, _ = timed(lambda: t2.count())
+    second_s = sorted(timed(lambda: t2.count())[0] for _ in range(5))[2]
     _testing.reload_catalog()
     lookup_s, _ = timed(lambda: pxt.get_table('bench.t').where(t2.id == 5).collect())
     return {

@@ -276,11 +276,11 @@ impl ViewCompute {
             rows = select_sample(candidates, &infos, sc)?;
             let unsampled = ViewCompute { predicate: None, sample: None, ..self.clone() };
             let refs: Vec<&[&StoredRow]> = rows.iter().map(|r| r.as_slice()).collect();
-            data.rows.extend(unsampled.rows_for_all(&infos, &refs, &mut status, saved)?.into_iter().map(|(_, r)| r));
+            data.append(unsampled.rows_for_all(&infos, &refs, &mut status, saved)?.into_iter().map(|(_, r)| r).collect(), 0);
             return Ok((data, status));
         }
         let refs: Vec<&[&StoredRow]> = rows.iter().map(|r| r.as_slice()).collect();
-        data.rows.extend(self.rows_for_all(&infos, &refs, &mut status, saved)?.into_iter().map(|(_, r)| r));
+        data.append(self.rows_for_all(&infos, &refs, &mut status, saved)?.into_iter().map(|(_, r)| r).collect(), 0);
         Ok((data, status))
     }
 }

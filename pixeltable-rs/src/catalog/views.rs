@@ -180,7 +180,7 @@ impl Catalog {
         md.schema_version_md(sv)
             .ok()
             .and_then(find)
-            .or_else(|| md.schema_versions.iter().rev().find_map(find))
+            .or_else(|| md.schema_versions.iter().rev().find_map(|s| find(s)))
     }
 
     /// `e` with its column references named as the tables of `path` name them at the versions it reads (tables
@@ -533,15 +533,15 @@ impl Catalog {
             next_col_id: columns.len() as ColId,
             next_rowid: 0,
             columns,
-            schema_versions: vec![SchemaVersionMd {
+            schema_versions: vec![Arc::new(SchemaVersionMd {
                 schema_version: 0,
                 preceding_schema_version: None,
                 columns: schema_cols,
                 comment: def.comment.clone(),
                 custom_metadata: def.custom_metadata.clone(),
                 media_validation: def.media_validation,
-            }],
-            versions: vec![version0],
+            })],
+            versions: vec![Arc::new(version0)],
             view: Some(ViewMd {
                 bases: base_path.iter().map(|e| (e.tbl_id, e.pinned)).collect(),
                 predicate: predicate.as_ref().map(|p| crate::expr::serde::to_json(p)).transpose()?,
@@ -550,7 +550,7 @@ impl Catalog {
                 iterator,
                 sample,
             }),
-            data_file: None,
+            storage: Default::default(),
             indexes: Default::default(),
         };
         if def.has_default_idxs {
@@ -587,7 +587,7 @@ impl Catalog {
             return Err(Error::internal("create_view(): parent is not a directory"));
         };
         md.dir_id = dir_id;
-        md.versions[0].row_count_stats = stats;
+        Arc::make_mut(&mut md.versions[0]).row_count_stats = stats;
         let id = md.id;
         self.tables.insert(id, Arc::new(md));
         match rows {

@@ -149,7 +149,7 @@ impl Catalog {
     fn bump_version_for_index(&mut self, tbl_id: Uuid) -> Result<i64> {
         let v = self.bump_version(tbl_id, Some(String::new()))?;
         let md = self.table_mut(tbl_id)?;
-        if let Some(vmd) = md.versions.iter_mut().find(|x| x.version == v) {
+        if let Some(vmd) = md.version_md_mut(v) {
             vmd.schema_change = None;
             vmd.change_type = "data".to_string();
         }
@@ -166,10 +166,10 @@ impl Catalog {
     /// (stored errors read as NULL, as upstream reads the values from the store). Does not commit.
     pub fn fill_btree_values(&mut self, tbl_id: Uuid, col_id: ColId, val_col_id: ColId) -> Result<()> {
         let mut data = self.data(tbl_id)?.as_ref().clone();
-        for r in data.rows.iter_mut() {
+        data.update_all_rows(|r| {
             let v = crate::functions::btree::truncate(r.cell(col_id));
             r.set_cell(val_col_id, v);
-        }
+        });
         self.stage_data(tbl_id, data)
     }
 
