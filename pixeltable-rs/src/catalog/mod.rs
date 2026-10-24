@@ -11,6 +11,7 @@ pub mod path;
 pub mod runtime;
 pub mod table;
 pub mod tables;
+pub mod versions;
 pub mod views;
 
 use std::collections::HashMap;
@@ -313,6 +314,13 @@ impl Catalog {
 
     /// Replaces the row data of a table: writes the data file, records it in the metadata and commits.
     pub fn write_data(&mut self, tbl_id: Uuid, data: TableData) -> Result<()> {
+        self.stage_data(tbl_id, data)?;
+        self.commit()
+    }
+
+    /// Replaces the row data of a table: writes the data file and records it in the metadata, without committing
+    /// (the operation commits once all its tables are staged).
+    pub fn stage_data(&mut self, tbl_id: Uuid, data: TableData) -> Result<()> {
         let version = self.table(tbl_id)?.current_version;
         let file = self.store.write_table_data(tbl_id, version, &data)?;
         self.written_files.push(file.clone());
@@ -322,7 +330,7 @@ impl Catalog {
         if let Some(old) = old {
             self.defer_delete_data_file(old);
         }
-        self.commit()
+        Ok(())
     }
 
     /// Removes a table's record; its files are deleted when the operation succeeds. No dependency checks (see

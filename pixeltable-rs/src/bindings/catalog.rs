@@ -11,8 +11,11 @@ use super::types::{is_type_form, normalize_type};
 use crate::catalog::dirs::{ContentNode, assemble_contents, extract_paths};
 use crate::catalog::path::{Path, fold_identifier};
 use crate::catalog::runtime::{self, with_catalog};
-use crate::catalog::table::MediaValidation;
+use crate::catalog::table::{MediaValidation, RowCountStats};
 use crate::catalog::tables::ColumnSpec;
+use crate::catalog::views::{ViewDef, ViewPlanOutcome};
+use crate::exec::propagate::ViewCompute;
+use crate::exec::scan::PathInput;
 use crate::catalog::{Catalog, IfExists, IfNotExists};
 use crate::error::{Error, Result, py_repr};
 use crate::value::Json;
@@ -342,7 +345,7 @@ fn tree_nodes<'py>(
                 let md = cat.table(*id)?;
                 let version: Option<i64> = if md.is_snapshot() { None } else { Some(md.current_version) };
                 let base = md.view.as_ref().and_then(|v| {
-                    path_by_id.get(&v.base_id).map(|bp| match v.base_version {
+                    path_by_id.get(&v.base_id()).map(|bp| match v.base_version() {
                         Some(ver) => format!("{bp}:{ver}"),
                         None => bp.clone(),
                     })
@@ -459,38 +462,77 @@ pub fn create_view(
     media_validation: &str,
     if_exists: &str,
 ) -> Result<(String, String, bool)> {
-    let (base_id, base_version, predicate) = if let Ok(spec) = base.getattr("_spec") {
+    let (base_id, base_version, predicate, select) = if let Ok(spec) = base.getattr("_spec") {
         let spec = spec.cast::<PyQuerySpec>().map_err(|_| Error::internal("Query._spec is not a QuerySpec"))?;
         let q = spec.get().q.clone();
-        if q.select.is_some() {
-            return Err(Error::not_implemented("create_view() over a query with a select list"));
+        for (clause, present) in [("order_by", !q.order_by.is_empty()), ("limit", q.limit.is_some() || q.offset.is_some())] {
+            if present {
+                crate::bail!(UnsupportedOperation, "`{clause}` cannot be used in a view definition.");
+            }
         }
-        if !q.order_by.is_empty() || q.limit.is_some() {
-            crate::bail!(UnsupportedOperation, "Cannot use `order_by` or `limit` in a view definition");
-        }
-        (q.tbl_id, q.version, q.where_)
+        (q.tbl_id, q.version, q.where_, q.select)
     } else if let Ok(tref) = base.getattr("_tbl_ref") {
         let (id, version): (String, Option<i64>) = tref.extract()?;
-        (parse_uuid(&id)?, version, None)
+        (parse_uuid(&id)?, version, None, None)
     } else {
         crate::bail!(TypeMismatch, "`base` must be an instance of `Table` or `Query`");
     };
-    let p = Path::parse(path, false, false)?;
-    let ie = IfExists::parse(if_exists, "if_exists")?;
-    let mv = MediaValidation::parse(media_validation, "media_validation")?;
-    if additional_columns.is_some_and(|a| !a.is_none() && a.len().unwrap_or(0) > 0) {
-        return Err(Error::not_implemented("create_view() with `additional_columns`"));
-    }
     if iterator.is_some_and(|i| !i.is_none()) {
         return Err(Error::not_implemented("create_view() with an `iterator`"));
     }
+    let p = Path::parse(path, false, false)?;
+    let ie = IfExists::parse(if_exists, "if_exists")?;
+    let mv = MediaValidation::parse(media_validation, "media_validation")?;
     let comment = comment_arg(comment)?;
     let custom_metadata = custom_metadata_json(custom_metadata)?;
-    let (id, created) = with_catalog(py, |cat| {
-        cat.create_view(&p, base_id, base_version, predicate, is_snapshot, comment, custom_metadata, mv, ie)
-    })?;
+    let additional_columns = match additional_columns.filter(|a| !a.is_none()) {
+        Some(a) => {
+            let d = a.cast::<PyDict>().map_err(|_| crate::pxt_err!(TypeMismatch, "`additional_columns` must be a dictionary"))?;
+            parse_schema(d)?
+        }
+        None => Vec::new(),
+    };
+    let def = ViewDef {
+        base_id,
+        base_version,
+        predicate,
+        select,
+        additional_columns,
+        is_snapshot,
+        comment,
+        custom_metadata,
+        media_validation: mv,
+    };
+    let (id, created) = create_view_from_def(py, &p, &def, ie)?;
     let kind = with_catalog(py, |cat| Ok(cat.table(id)?.kind.display_name().to_string()))?;
     Ok((id.to_string(), kind, created))
+}
+
+/// Plans a view (lock), computes its initial rows (no lock: value expressions may run Python code) and commits
+/// it (lock).
+fn create_view_from_def(py: Python<'_>, p: &Path, def: &ViewDef, ie: IfExists) -> Result<(Uuid, bool)> {
+    let planned = with_catalog(py, |cat| {
+        Ok(match cat.plan_view(p, def, ie)? {
+            ViewPlanOutcome::Existing(id) => Err(id),
+            ViewPlanOutcome::New(md, base_path) => {
+                let input = if md.is_pure_snapshot() { None } else { Some(PathInput::snapshot(cat, &base_path)?) };
+                Ok((md, base_path, input))
+            }
+        })
+    })?;
+    let (md, base_path, input) = match planned {
+        Err(existing) => return Ok((existing, false)),
+        Ok(x) => x,
+    };
+    let (rows, stats) = match &input {
+        Some(input) => {
+            let (data, status) = ViewCompute::of(&md)?.populate(input)?;
+            (Some(data), status.row_count_stats)
+        }
+        None => (None, RowCountStats::default()),
+    };
+    let id = with_catalog(py, |cat| cat.commit_view(p, *md, &base_path, rows, stats, ie))?;
+    Ok((id, true))
 }
 
 /// Returns (table id, kind, version) or None.

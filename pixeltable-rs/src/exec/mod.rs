@@ -10,20 +10,22 @@
 
 pub mod compute;
 pub mod insert;
+pub mod propagate;
+pub mod scan;
+pub mod update;
 
-use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::catalog::Catalog;
 use crate::catalog::path::{fold_identifier, is_valid_identifier};
 use crate::catalog::table::ResolvedColumn;
-use crate::catalog::views::ScanSource;
 use crate::error::{Error, Result, py_repr};
-use crate::expr::eval::{RowContext, eval, eval_predicate};
+use crate::expr::eval::{eval, eval_predicate};
 use crate::expr::{ColumnRef, Expr, ExprKind, ExprRef};
-use crate::store::rows::{StoredRow, TableData};
+use crate::store::rows::StoredRow;
 use crate::types::ColumnType;
 use crate::value::{Value, cmp_values};
+use scan::{ElemInfo, PathCtx, PathInput};
 
 #[derive(Debug, Clone)]
 pub struct QuerySpec {
@@ -185,8 +187,9 @@ impl QuerySpec {
     /// Fails if an expression of the query references a column that no longer exists (it was dropped after the
     /// query was built).
     pub fn check_columns_exist(&self, cat: &Catalog) -> Result<()> {
+        let path = cat.tbl_path(self.tbl_id, self.version)?;
         let visible: std::collections::HashSet<(Uuid, crate::catalog::table::ColId)> =
-            cat.resolve_columns(self.tbl_id, self.version)?.iter().map(|c| (c.tbl_id, c.md.id)).collect();
+            cat.path_columns(&path)?.iter().map(|c| (c.tbl_id, c.md.id)).collect();
         let mut exprs: Vec<&ExprRef> = Vec::new();
         if let Some(items) = &self.select {
             exprs.extend(items.iter().map(|(e, _)| e));
@@ -275,7 +278,7 @@ impl QuerySpec {
 pub fn column_ref_expr(c: &ResolvedColumn, version: Option<i64>) -> ExprRef {
     let _ = version;
     Expr::new(
-        ExprKind::ColumnRef(ColumnRef { tbl_id: c.tbl_id, col_id: c.md.id, name: c.name.clone(), tbl_version: None }),
+        ExprKind::ColumnRef(ColumnRef { tbl_id: c.tbl_id, col_id: c.md.id, name: c.name.clone(), tbl_version: c.tbl_version }),
         c.md.col_type.clone(),
     )
 }
@@ -312,87 +315,45 @@ pub fn output_names(items: &[(ExprRef, Option<String>)]) -> Vec<String> {
 
 /// Everything a query reads, captured under the catalog lock.
 pub struct QueryInput {
-    pub source: ScanSource,
-    pub version: i64,
-    pub data: Arc<TableData>,
+    /// the table path of the from-table
+    pub path: PathInput,
     pub select: Vec<(ExprRef, String)>,
-    pub predicates: Vec<ExprRef>,
-    /// value expressions of unstored computed columns of the scanned table, evaluated on read
-    pub unstored: std::collections::HashMap<crate::catalog::table::ColId, ExprRef>,
 }
 
 impl QueryInput {
     pub fn snapshot(cat: &mut Catalog, q: &QuerySpec) -> Result<QueryInput> {
         q.check_columns_exist(cat)?;
-        let source = cat.scan_source(q.tbl_id, q.version)?;
-        let base = cat.table(source.base_tbl_id)?;
-        let version = source.base_version.unwrap_or(base.current_version);
+        let path = cat.tbl_path(q.tbl_id, q.version)?;
         let select = q.effective_select(cat)?;
-        let predicates = source
-            .predicates
-            .iter()
-            .map(crate::expr::serde::from_json)
-            .collect::<Result<Vec<_>>>()?;
-        let mut unstored = std::collections::HashMap::new();
-        for c in &cat.table(source.base_tbl_id)?.columns {
-            if !c.stored {
-                if let Some(e) = &c.value_expr {
-                    unstored.insert(c.id, crate::expr::serde::from_json(e)?);
-                }
-            }
-        }
-        let data = cat.data(source.base_tbl_id)?;
-        Ok(QueryInput { source, version, data, select, predicates, unstored })
+        Ok(QueryInput { path: PathInput::snapshot(cat, &path)?, select })
     }
 }
 
-struct StoredRowCtx<'a> {
-    row: &'a StoredRow,
-    unstored: &'a std::collections::HashMap<crate::catalog::table::ColId, ExprRef>,
-}
-
-impl RowContext for StoredRowCtx<'_> {
-    fn column_value(&self, col: &ColumnRef) -> Result<Value> {
-        match self.unstored.get(&col.col_id) {
-            Some(e) => eval(e, self),
-            None => Ok(self.row.cell(col.col_id).clone()),
-        }
-    }
-}
-
-/// The rows visible to the query (version + view predicates + where clause), in rowid order.
-fn filtered_rows<'a>(input: &'a QueryInput, q: &QuerySpec) -> Result<Vec<&'a StoredRow>> {
-    let mut rows: Vec<&StoredRow> = input.data.visible_at(input.version).collect();
-    rows.sort_by_key(|r| r.rowid);
+/// The rows visible to the query (version + where clause), in key order; one row per table of the path.
+fn filtered_rows<'a>(input: &'a QueryInput, infos: &[&ElemInfo], q: &QuerySpec) -> Result<Vec<Vec<&'a StoredRow>>> {
+    let rows = input.path.rows()?;
+    let Some(w) = &q.where_ else { return Ok(rows) };
     let mut out = Vec::with_capacity(rows.len());
-    'rows: for r in rows {
-        let ctx = StoredRowCtx { row: r, unstored: &input.unstored };
-        for p in &input.predicates {
-            if !eval_predicate(p, &ctx)? {
-                continue 'rows;
-            }
+    for r in rows {
+        if eval_predicate(w, &PathCtx { elems: infos, rows: &r })? {
+            out.push(r);
         }
-        if let Some(w) = &q.where_ {
-            if !eval_predicate(w, &ctx)? {
-                continue;
-            }
-        }
-        out.push(r);
     }
     Ok(out)
 }
 
 /// Runs the query. `rowid_desc`: for `tail()`, order by rowid descending instead of ascending.
 pub fn execute(input: &QueryInput, q: &QuerySpec, rowid_desc: bool) -> Result<ResultData> {
-    let mut rows = filtered_rows(input, q)?;
+    let infos = input.path.infos();
+    let mut rows = filtered_rows(input, &infos, q)?;
     if rowid_desc {
         rows.reverse();
     }
     if !q.order_by.is_empty() {
-        let mut keyed: Vec<(Vec<Value>, &StoredRow)> = rows
+        let mut keyed: Vec<(Vec<Value>, Vec<&StoredRow>)> = rows
             .into_iter()
             .map(|r| {
-                let ctx = StoredRowCtx { row: r, unstored: &input.unstored };
+                let ctx = PathCtx { elems: &infos, rows: &r };
                 let keys = q.order_by.iter().map(|(e, _)| eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
                 Ok((keys, r))
             })
@@ -411,13 +372,13 @@ pub fn execute(input: &QueryInput, q: &QuerySpec, rowid_desc: bool) -> Result<Re
         rows = keyed.into_iter().map(|(_, r)| r).collect();
     }
     let offset = q.offset.unwrap_or(0).max(0) as usize;
-    let rows: Vec<&StoredRow> = match q.limit {
+    let rows: Vec<Vec<&StoredRow>> = match q.limit {
         Some(n) => rows.into_iter().skip(offset).take(n.max(0) as usize).collect(),
         None => rows.into_iter().skip(offset).collect(),
     };
     let mut out_rows = Vec::with_capacity(rows.len());
     for r in rows {
-        let ctx = StoredRowCtx { row: r, unstored: &input.unstored };
+        let ctx = PathCtx { elems: &infos, rows: &r };
         out_rows.push(input.select.iter().map(|(e, _)| eval(e, &ctx)).collect::<Result<Vec<_>>>()?);
     }
     Ok(ResultData {
@@ -435,5 +396,6 @@ pub fn count(input: &QueryInput, q: &QuerySpec) -> Result<usize> {
             "count() cannot be used with limit() or offset(). Use `select(pxtf.count())` instead."
         );
     }
-    Ok(filtered_rows(input, q)?.len())
+    let infos = input.path.infos();
+    Ok(filtered_rows(input, &infos, q)?.len())
 }

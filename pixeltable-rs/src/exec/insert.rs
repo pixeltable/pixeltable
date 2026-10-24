@@ -9,11 +9,13 @@ use std::collections::HashSet;
 use uuid::Uuid;
 
 use super::compute::{ComputedCol, eval_computed};
+use super::propagate::{InsertedViewRows, ViewNode, add_stats, commit_inserted_rows, compute_inserted_rows, record_version_status};
+use super::scan::ElemInfo;
 use crate::catalog::Catalog;
 use crate::catalog::table::{ColId, RowCountStats};
 use crate::error::{Result, py_repr};
 use crate::expr::ExprRef;
-use crate::store::rows::{LIVE, StoredRow};
+use crate::store::rows::StoredRow;
 use crate::types::ColumnType;
 use crate::value::Value;
 
@@ -43,6 +45,9 @@ pub struct InsertPlan {
     pub tbl_name: String,
     pub schema_version: i64,
     pub columns: Vec<InsertColumn>,
+    pub info: ElemInfo,
+    /// the live views the inserted rows propagate to
+    pub views: Vec<ViewNode>,
 }
 
 /// Statistics of a completed operation (becomes a Python `UpdateStatus`).
@@ -52,6 +57,51 @@ pub struct UpdateStatus {
     pub cols_with_excs: Vec<String>,
     pub row_count_stats: RowCountStats,
     pub cascade_row_count_stats: RowCountStats,
+}
+
+fn union(a: Vec<String>, b: Vec<String>) -> Vec<String> {
+    let mut out = a;
+    for x in b {
+        if !out.contains(&x) {
+            out.push(x);
+        }
+    }
+    out
+}
+
+impl std::ops::Add for UpdateStatus {
+    type Output = UpdateStatus;
+
+    /// Upstream `UpdateStatus.__add__()`.
+    fn add(self, other: UpdateStatus) -> UpdateStatus {
+        UpdateStatus {
+            updated_cols: union(self.updated_cols, other.updated_cols),
+            cols_with_excs: union(self.cols_with_excs, other.cols_with_excs),
+            row_count_stats: add_stats(&self.row_count_stats, &other.row_count_stats),
+            cascade_row_count_stats: add_stats(&self.cascade_row_count_stats, &other.cascade_row_count_stats),
+        }
+    }
+}
+
+impl UpdateStatus {
+    /// Upstream `to_cascade()`: the status of a change cascaded to another table.
+    pub fn to_cascade(self) -> UpdateStatus {
+        UpdateStatus {
+            updated_cols: self.updated_cols,
+            cols_with_excs: self.cols_with_excs,
+            row_count_stats: RowCountStats::default(),
+            cascade_row_count_stats: add_stats(&self.cascade_row_count_stats, &self.row_count_stats),
+        }
+    }
+
+    /// Upstream `insert_to_update()`: rows (re)inserted by an update count as updated.
+    pub fn insert_to_update(mut self) -> UpdateStatus {
+        for s in [&mut self.row_count_stats, &mut self.cascade_row_count_stats] {
+            s.upd_rows += s.ins_rows;
+            s.ins_rows = 0;
+        }
+        self
+    }
 }
 
 impl InsertPlan {
@@ -75,7 +125,14 @@ impl InsertPlan {
                 })
             })
             .collect::<Result<_>>()?;
-        Ok(InsertPlan { tbl_id, tbl_name: md.name.clone(), schema_version: md.current_schema_version, columns })
+        Ok(InsertPlan {
+            tbl_id,
+            tbl_name: md.name.clone(),
+            schema_version: md.current_schema_version,
+            columns,
+            info: ElemInfo::of(md, None)?,
+            views: ViewNode::tree(cat, tbl_id)?,
+        })
     }
 
     pub fn column(&self, name: &str) -> Option<&InsertColumn> {
@@ -87,7 +144,13 @@ impl InsertPlan {
         self.columns
             .iter()
             .filter(|c| c.stored)
-            .filter_map(|c| c.value_expr.as_ref().map(|e| ComputedCol { col_id: c.col_id, name: c.name.clone(), expr: e.clone() }))
+            .filter_map(|c| {
+                c.value_expr.as_ref().map(|e| ComputedCol {
+                    col_id: c.col_id,
+                    name: format!("{}.{}", self.tbl_name, c.name),
+                    expr: e.clone(),
+                })
+            })
             .collect()
     }
 }
@@ -95,11 +158,13 @@ impl InsertPlan {
 /// A converted input row: a value for every column of the plan that was given (others are NULL or computed).
 pub type InputRow = Vec<(ColId, Value)>;
 
-/// Rows ready to be stored (rowids and versions are assigned at commit).
+/// Rows ready to be stored (rowids and versions are assigned at commit): the table's rows (with provisional rowids
+/// 0, 1, ...) and the rows they add to the table's views.
 pub struct BuiltRows {
     pub rows: Vec<StoredRow>,
     pub stats: RowCountStats,
     pub cols_with_excs: Vec<String>,
+    pub views: Vec<InsertedViewRows>,
 }
 
 /// Evaluates computed columns for the input rows (no catalog lock held).
@@ -108,16 +173,18 @@ pub fn build_rows(plan: &InsertPlan, inputs: Vec<InputRow>, fail_on_exception: b
     let mut stats = RowCountStats::default();
     let mut cols_with_excs = Vec::new();
     let mut rows = Vec::with_capacity(inputs.len());
-    for input in inputs {
-        let mut row = StoredRow { rowid: 0, v_min: 0, v_max: LIVE, cells: Vec::new(), errors: Vec::new() };
+    for (i, input) in inputs.into_iter().enumerate() {
+        let mut row = StoredRow::new(i as i64, Vec::new());
         for (col_id, v) in input {
             row.set_cell(col_id, v);
         }
-        eval_computed(&mut row, &computed, fail_on_exception, &mut stats, &mut cols_with_excs)?;
+        eval_computed(&mut row, &plan.info, &computed, fail_on_exception, &mut stats, &mut cols_with_excs)?;
         stats.ins_rows += 1;
         rows.push(row);
     }
-    Ok(BuiltRows { rows, stats, cols_with_excs })
+    let paths: Vec<Vec<&StoredRow>> = rows.iter().map(|r| vec![r]).collect();
+    let views = compute_inserted_rows(&plan.views, &[&plan.info], &paths)?;
+    Ok(BuiltRows { rows, stats, cols_with_excs, views })
 }
 
 fn pk_key(row: &StoredRow, pk_cols: &[ColId]) -> String {
@@ -157,31 +224,28 @@ pub fn commit(cat: &mut Catalog, plan: &InsertPlan, built: BuiltRows) -> Result<
             }
         }
     }
+    ViewNode::check_unchanged(cat, plan.tbl_id, &plan.views)?;
     let version = if md.is_data_versioned { md.current_version + 1 } else { md.current_version };
-    let mut next_rowid = md.next_rowid;
+    let rowid_offset = md.next_rowid;
+    let num_rows = built.rows.len() as i64;
     for mut r in built.rows {
-        r.rowid = next_rowid;
+        r.rowid += rowid_offset;
         r.v_min = version;
-        next_rowid += 1;
         data.rows.push(r);
     }
     if md.is_data_versioned {
         cat.bump_version(plan.tbl_id, None)?;
     }
-    {
-        let md = cat.table_mut(plan.tbl_id)?;
-        md.next_rowid = next_rowid;
-        if let Some(vmd) = md.versions.iter_mut().find(|v| v.version == version) {
-            vmd.row_count_stats.ins_rows += built.stats.ins_rows;
-            vmd.row_count_stats.num_excs += built.stats.num_excs;
-            vmd.row_count_stats.computed_values += built.stats.computed_values;
-        }
-    }
-    cat.write_data(plan.tbl_id, data)?;
-    Ok(UpdateStatus {
+    cat.table_mut(plan.tbl_id)?.next_rowid = rowid_offset + num_rows;
+    let own = UpdateStatus {
         updated_cols: Vec::new(),
         cols_with_excs: built.cols_with_excs,
         row_count_stats: built.stats,
         cascade_row_count_stats: RowCountStats::default(),
-    })
+    };
+    let cascade = commit_inserted_rows(cat, &plan.views, built.views, (plan.tbl_id, version), rowid_offset)?;
+    let status = own + cascade;
+    record_version_status(cat, plan.tbl_id, &status)?;
+    cat.write_data(plan.tbl_id, data)?;
+    Ok(status)
 }

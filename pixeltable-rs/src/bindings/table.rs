@@ -1,7 +1,7 @@
 //! Functions behind table handles (`pixeltable.Table` holds a table id and an optional pinned version).
 
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyString, PyTuple};
+use pyo3::types::{PyDict, PyList, PyString};
 use uuid::Uuid;
 
 use super::catalog::{parse_schema, parse_uuid};
@@ -142,7 +142,7 @@ fn lower_first(msg: &str) -> String {
 }
 
 /// Saves in-memory media (PIL images, bytes) to the table's media directory; returns the file path.
-fn save_media(obj: &Bound<'_, PyAny>, media_dir: &std::path::Path) -> Result<String> {
+pub fn save_media(obj: &Bound<'_, PyAny>, media_dir: &std::path::Path) -> Result<String> {
     std::fs::create_dir_all(media_dir)?;
     let py = obj.py();
     if obj.is_instance(vpy::pil_image_cls(py)?)? {
@@ -257,6 +257,7 @@ pub fn tbl_metadata<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
     with_catalog(py, |cat| {
         let md = cat.table(id)?.clone();
         let path = cat.table_path(id)?;
+        let tbl_path = cat.tbl_path(id, version)?;
         let cols = cat.resolve_columns(id, version)?;
         let tbl_media_validation = md.current_schema()?.media_validation;
         let columns = PyDict::new(py);
@@ -269,21 +270,22 @@ pub fn tbl_metadata<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
             cm.set_item("is_stored", c.md.stored)?;
             cm.set_item("is_primary_key", c.md.is_pk)?;
             let mv = if c.md.col_type.is_media() {
-                Some(c.md.media_validation.unwrap_or(tbl_media_validation).name())
+                let owner_default = owner.current_schema().map(|s| s.media_validation).unwrap_or(tbl_media_validation);
+                Some(c.md.media_validation.unwrap_or(owner_default).name())
             } else {
                 None
             };
             cm.set_item("media_validation", mv)?;
             cm.set_item("is_computed", c.md.is_computed())?;
             let computed_with = match &c.md.value_expr {
-                Some(e) => Some(crate::expr::display::display(&*crate::expr::serde::from_json(e)?)),
+                Some(e) => Some(crate::expr::display::display(&cat.with_column_names(&crate::expr::serde::from_json(e)?, &tbl_path))),
                 None => None,
             };
             cm.set_item("computed_with", computed_with)?;
             cm.set_item("is_builtin", if c.md.is_computed() { Some(true) } else { None })?;
             let depends_on: Option<Vec<(String, String)>> = match &c.md.value_expr {
                 Some(e) => {
-                    let e = crate::expr::serde::from_json(e)?;
+                    let e = cat.with_column_names(&crate::expr::serde::from_json(e)?, &tbl_path);
                     let mut deps: Vec<(String, String)> = e
                         .column_refs()
                         .iter()
@@ -310,15 +312,20 @@ pub fn tbl_metadata<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
         let d = PyDict::new(py);
         let uuid_cls = py.import("uuid")?.getattr("UUID")?;
         d.set_item("id", uuid_cls.call1((id.to_string(),))?)?;
-        d.set_item("name", &md.name)?;
-        d.set_item("path", path.to_string())?;
-        d.set_item("kind", md.kind.display_name())?;
+        // a version-pinned handle is an anonymous snapshot
+        let (name, path_str, kind) = match version {
+            Some(v) => (format!("{}:{v}", md.name), format!("{path}:{v}"), "snapshot"),
+            None => (md.name.clone(), path.to_string(), md.kind.display_name()),
+        };
+        d.set_item("name", name)?;
+        d.set_item("path", path_str)?;
+        d.set_item("kind", kind)?;
         d.set_item("columns", columns)?;
         d.set_item("indexes", PyDict::new(py))?;
         d.set_item("is_data_versioned", md.is_data_versioned)?;
         d.set_item("has_default_idxs", md.has_default_idxs)?;
-        d.set_item("is_view", md.is_view())?;
-        d.set_item("is_snapshot", md.is_snapshot())?;
+        d.set_item("is_view", md.is_view() || version.is_some())?;
+        d.set_item("is_snapshot", md.is_snapshot() || version.is_some())?;
         d.set_item("version", tv)?;
         let dt = py.import("datetime")?;
         let utc = dt.getattr("timezone")?.getattr("utc")?;
@@ -328,9 +335,15 @@ pub fn tbl_metadata<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
         d.set_item("custom_metadata", vpy::json_to_py(py, &sv.custom_metadata)?)?;
         d.set_item("media_validation", sv.media_validation.name())?;
         d.set_item("primary_key", if pk.is_empty() { None } else { Some(pk) })?;
-        d.set_item("base", cat.base_display(id)?)?;
+        d.set_item(
+            "base",
+            match version {
+                Some(v) => cat.pinned_base_display(id, v)?,
+                None => cat.base_display(id)?,
+            },
+        )?;
         let view_filter = match md.view.as_ref().and_then(|v| v.predicate.as_ref()) {
-            Some(p) => Some(crate::expr::display::display(&*crate::expr::serde::from_json(p)?)),
+            Some(p) => Some(crate::expr::display::display(&cat.with_column_names(&crate::expr::serde::from_json(p)?, &[]))),
             None => None,
         };
         d.set_item("view_filter", view_filter)?;
@@ -480,30 +493,4 @@ pub fn tbl_drop_column(py: Python<'_>, tbl_id: &str, column: &Bound<'_, PyAny>, 
 pub fn tbl_rename_column(py: Python<'_>, tbl_id: &str, old_name: &str, new_name: &str) -> Result<()> {
     let id = parse_uuid(tbl_id)?;
     with_catalog(py, |cat| cat.rename_column(id, old_name, new_name))
-}
-
-/// Versions of a table, newest first (for `get_versions()`): tuples of
-/// (version, created_at, change_type, inserts, updates, deletes, errors, schema_change).
-#[pyfunction]
-#[pyo3(signature = (tbl_id, n=None))]
-pub fn tbl_versions<'py>(py: Python<'py>, tbl_id: &str, n: Option<usize>) -> Result<Vec<Bound<'py, PyTuple>>> {
-    let id = parse_uuid(tbl_id)?;
-    let md = with_catalog(py, |cat| Ok(cat.table(id)?.clone()))?;
-    let mut out = Vec::new();
-    for v in md.versions.iter().rev().take(n.unwrap_or(usize::MAX)) {
-        out.push(PyTuple::new(
-            py,
-            [
-                v.version.into_pyobject(py)?.into_any(),
-                v.created_at.into_pyobject(py)?.into_any(),
-                v.change_type.clone().into_pyobject(py)?.into_any(),
-                v.row_count_stats.ins_rows.into_pyobject(py)?.into_any(),
-                v.row_count_stats.upd_rows.into_pyobject(py)?.into_any(),
-                v.row_count_stats.del_rows.into_pyobject(py)?.into_any(),
-                v.row_count_stats.num_excs.into_pyobject(py)?.into_any(),
-                v.schema_change.clone().into_pyobject(py)?.into_any(),
-            ],
-        )?);
-    }
-    Ok(out)
 }

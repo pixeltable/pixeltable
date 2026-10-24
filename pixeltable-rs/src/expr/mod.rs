@@ -242,7 +242,50 @@ impl ExprKind {
     }
 }
 
+impl ExprKind {
+    /// The same node with each direct sub-expression replaced by `f(child)`.
+    pub fn map_children(&self, f: &mut dyn FnMut(&ExprRef) -> ExprRef) -> ExprKind {
+        match self {
+            ExprKind::ColumnRef(_) | ExprKind::Literal(_) => self.clone(),
+            ExprKind::Arithmetic { op, lhs, rhs } => ExprKind::Arithmetic { op: *op, lhs: f(lhs), rhs: f(rhs) },
+            ExprKind::StringOp { op, lhs, rhs } => ExprKind::StringOp { op: *op, lhs: f(lhs), rhs: f(rhs) },
+            ExprKind::Comparison { op, lhs, rhs } => ExprKind::Comparison { op: *op, lhs: f(lhs), rhs: f(rhs) },
+            ExprKind::InExpr { lhs, rhs } => ExprKind::InExpr { lhs: f(lhs), rhs: f(rhs) },
+            ExprKind::Compound { op, operands } => ExprKind::Compound { op: *op, operands: operands.iter().map(|o| f(o)).collect() },
+            ExprKind::IsNull(e) => ExprKind::IsNull(f(e)),
+            ExprKind::TypeCast(e) => ExprKind::TypeCast(f(e)),
+            ExprKind::InList { lhs, values, display } => {
+                ExprKind::InList { lhs: f(lhs), values: values.clone(), display: display.clone() }
+            }
+            ExprKind::InlineList(items) => ExprKind::InlineList(items.iter().map(|e| f(e)).collect()),
+            ExprKind::InlineArray(items) => ExprKind::InlineArray(items.iter().map(|e| f(e)).collect()),
+            ExprKind::InlineDict(items) => ExprKind::InlineDict(items.iter().map(|(k, e)| (k.clone(), f(e))).collect()),
+            ExprKind::JsonPath { base, path } => ExprKind::JsonPath { base: f(base), path: path.clone() },
+            ExprKind::ArraySlice { base, index } => ExprKind::ArraySlice { base: f(base), index: index.clone() },
+            ExprKind::FunctionCall(fc) => ExprKind::FunctionCall(FunctionCall {
+                func: fc.func.clone(),
+                args: fc.args.iter().map(|e| f(e)).collect(),
+                kwargs: fc.kwargs.iter().map(|(k, e)| (k.clone(), f(e))).collect(),
+            }),
+        }
+    }
+}
+
 impl Expr {
+    /// A copy of this expression with every column reference replaced by `f(column ref)` (None: unchanged).
+    pub fn map_column_refs(self: &ExprRef, f: &dyn Fn(&ColumnRef) -> Option<ColumnRef>) -> ExprRef {
+        if let ExprKind::ColumnRef(c) = &self.kind {
+            return match f(c) {
+                Some(new) => Expr::new(ExprKind::ColumnRef(new), self.col_type.clone()),
+                None => self.clone(),
+            };
+        }
+        if self.kind.children().is_empty() {
+            return self.clone();
+        }
+        Expr::new(self.kind.map_children(&mut |c| c.map_column_refs(f)), self.col_type.clone())
+    }
+
     pub fn new(kind: ExprKind, col_type: ColumnType) -> ExprRef {
         Arc::new(Expr { kind, col_type })
     }
