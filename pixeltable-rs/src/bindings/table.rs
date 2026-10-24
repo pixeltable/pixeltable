@@ -356,6 +356,21 @@ pub fn tbl_compute<'py>(
     Ok((data, col_types, errors))
 }
 
+/// Upstream `Column.calls_custom_udf`: the expression calls a function that is not part of Pixeltable.
+fn calls_custom_udf(e: &crate::expr::Expr) -> bool {
+    let mut custom = false;
+    e.visit(&mut |n| {
+        if let crate::expr::ExprKind::FunctionCall(fc) = &n.kind {
+            if let crate::functions::FuncRef::Udf(call) = &fc.func {
+                if !call.def.self_path.as_deref().is_some_and(|p| p.starts_with("pixeltable.")) {
+                    custom = true;
+                }
+            }
+        }
+    });
+    custom
+}
+
 /// `Table.get_metadata()`
 #[pyfunction]
 #[pyo3(signature = (tbl_id, version=None))]
@@ -389,7 +404,11 @@ pub fn tbl_metadata<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
                 None => None,
             };
             cm.set_item("computed_with", computed_with)?;
-            cm.set_item("is_builtin", if c.md.is_computed() { Some(true) } else { None })?;
+            let is_builtin = match &c.md.value_expr {
+                Some(e) => Some(!calls_custom_udf(&*crate::expr::serde::from_json(e)?)),
+                None => None,
+            };
+            cm.set_item("is_builtin", is_builtin)?;
             let depends_on: Option<Vec<(String, String)>> = match &c.md.value_expr {
                 Some(e) => {
                     let e = cat.with_column_names(&crate::expr::serde::from_json(e)?, &tbl_path);
@@ -428,7 +447,7 @@ pub fn tbl_metadata<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
         d.set_item("path", path_str)?;
         d.set_item("kind", kind)?;
         d.set_item("columns", columns)?;
-        d.set_item("indexes", PyDict::new(py))?;
+        d.set_item("indexes", super::indexes::indexes_metadata(py, cat, id)?)?;
         d.set_item("is_data_versioned", md.is_data_versioned)?;
         d.set_item("has_default_idxs", md.has_default_idxs)?;
         d.set_item("is_view", md.is_view() || version.is_some())?;

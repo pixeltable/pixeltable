@@ -165,8 +165,13 @@ impl Catalog {
             versions: vec![VersionMd::new(0, ts, 0, "schema", None)],
             view: None,
             data_file: None,
+            indexes: Default::default(),
         };
+        let col_ids: Vec<ColId> = md.columns.iter().map(|c| c.id).collect();
         self.tables.insert(tbl_id, Arc::new(md));
+        for col_id in col_ids {
+            self.add_default_index(tbl_id, col_id)?;
+        }
         self.commit()?;
         Ok((tbl_id, true))
     }
@@ -332,7 +337,12 @@ impl Catalog {
             destination: spec.destination,
         });
         let sv = md.schema_versions.last_mut().ok_or_else(|| Error::internal("table has no schema versions"))?;
+<<<<<<< HEAD
         sv.columns.push(SchemaColumn::new(id, spec.name));
+=======
+        sv.columns.push(SchemaColumn { col_id: id, name: spec.name });
+        self.add_default_index(tbl_id, id)?;
+>>>>>>> claude/eager-edison-12cqei
         Ok(id)
     }
 
@@ -506,6 +516,7 @@ impl Catalog {
         if let Some(sv) = md.schema_versions.last_mut() {
             sv.columns.retain(|c| c.col_id != col.md.id);
         }
+        self.remove_indexes_on_column(tbl_id, col.md.id, new_version)?;
         self.commit()
     }
 

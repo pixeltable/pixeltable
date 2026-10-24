@@ -7,6 +7,7 @@
 //! metadata), `views.rs` (views and snapshots); data mutations (insert, ...) are in `exec`.
 
 pub mod dirs;
+pub mod indexes;
 pub mod path;
 pub mod runtime;
 pub mod table;

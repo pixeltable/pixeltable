@@ -119,7 +119,7 @@ impl InsertPlan {
             crate::bail!(UnsupportedOperation, "{}: Cannot insert into a {kind}.", cat.display_str(tbl_id)?);
         }
         let tbl_media_validation = md.current_schema()?.media_validation;
-        let columns = md
+        let columns: Vec<InsertColumn> = md
             .columns_at(None)?
             .into_iter()
             .map(|c| {
@@ -144,6 +144,25 @@ impl InsertPlan {
             if let Some(e) = &c.value_expr {
                 crate::functions::udf::check_valid_column(&tbl_display, &c.name, e, "inserted into")?;
             }
+        }
+        let mut columns: Vec<InsertColumn> = columns;
+        // the hidden value columns of embedding indexes are computed like stored computed columns
+        for idx in &md.indexes.list {
+            let Some(val_col_id) = idx.val_col_id() else { continue };
+            let (Some(val_col), Some(indexed)) = (md.column(val_col_id), columns.iter().find(|c| c.col_id == idx.col_id))
+            else {
+                continue;
+            };
+            let name = format!("{}:{}", indexed.name, idx.name);
+            columns.push(InsertColumn {
+                col_id: val_col_id,
+                name,
+                col_type: val_col.col_type.clone(),
+                value_expr: val_col.value_expr.as_ref().map(crate::expr::serde::from_json).transpose()?,
+                stored: true,
+                is_pk: false,
+                media_validation: None,
+            });
         }
         let version = if md.is_data_versioned { md.current_version + 1 } else { md.current_version };
         Ok(InsertPlan {
@@ -170,7 +189,7 @@ impl InsertPlan {
             .filter_map(|c| {
                 c.value_expr.as_ref().map(|e| ComputedCol {
                     col_id: c.col_id,
-                    name: c.name.clone(),
+                    name: format!("{}.{}", self.tbl_name, c.name),
                     expr: e.clone(),
                     is_media: c.col_type.is_media(),
                 })

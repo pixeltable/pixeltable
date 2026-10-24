@@ -265,6 +265,27 @@ pub enum ExprKind {
     /// a named parameter of an expression template (`@pxt.expr_udf`, `Function.using()`, `@pxt.query`), replaced by
     /// an argument when the template is instantiated (`crate::functions::udf::substitute`)
     Variable(String),
+    /// `col.similarity(item)` against an embedding index of `col` (a ColumnRef node)
+    Similarity(Similarity),
+}
+
+/// A similarity lookup against an embedding index (upstream `SimilarityExpr`).
+#[derive(Debug, Clone)]
+pub struct Similarity {
+    pub col: ExprRef,
+    /// the query value (a constant)
+    pub item: ExprRef,
+    pub idx_name: String,
+    /// the table holding the index and its value column
+    pub idx_tbl_id: Uuid,
+    /// the index's hidden value column (the embeddings of the column's values)
+    pub val_col_id: ColId,
+    /// `cosine`, `ip` or `l2`
+    pub metric: String,
+    /// the embedding of `item` (the index's embedding function applied to it)
+    pub item_embedding: ExprRef,
+    /// `item_embedding`'s value, computed once per expression
+    pub cache: Arc<std::sync::OnceLock<Value>>,
 }
 
 #[derive(Debug, Clone)]
@@ -292,6 +313,7 @@ impl ExprKind {
             ExprKind::Compound { operands, .. } => operands.iter().collect(),
             ExprKind::IsNull(e) | ExprKind::TypeCast(e) => vec![e],
             ExprKind::ColumnProperty { col, .. } => vec![col],
+            ExprKind::Similarity(sim) => vec![&sim.col, &sim.item],
             ExprKind::InList { lhs, .. } => vec![lhs],
             ExprKind::InlineList(items) | ExprKind::InlineArray(items) => items.iter().collect(),
             ExprKind::InlineDict(items) => items.iter().map(|(_, e)| e).collect(),
@@ -317,6 +339,7 @@ impl ExprKind {
             ExprKind::IsNull(_) => ExprKind::IsNull(next()),
             ExprKind::TypeCast(_) => ExprKind::TypeCast(next()),
             ExprKind::ColumnProperty { prop, .. } => ExprKind::ColumnProperty { col: next(), prop: *prop },
+            ExprKind::Similarity(sim) => ExprKind::Similarity(Similarity { col: next(), item: next(), ..sim.clone() }),
             ExprKind::InList { values, display, .. } => {
                 ExprKind::InList { lhs: next(), values: values.clone(), display: display.clone() }
             }
@@ -421,6 +444,7 @@ impl Expr {
             ExprKind::Literal(_) => Some("Literal".to_string()),
             ExprKind::FunctionCall(fc) => Some(fc.func.name().to_string()),
             ExprKind::ColumnProperty { .. } => Some(crate::expr::display::display(self).replace('.', "_")),
+            ExprKind::Similarity(_) => Some("similarity".to_string()),
             _ => None,
         }
     }

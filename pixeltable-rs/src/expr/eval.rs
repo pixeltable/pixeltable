@@ -154,6 +154,26 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
         ExprKind::JsonPath { .. } | ExprKind::ArraySlice { .. } => {
             Err(Error::not_implemented(format!("evaluation of `{}`", super::display::display(e))))
         }
+        ExprKind::Similarity(sim) => {
+            if ctx.python_semantics() {
+                crate::bail!(UnsupportedOperation, "similarity(): cannot be used in a computed column");
+            }
+            let stored = ctx.column_value(&ColumnRef {
+                tbl_id: sim.idx_tbl_id,
+                col_id: sim.val_col_id,
+                name: String::new(),
+                tbl_version: None,
+            })?;
+            let query = match sim.cache.get() {
+                Some(v) => v.clone(),
+                None => {
+                    let v = eval(&sim.item_embedding, ctx)?;
+                    let _ = sim.cache.set(v.clone());
+                    v
+                }
+            };
+            Ok(similarity_score(&sim.metric, &stored, &query))
+        }
         ExprKind::ColumnProperty { col, prop } => {
             let c = col.as_column_ref().ok_or_else(|| Error::internal("column property of a non-column"))?;
             if prop.is_cellmd() {
@@ -302,6 +322,49 @@ pub fn arithmetic(op: ArithOp, a: &Value, b: &Value, a_json: bool, b_json: bool,
             }
         }
         ArithOp::Pow => Value::Float(x.powf(y)),
+    })
+}
+
+fn vector(v: &Value) -> Option<Vec<f64>> {
+    use crate::value::ArrayData;
+    let Value::Array(a) = v else { return None };
+    Some(match &a.data {
+        ArrayData::F32(x) => x.iter().map(|f| *f as f64).collect(),
+        ArrayData::F64(x) => x.clone(),
+        ArrayData::F16(bits) => bits.iter().map(|b| half_to_f64(*b)).collect(),
+        ArrayData::I64(x) => x.iter().map(|i| *i as f64).collect(),
+        ArrayData::I32(x) => x.iter().map(|i| *i as f64).collect(),
+        _ => return None,
+    })
+}
+
+fn half_to_f64(bits: u16) -> f64 {
+    let sign = if bits & 0x8000 != 0 { -1.0 } else { 1.0 };
+    let exp = ((bits >> 10) & 0x1f) as i32;
+    let frac = (bits & 0x3ff) as f64;
+    match exp {
+        0 => sign * frac * 2f64.powi(-24),
+        31 => if frac == 0.0 { sign * f64::INFINITY } else { f64::NAN },
+        e => sign * (1.0 + frac / 1024.0) * 2f64.powi(e - 15),
+    }
+}
+
+/// The similarity of two embeddings under an index metric (upstream `EmbeddingIndex.similarity_clause()`): cosine
+/// similarity, inner product, or L2 distance.
+pub fn similarity_score(metric: &str, a: &Value, b: &Value) -> Value {
+    let (Some(x), Some(y)) = (vector(a), vector(b)) else { return Value::Null };
+    if x.len() != y.len() {
+        return Value::Null;
+    }
+    let dot: f64 = x.iter().zip(&y).map(|(p, q)| p * q).sum();
+    Value::Float(match metric {
+        "ip" => dot,
+        "l2" => x.iter().zip(&y).map(|(p, q)| (p - q) * (p - q)).sum::<f64>().sqrt(),
+        _ => {
+            let nx = x.iter().map(|p| p * p).sum::<f64>().sqrt();
+            let ny = y.iter().map(|q| q * q).sum::<f64>().sqrt();
+            if nx == 0.0 || ny == 0.0 { f64::NAN } else { dot / (nx * ny) }
+        }
     })
 }
 

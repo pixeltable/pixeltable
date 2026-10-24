@@ -10,6 +10,7 @@
 
 pub mod compute;
 pub mod compute_rows;
+pub mod index;
 pub mod insert;
 pub mod propagate;
 pub mod scan;

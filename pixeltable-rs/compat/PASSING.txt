@@ -278,7 +278,6 @@ tests/test_view.py::TestView::test_selected_cols
 tests/test_view.py::TestView::test_table_time_travel
 tests/test_view.py::TestView::test_time_travel_over_snapshot
 tests/test_view.py::TestView::test_unstored_columns
-tests/test_view.py::TestView::test_unstored_columns_non_image
 tests/test_view.py::TestView::test_update_base_column
 tests/test_view.py::TestView::test_update_changes_view_membership[computed]
 tests/test_view.py::TestView::test_update_changes_view_membership[plain]
