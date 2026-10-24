@@ -6,7 +6,7 @@
 //! $PIXELTABLE_HOME/
 //!   pxtrs/<db>/catalog.json                 directories, table metadata and table manifests (the commit point)
 //!   pxtrs/<db>/catalog.lock                 the store lock
-//!   pxtrs/<db>/tables/<tbl id>.<id>.seg     a segment of a table's rows (MessagePack, see `SegmentFile`)
+//!   pxtrs/<db>/tables/<tbl id>.<id>.seg     a segment of a table's rows (binary, see `codec`)
 //!   pxtrs/<db>/tables/<tbl id>.<id>.hist    a table's version history (JSON lines, see `history`)
 //!   media/<db>/<tbl id>/...                 media files written by the store (in-memory images etc.)
 //! ```
@@ -28,6 +28,7 @@
 //! and `catalog.json` starts with a stamp (`catalog_id`, `generation`; `read_stamp()`) that every commit advances,
 //! so a process notices that another one committed and reloads (see `catalog::runtime`).
 
+pub mod codec;
 pub mod history;
 pub mod rows;
 pub mod table_data;
@@ -42,9 +43,8 @@ use uuid::Uuid;
 use crate::catalog::table::TableMd;
 use crate::error::{Error, Result};
 use crate::expr::MAX_EXPR_DEPTH;
-use crate::value::{MAX_JSON_DEPTH, json_nesting_depth, json_too_deep_msg, parse_json_bounded};
-use rows::StoredRow;
-use table_data::{Patch, Segment};
+use crate::value::{MAX_JSON_DEPTH, json_nesting_depth, parse_json_bounded};
+use table_data::Segment;
 
 pub const FORMAT_NAME: &str = "pixeltable-rs";
 pub const FORMAT_VERSION: u32 = 2;
@@ -116,30 +116,6 @@ struct CatalogHeader {
 struct FormatHeader {
     format: String,
     format_version: u32,
-}
-
-/// A segment file, as written.
-#[derive(Serialize)]
-struct SegmentFileOut<'a> {
-    format_version: u32,
-    tbl_id: Uuid,
-    id: u64,
-    rows: &'a [StoredRow],
-    vmin: &'a [i64],
-    vmax: &'a [i64],
-    patches: &'a [Patch],
-}
-
-/// A segment file, as read.
-#[derive(Deserialize)]
-struct SegmentFileIn {
-    format_version: u32,
-    tbl_id: Uuid,
-    id: u64,
-    rows: Vec<StoredRow>,
-    vmin: Vec<i64>,
-    vmax: Vec<i64>,
-    patches: Vec<Patch>,
 }
 
 #[cfg(test)]
@@ -329,24 +305,7 @@ impl Store {
     /// Writes a segment of table `tbl_id` with the given `v_max` of its rows (fsynced; the directory is synced by
     /// `sync_tables()`). Returns the file name.
     pub fn write_segment(&self, tbl_id: Uuid, seg: &Segment, vmax: &[i64]) -> Result<String> {
-        let file = SegmentFileOut {
-            format_version: FORMAT_VERSION,
-            tbl_id,
-            id: seg.id,
-            rows: &seg.rows,
-            vmin: &seg.vmin,
-            vmax,
-            patches: &seg.patches,
-        };
-        let bytes = rmp_serde::to_vec(&file).map_err(|e| {
-            let msg = e.to_string();
-            if msg.contains(&json_too_deep_msg()) {
-                // a computed JSON value nested more deeply than the store accepts (see `value::MAX_JSON_DEPTH`)
-                Error::new(crate::error::ErrorCode::UnsupportedOperation, msg)
-            } else {
-                Error::internal(format!("cannot serialize table data: {msg}"))
-            }
-        })?;
+        let bytes = codec::encode(tbl_id, seg, vmax)?;
         let name = Store::segment_file_name(tbl_id, seg.id);
         let mut f = fs::File::create(self.tables_dir().join(&name))?;
         f.write_all(&bytes)?;
@@ -359,13 +318,7 @@ impl Store {
         let name = Store::segment_file_name(tbl_id, id);
         let bytes = fs::read(self.tables_dir().join(&name))
             .map_err(|e| Error::internal(format!("cannot read table data file {name}: {e}")))?;
-        let f: SegmentFileIn =
-            rmp_serde::from_slice(&bytes).map_err(|e| Error::internal(format!("corrupt table data file {name}: {e}")))?;
-        let n = f.rows.len();
-        if f.format_version != FORMAT_VERSION || f.tbl_id != tbl_id || f.id != id || f.vmin.len() != n || f.vmax.len() != n {
-            return Err(Error::internal(format!("corrupt table data file {name}")));
-        }
-        Ok((Segment { id, rows: f.rows, vmin: f.vmin, patches: f.patches }, f.vmax))
+        codec::decode(&bytes, tbl_id, id).map_err(|e| Error::internal(format!("{} {name}", e.message())))
     }
 
     /// Appends `bytes` to history file `file` of table `tbl_id` at offset `len` (dropping whatever follows the
@@ -513,6 +466,8 @@ fn sync_dir(_dir: &FsPath) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rows::StoredRow;
+    use table_data::Patch;
 
     fn temp_store() -> Store {
         let tmp = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/test-tmp");

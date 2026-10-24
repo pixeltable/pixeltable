@@ -53,6 +53,7 @@ src/
   store/table_data.rs TableData: a table's rows as immutable segments + current version ranges; lookups by key, the
                     primary-key index, mutations, the compaction policy
   store/history.rs  a table's version history file: records, diffing, replay
+  store/codec.rs    the binary encoding of segment files
   exec/mod.rs       QuerySpec (from-table + joins, select/where/group_by/order_by/limit/sample, validation, JSON)
   exec/query.rs     QueryInput snapshot, execute(), count(): joins, aggregation, window functions, sampling
   exec/sample.rs    the hash and seed source of sample()
@@ -289,9 +290,9 @@ pixeltable-rs v1, which this version of pixeltable-rs (format v2) cannot read; r
   `versions`/`schema_versions`), plus each table's manifest (`TableMd.storage`: its segment ids in order, and its
   history file with the committed length); atomically replaced by every commit (the commit point); starts with a
   stamp (`catalog_id`, `generation`) that every commit advances. Its size does not depend on rows or versions;
-- `tables/<tbl id>.<id>.seg`: a segment (MessagePack): rows sorted by key then `v_min`, their `v_min` and `v_max` as of
-  writing, and the patches it carries (`v_max` changes of rows of earlier segments: deletes, the old versions of
-  updated rows, `revert()`). JSON cells are stored as JSON text;
+- `tables/<tbl id>.<id>.seg`: a segment (`store/codec.rs`: tagged values, varints): rows sorted by key then `v_min`,
+  their `v_min` and `v_max` as of writing, and the patches it carries (`v_max` changes of rows of earlier segments:
+  deletes, the old versions of updated rows, `revert()`). JSON cells are stored as JSON text;
 - `tables/<tbl id>.<id>.hist`: the table's version history, one `VersionMd`/`SchemaVersionMd` record per line; a
   commit appends the records that differ from the committed ones (compared by `Arc` identity), replay lets a record
   replace those of the same and later versions and drops versions after `current_version`; rewritten when most of it
