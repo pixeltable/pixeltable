@@ -279,7 +279,7 @@ pub fn eval_into(
             }
             match inherited {
                 Some(e) => Err(e),
-                None => match eval(&c.expr, &ctx) {
+                None => match eval(&c.expr, &ctx).and_then(|v| c.storable(v)) {
                     Ok(v) => Ok(v),
                     Err(err) => {
                         if crate::functions::udf::is_interrupt(&err) {

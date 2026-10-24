@@ -396,6 +396,7 @@ impl Catalog {
                         py_repr(&base_name)
                     );
                 }
+                crate::functions::udf::validate_storable(e, "A view's sample clause")?;
             }
         }
 

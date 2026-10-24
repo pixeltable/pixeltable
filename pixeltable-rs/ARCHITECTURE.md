@@ -217,7 +217,10 @@ in `udf::register_function` (FUNCTION_ALREADY_EXISTS on duplicates); `is_method`
 
 Query templates (`@pxt.query`, `pxt.retrieval_udf()`): `UdfImpl::Query` holds the template `QuerySpec` (built by
 calling the decorated function with `Variable`s); a call binds its arguments as literals (`QuerySpec::map_exprs`),
-snapshots and executes the query and returns the rows as a JSON list. `limit(n, offset=k)` in a template takes an
+snapshots and executes the query and returns the rows as a JSON list, or, when a value has no JSON form (an in-memory
+image, an array), as a Python list (`Value::PyObj`) that a query can return or index (JSON paths over `PyObj` in
+`expr::eval`); a computed column converts such a value to its type before storing it (`ComputedCol::storable`), which
+fails for a JSON column. `limit(n, offset=k)` in a template takes an
 int constant or a parameter (`QuerySpec::limit_param`/`offset_param`, bound per call by `QuerySpec::bind_params`,
 which refuses a negative value with INVALID_ARGUMENT). A failing query is the call's exception: a query raises it
 with its code, adding a computed column with `on_error='abort'` wraps it (UNSUPPORTED_OPERATION "Error while
