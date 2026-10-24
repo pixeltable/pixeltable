@@ -1,6 +1,6 @@
 //! Persistence under `$PIXELTABLE_HOME` (default `~/.pixeltable`).
 //!
-//! Layout (format version 3):
+//! Layout (format version 4):
 //!
 //! ```text
 //! $PIXELTABLE_HOME/
@@ -11,9 +11,10 @@
 //!   media/<db>/<tbl id>/...                 media files written by the store (in-memory images etc.)
 //! ```
 //!
-//! A table's rows are a list of immutable segments (`table_data::Segment`): every commit that changes rows writes
-//! one new segment with the rows it adds and the `v_max` changes it makes to older rows; compaction replaces
-//! segments by merged ones. A table's version history (`VersionMd`/`SchemaVersionMd` records) is appended to its
+//! A table's rows are a list of immutable segments (`segment::Segment`, at most 65536 rows each): every commit that
+//! changes rows writes one new segment with the rows it adds and the `v_max` changes it makes to older rows;
+//! compaction replaces segments by merged ones (`table_data`). Reading a segment file decodes its header (keys,
+//! version ranges, patches, sorted key hashes); its cells are decoded on first use, in chunks of 8192 rows. A table's version history (`VersionMd`/`SchemaVersionMd` records) is appended to its
 //! history file. `catalog.json` holds the current metadata of every table without its history, plus its manifest
 //! (`TableStorage`: the segment list and the valid length of the history file), so its size does not grow with
 //! rows or versions.
@@ -48,7 +49,7 @@ use crate::value::{MAX_JSON_DEPTH, json_nesting_depth, parse_json_bounded};
 use table_data::Segment;
 
 pub const FORMAT_NAME: &str = "pixeltable-rs";
-pub const FORMAT_VERSION: u32 = 3;
+pub const FORMAT_VERSION: u32 = 4;
 
 /// Maximum nesting of `catalog.json` and of serialized expressions and queries: room for an expression of
 /// `MAX_EXPR_DEPTH` levels (two JSON levels each) holding a JSON literal of `MAX_JSON_DEPTH` levels. A commit that
@@ -500,7 +501,7 @@ mod tests {
     #[test]
     fn older_formats_are_refused() -> Result<()> {
         let store = temp_store();
-        for v in [1, 2] {
+        for v in [1, 2, 3] {
             let old = format!(
                 r#"{{"format":"pixeltable-rs","format_version":{v},"catalog_id":"00000000-0000-0000-0000-000000000000","generation":3,"dirs":[],"tables":[]}}"#
             );
@@ -537,7 +538,7 @@ mod tests {
         let seg = Segment::new(77, vec![r], vec![2], vec![Patch { seg: 5, idx: 1, vmax: 2 }]);
         store.write_segment(tbl, &seg, &[rows::LIVE], &[])?;
         let (back, vmax) = store.read_segment(tbl, 77)?;
-        assert_eq!(back.rows().len(), 1);
+        assert_eq!(back.rows().count(), 1);
         assert_eq!(back.vmin, vec![2]);
         assert_eq!(vmax, vec![rows::LIVE]);
         assert_eq!(back.patches, seg.patches);

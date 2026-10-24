@@ -53,7 +53,7 @@ src/
   store/rows.rs     StoredRow (cells, cell errors, key), LIVE/DEAD
   store/table_data.rs TableData: a table's rows as immutable segments + current version ranges; lookups by key, key
                     indexes, mutations, the compaction policy
-  store/segment.rs  Segment (rows decoded on first use), Patch, stored key hashes
+  store/segment.rs  Segment (rows decoded on first use, per chunk), Patch, stored key hashes
   store/history.rs  a table's version history file: records, diffing, replay
   store/codec.rs    the binary encoding of segment files
   exec/mod.rs       QuerySpec (from-table + joins, select/where/group_by/order_by/limit/sample, validation, JSON)
@@ -344,9 +344,9 @@ Operations that may do so are split into plan (lock) -> compute (no lock) -> com
 version): see `exec/insert.rs` and `exec/compute.rs`. Queries snapshot `Arc`s of metadata and data
 (`exec::QueryInput::snapshot`) and execute without the lock.
 
-Storage (`store/`), format version 3, under `$PIXELTABLE_HOME/pxtrs/<db>/` (db = `PIXELTABLE_DB`, default
-`pixeltable`). A store of another format (including versions 1 and 2) is refused with STORE_UNAVAILABLE ("... has
-format pixeltable-rs v1, which this version of pixeltable-rs (format v3) cannot read; remove that directory ...").
+Storage (`store/`), format version 4, under `$PIXELTABLE_HOME/pxtrs/<db>/` (db = `PIXELTABLE_DB`, default
+`pixeltable`). A store of another format (including versions 1 to 3) is refused with STORE_UNAVAILABLE ("... has
+format pixeltable-rs v1, which this version of pixeltable-rs (format v4) cannot read; remove that directory ...").
 - `catalog.json`: all directories and the current metadata of every table without its history (`TableMd` minus
   `versions`/`schema_versions`), plus each table's manifest (`TableMd.storage`: its segment ids in order, and its
   history file with the committed length); atomically replaced by every commit (the commit point); starts with a
@@ -355,9 +355,10 @@ format pixeltable-rs v1, which this version of pixeltable-rs (format v3) cannot 
   writing, for each key index known then (primary key, columns with a B-tree index; `catalog::key_indexes()`) the
   (hash, row) pairs of the rows sorted by hash, and the patches it
   carries (`v_max` changes of rows of earlier segments: deletes, the old versions of updated rows, `revert()`); then
-  the cells (tagged values, varints; JSON as text) with a checksum. Loading a table reads its files (in parallel) and
-  decodes only headers: a segment's cells are decoded on first use (`Segment::rows()`, in parallel chunks), so
-  counting needs no decoding and a key lookup decodes one segment;
+  the cells (tagged values, varints; JSON as text) in chunks of 8192 rows, each with its offset and checksum. Loading
+  a table reads its files (in parallel) and decodes only headers: a chunk is decoded on first use
+  (`Segment::row()`; a scan decodes a segment's chunks in parallel, `Segment::decode_all()`), so counting needs no
+  decoding and a key lookup decodes one chunk;
 - `tables/<tbl id>.<id>.hist`: the table's version history, one `VersionMd`/`SchemaVersionMd` record per line; a
   commit appends the records that differ from the committed ones (compared by `Arc` identity), replay lets a record
   replace those of the same and later versions and drops versions after `current_version`; rewritten when most of it
