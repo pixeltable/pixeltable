@@ -114,8 +114,8 @@ class TestProject:
             ):
                 project_fingerprint(project, None)
 
-    def test_pixeltable_home_is_excluded(self, project: pathlib.Path, private_home: pathlib.Path) -> None:
-        """A Pixeltable home inside the project is left out, even when a pattern selects it."""
+    def test_pixeltable_home_in_project(self, project: pathlib.Path, private_home: pathlib.Path) -> None:
+        """A Pixeltable home inside the project is left out, even when a pattern selects it, and refused as the root."""
         (private_home / 'auth').mkdir(exist_ok=True)
         (private_home / 'auth' / 'sessions.json').write_text('{}\n')
         (private_home / 'config.toml').write_text('[openai]\napi_key = "sk-test"\n')
@@ -129,6 +129,9 @@ class TestProject:
             files = project_fingerprint(project, config).files
             assert 'app.py' in files, files
             assert not any(path.startswith(f'{private_home.name}/') for path in files), files
+
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='is the Pixeltable home'):
+            project_fingerprint(private_home, None)
 
     def test_removed_while_reading(self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A path removed after its directory was listed is left out, as if it had never been there."""

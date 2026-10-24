@@ -4,6 +4,8 @@ import json
 import pathlib
 import sys
 
+from pixeltable_cli.utils import _resolve_pixeltable_home
+
 from ..parser import Parser
 from ..project_config import find_project_config, write_project_config
 from ..utils import EXIT_ERROR, EXIT_REFUSED
@@ -37,7 +39,7 @@ Exit codes:
   0  the directory is a project root
   1  error: the project configuration could not be written
   3  refused: a project root already sits above this directory, or the project root would be your home
-     directory or a directory above it"""
+     directory, a directory above it, or the Pixeltable home"""
 
 # the shared set has no name for this one: init reports whether the directory is a project root
 EXIT_OK = 0
@@ -54,19 +56,24 @@ def run(argv: list[str]) -> None:
     except RuntimeError as e:
         print(f'pxt init: {e}', file=sys.stderr)
         sys.exit(EXIT_ERROR)
-    project_root = root if existing is None else existing.parent
-    if pathlib.Path.home().resolve().is_relative_to(project_root.resolve()):
+    project_root = (root if existing is None else existing.parent).resolve()
+    problem: str | None = None
+    if pathlib.Path.home().resolve().is_relative_to(project_root):
+        problem = 'the project would include every file in your home directory'
+    elif project_root == pathlib.Path(_resolve_pixeltable_home()):
+        problem = 'it is the Pixeltable home, which stores the local database'
+    if problem is not None:
         if existing is None:
             print(
-                f'pxt init: a project rooted at {root} would include every file in your home directory.\n'
+                f'pxt init: {root} cannot be a project root: {problem}.\n'
                 'Make a directory for the project, and run pxt init there.',
                 file=sys.stderr,
             )
         else:
             print(
-                f'pxt init: {existing} makes {existing.parent} a project root, so the project would include every '
-                f'file in your home directory.\nRemove the project configuration from {existing}, then run '
-                'pxt init in a directory made for the project.',
+                f'pxt init: {existing} makes {existing.parent} a project root, but {problem}.\n'
+                f'Remove the project configuration from {existing}, then run pxt init in a directory made for '
+                'the project.',
                 file=sys.stderr,
             )
         sys.exit(EXIT_REFUSED)

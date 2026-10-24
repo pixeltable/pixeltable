@@ -67,16 +67,22 @@ class TestInit:
         assert str(tmp_path) in r.stderr
         assert not (nested / 'pixeltable.toml').exists()
 
-    def test_home_directory_is_refused(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
-        """A project root at or above the home directory is refused, including one configured earlier."""
+    def test_home_roots_are_refused(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+        """A project root at or above the home directory, or at the Pixeltable home, is refused."""
         home = tmp_path / 'me'
         home.mkdir()
+        pxt_home = tmp_path / 'pxt'
+        pxt_home.mkdir()
         # Path.home() reads HOME on POSIX and USERPROFILE on Windows
-        env = {'HOME': str(home), 'USERPROFILE': str(home)}
-        for cwd in (home, tmp_path):
+        env = {'HOME': str(home), 'USERPROFILE': str(home), 'PIXELTABLE_HOME': str(pxt_home)}
+        for cwd, problem in (
+            (home, 'the project would include every file in your home directory'),
+            (tmp_path, 'the project would include every file in your home directory'),
+            (pxt_home, 'it is the Pixeltable home'),
+        ):
             r = cli('init', cwd=cwd, env_overrides=env, check=False)
             assert r.returncode == 3
-            assert f'a project rooted at {cwd} would include every file in your home directory' in r.stderr
+            assert f'{cwd} cannot be a project root: {problem}' in r.stderr
             assert not (cwd / 'pixeltable.toml').exists()
 
         config_file = home / 'pixeltable.toml'

@@ -141,13 +141,20 @@ def _archive_files(project_root: Path, config: DatabaseConfig | None) -> list[Pa
     - never pixeltable.toml
     - never a file in the Pixeltable home
 
-    Raises if project_root is the user's home directory or a directory above it.
+    Raises if project_root is the user's home directory, a directory above it, or the Pixeltable home.
     """
     if Path.home().resolve().is_relative_to(project_root):
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
             f'the project root {project_root} would include every file in your home directory; move the project '
             'configuration into a directory made for the project',
+        )
+    pxt_home = Config.get().home.resolve()
+    if pxt_home == project_root:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'the project root {project_root} is the Pixeltable home; point PIXELTABLE_HOME at another directory, '
+            'or move the project configuration into a directory made for the project',
         )
     exclude = config.exclude if config is not None else None
     include = config.include if config is not None else None
@@ -176,7 +183,6 @@ def _archive_files(project_root: Path, config: DatabaseConfig | None) -> list[Pa
     files |= {project_root / name for name in IMAGE_INPUT_FILES if (project_root / name).is_file()}
     files |= set(_installed_from_project(project_root))
     files.discard(project_root / PROJECT_CONFIG_FILE)  # its settings are in the fingerprint's config
-    pxt_home = Config.get().home.resolve()
     if pxt_home.is_relative_to(project_root):
         # the Pixeltable home stores the local database and credentials, not project files
         files = {f for f in files if not f.is_relative_to(pxt_home)}
