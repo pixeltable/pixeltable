@@ -85,6 +85,34 @@ impl SampleClause {
         !self.is_stratified() && self.fraction.is_some()
     }
 
+    /// The serialized form (as in `Query.as_dict()`).
+    pub fn to_json(&self) -> Result<serde_json::Value> {
+        Ok(serde_json::json!({
+            "_classname": "SampleClause",
+            "version": 1,
+            "n": self.n,
+            "n_per_stratum": self.n_per_stratum,
+            "fraction": self.fraction,
+            "seed": self.seed,
+            "stratify_exprs": self.stratify_by.iter().map(|e| crate::expr::serde::to_json(e)).collect::<Result<Vec<_>>>()?,
+        }))
+    }
+
+    pub fn from_json(s: &serde_json::Value) -> Result<SampleClause> {
+        use serde_json::Value as J;
+        let stratify_by = match s.get("stratify_exprs") {
+            Some(J::Array(items)) => items.iter().map(crate::expr::serde::from_json).collect::<Result<Vec<_>>>()?,
+            _ => Vec::new(),
+        };
+        Ok(SampleClause {
+            n: s.get("n").and_then(J::as_i64),
+            n_per_stratum: s.get("n_per_stratum").and_then(J::as_i64),
+            fraction: s.get("fraction").and_then(J::as_f64),
+            seed: s.get("seed").and_then(J::as_i64),
+            stratify_by,
+        })
+    }
+
     /// Upstream `SampleClause.__repr__()`.
     pub fn display(&self) -> String {
         let opt_i = |v: Option<i64>| v.map_or("None".to_string(), |n| n.to_string());

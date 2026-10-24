@@ -46,6 +46,9 @@ pub struct QueryInput {
     width: usize,
     /// table id -> (source index, slot) of the first slot that provides its columns
     slot_of: HashMap<Uuid, (usize, usize)>,
+    /// (table id, pinned version) -> (source index, slot): a table can appear at two versions (a table joined with
+    /// a snapshot of itself); a column reference picks the one its own pinned version names
+    pinned_slot_of: HashMap<(Uuid, Option<i64>), (usize, usize)>,
 }
 
 impl QueryInput {
@@ -55,6 +58,7 @@ impl QueryInput {
         let mut sources = Vec::new();
         let mut unstored = HashMap::new();
         let mut slot_of = HashMap::new();
+        let mut pinned_slot_of = HashMap::new();
         let mut width = 0;
         for (i, (tbl_id, version)) in q.from_tbls().into_iter().enumerate() {
             let path = PathInput::snapshot(cat, &cat.tbl_path(tbl_id, version)?)?;
@@ -64,20 +68,25 @@ impl QueryInput {
                     unstored.insert((e.info.tbl_id, *col_id), x.clone());
                 }
                 slot_of.entry(e.info.tbl_id).or_insert((i, offset + k));
+                pinned_slot_of.entry((e.info.tbl_id, e.pinned)).or_insert((i, offset + k));
             }
             width += path.elems.len();
             sources.push(Source { path, offset });
         }
-        Ok(QueryInput { q: q.clone(), sources, select, unstored, width, slot_of })
+        Ok(QueryInput { q: q.clone(), sources, select, unstored, width, slot_of, pinned_slot_of })
     }
 
     fn slot(&self, tbl_id: &Uuid) -> Option<usize> {
         self.slot_of.get(tbl_id).map(|(_, slot)| *slot)
     }
 
-    /// The from-table (source index) that provides the columns of `tbl_id`.
-    fn source_of(&self, tbl_id: &Uuid) -> Option<usize> {
-        self.slot_of.get(tbl_id).map(|(src, _)| *src)
+    /// The from-table (source index) that provides the column `col`: the one that reads its table at the version
+    /// the reference is pinned to, else the first one that has its table.
+    fn source_of(&self, col: &ColumnRef) -> Option<usize> {
+        self.pinned_slot_of
+            .get(&(col.tbl_id, col.tbl_version))
+            .or_else(|| self.slot_of.get(&col.tbl_id))
+            .map(|(src, _)| *src)
     }
 
     /// A row with only the slots of source `i` set.
@@ -113,7 +122,7 @@ impl Ctx<'_> {
     /// Runs `f` with the path context of the from-table that provides `col` (None: the missing side of an outer
     /// join). Column reads go through `PathCtx`: unstored and iterator-produced columns, read validation.
     fn with_path<T>(&self, col: &ColumnRef, f: impl FnOnce(&PathCtx<'_>) -> Result<T>) -> Result<Option<T>> {
-        let Some(src) = self.input.source_of(&col.tbl_id) else {
+        let Some(src) = self.input.source_of(col) else {
             return Err(Error::internal(format!("column {} is not provided by the query's tables", col.name)));
         };
         let source = &self.input.sources[src];
@@ -486,7 +495,7 @@ fn equi_keys(pred: &ExprRef, input: &QueryInput, right_src: usize) -> (Vec<ExprR
         if refs.is_empty() {
             return None;
         }
-        let srcs: Vec<usize> = refs.iter().filter_map(|c| input.source_of(&c.tbl_id)).collect();
+        let srcs: Vec<usize> = refs.iter().filter_map(|c| input.source_of(c)).collect();
         if srcs.len() != refs.len() {
             return None;
         }
@@ -629,11 +638,7 @@ fn filtered<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
 fn row_hash(seed: u64, row: &JRow<'_>) -> u64 {
     use super::sample::splitmix64;
     let Some(r) = row.first().copied().flatten() else { return splitmix64(seed) };
-    let mut h = splitmix64(r.rowid as u64);
-    for p in &r.pos {
-        h = splitmix64(h ^ *p as u64);
-    }
-    splitmix64(seed ^ h)
+    super::sample::key_hash(seed, r.rowid, &r.pos)
 }
 
 /// Upstream `SqlSampleNode`: rows are ranked by a hash of (seed, rowid); a fraction keeps the rows whose hash falls

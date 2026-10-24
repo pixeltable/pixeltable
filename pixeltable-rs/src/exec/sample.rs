@@ -18,6 +18,26 @@ pub fn random_u64() -> u64 {
     splitmix64(t ^ splitmix64(c ^ (std::process::id() as u64) << 32))
 }
 
+/// The sampling hash of the row with key `(rowid, pos)` for `seed` (rows are ranked by it; a fractional sample keeps
+/// the rows whose hash is below `fraction_threshold()`).
+pub fn key_hash(seed: u64, rowid: i64, pos: &[i64]) -> u64 {
+    let mut h = splitmix64(rowid as u64);
+    for p in pos {
+        h = splitmix64(h ^ *p as u64);
+    }
+    splitmix64(seed ^ h)
+}
+
+/// The hash below which a fractional sample keeps a row.
+pub fn fraction_threshold(f: f64) -> u64 {
+    if f >= 1.0 { u64::MAX } else { (f * u64::MAX as f64) as u64 }
+}
+
+/// True if a fractional sample with `fraction` keeps a row with hash `h`.
+pub fn fraction_keeps(h: u64, fraction: f64) -> bool {
+    fraction >= 1.0 || h < fraction_threshold(fraction)
+}
+
 /// A small seeded PRNG.
 pub struct Rng(u64);
 

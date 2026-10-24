@@ -526,7 +526,7 @@ pub fn create_table(
 
 /// Returns (view id, kind, created).
 #[pyfunction]
-#[pyo3(signature = (path, base, additional_columns, is_snapshot, iterator, comment, custom_metadata, media_validation, if_exists))]
+#[pyo3(signature = (path, base, additional_columns, is_snapshot, iterator, comment, custom_metadata, media_validation, if_exists, has_default_idxs=false))]
 #[allow(clippy::too_many_arguments)]
 pub fn create_view(
     py: Python<'_>,
@@ -539,20 +539,20 @@ pub fn create_view(
     custom_metadata: Option<&Bound<'_, PyAny>>,
     media_validation: &str,
     if_exists: &str,
+    has_default_idxs: bool,
 ) -> Result<(String, String, bool)> {
     let path = &*path;
-    let (base_id, base_version, predicate, select) = if let Ok(spec) = base.getattr("_spec") {
+    if has_default_idxs && is_snapshot {
+        crate::bail!(UnsupportedOperation, "Cannot create default indexes on a snapshot");
+    }
+    let (base_id, base_version, predicate, select, sample) = if let Ok(spec) = base.getattr("_spec") {
         let spec = spec.cast::<PyQuerySpec>().map_err(|_| Error::internal("Query._spec is not a QuerySpec"))?;
         let q = spec.get().q.clone();
-        for (clause, present) in [("order_by", !q.order_by.is_empty()), ("limit", q.limit.is_some() || q.offset.is_some())] {
-            if present {
-                crate::bail!(UnsupportedOperation, "`{clause}` cannot be used in a view definition.");
-            }
-        }
-        (q.tbl_id, q.version, q.where_, q.select)
+        validate_view_query(&q, is_snapshot)?;
+        (q.tbl_id, q.version, q.where_, q.select, q.sample)
     } else if let Ok(tref) = base.getattr("_tbl_ref") {
         let (id, version): (String, Option<i64>) = tref.extract()?;
-        (parse_uuid(&id)?, version, None, None)
+        (parse_uuid(&id)?, version, None, None, None)
     } else {
         crate::bail!(TypeMismatch, "`base` must be an instance of `Table` or `Query`");
     };
@@ -583,10 +583,57 @@ pub fn create_view(
         custom_metadata,
         media_validation: mv,
         iterator,
+        sample,
+        has_default_idxs,
     };
     let (id, created) = create_view_from_def(py, &p, &def, ie)?;
     let kind = with_catalog(py, |cat| Ok(cat.table(id)?.kind.display_name().to_string()))?;
     Ok((id.to_string(), kind, created))
+}
+
+/// Upstream `View.validate_view_query()`: the clauses a view definition cannot use.
+fn validate_view_query(q: &crate::exec::QuerySpec, is_snapshot: bool) -> Result<()> {
+    for (clause, present) in [
+        ("group_by", q.group_by.is_some() || q.grouping_tbl.is_some()),
+        ("order_by", !q.order_by.is_empty()),
+        ("limit", q.limit.is_some() || q.offset.is_some()),
+        ("join", !q.joins.is_empty()),
+    ] {
+        if present {
+            crate::bail!(UnsupportedOperation, "`{clause}` cannot be used in a view definition.");
+        }
+    }
+    let mut checks: Vec<(String, &crate::expr::ExprRef)> = Vec::new();
+    if let Some(items) = &q.select {
+        for (e, name) in items {
+            let item = match name {
+                None => "the `select()` list".to_string(),
+                Some(n) => format!("`select()` item {}", py_repr(n)),
+            };
+            checks.push((item, e));
+        }
+    }
+    if let Some(w) = &q.where_ {
+        checks.push(("the `where()` clause".to_string(), w));
+    }
+    for (item, e) in checks {
+        if e.contains_agg() {
+            crate::bail!(
+                UnsupportedOperation,
+                "{item} aggregates over the base table: {}\nAggregates are not allowed in a view definition.",
+                crate::expr::display::display(e)
+            );
+        }
+    }
+    if let Some(sc) = &q.sample {
+        if !is_snapshot && !sc.is_repeatable() {
+            crate::bail!(
+                UnsupportedOperation,
+                "A view that is not a snapshot can only be defined by fractional, unstratified sampling."
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Plans a view (lock), computes its initial rows (no lock: value expressions may run Python code) and commits

@@ -474,7 +474,11 @@ pub fn tbl_metadata<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
             None => None,
         };
         d.set_item("view_filter", view_filter)?;
-        d.set_item("view_sample", py.None())?;
+        let view_sample = match md.view.as_ref().and_then(|v| v.sample.as_ref()) {
+            Some(j) => Some(crate::exec::SampleClause::from_json(j)?.display()),
+            None => None,
+        };
+        d.set_item("view_sample", view_sample)?;
         let iterator_call = match md.view.as_ref().and_then(|v| v.iterator.as_ref()) {
             Some(j) => Some(crate::functions::iterator::IteratorCall::from_json(j)?.display()),
             None => None,
