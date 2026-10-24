@@ -155,6 +155,10 @@ impl AggState for UdaState {
             vpy::coerce(&v, &self.sig.return_type.with_nullable(true))
         })
     }
+
+    fn as_any(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
 }
 
 /// The aggregate behind a Python `AggregateFunction` object.

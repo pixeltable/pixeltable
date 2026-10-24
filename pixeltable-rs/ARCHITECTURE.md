@@ -304,9 +304,14 @@ code, media helpers). Query stages evaluate their expressions over rows in paral
 `MIN_PARALLEL_ROWS` rows: the where clause, ordering keys, grouping keys and aggregate arguments, join keys and
 predicates, the select list) when the expressions are pure (`par::is_pure()`: no user code except prefetched calls, no
 Python-backed builtin, no iterator output or media validated on read); results are collected in row order and the
-first failing row's error is reported, as sequentially. Sorting sorts row indices (stable, `par::sort_by()`), and with a
-limit selects the first `offset + limit` rows without sorting the rest. Group and join keys are typed (`KeyPart`, SQL
-equality). Aggregate state updates and window functions stay sequential, in row order. The phase B of a wave of
+first failing row's error is reported, as sequentially. Filters, joins, aggregation and top-k sorting work on fixed
+chunks of `par::CHUNK_ROWS` rows (`par::map_chunks()`; fixed, so that results never depend on the number of threads),
+each chunk in row order up to its first failure, combined in chunk order: aggregation builds per-chunk groups whose
+states are merged in row order (`AggState::merge()`, for functions that are `mergeable()`: count, sum, min, max, mean,
+make_list; a float sum over many rows is thus summed per chunk), else runs in one pass. Sorting sorts row indices
+(stable, `par::sort_by()`); under a limit, each chunk keeps its first `offset + limit` rows and those are sorted. Group
+and join keys are typed (`KeyPart`, SQL equality). Window functions stay sequential, in row order. The query
+embeddings of similarity lookups are computed before rows are evaluated (`init_similarities()`). The phase B of a wave of
 computed columns (`eval_computed_batch()`, `eval_rows_batch()`) evaluates its rows in parallel too when the columns are
 pure (rows are independent; statistics and the first failure are accounted in row order afterwards).
 

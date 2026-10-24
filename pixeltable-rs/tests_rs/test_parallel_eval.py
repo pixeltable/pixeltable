@@ -29,6 +29,7 @@ def big() -> tuple[pxt.Table, pd.DataFrame]:
             'b': rng.random(N),
             'g': rng.integers(0, 50, N),
             's': [f'v{i % 97}' for i in range(N)],
+            'i': np.arange(N),
         }
     )
     return pxt.create_table('big', source=df), df
@@ -55,12 +56,24 @@ class TestParallelEval:
 
     def test_group_by(self, big: tuple[pxt.Table, pd.DataFrame]) -> None:
         t, df = big
-        res = t.group_by(t.g).select(t.g, s=pxtf.sum(t.a), c=pxtf.count(t.a), mx=pxtf.max(t.s)).collect()
+        res = t.group_by(t.g).select(
+            t.g, s=pxtf.sum(t.a), c=pxtf.count(t.a), mx=pxtf.max(t.s), mn=pxtf.min(t.b), m=pxtf.mean(t.b)
+        ).collect()
         grouped = df.groupby('g')
         assert res['g'] == sorted(df.g.unique())
         assert res['s'] == [int(grouped.a.sum()[g]) for g in res['g']]
         assert res['c'] == [int(grouped.a.count()[g]) for g in res['g']]
         assert res['mx'] == [grouped.s.max()[g] for g in res['g']]
+        assert res['mn'] == [grouped.b.min()[g] for g in res['g']]
+        assert res['m'] == pytest.approx([grouped.b.mean()[g] for g in res['g']], rel=1e-12)
+        # make_list keeps row order across chunks
+        lists = t.group_by(t.g).select(t.g, l=pxtf.json.make_list(t.a)).collect()
+        assert lists['l'] == [list(grouped.a.apply(list)[g]) for g in lists['g']]
+        # a whole-table aggregate, and one over a join
+        assert t.select(s=pxtf.sum(t.a), c=pxtf.count(t.s)).collect()[0] == {'s': int(df.a.sum()), 'c': N}
+        # an error in a later chunk (rows from 18000 on overflow) is the query's error
+        with pytest.raises(pxt.Error, match='bigint out of range'):
+            t.group_by(t.g).select(t.g, s=pxtf.sum(t.i // 18000 * 2 * 4611686018427387904)).collect()
 
     def test_join(self, big: tuple[pxt.Table, pd.DataFrame]) -> None:
         t, df = big

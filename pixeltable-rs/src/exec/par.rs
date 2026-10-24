@@ -113,6 +113,19 @@ pub fn worth_parallel(n: usize) -> bool {
     parallel(n)
 }
 
+/// Rows per chunk of chunked parallel work: fixed, so that results never depend on the number of threads.
+pub const CHUNK_ROWS: usize = 16 * 1024;
+
+/// `f` over the chunks `[0, CHUNK_ROWS)`, `[CHUNK_ROWS, 2 * CHUNK_ROWS)`, ... of `0..n`, in parallel (`f` must be
+/// pure); the results in chunk order.
+pub fn map_chunks<T: Send>(n: usize, f: impl Fn(std::ops::Range<usize>) -> T + Sync + Send) -> Vec<T> {
+    let chunks: Vec<std::ops::Range<usize>> = (0..n).step_by(CHUNK_ROWS).map(|s| s..(s + CHUNK_ROWS).min(n)).collect();
+    if chunks.len() <= 1 || !parallel(n) {
+        return chunks.into_iter().map(f).collect();
+    }
+    detached(|| chunks.into_par_iter().map(&f).collect())
+}
+
 /// A stable sort, in parallel for many elements.
 pub fn sort_by<T: Send>(v: &mut [T], cmp: impl Fn(&T, &T) -> Ordering + Sync) {
     if parallel(v.len()) {
