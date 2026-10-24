@@ -291,9 +291,9 @@ thread state, attached only while they run a call; `udf_threads`), async functio
 loop thread (`func/_runtime.py`; at most `max_concurrency`, default `udf_async_concurrency`, in flight per function),
 batched functions in batches of `batch_size` (several in flight). The dispatching thread is detached from the
 interpreter while it waits (and checks signals every 50 ms). Sync calls start in the dispatching thread; only calls
-slower than 50 us get workers, and a probe of the first worker calls compares their summed duration with the elapsed
-time: calls that do not overlap (pure-Python CPU work holding the GIL) go back to the dispatching thread, one after the
-other. Resource pools (`resource_pool=`, async functions only, as upstream): `request-rate:<endpoint>[:<model>]` starts
+slower than 50 us get workers, first two, whose calls a probe compares with the elapsed time: calls that do not overlap
+(pure-Python CPU work holding the GIL) go back to the dispatching thread, one after the other, and are probed again
+after 64, 128, ... calls; calls that overlap get all workers. Resource pools (`resource_pool=`, async functions only, as upstream): `request-rate:<endpoint>[:<model>]` starts
 at most `rate_limit` requests per minute (config `<endpoint>.rate_limit` / `<endpoint>.rate_limits.<model>`, default
 600), `rate-limits:...` only limits concurrency (upstream's provider-reported limits need its internal `Env`); failed
 calls that look retryable (`_runtime.retry_info()`, upstream's `is_retryable_error()`) are retried with upstream's
@@ -315,6 +315,12 @@ and join keys are typed (`KeyPart`, SQL equality). Window functions stay sequent
 embeddings of similarity lookups are computed before rows are evaluated (`init_similarities()`). The phase B of a wave of
 computed columns (`eval_computed_batch()`, `eval_rows_batch()`) evaluates its rows in parallel too when the columns are
 pure (rows are independent; statistics and the first failure are accounted in row order afterwards).
+
+Free-threaded CPython: the module declares `gil_used = false` (lib.rs) after an audit: shared Rust state is behind
+mutexes or atomics, a mutex that can be held while detached is waited for detached (`lock_py_attached`: the catalog, a
+result cursor), Python objects are held as `Py`, cached type objects are `PyOnceLock`s and every pyclass is frozen. The
+compat harness and tests_rs pass on 3.14t with the GIL disabled; there, worker threads run pure-Python UDF calls in
+parallel (the probe sees them overlap).
 
 The contract, which every phase-B caller relies on:
 - outcomes equal sequential evaluation: each row gets its value or its error (a failed batch fails each of its rows);

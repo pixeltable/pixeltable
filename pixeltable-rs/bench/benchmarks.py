@@ -164,7 +164,7 @@ def bench_py_cpu_tiny_select() -> float:
     import pandas as pd
 
     t = pxt.create_table('t', source=pd.DataFrame({'x': range(100_000)}))
-    return _best_of(lambda: t.select(y=py_tiny(t.x)).collect())
+    return _best_of(lambda: t.select(y=py_tiny(t.x)).collect()['y'])
 
 
 def bench_async_sleep() -> float:
@@ -221,8 +221,9 @@ def bench_builtin_1m() -> dict[str, float]:
     out['create_1m'] = _timed(lambda: tables.append(pxt.create_table('big', source=df)))
     t = tables[0]
     d = pxt.create_table('dim', source=pd.DataFrame({'g': np.arange(1000), 'name': [f'n{i}' for i in range(1000)]}))
-    out['arith_1m'] = _best_of(lambda: t.select(x=t.a * 2 + t.b / 3 - t.g).collect())
-    out['string_1m'] = _best_of(lambda: t.select(u=t.s.upper() + '_x').collect())
+    # the result column is converted to Python objects (upstream's collect() materializes them, pixeltable-rs's lazily)
+    out['arith_1m'] = _best_of(lambda: t.select(x=t.a * 2 + t.b / 3 - t.g).collect()['x'])
+    out['string_1m'] = _best_of(lambda: t.select(u=t.s.upper() + '_x').collect()['u'])
     out['filter_1m'] = _best_of(lambda: t.where((t.b > 0.5) & (t.g < 500)).count())
     out['groupby_1m'] = _best_of(
         lambda: t.group_by(t.g).select(t.g, s=pxtf.sum(t.a), m=pxtf.mean(t.b), c=pxtf.count(t.a)).collect()
