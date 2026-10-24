@@ -184,6 +184,13 @@ class _LockRequest:
         ids.extend(self.write_tbl_ids)
         return ids
 
+    def tbl_keys(self) -> list[TableVersionKey]:
+        """Return the keys of all tables in the request, including the bases on its paths."""
+        keys = [key for tvp in (*self.read_tvps, *self.write_tvps) for key in tvp.tbl_keys]
+        keys.extend(self.read_tbl_keys)
+        keys.extend(TableVersionKey(tbl_id, None) for tbl_id in self.write_tbl_ids)
+        return keys
+
     def single_tbl(self) -> tuple[TableVersionHandle | None, UUID | None]:
         """Return (tbl, None) or (None, tbl_id) iff the request contains exactly one table; else (None, None)."""
         total = len(self.write_tvps) + len(self.read_tvps) + len(self.read_tbl_keys) + len(self.write_tbl_ids)
@@ -781,8 +788,10 @@ class Catalog(CatalogBase):
                         excs.ErrorCode.SERIALIZATION_FAILURE, f'Lock set retry limit ({_MAX_RETRIES}) exceeded'
                     ) from e
                 num_retries += 1
-                # Clear cached metadata so the next attempt rebuilds the set from the store.
-                self._invalidate_lock_set(request)
+                telemetry_schemas.lock_set_restarts.add(1)
+                # Evict the targets' cached metadata so the next attempt builds the lock set from the store.
+                for key in request.tbl_keys():
+                    self._clear_tv_cache(key)
                 continue
 
             except PendingTableOpsError as e:
@@ -1165,18 +1174,6 @@ class Catalog(CatalogBase):
 
         with self.begin_md_read_xact():
             return self._lock_set_from_store(request)
-
-    def _invalidate_lock_set(self, request: _LockRequest) -> None:
-        """Clear the cached metadata used to build the lock set, forcing a store read on the next attempt."""
-        assert not get_runtime().in_xact
-        telemetry_schemas.lock_set_restarts.add(1)
-        for tvp in (*request.read_tvps, *request.write_tvps):
-            for key in tvp.tbl_keys:
-                self._clear_tv_cache(key)
-        for key in request.read_tbl_keys:
-            self._clear_tv_cache(key)
-        for tbl_id in request.write_tbl_ids:
-            self._clear_tv_cache(TableVersionKey(tbl_id, None))
 
     def _validate_lock_set(self, request: _LockRequest) -> None:
         """Check that the held locks cover the operation's targets according to refreshed metadata.
