@@ -316,3 +316,58 @@ pub fn iterator_call_from_py(obj: &Bound<'_, PyAny>) -> Result<Arc<IteratorCall>
         obj.get_type().name().map(|n| n.to_string()).unwrap_or_default()
     )))
 }
+
+/// Upstream `udf.from_table()`: the template of `pxt.udf(table)`: (template expression, parameters as
+/// (name, ColumnType)). Data columns of the table and its bases become variables (the parameters); computed columns
+/// become their value expressions with the substitutions applied; the template is a dict of all columns, or
+/// `return_value` with the same substitutions.
+#[pyfunction]
+#[pyo3(signature = (tbl_id, return_value=None))]
+pub fn table_udf<'py>(
+    py: Python<'py>,
+    tbl_id: &str,
+    return_value: Option<&Bound<'py, PyAny>>,
+) -> Result<(PyExpr, Vec<(String, Bound<'py, PyAny>)>)> {
+    let id = super::catalog::parse_uuid(tbl_id)?;
+    let return_value = match return_value.filter(|r| !r.is_none()) {
+        None => None,
+        Some(r) => Some(from_object(r)?.ok_or_else(|| Error::Type("return_value must be an expression".into()))?),
+    };
+    let (expr, params) = crate::catalog::runtime::with_catalog(py, |cat| {
+        let mut subst: Vec<((uuid::Uuid, u32), ExprRef)> = Vec::new();
+        let mut result: Vec<(String, ExprRef)> = Vec::new();
+        let mut params: Vec<(String, crate::types::ColumnType)> = Vec::new();
+        for t in cat.base_chain(id).into_iter().rev() {
+            for c in cat.table(t)?.columns_at(None)? {
+                let key = (c.tbl_id, c.md.id);
+                let e = match &c.md.value_expr {
+                    Some(j) => {
+                        let value = crate::expr::serde::from_json(j)?;
+                        udf::substitute(&value, &|x| substitution(&subst, x))?
+                    }
+                    None => {
+                        params.push((c.name.clone(), c.md.col_type.clone()));
+                        Expr::new(ExprKind::Variable(c.name.clone()), c.md.col_type.clone())
+                    }
+                };
+                subst.push((key, e.clone()));
+                result.push((c.name.clone(), e));
+            }
+        }
+        let expr = match &return_value {
+            None => crate::expr::build::inline_dict(result),
+            Some(r) => udf::substitute(r, &|x| substitution(&subst, x))?,
+        };
+        Ok((expr, params))
+    })?;
+    let params = params
+        .into_iter()
+        .map(|(n, t)| Ok((n, super::types::wrap_type(py, &t)?)))
+        .collect::<Result<Vec<_>>>()?;
+    Ok((PyExpr::new(expr), params))
+}
+
+fn substitution(subst: &[((uuid::Uuid, u32), ExprRef)], x: &Expr) -> Option<ExprRef> {
+    let c = x.as_column_ref()?;
+    subst.iter().find(|(k, _)| *k == (c.tbl_id, c.col_id)).map(|(_, e)| e.clone())
+}
