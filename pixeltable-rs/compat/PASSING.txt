@@ -315,6 +315,7 @@ tests/test_table.py::TestTable::test_create[operational]
 tests/test_table.py::TestTable::test_create_from_query
 tests/test_table.py::TestTable::test_create_from_rows
 tests/test_table.py::TestTable::test_create_if_exists
+tests/test_table.py::TestTable::test_create_video_table
 tests/test_table.py::TestTable::test_delete[data_versioned]
 tests/test_table.py::TestTable::test_delete[operational]
 tests/test_table.py::TestTable::test_drop_column
