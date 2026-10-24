@@ -16,7 +16,7 @@
 //! index (`PkIndex`) maps primary-key values to rowids.
 
 use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -32,8 +32,8 @@ const NOW: i64 = LIVE - 1;
 /// Segments with at least this many rows (or patches) are not merged with others; they are only rewritten on their
 /// own (see `TableData::plan_merge()`), which bounds the cost of a single commit.
 const MAX_MERGE_WEIGHT: usize = 1 << 16;
-/// A segment of at least this many rows is rewritten when half of it is dead or retired, or a quarter of it is
-/// patched by later segments.
+/// A segment of at least this many rows is rewritten when half of it is dead, or a quarter of it is patched by later
+/// segments.
 const MIN_REWRITE_ROWS: usize = 1024;
 
 /// A change of `v_max` of row `idx` of segment `seg`, carried by a later segment's file.
@@ -273,7 +273,9 @@ impl TableData {
     /// `MAX_MERGE_WEIGHT` rows and patches are not merged with others; among the segments after the last of them, the
     /// policy keeps every segment heavier than all later ones together (so there are O(log rows) of them, and a row
     /// is rewritten O(log rows) times), merging the trailing segments from the first one that is not. Besides, a
-    /// large segment that is mostly dead or retired rows, or mostly patched by later segments, is rewritten alone.
+    /// large segment that is mostly dead rows, or mostly patched by later segments, is rewritten alone. (Retired rows
+    /// stay: older versions read them; scans of other versions skip them by their version ranges without reading
+    /// them.) Every merge removes a segment or the condition that called for it, so `prepare_write()` terminates.
     fn plan_merge(&self) -> Option<std::ops::RangeInclusive<usize>> {
         let n = self.segs.len();
         if n == 0 {
@@ -303,21 +305,18 @@ impl TableData {
             if rows < MIN_REWRITE_ROWS {
                 continue;
             }
-            let retired = rows - s.live;
             let mostly_dead = s.dead * 2 > rows;
-            let mostly_history = s.live > 0 && retired * 2 > rows;
             let patched = patched.get(&s.seg.id).copied().unwrap_or(0) * 4 > rows;
-            if mostly_dead || mostly_history || patched {
+            if mostly_dead || patched {
                 return Some(j..=j);
             }
         }
         None
     }
 
-    /// Replaces the segments in `range` by new ones holding their rows that are not dead, with their current
-    /// `v_max`: one segment, or (when the retired rows are many) one of retired rows followed by one of live rows, so
-    /// that reads of the current version skip the former. The new segments carry the patches of the old ones that
-    /// target earlier segments, with the targets' current `v_max`.
+    /// Replaces the segments in `range` by one holding their rows that are not dead, with their current `v_max` (none
+    /// if nothing is left). It carries the patches of the old ones that target earlier segments, with the targets'
+    /// current `v_max` (which is what a later patch of the same row, if any, also records).
     fn merge(&mut self, range: std::ops::RangeInclusive<usize>) {
         let (start, end) = (*range.start(), *range.end());
         let members: Vec<Seg> = self.segs[range.clone()].to_vec();
@@ -335,7 +334,7 @@ impl TableData {
                 }
             }
         }
-        // (key, vmin, vmax, row) of the rows that stay
+        // (vmin, vmax, row) of the rows that stay
         let mut rows: Vec<(i64, i64, StoredRow)> = Vec::with_capacity(members.iter().map(|s| s.len() - s.dead).sum());
         for s in &members {
             for (i, r) in s.seg.rows.iter().enumerate() {
@@ -345,36 +344,19 @@ impl TableData {
             }
         }
         rows.sort_by(|a, b| a.2.key().cmp(&b.2.key()).then(a.0.cmp(&b.0)));
-        // (a rewrite for `mostly_history` in `plan_merge()` always splits, so its output does not qualify again)
-        let num_retired = rows.iter().filter(|r| r.1 != LIVE).count();
-        let split = num_retired * 2 >= MIN_REWRITE_ROWS && num_retired < rows.len();
-        let mut parts: Vec<Vec<(i64, i64, StoredRow)>> = Vec::new();
-        if split {
-            let (retired, live): (Vec<_>, Vec<_>) = rows.into_iter().partition(|r| r.1 != LIVE);
-            parts.push(retired);
-            parts.push(live);
-        } else {
-            parts.push(rows);
+        let mut vmin = Vec::with_capacity(rows.len());
+        let mut vmax = Vec::with_capacity(rows.len());
+        let mut out = Vec::with_capacity(rows.len());
+        for (a, b, r) in rows {
+            vmin.push(a);
+            vmax.push(b);
+            out.push(r);
         }
-        let mut new_segs = Vec::with_capacity(parts.len());
-        let num_parts = parts.len();
-        for (k, part) in parts.into_iter().enumerate() {
-            let mut vmin = Vec::with_capacity(part.len());
-            let mut vmax = Vec::with_capacity(part.len());
-            let mut out = Vec::with_capacity(part.len());
-            for (a, b, r) in part {
-                vmin.push(a);
-                vmax.push(b);
-                out.push(r);
-            }
-            let patches = if k + 1 == num_parts { std::mem::take(&mut carried) } else { Vec::new() };
-            if out.is_empty() && patches.is_empty() {
-                continue;
-            }
-            let seg = Segment { id: new_segment_id(), rows: out, vmin, patches };
-            new_segs.push(Seg::new(Arc::new(seg), Arc::new(vmax), false));
-        }
-        self.segs.splice(start..=end, new_segs);
+        let new_seg = (!out.is_empty() || !carried.is_empty()).then(|| {
+            let seg = Segment { id: new_segment_id(), rows: out, vmin, patches: carried };
+            Seg::new(Arc::new(seg), Arc::new(vmax), false)
+        });
+        self.segs.splice(start..=end, new_seg);
     }
 
     // ------------------------------------------------------------------------------------------- reading
@@ -705,6 +687,7 @@ impl TableData {
     }
 
     fn pk_candidates_many<V: AsRef<[Value]>>(&self, pk_cols: &[ColId], truncate: bool, keys: &[V]) -> Vec<Vec<i64>> {
+        use rayon::prelude::*;
         let mut guard = self.pk.lock();
         let idx = match guard.as_mut() {
             Some(idx) if idx.cols == pk_cols && idx.truncate == truncate => idx,
@@ -712,8 +695,14 @@ impl TableData {
         };
         for s in &self.segs {
             if !idx.covered.contains(&s.seg.id) {
-                for r in &s.seg.rows {
-                    let h = pk_hash(idx.cols.iter().map(|c| r.cell(*c)), truncate);
+                let cols = &idx.cols;
+                let hashes: Vec<u64> = if s.len() >= 4096 {
+                    s.seg.rows.par_iter().map(|r| pk_hash(cols.iter().map(|c| r.cell(*c)), truncate)).collect()
+                } else {
+                    s.seg.rows.iter().map(|r| pk_hash(cols.iter().map(|c| r.cell(*c)), truncate)).collect()
+                };
+                idx.first.reserve(hashes.len());
+                for (h, r) in hashes.into_iter().zip(&s.seg.rows) {
                     idx.add(h, r.rowid);
                 }
                 idx.covered.insert(s.seg.id);
@@ -733,8 +722,27 @@ struct PkIndex {
     truncate: bool,
     /// ids of the segments whose rows are in the index
     covered: HashSet<u64>,
-    first: HashMap<u64, i64>,
-    more: HashMap<u64, Vec<i64>>,
+    /// keyed by `pk_hash()`, which is already well mixed
+    first: HashMap<u64, i64, std::hash::BuildHasherDefault<IdentityHasher>>,
+    more: HashMap<u64, Vec<i64>, std::hash::BuildHasherDefault<IdentityHasher>>,
+}
+
+/// The hasher of maps keyed by a hash.
+#[derive(Default)]
+struct IdentityHasher(u64);
+
+impl Hasher for IdentityHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for b in bytes {
+            self.0 = (self.0 << 8) | u64::from(*b);
+        }
+    }
+    fn write_u64(&mut self, v: u64) {
+        self.0 = v;
+    }
 }
 
 impl PkIndex {
@@ -767,28 +775,87 @@ pub fn pk_part(v: &Value, truncate: bool) -> Value {
     if truncate { crate::functions::btree::truncate(v) } else { v.clone() }
 }
 
-/// The hash of a primary-key value (`values`, one per key column) by which the index finds it.
+/// The hash of a primary-key value (`values`, one per key column) by which the index finds it: of the values as
+/// `pk_part()` makes them (without copying them).
 pub fn pk_hash<'a>(values: impl Iterator<Item = &'a Value>, truncate: bool) -> u64 {
-    let mut h = std::hash::DefaultHasher::new();
+    let mut h = KeyHasher(0);
     for v in values {
-        hash_value(&pk_part(v, truncate), &mut h);
+        hash_value(v, truncate, &mut h);
     }
-    h.finish()
+    // murmur3's finalizer, so that every bit of the result depends on every input bit
+    let mut x = h.0;
+    x ^= x >> 33;
+    x = x.wrapping_mul(0xff51_afd7_ed55_8ccd);
+    x ^= x >> 33;
+    x = x.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+    x ^ (x >> 33)
 }
 
-fn hash_value(v: &Value, h: &mut impl Hasher) {
-    std::mem::discriminant(v).hash(h);
+/// A fast, non-cryptographic hasher (rustc's FxHasher) for primary-key values; collisions only cost lookups a check.
+struct KeyHasher(u64);
+
+impl KeyHasher {
+    fn add(&mut self, w: u64) {
+        self.0 = (self.0.rotate_left(5) ^ w).wrapping_mul(0x517c_c1b7_2722_0a95);
+    }
+}
+
+impl Hasher for KeyHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        let mut chunks = bytes.chunks_exact(8);
+        for c in &mut chunks {
+            self.add(u64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]));
+        }
+        let rest = chunks.remainder();
+        if !rest.is_empty() {
+            let mut b = [0u8; 8];
+            b[..rest.len()].copy_from_slice(rest);
+            self.add(u64::from_le_bytes(b));
+        }
+        self.add(bytes.len() as u64);
+    }
+    fn write_u64(&mut self, v: u64) {
+        self.add(v);
+    }
+}
+
+fn hash_value(v: &Value, truncate: bool, h: &mut KeyHasher) {
+    use crate::functions::btree::MAX_STRING_LEN;
+    let tag: u64 = match v {
+        Value::Null => 0,
+        Value::Bool(_) => 1,
+        Value::Int(_) => 2,
+        Value::Float(_) => 3,
+        Value::String(_) => 4,
+        Value::Timestamp(_) => 5,
+        Value::Date(_) => 6,
+        Value::Uuid(_) => 7,
+        Value::Binary(_) => 8,
+        Value::Json(_) => 9,
+        Value::Array(_) => 10,
+        Value::Media(_) => 11,
+        Value::PyObj(_) => 12,
+    };
+    h.add(tag);
     match v {
         Value::Null | Value::PyObj(_) => {}
-        Value::Bool(b) => b.hash(h),
-        Value::Int(i) | Value::Timestamp(i) => i.hash(h),
-        Value::Float(f) => (if f.is_nan() { f64::NAN.to_bits() } else { f.to_bits() }).hash(h),
-        Value::String(s) | Value::Media(s) => s.hash(h),
-        Value::Date(d) => d.hash(h),
-        Value::Uuid(u) => u.hash(h),
-        Value::Binary(b) => b.hash(h),
-        Value::Json(j) => j.to_string().hash(h),
-        Value::Array(a) => format!("{a:?}").hash(h),
+        Value::Bool(b) => h.add(u64::from(*b)),
+        Value::Int(i) | Value::Timestamp(i) => h.add(*i as u64),
+        Value::Float(f) => h.add(if f.is_nan() { f64::NAN.to_bits() } else { f.to_bits() }),
+        Value::String(s) if truncate => {
+            // the first MAX_STRING_LEN characters, as `btree::truncate()` keeps them
+            let end = s.char_indices().nth(MAX_STRING_LEN).map_or(s.len(), |(i, _)| i);
+            h.write(&s.as_bytes()[..end]);
+        }
+        Value::String(s) | Value::Media(s) => h.write(s.as_bytes()),
+        Value::Date(d) => h.add(*d as u64),
+        Value::Uuid(u) => h.write(u.as_bytes()),
+        Value::Binary(b) => h.write(b),
+        Value::Json(j) => h.write(j.to_string().as_bytes()),
+        Value::Array(a) => h.write(format!("{a:?}").as_bytes()),
     }
 }
 
@@ -923,6 +990,34 @@ mod tests {
             assert_eq!(&visible(&d, v as i64), rows, "version {v}");
             assert_eq!(&visible(&reloaded, v as i64), rows, "version {v} after reload");
             assert_eq!(reloaded.count_at(v as i64), rows.len());
+        }
+    }
+
+    #[test]
+    fn large_updates_keep_every_version() {
+        // updates of most rows, alternating with inserts: merges see segments of mostly retired rows and heavily
+        // patched ones
+        let mut d = TableData::default();
+        let mut expected: Vec<Vec<(i64, i64)>> = vec![Vec::new()];
+        d.append((0..3000).map(|i| row(i, i)).collect(), 1);
+        d.prepare_write();
+        d.mark_written();
+        expected.push(visible(&d, 1));
+        let mut next = 3000;
+        for v in 2..30i64 {
+            let lo = (v * 997) % 2500;
+            let keys: Vec<i64> = (lo..lo + 2000).filter(|k| d.live_row((*k, &[])).is_some()).collect();
+            d.retire(&keys.iter().map(|k| (*k, Vec::new())).collect(), v, true);
+            d.append(keys.iter().map(|k| row(*k, k + v * 10_000)).collect(), v);
+            d.append((next..next + 1500).map(|i| row(i, i)).collect(), v);
+            next += 1500;
+            d.prepare_write();
+            d.mark_written();
+            expected.push(visible(&d, v));
+        }
+        let reloaded = roundtrip(&mut d);
+        for (v, rows) in expected.iter().enumerate() {
+            assert_eq!(&visible(&reloaded, v as i64), rows, "version {v} after reload");
         }
     }
 

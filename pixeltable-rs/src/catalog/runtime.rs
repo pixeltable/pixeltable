@@ -78,16 +78,21 @@ pub fn with_catalog<R>(py: Python<'_>, f: impl FnOnce(&mut Catalog) -> Result<R>
     result
 }
 
-/// Runs `f` between `Catalog::checkpoint()` and `Catalog::finish()`, turning a panic into an InternalError. Also
-/// returns whether the in-memory catalog must be discarded (after a panic, or if the rollback failed).
+/// Runs `f` between `Catalog::checkpoint()` and `Catalog::finish()` (which writes its changes), turning a panic in
+/// either into an InternalError. Also returns whether the in-memory catalog must be discarded (after a panic, or if
+/// writing or the rollback failed); the next operation then reloads it from the store.
 fn run_atomic<R>(cat: &mut Catalog, f: impl FnOnce(&mut Catalog) -> Result<R>) -> (Result<R>, bool) {
     let checkpoint = cat.checkpoint();
     let (result, panicked) = match catch_unwind(AssertUnwindSafe(|| f(cat))) {
         Ok(result) => (result, false),
         Err(payload) => (Err(Error::internal(format!("internal error: {}", panic_message(payload.as_ref())))), true),
     };
-    let finished = cat.finish(checkpoint, result.is_ok());
-    let discard = panicked || finished.is_err();
+    let ok = result.is_ok();
+    let (finished, finish_panicked) = match catch_unwind(AssertUnwindSafe(|| cat.finish(checkpoint, ok))) {
+        Ok(finished) => (finished, false),
+        Err(payload) => (Err(Error::internal(format!("internal error: {}", panic_message(payload.as_ref())))), true),
+    };
+    let discard = panicked || finish_panicked || finished.is_err();
     match (result, finished) {
         (Ok(_), Err(rollback_err)) => (Err(rollback_err), discard),
         (result, _) => (result, discard),

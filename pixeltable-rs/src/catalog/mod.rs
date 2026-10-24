@@ -340,14 +340,16 @@ impl Catalog {
         for tbl_id in staged {
             let Some(entry) = self.data.get_mut(&tbl_id) else { continue };
             let data = Arc::make_mut(entry);
-            if !data.has_unwritten() {
+            if data.has_unwritten() {
+                for (seg, vmax) in data.prepare_write() {
+                    written.push(self.store.write_segment(tbl_id, &seg, &vmax)?);
+                }
+                data.mark_written();
+            }
+            let ids = data.segment_ids();
+            if self.table(tbl_id)?.storage.segments == ids {
                 continue;
             }
-            for (seg, vmax) in data.prepare_write() {
-                written.push(self.store.write_segment(tbl_id, &seg, &vmax)?);
-            }
-            data.mark_written();
-            let ids = data.segment_ids();
             let md = self.table_mut(tbl_id)?;
             let old = std::mem::replace(&mut md.storage.segments, ids);
             let current: HashSet<u64> = md.storage.segments.iter().copied().collect();
@@ -520,7 +522,10 @@ impl Catalog {
         }
         let ids = self.table(tbl_id)?.storage.segments.clone();
         let store = &self.store;
-        let segments = without_gil(|| ids.iter().map(|id| store.read_segment(tbl_id, *id)).collect::<Result<Vec<_>>>())?;
+        let segments = without_gil(|| {
+            use rayon::prelude::*;
+            ids.par_iter().map(|id| store.read_segment(tbl_id, *id)).collect::<Result<Vec<_>>>()
+        })?;
         let data = Arc::new(TableData::from_segments(segments));
         self.data.insert(tbl_id, data.clone());
         Ok(data)

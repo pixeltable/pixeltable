@@ -347,7 +347,8 @@ pixeltable-rs v1, which this version of pixeltable-rs (format v2) cannot read; r
   `versions`/`schema_versions`), plus each table's manifest (`TableMd.storage`: its segment ids in order, and its
   history file with the committed length); atomically replaced by every commit (the commit point); starts with a
   stamp (`catalog_id`, `generation`) that every commit advances. Its size does not depend on rows or versions;
-- `tables/<tbl id>.<id>.seg`: a segment (`store/codec.rs`: tagged values, varints): rows sorted by key then `v_min`,
+- `tables/<tbl id>.<id>.seg`: a segment (`store/codec.rs`: tagged values, varints; large ones are encoded and decoded
+  in parallel chunks, and a table's segments load in parallel): rows sorted by key then `v_min`,
   their `v_min` and `v_max` as of writing, and the patches it carries (`v_max` changes of rows of earlier segments:
   deletes, the old versions of updated rows, `revert()`). JSON cells are stored as JSON text;
 - `tables/<tbl id>.<id>.hist`: the table's version history, one `VersionMd`/`SchemaVersionMd` record per line; a
@@ -372,8 +373,7 @@ segment's row is recorded as a pending patch, a cell change rewrites the segment
 `prepare_write()` (merges per the compaction policy, attaches the pending patches to the last segment) and writes the
 unwritten segments. Compaction: every segment after the last large one (`MAX_MERGE_WEIGHT` rows+patches) must be
 heavier than all later ones together, else the trailing ones merge (O(log n) segments, each row rewritten O(log n)
-times); a large segment that is mostly dead or retired rows, or mostly patched, is rewritten alone, retired rows and
-live rows into separate segments. Merged segments drop dead rows (`v_max = DEAD`: inserts undone by `revert()`, rows
+times); a large segment that is mostly dead rows, or mostly patched, is rewritten alone. Merged segments drop dead rows (`v_max = DEAD`: inserts undone by `revert()`, rows
 deleted from operational tables) and carry the patches of the merged ones that target earlier segments. Reads:
 `visible_at(v)` skips segments that cannot hold a row visible at `v` (all inserted after `v`, or all retired before
 it); `row_at(key, v)` binary-searches each segment; `live_rows_by_prefix()` finds the view rows of base rows;
