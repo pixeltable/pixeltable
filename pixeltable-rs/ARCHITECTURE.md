@@ -93,7 +93,9 @@ variants map to TypeError/AttributeError/ValueError/NotImplementedError, and `Er
 from Python code that Rust called. Write messages exactly as upstream formats them; `py_repr(s)` reproduces `{s!r}`.
 Unimplemented features: `Error::not_implemented("what")` -> `NotImplementedError("what is not implemented yet in
 pixeltable-rs")`. User input must never panic (use checked arithmetic, char-safe slicing); as a safety net,
-`with_catalog` turns a panic into an InternalError and rolls the operation back.
+`with_catalog` turns a panic into an InternalError and rolls the operation back. Python strings that UTF-8 cannot
+encode (lone surrogates) must not raise UnicodeEncodeError: values are refused as invalid (`value::py::str_value`),
+and path/name arguments are declared as `bindings::NameArg` (escaped, so validation refuses them as upstream does).
 
 ## Values and types
 

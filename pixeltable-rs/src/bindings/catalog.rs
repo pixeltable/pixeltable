@@ -5,6 +5,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyList, PyString};
 use uuid::Uuid;
 
+use super::NameArg;
 use super::expr::{as_expr, from_object};
 use super::query::PyQuerySpec;
 use super::sources::Conduit;
@@ -173,7 +174,10 @@ fn parse_column_spec(name: &str, spec: &Bound<'_, PyAny>) -> Result<ColumnSpec> 
 pub fn parse_schema(schema: &Bound<'_, PyDict>) -> Result<Vec<ColumnSpec>> {
     let mut seen: Vec<(String, String)> = Vec::new();
     for (k, _) in schema.iter() {
-        let name: String = k.extract().map_err(|_| crate::pxt_err!(InvalidColumnName, "Invalid column name: {}", py_str(&k)))?;
+        let Ok(name) = k.extract::<String>() else {
+            let shown = k.extract::<NameArg>().map(|n| n.0).unwrap_or_else(|_| py_str(&k));
+            crate::bail!(InvalidColumnName, "Invalid column name: {shown}");
+        };
         let folded = fold_identifier(&name);
         if seen.iter().any(|(f, _)| *f == folded) {
             let spellings: Vec<String> = schema
@@ -238,7 +242,8 @@ pub fn register_reserved_names(names: Vec<String>) {
 
 #[pyfunction]
 #[pyo3(signature = (path, if_exists, parents))]
-pub fn create_dir(py: Python<'_>, path: &str, if_exists: &str, parents: bool) -> Result<String> {
+pub fn create_dir(py: Python<'_>, path: NameArg, if_exists: &str, parents: bool) -> Result<String> {
+    let path = &*path;
     let p = Path::parse(path, false, false)?;
     let ie = IfExists::parse(if_exists, "if_exists")?;
     with_catalog(py, |cat| Ok(cat.create_dir(&p, ie, parents)?.to_string()))
@@ -246,7 +251,8 @@ pub fn create_dir(py: Python<'_>, path: &str, if_exists: &str, parents: bool) ->
 
 #[pyfunction]
 #[pyo3(signature = (path, force, if_not_exists))]
-pub fn drop_dir(py: Python<'_>, path: &str, force: bool, if_not_exists: &str) -> Result<()> {
+pub fn drop_dir(py: Python<'_>, path: NameArg, force: bool, if_not_exists: &str) -> Result<()> {
+    let path = &*path;
     let p = Path::parse(path, false, false)?;
     let ine = IfNotExists::parse(if_not_exists, "if_not_exists")?;
     with_catalog(py, |cat| cat.drop_dir(&p, ine, force))
@@ -254,7 +260,8 @@ pub fn drop_dir(py: Python<'_>, path: &str, force: bool, if_not_exists: &str) ->
 
 #[pyfunction]
 #[pyo3(name = "move", signature = (path, new_path, if_exists, if_not_exists))]
-pub fn move_(py: Python<'_>, path: &str, new_path: &str, if_exists: &str, if_not_exists: &str) -> Result<()> {
+pub fn move_(py: Python<'_>, path: NameArg, new_path: NameArg, if_exists: &str, if_not_exists: &str) -> Result<()> {
+    let (path, new_path) = (&*path, &*new_path);
     let ie = IfExists::parse(if_exists, "if_exists")?;
     if !matches!(ie, IfExists::Error | IfExists::Ignore) {
         crate::bail!(InvalidArgument, "`if_exists` must be one of 'error' or 'ignore'");
@@ -272,7 +279,8 @@ pub fn move_(py: Python<'_>, path: &str, new_path: &str, if_exists: &str, if_not
 }
 
 #[pyfunction]
-pub fn get_dir_contents<'py>(py: Python<'py>, dir_path: &str, recursive: bool) -> Result<Bound<'py, PyDict>> {
+pub fn get_dir_contents<'py>(py: Python<'py>, dir_path: NameArg, recursive: bool) -> Result<Bound<'py, PyDict>> {
+    let dir_path = &*dir_path;
     let p = Path::parse(dir_path, true, false)?;
     let nodes = with_catalog(py, |cat| cat.dir_contents(&p, recursive))?;
     let (mut dirs, mut tables) = (Vec::new(), Vec::new());
@@ -286,14 +294,16 @@ pub fn get_dir_contents<'py>(py: Python<'py>, dir_path: &str, recursive: bool) -
 }
 
 #[pyfunction]
-pub fn list_tables(py: Python<'_>, dir_path: &str, recursive: bool) -> Result<Vec<String>> {
+pub fn list_tables(py: Python<'_>, dir_path: NameArg, recursive: bool) -> Result<Vec<String>> {
+    let dir_path = &*dir_path;
     let p = Path::parse(dir_path, true, false)?;
     let nodes = with_catalog(py, |cat| cat.dir_contents(&p, recursive))?;
     Ok(extract_paths(&nodes, &p, false))
 }
 
 #[pyfunction]
-pub fn list_dirs(py: Python<'_>, path: &str, recursive: bool) -> Result<Vec<String>> {
+pub fn list_dirs(py: Python<'_>, path: NameArg, recursive: bool) -> Result<Vec<String>> {
+    let path = &*path;
     let p = Path::parse(path, true, false)?;
     let nodes = with_catalog(py, |cat| cat.dir_contents(&p, recursive))?;
     Ok(extract_paths(&nodes, &p, true))
@@ -366,7 +376,8 @@ fn tree_nodes<'py>(
 }
 
 #[pyfunction]
-pub fn get_dir_tree<'py>(py: Python<'py>, path: &str) -> Result<Bound<'py, PyList>> {
+pub fn get_dir_tree<'py>(py: Python<'py>, path: NameArg) -> Result<Bound<'py, PyList>> {
+    let path = &*path;
     let p = Path::parse(path, true, false)?;
     with_catalog(py, |cat| {
         let nodes = cat.dir_contents(&p, true)?;
@@ -378,7 +389,8 @@ pub fn get_dir_tree<'py>(py: Python<'py>, path: &str) -> Result<Bound<'py, PyLis
 
 /// Rows of `pxt.ls()`: [name, kind, version, base], sorted by name.
 #[pyfunction]
-pub fn ls_rows(py: Python<'_>, path: &str) -> Result<Vec<Vec<String>>> {
+pub fn ls_rows(py: Python<'_>, path: NameArg) -> Result<Vec<Vec<String>>> {
+    let path = &*path;
     let p = Path::parse(path, true, false)?;
     with_catalog(py, |cat| {
         let nodes = cat.dir_contents(&p, false)?;
@@ -423,7 +435,7 @@ fn plain_column_spec(name: &str, col_type: crate::types::ColumnType) -> ColumnSp
 #[allow(clippy::too_many_arguments)]
 pub fn create_table(
     py: Python<'_>,
-    path: &str,
+    path: NameArg,
     schema: Option<&Bound<'_, PyAny>>,
     source: Option<&Bound<'_, PyAny>>,
     primary_key: Option<&Bound<'_, PyAny>>,
@@ -436,6 +448,7 @@ pub fn create_table(
     on_error: &str,
     has_default_idxs: bool,
 ) -> Result<(String, String, bool)> {
+    let path = &*path;
     let schema = schema.filter(|s| !s.is_none());
     let source = source.filter(|s| !s.is_none());
     if schema.is_none() == source.is_none() {
@@ -517,7 +530,7 @@ pub fn create_table(
 #[allow(clippy::too_many_arguments)]
 pub fn create_view(
     py: Python<'_>,
-    path: &str,
+    path: NameArg,
     base: &Bound<'_, PyAny>,
     additional_columns: Option<&Bound<'_, PyAny>>,
     is_snapshot: bool,
@@ -527,6 +540,7 @@ pub fn create_view(
     media_validation: &str,
     if_exists: &str,
 ) -> Result<(String, String, bool)> {
+    let path = &*path;
     let (base_id, base_version, predicate, select) = if let Ok(spec) = base.getattr("_spec") {
         let spec = spec.cast::<PyQuerySpec>().map_err(|_| Error::internal("Query._spec is not a QuerySpec"))?;
         let q = spec.get().q.clone();
@@ -611,7 +625,8 @@ fn create_view_from_def(py: Python<'_>, p: &Path, def: &ViewDef, ie: IfExists) -
 /// Returns (table id, kind, version) or None.
 #[pyfunction]
 #[pyo3(signature = (path, if_not_exists))]
-pub fn get_table(py: Python<'_>, path: &str, if_not_exists: &str) -> Result<Option<(String, String, Option<i64>)>> {
+pub fn get_table(py: Python<'_>, path: NameArg, if_not_exists: &str) -> Result<Option<(String, String, Option<i64>)>> {
+    let path = &*path;
     let ine = IfNotExists::parse(if_not_exists, "if_not_exists")?;
     let p = Path::parse(path, false, true)?;
     let (result, warnings) = with_catalog(py, |cat| {
@@ -630,7 +645,8 @@ pub fn get_table(py: Python<'_>, path: &str, if_not_exists: &str) -> Result<Opti
 /// `table` is a path string or a table id (from a handle).
 #[pyfunction]
 #[pyo3(signature = (path, tbl_id, force, if_not_exists))]
-pub fn drop_table(py: Python<'_>, path: Option<&str>, tbl_id: Option<&str>, force: bool, if_not_exists: &str) -> Result<()> {
+pub fn drop_table(py: Python<'_>, path: Option<NameArg>, tbl_id: Option<&str>, force: bool, if_not_exists: &str) -> Result<()> {
+    let path = path.as_deref();
     let p = match (path, tbl_id) {
         (Some(path), _) => Path::parse(path, false, false)?,
         (None, Some(id)) => {
