@@ -411,6 +411,19 @@ class QueryBase(ABC):
         if len(base_list) == 0:
             return self
 
+        # Select expressions need to be retargeted in order to handle snapshots correctly, as in expressions
+        # such as `snapshot.select(base_tbl.col)`. The TableVersions are resolved once for the whole list:
+        # each resolution can open a catalog transaction when called outside of one.
+        # TODO: For joins involving snapshots, we need a more sophisticated retarget() that can handle
+        #     multiple TableVersionPaths.
+        tbl_versions: dict[UUID, catalog.TableVersion] | None = None
+        if len(self._from_clause.tbls) == 1 and self._from_clause.is_local:
+            try:
+                tbl_versions = self._from_clause.tvps[0].tbl_versions()
+            except Exception:
+                # If retarget() fails, then the succeeding is_bound_by() will raise an error.
+                pass
+
         # analyze select list; wrap literals with the corresponding expressions
         select_list: list[tuple[exprs.Expr, str | None]] = []
         for raw_expr, name in base_list:
@@ -419,14 +432,10 @@ class QueryBase(ABC):
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression: {raw_expr}')
             if expr.col_type.is_invalid_type() and not (isinstance(expr, exprs.Literal) and expr.val is None):
                 raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid type: {raw_expr}')
-            if len(self._from_clause.tbls) == 1 and self._from_clause.is_local:
-                # Select expressions need to be retargeted in order to handle snapshots correctly, as in expressions
-                # such as `snapshot.select(base_tbl.col)`
-                # TODO: For joins involving snapshots, we need a more sophisticated retarget() that can handle
-                #     multiple TableVersionPaths.
+            if tbl_versions is not None:
                 expr = expr.copy()
                 try:
-                    expr = expr.retarget_path(self._from_clause.tvps[0])
+                    expr = expr.retarget(tbl_versions)
                 except Exception:
                     # If retarget() fails, then the succeeding is_bound_by() will raise an error.
                     pass

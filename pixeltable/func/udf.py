@@ -369,10 +369,10 @@ def from_table(tbl: catalog.Table, return_value: 'exprs.Expr' | None, descriptio
     subst: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
     result_dict: dict[str, exprs.Expr] = {}
     params: list[Parameter] = []
+    param_idx_by_name: dict[str, int] = {}
 
     for t in ancestors:
         for name, col in t._tbl_version.get().cols_by_name.items():
-            assert name not in result_dict, f'Column name is not unique: {name}'
             if col.is_computed:
                 # Computed column. Apply any existing substitutions and add the new expression to the subst dict.
                 new_expr = col.value_expr.copy().substitute(subst)
@@ -387,7 +387,13 @@ def from_table(tbl: catalog.Table, return_value: 'exprs.Expr' | None, descriptio
                 # If the column is nullable, then the parameter will have a default value of None.
                 default_value = exprs.Literal(None) if col.col_type.nullable else None
                 param = Parameter(name, col.col_type, inspect._ParameterKind.POSITIONAL_OR_KEYWORD, default_value)
-                params.append(param)
+                # A view column shadows a base column of the same name: replace its parameter, keeping
+                # the parameter's position.
+                if name in param_idx_by_name:
+                    params[param_idx_by_name[name]] = param
+                else:
+                    param_idx_by_name[name] = len(params)
+                    params.append(param)
 
     if return_value is None:
         return_value = exprs.InlineDict(result_dict)

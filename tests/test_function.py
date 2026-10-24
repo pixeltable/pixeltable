@@ -1916,6 +1916,22 @@ class TestFunction:
         fn6 = pxt.udf(t, return_value=t.in4.rotate(t.in1))
         u.select(fn6(22, 'starfruit', in4=u.b)).collect()
 
+    @pytest.mark.db_roots('local', reason='builds a query function from a view via Function.from_table')
+    def test_from_table_shadowed_column(self, uses_db: None) -> None:
+        """A view column that reuses a base column's name resolves to the view column [PXT-1300]."""
+        t = pxt.create_table('shadowed', {'a': pxt.Int, 'b': pxt.Int})
+        v = pxt.create_view('shadowed_v', t.select(t.a, b=t.a * 10))
+
+        fn = pxt.udf(v)
+        # the base table's data columns remain the parameters
+        assert list(fn.signature.parameters.keys()) == ['a', 'b']
+
+        u = pxt.create_table('shadowed_u', {'x': pxt.Int})
+        u.insert([{'x': 3}])
+        # the `b` argument binds the shadowed base column's parameter; the result's `b` is the view's
+        res = u.select(result=fn(u.x, 7)).collect()['result']
+        assert res == [{'a': 3, 'b': 30}]
+
     def test_required_parameter_missing(self, db_root: DatabaseRoot) -> None:
         """Tests scenarios in which a required input parameter for a UDF or UDA is missing."""
         p = db_root.make_catalog_path

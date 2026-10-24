@@ -224,10 +224,11 @@ class ExprEvalCtx:
         if len(rows) == 0:
             return
 
-        # Set literals (still per-row since vals is an object array)
+        # Set literals (still per-row since vals is an object array); each row needs its own copy of
+        # a mutable literal value
         for row in rows:
             for slot_idx, val in self.literals.items():
-                row[slot_idx] = val
+                row[slot_idx] = exprs.Literal.per_row_val(val)
 
         # Stack has_val for vectorized computation
         # Shape: (num_rows, num_slots)

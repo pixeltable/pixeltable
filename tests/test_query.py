@@ -811,6 +811,36 @@ class TestQuery:
         self.__check_constant_query(t.select(foo=5), 5)
         self.__check_constant_query(t.select(foo=None), None)
 
+    @pytest.mark.db_roots('local', reason='counts in-process catalog transactions')
+    def test_select_transaction_count(self, uses_db: None) -> None:
+        """select() resolves the query's TableVersions once, not once per select-list expression [PXT-1506]."""
+        from pixeltable import telemetry
+        from pixeltable.telemetry import SubscriberRegistry
+
+        from .test_telemetry import RecordingSubscriber
+
+        t = pxt.create_table('txn_count', {'n': pxt.Int})
+        for i in range(24):
+            t.add_computed_column(**{f'c{i}': t.n + i})
+        t.insert([{'n': 1}])
+
+        sub = RecordingSubscriber()
+        SubscriberRegistry.get().subscribe(sub)
+        telemetry.set_span_level(telemetry.DEBUG)
+        try:
+            # non-set_current spans are only emitted under an ambient operation span
+            with telemetry.span('test.op', set_current=True):
+                res = t.select(*[t[f'c{i}'] for i in range(24)]).collect()
+            assert res[0]['c23'] == 24
+        finally:
+            SubscriberRegistry.get().unsubscribe(sub)
+            telemetry.set_span_level(telemetry.INFO)
+
+        xacts = [s for s in sub.spans if s['name'] == 'pixeltable.catalog.begin_xact']
+        # one transaction per select-list expression would be ~24 for the retarget alone; the resolved
+        # versions are now shared, leaving only the transactions the query itself needs
+        assert len(xacts) <= 6, f'select() opened {len(xacts)} transactions'
+
     @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_to_pytorch_dataset(self, all_datatypes_tbl: pxt.Table) -> None:
         """tests all types are handled correctly in this conversion"""

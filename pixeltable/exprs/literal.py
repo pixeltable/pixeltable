@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import datetime
 import uuid
 from typing import TYPE_CHECKING, Any, Iterator
@@ -78,9 +79,18 @@ class Literal(Expr):
         # Return a sql object so that constants can participate in SQL expressions
         return sql.sql.expression.literal(self.val, type_=self.col_type.to_sa_type())
 
+    @staticmethod
+    def per_row_val(val: Any) -> Any:
+        """Return the value to place into a single DataRow.
+
+        Mutable values are owned by the Literal and shared by every row it is evaluated into; each row
+        gets a copy so that a downstream UDF cannot mutate the literal seen by other rows.
+        """
+        return copy.deepcopy(val) if isinstance(val, (dict, list, set, np.ndarray)) else val
+
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         # this will be called, even though sql_expr() does not return None
-        data_row[self.slot_idx] = self.val
+        data_row[self.slot_idx] = self.per_row_val(self.val)
 
     def _as_dict(self) -> dict:
         if self.col_type.is_timestamp_type():

@@ -67,6 +67,13 @@ class TestExprs:
             return a
         return a + b
 
+    @staticmethod
+    @pxt.udf
+    def json_mutator(d: pxt.Json) -> pxt.Json:
+        # mutates its argument in place
+        d['x'] += 1
+        return d
+
     # error in agg.init()
     @pxt.uda
     class init_exc(pxt.Aggregator):
@@ -641,6 +648,16 @@ class TestExprs:
             assert_columns_eq(col_name, results._schema[col_name], [expected_output] * len(results), results[col_name])
 
         reload_tester.run_reload_test()
+
+    @pytest.mark.db_roots('local', reason='uses uses_db')
+    def test_mutable_literal_per_row(self, uses_db: None) -> None:
+        """A mutable literal is copied into each row it is evaluated into, so that mutating the value seen by
+        one row (eg, by a UDF that updates its argument in place) cannot corrupt other rows [PXT-1139]."""
+        t = pxt.create_table('mut_lit', {'n': pxt.Int})
+        t.add_computed_column(r=self.json_mutator({'x': 0}))
+        t.insert([{'n': 1}, {'n': 2}])
+        res = t.select(t.n, t.r).order_by(t.n).collect()
+        assert res['r'] == [{'x': 1}, {'x': 1}]
 
     def test_inline_constants(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
