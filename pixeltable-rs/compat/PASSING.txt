@@ -206,6 +206,7 @@ tests/test_query.py::TestQuery::test_limit_basic[operational]
 tests/test_query.py::TestQuery::test_limit_errors
 tests/test_query.py::TestQuery::test_limit_iterator_views
 tests/test_query.py::TestQuery::test_limit_joins
+tests/test_query.py::TestQuery::test_mutation_op_restrictions
 tests/test_query.py::TestQuery::test_order_by
 tests/test_query.py::TestQuery::test_order_by_after_schema_change[data_versioned]
 tests/test_query.py::TestQuery::test_order_by_after_schema_change[operational]
