@@ -50,6 +50,11 @@ pub struct ViewUpdateNode {
     pub recompute: Vec<ComputedCol>,
     /// true if the update can change which base rows the view contains
     pub membership_change: bool,
+    /// component views: true if the rows of a changed base row are generated again (the iterator reads a changed
+    /// column, or the base row may enter or leave the view)
+    pub reload: bool,
+    /// the number of iterator positions in the keys of the base's rows
+    pub base_num_pos: usize,
     pub children: Vec<ViewUpdateNode>,
 }
 
@@ -152,24 +157,37 @@ pub fn view_update_tree(
     let mut out = Vec::new();
     for v in cat.mutable_view_ids(tbl_id) {
         let md = cat.table(v)?.clone();
+        super::propagate::check_view_valid(&md, "updated in")?;
         let compute = ViewCompute::of(&md, cat.store().media_dir(v))?;
         let mut changed = changed.clone();
+        let reads_changed = |e: &ExprRef| e.column_refs().iter().any(|r| changed.contains(&(r.tbl_id, r.col_id)));
+        let membership_change = base_membership_change || compute.predicate.as_ref().is_some_and(reads_changed);
+        let reload = match &compute.info.iterator {
+            Some(it) => membership_change || it.call.arg_exprs().any(reads_changed),
+            None => false,
+        };
+        if reload {
+            // regenerated rows: every iterator output may change
+            for c in 0..md.num_iterator_cols() {
+                changed.insert((v, c as ColId));
+            }
+        }
         let recompute = dependent_columns(&md, &mut changed)?;
         let tbl_display = crate::functions::udf::tbl_version_display(&md);
         for c in &recompute {
             crate::functions::udf::check_valid_column(&tbl_display, &c.name, &c.expr, "updated in")?;
             updated_cols.push(format!("{}.{}", md.name, c.name));
         }
-        let membership_change = base_membership_change
-            || compute.predicate.as_ref().is_some_and(|p| p.column_refs().iter().any(|r| changed.contains(&(r.tbl_id, r.col_id))));
         let data = cat.data(v)?;
-        let children = view_update_tree(cat, v, &changed, membership_change, updated_cols)?;
+        let children = view_update_tree(cat, v, &changed, membership_change || reload, updated_cols)?;
         out.push(ViewUpdateNode {
             compute,
             schema_version: md.current_schema_version,
             data,
             recompute,
             membership_change,
+            reload,
+            base_num_pos: cat.num_pos(tbl_id),
             children,
         });
     }
@@ -436,43 +454,85 @@ fn compute_view_changes(
 ) -> Result<Vec<ViewChanges>> {
     let mut out = Vec::with_capacity(nodes.len());
     for node in nodes {
-        let live = node.data.live_by_key();
-        let rewrites = node.membership_change || !node.recompute.is_empty();
+        // the view's live rows, grouped by the key of their base row
+        let mut by_base: HashMap<(i64, &[i64]), Vec<&StoredRow>> = HashMap::new();
+        for r in node.data.rows.iter().filter(|r| r.v_max == crate::store::rows::LIVE) {
+            let n = node.base_num_pos.min(r.pos.len());
+            by_base.entry((r.rowid, &r.pos[..n])).or_default().push(r);
+        }
+        for rows in by_base.values_mut() {
+            rows.sort_by(|a, b| a.key().cmp(&b.key()));
+        }
+        let rewrites = node.membership_change || node.reload || !node.recompute.is_empty();
         let mut ch = TableChanges::default();
-        let mut child_bases: Vec<(RowKey, ChildBase<'_>)> = Vec::new();
-        for (key, base) in changes {
-            let old = live.get(&(key.0, key.1.as_slice())).copied();
+        // (view row key, the row as the view's views see it, index of its base change)
+        let mut child_bases: Vec<(RowKey, ChildBase<'_>, usize)> = Vec::new();
+        for (ci, (key, base)) in changes.iter().enumerate() {
+            let olds: Vec<&StoredRow> = by_base.get(&(key.0, key.1.as_slice())).cloned().unwrap_or_default();
             let Some(bp) = base else {
-                if old.is_some() {
-                    ch.retire.insert(key.clone());
-                    child_bases.push((key.clone(), ChildBase::Gone));
+                for o in olds {
+                    ch.retire.insert((o.rowid, o.pos.clone()));
+                    child_bases.push(((o.rowid, o.pos.clone()), ChildBase::Gone, ci));
                 }
                 continue;
             };
             if !rewrites {
-                if let Some(o) = old {
-                    child_bases.push((key.clone(), ChildBase::Old(o)));
+                for o in olds {
+                    child_bases.push(((o.rowid, o.pos.clone()), ChildBase::Old(o), ci));
                 }
                 continue;
             }
+            if node.reload {
+                // a component view generates the base row's rows again
+                for o in &olds {
+                    ch.retire.insert((o.rowid, o.pos.clone()));
+                }
+                let mut new_status = UpdateStatus::default();
+                let new_rows = node.compute.rows_for(base_infos, bp, &mut new_status, saved)?;
+                ch.status = std::mem::take(&mut ch.status) + new_status.insert_to_update();
+                let new_keys: HashSet<RowKey> = new_rows.iter().map(|r| (r.rowid, r.pos.clone())).collect();
+                for o in &olds {
+                    if !new_keys.contains(&(o.rowid, o.pos.clone())) {
+                        child_bases.push(((o.rowid, o.pos.clone()), ChildBase::Gone, ci));
+                    }
+                }
+                for row in new_rows {
+                    child_bases.push(((row.rowid, row.pos.clone()), ChildBase::New(ch.new_rows.len()), ci));
+                    ch.new_rows.push(row);
+                }
+                continue;
+            }
+            if node.compute.info.iterator.is_some() {
+                // a component view whose rows stay: recompute the dependent columns of each
+                for o in olds {
+                    let mut row = o.clone();
+                    node.compute.eval_columns(&mut row, &node.recompute, base_infos, bp, &mut ch.status, saved, false)?;
+                    ch.status.row_count_stats.upd_rows += 1;
+                    ch.retire.insert((o.rowid, o.pos.clone()));
+                    child_bases.push(((o.rowid, o.pos.clone()), ChildBase::New(ch.new_rows.len()), ci));
+                    ch.new_rows.push(row);
+                }
+                continue;
+            }
+            let old = olds.first().copied();
             let present = if node.membership_change { node.compute.accepts(base_infos, bp)? } else { old.is_some() };
             match (old, present) {
                 (Some(o), true) => {
                     let mut row = o.clone();
-                    node.compute.eval_columns(&mut row, &node.recompute, base_infos, bp, &mut ch.status, saved)?;
+                    node.compute.eval_columns(&mut row, &node.recompute, base_infos, bp, &mut ch.status, saved, false)?;
                     ch.status.row_count_stats.upd_rows += 1;
                     ch.retire.insert(key.clone());
-                    child_bases.push((key.clone(), ChildBase::New(ch.new_rows.len())));
+                    child_bases.push((key.clone(), ChildBase::New(ch.new_rows.len()), ci));
                     ch.new_rows.push(row);
                 }
                 (Some(_), false) => {
                     ch.retire.insert(key.clone());
-                    child_bases.push((key.clone(), ChildBase::Gone));
+                    child_bases.push((key.clone(), ChildBase::Gone, ci));
                 }
                 (None, true) => {
                     let mut new_status = UpdateStatus::default();
                     for row in node.compute.rows_for(base_infos, bp, &mut new_status, saved)? {
-                        child_bases.push((key.clone(), ChildBase::New(ch.new_rows.len())));
+                        child_bases.push((key.clone(), ChildBase::New(ch.new_rows.len()), ci));
                         ch.new_rows.push(row);
                     }
                     ch.status = std::mem::take(&mut ch.status) + new_status.insert_to_update();
@@ -483,11 +543,10 @@ fn compute_view_changes(
         let children = {
             let mut infos: Vec<&ElemInfo> = vec![&node.compute.info];
             infos.extend_from_slice(base_infos);
-            let base_by_key: HashMap<&RowKey, &Option<Vec<&StoredRow>>> = changes.iter().map(|(k, b)| (k, b)).collect();
             let child_changes: Vec<BaseChange<'_>> = child_bases
                 .iter()
-                .map(|(key, cb)| {
-                    let base = base_by_key.get(key).and_then(|b| b.as_ref());
+                .map(|(key, cb, ci)| {
+                    let base = changes[*ci].1.as_ref();
                     let row = match cb {
                         ChildBase::Old(o) => Some(*o),
                         ChildBase::New(i) => Some(&ch.new_rows[*i]),
@@ -561,7 +620,7 @@ pub fn delete(cat: &mut Catalog, tbl_id: Uuid, pred: Option<&ExprRef>) -> Result
         data.retire(&keys, version, md.is_data_versioned);
         cat.stage_data(tbl_id, data)?;
     }
-    let cascade = delete_from_views(cat, tbl_id, &keys, super::scan::num_pos(cat, tbl_id), (tbl_id, root_version))?;
+    let cascade = delete_from_views(cat, tbl_id, &keys, cat.num_pos(tbl_id), (tbl_id, root_version))?;
     status = status + cascade;
     if !keys.is_empty() {
         record_version_status(cat, tbl_id, &status)?;
@@ -588,7 +647,7 @@ fn delete_from_views(cat: &mut Catalog, tbl_id: Uuid, keys: &HashSet<RowKey>, nu
             cat.current_version_md_mut(v)?.cascade_from = Some(root);
             cat.stage_data(v, data)?;
         }
-        let cascade = delete_from_views(cat, v, &view_keys, super::scan::num_pos(cat, v), root)?;
+        let cascade = delete_from_views(cat, v, &view_keys, cat.num_pos(v), root)?;
         status = status + cascade;
         if !view_keys.is_empty() {
             record_version_status(cat, v, &status)?;

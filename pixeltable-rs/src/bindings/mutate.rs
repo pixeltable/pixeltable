@@ -360,7 +360,7 @@ pub fn tbl_batch_update<'py>(
     let (cols, is_data_versioned, num_pos) = with_catalog(py, |cat| {
         cat.check_mutable(id, version, "update")?;
         let md = cat.table(id)?;
-        Ok((cat.resolve_columns(id, None)?, md.is_data_versioned, crate::exec::scan::num_pos(cat, id)))
+        Ok((cat.resolve_columns(id, None)?, md.is_data_versioned, cat.num_pos(id)))
     })?;
     if rows.is_empty() {
         let d = status_dict(py, &UpdateStatus::default())?;

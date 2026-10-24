@@ -556,9 +556,10 @@ pub fn create_view(
     } else {
         crate::bail!(TypeMismatch, "`base` must be an instance of `Table` or `Query`");
     };
-    if iterator.is_some_and(|i| !i.is_none()) {
-        return Err(Error::not_implemented("create_view() with an `iterator`"));
-    }
+    let iterator = match iterator.filter(|i| !i.is_none()) {
+        Some(i) => Some(super::func::iterator_call_from_py(i)?),
+        None => None,
+    };
     let p = Path::parse(path, false, false)?;
     let ie = IfExists::parse(if_exists, "if_exists")?;
     let mv = MediaValidation::parse(media_validation, "media_validation")?;
@@ -581,6 +582,7 @@ pub fn create_view(
         comment,
         custom_metadata,
         media_validation: mv,
+        iterator,
     };
     let (id, created) = create_view_from_def(py, &p, &def, ie)?;
     let kind = with_catalog(py, |cat| Ok(cat.table(id)?.kind.display_name().to_string()))?;
@@ -610,7 +612,14 @@ fn create_view_from_def(py: Python<'_>, p: &Path, def: &ViewDef, ie: IfExists) -
             Ok((data, status)) => (Some(data), status.row_count_stats),
             Err(e) => {
                 crate::exec::compute::discard_media(&saved);
-                return Err(e);
+                // upstream creates the view's rows in a table operation that rolls back on failure
+                return Err(match e {
+                    e if crate::functions::udf::is_interrupt(&e) => e,
+                    Error::Pxt { .. } | Error::Python(_) => {
+                        crate::pxt_err!(InternalError, "Table operation was aborted with\n{}", e.message())
+                    }
+                    other => other,
+                });
             }
         },
         None => (None, RowCountStats::default()),

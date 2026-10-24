@@ -44,6 +44,8 @@ pub struct ViewDef {
     pub comment: Option<String>,
     pub custom_metadata: Json,
     pub media_validation: MediaValidation,
+    /// component views: the iterator call that produces the view's rows from each base row
+    pub iterator: Option<std::sync::Arc<crate::functions::iterator::IteratorCall>>,
 }
 
 impl Catalog {
@@ -76,6 +78,13 @@ impl Catalog {
             out.push(PathElem { tbl_id: *id, pinned });
         }
         Ok(out)
+    }
+
+    /// The number of iterator positions in the row keys of `tbl_id` (one per component view in its path).
+    pub fn num_pos(&self, tbl_id: Uuid) -> usize {
+        self.tbl_path(tbl_id, None)
+            .map(|p| p.iter().filter(|e| self.tables.get(&e.tbl_id).is_some_and(|t| t.is_component_view())).count())
+            .unwrap_or(0)
     }
 
     /// The path with every live table pinned to its current version.
@@ -334,6 +343,21 @@ impl Catalog {
             }
         }
         specs.extend(def.additional_columns.iter().cloned());
+        if let Some(call) = &def.iterator {
+            // the iterator's outputs shadow base columns of the same name, but share one namespace with the view's
+            // own columns
+            let mut duplicates: Vec<&str> =
+                call.outputs.iter().filter(|o| specs.iter().any(|s| s.name == o.name)).map(|o| o.name.as_str()).collect();
+            duplicates.sort();
+            if !duplicates.is_empty() {
+                let names: Vec<String> = duplicates.iter().map(|n| py_repr(n)).collect();
+                crate::bail!(
+                    InvalidSchema,
+                    "Column name(s) {} are produced by the iterator and also declared by the view; rename the declared column(s).",
+                    names.join(", ")
+                );
+            }
+        }
         let mut seen = std::collections::HashSet::new();
         for spec in &specs {
             validate_column_spec(spec)?;
@@ -390,13 +414,57 @@ impl Catalog {
         for spec in specs.iter_mut() {
             spec.value_expr = spec.value_expr.as_ref().map(retarget);
         }
+        let iterator = match &def.iterator {
+            Some(call) => {
+                for e in call.arg_exprs() {
+                    if !self.is_bound_by(e, &live_base_path)? {
+                        crate::bail!(
+                            UnsupportedOperation,
+                            "View iterator arguments cannot be computed in the context of the base table {}",
+                            py_repr(&base_name)
+                        );
+                    }
+                }
+                let retargeted = crate::functions::iterator::IteratorCall {
+                    def: call.def.clone(),
+                    args: call.args.iter().map(retarget).collect(),
+                    kwargs: call.kwargs.iter().map(|(k, e)| (k.clone(), retarget(e))).collect(),
+                    binding: call.binding.clone(),
+                    outputs: call.outputs.clone(),
+                    validation_error: call.validation_error.clone(),
+                };
+                Some(retargeted.to_json()?)
+            }
+            None => None,
+        };
 
         let ts = now();
         let id = Uuid::new_v4();
         let mut columns = Vec::new();
         let mut schema_cols = Vec::new();
+        // a component view's first columns are the iterator's outputs (`pos` first)
+        if let Some(call) = &def.iterator {
+            for o in &call.outputs {
+                let col_id = columns.len() as ColId;
+                columns.push(ColumnMd {
+                    id: col_id,
+                    col_type: o.col_type.clone(),
+                    is_pk: false,
+                    stored: o.is_stored,
+                    value_expr: None,
+                    schema_version_add: 0,
+                    schema_version_drop: None,
+                    media_validation: None,
+                    comment: None,
+                    custom_metadata: Json::Null,
+                    destination: None,
+                });
+                schema_cols.push(SchemaColumn::new(col_id, o.name.clone()));
+            }
+        }
+        let num_iter_cols = columns.len();
         for (i, c) in specs.into_iter().enumerate() {
-            let col_id = i as ColId;
+            let col_id = (num_iter_cols + i) as ColId;
             let is_computed = c.value_expr.is_some();
             columns.push(ColumnMd {
                 id: col_id,
@@ -443,6 +511,7 @@ impl Catalog {
                 predicate: predicate.as_ref().map(|p| crate::expr::serde::to_json(p)).transpose()?,
                 is_snapshot: def.is_snapshot,
                 include_base_columns: def.select.is_none(),
+                iterator,
             }),
             data_file: None,
             indexes: Default::default(),
