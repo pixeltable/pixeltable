@@ -139,7 +139,7 @@ impl Catalog {
                 custom_metadata: c.custom_metadata,
                 destination: c.destination,
             });
-            schema_cols.push(SchemaColumn { col_id: id, name: c.name });
+            schema_cols.push(SchemaColumn::new(id, c.name));
         }
         let md = TableMd {
             id: tbl_id,
@@ -162,16 +162,7 @@ impl Catalog {
                 custom_metadata,
                 media_validation,
             }],
-            versions: vec![VersionMd {
-                version: 0,
-                created_at: ts,
-                schema_version: 0,
-                user: None,
-                change_type: "schema".to_string(),
-                schema_change: None,
-                row_count_stats: RowCountStats::default(),
-                cascade_row_count_stats: RowCountStats::default(),
-            }],
+            versions: vec![VersionMd::new(0, ts, 0, "schema", None)],
             view: None,
             data_file: None,
             indexes: Default::default(),
@@ -191,6 +182,13 @@ impl Catalog {
             Some(Entry::Table(id)) => {
                 if let Some(v) = path.version {
                     let md = self.table(id)?;
+                    if !md.is_data_versioned {
+                        crate::bail!(
+                            UnsupportedOperation,
+                            "{}: Version-pinned access is supported on data-versioned tables only",
+                            self.display_str(id)?
+                        );
+                    }
                     if md.version_md(v).is_none() {
                         crate::bail!(
                             InvalidArgument,
@@ -215,7 +213,7 @@ impl Catalog {
     /// Ids of the views (and snapshots) defined directly over `tbl_id`.
     pub fn view_ids(&self, tbl_id: Uuid) -> Vec<Uuid> {
         let mut views: Vec<&Arc<TableMd>> =
-            self.tables.values().filter(|t| t.view.as_ref().is_some_and(|v| v.base_id == tbl_id)).collect();
+            self.tables.values().filter(|t| t.view.as_ref().is_some_and(|v| v.base_id() == tbl_id)).collect();
         views.sort_by(|a, b| a.created_at.total_cmp(&b.created_at));
         views.into_iter().map(|t| t.id).collect()
     }
@@ -230,26 +228,29 @@ impl Catalog {
         format!("{listed} and {} more", paths.len() - max_paths)
     }
 
+    /// Fails unless the table can be dropped: without `force`, nothing may depend on it.
+    pub fn check_droppable(&self, tbl_id: Uuid, force: bool, is_replace: bool) -> Result<()> {
+        let views = self.view_ids(tbl_id);
+        if views.is_empty() || force {
+            return Ok(());
+        }
+        let dependents = format!("the following depend on it: {}", self.paths_str(&views, 5));
+        let display = self.display_str(tbl_id)?;
+        if is_replace {
+            crate::bail!(
+                ConstraintViolation,
+                "{display} already exists and {dependents}. Use `if_exists='replace_force'` to replace it."
+            );
+        }
+        crate::bail!(ConstraintViolation, "{display} cannot be dropped, {dependents}.");
+    }
+
     /// Drops a table (and, with `force`, every view over it). Does not commit.
     pub fn drop_table_by_id(&mut self, tbl_id: Uuid, force: bool, is_replace: bool) -> Result<()> {
-        let views = self.view_ids(tbl_id);
-        if !views.is_empty() {
-            if force {
-                for v in views {
-                    if self.tables.contains_key(&v) {
-                        self.drop_table_by_id(v, true, is_replace)?;
-                    }
-                }
-            } else {
-                let dependents = format!("the following depend on it: {}", self.paths_str(&views, 5));
-                let display = self.display_str(tbl_id)?;
-                if is_replace {
-                    crate::bail!(
-                        ConstraintViolation,
-                        "{display} already exists and {dependents}. Use `if_exists='replace_force'` to replace it."
-                    );
-                }
-                crate::bail!(ConstraintViolation, "{display} cannot be dropped, {dependents}.");
+        self.check_droppable(tbl_id, force, is_replace)?;
+        for v in self.view_ids(tbl_id) {
+            if self.tables.contains_key(&v) {
+                self.drop_table_by_id(v, true, is_replace)?;
             }
         }
         self.remove_table_record(tbl_id);
@@ -278,6 +279,7 @@ impl Catalog {
     /// Starts a new table version (and, for schema changes, a new schema version equal to it).
     /// Returns the new version.
     pub fn bump_version(&mut self, tbl_id: Uuid, schema_change: Option<String>) -> Result<i64> {
+        let base_versions = self.current_base_versions(tbl_id)?;
         let md = self.table_mut(tbl_id)?;
         let is_schema = schema_change.is_some();
         if !md.is_data_versioned && !is_schema {
@@ -293,24 +295,31 @@ impl Catalog {
             md.current_schema_version = new_version;
         }
         let schema_version = md.current_schema_version;
-        md.versions.push(VersionMd {
-            version: new_version,
-            created_at: now(),
-            schema_version,
-            user: None,
-            change_type: if is_schema { "schema".into() } else { "data".into() },
-            schema_change,
-            row_count_stats: RowCountStats::default(),
-            cascade_row_count_stats: RowCountStats::default(),
-        });
+        let mut vmd =
+            VersionMd::new(new_version, now(), schema_version, if is_schema { "schema" } else { "data" }, schema_change);
+        vmd.base_versions = base_versions;
+        md.versions.push(vmd);
         Ok(new_version)
+    }
+
+    /// The metadata of the current version of a table.
+    pub fn current_version_md_mut(&mut self, tbl_id: Uuid) -> Result<&mut VersionMd> {
+        let md = self.table_mut(tbl_id)?;
+        let v = md.current_version;
+        md.versions.iter_mut().find(|m| m.version == v).ok_or_else(|| Error::internal("table has no current version record"))
     }
 
     /// Adds a column at a new schema version; returns its id. Does not commit.
     pub fn push_column(&mut self, tbl_id: Uuid, spec: ColumnSpec, value_expr: Option<Json>) -> Result<ColId> {
         let change = format!("Added {}", py_repr(&spec.name));
-        let new_version = self.bump_version(tbl_id, Some(change))?;
+        self.bump_version(tbl_id, Some(change))?;
+        self.add_column_md(tbl_id, spec, value_expr)
+    }
+
+    /// Adds a column to the current schema version (which the caller has created); returns its id.
+    pub fn add_column_md(&mut self, tbl_id: Uuid, spec: ColumnSpec, value_expr: Option<Json>) -> Result<ColId> {
         let md = self.table_mut(tbl_id)?;
+        let new_version = md.current_schema_version;
         let id = md.next_col_id;
         md.next_col_id += 1;
         let is_computed = value_expr.is_some();
@@ -328,8 +337,12 @@ impl Catalog {
             destination: spec.destination,
         });
         let sv = md.schema_versions.last_mut().ok_or_else(|| Error::internal("table has no schema versions"))?;
+<<<<<<< HEAD
+        sv.columns.push(SchemaColumn::new(id, spec.name));
+=======
         sv.columns.push(SchemaColumn { col_id: id, name: spec.name });
         self.add_default_index(tbl_id, id)?;
+>>>>>>> claude/eager-edison-12cqei
         Ok(id)
     }
 
@@ -366,21 +379,25 @@ impl Catalog {
         }
     }
 
-    /// Names of the visible computed columns of `tbl_id` whose value expression references column `col_id`.
+    /// Names of the visible computed columns of `tbl_id` and of its live views (recursively) whose value expression
+    /// references column `col_id` of `tbl_id`.
     pub fn dependent_columns(&self, tbl_id: Uuid, col_id: ColId) -> Result<Vec<String>> {
-        let md = self.table(tbl_id)?;
-        Ok(md
-            .columns_at(None)?
-            .into_iter()
-            .filter(|c| {
-                c.md.value_expr.as_ref().is_some_and(|e| {
+        let mut tables = vec![tbl_id];
+        tables.extend(self.mutable_views_recursive(tbl_id));
+        let mut out = Vec::new();
+        for t in tables {
+            for c in self.table(t)?.columns_at(None)? {
+                let refs = c.md.value_expr.as_ref().is_some_and(|e| {
                     crate::expr::serde::from_json(e)
                         .map(|e| e.column_refs().iter().any(|r| r.tbl_id == tbl_id && r.col_id == col_id))
                         .unwrap_or(false)
-                })
-            })
-            .map(|c| c.name)
-            .collect())
+                });
+                if refs {
+                    out.push(c.name);
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// Adds non-computed columns (upstream `add_columns()` for plain columns).
@@ -419,24 +436,35 @@ impl Catalog {
             to_add.push(spec);
         }
         let names: Vec<String> = to_add.iter().map(|s| s.name.clone()).collect();
-        for spec in to_add {
-            self.push_column(tbl_id, spec, None)?;
-        }
         if !names.is_empty() {
+            let quoted: Vec<String> = names.iter().map(|n| py_repr(n)).collect();
+            self.bump_version(tbl_id, Some(format!("Added {}", quoted.join(", "))))?;
+            for spec in to_add {
+                self.add_column_md(tbl_id, spec, None)?;
+            }
             self.commit()?;
         }
         Ok(names)
     }
 
-    pub fn drop_column(&mut self, tbl_id: Uuid, name: &str, if_not_exists: IfNotExists) -> Result<()> {
-        self.check_mutable(tbl_id, None, "drop columns from")?;
-        let md = self.table(tbl_id)?.clone();
-        let Some(col) = md.column_by_name(name, None)? else {
+    /// The column `name` of `tbl_id` for a schema change: COLUMN_NOT_FOUND if unknown, UNSUPPORTED_OPERATION
+    /// (`Cannot <verb> base table column ...`) if it belongs to a base. None: unknown and `if_not_exists='ignore'`.
+    pub fn own_column(&self, tbl_id: Uuid, name: &str, verb: &str, if_not_exists: IfNotExists) -> Result<Option<ResolvedColumn>> {
+        let Some(col) = self.resolve_column_by_name(tbl_id, None, name)? else {
             if if_not_exists == IfNotExists::Ignore {
-                return Ok(());
+                return Ok(None);
             }
             crate::bail!(ColumnNotFound, "Unknown column: {name}");
         };
+        if col.tbl_id != tbl_id {
+            crate::bail!(UnsupportedOperation, "Cannot {verb} base table column {}", py_repr(&col.name));
+        }
+        Ok(Some(col))
+    }
+
+    pub fn drop_column(&mut self, tbl_id: Uuid, name: &str, if_not_exists: IfNotExists) -> Result<()> {
+        self.check_mutable(tbl_id, None, "drop columns from")?;
+        let Some(col) = self.own_column(tbl_id, name, "drop", if_not_exists)? else { return Ok(()) };
         if col.md.is_pk {
             crate::bail!(UnsupportedOperation, "Cannot drop primary key column {}", py_repr(&col.name));
         }
@@ -447,6 +475,29 @@ impl Catalog {
                 "Cannot drop column {} because the following columns depend on it:\n{}",
                 py_repr(&col.name),
                 dependents.join(", ")
+            );
+        }
+        let mut dependent_views = Vec::new();
+        for v in self.mutable_views_recursive(tbl_id) {
+            let vmd = self.table(v)?;
+            if let Some(p) = vmd.view.as_ref().and_then(|vm| vm.predicate.as_ref()) {
+                let pred = crate::expr::serde::from_json(p)?;
+                if pred.column_refs().iter().any(|r| r.tbl_id == tbl_id && r.col_id == col.md.id) {
+                    dependent_views.push(format!(
+                        "view: {}, predicate: {}",
+                        self.table_path(v)?,
+                        crate::expr::display::display(&self.with_column_names(&pred, &[]))
+                    ));
+                }
+            }
+        }
+        if !dependent_views.is_empty() {
+            dependent_views.sort();
+            crate::bail!(
+                UnsupportedOperation,
+                "Cannot drop column {} because the following views depend on it:\n{}",
+                py_repr(&col.name),
+                dependent_views.join("\n")
             );
         }
         let visible = self.resolve_columns(tbl_id, None)?;
@@ -469,14 +520,91 @@ impl Catalog {
         self.commit()
     }
 
+    /// `alter_column()`: widens the type of a plain column (to nullable) at a new schema version. Commits.
+    pub fn alter_column(&mut self, tbl_id: Uuid, col: &ResolvedColumn, new_type: &ColumnType) -> Result<()> {
+        if col.tbl_id != tbl_id {
+            crate::bail!(UnsupportedOperation, "Cannot alter base table column {}", py_repr(&col.name));
+        }
+        if col.md.is_computed() {
+            crate::bail!(UnsupportedOperation, "Cannot alter the type of computed column {}", py_repr(&col.name));
+        }
+        if col.md.is_pk {
+            crate::bail!(UnsupportedOperation, "Cannot alter the type of primary key column {}", py_repr(&col.name));
+        }
+        let dependents = self.dependent_columns_qualified(tbl_id, col.md.id)?;
+        if !dependents.is_empty() {
+            crate::bail!(
+                UnsupportedOperation,
+                "Cannot alter column {} because the following columns depend on it: {}",
+                py_repr(&col.name),
+                dependents.join(", ")
+            );
+        }
+        let old = &col.md.col_type;
+        if new_type == old {
+            return Ok(());
+        }
+        if !(new_type.matches(old) && !old.nullable && new_type.nullable) {
+            crate::bail!(
+                UnsupportedOperation,
+                "Column {} type cannot be changed from {} to {}",
+                py_repr(&col.name),
+                old.repr(),
+                new_type.repr()
+            );
+        }
+        self.bump_version(tbl_id, Some(format!("Altered {}", py_repr(&col.name))))?;
+        let md = self.table_mut(tbl_id)?;
+        let sv = md.schema_versions.last_mut().ok_or_else(|| Error::internal("table has no schema versions"))?;
+        for c in sv.columns.iter_mut().filter(|c| c.col_id == col.md.id) {
+            c.col_type = Some(new_type.clone());
+        }
+        self.commit()
+    }
+
+    /// Like `dependent_columns()`, as `table.column` names.
+    pub fn dependent_columns_qualified(&self, tbl_id: Uuid, col_id: ColId) -> Result<Vec<String>> {
+        let mut tables = vec![tbl_id];
+        tables.extend(self.mutable_views_recursive(tbl_id));
+        let mut out = Vec::new();
+        for t in tables {
+            let md = self.table(t)?;
+            for c in md.columns_at(None)? {
+                let refs = c.md.value_expr.as_ref().is_some_and(|e| {
+                    crate::expr::serde::from_json(e)
+                        .map(|e| e.column_refs().iter().any(|r| r.tbl_id == tbl_id && r.col_id == col_id))
+                        .unwrap_or(false)
+                });
+                if refs {
+                    out.push(format!("{}.{}", md.name, c.name));
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The live views of `tbl_id` and their live views, recursively.
+    pub fn mutable_views_recursive(&self, tbl_id: Uuid) -> Vec<Uuid> {
+        let mut out = Vec::new();
+        for v in self.mutable_view_ids(tbl_id) {
+            out.push(v);
+            out.extend(self.mutable_views_recursive(v));
+        }
+        out
+    }
+
     pub fn rename_column(&mut self, tbl_id: Uuid, old_name: &str, new_name: &str) -> Result<()> {
         self.check_mutable(tbl_id, None, "rename columns of")?;
-        let md = self.table(tbl_id)?.clone();
-        let Some(col) = md.column_by_name(old_name, None)? else {
-            crate::bail!(ColumnNotFound, "Unknown column: {old_name}");
-        };
         validate_column_name(new_name)?;
+        let md = self.table(tbl_id)?.clone();
+        let Some(col) = self.own_column(tbl_id, old_name, "rename", IfNotExists::Error)? else {
+            return Ok(());
+        };
         let folded_new = fold_identifier(new_name);
+        if folded_new == col.name {
+            // a case-only rename: nothing changes
+            return Ok(());
+        }
         if md.column_by_name(&folded_new, None)?.is_some() {
             crate::bail!(ColumnAlreadyExists, "Column {} already exists", py_repr(new_name));
         }
