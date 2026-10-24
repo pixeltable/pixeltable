@@ -40,7 +40,7 @@ help:
 	@echo '  test          Run pytest and check'
 	@echo '  fulltest      Run fullpytest, nbtest, and check'
 	@echo '  slimtest      Run a slimpytest and check'
-	@echo '  check         Run typecheck, lint, formatcheck, and nbcheck'
+	@echo '  check         Run typecheck, lint, formatcheck, nbcheck, and check-review-scripts'
 	@echo '  format        Run `ruff format` (updates .py files in place)'
 	@echo '  release       Create a pypi release and post to github'
 	@echo '  docs          Build mintlify documentation'
@@ -59,6 +59,7 @@ help:
 	@echo '  lint          Run `ruff check`'
 	@echo '  formatcheck   Run `ruff format --check` (check only, do not modify files)'
 	@echo '  nbcheck       Run `./scripts/check-notebooks.sh`'
+	@echo '  check-review-scripts  Run format, lint, typecheck, and unit tests for .github/scripts'
 	@echo ''
 	@echo 'Global parameters:'
 	@echo '  UV_ARGS       Additional arguments to pass to `uv sync` (default = '\''--group extra-dev'\'')'
@@ -148,8 +149,17 @@ slimtest: slimpytest check
 	@echo 'All tests passed.'
 
 .PHONY: check
-check: typecheck lint formatcheck nbcheck
+check: typecheck lint formatcheck nbcheck check-review-scripts
 	@echo 'All static checks passed.'
+
+.PHONY: check-review-scripts
+check-review-scripts:
+	@echo 'Checking .github/scripts ...'
+	@ruff format --check .github/scripts
+	@ruff check .github/scripts
+	@ruff check --select I .github/scripts
+	@MYPYPATH=.github/scripts mypy .github/scripts --exclude claude_erosion_check.py
+	@python -m unittest discover -s .github/scripts -p 'test_*.py'
 
 .PHONY: pytest
 pytest: install

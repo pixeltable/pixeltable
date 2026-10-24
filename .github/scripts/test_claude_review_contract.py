@@ -169,8 +169,11 @@ class ContractTest(unittest.TestCase):
         result['snapshot_id'] = manifest['snapshot_id']
         add_finding(result, finding())
         result['findings'].append(finding())
-        with self.assertRaisesRegex(ValueError, 'duplicate'):
-            contract.validate(result, manifest)
+        add_finding(result, finding('sibling'))
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'incomplete')
+        self.assertTrue(any('duplicate' in gap.lower() for gap in stats['gaps']))
+        self.assertEqual(len(review['comments']), 1)
 
     def test_unchecked_claim_cannot_publish(self) -> None:
         manifest, result = fixture()
@@ -207,41 +210,65 @@ class ContractTest(unittest.TestCase):
 
     def test_source_references_and_nondefect_severity(self) -> None:
         manifest, result = fixture()
-        claim = finding()
-        claim['evidence'][0]['line'] = 100
-        add_finding(result, claim)
+        result['passes'][0]['checks'][0]['line'] = 100
         with self.assertRaisesRegex(ValueError, 'does not exist'):
             contract.validate(result, manifest)
+        result['passes'][0]['checks'][0]['line'] = 20
+        claim = finding()
+        claim['evidence'][0]['line'] = 100
+        with self.assertRaisesRegex(ValueError, 'does not exist'):
+            contract.validate_claim(claim, manifest)
+        add_finding(result, claim)
+        add_finding(result, finding('sibling'))
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'incomplete')
+        self.assertTrue(any('does not exist' in gap for gap in stats['gaps']))
+        self.assertEqual(len(review['comments']), 1)
         result['findings'] = []
         result['decisions'] = []
         claim = finding()
         claim['kind'] = 'design'
+        claim['severity'] = ''
         add_finding(result, claim)
         validated = contract.validate(result, manifest)
+        self.assertEqual(validated['status'], 'complete')
         self.assertIsNone(validated['findings'][claim['id']]['severity'])
         self.assertIsNone(validated['decisions'][claim['id']]['checked']['severity'])
-        result['findings'][0]['severity'] = 'Critical'
-        with self.assertRaisesRegex(ValueError, 'Only defects'):
-            contract.validate(result, manifest)
+        for bad_severity in ['Medium', 'Critical']:
+            result['findings'][0]['severity'] = bad_severity
+            with self.assertRaisesRegex(ValueError, 'Only defects'):
+                contract.validate_claim(result['findings'][0], manifest)
+            isolated = contract.validate(result, manifest)
+            self.assertEqual(isolated['status'], 'incomplete')
+            self.assertTrue(any('Only defects' in gap for gap in isolated['gaps']))
+            self.assertNotIn(claim['id'], isolated['findings'])
 
     def test_independent_checker_is_required(self) -> None:
         manifest, result = fixture()
         add_finding(result, finding())
+        add_finding(result, finding('sibling'))
         result['decisions'][0]['checker'] = 'lines'
-        with self.assertRaisesRegex(ValueError, 'independent'):
-            contract.validate(result, manifest)
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'incomplete')
+        self.assertTrue(any('independent' in gap for gap in stats['gaps']))
+        self.assertEqual(len(review['comments']), 1)
 
     def test_question_names_unknown_and_check(self) -> None:
         manifest, result = fixture()
         add_finding(result, finding())
         result['decisions'][0].update(decision='question', unknown='Which caller owns this input?')
-        with self.assertRaisesRegex(ValueError, 'check'):
-            contract.validate(result, manifest)
+        isolated = contract.validate(result, manifest)
+        self.assertEqual(isolated['status'], 'incomplete')
+        self.assertTrue(any('check must be a nonempty string' in gap for gap in isolated['gaps']))
+        self.assertEqual(isolated['decisions'], {})
         result['decisions'][0]['check'] = 'Read the external caller contract.'
         review, stats = contract.render(result, manifest)
         self.assertEqual(stats['status'], 'incomplete')
         self.assertIn('Which caller owns this input?', review['body'])
         self.assertEqual(review['comments'], [])
+        result['questions'] = [{'unknown': 'Missing check'}]
+        with self.assertRaisesRegex(ValueError, 'check'):
+            contract.validate(result, manifest)
 
     def test_focus_and_user_job_require_their_passes(self) -> None:
         manifest, result = fixture()
@@ -375,12 +402,18 @@ class ContractTest(unittest.TestCase):
         self.assertIn('Resolved:', review['body'])
         self.assertEqual(review['comments'], [])
         result['decisions'][0]['checked']['evidence'] = [{'path': 'invented.py', 'line': 1}]
-        with self.assertRaisesRegex(ValueError, 'does not exist'):
-            contract.render(result, manifest)
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'incomplete')
+        self.assertTrue(any('does not exist' in gap for gap in stats['gaps']))
+        self.assertNotIn('Resolved:', review['body'])
+        state = json.loads(review['body'].split(contract.STATE_MARKER)[1].split('\n-->')[0])
+        self.assertEqual(state['records'][0]['status'], 'unverified')
         result['decisions'][0]['checked'] = copy.deepcopy(claim)
         result['decisions'][0]['decision'] = 'keep'
-        with self.assertRaisesRegex(ValueError, 'does not exist'):
-            contract.render(result, manifest)
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'incomplete')
+        self.assertTrue(any('does not exist' in gap for gap in stats['gaps']))
+        self.assertEqual(review['comments'], [])
 
     def test_hidden_state_escapes_html_comment_terminators(self) -> None:
         manifest, result = fixture()
@@ -453,8 +486,10 @@ class ContractTest(unittest.TestCase):
         earlier = finding()
         earlier['producer'] = 'focus'
         add_finding(result, copy.deepcopy(earlier))
-        with self.assertRaisesRegex(ValueError, 'unknown producer'):
-            contract.validate(result, manifest)
+        untracked = contract.validate(result, manifest)
+        self.assertEqual(untracked['status'], 'incomplete')
+        self.assertTrue(any('unknown producer' in gap for gap in untracked['gaps']))
+        self.assertNotIn(earlier['id'], untracked['findings'])
         manifest['previous'] = {'records': [{'claim': copy.deepcopy(earlier), 'posted': True, 'status': 'keep'}]}
         self.assertEqual(contract.validate(result, manifest)['status'], 'complete')
 
@@ -541,6 +576,38 @@ class ContractTest(unittest.TestCase):
             + '/example.py#L2-L2)): Inline the single-use wrapper.',
             review['body'],
         )
+
+    def test_per_finding_and_decision_fault_isolation_preserves_siblings_and_unverified_history(self) -> None:
+        manifest, result = fixture()
+        prior_bad_finding = finding('prior:bad-finding')
+        prior_bad_decision = finding('prior:bad-decision')
+        manifest['previous'] = {
+            'records': [
+                {'claim': copy.deepcopy(prior_bad_finding), 'posted': True, 'status': 'keep'},
+                {'claim': copy.deepcopy(prior_bad_decision), 'posted': True, 'status': 'keep'},
+            ]
+        }
+        broken_finding = {**copy.deepcopy(prior_bad_finding), 'kind': 'design', 'severity': 'Low'}
+        add_finding(result, broken_finding)
+        add_finding(result, copy.deepcopy(prior_bad_decision))
+        result['decisions'][-1]['decision'] = 'invalid-verdict'
+        bad_maint = {**finding('maint:bad'), 'kind': 'maintenance', 'severity': 'Low'}
+        result['findings'].append(bad_maint)
+        add_finding(result, finding('valid:sibling'))
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'incomplete')
+        self.assertEqual(stats['published'], 1)
+        self.assertEqual(len(review['comments']), 1)
+        self.assertNotIn('Maintenance suggestions', review['body'])
+        self.assertTrue(any('prior:bad-finding: Only defects have severity' in gap for gap in stats['gaps']))
+        self.assertTrue(any('prior:bad-decision: Unknown verification decision' in gap for gap in stats['gaps']))
+        self.assertTrue(any('maint:bad: Only defects have severity' in gap for gap in stats['gaps']))
+        self.assertFalse(any('prior claim not revalidated' in gap for gap in stats['gaps']))
+        state = json.loads(review['body'].split(contract.STATE_MARKER)[1].split('\n-->')[0])
+        records_by_id = {r['claim']['id']: r for r in state['records']}
+        self.assertEqual(records_by_id['prior:bad-finding']['status'], 'unverified')
+        self.assertEqual(records_by_id['prior:bad-decision']['status'], 'unverified')
+        self.assertEqual(records_by_id['valid:sibling']['status'], 'keep')
 
 
 if __name__ == '__main__':

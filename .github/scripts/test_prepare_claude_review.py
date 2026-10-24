@@ -274,6 +274,63 @@ class PrepareTest(unittest.TestCase):
             self.assertEqual(prepare.state_from_review(body, 'o/r', 1, self.base), {})
         github.assert_not_called()
 
+    def test_sync_compares_working_trees_and_merge_previews(self) -> None:
+        import check_claude_review_sync as sync
+
+        repos = [self.root / 'left_repo', self.root / 'right_repo']
+        for repo in repos:
+            repo.mkdir()
+            subprocess.check_call(['git', 'init', '--quiet', '-b', 'main'], cwd=repo)
+            subprocess.check_call(['git', 'config', 'core.hooksPath', '/dev/null'], cwd=repo)
+            (repo / 'README.md').write_text('base\n', encoding='utf-8')
+            for rel in sync.SHARED_FILES:
+                target = repo / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(f'shared {rel}\n', encoding='utf-8')
+            subprocess.check_call(['git', 'add', '.'], cwd=repo)
+            subprocess.check_call(
+                ['git', '-c', 'user.name=Test', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'base'], cwd=repo
+            )
+            subprocess.check_call(['git', 'update-ref', 'refs/remotes/origin/main', 'HEAD'], cwd=repo)
+            subprocess.check_call(['git', 'checkout', '-qb', 'feature'], cwd=repo)
+        sync.check_sync(repos[0], repos[1])
+        # A conflict in an unrelated file on origin/main does not fail shared-file sync when shared blobs match.
+        subprocess.check_call(['git', 'checkout', '-q', 'main'], cwd=repos[0])
+        (repos[0] / 'README.md').write_text('main readme\n', encoding='utf-8')
+        subprocess.check_call(
+            ['git', '-c', 'user.name=Test', '-c', 'user.email=t@example.invalid', 'commit', '-qam', 'main readme'],
+            cwd=repos[0],
+        )
+        subprocess.check_call(['git', 'update-ref', 'refs/remotes/origin/main', 'HEAD'], cwd=repos[0])
+        subprocess.check_call(['git', 'checkout', '-q', 'feature'], cwd=repos[0])
+        (repos[0] / 'README.md').write_text('feature readme\n', encoding='utf-8')
+        subprocess.check_call(
+            ['git', '-c', 'user.name=Test', '-c', 'user.email=t@example.invalid', 'commit', '-qam', 'feature readme'],
+            cwd=repos[0],
+        )
+        sync.check_sync(repos[0], repos[1])
+        # If one repo commits a shared-file update and the other only has it in its working tree, merge preview fails.
+        shared = sync.SHARED_FILES[0]
+        (repos[0] / shared).write_text('updated\n', encoding='utf-8')
+        (repos[1] / shared).write_text('updated\n', encoding='utf-8')
+        subprocess.check_call(
+            ['git', '-c', 'user.name=Test', '-c', 'user.email=t@example.invalid', 'commit', '-qam', 'shared update'],
+            cwd=repos[0],
+        )
+        with self.assertRaisesRegex(SystemExit, 'merge preview differs'):
+            sync.check_sync(repos[0], repos[1])
+        # A merge conflict on a shared file against origin/main is rejected.
+        subprocess.check_call(['git', 'checkout', '-q', 'main'], cwd=repos[0])
+        (repos[0] / shared).write_text('conflicting main update\n', encoding='utf-8')
+        subprocess.check_call(
+            ['git', '-c', 'user.name=Test', '-c', 'user.email=t@example.invalid', 'commit', '-qam', 'conflict'],
+            cwd=repos[0],
+        )
+        subprocess.check_call(['git', 'update-ref', 'refs/remotes/origin/main', 'HEAD'], cwd=repos[0])
+        subprocess.check_call(['git', 'checkout', '-q', 'feature'], cwd=repos[0])
+        with self.assertRaisesRegex(SystemExit, 'merge conflicts'):
+            sync.check_sync(repos[0], repos[1])
+
 
 if __name__ == '__main__':
     unittest.main()

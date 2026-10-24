@@ -203,7 +203,7 @@ def validate_claim(claim: Any, manifest: dict[str, Any], historical: dict[str, A
     if claim['kind'] == 'defect':
         if claim.get('severity') not in {'High', 'Medium', 'Low'}:
             raise ValueError('A supported defect needs an impact severity')
-    elif claim.get('severity') not in {None, '', 'High', 'Medium', 'Low'}:
+    elif claim.get('severity') not in {None, ''}:
         raise ValueError('Only defects have severity')
     else:
         claim['severity'] = None
@@ -267,6 +267,71 @@ def validate_resolution(key: str, decision: dict[str, Any], previous: dict[str, 
         changed = True
     if not manifest.get('previous_tree') or not changed:
         raise ValueError('Resolution has no demonstrated source change since the prior review')
+
+
+def check_finding(
+    claim: Any,
+    key: str,
+    passes: dict[str, Any],
+    findings: dict[str, Any],
+    invalid_keys: set[str],
+    previous: dict[str, Any],
+    manifest: dict[str, Any],
+) -> dict[str, Any]:
+    if key and (key in findings or key in invalid_keys):
+        raise ValueError('Finding has a duplicate ID')
+    earlier = previous.get(key, {}).get('claim') if key else None
+    historical = earlier if isinstance(claim, dict) and claim.get('kind') != 'maintenance' else None
+    validate_claim(claim, manifest, historical)
+    assert isinstance(claim, dict)
+    valid_producer = claim['producer'] in passes or (earlier is not None and claim['producer'] == earlier['producer'])
+    if not valid_producer:
+        raise ValueError('Finding has an unknown producer')
+    if key in previous and not same_identity(claim, previous[key]['claim'], manifest):
+        raise ValueError('Prior finding ID was reused for a different identity')
+    return claim
+
+
+def check_decision(
+    decision: Any,
+    seen_decisions: set[str],
+    findings: dict[str, Any],
+    invalid_keys: set[str],
+    previous: dict[str, Any],
+    closing: set[Any],
+    manifest: dict[str, Any],
+    gaps: list[str],
+) -> tuple[str, dict[str, Any] | None]:
+    if not isinstance(decision, dict):
+        raise ValueError('Decision must be an object')
+    key = text(decision.get('finding_id'), 'finding_id')
+    if key in seen_decisions or (key not in findings and key not in invalid_keys):
+        raise ValueError('Decision has a duplicate or unknown finding ID')
+    seen_decisions.add(key)
+    if key in invalid_keys:
+        return key, None
+    if decision.get('checker') != 'cross-check':
+        raise ValueError('A finding needs an independent cross-checker')
+    if decision.get('decision') not in {'keep', 'narrow', 'question', 'reject', 'resolved'}:
+        raise ValueError('Unknown verification decision')
+    text(decision.get('reason'), 'verification reason')
+    checked = decision.get('checked')
+    historical = previous.get(key, {}).get('claim') if key in closing else None
+    validate_claim(checked, manifest, historical)
+    assert isinstance(checked, dict)
+    if (
+        checked['id'] != findings[key]['id']
+        or checked['producer'] != findings[key]['producer']
+        or not same_identity(checked, findings[key], manifest)
+    ):
+        raise ValueError('Verification changed the finding identity')
+    if decision['decision'] == 'question':
+        text(decision.get('unknown'), 'unknown')
+        text(decision.get('check'), 'check')
+        gaps.append(f'{key}: decisive fact remains unresolved')
+    if decision['decision'] == 'resolved':
+        validate_resolution(key, decision, previous, manifest)
+    return key, decision
 
 
 def validate(data: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
@@ -338,70 +403,48 @@ def validate(data: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
         for d in data['decisions']
         if isinstance(d, dict) and d.get('decision') in {'resolved', 'reject', 'question'}
     }
-    for claim in data['findings']:
-        earlier = previous.get(claim.get('id'), {}).get('claim') if isinstance(claim, dict) else None
-        historical = earlier if isinstance(claim, dict) and claim.get('kind') != 'maintenance' else None
-        validate_claim(claim, manifest, historical)
-        key = claim['id']
-        valid_producer = claim['producer'] in passes or (
-            earlier is not None and claim['producer'] == earlier['producer']
-        )
-        if key in findings or key in invalid_keys or not valid_producer:
-            raise ValueError('Finding has a duplicate ID or an unknown producer')
-        if key in previous and not same_identity(claim, previous[key]['claim'], manifest):
-            gaps.append(f'{key}: Prior finding ID was reused for a different identity')
-            invalid_keys.add(key)
-            continue
-        findings[key] = claim
-    decisions: dict[str, Any] = {}
-    seen_decisions: set[str] = set()
-    for decision in data['decisions']:
-        key = text(decision.get('finding_id'), 'finding_id')
-        if key in seen_decisions or (key not in findings and key not in invalid_keys):
-            raise ValueError('Decision has a duplicate or unknown finding ID')
-        seen_decisions.add(key)
-        if key in invalid_keys:
-            continue
-        if decision.get('checker') != 'cross-check':
-            raise ValueError('A finding needs an independent cross-checker')
-        if decision.get('decision') not in {'keep', 'narrow', 'question', 'reject', 'resolved'}:
-            raise ValueError('Unknown verification decision')
-        text(decision.get('reason'), 'verification reason')
-        checked = decision.get('checked')
-        historical = previous.get(key, {}).get('claim') if key in closing else None
-        validate_claim(checked, manifest, historical)
-        if (
-            checked['id'] != findings[key]['id']
-            or checked['producer'] != findings[key]['producer']
-            or not same_identity(checked, findings[key], manifest)
-        ):
-            gaps.append(f'{key}: Verification changed the finding identity')
-            findings.pop(key, None)
-            invalid_keys.add(key)
-            continue
-        if decision['decision'] == 'question':
-            text(decision.get('unknown'), 'unknown')
-            text(decision.get('check'), 'check')
-            gaps.append(f'{key}: decisive fact remains unresolved')
-        if decision['decision'] == 'resolved':
-            try:
-                validate_resolution(key, decision, previous, manifest)
-            except ValueError as e:
-                gaps.append(f'{key}: {e}')
+    for index, claim in enumerate(data['findings'], 1):
+        raw_id = claim.get('id') if isinstance(claim, dict) else None
+        key = raw_id if isinstance(raw_id, str) and raw_id.strip() else ''
+        label = key or f'finding {index}'
+        try:
+            findings[key] = check_finding(claim, key, passes, findings, invalid_keys, previous, manifest)
+        except ValueError as e:
+            gaps.append(f'{label}: {e}')
+            if key:
                 findings.pop(key, None)
                 invalid_keys.add(key)
-                continue
-        decisions[key] = decision
+    decisions: dict[str, Any] = {}
+    seen_decisions: set[str] = set()
+    for index, decision in enumerate(data['decisions'], 1):
+        raw_id = decision.get('finding_id') if isinstance(decision, dict) else None
+        key = raw_id if isinstance(raw_id, str) and raw_id.strip() else ''
+        label = key or f'decision {index}'
+        try:
+            key, validated_decision = check_decision(
+                decision, seen_decisions, findings, invalid_keys, previous, closing, manifest, gaps
+            )
+            if validated_decision is not None:
+                decisions[key] = validated_decision
+        except ValueError as e:
+            gaps.append(f'{label}: {e}')
+            if key:
+                seen_decisions.add(key)
+                findings.pop(key, None)
+                decisions.pop(key, None)
+                invalid_keys.add(key)
     for key, claim in findings.items():
         if claim['kind'] != 'maintenance' and key not in decisions:
             gaps.append(f'{key}: not independently checked; omitted from published findings')
     for number, question in enumerate(data['questions'], 1):
+        if not isinstance(question, dict):
+            raise ValueError('Question must be an object')
         text(question.get('unknown'), 'unknown')
         text(question.get('check'), 'check')
         gaps.append(f'question {number}: decisive fact remains unresolved')
     previous_ids = {key for key, record in previous.items() if record['status'] not in {'resolved', 'reject'}}
     gaps.extend(f'{key}: prior claim not revalidated' for key in sorted(previous_ids - decisions.keys() - invalid_keys))
-    if status == 'skipped' and (findings or data['decisions'] or invalid_keys):
+    if status == 'skipped' and (data['findings'] or data['decisions'] or findings or invalid_keys):
         raise ValueError('A skipped review cannot contain findings')
     incomplete = bool(gaps) and status == 'complete'
     return {

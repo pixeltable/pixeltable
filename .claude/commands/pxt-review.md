@@ -100,9 +100,9 @@ Use this envelope, with empty arrays when appropriate:
 `status` is `complete`, `incomplete`, or `skipped`. Incomplete and skipped outcomes require a reason. Skipping requires
 the manifest's nonempty `skip_reason`, copied exactly, and no findings. Without that host-approved policy, review the
 change or report incomplete work. No findings is a valid result, but does not establish
-complete coverage. Decisive unresolved questions also require `incomplete`. The host downgrades recoverable coverage,
-identity, and resolution gaps to incomplete while preserving valid checked findings. Invalid snapshots and source
-references still fail validation. A complete review must account for every required pass.
+complete coverage. Decisive unresolved questions also require `incomplete`. The host downgrades coverage, finding,
+and decision gaps to incomplete while preserving valid checked findings. Invalid snapshots, tampered sources, and
+malformed pass envelopes still fail validation. A complete review must account for every required pass.
 
 Each pass entry has this shape:
 
