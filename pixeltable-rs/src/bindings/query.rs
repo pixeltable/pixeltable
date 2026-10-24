@@ -2,6 +2,7 @@
 
 use pyo3::exceptions::PyIndexError;
 use pyo3::prelude::*;
+use pyo3::sync::MutexExt;
 use pyo3::types::{PyBool, PyDict, PyInt, PyList, PyString};
 
 use super::catalog::parse_uuid;
@@ -704,17 +705,18 @@ impl PyCursor {
 #[pymethods]
 impl PyCursor {
     fn open(&self, py: Python<'_>) -> Result<()> {
-        let mut state = self.state.lock();
+        // the lock is held while the query runs detached from the interpreter: wait for it detached too
+        let mut state = self.state.lock_py_attached(py);
         self.open_inner(py, &mut state)
     }
 
-    fn close(&self) {
-        *self.state.lock() = CursorState::Closed;
+    fn close(&self, py: Python<'_>) {
+        *self.state.lock_py_attached(py) = CursorState::Closed;
     }
 
     #[getter]
-    fn state_name(&self) -> &'static str {
-        match *self.state.lock() {
+    fn state_name(&self, py: Python<'_>) -> &'static str {
+        match *self.state.lock_py_attached(py) {
             CursorState::Pending => "pending",
             CursorState::Open { .. } => "open",
             CursorState::Closed => "closed",
@@ -722,15 +724,15 @@ impl PyCursor {
     }
 
     #[getter]
-    fn _closed(&self) -> bool {
-        matches!(*self.state.lock(), CursorState::Closed)
+    fn _closed(&self, py: Python<'_>) -> bool {
+        matches!(*self.state.lock_py_attached(py), CursorState::Closed)
     }
 
     fn __iter__(slf: Bound<'_, Self>) -> Result<Bound<'_, Self>> {
         let py = slf.py();
         {
             let this = slf.get();
-            let mut state = this.state.lock();
+            let mut state = this.state.lock_py_attached(py);
             match *state {
                 CursorState::Closed => crate::bail!(InvalidState, "Cursor is closed and cannot be iterated upon."),
                 CursorState::Pending => this.open_inner(py, &mut state)?,
@@ -741,7 +743,7 @@ impl PyCursor {
     }
 
     fn __next__<'py>(&self, py: Python<'py>) -> Result<Option<Bound<'py, PyAny>>> {
-        let mut state = self.state.lock();
+        let mut state = self.state.lock_py_attached(py);
         let row = match &mut *state {
             CursorState::Open { data, pos, columns, col_types } => {
                 if *pos >= data.rows.len() {

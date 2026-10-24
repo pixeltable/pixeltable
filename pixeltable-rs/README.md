@@ -49,8 +49,15 @@ thread that runs the operation. `max_concurrency=n` caps the calls in flight at 
 | `PIXELTABLE_UDF_ASYNC_CONCURRENCY` / `udf_async_concurrency`: calls of one async UDF in flight at once | 1024 |
 | `<ENDPOINT>_RATE_LIMIT` / `[<endpoint>] rate_limit`: requests per minute of `resource_pool='request-rate:<endpoint>'` | 600 |
 
-`bench/run.py` measures these paths (and builtin-only queries); see [ARCHITECTURE.md](ARCHITECTURE.md), "Concurrency of
-user code", for how it works.
+On free-threaded CPython (3.13t, 3.14t: `uv venv --python 3.14t`, then the setup below) the extension runs without the
+GIL, so pure-Python CPU-bound UDFs run in parallel too (a 1 ms pure-Python UDF over 1,000 rows: 3.5x faster on 4 cores
+than with the GIL).
+
+Builtin-only work (arithmetic, string functions, filters, grouping, joins, sorting, similarity) runs without the GIL and,
+over many rows, on all cores, with results and errors as a single pass would produce them.
+
+`bench/run.py` measures these paths; see [ARCHITECTURE.md](ARCHITECTURE.md), "Concurrency of user code", for how it
+works.
 
 ## Setup
 

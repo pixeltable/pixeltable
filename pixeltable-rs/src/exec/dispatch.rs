@@ -314,8 +314,6 @@ struct Node {
     next: AtomicUsize,
     /// set when the probe finds that calls do not overlap: the workers stop taking units
     serial: AtomicBool,
-    /// when the first unit started (the probe measures from here)
-    first_start: OnceLock<Instant>,
 }
 
 impl Node {
@@ -340,7 +338,6 @@ impl Node {
             calls,
             next: AtomicUsize::new(0),
             serial: AtomicBool::new(false),
-            first_start: OnceLock::new(),
         })
     }
 
@@ -502,15 +499,21 @@ enum Mode {
 }
 
 /// Measures whether the calls of a parallel node overlap: the node starts with `PROBE_WORKERS` workers; after `target`
-/// calls, the sum of their durations (each measured while its worker is attached) over the time since the first call
+/// calls, the sum of their durations (each measured while its worker is attached) over the time since the workers
 /// started tells whether they ran at the same time. Below 1.5, the calls hold the GIL and run no faster in parallel:
-/// the dispatching thread runs the rest; else the node gets all its workers (`helpers`).
+/// the dispatching thread runs the following calls; else the node gets all its workers (`helpers`). A serial node is
+/// probed again after `reprobe_after` of its calls (doubling each time), so that one unlucky measurement (a busy
+/// machine) does not decide for all calls.
 struct Probe {
+    started: Instant,
     busy: Duration,
     completed: usize,
     target: usize,
     decided: bool,
     helpers: usize,
+    /// serial calls since the last decision, and how many to run before probing again
+    serial_calls: usize,
+    reprobe_after: usize,
 }
 
 /// The workers a parallel node starts with, until the probe has decided.
@@ -660,7 +663,18 @@ impl<'o> Dispatch<'o> {
         let node = &self.nodes[ni];
         let helpers = threads.min(node.max_concurrency.unwrap_or(usize::MAX)).min(node.num_units).max(1);
         let first = helpers.min(PROBE_WORKERS);
-        self.probes[ni] = Some(Probe { busy: Duration::ZERO, completed: 0, target: node.num_units.min(4 * first), decided: false, helpers });
+        let reprobe_after = self.probes[ni].as_ref().map_or(64, |p| p.reprobe_after * 2);
+        self.probes[ni] = Some(Probe {
+            started: Instant::now(),
+            busy: Duration::ZERO,
+            completed: 0,
+            target: 4 * first,
+            decided: false,
+            helpers,
+            serial_calls: 0,
+            reprobe_after,
+        });
+        self.nodes[ni].serial.store(false, Ordering::SeqCst);
         self.spawn_workers(ni, first);
     }
 
@@ -709,6 +723,13 @@ impl<'o> Dispatch<'o> {
                 }
                 let results = node.run_unit(py, u);
                 self.on_results(py, ni, u, results)?;
+                if let Some(p) = self.probes[ni].as_mut().filter(|p| p.decided) {
+                    p.serial_calls += 1;
+                    if p.serial_calls >= p.reprobe_after && node.next.load(Ordering::SeqCst) < node.num_units {
+                        self.start_workers(ni);
+                        break;
+                    }
+                }
                 since_check += 1;
                 // the clock is read every few calls (a short call costs less than reading it twice)
                 if since_check < if measuring { 2 } else { 16 } {
@@ -824,8 +845,7 @@ impl<'o> Dispatch<'o> {
                     p.completed += 1;
                     if !p.decided && p.completed >= p.target {
                         p.decided = true;
-                        let started = self.nodes[node].first_start.get().copied().unwrap_or_else(Instant::now);
-                        let overlap = p.busy.as_secs_f64() / started.elapsed().as_secs_f64().max(1e-9);
+                        let overlap = p.busy.as_secs_f64() / p.started.elapsed().as_secs_f64().max(1e-9);
                         if overlap < 1.5 && p.helpers > 1 {
                             self.nodes[node].serial.store(true, Ordering::SeqCst);
                         } else {
@@ -943,7 +963,6 @@ impl WorkerJob {
             } else {
                 Python::attach(|py| {
                     let t0 = Instant::now();
-                    self.node.first_start.get_or_init(|| t0);
                     let results = self.node.run_unit(py, u);
                     Msg::Done { node: self.ni, unit: u, results, busy: t0.elapsed() }
                 })
