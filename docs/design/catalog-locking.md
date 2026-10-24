@@ -208,7 +208,8 @@ the table finishes the pending work. There is no background process responsible 
 
 The implementation checks key locking requirements:
 
-- `_lock_tables()` asserts that targets are sorted by name and that no store table is already locked.
+- A lock set asserts that its store tables are sorted by name, one entry per table. `_acquire_locks()` asserts
+  that none of them is already locked.
 - `_assert_tbl_record_write_locked()` requires `EXCLUSIVE` or stronger on the store table for a table metadata
   write. A new table and a pure snapshot are exempt: instead, they require a lock on the parent directory.
 - `StoreBase` calls `assert_rows_write_locked()` before writing store rows.

@@ -408,6 +408,11 @@ class _LockTarget:
     store_tbl_name: str
     mode: _TblLockMode
 
+    def lock_stmt(self, *, wait: bool) -> str:
+        """Return the LOCK TABLE statement that acquires this target's lock."""
+        nowait_clause = '' if wait else ' NOWAIT'
+        return f'LOCK TABLE {self.store_tbl_name} IN {self.mode.sql_name} MODE{nowait_clause}'
+
 
 @dataclasses.dataclass(frozen=True)
 class _LockSet:
@@ -419,6 +424,10 @@ class _LockSet:
     dir_ids: tuple[UUID, ...] = ()
     # whether to wait for locks that are not immediately available; if False, raise _LockNotAvailableError
     wait: bool = True
+
+    def __post_init__(self) -> None:
+        names = [t.store_tbl_name for t in self.tbl_targets]
+        assert names == sorted(set(names)), names
 
 
 class Catalog(CatalogBase):
@@ -1279,50 +1288,41 @@ class Catalog(CatalogBase):
                 stacklevel=2,
             )
 
-    def _lock_tables(self, targets: Sequence[_LockTarget], *, wait: bool) -> None:
-        """Lock store tables.
+    @telemetry.spanned('pixeltable.catalog.acquire_locks', level=telemetry.DEBUG)
+    def _acquire_locks(self, lock_set: _LockSet, op_class: _TblOpClass) -> None:
+        """Lock store tables before directory rows.
 
-        The tables must be ordered by name, and that is the order in which the locks are acquired. Maintaining a total
-        order of lock acquisition ensures no deadlocks.
+        Store tables are locked in the lock set's order, sorted by store table name. Maintaining a total order of lock
+        acquisition ensures no deadlocks. LOCK TABLE leaves the transaction's snapshot unset. The first directory
+        UPDATE establishes it, so directory locks must come after all store table locks.
 
         Raises:
             _LockNotAvailableError: a NOWAIT lock could not be acquired.
             _StaleLockSetError: a named store table no longer exists.
         """
         assert get_runtime().in_xact
-        names = [t.store_tbl_name for t in targets]
-        assert names == sorted(names), names
-        # a store table is locked once per transaction, no lock is ever upgraded
-        assert all(t.tbl_id not in self._locks_held for t in targets), (names, self._locks_held)
-        # Send the LOCK TABLE statements in one request, separated by semicolons. psycopg executes them in order.
-        nowait_clause = '' if wait else ' NOWAIT'
-        stmt = '; '.join(f'LOCK TABLE {t.store_tbl_name} IN {t.mode.sql_name} MODE{nowait_clause}' for t in targets)
-        try:
-            get_runtime().conn.exec_driver_sql(stmt)
-        except sql_exc.DBAPIError as e:
-            msg = f'{stmt} failed: {e}'
-            _logger.debug(msg)
-            if isinstance(e.orig, psycopg.errors.LockNotAvailable):
-                assert not wait
-                raise _LockNotAvailableError from e
-            if isinstance(e.orig, psycopg.errors.UndefinedTable):
-                # A missing store table means the lock set is stale.
-                raise _StaleLockSetError from e
-            raise
-        for t in targets:
-            self._locks_held[t.tbl_id] = t.mode
-
-    @telemetry.spanned('pixeltable.catalog.acquire_locks', level=telemetry.DEBUG)
-    def _acquire_locks(self, lock_set: _LockSet, op_class: _TblOpClass) -> None:
-        """Lock store tables before directory rows.
-
-        LOCK TABLE leaves the transaction's snapshot unset. The first directory UPDATE establishes it,
-        so directory locks must come after all store table locks.
-        """
-        if len(lock_set.tbl_targets) > 0:
+        targets = lock_set.tbl_targets
+        if len(targets) > 0:
+            # a store table is locked once per transaction, no lock is ever upgraded
+            assert all(t.tbl_id not in self._locks_held for t in targets), (targets, self._locks_held)
             fault_injection.process_fault(FaultLocation.CATALOG_BEFORE_TBL_LOCK, op_class=op_class)
-            self._lock_tables(lock_set.tbl_targets, wait=lock_set.wait)
+            # Send the LOCK TABLE statements in one request, separated by semicolons. psycopg executes them in order.
+            stmt = '; '.join(t.lock_stmt(wait=lock_set.wait) for t in targets)
+            try:
+                get_runtime().conn.exec_driver_sql(stmt)
+            except sql_exc.DBAPIError as e:
+                _logger.debug(f'{stmt} failed: {e}')
+                if isinstance(e.orig, psycopg.errors.LockNotAvailable):
+                    assert not lock_set.wait
+                    raise _LockNotAvailableError from e
+                if isinstance(e.orig, psycopg.errors.UndefinedTable):
+                    # A missing store table means the lock set is stale.
+                    raise _StaleLockSetError from e
+                raise
+            for t in targets:
+                self._locks_held[t.tbl_id] = t.mode
             fault_injection.process_fault(FaultLocation.CATALOG_AFTER_TBL_LOCK, op_class=op_class)
+
         for dir_id in lock_set.dir_ids:
             self._acquire_dir_xlock(dir_id=dir_id)
 
