@@ -2,6 +2,7 @@ tests/test_alter_column.py::TestAlterColumn::test_alter_column[data_versioned-no
 tests/test_alter_column.py::TestAlterColumn::test_alter_column[data_versioned-reload_catalog]
 tests/test_alter_column.py::TestAlterColumn::test_alter_column[operational-no_reload_catalog]
 tests/test_alter_column.py::TestAlterColumn::test_alter_column[operational-reload_catalog]
+tests/test_alter_column.py::TestAlterColumn::test_alter_column_errors
 tests/test_alter_column.py::TestAlterColumn::test_alter_column_history[data_versioned-no_reload_catalog]
 tests/test_alter_column.py::TestAlterColumn::test_alter_column_history[data_versioned-reload_catalog]
 tests/test_alter_column.py::TestAlterColumn::test_alter_column_history[operational-no_reload_catalog]
@@ -102,6 +103,7 @@ tests/test_exprs.py::TestExprs::test_make_list
 tests/test_exprs.py::TestExprs::test_math_builtins
 tests/test_exprs.py::TestExprs::test_multi_json_mapper
 tests/test_exprs.py::TestExprs::test_nested_chained_mappers
+tests/test_exprs.py::TestExprs::test_nonmodule_function_errors
 tests/test_exprs.py::TestExprs::test_null_args
 tests/test_exprs.py::TestExprs::test_pow
 tests/test_exprs.py::TestExprs::test_props
@@ -229,16 +231,22 @@ tests/test_sample.py::TestSample::test_sample_basic_n
 tests/test_sample.py::TestSample::test_sample_create_insert_table
 tests/test_sample.py::TestSample::test_sample_display
 tests/test_sample.py::TestSample::test_sample_errors
+tests/test_sample.py::TestSample::test_sample_iterator
+tests/test_sample.py::TestSample::test_sample_snapshot[4171780]
 tests/test_sample.py::TestSample::test_sample_snapshot[None]
 tests/test_sample.py::TestSample::test_sample_snapshot_reload
+tests/test_sample.py::TestSample::test_sample_snapshot_stratified[4171780]
 tests/test_sample.py::TestSample::test_sample_snapshot_stratified[None]
 tests/test_sample.py::TestSample::test_sample_stratified_f
 tests/test_sample.py::TestSample::test_sample_stratified_n
+tests/test_sample.py::TestSample::test_sample_view
 tests/test_snapshot.py::TestSnapshot::test_base_column_access_via_snapshot
 tests/test_snapshot.py::TestSnapshot::test_basic
 tests/test_snapshot.py::TestSnapshot::test_drop_column_in_view_predicate
+tests/test_snapshot.py::TestSnapshot::test_errors
 tests/test_snapshot.py::TestSnapshot::test_load_snapshot_with_dropped_cols[base_first]
 tests/test_snapshot.py::TestSnapshot::test_load_snapshot_with_dropped_cols[snapshot_first]
+tests/test_snapshot.py::TestSnapshot::test_mixed_version_join
 tests/test_snapshot.py::TestSnapshot::test_multiple_snapshot_paths
 tests/test_snapshot.py::TestSnapshot::test_rename_column
 tests/test_snapshot.py::TestSnapshot::test_snapshot_column_comment[no_reload_catalog]
@@ -289,6 +297,7 @@ tests/test_table.py::TestTable::test_compute_component_view
 tests/test_table.py::TestTable::test_compute_input_errors
 tests/test_table.py::TestTable::test_compute_media_errors
 tests/test_table.py::TestTable::test_compute_pydantic_scalars
+tests/test_table.py::TestTable::test_compute_view
 tests/test_table.py::TestTable::test_compute_with_errors
 tests/test_table.py::TestTable::test_computed_col_apply
 tests/test_table.py::TestTable::test_computed_col_exceptions[data_versioned]
@@ -390,6 +399,7 @@ tests/test_view.py::TestView::test_computed_cols[False]
 tests/test_view.py::TestView::test_computed_cols[True]
 tests/test_view.py::TestView::test_create_if_exists
 tests/test_view.py::TestView::test_drop_base_column
+tests/test_view.py::TestView::test_errors
 tests/test_view.py::TestView::test_filter[False]
 tests/test_view.py::TestView::test_filter[True]
 tests/test_view.py::TestView::test_parallel_views
