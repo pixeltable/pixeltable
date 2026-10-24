@@ -53,7 +53,13 @@ def _gitignore_spec(dir_path: Path) -> PathSpec | None:
     gitignore = dir_path / '.gitignore'
     if not gitignore.is_file():
         return None
-    return PathSpec.from_lines('gitignore', gitignore.read_text().splitlines())
+    try:
+        lines = gitignore.read_text().splitlines()
+    except FileNotFoundError:
+        return None  # removed after is_file()
+    except OSError as e:
+        raise _unreadable_error(gitignore, e) from e
+    return PathSpec.from_lines('gitignore', lines)
 
 
 def _is_gitignored(path: Path, is_dir: bool, specs: list[tuple[Path, PathSpec]]) -> bool:
@@ -93,18 +99,21 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
     skipped whether or not a .gitignore covers it, since the pod installs the packages from the lockfile.
     __pycache__ is ignored: we don't want to ship bytecode
 
-    A directory removed during the walk is skipped; one that cannot be read raises.
+    A directory removed during the walk is skipped; one that cannot be listed raises.
     """
     files: set[Path] = set()
 
     def visit(dir_path: Path, specs: list[tuple[Path, PathSpec]]) -> None:
         try:
-            spec = _gitignore_spec(dir_path)
             entries = list(dir_path.iterdir())
         except FileNotFoundError:
             return
         except OSError as e:
-            raise _unreadable_error(dir_path, e) from e
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE,
+                f'{dir_path} cannot be listed: {e.strerror}; add it to .gitignore to leave it out of the project',
+            ) from e
+        spec = _gitignore_spec(dir_path)
         if spec is not None:
             specs = [*specs, (dir_path, spec)]
         for entry in entries:
@@ -225,10 +234,7 @@ def _path_hashes(root: Path, paths: Iterable[Path]) -> dict[str, str]:
 
 def _unreadable_error(path: Path, e: OSError) -> excs.RequestError:
     reason = e.strerror if e.strerror is not None else e
-    return excs.RequestError(
-        excs.ErrorCode.INVALID_STATE,
-        f'{path} cannot be read: {reason}; add it to .gitignore to leave it out of the project',
-    )
+    return excs.RequestError(excs.ErrorCode.INVALID_STATE, f'{path} cannot be read: {reason}')
 
 
 def _path_hash(path: Path, relpath: str) -> str:

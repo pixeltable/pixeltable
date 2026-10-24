@@ -134,17 +134,28 @@ class TestProject:
         """A path removed after its directory was listed is left out, as if it had never been there."""
         (project / 'tmp').mkdir()
         (project / 'tmp' / 'scratch.py').write_text('')
+        (project / 'pkg').mkdir()
+        (project / 'pkg' / '.gitignore').write_text('*.tmp\n')
+        (project / 'pkg' / 'mod.py').write_text('')
         # only patching can place a removal between listing a path and reading it
         list_dir = pathlib.Path.iterdir
+        read_text = pathlib.Path.read_text
 
         def remove_then_list(path: pathlib.Path) -> Iterator[pathlib.Path]:
             if path == project / 'tmp':
                 shutil.rmtree(path)
             return list_dir(path)
 
+        def remove_then_read(path: pathlib.Path, *args: Any, **kwargs: Any) -> str:
+            if path == project / 'pkg' / '.gitignore':
+                path.unlink()
+            return read_text(path, *args, **kwargs)
+
         with monkeypatch.context() as m:
             m.setattr(pathlib.Path, 'iterdir', remove_then_list)
-            assert sorted(project_fingerprint(project, None).files) == ['.gitignore', 'app.py', 'uv.lock']
+            m.setattr(pathlib.Path, 'read_text', remove_then_read)
+            files = project_fingerprint(project, None).files
+            assert sorted(files) == ['.gitignore', 'app.py', 'pkg/mod.py', 'uv.lock']
 
         def list_then_remove(root: pathlib.Path, config: DatabaseConfig | None) -> list[pathlib.Path]:
             files = _archive_files(root, config)
@@ -152,26 +163,28 @@ class TestProject:
             return files
 
         monkeypatch.setattr('pixeltable.utils.project._archive_files', list_then_remove)
-        assert sorted(project_fingerprint(project, None).files) == ['.gitignore', 'uv.lock']
+        assert sorted(project_fingerprint(project, None).files) == ['.gitignore', 'pkg/mod.py', 'uv.lock']
 
     @pytest.mark.skipif(
         os.name == 'nt' or os.geteuid() == 0, reason='chmod(0) blocks reads only for a non-root POSIX user'
     )
     def test_unreadable_path(self, project: pathlib.Path) -> None:
-        secret = project / 'secret.txt'
-        secret.write_text('')
-        secret.chmod(0)
-        data = project / 'data'
-        data.mkdir()
-        try:
-            with pxt_raises(excs.ErrorCode.INVALID_STATE, match=f'{re.escape(str(secret))} cannot be read'):
-                project_fingerprint(project, None)
-            secret.chmod(0o644)
-            data.chmod(0)
-            with pxt_raises(excs.ErrorCode.INVALID_STATE, match=f'{re.escape(str(data))} cannot be read'):
-                project_fingerprint(project, None)
-        finally:
-            data.chmod(0o755)
+        (project / 'secret.txt').write_text('')
+        (project / 'data').mkdir()
+        (project / 'pkg').mkdir()
+        (project / 'pkg' / '.gitignore').write_text('*.tmp\n')
+        for path, problem in (
+            (project / 'secret.txt', 'cannot be read'),
+            (project / 'data', r'cannot be listed: .*add it to \.gitignore'),
+            (project / 'pkg' / '.gitignore', 'cannot be read'),
+        ):
+            mode = path.stat().st_mode
+            path.chmod(0)
+            try:
+                with pxt_raises(excs.ErrorCode.INVALID_STATE, match=f'{re.escape(str(path))} {problem}'):
+                    project_fingerprint(project, None)
+            finally:
+                path.chmod(mode)
 
     def test_file_contents(self, project: pathlib.Path) -> None:
         before = project_fingerprint(project, None)
