@@ -337,12 +337,8 @@ impl Catalog {
             destination: spec.destination,
         });
         let sv = md.schema_versions.last_mut().ok_or_else(|| Error::internal("table has no schema versions"))?;
-<<<<<<< HEAD
         sv.columns.push(SchemaColumn::new(id, spec.name));
-=======
-        sv.columns.push(SchemaColumn { col_id: id, name: spec.name });
         self.add_default_index(tbl_id, id)?;
->>>>>>> claude/eager-edison-12cqei
         Ok(id)
     }
 

@@ -42,13 +42,9 @@ src/
   catalog/table.rs  TableMd, ColumnMd, SchemaVersionMd, VersionMd, ViewMd, ResolvedColumn
   catalog/dirs.rs   directory ops, path-collision handling (if_exists), listings
   catalog/tables.rs create/get/drop table, add/drop/rename column, version bumps
-<<<<<<< HEAD
   catalog/views.rs  table paths (tbl_path), views/snapshots (plan_view/commit_view), column resolution through paths
   catalog/versions.rs revert(), version history (get_versions() with schema-change descriptions)
-=======
-  catalog/views.rs  views/snapshots (filter over a base, live or pinned), column resolution through bases
   catalog/indexes.rs B-tree and embedding index metadata, default indexes, drop/cascade
->>>>>>> claude/eager-edison-12cqei
   catalog/runtime.rs the process-wide Catalog behind a mutex; reload/reset hooks; reserved column names
   store/mod.rs      files under $PIXELTABLE_HOME, atomic writes
   store/rows.rs     TableData / StoredRow with version ranges, cell errors
@@ -62,14 +58,10 @@ src/
   exec/index.rs     AddIndexPlan: embeddings of existing rows for a new embedding index
   bindings/         PyO3 glue only: types.rs (_core.ColumnType), expr.rs (_core.Expr, MethodRef), catalog.rs
                     (module-level functions), table.rs (tbl_* functions), query.rs (QuerySpec, ResultSet, cursor),
-<<<<<<< HEAD
-                    func.rs (_core.Udf, _core.Iterator, _core.IteratorCall, the function registry), mutate.rs
-                    (update/batch_update/recompute_columns/delete/revert/alter_*/get_versions)
-=======
                     sources.rs (data sources: rows, iterators, pydantic models, queries; schema inference),
                     indexes.rs (index operations, similarity(), describe data),
-                    func.rs (_core.Udf, _core.Iterator, _core.IteratorCall, the function registry)
->>>>>>> claude/eager-edison-12cqei
+                    func.rs (_core.Udf, _core.Iterator, _core.IteratorCall, the function registry), mutate.rs
+                    (update/batch_update/recompute_columns/delete/revert/alter_*/get_versions)
 python/pixeltable/
   __init__.py       the public names (same as upstream's __init__)
   exceptions.py     copy of upstream's public module
@@ -304,10 +296,7 @@ call inside `with_catalog`), register it in `bindings/mod.rs`, and forward to it
 scan the table path (key order, see Table paths above) -> where clause -> stable sort (ASC nulls last, DESC nulls first)
 -> offset/limit -> project. Unstored computed columns are evaluated on read. Results are a `ResultData` held in Rust
 (`_core.ResultSet`); values convert to Python objects on access. Not built yet: joins, group by/aggregates, window
-<<<<<<< HEAD
 functions, distinct, sample, JSON paths, array slices.
-=======
-functions, distinct, sample, update/delete, JSON paths, array slices.
 
 ## Data sources, compute(), indexes
 
@@ -329,5 +318,4 @@ schema version, computed by inserts like other stored computed columns, named `<
 embedding functions are kept as `Function.as_dict()` descriptors per query modality. `col.similarity(...)` builds an
 `ExprKind::Similarity` node that holds the embedding call of the query item (computed once per expression) and
 compares it with the row's stored embedding (cosine similarity, inner product or L2 distance). Indexes on views are
-not supported yet (views have no rows of their own).
->>>>>>> claude/eager-edison-12cqei
+not supported yet.
