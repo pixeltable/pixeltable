@@ -2,6 +2,8 @@ import logging
 import os
 import random
 import time
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import PIL.Image
 import pytest
@@ -26,6 +28,38 @@ from .tool_utils import run_tool_invocations_test, server_state, stock_price, we
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 _logger = logging.getLogger('pixeltable_test')
+
+
+class TestOpenaiLocal:
+    """Tests that need no credentials or network, kept out of TestOpenai so that its class markers don't deselect
+    them.
+    """
+
+    def test_model_kwargs_isolation(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Regression test for PXT-1561: chat_completions() must not mutate model_kwargs. Equal dict literals can
+        # share one dict object across expressions, so keys injected for one column would leak into the others.
+        skip_test_if_not_installed('openai')
+        from pixeltable.functions import openai
+
+        create = AsyncMock(return_value=SimpleNamespace(headers={}, text='{}'))
+        client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(with_raw_response=SimpleNamespace(create=create)))
+        )
+        monkeypatch.setattr(openai, '_openai_client', lambda: client)
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        model_kwargs = {'temperature': 0.5}
+        msgs = [{'role': 'user', 'content': t.prompt}]
+        t.add_computed_column(
+            r1=openai.chat_completions(msgs, model='gpt-4o-mini', model_kwargs=model_kwargs, tools=[{'name': 'f'}])
+        )
+        t.add_computed_column(r2=openai.chat_completions(msgs, model='gpt-4o', model_kwargs=model_kwargs))
+        validate_update_status(t.insert(prompt='hello'), 1)
+        # the shared dict is left unmutated, and the 'tools' kwarg injected for r1 never reaches r2's request
+        assert model_kwargs == {'temperature': 0.5}
+        captured = [c.kwargs for c in create.call_args_list]
+        assert all('tools' in c for c in captured if c['model'] == 'gpt-4o-mini')
+        assert all('tools' not in c for c in captured if c['model'] == 'gpt-4o')
 
 
 @pytest.mark.remote_api

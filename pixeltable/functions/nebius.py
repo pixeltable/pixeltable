@@ -106,8 +106,7 @@ async def chat_completions(
     """
     env.Env.get().require_package('openai')
 
-    if model_kwargs is None:
-        model_kwargs = {}
+    model_kwargs = copy.deepcopy(model_kwargs or {})
 
     if tools is not None:
         model_kwargs['tools'] = [{'type': 'function', 'function': tool} for tool in tools]

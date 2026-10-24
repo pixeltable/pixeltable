@@ -135,8 +135,7 @@ async def chat_completions(
         ...     )
         ... )
     """
-    if model_kwargs is None:
-        model_kwargs = {}
+    model_kwargs = dict(model_kwargs or {})
 
     # Get Fabric config and auth
     fabric_env_config, auth_header = _get_fabric_config()

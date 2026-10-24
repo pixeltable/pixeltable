@@ -71,8 +71,7 @@ async def chat_completions(
         ...     response=chat_completions(messages, model='openai/gpt-oss-20b')
         ... )
     """
-    if model_kwargs is None:
-        model_kwargs = {}
+    model_kwargs = dict(model_kwargs or {})
 
     Env.get().require_package('groq')
 

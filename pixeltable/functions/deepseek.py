@@ -5,6 +5,7 @@ Provides integration with Deepseek's language models for chat completions
 and other AI capabilities.
 """
 
+import copy
 import json
 from typing import TYPE_CHECKING, Any
 
@@ -81,8 +82,7 @@ async def chat_completions(
         ...     response=chat_completions(messages, model='deepseek-v4-flash')
         ... )
     """
-    if model_kwargs is None:
-        model_kwargs = {}
+    model_kwargs = copy.deepcopy(model_kwargs or {})
 
     if tools is not None:
         model_kwargs['tools'] = [{'type': 'function', 'function': tool} for tool in tools]

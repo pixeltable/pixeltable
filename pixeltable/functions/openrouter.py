@@ -104,8 +104,7 @@ async def chat_completions(
         ...     )
         ... )
     """
-    if model_kwargs is None:
-        model_kwargs = {}
+    model_kwargs = dict(model_kwargs or {})
 
     Env.get().require_package('openai')
 
