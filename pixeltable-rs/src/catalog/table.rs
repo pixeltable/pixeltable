@@ -172,7 +172,6 @@ pub struct VersionMd {
     pub cascade_from: Option<(Uuid, i64)>,
 }
 
-<<<<<<< HEAD
 impl VersionMd {
     pub fn new(version: i64, created_at: f64, schema_version: i64, change_type: &str, schema_change: Option<String>) -> Self {
         VersionMd {
@@ -186,7 +185,10 @@ impl VersionMd {
             cascade_row_count_stats: RowCountStats::default(),
             base_versions: Vec::new(),
             cascade_from: None,
-=======
+        }
+    }
+}
+
 /// The kind of an index and its parameters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -225,18 +227,10 @@ impl IndexMd {
         match &self.kind {
             IndexKind::Embedding { val_col_id, .. } => Some(*val_col_id),
             IndexKind::Btree => None,
->>>>>>> claude/eager-edison-12cqei
         }
     }
 }
 
-<<<<<<< HEAD
-fn default_true() -> bool {
-    true
-}
-
-/// What a view is defined over.
-=======
 /// The live indexes of a table (dropped indexes are removed).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Indexes {
@@ -244,8 +238,11 @@ pub struct Indexes {
     pub next_id: u32,
 }
 
-/// What a view is defined over (filled in by the views work; tables have none).
->>>>>>> claude/eager-edison-12cqei
+fn default_true() -> bool {
+    true
+}
+
+/// What a view is defined over.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ViewMd {
     /// the bases of the view, direct base first, each live (None) or pinned to a version. A pure snapshot (no
@@ -382,7 +379,6 @@ impl TableMd {
         self.view.as_ref().is_some_and(|v| v.is_snapshot)
     }
 
-<<<<<<< HEAD
     /// A snapshot without columns or filter: it has no rows of its own and reads its (pinned) bases.
     pub fn is_pure_snapshot(&self) -> bool {
         self.view.as_ref().is_some_and(|v| v.is_snapshot && v.predicate.is_none()) && self.columns.is_empty()
@@ -391,7 +387,8 @@ impl TableMd {
     /// Ids of the visible stored columns at the current schema version, in schema order.
     pub fn current_column_ids(&self) -> Vec<ColId> {
         self.current_schema().map(|s| s.columns.iter().map(|c| c.col_id).collect()).unwrap_or_default()
-=======
+    }
+
     pub fn index_by_name(&self, name: &str) -> Option<&IndexMd> {
         self.indexes.list.iter().find(|i| i.name == name)
     }
@@ -399,6 +396,5 @@ impl TableMd {
     /// The index whose hidden value column is `col_id`, if any.
     pub fn index_of_value_col(&self, col_id: ColId) -> Option<&IndexMd> {
         self.indexes.list.iter().find(|i| i.val_col_id() == Some(col_id))
->>>>>>> claude/eager-edison-12cqei
     }
 }

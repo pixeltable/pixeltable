@@ -567,14 +567,14 @@ pub fn tbl_describe<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
         // bases and their effective versions
         let chain = cat.base_chain(id);
         let mut bases = Vec::new();
-        let mut cur = md.view.clone();
-        while let Some(v) = cur {
-            let base_path = cat.table_path(v.base_id)?.to_string();
-            bases.push(match v.base_version {
+        let tbl_path = cat.tbl_path(id, version)?;
+        let skip = if md.is_pure_snapshot() { 0 } else { 1 };
+        for e in tbl_path.iter().skip(skip) {
+            let base_path = cat.table_path(e.tbl_id)?.to_string();
+            bases.push(match e.pinned {
                 Some(ver) => py_repr(&format!("{base_path}:{ver}")),
                 None => py_repr(&base_path),
             });
-            cur = cat.table(v.base_id)?.view.clone();
         }
         if !bases.is_empty() {
             title.push_str(&format!(" (of {})", bases.join(", ")));

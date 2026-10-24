@@ -181,7 +181,6 @@ pub struct AddComputedPlan {
     /// an existing column of the same name to drop at commit (`if_exists='replace'`)
     pub replace: Option<ColId>,
     pub media: MediaTarget,
-    pub tbl_name: String,
 }
 
 /// A computed value for the live row with the given key.
@@ -232,7 +231,6 @@ impl AddComputedPlan {
             path,
             replace,
             media,
-            tbl_name: md.name.clone(),
         }))
     }
 
