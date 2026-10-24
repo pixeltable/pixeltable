@@ -27,6 +27,10 @@ With a subset of files, `--update-passing` and `--check` only touch entries of t
 pytest arguments, only entries of tests that actually ran. Exit status without `--check` is 0 unless pytest itself
 failed (usage error, conftest import error, no tests collected).
 
+Concurrent runs are isolated from each other (each pytest process gets its own `PIXELTABLE_HOME`), but they share
+`results/latest.json` and its log; pass `--results results/<name>.json` for a run whose results must not be
+overwritten.
+
 `results/latest.json` holds, per node id: `outcome` (passed, failed, error, skipped, xfailed, xpassed), `reason`
 (first line of the failure, at most 300 characters), `category` (a coarse cause: `internal-api` for a test that hit a
 stub, `utils-definition`, `testing-hooks`, `timeout`, `crash`, `harness-helper`, `skip`, or `fail`) and `duration`;
