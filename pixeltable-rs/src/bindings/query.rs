@@ -380,6 +380,14 @@ impl PyQuerySpec {
         Ok(vpy::json_to_py(py, &self.q.to_json()?)?)
     }
 
+    /// `from_dict()` without checking the catalog (for deserialization that runs under the catalog lock).
+    #[staticmethod]
+    fn _from_dict_unchecked(py: Python<'_>, d: &Bound<'_, PyAny>) -> Result<Self> {
+        let s: String = py.import("json")?.call_method1("dumps", (d,))?.extract()?;
+        let j: serde_json::Value = serde_json::from_str(&s)?;
+        Ok(wrap(QuerySpec::from_json(&j)?))
+    }
+
     #[staticmethod]
     fn from_dict(py: Python<'_>, d: &Bound<'_, PyAny>) -> Result<Self> {
         let s: String = py.import("json")?.call_method1("dumps", (d,))?.extract()?;

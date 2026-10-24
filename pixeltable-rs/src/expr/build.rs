@@ -486,3 +486,9 @@ pub fn array_slice(base: ExprRef, index: Vec<ArrayIndex>) -> Result<ExprRef> {
     let t = base.col_type.array_subscript_type(&index)?;
     Ok(Expr::new(ExprKind::ArraySlice { base, index }, t))
 }
+
+/// `col.<prop>`: a String (or, for `cellmd`, Json) property of a column reference.
+pub fn column_property(col: ExprRef, prop: ColumnProp) -> ExprRef {
+    let t = if prop == ColumnProp::CellMd { ColumnType::json(true) } else { ColumnType::string(true) };
+    Expr::new(ExprKind::ColumnProperty { col, prop }, t)
+}

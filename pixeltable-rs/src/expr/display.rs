@@ -67,32 +67,14 @@ pub fn display(e: &Expr) -> String {
                 .collect();
             format!("{}[{}]", display(base), parts.join(", "))
         }
-        ExprKind::FunctionCall(fc) => {
-            let skip = if fc.is_method_call { 1 } else { 0 };
-            let mut args: Vec<String> = fc.args.iter().skip(skip).map(|a| display(a)).collect();
-            args.extend(fc.kwargs.iter().map(|(k, v)| format!("{k}={}", display(v))));
-            if !fc.order_by.is_empty() {
-                let ob = print_list(&fc.order_by);
-                let requires = matches!(&fc.func, crate::functions::FuncRef::Agg(a) if a.requires_order_by());
-                if requires {
-                    args.insert(0, ob);
-                } else {
-                    args.push(format!("order_by={ob}"));
-                }
-            }
-            if !fc.group_by.is_empty() {
-                args.push(format!("group_by={}", print_list(&fc.group_by)));
-            }
-            match (fc.is_method_call, fc.args.first()) {
-                (true, Some(first)) => format!("{}.{}({})", display(first), fc.func.name(), args.join(", ")),
-                _ => format!("{}({})", fc.func.name(), args.join(", ")),
-            }
-        }
+        ExprKind::ColumnProperty { col, prop } => format!("{}.{}", display(col), prop.name()),
+        ExprKind::Variable(name) => name.clone(),
+        ExprKind::FunctionCall(fc) => crate::functions::display_call(fc),
     }
 }
 
 /// Upstream `Expr.print_list()`.
-fn print_list(items: &[ExprRef]) -> String {
+pub fn print_list(items: &[ExprRef]) -> String {
     if items.len() == 1 {
         return display(&items[0]);
     }

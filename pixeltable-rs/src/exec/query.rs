@@ -11,7 +11,7 @@
 //!
 //! Semantics that upstream gets from evaluating part of a query in SQL are reproduced where tests observe them:
 //! grouping keys must be "SQL-expressible" (`is_sql_expr()`), `count()` rejects non-SQL filters, and division by
-//! zero in a SQL-expressible arithmetic expression yields NULL (`RowContext::sql_semantics()`).
+//! zero in a SQL-expressible arithmetic expression yields NULL (unless `RowContext::python_semantics()`).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -39,6 +39,8 @@ pub struct Source {
     pub data: Arc<TableData>,
     /// view predicates
     pub predicates: Vec<ExprRef>,
+    /// media columns of the scanned table that are validated on read
+    pub read_validation: Arc<crate::media::ReadValidation>,
 }
 
 /// Everything a query reads, captured under the catalog lock.
@@ -75,8 +77,9 @@ impl QueryInput {
             for t in &chain {
                 slot_of.entry(*t).or_insert(i);
             }
+            let read_validation = Arc::new(crate::media::ReadValidation::for_table(&base)?);
             let data = cat.data(scan.base_tbl_id)?;
-            sources.push(Source { chain, scan, version: v, data, predicates });
+            sources.push(Source { chain, scan, version: v, data, predicates, read_validation });
         }
         Ok(QueryInput { q: q.clone(), sources, select, unstored, slot_of })
     }
@@ -106,18 +109,47 @@ fn node_key(e: &Expr) -> usize {
     e as *const Expr as usize
 }
 
-impl RowContext for Ctx<'_> {
-    fn column_value(&self, col: &ColumnRef) -> Result<Value> {
+impl Ctx<'_> {
+    /// The source slot and stored row (None: the missing side of an outer join) that provide `col`.
+    fn row_of(&self, col: &ColumnRef) -> Result<(usize, Option<&StoredRow>)> {
         let Some(slot) = self.input.slot(&col.tbl_id) else {
             return Err(Error::internal(format!("column {} is not provided by the query's tables", col.name)));
         };
-        match self.row.get(slot).copied().flatten() {
-            None => Ok(Value::Null),
-            Some(r) => match self.input.unstored.get(&(col.tbl_id, col.col_id)) {
-                Some(e) => eval(e, self),
-                None => Ok(r.cell(col.col_id).clone()),
-            },
+        Ok((slot, self.row.get(slot).copied().flatten()))
+    }
+
+    /// For a read-validated media column with a file: the validation error, if any.
+    fn read_validation_error(&self, slot: usize, r: &StoredRow, col: &ColumnRef) -> Option<Option<crate::store::rows::CellError>> {
+        let rv = &self.input.sources[slot].read_validation;
+        let kind = rv.kind(col.col_id)?;
+        match r.cell(col.col_id) {
+            Value::Media(s) => Some(rv.error(s, kind)),
+            _ => Some(None),
         }
+    }
+}
+
+impl RowContext for Ctx<'_> {
+    fn column_value(&self, col: &ColumnRef) -> Result<Value> {
+        let (slot, row) = self.row_of(col)?;
+        let Some(r) = row else { return Ok(Value::Null) };
+        if let Some(e) = self.input.unstored.get(&(col.tbl_id, col.col_id)) {
+            return eval(e, self);
+        }
+        if let Some(Some(_)) = self.read_validation_error(slot, r, col) {
+            // an invalid file reads as NULL; its error is the cell's error
+            return Ok(Value::Null);
+        }
+        Ok(r.cell(col.col_id).clone())
+    }
+
+    fn column_error(&self, col: &ColumnRef) -> Result<Option<crate::store::rows::CellError>> {
+        let (slot, row) = self.row_of(col)?;
+        let Some(r) = row else { return Ok(None) };
+        if let Some(e) = self.read_validation_error(slot, r, col) {
+            return Ok(e);
+        }
+        Ok(r.error(col.col_id).cloned())
     }
 
     fn precomputed(&self, e: &Expr) -> Option<Value> {
@@ -127,9 +159,6 @@ impl RowContext for Ctx<'_> {
         self.slots.get(&node_key(e)).map(|i| self.pre[*i].clone())
     }
 
-    fn sql_semantics(&self) -> bool {
-        true
-    }
 }
 
 // ------------------------------------------------------------------------------------------- SQL expressibility
@@ -917,9 +946,6 @@ impl RowContext for CellsCtx<'_> {
     }
     fn precomputed(&self, e: &Expr) -> Option<Value> {
         self.slots.get(&node_key(e)).map(|i| self.pre[*i].clone())
-    }
-    fn sql_semantics(&self) -> bool {
-        true
     }
 }
 

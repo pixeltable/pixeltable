@@ -45,6 +45,8 @@ pub enum ErrorCode {
     InvalidState,
     InvalidConfiguration,
     SchemaMismatch,
+    // ExternalServiceError
+    ProviderError,
     // ServiceUnavailableError
     StoreUnavailable,
     // ConcurrencyError
@@ -83,6 +85,7 @@ impl ErrorCode {
             InvalidState => "INVALID_STATE",
             InvalidConfiguration => "INVALID_CONFIGURATION",
             SchemaMismatch => "SCHEMA_MISMATCH",
+            ProviderError => "PROVIDER_ERROR",
             StoreUnavailable => "STORE_UNAVAILABLE",
             ConcurrentModification => "CONCURRENT_MODIFICATION",
         }
@@ -148,6 +151,7 @@ impl Error {
                     ColumnAlreadyExists | PathAlreadyExists | IndexAlreadyExists | FunctionAlreadyExists => {
                         "AlreadyExistsError"
                     }
+                    ProviderError => "ExternalServiceError",
                     StoreUnavailable => "ServiceUnavailableError",
                     ConcurrentModification => "ConcurrencyError",
                     _ => "RequestError",
@@ -173,7 +177,8 @@ impl Error {
             | Error::Value(message)
             | Error::NotImplemented(message)
             | Error::PyExc(_, message) => message.clone(),
-            Error::Python(e) => Python::attach(|py| e.value(py).str().map(|s| s.to_string()).unwrap_or_default()),
+            // `str(exc)`, as upstream records it in cell errors and messages
+            Error::Python(e) => Python::attach(|py| e.value(py).str().map(|s| s.to_string()).unwrap_or_else(|_| e.to_string())),
         }
     }
 }

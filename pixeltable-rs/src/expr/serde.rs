@@ -192,6 +192,14 @@ pub fn to_json(e: &Expr) -> Result<Json> {
             m.insert("root_id".into(), json!(root_id.to_string()));
             "JsonMapper"
         }
+        ExprKind::Variable(name) => {
+            m.insert("name".into(), json!(name));
+            "Variable"
+        }
+        ExprKind::ColumnProperty { prop, .. } => {
+            m.insert("prop".into(), json!(*prop as i64));
+            "ColumnPropertyRef"
+        }
         ExprKind::FunctionCall(fc) => {
             m.insert("fn".into(), fc.func.to_json()?);
             m.insert("kwarg_names".into(), Json::Array(fc.kwargs.iter().map(|(k, _)| json!(k)).collect()));
@@ -302,8 +310,11 @@ pub fn from_json(d: &Json) -> Result<ExprRef> {
                 root_id: parse_id(d.get("root_id")).ok_or_else(|| bad(d))?,
             }
         }
+        "ColumnPropertyRef" => ExprKind::ColumnProperty {
+            col: one(&comps)?,
+            prop: d.get("prop").and_then(Json::as_i64).and_then(ColumnProp::from_i64).ok_or_else(|| bad(d))?,
+        },
         "FunctionCall" => {
-            let func = crate::functions::FuncRef::from_json(d.get("fn").ok_or_else(|| bad(d))?)?;
             let kwarg_names: Vec<String> = match d.get("kwarg_names") {
                 Some(Json::Array(k)) => k.iter().filter_map(|k| k.as_str().map(str::to_owned)).collect(),
                 _ => Vec::new(),
@@ -315,15 +326,23 @@ pub fn from_json(d: &Json) -> Result<ExprRef> {
             let order_by = comps.split_off(comps.len() - n_order_by);
             let group_by = comps.split_off(comps.len() - n_group_by);
             let kw_vals = comps.split_off(n_args);
+            let kwargs: Vec<(String, ExprRef)> = kwarg_names.into_iter().zip(kw_vals).collect();
+            let fn_json = d.get("fn").ok_or_else(|| bad(d))?;
+            if crate::functions::udf::is_udf_json(fn_json) {
+                // a Python function: resolved against the current code, re-bound, and validated
+                return crate::functions::udf::call_from_json(fn_json, comps, kwargs, col_type);
+            }
+            let func = crate::functions::FuncRef::from_json(fn_json)?;
             ExprKind::FunctionCall(FunctionCall {
                 func,
                 args: comps,
-                kwargs: kwarg_names.into_iter().zip(kw_vals).collect(),
+                kwargs,
                 group_by,
                 order_by,
                 is_method_call: d.get("is_method_call").and_then(Json::as_bool).unwrap_or(false),
             })
         }
+        "Variable" => ExprKind::Variable(d.get("name").and_then(Json::as_str).ok_or_else(|| bad(d))?.to_string()),
         _ => return Err(bad(d)),
     };
     Ok(Expr::new(kind, col_type))

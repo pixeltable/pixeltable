@@ -185,6 +185,7 @@ def _status_from_core(d: dict[str, Any]) -> UpdateStatus:
     return UpdateStatus(
         updated_cols=d['updated_cols'],
         cols_with_excs=d['cols_with_excs'],
+        rows=d.get('rows'),
         row_count_stats=RowCountStats(**d['row_count_stats']),
         cascade_row_count_stats=RowCountStats(**d['cascade_row_count_stats']),
     )

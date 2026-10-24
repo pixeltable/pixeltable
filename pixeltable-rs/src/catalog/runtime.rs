@@ -21,10 +21,30 @@ use crate::store::Store;
 static CATALOG: Mutex<Option<Catalog>> = Mutex::new(None);
 static RESERVED_NAMES: RwLock<Option<HashSet<String>>> = RwLock::new(None);
 
+thread_local! {
+    /// true while this thread holds the catalog lock (in `with_catalog`)
+    static HELD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+struct HeldGuard;
+
+impl Drop for HeldGuard {
+    fn drop(&mut self) {
+        HELD.with(|h| h.set(false));
+    }
+}
+
 /// Runs `f` with exclusive access to the catalog, loading it first if needed. `f` is atomic: if it fails, its
 /// changes are rolled back in memory and on disk (see `Catalog::checkpoint()`).
 pub fn with_catalog<R>(py: Python<'_>, f: impl FnOnce(&mut Catalog) -> Result<R>) -> Result<R> {
+    if HELD.with(|h| h.get()) {
+        // Python code called while this thread holds the lock (e.g. resolving a stored UDF) re-entered the catalog;
+        // the mutex is not reentrant, so fail instead of deadlocking
+        return Err(Error::internal("the catalog was accessed re-entrantly (from Python code run under its lock)"));
+    }
     let mut guard = CATALOG.lock_py_attached(py);
+    HELD.with(|h| h.set(true));
+    let _reset = HeldGuard;
     if guard.is_none() {
         *guard = Some(Catalog::load(Store::open_default()?)?);
     }
@@ -48,12 +68,14 @@ pub fn with_catalog<R>(py: Python<'_>, f: impl FnOnce(&mut Catalog) -> Result<R>
 pub fn reload(py: Python<'_>) {
     let mut guard = CATALOG.lock_py_attached(py);
     *guard = None;
+    crate::functions::udf::reset_load_state();
 }
 
 /// Deletes all data of the current database and starts with an empty catalog.
 pub fn reset(py: Python<'_>) -> Result<()> {
     let mut guard = CATALOG.lock_py_attached(py);
     *guard = None;
+    crate::functions::udf::reset_load_state();
     let store = Store::open_default()?;
     store.wipe()?;
     *guard = Some(Catalog::load(store)?);

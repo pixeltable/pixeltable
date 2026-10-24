@@ -413,8 +413,14 @@ pub fn cast_value(v: Value, t: &crate::types::ColumnType) -> crate::error::Resul
             Value::Array(a)
         }
         (TypeKind::Array { .. }, v) => return Err(mismatch("numpy.ndarray", &v)),
+        (TypeKind::Image { .. }, Value::String(s)) if s.starts_with("data:") => {
+            pyo3::Python::attach(|py| -> crate::error::Result<Value> {
+                let img = crate::value::py::decode_data_url_image(py, &s)?;
+                Ok(Value::PyObj(Arc::new(img.unbind())))
+            })?
+        }
         (TypeKind::Image { .. } | TypeKind::Video | TypeKind::Audio | TypeKind::Document { .. }, Value::String(s)) => {
-            Value::Media(s)
+            Value::Media(crate::media::normalize_input(&s))
         }
         (TypeKind::Image { .. } | TypeKind::Video | TypeKind::Audio | TypeKind::Document { .. }, v @ Value::Media(_)) => v,
         (TypeKind::Image { .. } | TypeKind::Video | TypeKind::Audio | TypeKind::Document { .. }, v) => {

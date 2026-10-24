@@ -24,9 +24,14 @@ pub trait RowContext {
         None
     }
 
-    /// True in queries, where upstream evaluates SQL-expressible arithmetic in SQL (division by zero yields NULL
-    /// there); false when evaluating computed columns (Python semantics: ZeroDivisionError).
-    fn sql_semantics(&self) -> bool {
+    /// The error recorded for (or, for read-validated media, found in) the column's cell, if any.
+    fn column_error(&self, _col: &ColumnRef) -> Result<Option<crate::store::rows::CellError>> {
+        Ok(None)
+    }
+
+    /// True when evaluating with Python semantics (upstream materializes computed columns in Python, where a
+    /// division by zero raises `ZeroDivisionError`; query expressions evaluated in SQL yield NULL instead).
+    fn python_semantics(&self) -> bool {
         false
     }
 }
@@ -48,8 +53,11 @@ impl RowContext for ScopedCtx<'_> {
     fn precomputed(&self, e: &Expr) -> Option<Value> {
         self.parent.precomputed(e)
     }
-    fn sql_semantics(&self) -> bool {
-        self.parent.sql_semantics()
+    fn column_error(&self, col: &ColumnRef) -> Result<Option<crate::store::rows::CellError>> {
+        self.parent.column_error(col)
+    }
+    fn python_semantics(&self) -> bool {
+        self.parent.python_semantics()
     }
 }
 
@@ -241,8 +249,9 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
             let a = eval(lhs, ctx)?;
             let b = eval(rhs, ctx)?;
             match arithmetic(*op, &a, &b, lhs.col_type.is_json(), rhs.col_type.is_json(), &e.col_type) {
+                // upstream evaluates SQL-expressible arithmetic of a query in SQL, where a zero divisor yields NULL
                 Err(Error::PyExc("ZeroDivisionError", _))
-                    if ctx.sql_semantics()
+                    if !ctx.python_semantics()
                         && crate::exec::query::is_sql_expr(lhs, &Default::default())
                         && crate::exec::query::is_sql_expr(rhs, &Default::default()) =>
                 {
@@ -357,12 +366,29 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
             Value::Array(a) => eval_array_index(&a, index),
             other => Err(Error::internal(format!("array index applied to a {}", other.py_type_name()))),
         },
-        ExprKind::FunctionCall(fc) => {
-            let args: Vec<Value> = fc.args.iter().map(|a| eval(a, ctx)).collect::<Result<_>>()?;
-            let kwargs: Vec<(String, Value)> =
-                fc.kwargs.iter().map(|(k, a)| Ok((k.clone(), eval(a, ctx)?))).collect::<Result<_>>()?;
-            fc.func.call(args, kwargs, &e.col_type)
+        ExprKind::ColumnProperty { col, prop } => {
+            let c = col.as_column_ref().ok_or_else(|| Error::internal("column property of a non-column"))?;
+            if prop.is_cellmd() {
+                return Ok(match (prop, ctx.column_error(c)?) {
+                    (_, None) => Value::Null,
+                    (ColumnProp::ErrorType, Some(err)) => Value::String(err.errortype),
+                    (ColumnProp::ErrorMsg, Some(err)) => Value::String(err.errormsg),
+                    (_, Some(err)) => Value::Json(serde_json::json!({"errortype": err.errortype, "errormsg": err.errormsg})),
+                });
+            }
+            match ctx.column_value(c)? {
+                Value::Media(s) => match prop {
+                    ColumnProp::FileUrl => Ok(Value::String(crate::media::file_url(&s))),
+                    _ => {
+                        let path = pyo3::Python::attach(|py| crate::media::local_path(py, &s))?;
+                        Ok(Value::String(path.to_string_lossy().into_owned()))
+                    }
+                },
+                _ => Ok(Value::Null),
+            }
         }
+        ExprKind::FunctionCall(fc) => crate::functions::eval_call(fc, e, ctx),
+        ExprKind::Variable(name) => Err(Error::internal(format!("unbound variable {name} in an evaluated expression"))),
     }
 }
 

@@ -7,6 +7,7 @@
 //! window functions -> sort -> limit -> project without the lock (so UDFs can call into Python).
 
 pub mod compute;
+pub mod compute_rows;
 pub mod insert;
 pub mod query;
 pub mod sample;
@@ -578,6 +579,47 @@ impl QuerySpec {
             out.push(("Sample".into(), s.display()));
         }
         out
+    }
+
+    /// The query with every expression replaced by `f(expr)` (used to bind the parameters of a `@pxt.query`
+    /// template). Every expression-holding field must be mapped here (the destructuring makes a new field a compile
+    /// error until it is).
+    pub fn map_exprs(&self, f: &dyn Fn(&ExprRef) -> Result<ExprRef>) -> Result<QuerySpec> {
+        let QuerySpec { tbl_id, version, joins, select, where_, group_by, grouping_tbl, order_by, limit, offset, sample } =
+            self;
+        let map_all = |items: &[ExprRef]| -> Result<Vec<ExprRef>> { items.iter().map(f).collect() };
+        Ok(QuerySpec {
+            tbl_id: *tbl_id,
+            version: *version,
+            joins: joins
+                .iter()
+                .map(|j| Ok(JoinClause { on: j.on.as_ref().map(f).transpose()?, ..j.clone() }))
+                .collect::<Result<_>>()?,
+            select: select
+                .as_ref()
+                .map(|items| items.iter().map(|(e, n)| Ok((f(e)?, n.clone()))).collect::<Result<Vec<_>>>())
+                .transpose()?,
+            where_: where_.as_ref().map(f).transpose()?,
+            group_by: group_by.as_ref().map(|g| map_all(g)).transpose()?,
+            grouping_tbl: *grouping_tbl,
+            order_by: order_by.iter().map(|(e, asc)| Ok((f(e)?, *asc))).collect::<Result<_>>()?,
+            limit: *limit,
+            offset: *offset,
+            sample: sample
+                .as_ref()
+                .map(|s| Ok::<_, Error>(SampleClause { stratify_by: map_all(&s.stratify_by)?, ..s.clone() }))
+                .transpose()?,
+        })
+    }
+
+    /// Every expression of the query.
+    pub fn exprs(&self) -> Vec<ExprRef> {
+        let out = std::cell::RefCell::new(Vec::new());
+        let _ = self.map_exprs(&|e| {
+            out.borrow_mut().push(e.clone());
+            Ok(e.clone())
+        });
+        out.into_inner()
     }
 
     // ------------------------------------------------------------------------------------------- serialization

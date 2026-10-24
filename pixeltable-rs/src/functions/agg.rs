@@ -17,7 +17,7 @@ use std::sync::{Arc, OnceLock};
 use serde_json::json;
 
 use super::FuncRef;
-use super::signature::{Bound, Signature};
+use super::signature::{Binding, Signature};
 use crate::error::{Error, Result, py_repr};
 use crate::expr::{Expr, ExprKind, ExprRef, FunctionCall};
 use crate::types::ColumnType;
@@ -58,17 +58,18 @@ pub fn select_signature(
     f: &dyn AggregateFunction,
     args: &[ExprRef],
     kwargs: &[(String, ExprRef)],
-) -> Result<(usize, Bound<ExprRef>)> {
+) -> Result<(usize, Binding)> {
     let sigs = f.signatures();
+    let context = format!("in function {}", py_repr(f.name()));
     if sigs.len() == 1 {
-        let bound = sigs[0].bind_exprs(args, kwargs)?;
-        sigs[0].validate_args(&bound, f.name())?;
-        return Ok((0, bound));
+        let binding = sigs[0].bind_exprs(args, kwargs)?;
+        sigs[0].validate_args(&binding, args, kwargs, &context)?;
+        return Ok((0, binding));
     }
     for (i, sig) in sigs.iter().enumerate() {
-        if let Ok(bound) = sig.bind_exprs(args, kwargs) {
-            if sig.validate_args(&bound, f.name()).is_ok() {
-                return Ok((i, bound));
+        if let Ok(binding) = sig.bind_exprs(args, kwargs) {
+            if sig.validate_args(&binding, args, kwargs, &context).is_ok() {
+                return Ok((i, binding));
             }
         }
     }
@@ -116,18 +117,19 @@ pub fn make_agg_call(
         }
         group_by.push(kwargs.remove(pos).1);
     }
-    let (sig_idx, bound) = select_signature(f.as_ref(), &args, &kwargs)?;
+    let (sig_idx, binding) = select_signature(f.as_ref(), &args, &kwargs)?;
     let sig = &f.signatures()[sig_idx];
+    let bound = sig.bound_exprs(&binding, &args, &kwargs);
     for p in f.init_param_names() {
         if let Some((i, _)) = sig.param(p) {
-            if let Some(a) = &bound.args[i] {
+            if let Some(a) = &bound[i] {
                 if a.as_literal().is_none() {
                     crate::bail!(InvalidConfiguration, "{name}(): init() parameter {} must be a constant value", py_repr(p));
                 }
             }
         }
     }
-    let ret = sig.call_return_type(sig.return_type.clone(), &bound);
+    let ret = sig.call_return_type(&sig.return_type, &binding, &args, &kwargs);
     let mut fc = FunctionCall::new(FuncRef::Agg(f), args, kwargs);
     fc.order_by = order_by.into_iter().collect();
     fc.group_by = group_by;
@@ -158,7 +160,7 @@ impl AggPlan {
                 init_args.push((k.clone(), e.as_literal().cloned().unwrap_or(Value::Null)));
                 kwarg_roles.push((k.clone(), None));
             } else {
-                let nullable = sig.param(k).map(|(_, p)| p.col_type.nullable || p.kind.is_var()).unwrap_or(true);
+                let nullable = sig.param(k).map(|(_, p)| p.col_type.as_ref().is_none_or(|t| t.nullable)).unwrap_or(true);
                 kwarg_roles.push((k.clone(), Some(!nullable)));
             }
         }
@@ -166,7 +168,7 @@ impl AggPlan {
         let mut positional = sig.params.iter().filter(|p| {
             matches!(p.kind, super::signature::ParamKind::PositionalOnly | super::signature::ParamKind::PositionalOrKeyword)
         });
-        let skip_null_args = fc.args.iter().map(|_| positional.next().is_some_and(|p| !p.col_type.nullable)).collect();
+        let skip_null_args = fc.args.iter().map(|_| positional.next().is_some_and(|p| p.col_type.as_ref().is_some_and(|t| !t.nullable))).collect();
         Ok(AggPlan { func: f.clone(), sig_idx, init_args, skip_null_args, kwarg_roles })
     }
 

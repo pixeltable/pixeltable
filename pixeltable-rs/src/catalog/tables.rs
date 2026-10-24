@@ -68,6 +68,9 @@ pub fn validate_column_spec(spec: &ColumnSpec) -> Result<()> {
             py_repr(&spec.name)
         );
     }
+    if let Some(e) = &spec.value_expr {
+        crate::functions::udf::validate_storable(e, &format!("Computed column {}", py_repr(&spec.name)))?;
+    }
     Ok(())
 }
 
@@ -89,6 +92,7 @@ impl Catalog {
         custom_metadata: Json,
         media_validation: MediaValidation,
         is_data_versioned: bool,
+        has_default_idxs: bool,
     ) -> Result<(Uuid, bool)> {
         for c in &columns {
             validate_column_spec(c)?;
@@ -143,7 +147,7 @@ impl Catalog {
             name: path.name().to_string(),
             kind: TableKind::Table,
             is_data_versioned,
-            has_default_idxs: false,
+            has_default_idxs,
             created_at: ts,
             current_version: 0,
             current_schema_version: 0,
