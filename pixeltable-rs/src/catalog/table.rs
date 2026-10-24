@@ -56,6 +56,20 @@ impl MediaValidation {
     }
 }
 
+mod opt_coltype_serde {
+    use crate::types::ColumnType;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(t: &Option<ColumnType>, s: S) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(&t.as_ref().map(|t| t.to_dict()), s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<ColumnType>, D::Error> {
+        let v = Option::<serde_json::Value>::deserialize(d)?;
+        v.map(|v| ColumnType::from_dict(&v).map_err(|e| serde::de::Error::custom(e.to_string()))).transpose()
+    }
+}
+
 mod coltype_serde {
     use crate::types::ColumnType;
     use serde::{Deserialize, Deserializer, Serializer};
@@ -93,11 +107,22 @@ impl ColumnMd {
     }
 }
 
-/// A column as visible in a schema version.
+/// A column as visible in a schema version. `col_type` and `value_expr` override the column's `ColumnMd` from
+/// this schema version on (`alter_column()`, `alter_computed_column()`), so that older versions keep the old ones.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaColumn {
     pub col_id: ColId,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "opt_coltype_serde")]
+    pub col_type: Option<ColumnType>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_expr: Option<Json>,
+}
+
+impl SchemaColumn {
+    pub fn new(col_id: ColId, name: String) -> SchemaColumn {
+        SchemaColumn { col_id, name, col_type: None, value_expr: None }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,8 +162,31 @@ pub struct VersionMd {
     pub schema_change: Option<String>,
     pub row_count_stats: RowCountStats,
     pub cascade_row_count_stats: RowCountStats,
+    /// views: the version of each base (in `ViewMd::bases` order) at the time this version was created; a pinned
+    /// version view (`v:3`) reads its bases at these versions
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub base_versions: Vec<i64>,
+    /// views: the table version (table id, version) of the operation whose propagation created this version
+    /// (base inserts, updates and deletes); reverting that version also reverts this one
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cascade_from: Option<(Uuid, i64)>,
 }
 
+<<<<<<< HEAD
+impl VersionMd {
+    pub fn new(version: i64, created_at: f64, schema_version: i64, change_type: &str, schema_change: Option<String>) -> Self {
+        VersionMd {
+            version,
+            created_at,
+            schema_version,
+            user: None,
+            change_type: change_type.to_string(),
+            schema_change,
+            row_count_stats: RowCountStats::default(),
+            cascade_row_count_stats: RowCountStats::default(),
+            base_versions: Vec::new(),
+            cascade_from: None,
+=======
 /// The kind of an index and its parameters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -177,10 +225,18 @@ impl IndexMd {
         match &self.kind {
             IndexKind::Embedding { val_col_id, .. } => Some(*val_col_id),
             IndexKind::Btree => None,
+>>>>>>> claude/eager-edison-12cqei
         }
     }
 }
 
+<<<<<<< HEAD
+fn default_true() -> bool {
+    true
+}
+
+/// What a view is defined over.
+=======
 /// The live indexes of a table (dropped indexes are removed).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Indexes {
@@ -189,14 +245,28 @@ pub struct Indexes {
 }
 
 /// What a view is defined over (filled in by the views work; tables have none).
+>>>>>>> claude/eager-edison-12cqei
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ViewMd {
-    pub base_id: Uuid,
-    /// None: the view tracks the live base; Some(v): pinned to base version v (snapshots)
-    pub base_version: Option<i64>,
+    /// the bases of the view, direct base first, each live (None) or pinned to a version. A pure snapshot (no
+    /// columns, no filter) has no rows of its own: its bases are the table path it pins.
+    pub bases: Vec<(Uuid, Option<i64>)>,
     /// serialized filter predicate
     pub predicate: Option<Json>,
     pub is_snapshot: bool,
+    /// false for a view defined by a query with a select list: only its own columns are visible
+    #[serde(default = "default_true")]
+    pub include_base_columns: bool,
+}
+
+impl ViewMd {
+    pub fn base_id(&self) -> Uuid {
+        self.bases[0].0
+    }
+
+    pub fn base_version(&self) -> Option<i64> {
+        self.bases[0].1
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -227,7 +297,10 @@ pub struct TableMd {
 #[derive(Debug, Clone)]
 pub struct ResolvedColumn {
     pub tbl_id: Uuid,
+    /// the version the column's table is pinned to in the path it was resolved in (None: live)
+    pub tbl_version: Option<i64>,
     pub name: String,
+    /// the column's metadata as of the resolved schema version (with `alter_*()` overrides applied)
     pub md: ColumnMd,
 }
 
@@ -272,10 +345,17 @@ impl TableMd {
         sv.columns
             .iter()
             .map(|sc| {
-                let md = self
+                let mut md = self
                     .column(sc.col_id)
-                    .ok_or_else(|| Error::internal(format!("schema references unknown column {}", sc.col_id)))?;
-                Ok(ResolvedColumn { tbl_id: self.id, name: sc.name.clone(), md: md.clone() })
+                    .ok_or_else(|| Error::internal(format!("schema references unknown column {}", sc.col_id)))?
+                    .clone();
+                if let Some(t) = &sc.col_type {
+                    md.col_type = t.clone();
+                }
+                if let Some(e) = &sc.value_expr {
+                    md.value_expr = Some(e.clone());
+                }
+                Ok(ResolvedColumn { tbl_id: self.id, tbl_version: None, name: sc.name.clone(), md })
             })
             .collect()
     }
@@ -302,6 +382,16 @@ impl TableMd {
         self.view.as_ref().is_some_and(|v| v.is_snapshot)
     }
 
+<<<<<<< HEAD
+    /// A snapshot without columns or filter: it has no rows of its own and reads its (pinned) bases.
+    pub fn is_pure_snapshot(&self) -> bool {
+        self.view.as_ref().is_some_and(|v| v.is_snapshot && v.predicate.is_none()) && self.columns.is_empty()
+    }
+
+    /// Ids of the visible stored columns at the current schema version, in schema order.
+    pub fn current_column_ids(&self) -> Vec<ColId> {
+        self.current_schema().map(|s| s.columns.iter().map(|c| c.col_id).collect()).unwrap_or_default()
+=======
     pub fn index_by_name(&self, name: &str) -> Option<&IndexMd> {
         self.indexes.list.iter().find(|i| i.name == name)
     }
@@ -309,5 +399,6 @@ impl TableMd {
     /// The index whose hidden value column is `col_id`, if any.
     pub fn index_of_value_col(&self, col_id: ColId) -> Option<&IndexMd> {
         self.indexes.list.iter().find(|i| i.val_col_id() == Some(col_id))
+>>>>>>> claude/eager-edison-12cqei
     }
 }

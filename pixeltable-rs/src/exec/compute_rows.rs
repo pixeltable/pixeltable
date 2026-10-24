@@ -15,7 +15,7 @@ use crate::catalog::table::{ColId, RowCountStats};
 use crate::error::Result;
 use crate::expr::ExprRef;
 use crate::expr::eval::eval;
-use crate::store::rows::{CellError, LIVE, StoredRow};
+use crate::store::rows::{CellError, StoredRow};
 use crate::types::ColumnType;
 use crate::value::Value;
 
@@ -117,7 +117,7 @@ impl ComputeRowsPlan {
         let mut cols_with_excs = Vec::new();
         let mut out = Vec::new();
         'rows: for input in inputs {
-            let mut row = StoredRow { rowid: 0, v_min: 0, v_max: LIVE, cells: Vec::new(), errors: Vec::new() };
+            let mut row = StoredRow::new(0, Vec::new());
             for (col_id, v) in input {
                 if self.needed.contains(&col_id) {
                     row.set_cell(col_id, v);
