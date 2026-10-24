@@ -7,6 +7,8 @@ use uuid::Uuid;
 
 use super::expr::{as_expr, from_object};
 use super::query::PyQuerySpec;
+use super::sources::Conduit;
+use crate::exec::insert::InsertPlan;
 use super::types::{is_type_form, normalize_type};
 use crate::catalog::dirs::{ContentNode, assemble_contents, extract_paths};
 use crate::catalog::path::{Path, fold_identifier};
@@ -398,9 +400,26 @@ pub fn ls_rows(py: Python<'_>, path: &str) -> Result<Vec<Vec<String>>> {
     })
 }
 
+fn plain_column_spec(name: &str, col_type: crate::types::ColumnType) -> ColumnSpec {
+    ColumnSpec {
+        name: fold_identifier(name),
+        col_type,
+        value_expr: None,
+        is_pk: false,
+        stored: None,
+        media_validation: None,
+        comment: None,
+        custom_metadata: Json::Null,
+        destination: None,
+    }
+}
+
 /// Returns (table id, kind, created).
 #[pyfunction]
-#[pyo3(signature = (path, schema, source, primary_key, comment, custom_metadata, media_validation, if_exists, is_data_versioned))]
+#[pyo3(signature = (
+    path, schema, source, primary_key, comment, custom_metadata, media_validation, if_exists, is_data_versioned,
+    schema_overrides=None, on_error="abort", has_default_idxs=false
+))]
 #[allow(clippy::too_many_arguments)]
 pub fn create_table(
     py: Python<'_>,
@@ -413,27 +432,62 @@ pub fn create_table(
     media_validation: &str,
     if_exists: &str,
     is_data_versioned: bool,
+    schema_overrides: Option<&Bound<'_, PyAny>>,
+    on_error: &str,
+    has_default_idxs: bool,
 ) -> Result<(String, String, bool)> {
     let schema = schema.filter(|s| !s.is_none());
     let source = source.filter(|s| !s.is_none());
     if schema.is_none() == source.is_none() {
         crate::bail!(MissingRequired, "Either a `schema` or a `source` must be provided (but not both)");
     }
-    if source.is_some() {
-        return Err(Error::not_implemented("create_table() from a `source`"));
+    if let Some(schema) = schema {
+        if !matches!(schema.cast::<PyDict>(), Ok(d) if !d.is_empty()) {
+            crate::bail!(InvalidArgument, "`schema` must be a non-empty dictionary");
+        }
     }
-    let schema = schema.ok_or_else(|| Error::internal("missing schema"))?;
-    let schema_dict = match schema.cast::<PyDict>() {
-        Ok(d) if !d.is_empty() => d.clone(),
-        _ => crate::bail!(InvalidArgument, "`schema` must be a non-empty dictionary"),
-    };
     let p = Path::parse(path, false, false)?;
     let ie = IfExists::parse(if_exists, "if_exists")?;
     let mv = MediaValidation::parse(media_validation, "media_validation")?;
     let pk = normalize_primary_key(primary_key)?;
+    let fail_on_exception = match on_error.to_ascii_lowercase().as_str() {
+        "abort" => true,
+        "ignore" => false,
+        _ => return Err(Error::Value(format!("Invalid value for on_error: {on_error}"))),
+    };
+    let mut conduit = None;
+    let mut specs = match (schema, source) {
+        (Some(schema), _) => parse_schema(schema.cast::<PyDict>().map_err(|_| Error::internal("schema"))?)?,
+        (None, Some(source)) => {
+            let overrides = super::sources::parse_schema_overrides(schema_overrides)?;
+            let c = super::sources::classify(py, source)?;
+            let inferred: Vec<(String, crate::types::ColumnType)> = match &c {
+                Conduit::Query(q) => {
+                    let items = with_catalog(py, |cat| q.effective_select(cat))?;
+                    items.into_iter().map(|(e, n)| (n, e.col_type.clone())).collect()
+                }
+                Conduit::Rows(rows) => {
+                    let s = super::sources::infer_schema_from_rows(rows, &overrides, &pk)?;
+                    super::sources::check_source_names(&s, &overrides, &pk)?;
+                    s
+                }
+                Conduit::Pydantic { .. } => {
+                    return Err(Error::not_implemented("create_table() from pydantic models"));
+                }
+            };
+            if inferred.is_empty() {
+                crate::bail!(
+                    UnsupportedOperation,
+                    "Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`."
+                );
+            }
+            conduit = Some(c);
+            inferred.into_iter().map(|(n, t)| plain_column_spec(&n, t)).collect()
+        }
+        (None, None) => return Err(Error::internal("missing schema")),
+    };
     let comment = comment_arg(comment)?;
     let custom_metadata = custom_metadata_json(custom_metadata)?;
-    let mut specs = parse_schema(&schema_dict)?;
     for pk_col in &pk {
         let folded = fold_identifier(pk_col);
         match specs.iter_mut().find(|s| s.name == folded) {
@@ -441,8 +495,19 @@ pub fn create_table(
             None => crate::bail!(ColumnNotFound, "Primary key column {} not found in table schema.", py_repr(pk_col)),
         }
     }
-    let (id, created) =
-        with_catalog(py, |cat| cat.create_table(&p, specs, ie, comment, custom_metadata, mv, is_data_versioned))?;
+    let (id, created) = with_catalog(py, |cat| {
+        cat.create_table(&p, specs, ie, comment, custom_metadata, mv, is_data_versioned, has_default_idxs)
+    })?;
+    if created {
+        if let Some(c) = conduit {
+            let plan = with_catalog(py, |cat| InsertPlan::new(cat, id, None))?;
+            let rows = match &c {
+                Conduit::Query(q) => super::table::query_input_rows(py, q, &plan)?,
+                other => super::sources::convert_rows(py, other, &plan, true)?,
+            };
+            super::table::insert_rows(py, &plan, rows, fail_on_exception, false)?;
+        }
+    }
     Ok((id.to_string(), "table".to_string(), created))
 }
 
@@ -524,14 +589,22 @@ fn create_view_from_def(py: Python<'_>, p: &Path, def: &ViewDef, ie: IfExists) -
         Err(existing) => return Ok((existing, false)),
         Ok(x) => x,
     };
+    let media_dir = with_catalog(py, |cat| Ok(cat.store().media_dir(md.id)))?;
+    let mut saved = Vec::new();
     let (rows, stats) = match &input {
-        Some(input) => {
-            let (data, status) = ViewCompute::of(&md)?.populate(input)?;
-            (Some(data), status.row_count_stats)
-        }
+        Some(input) => match ViewCompute::of(&md, media_dir)?.populate(input, &mut saved) {
+            Ok((data, status)) => (Some(data), status.row_count_stats),
+            Err(e) => {
+                crate::exec::compute::discard_media(&saved);
+                return Err(e);
+            }
+        },
         None => (None, RowCountStats::default()),
     };
-    let id = with_catalog(py, |cat| cat.commit_view(p, *md, &base_path, rows, stats, ie))?;
+    let id = with_catalog(py, |cat| {
+        cat.adopt_media(saved);
+        cat.commit_view(p, *md, &base_path, rows, stats, ie)
+    })?;
     Ok((id, true))
 }
 
@@ -541,12 +614,17 @@ fn create_view_from_def(py: Python<'_>, p: &Path, def: &ViewDef, ie: IfExists) -
 pub fn get_table(py: Python<'_>, path: &str, if_not_exists: &str) -> Result<Option<(String, String, Option<i64>)>> {
     let ine = IfNotExists::parse(if_not_exists, "if_not_exists")?;
     let p = Path::parse(path, false, true)?;
-    with_catalog(py, |cat| {
+    let (result, warnings) = with_catalog(py, |cat| {
         Ok(match cat.get_table(&p, ine)? {
-            Some(id) => Some((id.to_string(), cat.table(id)?.kind.display_name().to_string(), p.version)),
-            None => None,
+            Some(id) => (
+                Some((id.to_string(), cat.table(id)?.kind.display_name().to_string(), p.version)),
+                crate::functions::udf::load_warnings(cat, id)?,
+            ),
+            None => (None, Vec::new()),
         })
-    })
+    })?;
+    crate::functions::udf::emit_warnings(py, &warnings)?;
+    Ok(result)
 }
 
 /// `table` is a path string or a table id (from a handle).

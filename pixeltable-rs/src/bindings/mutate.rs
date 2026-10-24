@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use super::catalog::parse_uuid;
 use super::expr::{as_expr, from_object};
-use super::table::{save_media, status_dict};
+use super::table::{row_value_to_py, status_dict};
 use crate::catalog::Catalog;
 use crate::catalog::path::{fold_identifier, is_valid_identifier};
 use crate::catalog::runtime::with_catalog;
@@ -106,7 +106,6 @@ fn validate_spec(
     tbl_id: Uuid,
     spec: &[(String, Bound<'_, PyAny>)],
     rules: SpecRules,
-    media_dir: &std::path::Path,
 ) -> Result<(Vec<(ResolvedColumn, Target)>, Option<Bound<'static, PyAny>>)> {
     let _ = py;
     let _: Option<&Bound<'_, PyAny>> = None;
@@ -133,12 +132,7 @@ fn validate_spec(
         }
         let col_type = &col.md.col_type;
         let target = match as_expr(val).is_none().then(|| vpy::coerce(val, col_type)) {
-            Some(Ok(mut v)) => {
-                if let Value::PyObj(o) = &v {
-                    v = Value::Media(save_media(o.bind(val.py()), media_dir)?);
-                }
-                Target::Literal(col.md.id, v)
-            }
+            Some(Ok(v)) => Target::Literal(col.md.id, v),
             Some(Err(e)) if !matches!(e, Error::Type(_) | Error::Value(_) | Error::Pxt { .. }) => return Err(e),
             _ => {
                 if !rules.allow_exprs {
@@ -219,6 +213,11 @@ fn build_plan(
         return_cols: None,
         schema_change: None,
         writes_rows: true,
+        media: crate::exec::compute::MediaTarget {
+            tbl_id,
+            dir: cat.store().media_dir(tbl_id),
+            version: md.current_version + 1,
+        },
     })
 }
 
@@ -233,7 +232,7 @@ fn rows_to_py<'py>(py: Python<'py>, cols: &[(String, ExprRef)], rows: &[Vec<Valu
     for r in rows {
         let d = PyDict::new(py);
         for ((name, e), v) in cols.iter().zip(r) {
-            d.set_item(name, vpy::to_py(py, v, &e.col_type)?)?;
+            d.set_item(name, row_value_to_py(py, v, &e.col_type)?)?;
         }
         list.append(d)?;
     }
@@ -285,12 +284,12 @@ pub fn tbl_update<'py>(
     prevalidate_spec(spec)?;
     let pred = where_arg(where_)?;
     let folded = fold_keys(spec)?;
-    let (cols, media_dir) = with_catalog(py, |cat| {
+    let cols = with_catalog(py, |cat| {
         cat.check_mutable(id, version, "update")?;
-        Ok((cat.resolve_columns(id, None)?, cat.store().media_dir(id)))
+        cat.resolve_columns(id, None)
     })?;
     let rules = SpecRules { allow_pk: false, allow_exprs: true, allow_media: true };
-    let (targets, _) = validate_spec(py, &cols, id, &folded, rules, &media_dir)?;
+    let (targets, _) = validate_spec(py, &cols, id, &folded, rules)?;
     let plan = with_catalog(py, |cat| {
         if let Some(p) = &pred {
             check_where_bound(cat, id, p)?;
@@ -354,10 +353,10 @@ pub fn tbl_batch_update<'py>(
         crate::bail!(InvalidArgument, "if_not_exists must be one of: ['error', 'ignore', 'insert']");
     }
     let rows: Vec<Bound<'py, PyAny>> = rows.try_iter()?.collect::<PyResult<_>>()?;
-    let (cols, media_dir, is_data_versioned, num_pos) = with_catalog(py, |cat| {
+    let (cols, is_data_versioned, num_pos) = with_catalog(py, |cat| {
         cat.check_mutable(id, version, "update")?;
         let md = cat.table(id)?;
-        Ok((cat.resolve_columns(id, None)?, cat.store().media_dir(id), md.is_data_versioned, crate::exec::scan::num_pos(cat, id)))
+        Ok((cat.resolve_columns(id, None)?, md.is_data_versioned, crate::exec::scan::num_pos(cat, id)))
     })?;
     if rows.is_empty() {
         let d = status_dict(py, &UpdateStatus::default())?;
@@ -389,7 +388,7 @@ pub fn tbl_batch_update<'py>(
             }
         }
         let folded = fold_keys(d)?;
-        let (targets, _) = validate_spec(py, &cols, id, &folded, rules, &media_dir)?;
+        let (targets, _) = validate_spec(py, &cols, id, &folded, rules)?;
         let mut values = Vec::new();
         let mut pk_vals: HashMap<ColId, Value> = HashMap::new();
         for (col, t) in targets {
@@ -504,7 +503,7 @@ pub fn tbl_batch_update<'py>(
             for r in &built.rows {
                 let rows = [r];
                 let infos = [&ins_plan.info];
-                let ctx = crate::exec::scan::PathCtx { elems: &infos, rows: &rows };
+                let ctx = crate::exec::scan::PathCtx::new(&infos, &rows);
                 returned.push(cols.iter().map(|(_, e)| crate::expr::eval::eval(e, &ctx)).collect::<Result<Vec<_>>>()?);
             }
         }
@@ -586,6 +585,7 @@ pub fn tbl_recompute_columns<'py>(
                     ordered.push(ComputedCol {
                         col_id: c.md.id,
                         name: c.name.clone(),
+                        is_media: c.md.col_type.is_media(),
                         expr: crate::expr::serde::from_json(c.md.value_expr.as_ref().ok_or_else(|| Error::internal("no value"))?)?,
                     });
                 }
@@ -712,7 +712,7 @@ pub fn tbl_alter_computed_column<'py>(
         }
         let changed: HashSet<QCol> = HashSet::from([(id, col.md.id)]);
         let explicit = if col.md.stored {
-            vec![ComputedCol { col_id: col.md.id, name: col.name.clone(), expr: new_expr.clone() }]
+            vec![ComputedCol { col_id: col.md.id, name: col.name.clone(), expr: new_expr.clone(), is_media: col.md.col_type.is_media() }]
         } else {
             Vec::new()
         };

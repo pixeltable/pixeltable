@@ -16,10 +16,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use super::compute::{ComputedCol, cell_error, eval_error};
+use super::compute::{ComputedCol, MediaTarget, discard_media};
 use super::insert::UpdateStatus;
 use super::propagate::{ViewCompute, record_version_status};
-use super::scan::{ElemInfo, PathCtx, PathInput};
+use super::scan::{ElemInfo, PathCtx, PathInput, eval_into};
 use crate::catalog::Catalog;
 use crate::catalog::table::{ColId, TableMd};
 use crate::error::{Result, py_repr};
@@ -80,6 +80,8 @@ pub struct UpdatePlan {
     pub schema_change: Option<(ColId, ExprRef)>,
     /// false: only the schema change (`alter_computed_column(recompute=False)`), no rows are written
     pub writes_rows: bool,
+    /// where in-memory media values and results are written
+    pub media: MediaTarget,
 }
 
 /// The stored computed columns of `md` (current schema) that depend, transitively, on a column in `changed`, in
@@ -90,7 +92,8 @@ pub fn dependent_columns(md: &TableMd, changed: &mut HashSet<QCol>) -> Result<Ve
         if let Some(e) = &c.md.value_expr {
             let expr = crate::expr::serde::from_json(e)?;
             let refs: Vec<QCol> = expr.column_refs().iter().map(|r| (r.tbl_id, r.col_id)).collect();
-            candidates.push((ComputedCol { col_id: c.md.id, name: c.name.clone(), expr }, refs));
+            let is_media = c.md.col_type.is_media();
+            candidates.push((ComputedCol { col_id: c.md.id, name: c.name.clone(), expr, is_media }, refs));
         }
     }
     // the dependents (unstored columns propagate the dependency but are not recomputed)
@@ -149,7 +152,7 @@ pub fn view_update_tree(
     let mut out = Vec::new();
     for v in cat.mutable_view_ids(tbl_id) {
         let md = cat.table(v)?.clone();
-        let compute = ViewCompute::of(&md)?;
+        let compute = ViewCompute::of(&md, cat.store().media_dir(v))?;
         let mut changed = changed.clone();
         let recompute = dependent_columns(&md, &mut changed)?;
         for c in &recompute {
@@ -229,19 +232,41 @@ pub struct UpdateOutput {
     pub views: Vec<ViewChanges>,
     /// `batch_update()`: keys that matched no row
     pub unmatched: Vec<RowKey>,
+    /// media files written for the new rows
+    pub saved_media: Vec<std::path::PathBuf>,
 }
 
 /// A view row's base as an update leaves it: the new base path row, or None if the base row is gone.
 type BaseChange<'a> = (RowKey, Option<Vec<&'a StoredRow>>);
 
 impl UpdatePlan {
-    /// Computes the new rows (no catalog lock held).
+    /// Computes the new rows (no catalog lock held). Media files written along the way are deleted again if this
+    /// fails; otherwise they are in `UpdateOutput::saved_media` (adopted by the commit).
     pub fn compute(&self, fail_on_exception: bool) -> Result<UpdateOutput> {
+        let mut saved = Vec::new();
+        match self.compute_inner(fail_on_exception, &mut saved) {
+            Ok(mut out) => {
+                out.saved_media = saved;
+                Ok(out)
+            }
+            Err(e) => {
+                discard_media(&saved);
+                Err(e)
+            }
+        }
+    }
+
+    fn compute_inner(&self, fail_on_exception: bool, saved: &mut Vec<std::path::PathBuf>) -> Result<UpdateOutput> {
         if !self.writes_rows {
-            return Ok(UpdateOutput { own: TableChanges::default(), rows: Vec::new(), views: Vec::new(), unmatched: Vec::new() });
+            return Ok(UpdateOutput {
+                own: TableChanges::default(),
+                rows: Vec::new(),
+                views: Vec::new(),
+                unmatched: Vec::new(),
+                saved_media: Vec::new(),
+            });
         }
         let infos = self.path.infos();
-        let qualified = |c: &ComputedCol| format!("{}.{}", self.tbl_name, c.name);
         let mut own = TableChanges::default();
         let mut olds: Vec<Vec<&StoredRow>> = Vec::new();
         let mut matched: HashSet<RowKey> = HashSet::new();
@@ -252,7 +277,7 @@ impl UpdatePlan {
             }
             let values: Vec<(ColId, Value)> = match &self.selection {
                 RowSelection::Where { pred, targets } => {
-                    let ctx = PathCtx { elems: &infos, rows: &r };
+                    let ctx = PathCtx::new(&infos, &r);
                     if let Some(p) = pred {
                         if !eval_predicate(p, &ctx)? {
                             continue;
@@ -272,32 +297,20 @@ impl UpdatePlan {
             for (c, v) in values {
                 row.set_cell(c, v);
                 row.set_error(c, None);
+                self.media.materialize(&mut row, c, saved)?;
             }
-            for c in &self.recompute {
-                own.status.row_count_stats.computed_values += 1;
-                let result = {
-                    let mut rows: Vec<&StoredRow> = vec![&row];
-                    rows.extend_from_slice(&r[1..]);
-                    eval(&c.expr, &PathCtx { elems: &infos, rows: &rows })
-                };
-                match result {
-                    Ok(v) => {
-                        row.set_cell(c.col_id, v);
-                        row.set_error(c.col_id, None);
-                    }
-                    Err(err) => {
-                        if fail_on_exception {
-                            return Err(eval_error(&c.expr, err));
-                        }
-                        own.status.row_count_stats.num_excs += 1;
-                        let q = qualified(c);
-                        if !own.status.cols_with_excs.contains(&q) {
-                            own.status.cols_with_excs.push(q);
-                        }
-                        row.set_cell(c.col_id, Value::Null);
-                        row.set_error(c.col_id, Some(cell_error(&err)));
-                    }
-                }
+            eval_into(
+                &mut row,
+                &self.recompute,
+                &infos,
+                &r[1..],
+                &self.tbl_name,
+                fail_on_exception,
+                &mut own.status.row_count_stats,
+                &mut own.status.cols_with_excs,
+            )?;
+            for c in self.recompute.iter().filter(|c| c.is_media) {
+                self.media.materialize(&mut row, c.col_id, saved)?;
             }
             own.status.row_count_stats.upd_rows += 1;
             own.retire.insert(key);
@@ -322,17 +335,17 @@ impl UpdatePlan {
                 ((new.rowid, new.pos.clone()), Some(p))
             })
             .collect();
-        let views = compute_view_changes(&self.views, &infos, &changes)?;
+        let views = compute_view_changes(&self.views, &infos, &changes, saved)?;
         let mut rows = Vec::new();
         if let Some(cols) = &self.return_cols {
             for (_, path) in &changes {
                 if let Some(p) = path {
-                    let ctx = PathCtx { elems: &infos, rows: p };
+                    let ctx = PathCtx::new(&infos, p);
                     rows.push(cols.iter().map(|(_, e)| eval(e, &ctx)).collect::<Result<Vec<_>>>()?);
                 }
             }
         }
-        Ok(UpdateOutput { own, rows, views, unmatched })
+        Ok(UpdateOutput { own, rows, views, unmatched, saved_media: Vec::new() })
     }
 
     /// Fails if the schemas or views involved changed since the update was planned.
@@ -349,6 +362,7 @@ impl UpdatePlan {
 
     /// Writes the changes at a new version of the table (and of each view whose rows change).
     pub fn commit(&self, cat: &mut Catalog, out: UpdateOutput) -> Result<UpdateStatus> {
+        cat.adopt_media(out.saved_media.clone());
         self.check_unchanged(cat)?;
         let version = if let Some((col_id, expr)) = &self.schema_change {
             let version = cat.bump_version(self.tbl_id, Some("Altered value expression".to_string()))?;
@@ -412,7 +426,12 @@ enum ChildBase<'a> {
 }
 
 /// Computes how the base changes `changes` (one per changed base row) change each view of `nodes`, recursively.
-fn compute_view_changes(nodes: &[ViewUpdateNode], base_infos: &[&ElemInfo], changes: &[BaseChange<'_>]) -> Result<Vec<ViewChanges>> {
+fn compute_view_changes(
+    nodes: &[ViewUpdateNode],
+    base_infos: &[&ElemInfo],
+    changes: &[BaseChange<'_>],
+    saved: &mut Vec<std::path::PathBuf>,
+) -> Result<Vec<ViewChanges>> {
     let mut out = Vec::with_capacity(nodes.len());
     for node in nodes {
         let live = node.data.live_by_key();
@@ -438,7 +457,7 @@ fn compute_view_changes(nodes: &[ViewUpdateNode], base_infos: &[&ElemInfo], chan
             match (old, present) {
                 (Some(o), true) => {
                     let mut row = o.clone();
-                    node.compute.eval_columns(&mut row, &node.recompute, base_infos, bp, &mut ch.status);
+                    node.compute.eval_columns(&mut row, &node.recompute, base_infos, bp, &mut ch.status, saved)?;
                     ch.status.row_count_stats.upd_rows += 1;
                     ch.retire.insert(key.clone());
                     child_bases.push((key.clone(), ChildBase::New(ch.new_rows.len())));
@@ -450,7 +469,7 @@ fn compute_view_changes(nodes: &[ViewUpdateNode], base_infos: &[&ElemInfo], chan
                 }
                 (None, true) => {
                     let mut new_status = UpdateStatus::default();
-                    for row in node.compute.rows_for(base_infos, bp, &mut new_status)? {
+                    for row in node.compute.rows_for(base_infos, bp, &mut new_status, saved)? {
                         child_bases.push((key.clone(), ChildBase::New(ch.new_rows.len())));
                         ch.new_rows.push(row);
                     }
@@ -483,7 +502,7 @@ fn compute_view_changes(nodes: &[ViewUpdateNode], base_infos: &[&ElemInfo], chan
                     (key.clone(), path)
                 })
                 .collect();
-            compute_view_changes(&node.children, &infos, &child_changes)?
+            compute_view_changes(&node.children, &infos, &child_changes, saved)?
         };
         let bump = rewrites || !ch.retire.is_empty() || !ch.new_rows.is_empty();
         out.push(ViewChanges { changes: ch, bump, children });
@@ -525,7 +544,7 @@ pub fn delete(cat: &mut Catalog, tbl_id: Uuid, pred: Option<&ExprRef>) -> Result
     let mut keys: HashSet<RowKey> = HashSet::new();
     for r in input.rows()? {
         if let Some(p) = pred {
-            if !eval_predicate(p, &PathCtx { elems: &infos, rows: &r })? {
+            if !eval_predicate(p, &PathCtx::new(&infos, &r))? {
                 continue;
             }
         }

@@ -3,6 +3,7 @@
 //! Evaluation runs without the catalog lock (it will call Python UDFs): `AddComputedPlan::new()` snapshots what is
 //! needed under the lock, `compute()` evaluates, and `commit()` re-checks the schema version and writes.
 
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::catalog::table::{ColId, RowCountStats};
@@ -11,12 +12,12 @@ use crate::catalog::{Catalog, IfExists, IfNotExists};
 use crate::error::{Error, Result, py_repr};
 use crate::expr::eval::{RowContext, eval};
 use crate::expr::{ColumnRef, ExprRef};
-use crate::store::rows::{CellError, StoredRow};
+use crate::store::rows::{CellError, RowKey, StoredRow};
 use crate::value::Value;
 
 use super::insert::UpdateStatus;
 use super::propagate::record_version_status;
-use super::scan::{ElemInfo, PathCtx, PathInput};
+use super::scan::{PathInput, eval_into};
 
 /// A computed column to evaluate.
 #[derive(Debug, Clone)]
@@ -24,21 +25,81 @@ pub struct ComputedCol {
     pub col_id: ColId,
     pub name: String,
     pub expr: ExprRef,
+    /// true for media columns, whose in-memory results are written to the media directory when stored
+    pub is_media: bool,
 }
 
-/// Evaluates against the cells of a stored (or about-to-be-stored) row of a base table; unstored computed columns
-/// (`info.unstored`) are evaluated from their value expressions.
+/// Evaluates against the cells of a stored (or about-to-be-stored) row; unstored computed columns are evaluated
+/// from their value expressions.
 pub struct RowCells<'a> {
     pub row: &'a StoredRow,
-    pub info: &'a ElemInfo,
+    pub unstored: Option<&'a HashMap<ColId, ExprRef>>,
+}
+
+impl<'a> RowCells<'a> {
+    pub fn new(row: &'a StoredRow) -> Self {
+        RowCells { row, unstored: None }
+    }
 }
 
 impl RowContext for RowCells<'_> {
     fn column_value(&self, col: &ColumnRef) -> Result<Value> {
-        match self.info.unstored.get(&col.col_id) {
-            Some(e) => eval(e, self),
-            None => Ok(self.row.cell(col.col_id).clone()),
+        if let Some(e) = self.unstored.and_then(|u| u.get(&col.col_id)) {
+            return eval(e, self);
         }
+        Ok(self.row.cell(col.col_id).clone())
+    }
+
+    fn column_error(&self, col: &ColumnRef) -> Result<Option<CellError>> {
+        Ok(self.row.error(col.col_id).cloned())
+    }
+
+    fn python_semantics(&self) -> bool {
+        true
+    }
+}
+
+/// The value expressions of a table's unstored computed columns, by column id.
+pub fn unstored_exprs(md: &crate::catalog::table::TableMd) -> Result<HashMap<ColId, ExprRef>> {
+    let mut out = HashMap::new();
+    for c in &md.columns {
+        if !c.stored {
+            if let Some(e) = &c.value_expr {
+                out.insert(c.id, crate::expr::serde::from_json(e)?);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Where in-memory media values of a table's columns are written (see `media::save_object()`).
+#[derive(Debug, Clone)]
+pub struct MediaTarget {
+    pub tbl_id: Uuid,
+    pub dir: std::path::PathBuf,
+    /// the table version the values are written for (part of the file names)
+    pub version: i64,
+}
+
+impl MediaTarget {
+    /// Writes the cell of `col_id` to the media directory if it holds an in-memory media object; records the file.
+    pub fn materialize(&self, row: &mut StoredRow, col_id: ColId, saved: &mut Vec<std::path::PathBuf>) -> Result<()> {
+        if let Value::PyObj(o) = row.cell(col_id) {
+            let o = o.clone();
+            let path = pyo3::Python::attach(|py| {
+                crate::media::save_object(o.bind(py), &self.dir, self.tbl_id, col_id, self.version)
+            })?;
+            saved.push(std::path::PathBuf::from(&path));
+            row.set_cell(col_id, Value::Media(path));
+        }
+        Ok(())
+    }
+}
+
+/// Deletes media files written by an operation that did not complete.
+pub fn discard_media(files: &[std::path::PathBuf]) {
+    for f in files {
+        let _ = std::fs::remove_file(f);
     }
 }
 
@@ -62,29 +123,40 @@ pub fn cell_error(err: &Error) -> CellError {
 }
 
 /// Evaluates `cols` (in order) into `row`. With `fail_on_exception`, the first failure is returned as an error;
-/// otherwise failures become NULL cells with recorded errors.
+/// otherwise failures become NULL cells with recorded errors. A column whose expression reads a cell that has an
+/// error gets that error too (upstream propagates an exception to the dependent slots).
 pub fn eval_computed(
     row: &mut StoredRow,
-    info: &ElemInfo,
     cols: &[ComputedCol],
+    unstored: Option<&HashMap<ColId, ExprRef>>,
     fail_on_exception: bool,
     stats: &mut RowCountStats,
     cols_with_excs: &mut Vec<String>,
 ) -> Result<()> {
     for c in cols {
         stats.computed_values += 1;
-        match eval(&c.expr, &RowCells { row, info }) {
+        let inherited = c.expr.column_refs().iter().find_map(|r| row.error(r.col_id).cloned());
+        let outcome: std::result::Result<Value, CellError> = match inherited {
+            Some(e) => Err(e),
+            None => match eval(&c.expr, &RowCells { row, unstored }) {
+                Ok(v) => Ok(v),
+                Err(err) => {
+                    if fail_on_exception {
+                        return Err(eval_error(&c.expr, err));
+                    }
+                    Err(cell_error(&err))
+                }
+            },
+        };
+        match outcome {
             Ok(v) => row.set_cell(c.col_id, v),
             Err(err) => {
-                if fail_on_exception {
-                    return Err(eval_error(&c.expr, err));
-                }
                 stats.num_excs += 1;
                 if !cols_with_excs.contains(&c.name) {
                     cols_with_excs.push(c.name.clone());
                 }
                 row.set_cell(c.col_id, Value::Null);
-                row.set_error(c.col_id, Some(cell_error(&err)));
+                row.set_error(c.col_id, Some(err));
             }
         }
     }
@@ -100,12 +172,15 @@ pub struct AddComputedPlan {
     pub expr: ExprRef,
     /// the table's path at its current version (the rows to compute the column for)
     pub path: PathInput,
+    /// placeholder column id used while evaluating (the real id is assigned at commit)
+    pub eval_col_id: ColId,
     /// an existing column of the same name to drop at commit (`if_exists='replace'`)
     pub replace: Option<ColId>,
+    pub media: MediaTarget,
 }
 
-/// A computed value for the row with the given key.
-pub type KeyedValue = ((i64, Vec<i64>), Value, Option<CellError>);
+/// A computed value for the live row with the given key.
+pub type KeyedValue = (RowKey, Value, Option<CellError>);
 
 impl AddComputedPlan {
     /// None: the column exists and `if_exists='ignore'`.
@@ -140,48 +215,49 @@ impl AddComputedPlan {
                 cat.display_str(tbl_id)?
             );
         }
+        let media = MediaTarget { tbl_id, dir: cat.store().media_dir(tbl_id), version: md.current_version + 1 };
         let path = PathInput::snapshot(cat, &path)?;
         Ok(Some(AddComputedPlan {
             tbl_id,
             tbl_name: md.name.clone(),
             schema_version: md.current_schema_version,
+            eval_col_id: md.next_col_id,
             spec,
             expr,
             path,
             replace,
+            media,
         }))
     }
 
-    /// Evaluates the column for every live row.
+    /// Evaluates the column for every live row. In-memory media results are written to the media directory and
+    /// recorded in `saved` (the caller discards them if the operation fails).
     pub fn compute(
         &self,
         fail_on_exception: bool,
         stats: &mut RowCountStats,
         cols_with_excs: &mut Vec<String>,
+        saved: &mut Vec<std::path::PathBuf>,
     ) -> Result<Vec<KeyedValue>> {
         let mut out = Vec::new();
         if !self.spec.stored.unwrap_or(true) {
             return Ok(out);
         }
-        let qualified = format!("{}.{}", self.tbl_name, self.spec.name);
+        let col = ComputedCol {
+            col_id: self.eval_col_id,
+            name: self.spec.name.clone(),
+            expr: self.expr.clone(),
+            is_media: self.spec.col_type.is_media(),
+        };
         let infos = self.path.infos();
         for r in self.path.rows()? {
             stats.upd_rows += 1;
-            stats.computed_values += 1;
-            let key = (r[0].rowid, r[0].pos.clone());
-            match eval(&self.expr, &PathCtx { elems: &infos, rows: &r }) {
-                Ok(v) => out.push((key, v, None)),
-                Err(err) => {
-                    if fail_on_exception {
-                        return Err(eval_error(&self.expr, err));
-                    }
-                    stats.num_excs += 1;
-                    if !cols_with_excs.contains(&qualified) {
-                        cols_with_excs.push(qualified.clone());
-                    }
-                    out.push((key, Value::Null, Some(cell_error(&err))));
-                }
+            let mut row = r[0].clone();
+            eval_into(&mut row, std::slice::from_ref(&col), &infos, &r[1..], &self.tbl_name, fail_on_exception, stats, cols_with_excs)?;
+            if col.is_media {
+                self.media.materialize(&mut row, col.col_id, saved)?;
             }
+            out.push(((row.rowid, row.pos.clone()), row.cell(col.col_id).clone(), row.error(col.col_id).cloned()));
         }
         Ok(out)
     }
@@ -207,11 +283,7 @@ impl AddComputedPlan {
         let col_id = cat.push_column(self.tbl_id, self.spec.clone(), Some(value_json))?;
         let mut data = cat.data(self.tbl_id)?.as_ref().clone();
         data.set_live_cells(col_id, values);
-        record_version_status(
-            cat,
-            self.tbl_id,
-            &UpdateStatus { row_count_stats: stats, ..Default::default() },
-        )?;
+        record_version_status(cat, self.tbl_id, &UpdateStatus { row_count_stats: stats, ..Default::default() })?;
         cat.write_data(self.tbl_id, data)?;
         Ok(UpdateStatus {
             updated_cols: vec![format!("{}.{}", self.tbl_name, self.spec.name)],

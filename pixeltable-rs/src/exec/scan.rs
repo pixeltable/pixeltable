@@ -10,21 +10,30 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
+use super::compute::{ComputedCol, cell_error, eval_error};
 use crate::catalog::Catalog;
-use crate::catalog::table::{ColId, TableMd};
+use crate::catalog::table::{ColId, RowCountStats, TableMd};
 use crate::catalog::views::PathElem;
 use crate::error::{Error, Result};
 use crate::expr::eval::{RowContext, eval};
 use crate::expr::{ColumnRef, ExprRef};
-use crate::store::rows::{StoredRow, TableData};
+use crate::store::rows::{CellError, StoredRow, TableData};
 use crate::value::Value;
 
 /// What evaluation needs to know about one table of a path.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct ElemInfo {
     pub tbl_id: Uuid,
     /// value expressions of the table's unstored computed columns (at the schema version read)
     pub unstored: HashMap<ColId, ExprRef>,
+    /// the table's media columns that are validated on read
+    pub read_validation: Option<Arc<crate::media::ReadValidation>>,
+}
+
+impl std::fmt::Debug for ElemInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ElemInfo({})", self.tbl_id)
+    }
 }
 
 impl ElemInfo {
@@ -38,7 +47,17 @@ impl ElemInfo {
                 }
             }
         }
-        Ok(ElemInfo { tbl_id: md.id, unstored })
+        Ok(ElemInfo { tbl_id: md.id, unstored, read_validation: Some(Arc::new(crate::media::ReadValidation::for_table(md)?)) })
+    }
+
+    /// For a read-validated media column with a file: the validation error, if any.
+    fn read_validation_error(&self, row: &StoredRow, col_id: ColId) -> Option<Option<CellError>> {
+        let rv = self.read_validation.as_ref()?;
+        let kind = rv.kind(col_id)?;
+        match row.cell(col_id) {
+            Value::Media(s) => Some(rv.error(s, kind)),
+            _ => Some(None),
+        }
     }
 }
 
@@ -114,20 +133,112 @@ impl PathInput {
     }
 }
 
-/// Evaluation context for one joined row of a path: `rows[i]` is the row of table `elems[i]`.
+/// Evaluation context for one joined row of a path: `rows[i]` is the row of table `elems[i]`. Query evaluation uses
+/// SQL semantics; computed columns are materialized with Python semantics (`python`, see `RowContext`).
 pub struct PathCtx<'a> {
     pub elems: &'a [&'a ElemInfo],
     pub rows: &'a [&'a StoredRow],
+    pub python: bool,
+}
+
+impl<'a> PathCtx<'a> {
+    pub fn new(elems: &'a [&'a ElemInfo], rows: &'a [&'a StoredRow]) -> Self {
+        PathCtx { elems, rows, python: false }
+    }
+
+    fn elem(&self, col: &ColumnRef) -> Result<usize> {
+        self.elems
+            .iter()
+            .position(|e| e.tbl_id == col.tbl_id)
+            .ok_or_else(|| Error::internal(format!("column {} is not in the table path", col.name)))
+    }
 }
 
 impl RowContext for PathCtx<'_> {
     fn column_value(&self, col: &ColumnRef) -> Result<Value> {
-        let Some(i) = self.elems.iter().position(|e| e.tbl_id == col.tbl_id) else {
-            return Err(Error::internal(format!("column {} is not in the table path", col.name)));
+        let i = self.elem(col)?;
+        if let Some(e) = self.elems[i].unstored.get(&col.col_id) {
+            return eval(e, self);
+        }
+        let Some(row) = self.rows.get(i) else { return Ok(Value::Null) };
+        if let Some(Some(_)) = self.elems[i].read_validation_error(row, col.col_id) {
+            // an invalid file reads as NULL; its error is the cell's error
+            return Ok(Value::Null);
+        }
+        Ok(row.cell(col.col_id).clone())
+    }
+
+    fn column_error(&self, col: &ColumnRef) -> Result<Option<CellError>> {
+        let i = self.elem(col)?;
+        let Some(row) = self.rows.get(i) else { return Ok(None) };
+        if let Some(e) = self.elems[i].read_validation_error(row, col.col_id) {
+            return Ok(e);
+        }
+        Ok(row.error(col.col_id).cloned())
+    }
+
+    fn python_semantics(&self) -> bool {
+        self.python
+    }
+}
+
+/// Evaluates the computed columns `cols` (in order) into `row`, a row of table `infos[0]` whose base path rows are
+/// `base` (rows of `infos[1..]`), with upstream's materialization semantics: a column whose expression reads a cell
+/// that has an error gets that error; an evaluation failure is an error with `fail_on_exception`, else a NULL cell
+/// with the error recorded (and counted in `stats`, the column named `<tbl_name>.<col>` in `cols_with_excs`).
+#[allow(clippy::too_many_arguments)]
+pub fn eval_into(
+    row: &mut StoredRow,
+    cols: &[ComputedCol],
+    infos: &[&ElemInfo],
+    base: &[&StoredRow],
+    tbl_name: &str,
+    fail_on_exception: bool,
+    stats: &mut RowCountStats,
+    cols_with_excs: &mut Vec<String>,
+) -> Result<()> {
+    for c in cols {
+        stats.computed_values += 1;
+        let outcome: std::result::Result<Value, CellError> = {
+            let mut rows: Vec<&StoredRow> = Vec::with_capacity(base.len() + 1);
+            rows.push(row);
+            rows.extend_from_slice(base);
+            let ctx = PathCtx { elems: infos, rows: &rows, python: true };
+            let mut inherited = None;
+            for r in c.expr.column_refs() {
+                if let Some(e) = ctx.column_error(r)? {
+                    inherited = Some(e);
+                    break;
+                }
+            }
+            match inherited {
+                Some(e) => Err(e),
+                None => match eval(&c.expr, &ctx) {
+                    Ok(v) => Ok(v),
+                    Err(err) => {
+                        if fail_on_exception {
+                            return Err(eval_error(&c.expr, err));
+                        }
+                        Err(cell_error(&err))
+                    }
+                },
+            }
         };
-        match self.elems[i].unstored.get(&col.col_id) {
-            Some(e) => eval(e, self),
-            None => Ok(self.rows.get(i).map(|r| r.cell(col.col_id).clone()).unwrap_or(Value::Null)),
+        match outcome {
+            Ok(v) => {
+                row.set_cell(c.col_id, v);
+                row.set_error(c.col_id, None);
+            }
+            Err(err) => {
+                stats.num_excs += 1;
+                let qualified = format!("{tbl_name}.{}", c.name);
+                if !cols_with_excs.contains(&qualified) {
+                    cols_with_excs.push(qualified);
+                }
+                row.set_cell(c.col_id, Value::Null);
+                row.set_error(c.col_id, Some(err));
+            }
         }
     }
+    Ok(())
 }

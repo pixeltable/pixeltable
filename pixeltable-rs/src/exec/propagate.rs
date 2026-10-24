@@ -8,16 +8,15 @@
 
 use uuid::Uuid;
 
-use super::compute::{ComputedCol, cell_error};
+use super::compute::{ComputedCol, MediaTarget};
 use super::insert::UpdateStatus;
-use super::scan::{ElemInfo, PathCtx, PathInput};
+use super::scan::{ElemInfo, PathCtx, PathInput, eval_into};
 use crate::catalog::Catalog;
 use crate::catalog::table::{RowCountStats, TableMd};
 use crate::error::{Result, py_repr};
 use crate::expr::ExprRef;
-use crate::expr::eval::{eval, eval_predicate};
+use crate::expr::eval::eval_predicate;
 use crate::store::rows::{StoredRow, TableData};
-use crate::value::Value;
 
 /// How the rows of a view are computed from base path rows.
 #[derive(Debug, Clone)]
@@ -27,11 +26,13 @@ pub struct ViewCompute {
     pub predicate: Option<ExprRef>,
     /// the stored computed columns, in schema order
     pub computed: Vec<ComputedCol>,
+    /// where in-memory media results are written
+    pub media: MediaTarget,
 }
 
 impl ViewCompute {
-    /// The current definition of view `md`.
-    pub fn of(md: &TableMd) -> Result<ViewCompute> {
+    /// The current definition of view `md`; its media files are written to `media_dir`.
+    pub fn of(md: &TableMd, media_dir: std::path::PathBuf) -> Result<ViewCompute> {
         let predicate = match md.view.as_ref().and_then(|v| v.predicate.as_ref()) {
             Some(p) => Some(crate::expr::serde::from_json(p)?),
             None => None,
@@ -40,23 +41,29 @@ impl ViewCompute {
         for c in md.columns_at(None)? {
             if c.md.stored {
                 if let Some(e) = &c.md.value_expr {
-                    computed.push(ComputedCol { col_id: c.md.id, name: c.name.clone(), expr: crate::expr::serde::from_json(e)? });
+                    computed.push(ComputedCol {
+                        col_id: c.md.id,
+                        name: c.name.clone(),
+                        expr: crate::expr::serde::from_json(e)?,
+                        is_media: c.md.col_type.is_media(),
+                    });
                 }
             }
         }
-        Ok(ViewCompute { info: ElemInfo::of(md, None)?, name: md.name.clone(), predicate, computed })
+        let media = MediaTarget { tbl_id: md.id, dir: media_dir, version: md.current_version + 1 };
+        Ok(ViewCompute { info: ElemInfo::of(md, None)?, name: md.name.clone(), predicate, computed, media })
     }
 
     /// True if the base path row passes the view's filter.
     pub fn accepts(&self, base_infos: &[&ElemInfo], base: &[&StoredRow]) -> Result<bool> {
         match &self.predicate {
-            Some(p) => eval_predicate(p, &PathCtx { elems: base_infos, rows: base }),
+            Some(p) => eval_predicate(p, &PathCtx::new(base_infos, base)),
             None => Ok(true),
         }
     }
 
     /// Evaluates `cols` into `row`, a row of this view belonging to the base path row `base`. Evaluation errors
-    /// become cell errors.
+    /// become cell errors; in-memory media results are written to the view's media directory (recorded in `saved`).
     pub fn eval_columns(
         &self,
         row: &mut StoredRow,
@@ -64,54 +71,42 @@ impl ViewCompute {
         base_infos: &[&ElemInfo],
         base: &[&StoredRow],
         status: &mut UpdateStatus,
-    ) {
+        saved: &mut Vec<std::path::PathBuf>,
+    ) -> Result<()> {
         let mut infos: Vec<&ElemInfo> = Vec::with_capacity(base_infos.len() + 1);
         infos.push(&self.info);
         infos.extend_from_slice(base_infos);
-        for c in cols {
-            status.row_count_stats.computed_values += 1;
-            let result = {
-                let mut rows: Vec<&StoredRow> = Vec::with_capacity(base.len() + 1);
-                rows.push(row);
-                rows.extend_from_slice(base);
-                eval(&c.expr, &PathCtx { elems: &infos, rows: &rows })
-            };
-            match result {
-                Ok(v) => {
-                    row.set_cell(c.col_id, v);
-                    row.set_error(c.col_id, None);
-                }
-                Err(err) => {
-                    status.row_count_stats.num_excs += 1;
-                    let qualified = format!("{}.{}", self.name, c.name);
-                    if !status.cols_with_excs.contains(&qualified) {
-                        status.cols_with_excs.push(qualified);
-                    }
-                    row.set_cell(c.col_id, Value::Null);
-                    row.set_error(c.col_id, Some(cell_error(&err)));
-                }
-            }
+        eval_into(row, cols, &infos, base, &self.name, false, &mut status.row_count_stats, &mut status.cols_with_excs)?;
+        for c in cols.iter().filter(|c| c.is_media) {
+            self.media.materialize(row, c.col_id, saved)?;
         }
+        Ok(())
     }
 
     /// The new view rows for one base path row (`base[0]` is the base's row): none if the filter rejects it.
-    pub fn rows_for(&self, base_infos: &[&ElemInfo], base: &[&StoredRow], status: &mut UpdateStatus) -> Result<Vec<StoredRow>> {
+    pub fn rows_for(
+        &self,
+        base_infos: &[&ElemInfo],
+        base: &[&StoredRow],
+        status: &mut UpdateStatus,
+        saved: &mut Vec<std::path::PathBuf>,
+    ) -> Result<Vec<StoredRow>> {
         if !self.accepts(base_infos, base)? {
             return Ok(Vec::new());
         }
         let mut row = StoredRow::new(base[0].rowid, base[0].pos.clone());
-        self.eval_columns(&mut row, &self.computed.clone(), base_infos, base, status);
+        self.eval_columns(&mut row, &self.computed, base_infos, base, status, saved)?;
         status.row_count_stats.ins_rows += 1;
         Ok(vec![row])
     }
 
     /// The rows of a new view over the base path `base` (its initial population).
-    pub fn populate(&self, base: &PathInput) -> Result<(TableData, UpdateStatus)> {
+    pub fn populate(&self, base: &PathInput, saved: &mut Vec<std::path::PathBuf>) -> Result<(TableData, UpdateStatus)> {
         let infos = base.infos();
         let mut status = UpdateStatus::default();
         let mut data = TableData::default();
         for r in base.rows()? {
-            data.rows.extend(self.rows_for(&infos, &r, &mut status)?);
+            data.rows.extend(self.rows_for(&infos, &r, &mut status, saved)?);
         }
         Ok((data, status))
     }
@@ -133,7 +128,7 @@ impl ViewNode {
             .map(|v| {
                 let md = cat.table(v)?;
                 Ok(ViewNode {
-                    compute: ViewCompute::of(md)?,
+                    compute: ViewCompute::of(md, cat.store().media_dir(v))?,
                     schema_version: md.current_schema_version,
                     children: ViewNode::tree(cat, v)?,
                 })
@@ -184,6 +179,7 @@ pub fn compute_inserted_rows(
     nodes: &[ViewNode],
     base_infos: &[&ElemInfo],
     base_paths: &[Vec<&StoredRow>],
+    saved: &mut Vec<std::path::PathBuf>,
 ) -> Result<Vec<InsertedViewRows>> {
     let mut out = Vec::with_capacity(nodes.len());
     for node in nodes {
@@ -191,7 +187,7 @@ pub fn compute_inserted_rows(
         let mut rows = Vec::new();
         let mut parents = Vec::new();
         for (i, bp) in base_paths.iter().enumerate() {
-            for r in node.compute.rows_for(base_infos, bp, &mut status)? {
+            for r in node.compute.rows_for(base_infos, bp, &mut status, saved)? {
                 rows.push(r);
                 parents.push(i);
             }
@@ -209,7 +205,7 @@ pub fn compute_inserted_rows(
                     p
                 })
                 .collect();
-            compute_inserted_rows(&node.children, &infos, &paths)?
+            compute_inserted_rows(&node.children, &infos, &paths, saved)?
         };
         out.push(InsertedViewRows { rows, status, children });
     }

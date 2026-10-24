@@ -69,11 +69,9 @@ pub fn display(e: &Expr) -> String {
                 .collect();
             format!("{}[{}]", display(base), parts.join(", "))
         }
-        ExprKind::FunctionCall(fc) => {
-            let mut args: Vec<String> = fc.args.iter().map(|a| display(a)).collect();
-            args.extend(fc.kwargs.iter().map(|(k, v)| format!("{k}={}", display(v))));
-            format!("{}({})", fc.func.name(), args.join(", "))
-        }
+        ExprKind::ColumnProperty { col, prop } => format!("{}.{}", display(col), prop.name()),
+        ExprKind::FunctionCall(fc) => crate::functions::display_call(fc),
+        ExprKind::Variable(name) => name.clone(),
     }
 }
 

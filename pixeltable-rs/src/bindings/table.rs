@@ -1,11 +1,11 @@
 //! Functions behind table handles (`pixeltable.Table` holds a table id and an optional pinned version).
 
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyString};
-use uuid::Uuid;
+use pyo3::types::{PyDict, PyList, PyString, PyTuple};
 
 use super::catalog::{parse_schema, parse_uuid};
 use super::expr::{PyExpr, as_expr};
+use super::sources::Conduit;
 use super::types::wrap_type;
 use crate::catalog::path::fold_identifier;
 use crate::catalog::runtime::with_catalog;
@@ -13,9 +13,11 @@ use crate::catalog::table::RowCountStats;
 use crate::catalog::{IfExists, IfNotExists};
 use crate::error::{Error, Result, py_repr};
 use crate::exec::compute::AddComputedPlan;
+use crate::exec::compute_rows::ComputeRowsPlan;
 use crate::exec::insert::{self, InputRow, InsertPlan, UpdateStatus};
-use crate::exec::column_ref_expr;
+use crate::types::ColumnType;
 use crate::value::Value;
+use crate::exec::column_ref_expr;
 use crate::value::py as vpy;
 
 fn stats_dict<'py>(py: Python<'py>, s: &RowCountStats) -> PyResult<Bound<'py, PyDict>> {
@@ -101,121 +103,123 @@ pub fn tbl_list_views(py: Python<'_>, tbl_id: &str, recursive: bool) -> Result<V
     with_catalog(py, |cat| cat.list_views(id, recursive))
 }
 
-/// Upstream `TableDataConduit.create()` for the sources supported so far: a list of dicts, an iterator of dicts,
-/// or a list of pydantic models. Returns the rows as Python objects (each checked to be a dict later).
-fn source_rows<'py>(source: &Bound<'py, PyAny>) -> Result<Vec<Bound<'py, PyAny>>> {
-    let py = source.py();
-    let base_model = py.import("pydantic")?.getattr("BaseModel")?;
-    if let Ok(list) = source.cast::<PyList>() {
-        if let Some(first) = list.iter().next() {
-            if first.is_instance(&base_model)? {
-                return list.iter().map(|m| Ok(m.call_method0("model_dump")?)).collect();
-            }
-        }
-        if list.iter().all(|r| r.is_instance_of::<PyDict>()) {
-            return Ok(list.iter().collect());
-        }
-    }
-    let pd_df = py.import("pandas")?.getattr("DataFrame")?;
-    if source.is_instance(&pd_df)? {
-        return Err(Error::not_implemented("inserting from a pandas DataFrame"));
-    }
-    if source.is_instance_of::<PyString>() || source.hasattr("_tbl_ref")? || source.hasattr("_spec")? {
-        return Err(Error::not_implemented(format!(
-            "inserting from a source of type {}",
-            source.get_type().str()?
-        )));
-    }
-    let iterator_cls = py.import("collections.abc")?.getattr("Iterator")?;
-    if source.is_instance(&iterator_cls)? {
-        return source.try_iter()?.map(|r| Ok(r?)).collect();
-    }
-    crate::bail!(UnsupportedOperation, "Unsupported data source type: {}", source.get_type().str()?)
-}
-
-fn lower_first(msg: &str) -> String {
-    let mut chars = msg.chars();
-    match chars.next() {
-        Some(c) => c.to_lowercase().collect::<String>() + chars.as_str(),
-        None => String::new(),
+fn parse_on_error(on_error: &str) -> Result<bool> {
+    match on_error.to_ascii_lowercase().as_str() {
+        "abort" => Ok(true),
+        "ignore" => Ok(false),
+        _ => Err(Error::Value(format!("Invalid value for on_error: {on_error}"))),
     }
 }
 
-/// Saves in-memory media (PIL images, bytes) to the table's media directory; returns the file path.
-pub fn save_media(obj: &Bound<'_, PyAny>, media_dir: &std::path::Path) -> Result<String> {
-    std::fs::create_dir_all(media_dir)?;
-    let py = obj.py();
-    if obj.is_instance(vpy::pil_image_cls(py)?)? {
-        let path = media_dir.join(format!("{}.png", Uuid::new_v4().simple()));
-        obj.call_method1("save", (path.to_string_lossy().to_string(),))?;
-        return Ok(path.to_string_lossy().to_string());
-    }
-    if let Ok(b) = obj.extract::<Vec<u8>>() {
-        let path = media_dir.join(Uuid::new_v4().simple().to_string());
-        std::fs::write(&path, b)?;
-        return Ok(path.to_string_lossy().to_string());
-    }
-    Err(Error::internal("unsupported in-memory media value"))
+/// A result value of a row-producing operation (`compute()`, `return_rows`): a media cell is reported by its file
+/// URL (upstream `DataRow.get_stored_val()`), an in-memory media object as itself.
+pub fn row_value_to_py<'py>(py: Python<'py>, v: &Value, t: &ColumnType) -> Result<Bound<'py, PyAny>> {
+    Ok(match v {
+        Value::Media(s) => PyString::new(py, &crate::media::file_url(s)).into_any(),
+        other => vpy::to_py(py, other, t)?,
+    })
 }
 
-/// Upstream `RowDataTableDataConduit._translate_row()`.
-fn convert_row(row: &Bound<'_, PyAny>, plan: &InsertPlan, media_dir: &std::path::Path) -> Result<InputRow> {
-    let row_str = row.str().map(|s| s.to_string()).unwrap_or_default();
-    let dict = row
-        .cast::<PyDict>()
-        .map_err(|_| crate::pxt_err!(UnsupportedOperation, "row {row_str} is not a dictionary"))?;
-    let mut folded: Vec<(String, Bound<'_, PyAny>)> = Vec::new();
-    for (k, v) in dict.iter() {
-        let name: String = k.str()?.to_string();
-        let f = fold_identifier(&name);
-        if folded.iter().any(|(n, _)| *n == f) {
-            let spellings: Vec<String> = dict
-                .iter()
-                .filter_map(|(k, _)| k.str().ok().map(|s| s.to_string()))
-                .filter(|n| fold_identifier(n) == f)
-                .map(|n| py_repr(&n))
-                .collect();
-            crate::bail!(InvalidSchema, "Column names are case-insensitive, but {} were specified", spellings.join(", "));
+/// Upstream `QueryTableDataConduit.prepare_for_insert_into_table()` + the insert's query execution: the query's
+/// result rows as input rows of `plan`.
+pub fn query_input_rows(py: Python<'_>, q: &crate::exec::QuerySpec, plan: &InsertPlan) -> Result<Vec<InputRow>> {
+    let input = with_catalog(py, |cat| crate::exec::QueryInput::snapshot(cat, q))?;
+    let result = crate::exec::execute(&input, q, false)?;
+    let mut targets = Vec::with_capacity(result.names.len());
+    for name in &result.names {
+        let col = plan.column(name).ok_or_else(|| crate::pxt_err!(ColumnNotFound, "Unknown column name {name}"))?;
+        if col.is_computed() {
+            crate::bail!(UnsupportedOperation, "Value for computed column {name}");
         }
-        folded.push((f, v));
+        targets.push(col);
     }
     let missing: Vec<&str> = plan
         .columns
         .iter()
-        .filter(|c| c.is_required() && !folded.iter().any(|(n, _)| *n == c.name))
+        .filter(|c| c.is_required() && !result.names.contains(&c.name))
         .map(|c| c.name.as_str())
         .collect();
     if !missing.is_empty() {
-        crate::bail!(MissingRequired, "Missing required column(s) ({}) in row {row_str}", missing.join(", "));
+        crate::bail!(MissingRequired, "Missing required column(s) ({})", missing.join(", "));
     }
-    let mut out = Vec::with_capacity(folded.len());
-    for (name, v) in folded {
-        let col = plan
-            .column(&name)
-            .ok_or_else(|| crate::pxt_err!(ColumnNotFound, "Unknown column name {name} in row {row_str}"))?;
-        if col.is_computed() {
-            crate::bail!(UnsupportedOperation, "Value for computed column {name} in row {row_str}");
+    let mut rows = Vec::with_capacity(result.rows.len());
+    for r in result.rows {
+        let mut row = Vec::with_capacity(r.len());
+        for (v, col) in r.into_iter().zip(targets.iter()) {
+            let v = match v {
+                // in-memory media (unstored computed columns of the source) are written by the insert
+                v @ Value::PyObj(_) if col.col_type.is_media() => v,
+                v => crate::value::cast_value(v, &col.col_type).map_err(|e| match e {
+                    Error::Type(msg) => crate::pxt_err!(
+                        UnsupportedOperation,
+                        "Error in column {}: {}",
+                        col.name,
+                        super::sources::lower_first(&msg)
+                    ),
+                    other => other,
+                })?,
+            };
+            row.push((col.col_id, v));
         }
-        let mut value = match vpy::coerce(&v, &col.col_type) {
-            Ok(value) => value,
-            Err(Error::Type(msg)) => crate::bail!(
-                UnsupportedOperation,
-                "Error in column {name}: {}\nRow: {row_str}",
-                lower_first(&msg)
-            ),
-            Err(e) => return Err(e),
-        };
-        if let Value::PyObj(o) = &value {
-            value = Value::Media(save_media(o.bind(row.py()), media_dir)?);
-        }
-        out.push((col.col_id, value));
+        rows.push(row);
     }
-    Ok(out)
+    Ok(rows)
+}
+
+/// Converts any insert source (or a single row given as keyword arguments) into input rows of `plan`.
+pub fn source_input_rows<'py>(
+    py: Python<'py>,
+    source: Option<&Bound<'py, PyAny>>,
+    kwargs: Option<&Bound<'py, PyDict>>,
+    plan: &InsertPlan,
+) -> Result<Vec<InputRow>> {
+    match source {
+        None => {
+            let row = kwargs.cloned().unwrap_or_else(|| PyDict::new(py));
+            Ok(vec![super::sources::convert_row(row.as_any(), plan, true)?])
+        }
+        Some(s) => match super::sources::classify(py, s)? {
+            Conduit::Query(q) => query_input_rows(py, &q, plan),
+            c => super::sources::convert_rows(py, &c, plan, true),
+        },
+    }
+}
+
+/// Inserts input rows into a table: evaluates computed columns, commits, and returns the status dict (with the
+/// stored rows if `return_rows`).
+pub fn insert_rows<'py>(
+    py: Python<'py>,
+    plan: &InsertPlan,
+    rows: Vec<InputRow>,
+    fail_on_exception: bool,
+    return_rows: bool,
+) -> Result<Bound<'py, PyDict>> {
+    let built = insert::build_rows(plan, rows, fail_on_exception)?;
+    let returned = if return_rows {
+        let list = PyList::empty(py);
+        for r in &built.rows {
+            let d = PyDict::new(py);
+            for c in plan.columns.iter().filter(|c| c.stored) {
+                d.set_item(&c.name, row_value_to_py(py, r.cell(c.col_id), &c.col_type)?)?;
+            }
+            list.append(d)?;
+        }
+        Some(list)
+    } else {
+        None
+    };
+    let status = with_catalog(py, |cat| insert::commit(cat, plan, built))?;
+    let d = status_dict(py, &status)?;
+    if let Some(rows) = returned {
+        d.set_item("rows", rows)?;
+    }
+    Ok(d)
 }
 
 /// `Table.insert()`; returns the status dict.
 #[pyfunction]
-#[pyo3(signature = (tbl_id, version, source, kwargs, on_error))]
+#[pyo3(signature = (tbl_id, version, source, kwargs, on_error, return_rows=false, source_format=None, schema_overrides=None))]
+#[allow(clippy::too_many_arguments)]
 pub fn tbl_insert<'py>(
     py: Python<'py>,
     tbl_id: &str,
@@ -223,30 +227,133 @@ pub fn tbl_insert<'py>(
     source: Option<&Bound<'py, PyAny>>,
     kwargs: Option<&Bound<'py, PyDict>>,
     on_error: &str,
+    return_rows: bool,
+    source_format: Option<&str>,
+    schema_overrides: Option<&Bound<'py, PyAny>>,
 ) -> Result<Bound<'py, PyDict>> {
     let id = parse_uuid(tbl_id)?;
+    if source_format.is_some() {
+        return Err(Error::not_implemented("insert() with `source_format`"));
+    }
+    if schema_overrides.is_some_and(|o| !o.is_none()) {
+        return Err(Error::not_implemented("insert() with `schema_overrides`"));
+    }
     let source = source.filter(|s| !s.is_none());
     if let Some(s) = source {
         let seq = py.import("collections.abc")?.getattr("Sequence")?;
-        if s.is_instance(&seq)? && s.len()? == 0 {
+        if s.is_instance(&seq)? && !s.is_instance_of::<PyString>() && s.len()? == 0 {
             crate::bail!(UnsupportedOperation, "Cannot insert an empty sequence.");
         }
     }
-    let fail_on_exception = match on_error.to_ascii_lowercase().as_str() {
-        "abort" => true,
-        "ignore" => false,
-        _ => return Err(Error::Value(format!("Invalid value for on_error: {on_error}"))),
-    };
-    let rows: Vec<Bound<'py, PyAny>> = match source {
-        None => vec![kwargs.cloned().unwrap_or_else(|| PyDict::new(py)).into_any()],
-        Some(s) => source_rows(s)?,
-    };
-    let (plan, media_dir) = with_catalog(py, |cat| Ok((InsertPlan::new(cat, id, version)?, cat.store().media_dir(id))))?;
+    let fail_on_exception = parse_on_error(on_error)?;
+    let plan = with_catalog(py, |cat| InsertPlan::new(cat, id, version))?;
     // conversion and computed columns run Python code (pydantic, generators, PIL, UDFs): no catalog lock here
-    let converted: Vec<InputRow> = rows.iter().map(|r| convert_row(r, &plan, &media_dir)).collect::<Result<_>>()?;
-    let built = insert::build_rows(&plan, converted, fail_on_exception)?;
-    let status = with_catalog(py, |cat| insert::commit(cat, &plan, built))?;
-    Ok(status_dict(py, &status)?)
+    let rows = source_input_rows(py, source, kwargs, &plan)?;
+    insert_rows(py, &plan, rows, fail_on_exception, return_rows)
+}
+
+/// `Table.compute()`: returns (rows as tuples, {name: ColumnType}, per-row error dicts).
+#[pyfunction]
+#[pyo3(signature = (tbl_id, version, source, outputs, on_error))]
+pub fn tbl_compute<'py>(
+    py: Python<'py>,
+    tbl_id: &str,
+    version: Option<i64>,
+    source: &Bound<'py, PyAny>,
+    outputs: Option<&Bound<'py, PyAny>>,
+    on_error: &str,
+) -> Result<(Bound<'py, PyList>, Bound<'py, PyDict>, Bound<'py, PyList>)> {
+    let id = parse_uuid(tbl_id)?;
+    let seq = py.import("collections.abc")?.getattr("Sequence")?;
+    let is_str = source.is_instance_of::<PyString>() || source.is_instance_of::<pyo3::types::PyBytes>();
+    if is_str || !source.is_instance(&seq)? || source.len()? == 0 {
+        crate::bail!(
+            UnsupportedOperation,
+            "compute() requires a non-empty sequence of dicts or pydantic models; got {}",
+            source.get_type().name()?
+        );
+    }
+    let fail_on_exception = parse_on_error(on_error)?;
+    let output_names: Option<Vec<String>> = match outputs.filter(|o| !o.is_none()) {
+        None => None,
+        Some(o) => Some(
+            o.try_iter()?
+                .map(|item| {
+                    let item = item?;
+                    if let Some(e) = as_expr(&item) {
+                        match e.as_column_ref() {
+                            Some(c) => Ok(c.name.clone()),
+                            None => crate::bail!(InvalidArgument, "compute() outputs must be column names or references"),
+                        }
+                    } else {
+                        Ok(item.extract::<String>()?)
+                    }
+                })
+                .collect::<Result<_>>()?,
+        ),
+    };
+    let list = PyList::new(py, source.try_iter()?.collect::<PyResult<Vec<_>>>()?)?;
+    let conduit = super::sources::classify(py, list.as_any())?;
+    if matches!(conduit, Conduit::Query(_)) {
+        crate::bail!(
+            UnsupportedOperation,
+            "compute() requires a sequence of dicts or pydantic models; got {}",
+            source.get_type().name()?
+        );
+    }
+    let plan = with_catalog(py, |cat| ComputeRowsPlan::new(cat, id, version, output_names))?;
+    let inputs = super::sources::convert_rows(py, &conduit, &plan.insert, false)?;
+    let required = plan.required_input_names();
+    if !required.is_empty() {
+        let present = |row: &InputRow, name: &str| {
+            plan.insert.column(name).is_some_and(|c| row.iter().any(|(id, _)| *id == c.col_id))
+        };
+        for row in &inputs {
+            let missing: Vec<&str> = required.iter().filter(|n| !present(row, n)).map(|n| n.as_str()).collect();
+            if !missing.is_empty() {
+                let shown: Vec<String> = row
+                    .iter()
+                    .filter_map(|(id, v)| {
+                        plan.insert.columns.iter().find(|c| c.col_id == *id).map(|c| {
+                            let pv = vpy::to_py(py, v, &c.col_type).and_then(|o| o.repr().map(|r| r.to_string()));
+                            format!("{}: {}", py_repr(&c.name), pv.unwrap_or_default())
+                        })
+                    })
+                    .collect();
+                crate::bail!(
+                    MissingRequired,
+                    "Missing required column(s) ({}) in row {{{}}}",
+                    missing.join(", "),
+                    shown.join(", ")
+                );
+            }
+        }
+    }
+    let computed = plan.run(inputs, fail_on_exception)?;
+    let col_types = PyDict::new(py);
+    for (name, _, t) in &plan.outputs {
+        col_types.set_item(name, wrap_type(py, t)?)?;
+    }
+    let data = PyList::empty(py);
+    let errors = PyList::empty(py);
+    for r in computed {
+        let vals = r
+            .values
+            .iter()
+            .zip(plan.outputs.iter())
+            .map(|(v, (_, _, t))| row_value_to_py(py, v, t))
+            .collect::<Result<Vec<_>>>()?;
+        data.append(PyTuple::new(py, vals)?)?;
+        let errs = PyDict::new(py);
+        for (name, e) in r.errors {
+            let ed = PyDict::new(py);
+            ed.set_item("errortype", e.errortype)?;
+            ed.set_item("errormsg", e.errormsg)?;
+            errs.set_item(name, ed)?;
+        }
+        errors.append(errs)?;
+    }
+    Ok((data, col_types, errors))
 }
 
 /// `Table.get_metadata()`
@@ -436,8 +543,18 @@ pub fn tbl_add_computed_column<'py>(
     };
     let mut stats = RowCountStats::default();
     let mut cols_with_excs = Vec::new();
-    let values = plan.compute(fail_on_exception, &mut stats, &mut cols_with_excs)?;
-    let status = with_catalog(py, |cat| plan.commit(cat, values, stats, cols_with_excs))?;
+    let mut saved = Vec::new();
+    let values = match plan.compute(fail_on_exception, &mut stats, &mut cols_with_excs, &mut saved) {
+        Ok(v) => v,
+        Err(e) => {
+            crate::exec::compute::discard_media(&saved);
+            return Err(e);
+        }
+    };
+    let status = with_catalog(py, |cat| {
+        cat.adopt_media(saved);
+        plan.commit(cat, values, stats, cols_with_excs)
+    })?;
     Ok(status_dict(py, &status)?)
 }
 

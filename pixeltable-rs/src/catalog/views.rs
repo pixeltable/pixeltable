@@ -354,6 +354,7 @@ impl Catalog {
 
         // the filter and the value expressions must be computable in the context of the base
         if let Some(p) = &def.predicate {
+            crate::functions::udf::validate_storable(p, "A view's filter")?;
             if !self.is_bound_by(p, &live_base_path)? {
                 crate::bail!(
                     UnsupportedOperation,
@@ -484,6 +485,30 @@ impl Catalog {
             None => self.commit()?,
         }
         Ok(id)
+    }
+}
+
+/// What a query over a table reads when the views in its path are only filters: the root base table and the filters
+/// of the views between it and the table (`Table.compute()`).
+#[derive(Debug, Clone)]
+pub struct ScanSource {
+    pub base_tbl_id: Uuid,
+    /// version of the root base table (None: current)
+    pub base_version: Option<i64>,
+    pub predicates: Vec<Json>,
+}
+
+impl Catalog {
+    pub fn scan_source(&self, tbl_id: Uuid, version: Option<i64>) -> Result<ScanSource> {
+        let path = self.tbl_path(tbl_id, version)?;
+        let root = path.last().ok_or_else(|| Error::internal("empty table path"))?;
+        let mut predicates = Vec::new();
+        for e in path.iter().rev() {
+            if let Some(p) = self.table(e.tbl_id)?.view.as_ref().and_then(|v| v.predicate.clone()) {
+                predicates.push(p);
+            }
+        }
+        Ok(ScanSource { base_tbl_id: root.tbl_id, base_version: root.pinned, predicates })
     }
 }
 

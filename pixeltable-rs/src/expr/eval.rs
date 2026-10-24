@@ -13,6 +13,37 @@ use crate::value::{Json, cmp_values, values_equal};
 /// Supplies column values for the row being evaluated.
 pub trait RowContext {
     fn column_value(&self, col: &ColumnRef) -> Result<Value>;
+
+    /// The error recorded for (or, for read-validated media, found in) the column's cell, if any.
+    fn column_error(&self, _col: &ColumnRef) -> Result<Option<crate::store::rows::CellError>> {
+        Ok(None)
+    }
+
+    /// True when evaluating with Python semantics (upstream materializes computed columns in Python, where a
+    /// division by zero raises `ZeroDivisionError`; query expressions evaluated in SQL yield NULL instead).
+    fn python_semantics(&self) -> bool {
+        false
+    }
+}
+
+/// Python's `ZeroDivisionError` for `a <op> b` with a zero divisor, if that is what the operation is.
+fn python_zero_division(op: ArithOp, a: &Value, b: &Value) -> Option<Error> {
+    let (a, b) = (a.json_scalar(), b.json_scalar());
+    let is_zero = matches!(b, Value::Int(0)) || matches!(b, Value::Float(f) if f == 0.0);
+    if a.is_null() || !is_zero || !matches!(a, Value::Int(_) | Value::Float(_)) {
+        return None;
+    }
+    let float = matches!(a, Value::Float(_)) || matches!(b, Value::Float(_));
+    let msg = match (op, float) {
+        (ArithOp::Div, false) => "division by zero",
+        (ArithOp::Div, true) => "float division by zero",
+        (ArithOp::FloorDiv, false) => "integer division or modulo by zero",
+        (ArithOp::FloorDiv, true) => "float floor division by zero",
+        (ArithOp::Mod, false) => "integer modulo by zero",
+        (ArithOp::Mod, true) => "float modulo by zero",
+        _ => return None,
+    };
+    Some(Error::Python(pyo3::exceptions::PyZeroDivisionError::new_err(msg)))
 }
 
 pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
@@ -22,6 +53,11 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
         ExprKind::Arithmetic { op, lhs, rhs } => {
             let a = eval(lhs, ctx)?;
             let b = eval(rhs, ctx)?;
+            if ctx.python_semantics() {
+                if let Some(err) = python_zero_division(*op, &a, &b) {
+                    return Err(err);
+                }
+            }
             arithmetic(*op, &a, &b, lhs.col_type.is_json(), rhs.col_type.is_json(), &e.col_type)
         }
         ExprKind::StringOp { op, lhs, rhs } => {
@@ -113,12 +149,29 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
         ExprKind::JsonPath { .. } | ExprKind::ArraySlice { .. } => {
             Err(Error::not_implemented(format!("evaluation of `{}`", super::display::display(e))))
         }
-        ExprKind::FunctionCall(fc) => {
-            let args: Vec<Value> = fc.args.iter().map(|a| eval(a, ctx)).collect::<Result<_>>()?;
-            let kwargs: Vec<(String, Value)> =
-                fc.kwargs.iter().map(|(k, a)| Ok((k.clone(), eval(a, ctx)?))).collect::<Result<_>>()?;
-            fc.func.call(&args, &kwargs, &e.col_type)
+        ExprKind::ColumnProperty { col, prop } => {
+            let c = col.as_column_ref().ok_or_else(|| Error::internal("column property of a non-column"))?;
+            if prop.is_cellmd() {
+                return Ok(match (prop, ctx.column_error(c)?) {
+                    (_, None) => Value::Null,
+                    (ColumnProp::ErrorType, Some(err)) => Value::String(err.errortype),
+                    (ColumnProp::ErrorMsg, Some(err)) => Value::String(err.errormsg),
+                    (_, Some(err)) => Value::Json(serde_json::json!({"errortype": err.errortype, "errormsg": err.errormsg})),
+                });
+            }
+            match ctx.column_value(c)? {
+                Value::Media(s) => match prop {
+                    ColumnProp::FileUrl => Ok(Value::String(crate::media::file_url(&s))),
+                    _ => {
+                        let path = pyo3::Python::attach(|py| crate::media::local_path(py, &s))?;
+                        Ok(Value::String(path.to_string_lossy().into_owned()))
+                    }
+                },
+                _ => Ok(Value::Null),
+            }
         }
+        ExprKind::FunctionCall(fc) => crate::functions::eval_call(fc, e, ctx),
+        ExprKind::Variable(name) => Err(Error::internal(format!("unbound variable {name} in an evaluated expression"))),
     }
 }
 

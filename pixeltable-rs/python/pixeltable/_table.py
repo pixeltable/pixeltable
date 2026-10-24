@@ -19,6 +19,7 @@ from pixeltable._update_status import UpdateStatus, _status_from_core
 
 if TYPE_CHECKING:
     from pixeltable._query import Query, ResultSet
+    from pixeltable._row import RowBatch
 
 
 class SchemaObject:
@@ -263,15 +264,34 @@ class Table(SchemaObject):
         return_rows: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        """Insert rows: a list (or iterable) of dicts, or a single row given as keyword arguments."""
-        if source_format is not None or schema_overrides is not None or return_rows:
-            raise NotImplementedError(
-                'insert() with source_format, schema_overrides or return_rows is not implemented yet in pixeltable-rs'
+        """Insert rows: a list (or iterable) of dicts, a list of pydantic models, a table or query, or a single row
+        given as keyword arguments."""
+        return _status_from_core(
+            _core.tbl_insert(
+                str(self._id),
+                self._version,
+                source,
+                kwargs,
+                on_error,
+                return_rows,
+                source_format,
+                schema_overrides,
             )
-        return _status_from_core(_core.tbl_insert(str(self._id), self._version, source, kwargs, on_error))
+        )
 
-    @unimplemented('Table.compute()')
-    def compute(self, source: Sequence[Any], /, **kwargs: Any) -> Any: ...
+    def compute(
+        self,
+        source: Sequence[Any],
+        /,
+        *,
+        outputs: Sequence[Any] | None = None,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+    ) -> RowBatch:
+        """Materialize the computed columns of this table for the given input rows, without storing them."""
+        from pixeltable._row import RowBatch
+
+        data, col_types, errors = _core.tbl_compute(str(self._id), self._version, source, outputs, on_error)
+        return RowBatch(data, col_types, errors=errors)
 
     def update(
         self,

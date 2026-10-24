@@ -8,7 +8,7 @@ use std::hash::{Hash, Hasher};
 
 use super::types::{PyColumnType, normalize_type, wrap_type};
 use crate::error::{Error, Result};
-use crate::expr::{ArithOp, CmpOp, Expr, ExprRef, LogicalOp, StringOp, build, display};
+use crate::expr::{ArithOp, CmpOp, ColumnProp, Expr, ExprRef, LogicalOp, StringOp, build, display};
 use crate::value::py as vpy;
 
 #[pyclass(name = "Expr", module = "pixeltable", frozen)]
@@ -387,33 +387,46 @@ impl PyExpr {
     }
 
     /// `expr.method`: a method of the expression's type (a builtin of the type's function module), returned as a
-    /// `MethodRef` to call; for Json values, a JSON path (not implemented yet).
-    fn __getattr__(&self, py: Python<'_>, name: &str) -> Result<PyMethodRef> {
-        if name.starts_with('_') {
-            return Err(Error::Attribute(format!("'Expr' object has no attribute {}", crate::error::py_repr(name))));
+    /// `MethodRef` to call; a property builtin (`t.img.width`) or a column property (`t.img.localpath`) is returned as
+    /// an expression; a method or property registered by a UDF (`is_method`/`is_property`) takes precedence; for Json
+    /// values, a JSON path (not implemented yet).
+    fn __getattr__<'py>(&self, py: Python<'py>, name: &str) -> Result<Bound<'py, PyAny>> {
+        if let Some(m) = super::func::udf_attribute(py, &self.e, name)? {
+            return Ok(m);
         }
-        if self.e.as_column_ref().is_some() && COLUMN_PROPERTIES.contains(&name) {
-            return Err(Error::not_implemented(format!("the column property `.{name}`")));
+        self.builtin_attribute(py, name)
+    }
+
+    /// For a call of a Python function: the (resolved) `Function`; else None.
+    #[getter]
+    fn r#fn(&self, py: Python<'_>) -> Result<Py<PyAny>> {
+        if let crate::expr::ExprKind::FunctionCall(crate::expr::FunctionCall {
+            func: crate::functions::FuncRef::Udf(call),
+            ..
+        }) = &self.e.kind
+        {
+            return Ok(call.def.py_obj.bind(py).call_method1("_resolved_fn", (call.sig_idx,))?.unbind());
         }
-        if name == "apply" {
-            return Err(Error::not_implemented("Expr.apply()"));
+        Ok(py.None())
+    }
+
+    /// `expr.apply(fn, col_type=None)`: a call of `fn` (an arbitrary Python callable) on this expression.
+    #[pyo3(signature = (fn_, *, col_type=None))]
+    fn apply<'py>(slf: &Bound<'py, Self>, fn_: &Bound<'py, PyAny>, col_type: Option<&Bound<'py, PyAny>>) -> Result<Bound<'py, PyAny>> {
+        let py = slf.py();
+        let arg_type = slf.getattr("col_type")?;
+        let f = py
+            .import("pixeltable.func._apply")?
+            .call_method1("make_applicator", (fn_, col_type.map(|c| c.clone()).unwrap_or_else(|| py.None().into_bound(py)), arg_type))?;
+        Ok(f.call1((slf,))?)
+    }
+
+    /// For a literal: (True, value); else (False, None).
+    fn _literal_value<'py>(&self, py: Python<'py>) -> Result<(bool, Bound<'py, PyAny>)> {
+        match self.e.as_literal() {
+            Some(v) => Ok((true, vpy::to_py(py, v, &self.e.col_type)?)),
+            None => Ok((false, py.None().into_bound(py))),
         }
-        let module = method_module(&self.e.col_type);
-        if let Some(module) = module {
-            let qualified = format!("{module}.{name}");
-            if crate::functions::lookup(&qualified).is_some() {
-                return Ok(PyMethodRef { base: self.e.clone(), qualified, name: name.to_string() });
-            }
-        }
-        if self.e.col_type.is_json() {
-            return Err(Error::not_implemented(format!("JSON path expressions (`.{name}` on a Json value)")));
-        }
-        if let Some(module) = module {
-            if py.import(module).and_then(|m| m.hasattr(name)).unwrap_or(false) {
-                return Err(Error::not_implemented(format!("`{module}.{name}()`")));
-            }
-        }
-        Err(Error::Attribute(format!("Unknown method (of type {}): {name}", self.e.col_type.repr())))
     }
 
     fn _is_column_ref(&self) -> bool {
@@ -426,8 +439,68 @@ impl PyExpr {
     }
 }
 
-/// Properties of column references (`t.img.localpath`, `t.c.errortype`, ...).
-const COLUMN_PROPERTIES: [&str; 5] = ["errortype", "errormsg", "fileurl", "localpath", "cellmd"];
+impl PyExpr {
+    /// `expr.name` for builtins: column properties and builtin methods/properties of the expression's type.
+    fn builtin_attribute<'py>(&self, py: Python<'py>, name: &str) -> Result<Bound<'py, PyAny>> {
+        if name.starts_with('_') {
+            return Err(Error::Attribute(format!("'Expr' object has no attribute {}", crate::error::py_repr(name))));
+        }
+        if let Some(c) = self.e.as_column_ref() {
+            if let Some(prop) = ColumnProp::from_name(name).filter(|p| *p != ColumnProp::CellMd) {
+                return Ok(Bound::new(py, wrap(column_property(py, &self.e, c, prop)?))?.into_any());
+            }
+        }
+        if name == "apply" {
+            return Err(Error::not_implemented("Expr.apply()"));
+        }
+        let module = method_module(&self.e.col_type);
+        if let Some(module) = module {
+            let qualified = format!("{module}.{name}");
+            if crate::functions::lookup(&qualified).is_some() {
+                if crate::functions::is_property(&qualified) {
+                    let call = crate::functions::make_call(&qualified, vec![self.e.clone()], vec![])?;
+                    return Ok(Bound::new(py, wrap(call))?.into_any());
+                }
+                let mref = PyMethodRef { base: self.e.clone(), qualified, name: name.to_string() };
+                return Ok(Bound::new(py, mref)?.into_any());
+            }
+        }
+        if self.e.col_type.is_json() {
+            return Err(Error::not_implemented(format!("JSON path expressions (`.{name}` on a Json value)")));
+        }
+        if let Some(module) = module {
+            if py.import(module).and_then(|m| m.hasattr(name)).unwrap_or(false) {
+                return Err(Error::not_implemented(format!("`{module}.{name}()`")));
+            }
+        }
+        Err(Error::Attribute(format!("Unknown method (of type {}): {name}", self.e.col_type.repr())))
+    }
+}
+
+/// `col.<prop>` (upstream `ColumnRef.__getattr__()`): checks that the property applies to the column.
+fn column_property(py: Python<'_>, col_expr: &ExprRef, c: &crate::expr::ColumnRef, prop: ColumnProp) -> Result<ExprRef> {
+    let md = crate::catalog::runtime::with_catalog(py, |cat| {
+        cat.table(c.tbl_id)?
+            .column(c.col_id)
+            .cloned()
+            .ok_or_else(|| crate::pxt_err!(ColumnNotFound, "Unknown column: {}", c.name))
+    })?;
+    let name = prop.name();
+    let shown = display::display(col_expr);
+    if prop.is_cellmd() {
+        if !((md.is_computed() || md.col_type.is_media()) && md.stored) {
+            crate::bail!(UnsupportedOperation, "{name} only valid for a stored computed or media column: {shown}");
+        }
+    } else {
+        if !md.col_type.is_media() {
+            crate::bail!(UnsupportedOperation, "{name} only valid for image/video/audio/document columns: {shown}");
+        }
+        if md.is_computed() && !md.stored {
+            crate::bail!(UnsupportedOperation, "{name} not valid for computed unstored columns: {shown}");
+        }
+    }
+    Ok(build::column_property(col_expr.clone(), prop))
+}
 
 /// The function module whose functions are methods of values of type `t`.
 fn method_module(t: &crate::types::ColumnType) -> Option<&'static str> {

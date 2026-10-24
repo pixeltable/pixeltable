@@ -9,6 +9,7 @@
 //! (a grouping stage between filter and project), distinct, sample.
 
 pub mod compute;
+pub mod compute_rows;
 pub mod insert;
 pub mod propagate;
 pub mod scan;
@@ -211,6 +212,35 @@ impl QuerySpec {
         Ok(())
     }
 
+    /// The query with every expression replaced by `f(expr)` (used to bind the parameters of a `@pxt.query`
+    /// template). Every expression-holding field must be mapped here (the destructuring makes a new field a compile
+    /// error until it is).
+    pub fn map_exprs(&self, f: &dyn Fn(&ExprRef) -> Result<ExprRef>) -> Result<QuerySpec> {
+        let QuerySpec { tbl_id, version, select, where_, order_by, limit, offset } = self;
+        Ok(QuerySpec {
+            tbl_id: *tbl_id,
+            version: *version,
+            select: select
+                .as_ref()
+                .map(|items| items.iter().map(|(e, n)| Ok((f(e)?, n.clone()))).collect::<Result<Vec<_>>>())
+                .transpose()?,
+            where_: where_.as_ref().map(f).transpose()?,
+            order_by: order_by.iter().map(|(e, asc)| Ok((f(e)?, *asc))).collect::<Result<_>>()?,
+            limit: *limit,
+            offset: *offset,
+        })
+    }
+
+    /// Every expression of the query.
+    pub fn exprs(&self) -> Vec<ExprRef> {
+        let out = std::cell::RefCell::new(Vec::new());
+        let _ = self.map_exprs(&|e| {
+            out.borrow_mut().push(e.clone());
+            Ok(e.clone())
+        });
+        out.into_inner()
+    }
+
     // ------------------------------------------------------------------------------------------- serialization
 
     pub fn to_json(&self) -> Result<serde_json::Value> {
@@ -335,7 +365,7 @@ fn filtered_rows<'a>(input: &'a QueryInput, infos: &[&ElemInfo], q: &QuerySpec) 
     let Some(w) = &q.where_ else { return Ok(rows) };
     let mut out = Vec::with_capacity(rows.len());
     for r in rows {
-        if eval_predicate(w, &PathCtx { elems: infos, rows: &r })? {
+        if eval_predicate(w, &PathCtx::new(infos, &r))? {
             out.push(r);
         }
     }
@@ -353,7 +383,7 @@ pub fn execute(input: &QueryInput, q: &QuerySpec, rowid_desc: bool) -> Result<Re
         let mut keyed: Vec<(Vec<Value>, Vec<&StoredRow>)> = rows
             .into_iter()
             .map(|r| {
-                let ctx = PathCtx { elems: &infos, rows: &r };
+                let ctx = PathCtx::new(&infos, &r);
                 let keys = q.order_by.iter().map(|(e, _)| eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
                 Ok((keys, r))
             })
@@ -378,7 +408,7 @@ pub fn execute(input: &QueryInput, q: &QuerySpec, rowid_desc: bool) -> Result<Re
     };
     let mut out_rows = Vec::with_capacity(rows.len());
     for r in rows {
-        let ctx = PathCtx { elems: &infos, rows: &r };
+        let ctx = PathCtx::new(&infos, &r);
         out_rows.push(input.select.iter().map(|(e, _)| eval(e, &ctx)).collect::<Result<Vec<_>>>()?);
     }
     Ok(ResultData {

@@ -192,6 +192,7 @@ impl Catalog {
         }
         md.versions.retain(|vm| vm.version != v);
         md.current_version = v - 1;
+        self.defer_delete_media_version(tbl_id, v);
         self.stage_data(tbl_id, data)
     }
 }

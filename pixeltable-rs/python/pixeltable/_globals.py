@@ -43,14 +43,13 @@ def create_table(
     extra_args: dict[str, Any] | None = None,
     _is_data_versioned: bool = True,
 ) -> Table:
-    """Create a new base table from a `schema` (a mapping of column names to types or column specs)."""
+    """Create a new base table from a `schema` (a mapping of column names to types or column specs), or from a
+    `source` (rows, a table or a query) whose schema is inferred."""
     unsupported = [
         name
         for name, given in (
             ('source_format', source_format is not None),
-            ('schema_overrides', schema_overrides is not None),
             ('extra_args', extra_args is not None),
-            ('has_default_idxs', has_default_idxs),
         )
         if given
     ]
@@ -66,6 +65,9 @@ def create_table(
         media_validation,
         if_exists,
         _is_data_versioned,
+        schema_overrides,
+        on_error,
+        has_default_idxs,
     )
     return _make_table(tbl_id, kind)
 
@@ -196,13 +198,47 @@ def array(elements: Iterable) -> _core.Expr:
     return _core.array(elements)
 
 
-@unimplemented('list_functions()')
-def list_functions() -> Any: ...
+def list_functions() -> Any:
+    """Returns information about all registered functions.
+
+    Returns:
+        Pandas DataFrame with columns 'Path', 'Function Name', 'Parameters', 'Return Type'
+    """
+    from pixeltable import func
+
+    functions = func.FunctionRegistry.get().list_functions()
+    paths = ['.'.join(f.self_path.split('.')[:-1]) for f in functions]
+    names = [f.name for f in functions]
+    params = [
+        ', '.join(param_name + ': ' + str(param.col_type) for param_name, param in f.signatures[0].parameters.items())
+        for f in functions
+    ]
+    pd_df = pd.DataFrame(
+        {
+            'Path': paths,
+            'Function Name': names,
+            'Parameters': params,
+            'Return Type': [str(f.signatures[0].get_return_type()) for f in functions],
+        }
+    )
+    styler = pd_df.style.set_properties(None, **{'text-align': 'left'}).set_table_styles(
+        [{'selector': 'th', 'props': [('text-align', 'center')]}]
+    )
+    return styler.hide(axis='index')
 
 
-@unimplemented('pxt.tools()')
-def tools(*args: Any) -> Any: ...
+def tools(*args: Any) -> Any:
+    """Specifies a collection of UDFs to be used as LLM tools."""
+    from pixeltable.func import Tool, Tools
+
+    return Tools(tools=[arg if isinstance(arg, Tool) else tool(arg) for arg in args])
 
 
-@unimplemented('pxt.tool()')
-def tool(fn: Any, name: str | None = None, description: str | None = None) -> Any: ...
+def tool(fn: Any, name: str | None = None, description: str | None = None) -> Any:
+    """Specifies a Pixeltable UDF to be used as an LLM tool with customizable metadata."""
+    from pixeltable import exceptions as excs
+    from pixeltable.func import AggregateFunction, Tool
+
+    if isinstance(fn, AggregateFunction) or getattr(fn, 'is_aggregate', False):
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Aggregator UDFs cannot be used as tools')
+    return Tool(fn=fn, name=name, description=description)
