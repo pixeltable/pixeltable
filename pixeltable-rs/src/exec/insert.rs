@@ -304,8 +304,34 @@ fn build_rows_inner(
     Ok(BuiltRows { rows, stats, cols_with_excs, saved_media: Vec::new(), views })
 }
 
-fn pk_key(row: &StoredRow, pk_cols: &[ColId]) -> String {
-    pk_cols.iter().map(|c| format!("{:?}", row.cell(*c))).collect::<Vec<_>>().join("\u{1f}")
+/// Upstream `BtreeIndex.MAX_STRING_LEN`: the primary key index of a data-versioned table holds string values
+/// truncated to this many characters, so strings that agree on that prefix collide.
+const MAX_PK_STRING_LEN: usize = 256;
+/// Postgres's maximum B-tree index row size, which bounds the combined size of a primary key value.
+const MAX_INDEX_ROW_BYTES: usize = 2704;
+
+fn pk_part(v: &Value, truncate: bool) -> Value {
+    match v {
+        Value::String(s) if truncate && s.chars().count() > MAX_PK_STRING_LEN => {
+            Value::String(s.chars().take(MAX_PK_STRING_LEN).collect())
+        }
+        v => v.clone(),
+    }
+}
+
+fn pk_key(row: &StoredRow, pk_cols: &[ColId], truncate: bool) -> String {
+    pk_cols.iter().map(|c| format!("{:?}", pk_part(row.cell(*c), truncate))).collect::<Vec<_>>().join("\u{1f}")
+}
+
+/// The size of a row's primary key value in the index (strings by their UTF-8 length, other values 8 bytes).
+fn pk_size(row: &StoredRow, pk_cols: &[ColId], truncate: bool) -> usize {
+    pk_cols
+        .iter()
+        .map(|c| match pk_part(row.cell(*c), truncate) {
+            Value::String(s) => s.len(),
+            _ => 8,
+        })
+        .sum()
 }
 
 fn pk_display(row: &StoredRow, plan: &InsertPlan) -> String {
@@ -335,9 +361,21 @@ pub fn commit(cat: &mut Catalog, plan: &InsertPlan, built: BuiltRows) -> Result<
     let mut data = cat.data(plan.tbl_id)?.as_ref().clone();
     let pk_cols: Vec<ColId> = plan.columns.iter().filter(|c| c.is_pk).map(|c| c.col_id).collect();
     if !pk_cols.is_empty() {
-        let mut seen: HashSet<String> = data.visible_at(md.current_version).map(|r| pk_key(r, &pk_cols)).collect();
+        let truncate = md.is_data_versioned;
         for r in &built.rows {
-            if !seen.insert(pk_key(r, &pk_cols)) {
+            if pk_size(r, &pk_cols, truncate) > MAX_INDEX_ROW_BYTES {
+                let names: Vec<&str> = plan.columns.iter().filter(|c| c.is_pk).map(|c| c.name.as_str()).collect();
+                crate::bail!(
+                    ConstraintViolation,
+                    "Primary key value too large for index: the combined size of the insert for columns ({}) exceeds the maximum btree index row size",
+                    names.join(", ")
+                );
+            }
+        }
+        let mut seen: HashSet<String> =
+            data.visible_at(md.current_version).map(|r| pk_key(r, &pk_cols, truncate)).collect();
+        for r in &built.rows {
+            if !seen.insert(pk_key(r, &pk_cols, truncate)) {
                 crate::bail!(ConstraintViolation, "Duplicate primary key value: {}", pk_display(r, plan));
             }
         }

@@ -69,6 +69,7 @@ tests/test_exprs.py::TestExprs::test_kwarg_order_after_reload
 tests/test_exprs.py::TestExprs::test_math_builtins
 tests/test_exprs.py::TestExprs::test_null_args
 tests/test_exprs.py::TestExprs::test_props
+tests/test_exprs.py::TestExprs::test_select_list
 tests/test_exprs.py::TestExprs::test_string_operations
 tests/test_exprs.py::test_gc_bug_leaked_slot
 tests/test_function.py::TestFunction::test_call

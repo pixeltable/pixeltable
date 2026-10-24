@@ -115,6 +115,10 @@ impl PyQuerySpec {
     fn select(&self, py: Python<'_>, items: Vec<(Bound<'_, PyAny>, Option<String>)>) -> Result<Self> {
         let mut exprs = Vec::with_capacity(items.len());
         for (raw, name) in items {
+            if raw.cast::<super::expr::PyMethodRef>().is_ok() {
+                // an uncalled method has no type (upstream: a `MethodRef` of `InvalidType`)
+                crate::bail!(UnsupportedOperation, "Invalid type: {}", raw.repr()?);
+            }
             let e = from_object(&raw)?.ok_or_else(|| crate::pxt_err!(InvalidExpression, "Invalid expression: {}", obj_str(&raw)))?;
             exprs.push((e, name));
         }
