@@ -132,13 +132,11 @@ async def chat_completions(
         content = message.get('content')
         if isinstance(content, list):
             for part in content:
-                if (
-                    isinstance(part, dict)
-                    and part.get('type') == 'image_url'
-                    and isinstance(part.get('image_url'), PIL.Image.Image)
-                ):
-                    b64_encoded_image = to_base64(part['image_url'], format='png')
-                    part['image_url'] = {'url': f'data:image/png;base64,{b64_encoded_image}'}
+                if isinstance(part, dict) and part.get('type') == 'image_url':
+                    image_url = part.get('image_url')
+                    img = image_url.get('url') if isinstance(image_url, dict) else image_url
+                    if isinstance(img, PIL.Image.Image):
+                        part['image_url'] = {'url': f'data:image/png;base64,{to_base64(img, format="png")}'}
 
     result = await _nebius_client().chat.completions.with_raw_response.create(
         messages=messages, model=model, **model_kwargs
