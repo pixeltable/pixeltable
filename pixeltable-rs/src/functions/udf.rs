@@ -583,6 +583,15 @@ fn eval_query_call(
     Ok(Value::Json(Json::Array(rows)))
 }
 
+/// True for a Python exception that is not an `Exception` (`KeyboardInterrupt`, `SystemExit`, ...): it is never
+/// recorded as a cell error.
+pub fn is_interrupt(err: &Error) -> bool {
+    match err {
+        Error::Python(e) => Python::attach(|py| !e.is_instance_of::<pyo3::exceptions::PyException>(py)),
+        _ => false,
+    }
+}
+
 pub fn is_coroutine(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
     static ISCORO: OnceLock<Py<PyAny>> = OnceLock::new();
     let f = match ISCORO.get() {
