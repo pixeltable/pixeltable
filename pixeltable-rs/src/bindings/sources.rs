@@ -1,6 +1,7 @@
 //! Data sources of `insert()`, `create_table(source=...)` and `compute()` (upstream `TableDataConduit`): lists and
-//! iterators of dicts, sequences of pydantic models, and tables/queries. Python objects are converted to values
-//! here, at the boundary; everything after that (computed columns, storage) is in `exec`.
+//! iterators of dicts, sequences of pydantic models, tables/queries, pandas DataFrames, and CSV, Excel and JSON
+//! files (read with pandas and `json`). Python objects are converted to values here, at the boundary; everything
+//! after that (computed columns, storage) is in `exec`.
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString, PyTuple};
@@ -21,6 +22,8 @@ pub enum Conduit<'py> {
     Pydantic { model: Bound<'py, PyAny>, model_name: String, rows: Vec<Bound<'py, PyDict>> },
     /// a table (all its columns) or a query
     Query(QuerySpec),
+    /// a pandas DataFrame (a CSV or Excel file is read into one); `overrides`: `schema_overrides` for its columns
+    Pandas { df: Bound<'py, PyAny>, overrides: Vec<(String, ColumnType)> },
 }
 
 fn type_name(obj: &Bound<'_, PyAny>) -> String {
@@ -86,6 +89,96 @@ fn dump_pydantic<'py>(py: Python<'py>, items: &[Bound<'py, PyAny>]) -> Result<Co
 
 /// Upstream `TableDataConduit.create()` for the supported source types.
 pub fn classify<'py>(py: Python<'py>, source: &Bound<'py, PyAny>) -> Result<Conduit<'py>> {
+    classify_with(py, source, None, None)
+}
+
+const SOURCE_FORMATS: [&str; 4] = ["csv", "excel", "parquet", "json"];
+
+/// The local path of a file source (upstream `fetch_url(allow_local_file=True)`): a local path or `file://` URL as
+/// is, a remote URL downloaded to the file cache.
+fn source_file_path(py: Python<'_>, source: &Bound<'_, PyAny>) -> Result<String> {
+    let s: String = py.import("os")?.call_method1("fspath", (source,))?.extract()?;
+    if crate::media::is_local(&s) {
+        let expanded: String = py.import("os.path")?.call_method1("expanduser", (crate::media::normalize_input(&s),))?.extract()?;
+        return Ok(expanded);
+    }
+    Ok(crate::media::local_path(py, &s)?.to_string_lossy().into_owned())
+}
+
+/// Upstream `_parse_jsonl_from_path()` / `JsonTableDataConduit`: the rows of a JSON or JSON Lines file.
+fn json_rows<'py>(py: Python<'py>, path: &str, extra: Option<&Bound<'py, PyDict>>) -> Result<Vec<Bound<'py, PyAny>>> {
+    let json = py.import("json")?;
+    let read_kwargs = PyDict::new(py);
+    read_kwargs.set_item("encoding", "utf-8")?;
+    let text: String = py.import("pathlib")?.getattr("Path")?.call1((path,))?.call_method("read_text", (), Some(&read_kwargs))?.extract()?;
+    if path.to_ascii_lowercase().trim_end_matches('/').ends_with(".jsonl") {
+        let mut rows = Vec::new();
+        for (i, line) in text.lines().enumerate() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let obj = json.call_method("loads", (line,), extra).map_err(|e| {
+                if e.is_instance(py, &json.getattr("JSONDecodeError").expect("json.JSONDecodeError")) {
+                    crate::pxt_err!(InvalidDataFormat, "Invalid JSONL line {}: {}", i + 1, py_repr(line))
+                } else {
+                    Error::Python(e)
+                }
+            })?;
+            if !obj.is_instance_of::<PyDict>() {
+                crate::bail!(InvalidArgument, "JSONL line {} must be a JSON object, got {}", i + 1, type_name(&obj));
+            }
+            rows.push(obj);
+        }
+        return Ok(rows);
+    }
+    let obj = json.call_method("loads", (text,), extra)?;
+    match obj.cast::<PyList>() {
+        Ok(list) => Ok(list.iter().collect()),
+        Err(_) => crate::bail!(UnsupportedOperation, "Unsupported data source type: {}", type_str(&obj)),
+    }
+}
+
+/// `classify()` with `source_format` and the extra arguments of a file reader (`extra_args`, or `insert()`'s keyword
+/// arguments): upstream passes them to `pandas.read_csv()`, `pandas.read_excel()` and `json.loads()`.
+pub fn classify_with<'py>(
+    py: Python<'py>,
+    source: &Bound<'py, PyAny>,
+    source_format: Option<&str>,
+    extra: Option<&Bound<'py, PyDict>>,
+) -> Result<Conduit<'py>> {
+    if let Some(f) = source_format {
+        if !SOURCE_FORMATS.contains(&f) {
+            crate::bail!(InvalidArgument, "Invalid source_format {}; must be one of {SOURCE_FORMATS:?}", py_repr(f));
+        }
+    }
+    let file_format = source_format.or_else(|| {
+        let s = source.cast::<PyString>().ok()?.to_str().ok()?.to_ascii_lowercase();
+        if s.contains(".csv") {
+            Some("csv")
+        } else if s.contains(".xls") {
+            Some("excel")
+        } else if s.contains(".json") {
+            Some("json")
+        } else if [".parquet", ".pq", ".parq"].iter().any(|x| s.contains(x)) {
+            Some("parquet")
+        } else {
+            None
+        }
+    });
+    let is_frame_or_query = as_query(py, source)?.is_some() || source.is_instance(&py.import("pandas")?.getattr("DataFrame")?)?;
+    if let (Some(f), false) = (file_format, is_frame_or_query) {
+        let pd = py.import("pandas")?;
+        return match f {
+            "csv" | "excel" => {
+                let path = source_file_path(py, source)?;
+                let reader = if f == "csv" { "read_csv" } else { "read_excel" };
+                Ok(Conduit::Pandas { df: pd.call_method(reader, (path,), extra)?, overrides: Vec::new() })
+            }
+            "json" => Ok(Conduit::Rows(json_rows(py, &source_file_path(py, source)?, extra)?)),
+            _ => Err(Error::not_implemented("a Parquet file as a data source")),
+        };
+    }
     let base_model = py.import("pydantic")?.getattr("BaseModel")?;
     let sequence = py.import("collections.abc")?.getattr("Sequence")?;
     let is_str = source.is_instance_of::<PyString>() || source.is_instance_of::<pyo3::types::PyBytes>();
@@ -99,10 +192,7 @@ pub fn classify<'py>(py: Python<'py>, source: &Bound<'py, PyAny>) -> Result<Cond
         return Ok(Conduit::Query(q));
     }
     if source.is_instance(&py.import("pandas")?.getattr("DataFrame")?)? {
-        return Err(Error::not_implemented("a pandas DataFrame as a data source"));
-    }
-    if source.is_instance_of::<PyString>() || source.is_instance(&py.import("pathlib")?.getattr("PurePath")?)? {
-        return Err(Error::not_implemented("a file or URL as a data source"));
+        return Ok(Conduit::Pandas { df: source.clone(), overrides: Vec::new() });
     }
     if let Ok(list) = source.cast::<PyList>() {
         if list.len() > 0 && list.iter().all(|r| r.is_instance_of::<PyDict>()) {
@@ -320,7 +410,210 @@ pub fn convert_rows(py: Python<'_>, conduit: &Conduit<'_>, plan: &InsertPlan, ch
         Conduit::Rows(rows) => rows.iter().map(|r| convert_row(r, plan, check_required)).collect(),
         Conduit::Pydantic { model, model_name, rows } => convert_pydantic_rows(py, model, model_name, rows, plan, check_required),
         Conduit::Query(_) => Err(Error::internal("query sources are not converted from Python")),
+        Conduit::Pandas { df, overrides } => {
+            let cols = pandas_schema(py, df, overrides, &[])?;
+            pandas_rows(py, df, &cols, plan)
+        }
     }
+}
+
+/// A column of a DataFrame source: its name in the DataFrame, the Pixeltable column name it maps to and the type
+/// inferred for it (upstream `df_infer_schema()` + `normalize_schema_names()`).
+pub struct PdColumn {
+    pub src: String,
+    pub name: String,
+    pub col_type: ColumnType,
+}
+
+/// Upstream `__pd_coltype_to_pxt_type()`: the type of a DataFrame column, from its dtype (an `object` column from its
+/// values).
+fn pandas_column_type(py: Python<'_>, df: &Bound<'_, PyAny>, src: &Bound<'_, PyAny>, dtype: &Bound<'_, PyAny>, nullable: bool) -> Result<ColumnType> {
+    let pd = py.import("pandas")?;
+    let api = pd.getattr("api")?.getattr("types")?;
+    if api.call_method1("is_datetime64_any_dtype", (dtype,))?.is_truthy()? {
+        return Ok(ColumnType::new(crate::types::TypeKind::Timestamp, nullable));
+    }
+    if dtype.is_instance(&pd.getattr("StringDtype")?)? {
+        return Ok(ColumnType::string(nullable));
+    }
+    let kind: String = if api.call_method1("is_extension_array_dtype", (dtype,))?.is_truthy()? {
+        String::new()
+    } else {
+        dtype.getattr("kind")?.extract()?
+    };
+    match kind.as_str() {
+        "i" | "u" => return Ok(ColumnType::int(nullable)),
+        "f" => return Ok(ColumnType::float(nullable)),
+        "b" => return Ok(ColumnType::bool(nullable)),
+        "U" | "S" => return Ok(ColumnType::string(nullable)),
+        "O" => {
+            // the type of the non-null values (all null: float, as pandas has it)
+            let values = df.get_item(src)?.call_method0("dropna")?;
+            if values.len()? == 0 {
+                return Ok(ColumnType::float(nullable));
+            }
+            let mut inferred: Option<ColumnType> = None;
+            for v in values.try_iter()? {
+                let t = vpy::infer_literal(&v?)?.map(|(t, _)| t);
+                inferred = match (inferred, t) {
+                    (_, None) => None,
+                    (None, Some(t)) => Some(t),
+                    (Some(a), Some(t)) => a.supertype(&t, true),
+                };
+                if inferred.is_none() {
+                    break;
+                }
+            }
+            return Ok(inferred.unwrap_or_else(|| ColumnType::string(false)).with_nullable(nullable));
+        }
+        _ => {}
+    }
+    crate::bail!(
+        InvalidType,
+        "Could not infer Pixeltable type of column: {} (dtype: {})",
+        src.str()?,
+        dtype.str()?
+    )
+}
+
+/// Upstream `normalize_pxt_col_name()`: an arbitrary column name as a Pixeltable identifier.
+fn normalize_pxt_col_name(name: &str) -> String {
+    let id: String = name.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+    let id = match id.chars().next() {
+        Some(c) if c.is_ascii_digit() => format!("c_{id}"),
+        Some('_') => format!("c{id}"),
+        None => "c_".to_string(),
+        _ => id,
+    };
+    fold_identifier(&id)
+}
+
+/// Upstream `df_infer_schema()` and `normalize_schema_names()` for a DataFrame: its columns with their types
+/// (`overrides` first) and Pixeltable names (normalized, made unique with a numeric suffix).
+pub fn pandas_schema(
+    py: Python<'_>,
+    df: &Bound<'_, PyAny>,
+    overrides: &[(String, ColumnType)],
+    primary_key: &[String],
+) -> Result<Vec<PdColumn>> {
+    let mut cols: Vec<PdColumn> = Vec::new();
+    let dtypes = df.getattr("dtypes")?;
+    for (src_obj, dtype) in df.getattr("columns")?.try_iter()?.zip(dtypes.try_iter()?) {
+        let (src_obj, dtype) = (src_obj?, dtype?);
+        let src: String = src_obj.str()?.to_string();
+        let col_type = match overrides.iter().find(|(o, _)| *o == src) {
+            Some((_, t)) => t.clone(),
+            None => pandas_column_type(py, df, &src_obj, &dtype, !primary_key.contains(&src))?,
+        };
+        let base = normalize_pxt_col_name(&src);
+        let mut name = base.clone();
+        let mut n = 1;
+        while crate::catalog::runtime::is_reserved_name(&name) || cols.iter().any(|c| c.name == name) {
+            name = format!("{base}_{n}");
+            n += 1;
+        }
+        cols.push(PdColumn { src, name, col_type });
+    }
+    let extraneous: Vec<&str> =
+        overrides.iter().filter(|(o, _)| !cols.iter().any(|c| c.src == *o)).map(|(o, _)| o.as_str()).collect();
+    if !extraneous.is_empty() {
+        crate::bail!(
+            UnsupportedOperation,
+            "Some column(s) specified in `schema_overrides` are not present in the source: {}",
+            extraneous.join(", ")
+        );
+    }
+    let missing_pk: Vec<&str> =
+        primary_key.iter().filter(|pk| !cols.iter().any(|c| c.src == **pk)).map(|s| s.as_str()).collect();
+    if !missing_pk.is_empty() {
+        crate::bail!(ColumnNotFound, "Primary key column(s) are not found in the source: {}", missing_pk.join(", "));
+    }
+    for pk in primary_key {
+        let series = df.get_item(pk)?;
+        if series.call_method0("count")?.extract::<usize>()? < df.len()? {
+            crate::bail!(UnsupportedOperation, "Primary key column `{pk}` cannot contain null values.");
+        }
+    }
+    Ok(cols)
+}
+
+/// Upstream `PandasTableDataConduit.prepare_insert()`: checks that the DataFrame's columns can be inserted into the
+/// table of `plan` and converts its rows (`_df_row_to_pxt_row()`: values by the inferred type of their column, NaN
+/// and NaT as None).
+fn pandas_rows(py: Python<'_>, df: &Bound<'_, PyAny>, cols: &[PdColumn], plan: &InsertPlan) -> Result<Vec<InputRow>> {
+    let mut seen: Vec<(&str, &str)> = Vec::new();
+    for c in cols {
+        if let Some((_, prev)) = seen.iter().find(|(n, _)| *n == c.name) {
+            crate::bail!(
+                InvalidSchema,
+                "Pixeltable column names are case-insensitive; columns {} and {} are the same",
+                py_repr(prev),
+                py_repr(&c.src)
+            );
+        }
+        seen.push((&c.name, &c.src));
+        let col = plan.column(&c.name).ok_or_else(|| crate::pxt_err!(ColumnNotFound, "Unknown column name {}", c.name))?;
+        if col.is_computed() {
+            crate::bail!(UnsupportedOperation, "Value for computed column {}", c.name);
+        }
+    }
+    let missing: Vec<&str> = plan
+        .columns
+        .iter()
+        .filter(|c| c.is_required() && !cols.iter().any(|x| x.name == c.name))
+        .map(|c| c.name.as_str())
+        .collect();
+    if !missing.is_empty() {
+        crate::bail!(MissingRequired, "Missing required column(s) ({})", missing.join(", "));
+    }
+    let builtins = py.import("builtins")?;
+    let pd = py.import("pandas")?;
+    let uuid_cls = py.import("uuid")?.getattr("UUID")?;
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("index", false)?;
+    kwargs.set_item("name", py.None())?;
+    let mut rows = Vec::new();
+    for tuple in df.call_method("itertuples", (), Some(&kwargs))?.try_iter()? {
+        let tuple = tuple?;
+        let row = PyDict::new(py);
+        for (c, val) in cols.iter().zip(tuple.try_iter()?) {
+            let val = val?;
+            let t = &c.col_type;
+            let is_nan = val.is_instance_of::<pyo3::types::PyFloat>() && val.extract::<f64>()?.is_nan();
+            let is_null = || -> Result<bool> { Ok(pd.call_method1("isnull", (&val,))?.is_truthy()?) };
+            let nval = if t.is_float() {
+                builtins.getattr("float")?.call1((&val,))?
+            } else if is_nan {
+                py.None().into_bound(py)
+            } else if t.is_int() {
+                builtins.getattr("int")?.call1((&val,))?
+            } else if t.is_bool() {
+                builtins.getattr("bool")?.call1((&val,))?
+            } else if t.is_string() {
+                builtins.getattr("str")?.call1((&val,))?
+            } else if t.is_date() || t.is_timestamp() {
+                if is_null()? {
+                    py.None().into_bound(py)
+                } else {
+                    let ts = pd.getattr("Timestamp")?.call1((&val,))?;
+                    if t.is_date() { ts.call_method0("date")? } else { ts.call_method0("to_pydatetime")? }
+                }
+            } else if t.is_uuid() {
+                if is_null()? {
+                    py.None().into_bound(py)
+                } else if val.is_instance(&uuid_cls)? {
+                    val
+                } else {
+                    uuid_cls.call1((&val,))?
+                }
+            } else {
+                val
+            };
+            row.set_item(&c.name, nval)?;
+        }
+        rows.push(convert_row(row.as_any(), plan, false)?);
+    }
+    Ok(rows)
 }
 
 /// Upstream `_infer_schema_from_rows()`: column types (in first-seen order) of a list of dicts.

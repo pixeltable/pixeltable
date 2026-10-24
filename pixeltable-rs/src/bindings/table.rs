@@ -188,11 +188,15 @@ pub fn query_input_rows(py: Python<'_>, q: &crate::exec::QuerySpec, plan: &Inser
     Ok(rows)
 }
 
-/// Converts any insert source (or a single row given as keyword arguments) into input rows of `plan`.
+/// Converts any insert source (or a single row given as keyword arguments) into input rows of `plan`. With a
+/// source, the keyword arguments are passed to its file reader (`pandas.read_csv()`, ...), and `schema_overrides`
+/// apply to the columns of a DataFrame.
 pub fn source_input_rows<'py>(
     py: Python<'py>,
     source: Option<&Bound<'py, PyAny>>,
     kwargs: Option<&Bound<'py, PyDict>>,
+    source_format: Option<&str>,
+    overrides: Vec<(String, ColumnType)>,
     plan: &InsertPlan,
 ) -> Result<Vec<InputRow>> {
     match source {
@@ -200,8 +204,9 @@ pub fn source_input_rows<'py>(
             let row = kwargs.cloned().unwrap_or_else(|| PyDict::new(py));
             Ok(vec![super::sources::convert_row(row.as_any(), plan, true)?])
         }
-        Some(s) => match super::sources::classify(py, s)? {
+        Some(s) => match super::sources::classify_with(py, s, source_format, kwargs.filter(|k| !k.is_empty()))? {
             Conduit::Query(q) => query_input_rows(py, &q, plan),
+            Conduit::Pandas { df, .. } => super::sources::convert_rows(py, &Conduit::Pandas { df, overrides }, plan, true),
             c => super::sources::convert_rows(py, &c, plan, true),
         },
     }
@@ -247,12 +252,7 @@ pub fn tbl_insert<'py>(
     schema_overrides: Option<&Bound<'py, PyAny>>,
 ) -> Result<Bound<'py, PyDict>> {
     let id = parse_uuid(tbl_id)?;
-    if source_format.is_some() {
-        return Err(Error::not_implemented("insert() with `source_format`"));
-    }
-    if schema_overrides.is_some_and(|o| !o.is_none()) {
-        return Err(Error::not_implemented("insert() with `schema_overrides`"));
-    }
+    let overrides = super::sources::parse_schema_overrides(schema_overrides)?;
     let source = source.filter(|s| !s.is_none());
     if let Some(s) = source {
         let seq = py.import("collections.abc")?.getattr("Sequence")?;
@@ -263,7 +263,7 @@ pub fn tbl_insert<'py>(
     let fail_on_exception = parse_on_error(on_error)?;
     let plan = with_catalog(py, |cat| InsertPlan::new(cat, id, version))?;
     // conversion and computed columns run Python code (pydantic, generators, PIL, UDFs): no catalog lock here
-    let rows = source_input_rows(py, source, kwargs, &plan)?;
+    let rows = source_input_rows(py, source, kwargs, source_format, overrides, &plan)?;
     insert_rows(py, &plan, rows, fail_on_exception, return_rows)
 }
 
