@@ -350,8 +350,8 @@ project. Unstored computed columns are evaluated on read. `count()` refuses what
 (`is_sql_expr()`: non-SQL filters). Sampling ranks rows by a hash of (seed, rowid, pos), as upstream's
 `SqlSampleNode`. Results are a `ResultData` held in Rust (`_core.ResultSet`); values convert to Python objects on
 access. Window functions in computed columns are evaluated over all rows of the table when the column is added, and
-over the rows being inserted afterwards (`eval_rows_with_windows()`; for views, the new view rows of one insert,
-`ViewCompute::rows_for_all()`).
+afterwards over the rows an insert adds or an update changes, as upstream's plans do (`eval_rows_with_windows()`, via
+`scan::eval_rows_into()` for updates and view rows).
 
 ## Data sources, compute(), indexes
 
