@@ -1,0 +1,434 @@
+//! `pixeltable._core.Expr`: the Python expression object (operators build typed Rust nodes).
+
+use pyo3::basic::CompareOp;
+use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyFloat, PyInt, PyList, PyString, PyTuple};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+use super::types::{PyColumnType, normalize_type, wrap_type};
+use crate::error::{Error, Result};
+use crate::expr::{ArithOp, CmpOp, Expr, ExprRef, LogicalOp, StringOp, build, display};
+use crate::value::py as vpy;
+
+#[pyclass(name = "Expr", module = "pixeltable", frozen)]
+pub struct PyExpr {
+    pub e: ExprRef,
+}
+
+impl PyExpr {
+    pub fn new(e: ExprRef) -> Self {
+        PyExpr { e }
+    }
+}
+
+fn type_repr(obj: &Bound<'_, PyAny>) -> String {
+    obj.get_type().str().map(|s| s.to_string()).unwrap_or_default()
+}
+
+/// The expression behind a Python object, if it is one.
+pub fn as_expr(obj: &Bound<'_, PyAny>) -> Option<ExprRef> {
+    obj.cast::<PyExpr>().ok().map(|e| e.get().e.clone())
+}
+
+/// True for the Python types upstream accepts as operands (`LiteralPythonTypes`).
+fn is_literal_python_type(obj: &Bound<'_, PyAny>) -> Result<bool> {
+    let py = obj.py();
+    if obj.is_instance_of::<PyString>() || obj.is_instance_of::<PyInt>() || obj.is_instance_of::<PyFloat>() {
+        return Ok(true);
+    }
+    let date = py.import("datetime")?.getattr("date")?;
+    let uuid = py.import("uuid")?.getattr("UUID")?;
+    Ok(obj.is_instance(&date)? || obj.is_instance(&uuid)?)
+}
+
+/// A literal node for a Python value (upstream `Literal(val)`).
+pub fn literal(obj: &Bound<'_, PyAny>) -> Result<ExprRef> {
+    match vpy::infer_literal(obj)? {
+        Some((t, v)) => Ok(Expr::literal(v, t)),
+        None => Err(Error::Type(format!("Not a valid literal: {}", obj.str()?))),
+    }
+}
+
+/// An operand of an operator: an expression, or a literal of a `LiteralPythonTypes` type.
+fn operand(obj: &Bound<'_, PyAny>) -> Result<ExprRef> {
+    if let Some(e) = as_expr(obj) {
+        return Ok(e);
+    }
+    if is_literal_python_type(obj)? {
+        return literal(obj);
+    }
+    Err(Error::Type(format!("Other must be Expr or literal: {}", type_repr(obj))))
+}
+
+/// Upstream `Expr.from_object()`: an expression, an inline list/dict, or a literal; None if not convertible.
+pub fn from_object(obj: &Bound<'_, PyAny>) -> Result<Option<ExprRef>> {
+    if let Some(e) = as_expr(obj) {
+        return Ok(Some(e));
+    }
+    if obj.is_instance_of::<PyList>() || obj.is_instance_of::<PyTuple>() {
+        let mut items = Vec::new();
+        for item in obj.try_iter()? {
+            let item = item?;
+            match from_object(&item)? {
+                Some(e) => items.push(e),
+                None => return Err(Error::Type(format!("Not a valid literal: {}", item.str()?))),
+            }
+        }
+        return Ok(Some(build::inline_list(items)));
+    }
+    if let Ok(d) = obj.cast::<PyDict>() {
+        let mut items = Vec::new();
+        for (k, v) in d.iter() {
+            if !k.is_instance_of::<PyString>() {
+                crate::bail!(
+                    UnsupportedOperation,
+                    "Dictionary requires string keys; {} has type {}",
+                    k.str()?,
+                    type_repr(&k)
+                );
+            }
+            match from_object(&v)? {
+                Some(e) => items.push((k.extract::<String>()?, e)),
+                None => return Err(Error::Type(format!("Not a valid literal: {}", v.str()?))),
+            }
+        }
+        return Ok(Some(build::inline_dict(items)));
+    }
+    Ok(vpy::infer_literal(obj)?.map(|(t, v)| Expr::literal(v, t)))
+}
+
+/// Upstream `Expr.from_array()` (`pxt.array()`).
+pub fn from_array(obj: &Bound<'_, PyAny>) -> Result<ExprRef> {
+    let py = obj.py();
+    if obj.is_instance(&py.import("numpy")?.getattr("ndarray")?)? {
+        if let Some((t, v)) = vpy::infer_literal(obj)? {
+            return Ok(Expr::literal(v, t));
+        }
+    }
+    let mut items = Vec::new();
+    for el in obj.try_iter()? {
+        let el = el?;
+        if let Some(e) = as_expr(&el) {
+            items.push(e);
+        } else if el.is_instance_of::<PyList>() || el.is_instance_of::<PyTuple>() {
+            items.push(from_array(&el)?);
+        } else {
+            items.push(literal(&el)?);
+        }
+    }
+    build::inline_array(items)
+}
+
+fn wrap(e: ExprRef) -> PyExpr {
+    PyExpr::new(e)
+}
+
+impl PyExpr {
+    fn arith(&self, op: ArithOp, other: &Bound<'_, PyAny>, reflected: bool) -> Result<PyExpr> {
+        let o = operand(other)?;
+        let (a, b) = if reflected { (o, self.e.clone()) } else { (self.e.clone(), o) };
+        Ok(wrap(build::arithmetic(op, a, b)?))
+    }
+
+    fn string(&self, op: StringOp, other: &Bound<'_, PyAny>, reflected: bool) -> Result<PyExpr> {
+        let o = operand(other)?;
+        let (a, b) = if reflected { (o, self.e.clone()) } else { (self.e.clone(), o) };
+        Ok(wrap(build::string_op(op, a, b)?))
+    }
+
+    fn other_is_string(other: &Bound<'_, PyAny>) -> bool {
+        other.is_instance_of::<PyString>() || as_expr(other).is_some_and(|e| e.col_type.is_string())
+    }
+}
+
+#[pymethods]
+impl PyExpr {
+    #[getter]
+    fn col_type<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        wrap_type(py, &self.e.col_type)
+    }
+
+    #[getter]
+    fn _core_type(&self) -> PyColumnType {
+        PyColumnType::new(self.e.col_type.clone())
+    }
+
+    fn __repr__(&self) -> String {
+        display::display(&self.e)
+    }
+
+    fn __str__(&self) -> String {
+        display::display(&self.e)
+    }
+
+    #[pyo3(signature = (inline=true))]
+    fn display_str(&self, inline: bool) -> String {
+        let _ = inline;
+        display::display(&self.e)
+    }
+
+    fn default_column_name(&self) -> Option<String> {
+        self.e.default_column_name()
+    }
+
+    fn equals(&self, other: &Bound<'_, PyAny>) -> bool {
+        as_expr(other).is_some_and(|o| self.e.equals(&o))
+    }
+
+    fn __hash__(&self) -> u64 {
+        let mut h = DefaultHasher::new();
+        crate::expr::serde::to_json(&self.e).map(|j| j.to_string()).unwrap_or_default().hash(&mut h);
+        h.finish()
+    }
+
+    fn as_dict<'py>(&self, py: Python<'py>) -> Result<Bound<'py, PyAny>> {
+        Ok(vpy::json_to_py(py, &crate::expr::serde::to_json(&self.e)?)?)
+    }
+
+    #[staticmethod]
+    fn from_dict(d: &Bound<'_, PyAny>) -> Result<PyExpr> {
+        let s: String = d.py().import("json")?.call_method1("dumps", (d,))?.extract()?;
+        let j: serde_json::Value = serde_json::from_str(&s)?;
+        Ok(wrap(crate::expr::serde::from_json(&j)?))
+    }
+
+    fn __bool__(&self) -> Result<bool> {
+        Err(Error::Type(format!(
+            "Pixeltable expressions cannot be used in conjunction with Python boolean operators (and/or/not)\n{}",
+            display::display(&self.e)
+        )))
+    }
+
+    fn __iter__(&self) -> Result<PyExpr> {
+        crate::bail!(
+            UnsupportedOperation,
+            "Pixeltable expressions are not iterable. Iteration over data is expressed as a query (e.g. t.select(...).collect()) or a view with an iterator: {}",
+            display::display(&self.e)
+        )
+    }
+
+    fn __len__(&self) -> Result<usize> {
+        crate::bail!(
+            UnsupportedOperation,
+            "len() of a Pixeltable expression is undefined; string and json columns support .len(), row counts are t.count(): {}",
+            display::display(&self.e)
+        )
+    }
+
+    fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> Result<PyExpr> {
+        if other.is_none() {
+            match op {
+                CompareOp::Eq => return Ok(wrap(build::is_null(self.e.clone()))),
+                CompareOp::Ne => return Ok(wrap(build::not(build::is_null(self.e.clone()))?)),
+                _ => {}
+            }
+        }
+        let cmp = match op {
+            CompareOp::Lt => CmpOp::Lt,
+            CompareOp::Le => CmpOp::Le,
+            CompareOp::Eq => CmpOp::Eq,
+            CompareOp::Ne => CmpOp::Ne,
+            CompareOp::Gt => CmpOp::Gt,
+            CompareOp::Ge => CmpOp::Ge,
+        };
+        Ok(wrap(build::comparison(cmp, self.e.clone(), operand(other)?)?))
+    }
+
+    fn __add__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
+        if self.e.col_type.is_string() {
+            return self.string(StringOp::Concat, other, false);
+        }
+        self.arith(ArithOp::Add, other, false)
+    }
+
+    fn __radd__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
+        if self.e.col_type.is_string() {
+            return self.string(StringOp::Concat, other, true);
+        }
+        self.arith(ArithOp::Add, other, true)
+    }
+
+    fn __sub__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
+        self.arith(ArithOp::Sub, other, false)
+    }
+
+    fn __rsub__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
+        self.arith(ArithOp::Sub, other, true)
+    }
+
+    fn __mul__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
+        if self.e.col_type.is_string() || Self::other_is_string(other) {
+            return self.string(StringOp::Repeat, other, false);
+        }
+        self.arith(ArithOp::Mul, other, false)
+    }
+
+    fn __rmul__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
+        if self.e.col_type.is_string() || other.is_instance_of::<PyString>() {
+            return self.string(StringOp::Repeat, other, true);
+        }
+        self.arith(ArithOp::Mul, other, true)
+    }
+
+    fn __truediv__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
+        self.arith(ArithOp::Div, other, false)
+    }
+
+    fn __rtruediv__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
+        self.arith(ArithOp::Div, other, true)
+    }
+
+    fn __mod__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
+        self.arith(ArithOp::Mod, other, false)
+    }
+
+    fn __rmod__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
+        self.arith(ArithOp::Mod, other, true)
+    }
+
+    fn __floordiv__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
+        self.arith(ArithOp::FloorDiv, other, false)
+    }
+
+    fn __rfloordiv__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
+        self.arith(ArithOp::FloorDiv, other, true)
+    }
+
+    fn __pow__(&self, other: &Bound<'_, PyAny>, modulo: Option<&Bound<'_, PyAny>>) -> Result<PyExpr> {
+        let _ = modulo;
+        self.arith(ArithOp::Pow, other, false)
+    }
+
+    fn __neg__(&self, py: Python<'_>) -> Result<PyExpr> {
+        let minus_one = (-1i64).into_pyobject(py)?.into_any();
+        self.arith(ArithOp::Mul, &minus_one, false)
+    }
+
+    fn __abs__(&self) -> Result<PyExpr> {
+        Ok(wrap(crate::functions::make_call("pixeltable.functions.math.abs", vec![self.e.clone()], vec![])?))
+    }
+
+    fn __and__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
+        let o = as_expr(other).ok_or_else(|| Error::Type(format!("Other needs to be an expression: {}", type_repr(other))))?;
+        Ok(wrap(build::logical_binary(LogicalOp::And, self.e.clone(), o)?))
+    }
+
+    fn __or__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
+        let o = as_expr(other).ok_or_else(|| Error::Type(format!("Other needs to be an expression: {}", type_repr(other))))?;
+        Ok(wrap(build::logical_binary(LogicalOp::Or, self.e.clone(), o)?))
+    }
+
+    fn __invert__(&self) -> Result<PyExpr> {
+        Ok(wrap(build::not(self.e.clone())?))
+    }
+
+    /// `expr.isin(values)`: `values` is a JSON expression or a constant collection.
+    fn isin(&self, value_set: &Bound<'_, PyAny>) -> Result<PyExpr> {
+        if let Some(rhs) = as_expr(value_set) {
+            return Ok(wrap(build::in_expr(self.e.clone(), rhs)?));
+        }
+        if !self.e.col_type.is_scalar() {
+            crate::bail!(UnsupportedOperation, "isin(): only supported for scalar types, not {}", self.e.col_type.repr());
+        }
+        let iter = value_set.try_iter().map_err(|_| {
+            crate::pxt_err!(
+                InvalidArgument,
+                "isin(): argument must be an Iterable (eg, list, dict, ...), not {}",
+                value_set.repr().map(|r| r.to_string()).unwrap_or_default()
+            )
+        })?;
+        let mut kept = Vec::new();
+        let mut kept_py = Vec::new();
+        for v in iter {
+            let v = v?;
+            // values of the wrong type are ignored, as upstream does
+            if vpy::validate(&v, &self.e.col_type).is_ok() {
+                kept.push(vpy::coerce(&v, &self.e.col_type)?);
+                kept_py.push(v);
+            }
+        }
+        let display = PyList::new(value_set.py(), kept_py)?.repr()?.to_string();
+        Ok(wrap(build::in_list(self.e.clone(), kept, display)?))
+    }
+
+    /// `expr.astype(type)`: changes the static type (no conversion of values).
+    fn astype(&self, new_type: &Bound<'_, PyAny>) -> Result<PyExpr> {
+        let t = normalize_type(new_type, false)?;
+        Ok(wrap(build::type_cast(self.e.clone(), t)))
+    }
+
+    fn __getitem__(&self, index: &Bound<'_, PyAny>) -> Result<PyExpr> {
+        if self.e.col_type.is_json() {
+            return Err(Error::not_implemented("JSON path expressions (`expr[...]` on a Json value)"));
+        }
+        if self.e.col_type.is_array() {
+            return Err(Error::not_implemented("array slicing (`expr[...]` on an Array value)"));
+        }
+        let _ = index;
+        Err(Error::Attribute(format!("Type {} is not subscriptable", self.e.col_type.repr())))
+    }
+
+    fn __getattr__(&self, name: &str) -> Result<PyExpr> {
+        if name.starts_with('_') {
+            return Err(Error::Attribute(format!("'Expr' object has no attribute {}", crate::error::py_repr(name))));
+        }
+        if self.e.col_type.is_json() {
+            return Err(Error::not_implemented(format!(
+                "JSON path expressions (`.{name}` on a Json value)"
+            )));
+        }
+        Err(Error::not_implemented(format!(
+            "method `{name}()` on expressions of type {}",
+            self.e.col_type.repr()
+        )))
+    }
+
+    fn _is_column_ref(&self) -> bool {
+        self.e.as_column_ref().is_some()
+    }
+
+    /// (tbl_id, col_id) of a column reference, else None.
+    fn _column_id(&self) -> Option<(String, u32)> {
+        self.e.as_column_ref().map(|c| (c.tbl_id.to_string(), c.col_id))
+    }
+}
+
+/// `Literal(val)` / `Expr.from_object(val)`: None if the object cannot become an expression.
+#[pyfunction]
+pub fn expr_from_object(obj: &Bound<'_, PyAny>) -> Result<Option<PyExpr>> {
+    Ok(from_object(obj)?.map(wrap))
+}
+
+/// `pxt.array(elements)`
+#[pyfunction]
+pub fn array(elements: &Bound<'_, PyAny>) -> Result<PyExpr> {
+    Ok(wrap(from_array(elements)?))
+}
+
+/// A call of the builtin function `qualified_name` (used by the `pixeltable.functions` stubs).
+#[pyfunction]
+#[pyo3(signature = (qualified_name, *args, **kwargs))]
+pub fn call_builtin(
+    qualified_name: &str,
+    args: &Bound<'_, PyTuple>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+) -> Result<PyExpr> {
+    let mut arg_exprs = Vec::new();
+    for a in args.iter() {
+        arg_exprs.push(from_object(&a)?.ok_or_else(|| Error::Type(format!("Not a valid argument: {}", a.str().map(|s| s.to_string()).unwrap_or_default())))?);
+    }
+    let mut kw = Vec::new();
+    if let Some(kwargs) = kwargs {
+        for (k, v) in kwargs.iter() {
+            let e = from_object(&v)?.ok_or_else(|| Error::Type(format!("Not a valid argument: {}", v.str().map(|s| s.to_string()).unwrap_or_default())))?;
+            kw.push((k.extract::<String>()?, e));
+        }
+    }
+    Ok(wrap(crate::functions::make_call(qualified_name, arg_exprs, kw)?))
+}
+
+#[pyfunction]
+pub fn builtin_names() -> Vec<String> {
+    crate::functions::builtin_names()
+}

@@ -1,0 +1,29 @@
+[package]
+name = "pxtcore"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Rust backend of pixeltable-rs, exposed to Python as pixeltable._core"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+name = "pxtcore"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.30.1", features = ["multiple-pymethods", "parking_lot"] }
+numpy = "0.30.0"
+serde = { version = "1.0", features = ["derive", "rc"] }
+serde_json = { version = "1.0", features = ["preserve_order", "float_roundtrip"] }
+rmp-serde = "1.3"
+uuid = { version = "1.18", features = ["v4", "serde"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+parking_lot = "0.12"
+base64 = "0.22"
+serde_bytes = "0.11"
+indexmap = { version = "2", features = ["serde"] }
+
+[profile.release]
+opt-level = 3
+debug = false

@@ -1,0 +1,139 @@
+import datetime
+import uuid
+from typing import Any, Literal, TypedDict
+
+
+class ColumnMetadata(TypedDict):
+    """Metadata for a column of a Pixeltable table."""
+
+    name: str
+    """The name of the column."""
+    type_: str
+    """The type specifier of the column."""
+    version_added: int
+    """The table version when this column was added."""
+    is_stored: bool
+    """`True` if this is a stored column; `False` if it is dynamically computed."""
+    is_primary_key: bool
+    """`True` if this column is part of the table's primary key."""
+    media_validation: Literal['on_read', 'on_write'] | None
+    """The media validation policy for this column. `None` if the type of this column is not a media type."""
+    is_computed: bool
+    """`True` if this column is a computed column."""
+    computed_with: str | None
+    """Expression used to compute this column; `None` if this is not a computed column."""
+    is_builtin: bool | None
+    """If False, this computed column makes calls to custom UDFs; `None` if this is not a computed column."""
+    depends_on: list[tuple[str, str]] | None
+    """List of dependencies (table name, column name) if this is a computed column, else `None`."""
+    defined_in: str | None
+    """Name of the table where this column was originally defined.
+
+    If the current table is a view, then `defined_in` may differ from the current table name."""
+    comment: str | None
+    """User-provided column comment."""
+    custom_metadata: Any
+    """User-defined JSON metadata for this column, if any."""
+    is_iterator_col: bool
+    """`True` if this column is produced by an iterator (only applicable to views)."""
+    destination: str | None
+    """The object store destination defined for this column's computed files, if it defines one.
+
+    An instance-wide default destination is not reported here, because it is configuration rather than part of
+    the schema. A destination defined as a config var reads as `$<name>` rather than as the location it
+    currently resolves to; see [`ConfigVar`][pixeltable.ConfigVar].
+    """
+
+
+class EmbeddingIndexParams(TypedDict):
+    metric: Literal['cosine', 'ip', 'l2']
+    """Index metric."""
+    precision: Literal['fp32', 'fp16']
+    """The precision of the index."""
+    embedding: str
+    """The index embedding."""
+    embedding_functions: list[str]
+    """List of embedding functions defined for this index."""
+
+
+class IndexMetadata(TypedDict):
+    """Metadata for an index on a Pixeltable table."""
+
+    name: str
+    """The name of the index."""
+    columns: list[str]
+    """The table columns that are indexed."""
+    index_type: Literal['embedding', 'btree']
+    """The type of index. New types may be added in the future."""
+    parameters: EmbeddingIndexParams | None
+    """Parameters specific to the index type. `None` for index types without parameters."""
+
+
+class TableMetadata(TypedDict):
+    """Metadata for a Pixeltable table."""
+
+    id: uuid.UUID
+    """The stable UUID of the table. Useful for detecting drop-and-recreate across time."""
+    name: str
+    """The name of the table (ex: `'my_table'`)."""
+    path: str
+    """The full path of the table (ex: `'my_dir.my_subdir.my_table'`)."""
+    kind: Literal['table', 'view', 'snapshot']
+    """The kind of table: `'table'`, `'view'`, or `'snapshot'`."""
+    columns: dict[str, ColumnMetadata]
+    """Column metadata for all of the visible columns of the table."""
+    indexes: dict[str, IndexMetadata]
+    """Index metadata for all of the indexes of the table."""
+    is_data_versioned: bool
+    """`True` if this is a data-versioned table."""
+    has_default_idxs: bool
+    """`True` if eligible columns of this table get a default B-tree index."""
+    is_view: bool
+    """`True` if this table is a view."""
+    is_snapshot: bool
+    """`True` if this table is a snapshot."""
+    version: int
+    """The current version of the table."""
+    version_created: datetime.datetime
+    """The timestamp when this table version was created."""
+    schema_version: int
+    """The current schema version of the table."""
+    comment: str | None
+    """User-provided table comment, if one exists."""
+    custom_metadata: Any
+    """User-defined JSON metadata for this table, if any."""
+    media_validation: Literal['on_read', 'on_write']
+    """The media validation policy for this table."""
+    primary_key: list[str] | None
+    """List of primary key column names, or `None` if this table has no primary key."""
+    base: str | None
+    """If this table is a view or snapshot, the full path of its base table; otherwise `None`."""
+    view_filter: str | None
+    """A display string of a view's filter (`where`) predicate; `None` if this is not a view or has no filter."""
+    view_sample: str | None
+    """A display string of a view's `sample` clause; `None` if this is not a view or has no sample clause."""
+    iterator_call: str | None
+    """The iterator call for views that use an iterator; otherwise `None`."""
+
+
+class VersionMetadata(TypedDict):
+    """Metadata for a specific version of a Pixeltable table."""
+
+    version: int
+    """The version number."""
+    created_at: datetime.datetime
+    """The timestamp when this version was created."""
+    user: str | None
+    """The user who created this version, if defined."""
+    change_type: Literal['data', 'schema']
+    """The type of table transformation that this version represents (`'data'` or `'schema'`)."""
+    inserts: int
+    """The number of rows inserted in this version."""
+    updates: int
+    """The number of rows updated in this version."""
+    deletes: int
+    """The number of rows deleted in this version."""
+    errors: int
+    """The number of errors encountered during this version."""
+    schema_change: str | None
+    """A description of the schema change that occurred in this version, if any."""

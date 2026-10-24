@@ -1,0 +1,15 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "pixeltable-rs"
+description = "Pixeltable with a Rust backend: the public API in Python, everything behind it in Rust"
+requires-python = ">=3.11"
+dynamic = ["version"]
+dependencies = ["numpy", "pandas", "pillow", "pydantic", "typing_extensions"]
+
+[tool.maturin]
+python-source = "python"
+module-name = "pixeltable._core"
+features = ["pyo3/extension-module"]
