@@ -475,7 +475,7 @@ class TestProjectArchive:
             assert 'project/dist/dep.whl' in tar.getnames()
 
     def test_manifest_drift(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A file rewritten while it is packaged is caught before anything is uploaded or submitted."""
+        """A file rewritten or removed while it is packaged is caught before anything is uploaded or submitted."""
         # a released pxt: a development build of an unpinned project is refused before packaging
         monkeypatch.setattr(pixeltable, '__version__', '0.7.15')
         (tmp_path / 'pixeltable.toml').write_text(
@@ -487,6 +487,7 @@ class TestProjectArchive:
 
         # the archive caught the rewrite; the fingerprint read the file after the writer restored it
         drifted = package_project_archive(tmp_path, local_entry())
+        packaged_files = dict(drifted.files)
         drifted.files['requirements.txt'] = 'rewritten-while-packaging'
         monkeypatch.setattr('pixeltable.service.db.package_project_archive', lambda *a, **k: drifted)
         monkeypatch.setattr(
@@ -505,6 +506,11 @@ class TestProjectArchive:
         monkeypatch.setattr('pixeltable.service.db.management_client.api_call', api_call)
 
         with pxt_raises(excs.ErrorCode.INVALID_STATE, match='requirements.txt'):
+            db_update('pxt://acme:main')
+
+        # the archive lacks a file removed after the fingerprint read it
+        drifted.files = {path: file_hash for path, file_hash in packaged_files.items() if path != 'app.py'}
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'packaged \(app\.py\)'):
             db_update('pxt://acme:main')
 
 

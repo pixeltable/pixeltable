@@ -29,6 +29,7 @@ import pixeltable
 from pixeltable import exceptions as excs
 from pixeltable.config import PROJECT_CONFIG_FILE, PYPROJECT_FILE, Config, ConfigSections, DatabaseConfig
 from pixeltable.env import Env
+from pixeltable_cli.utils import project_root_refusal
 
 _logger = logging.getLogger('pixeltable')
 
@@ -51,7 +52,8 @@ def _resolve_patterns(project_dir: Path, patterns: list[str]) -> set[Path]:
 def _gitignore_spec(dir_path: Path) -> PathSpec | None:
     """The PathSpec for dir_path's own .gitignore, or None if it has none."""
     gitignore = dir_path / '.gitignore'
-    if not gitignore.is_file():
+    # os.path.isfile() returns False in a dir_path without search permission, where Path.is_file() raises
+    if not os.path.isfile(gitignore):
         return None
     try:
         lines = gitignore.read_text().splitlines()
@@ -105,21 +107,21 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
 
     def visit(dir_path: Path, specs: list[tuple[Path, PathSpec]]) -> None:
         try:
-            entries = list(dir_path.iterdir())
+            # is_dir() stats the entry, which needs search permission on dir_path
+            entries = [(entry, entry.is_dir() and not entry.is_symlink()) for entry in dir_path.iterdir()]
         except FileNotFoundError:
             return
         except OSError as e:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_STATE,
-                f'{dir_path} cannot be listed: {e.strerror}; add it to .gitignore to leave it out of the project',
-            ) from e
+            msg = f'{dir_path} cannot be listed: {e.strerror}'
+            if dir_path != project_dir:
+                msg += '; add it to .gitignore to leave it out of the project'
+            raise excs.RequestError(excs.ErrorCode.INVALID_STATE, msg) from e
         spec = _gitignore_spec(dir_path)
         if spec is not None:
             specs = [*specs, (dir_path, spec)]
-        for entry in entries:
+        for entry, is_dir in entries:
             if entry.name in ('.git', '__pycache__'):
                 continue
-            is_dir = entry.is_dir() and not entry.is_symlink()
             if _is_gitignored(entry, is_dir, specs):
                 continue
             if is_dir and _is_venv(entry):
@@ -141,20 +143,16 @@ def _archive_files(project_root: Path, config: DatabaseConfig | None) -> list[Pa
     - never pixeltable.toml
     - never a file in the Pixeltable home
 
-    Raises if project_root is the user's home directory, a directory above it, or the Pixeltable home.
+    Raises if project_root is the user's home directory, a directory above it, or the Pixeltable home. project_root
+    must be resolved.
     """
-    if Path.home().resolve().is_relative_to(project_root):
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            f'the project root {project_root} would include every file in your home directory; move the project '
-            'configuration into a directory made for the project',
-        )
     pxt_home = Config.get().home.resolve()
-    if pxt_home == project_root:
+    refusal = project_root_refusal(project_root, pxt_home)
+    if refusal is not None:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            f'the project root {project_root} is the Pixeltable home; point PIXELTABLE_HOME at another directory, '
-            'or move the project configuration into a directory made for the project',
+            f'{project_root} cannot be a project root: {refusal}; remove its {PROJECT_CONFIG_FILE} (or the '
+            f'[tool.pixeltable] table of its {PYPROJECT_FILE}), then run pxt init in a directory made for the project',
         )
     exclude = config.exclude if config is not None else None
     include = config.include if config is not None else None
@@ -299,9 +297,9 @@ def _add_hashed(tf: tarfile.TarFile, path: Path, relpath: str) -> str:
         # gettarinfo() writes a second path to one inode as a hard link, which extracts as a regular
         # file with the same bytes; the member itself carries no content
         # hash first, so a file removed since it was listed raises before its member is written
-        content_hash = _path_hash(path, relpath)
+        path_hash = _path_hash(path, relpath)
         tf.addfile(info)
-        return content_hash
+        return path_hash
     if relpath == PYPROJECT_FILE:
         data = path.read_bytes()
         info.size = len(data)
@@ -894,6 +892,7 @@ def project_fingerprint(
     project_root: Path, config: DatabaseConfig | None, *, project_config: ConfigSections | None = None
 ) -> ProjectFingerprint:
     """Fingerprint the project files for project_root, together with project_config, if given."""
+    project_root = project_root.resolve()
     return _fingerprint(
         _archive_files(project_root, config), project_root, config, project_config if project_config is not None else {}
     )

@@ -105,14 +105,17 @@ class TestProject:
             _archive_files(project, DatabaseConfig(include_only=['app.py'], exclude=['*.log']))
 
     def test_home_directory_is_refused(self, project: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        (project / 'sub').mkdir()
         for home in (project, project / 'me'):
             # Path.home() reads HOME on POSIX and USERPROFILE on Windows
             monkeypatch.setenv('HOME', str(home))
             monkeypatch.setenv('USERPROFILE', str(home))
-            with pxt_raises(
-                excs.ErrorCode.INVALID_CONFIGURATION, match='would include every file in your home directory'
-            ):
-                project_fingerprint(project, None)
+            # the same root, spelled with and without a component that resolve() removes
+            for root in (project, project / 'sub' / '..'):
+                with pxt_raises(
+                    excs.ErrorCode.INVALID_CONFIGURATION, match='would include every file in your home directory'
+                ):
+                    project_fingerprint(root, None)
 
     def test_pixeltable_home_in_project(self, project: pathlib.Path, private_home: pathlib.Path) -> None:
         """A Pixeltable home inside the project is left out, even when a pattern selects it, and refused as the root."""
@@ -174,20 +177,25 @@ class TestProject:
     def test_unreadable_path(self, project: pathlib.Path) -> None:
         (project / 'secret.txt').write_text('')
         (project / 'data').mkdir()
+        (project / 'data' / 'rows.csv').write_text('')
         (project / 'pkg').mkdir()
         (project / 'pkg' / '.gitignore').write_text('*.tmp\n')
-        for path, problem in (
-            (project / 'secret.txt', 'cannot be read'),
-            (project / 'data', r'cannot be listed: .*add it to \.gitignore'),
-            (project / 'pkg' / '.gitignore', 'cannot be read'),
+        for path, mode, problem in (
+            (project / 'secret.txt', 0, 'cannot be read'),
+            (project / 'data', 0, r'cannot be listed: .*add it to \.gitignore'),
+            # readable but not searchable: listing works, stat() on an entry fails
+            (project / 'data', 0o444, r'cannot be listed: .*add it to \.gitignore'),
+            (project / 'pkg' / '.gitignore', 0, 'cannot be read'),
+            # no pattern can leave out the root itself
+            (project, 0, 'cannot be listed: Permission denied$'),
         ):
-            mode = path.stat().st_mode
-            path.chmod(0)
+            original_mode = path.stat().st_mode
+            path.chmod(mode)
             try:
                 with pxt_raises(excs.ErrorCode.INVALID_STATE, match=f'{re.escape(str(path))} {problem}'):
                     project_fingerprint(project, None)
             finally:
-                path.chmod(mode)
+                path.chmod(original_mode)
 
     def test_file_contents(self, project: pathlib.Path) -> None:
         before = project_fingerprint(project, None)
