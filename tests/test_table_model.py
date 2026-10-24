@@ -484,6 +484,35 @@ class TestTableModel:
         assert btree_idxs(tbl) == {'idx0': 'name', 'idx1': 'img'}
         assert btree_idxs(ExampleViewModel.table) == {'idx0': 'vc'}
 
+    def test_query_view_embedding_idx(self, db_root: DatabaseRoot) -> None:
+        """A @pxt.query bound through a model resolves similarity indexes against the path-context table
+        (the view), not the column's physical owner (the base)."""
+        root = db_root.make_catalog_path('')
+        TableModel = pxt.model_base()
+
+        class Photos(TableModel, name='photos'):
+            photo_id: pxt.Int
+            caption: pxt.String
+            hot: pxt.Bool | None
+
+        class HotPhotos(TableModel, name='hot_photos', base=Photos.where(Photos.hot == True)):
+            __indexes__ = [EmbeddingIndex(Photos.caption, embedding=embed, name='hot_idx')]
+
+        @pxt.query
+        def hot_search(q: str) -> pxt.Query:
+            sim = HotPhotos.caption.similarity(string=q, idx='hot_idx')
+            return HotPhotos.order_by(sim, asc=False).limit(1).select(HotPhotos.photo_id)
+
+        class Asks(TableModel, name='asks'):
+            question: pxt.String
+            hits = hot_search(question)
+
+        TableModel.create_all(root)
+        Photos.insert([{'photo_id': 7, 'caption': 'a dog', 'hot': True}])
+        Asks.insert([{'question': 'a dog'}])
+        res = Asks.table.select(Asks.table.hits).collect()
+        assert res[0]['hits'] == [{'photo_id': 7}]
+
     def test_default_idxs_diff(self, db_root: DatabaseRoot) -> None:
         """Verifies how model diff interacts with has_default_idxs."""
         p = db_root.make_catalog_path

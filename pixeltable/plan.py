@@ -530,6 +530,7 @@ class Planner:
             plan = exec.CellMaterializationNode(plan)
 
         plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=0, ignore_errors=ignore_errors))
+        plan = cls._add_save_node(plan)
 
         return plan
 

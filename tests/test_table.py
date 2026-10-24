@@ -2046,6 +2046,30 @@ class TestTable:
         _ = pxt.get_table(p('test3'))
         pxt.drop_table(p('test3'))
 
+    @pytest.mark.db_roots('local', reason='asserts on the local media store layout')
+    def test_drop_table_media_refs(self, uses_db: None) -> None:
+        from pixeltable.utils.local_store import LocalStore
+
+        # a owns its computed media physically; streaming-inserting it into b must copy the files:
+        # dropping a afterwards must not leave b's cells referencing deleted files
+        a = pxt.create_table('tbl_a', {'img': pxt.Image})
+        a.insert([{'img': f} for f in get_image_files()[:5]])
+        a.add_computed_column(rotated=a.img.rotate(30), stored=True)
+        a_urls = set(a.select(url=a.rotated.fileurl).collect()['url'])
+
+        b = pxt.create_table('tbl_b', {'img': pxt.Image})
+        b.insert(a.select(img=a.rotated))
+        b_urls = b.select(url=b.img.fileurl).collect()['url']
+        assert len(b_urls) == 5
+        assert set(b_urls).isdisjoint(a_urls)
+
+        pxt.drop_table('tbl_a')
+        res = b.select().collect()
+        assert len(res) == 5
+        for u in b_urls:
+            p = LocalStore.file_url_to_path(u)
+            assert p is not None and p.exists(), p
+
     def test_drop_table_via_handle(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test1'), {'c1': pxt.String | None})
