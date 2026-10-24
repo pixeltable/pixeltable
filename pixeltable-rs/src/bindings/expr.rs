@@ -63,14 +63,32 @@ fn operand(obj: &Bound<'_, PyAny>) -> Result<ExprRef> {
 
 /// Upstream `Expr.from_object()`: an expression, an inline list/dict, or a literal; None if not convertible.
 pub fn from_object(obj: &Bound<'_, PyAny>) -> Result<Option<ExprRef>> {
+    let e = from_object_at(obj, 1)?;
+    if let Some(e) = &e {
+        e.check_depth()?;
+    }
+    Ok(e)
+}
+
+/// The nesting of inline lists and dicts becomes JSON nesting: fail beyond `MAX_JSON_DEPTH` (`depth` is the level of
+/// the list or dict being entered).
+fn check_inline_depth(depth: usize) -> Result<()> {
+    if depth > crate::value::MAX_JSON_DEPTH {
+        return Err(Error::new(crate::error::ErrorCode::InvalidArgument, crate::value::json_too_deep_msg()));
+    }
+    Ok(())
+}
+
+fn from_object_at(obj: &Bound<'_, PyAny>, depth: usize) -> Result<Option<ExprRef>> {
     if let Some(e) = as_expr(obj) {
         return Ok(Some(e));
     }
     if obj.is_instance_of::<PyList>() || obj.is_instance_of::<PyTuple>() {
+        check_inline_depth(depth)?;
         let mut items = Vec::new();
         for item in obj.try_iter()? {
             let item = item?;
-            match from_object(&item)? {
+            match from_object_at(&item, depth + 1)? {
                 Some(e) => items.push(e),
                 None => return Err(Error::Type(format!("Not a valid literal: {}", item.str()?))),
             }
@@ -78,6 +96,7 @@ pub fn from_object(obj: &Bound<'_, PyAny>) -> Result<Option<ExprRef>> {
         return Ok(Some(build::inline_list(items)));
     }
     if let Ok(d) = obj.cast::<PyDict>() {
+        check_inline_depth(depth)?;
         let mut items = Vec::new();
         for (k, v) in d.iter() {
             if !k.is_instance_of::<PyString>() {
@@ -88,7 +107,7 @@ pub fn from_object(obj: &Bound<'_, PyAny>) -> Result<Option<ExprRef>> {
                     type_repr(&k)
                 );
             }
-            match from_object(&v)? {
+            match from_object_at(&v, depth + 1)? {
                 Some(e) => items.push((k.extract::<String>()?, e)),
                 None => return Err(Error::Type(format!("Not a valid literal: {}", v.str()?))),
             }
@@ -100,6 +119,14 @@ pub fn from_object(obj: &Bound<'_, PyAny>) -> Result<Option<ExprRef>> {
 
 /// Upstream `Expr.from_array()` (`pxt.array()`).
 pub fn from_array(obj: &Bound<'_, PyAny>) -> Result<ExprRef> {
+    from_array_at(obj, 1)
+}
+
+fn from_array_at(obj: &Bound<'_, PyAny>, depth: usize) -> Result<ExprRef> {
+    // numpy's limit; also bounds the recursion over nested lists
+    if depth > 64 {
+        crate::bail!(InvalidArgument, "maximum supported dimension for an ndarray is currently 64");
+    }
     let py = obj.py();
     if obj.is_instance(&py.import("numpy")?.getattr("ndarray")?)? {
         if let Some((t, v)) = vpy::infer_literal(obj)? {
@@ -112,7 +139,7 @@ pub fn from_array(obj: &Bound<'_, PyAny>) -> Result<ExprRef> {
         if let Some(e) = as_expr(&el) {
             items.push(e);
         } else if el.is_instance_of::<PyList>() || el.is_instance_of::<PyTuple>() {
-            items.push(from_array(&el)?);
+            items.push(from_array_at(&el, depth + 1)?);
         } else {
             items.push(literal(&el)?);
         }
@@ -120,21 +147,24 @@ pub fn from_array(obj: &Bound<'_, PyAny>) -> Result<ExprRef> {
     build::inline_array(items)
 }
 
-fn wrap(e: ExprRef) -> PyExpr {
-    PyExpr::new(e)
+/// The Python object for a new expression; refuses expressions nested more deeply than `MAX_EXPR_DEPTH`, so no
+/// Python-visible expression (and nothing built from it) can exhaust the stack in recursive processing.
+pub(crate) fn wrap(e: ExprRef) -> Result<PyExpr> {
+    e.check_depth()?;
+    Ok(PyExpr::new(e))
 }
 
 impl PyExpr {
     fn arith(&self, op: ArithOp, other: &Bound<'_, PyAny>, reflected: bool) -> Result<PyExpr> {
         let o = operand(other)?;
         let (a, b) = if reflected { (o, self.e.clone()) } else { (self.e.clone(), o) };
-        Ok(wrap(build::arithmetic(op, a, b)?))
+        wrap(build::arithmetic(op, a, b)?)
     }
 
     fn string(&self, op: StringOp, other: &Bound<'_, PyAny>, reflected: bool) -> Result<PyExpr> {
         let o = operand(other)?;
         let (a, b) = if reflected { (o, self.e.clone()) } else { (self.e.clone(), o) };
-        Ok(wrap(build::string_op(op, a, b)?))
+        wrap(build::string_op(op, a, b)?)
     }
 
     fn other_is_string(other: &Bound<'_, PyAny>) -> bool {
@@ -189,8 +219,9 @@ impl PyExpr {
     #[staticmethod]
     fn from_dict(d: &Bound<'_, PyAny>) -> Result<PyExpr> {
         let s: String = d.py().import("json")?.call_method1("dumps", (d,))?.extract()?;
-        let j: serde_json::Value = serde_json::from_str(&s)?;
-        Ok(wrap(crate::expr::serde::from_json(&j)?))
+        let j: serde_json::Value = crate::value::parse_json_bounded(s.as_bytes(), crate::store::MAX_CATALOG_DEPTH)
+            .map_err(|e| Error::internal(format!("malformed serialized expression: {e}")))?;
+        wrap(crate::expr::serde::from_json(&j)?)
     }
 
     fn __copy__(slf: Bound<'_, Self>) -> Bound<'_, Self> {
@@ -227,8 +258,8 @@ impl PyExpr {
     fn __richcmp__(&self, other: &Bound<'_, PyAny>, op: CompareOp) -> Result<PyExpr> {
         if other.is_none() {
             match op {
-                CompareOp::Eq => return Ok(wrap(build::is_null(self.e.clone()))),
-                CompareOp::Ne => return Ok(wrap(build::not(build::is_null(self.e.clone()))?)),
+                CompareOp::Eq => return wrap(build::is_null(self.e.clone())),
+                CompareOp::Ne => return wrap(build::not(build::is_null(self.e.clone()))?),
                 _ => {}
             }
         }
@@ -240,7 +271,7 @@ impl PyExpr {
             CompareOp::Gt => CmpOp::Gt,
             CompareOp::Ge => CmpOp::Ge,
         };
-        Ok(wrap(build::comparison(cmp, self.e.clone(), operand(other)?)?))
+        wrap(build::comparison(cmp, self.e.clone(), operand(other)?)?)
     }
 
     fn __add__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
@@ -314,7 +345,7 @@ impl PyExpr {
     }
 
     fn __abs__(&self) -> Result<PyExpr> {
-        Ok(wrap(crate::functions::make_call("pixeltable.functions.math.abs", vec![self.e.clone()], vec![])?))
+        wrap(crate::functions::make_call("pixeltable.functions.math.abs", vec![self.e.clone()], vec![])?)
     }
 
     #[pyo3(signature = (ndigits=None))]
@@ -323,27 +354,27 @@ impl PyExpr {
         if let Some(n) = ndigits.filter(|n| !n.is_none()) {
             args.push(operand(n)?);
         }
-        Ok(wrap(crate::functions::make_call("pixeltable.functions.math.round", args, vec![])?))
+        wrap(crate::functions::make_call("pixeltable.functions.math.round", args, vec![])?)
     }
 
     fn __and__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
         let o = as_expr(other).ok_or_else(|| Error::Type(format!("Other needs to be an expression: {}", type_repr(other))))?;
-        Ok(wrap(build::logical_binary(LogicalOp::And, self.e.clone(), o)?))
+        wrap(build::logical_binary(LogicalOp::And, self.e.clone(), o)?)
     }
 
     fn __or__(&self, other: &Bound<'_, PyAny>) -> Result<PyExpr> {
         let o = as_expr(other).ok_or_else(|| Error::Type(format!("Other needs to be an expression: {}", type_repr(other))))?;
-        Ok(wrap(build::logical_binary(LogicalOp::Or, self.e.clone(), o)?))
+        wrap(build::logical_binary(LogicalOp::Or, self.e.clone(), o)?)
     }
 
     fn __invert__(&self) -> Result<PyExpr> {
-        Ok(wrap(build::not(self.e.clone())?))
+        wrap(build::not(self.e.clone())?)
     }
 
     /// `expr.isin(values)`: `values` is a JSON expression or a constant collection.
     fn isin(&self, value_set: &Bound<'_, PyAny>) -> Result<PyExpr> {
         if let Some(rhs) = as_expr(value_set) {
-            return Ok(wrap(build::in_expr(self.e.clone(), rhs)?));
+            return wrap(build::in_expr(self.e.clone(), rhs)?);
         }
         if !self.e.col_type.is_scalar() {
             crate::bail!(UnsupportedOperation, "isin(): only supported for scalar types, not {}", self.e.col_type.repr());
@@ -366,13 +397,13 @@ impl PyExpr {
             }
         }
         let display = PyList::new(value_set.py(), kept_py)?.repr()?.to_string();
-        Ok(wrap(build::in_list(self.e.clone(), kept, display)?))
+        wrap(build::in_list(self.e.clone(), kept, display)?)
     }
 
     /// `expr.astype(type)`: changes the static type (no conversion of values).
     fn astype(&self, new_type: &Bound<'_, PyAny>) -> Result<PyExpr> {
         let t = normalize_type(new_type, false)?;
-        Ok(wrap(build::type_cast(self.e.clone(), t)))
+        wrap(build::type_cast(self.e.clone(), t))
     }
 
     fn __getitem__(&self, index: &Bound<'_, PyAny>) -> Result<PyExpr> {
@@ -447,7 +478,7 @@ impl PyExpr {
         }
         if let Some(c) = self.e.as_column_ref() {
             if let Some(prop) = ColumnProp::from_name(name).filter(|p| *p != ColumnProp::CellMd) {
-                return Ok(Bound::new(py, wrap(column_property(py, &self.e, c, prop)?))?.into_any());
+                return Ok(Bound::new(py, wrap(column_property(py, &self.e, c, prop)?)?)?.into_any());
             }
         }
         if name == "apply" {
@@ -459,7 +490,7 @@ impl PyExpr {
             if crate::functions::lookup(&qualified).is_some() {
                 if crate::functions::is_property(&qualified) {
                     let call = crate::functions::make_call(&qualified, vec![self.e.clone()], vec![])?;
-                    return Ok(Bound::new(py, wrap(call))?.into_any());
+                    return Ok(Bound::new(py, wrap(call)?)?.into_any());
                 }
                 let mref = PyMethodRef { base: self.e.clone(), qualified, name: name.to_string() };
                 return Ok(Bound::new(py, mref)?.into_any());
@@ -544,7 +575,7 @@ impl PyMethodRef {
                 kw.push((k.extract::<String>()?, e));
             }
         }
-        Ok(wrap(crate::functions::make_call(&self.qualified, arg_exprs, kw)?))
+        wrap(crate::functions::make_call(&self.qualified, arg_exprs, kw)?)
     }
 
     fn __repr__(&self) -> String {
@@ -555,13 +586,13 @@ impl PyMethodRef {
 /// `Literal(val)` / `Expr.from_object(val)`: None if the object cannot become an expression.
 #[pyfunction]
 pub fn expr_from_object(obj: &Bound<'_, PyAny>) -> Result<Option<PyExpr>> {
-    Ok(from_object(obj)?.map(wrap))
+    from_object(obj)?.map(wrap).transpose()
 }
 
 /// `pxt.array(elements)`
 #[pyfunction]
 pub fn array(elements: &Bound<'_, PyAny>) -> Result<PyExpr> {
-    Ok(wrap(from_array(elements)?))
+    wrap(from_array(elements)?)
 }
 
 /// A call of the builtin function `qualified_name` (used by the `pixeltable.functions` stubs).
@@ -583,7 +614,7 @@ pub fn call_builtin(
             kw.push((k.extract::<String>()?, e));
         }
     }
-    Ok(wrap(crate::functions::make_call(qualified_name, arg_exprs, kw)?))
+    wrap(crate::functions::make_call(qualified_name, arg_exprs, kw)?)
 }
 
 #[pyfunction]

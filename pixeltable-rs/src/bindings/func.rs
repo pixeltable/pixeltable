@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 use std::sync::Arc;
 
-use super::expr::{PyExpr, as_expr, from_object};
+use super::expr::{PyExpr, as_expr, from_object, wrap};
 use crate::error::{Error, Result, py_repr};
 use crate::expr::{Expr, ExprKind, ExprRef};
 use crate::functions::signature::Signature;
@@ -138,7 +138,7 @@ impl PyUdf {
     #[pyo3(signature = (*args, **kwargs))]
     fn call(&self, args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Result<PyExpr> {
         let (a, k) = call_args(self.def.self_path.as_deref(), args, kwargs)?;
-        Ok(PyExpr::new(udf::make_call(&self.def, a, k, false)?))
+        wrap(udf::make_call(&self.def, a, k, false)?)
     }
 
     /// `base.fn(*args, **kwargs)` (a method call)
@@ -152,7 +152,7 @@ impl PyUdf {
         let base = as_expr(base).ok_or_else(|| Error::internal("method call on a non-expression"))?;
         let (mut a, k) = call_args(self.def.self_path.as_deref(), args, kwargs)?;
         a.insert(0, base);
-        Ok(PyExpr::new(udf::make_call(&self.def, a, k, true)?))
+        wrap(udf::make_call(&self.def, a, k, true)?)
     }
 
     /// `Function.using(**kwargs)`: (signature index, template call) for each signature that accepts the bindings.
@@ -197,7 +197,7 @@ impl PyUdfMethodRef {
     fn __call__(&self, args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Result<PyExpr> {
         let (mut a, k) = call_args(self.def.self_path.as_deref(), args, kwargs)?;
         a.insert(0, self.base.clone());
-        Ok(PyExpr::new(udf::make_call(&self.def, a, k, true)?))
+        wrap(udf::make_call(&self.def, a, k, true)?)
     }
 
     fn __repr__(&self) -> String {
@@ -212,7 +212,7 @@ pub fn udf_attribute<'py>(py: Python<'py>, base: &ExprRef, name: &str) -> Result
     let def = udf::def_of(f.bind(py))?;
     if def.is_property {
         let call = udf::make_call(&def, vec![base.clone()], vec![], true)?;
-        return Ok(Some(Bound::new(py, PyExpr::new(call))?.into_any()));
+        return Ok(Some(Bound::new(py, wrap(call)?)?.into_any()));
     }
     Ok(Some(Bound::new(py, PyUdfMethodRef { base: base.clone(), def })?.into_any()))
 }
