@@ -90,8 +90,29 @@ class _PlaceholderMeta(type):
     def __iter__(cls) -> Any:
         raise InternalAPIUnavailable(_describe(cls._pxt_qualname))
 
+    def __bool__(cls) -> bool:
+        return True  # defined because __len__ is: truth tests must not raise
+
     def __repr__(cls) -> str:
         return f'<placeholder for {cls._pxt_qualname} ({MARKER})>'
+
+
+def _unavailable_operator(name: str) -> Any:
+    def op(cls: Any, *args: Any) -> Any:
+        raise InternalAPIUnavailable(_describe(cls._pxt_qualname))
+
+    op.__name__ = name
+    return op
+
+
+# Arithmetic, ordering, containment and conversions on a placeholder (`'a' * BtreeIndex.MAX_STRING_LEN`) raise the
+# stub error. Left alone: `|` (for `X | None` annotations), `==`/hash (identity, so placeholders work as dict keys),
+# and truth tests.
+for _op in 'add mul sub truediv floordiv mod pow matmul lshift rshift and xor divmod'.split():
+    setattr(_PlaceholderMeta, f'__{_op}__', _unavailable_operator(f'__{_op}__'))
+    setattr(_PlaceholderMeta, f'__r{_op}__', _unavailable_operator(f'__r{_op}__'))
+for _op in ('neg', 'pos', 'abs', 'invert', 'index', 'int', 'float', 'complex', 'len', 'lt', 'le', 'gt', 'ge', 'contains'):
+    setattr(_PlaceholderMeta, f'__{_op}__', _unavailable_operator(f'__{_op}__'))
 
 
 def make_placeholder(qualname: str) -> Any:

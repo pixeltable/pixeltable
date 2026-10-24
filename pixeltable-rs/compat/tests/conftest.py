@@ -110,9 +110,9 @@ _check_import_hygiene()
 for _name in sorted(_IMPORT_SCAN.modules, key=lambda n: (n.count('.'), n)):
     try:
         __import__(_name)
-    except ImportError:
-        pass  # a real module that fails for another reason (e.g. a missing optional dependency) keeps failing
     except Exception:
+        # a real module that fails to import (e.g. for a missing optional dependency) is not cached, so it fails again
+        # where a test imports it
         pass
 stubs.install_attribute_fallbacks(_IMPORT_SCAN)
 
@@ -236,7 +236,7 @@ def project_dir(tmp_path: pathlib.Path) -> pathlib.Path:
 
 
 @pytest.fixture(scope='session')
-def init_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+def init_env() -> Iterator[None]:
     # Upstream: chdir to the project root (the parent of tests/), point PIXELTABLE_HOME at a per-worker directory,
     # reinitialize the database, pxt.init(). PIXELTABLE_HOME is set when this module is imported, since pixeltable-rs
     # may read it at import time.

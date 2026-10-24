@@ -1245,19 +1245,30 @@ def check_media_store_count(
 ) -> None:
     """Assert the number of media files stored for tbl.
 
-    Upstream counts through its internal ObjectOps, keyed by the internal `tbl._id`. This counts files in
-    `$PIXELTABLE_HOME/media` (recursively) whose names follow upstream's media file naming,
-    `<table id hex>_<column id>_<table version>_<unique id>.<ext>`, with the table id from the public
-    `get_metadata()['id']` (remembered per handle, since the tests also count after dropping the table). It therefore
-    holds pixeltable-rs to upstream's media layout under the home directory. default_input_dest/default_output_dest
-    select a destination upstream; the harness never configures one, so both mean the home media dir.
+    Upstream counts through its internal ObjectOps, keyed by the internal `tbl._id`. This counts the regular files under
+    `$PIXELTABLE_HOME/media` that have the table id (from the public `get_metadata()['id']`, remembered per handle since
+    the tests also count after dropping the table) in their path, as 32 hex digits or in hyphenated form: in a
+    directory name or as a file name prefix. That fits upstream's layout (`media/<id hex>/.../<id hex>_<col>_<version>_
+    <unique>.<ext>`) as well as any layout that keeps a table's media under a directory named after it. Filtering by
+    tbl_version needs upstream's file naming (`_<version>_` in the name). default_input_dest/default_output_dest select
+    a destination upstream; the harness never configures one, so both mean the home media dir.
     """
     if db_root.is_cloud:
         return
-    prefix = _table_id(tbl).hex
+    tbl_id = _table_id(tbl)
+    id_forms = (tbl_id.hex, str(tbl_id))
     media_dir = Path(os.environ['PIXELTABLE_HOME']) / 'media'
-    pattern = f'{prefix}_*' if tbl_version is None else f'{prefix}_*_{tbl_version}_*'
-    actual = sum(1 for p in media_dir.rglob(pattern) if p.is_file()) if media_dir.is_dir() else 0
+    actual = 0
+    if media_dir.is_dir():
+        for path in media_dir.rglob('*'):
+            if not path.is_file():
+                continue
+            parts = path.relative_to(media_dir).parts
+            if not any(part == form or part.startswith(f'{form}_') for part in parts for form in id_forms):
+                continue
+            if tbl_version is not None and f'_{tbl_version}_' not in path.name:
+                continue
+            actual += 1
     assert actual == expected_count, f'expected {expected_count} media objects, found {actual}'
 
 

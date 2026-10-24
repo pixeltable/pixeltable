@@ -125,9 +125,11 @@ Same fixture and helper names and behavior, except:
 - `pxt_raises()` uses `pixeltable.exceptions._error_class(code)` (the code-to-class map that PLAN.md makes part of the
   contract) and falls back to `pxt.Error` plus the code check if it is missing.
 - `skip_test_if_not_installed()` asks `importlib.util.find_spec()` (upstream: `Env.is_installed_package()`).
-- `check_media_store_count()` counts files under `$PIXELTABLE_HOME/media` named like upstream's media files,
-  `<table id hex>_<column id>_<version>_<unique id>.<ext>`, using `get_metadata()['id']` (remembered per handle, since
-  tests count after dropping the table). It holds pixeltable-rs to upstream's media file naming.
+- `check_media_store_count()` counts the files under `$PIXELTABLE_HOME/media` that have the table id (from
+  `get_metadata()['id']`, remembered per handle, since tests count after dropping the table) in their path, as 32 hex
+  digits or hyphenated, in a directory name or as a file name prefix. That fits upstream's layout
+  (`media/<id hex>/.../<id hex>_<column>_<version>_<unique>.<ext>`) and pixeltable-rs's (`media/<db>/<table id>/...`).
+  Its `tbl_version` filter, which no selected test uses, needs upstream's file naming.
 - `get_multimedia_commons_video_uris()` lists the public bucket with anonymous boto3 and skips without boto3 or
   network (upstream: internal `ObjectOps`).
 - `assert_type_eq()` keeps `ts.ColumnType.normalize_type()`: `pixeltable.type_system` is public in pixeltable-rs.
@@ -195,6 +197,7 @@ environmental or fails the same way under upstream's own conftest:
   `pxt.exec.CachePrefetchNode` inside a test) fails with a plain `AttributeError`, still per test.
 - The public-API classification is static and heuristic (attribute names); it can miss internal use through a
   dynamically computed name, or exclude a test whose column happens to be called like an internal attribute.
-- `check_media_store_count()` assumes upstream's media file naming.
+- `check_media_store_count()` relies on a table's media files living under `$PIXELTABLE_HOME/media` with the table id in
+  their path.
 - Tests that need network access (S3, external URLs) or optional packages (torch, transformers, pycocotools,
   markitdown) fail or skip as they would upstream in the same environment.
