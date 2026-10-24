@@ -574,6 +574,56 @@ pub fn eval_rows_into(
     }
 }
 
+/// The rows to evaluate `cols` into with `eval_rows_batch()` when only the values of `cols` are kept: copies of the
+/// leaf rows of `path_rows` (paths of table `infos[0]`) with only the cells and errors the columns' expressions read
+/// (directly or through unstored columns), and room for the cells of `cols`. Evaluation then copies no cell it does
+/// not read, and grows no row on another thread (freeing memory another thread allocated is slow). Rows of a component
+/// view are copied whole: their unstored iterator outputs are computed from the stored ones.
+pub fn rows_for_eval(path_rows: &[Vec<&StoredRow>], infos: &[&ElemInfo], cols: &[ComputedCol]) -> Vec<StoredRow> {
+    let leaf = infos[0];
+    let derived = |c: &ColumnRef| infos.iter().find(|e| e.tbl_id == c.tbl_id).and_then(|e| e.unstored.get(&c.col_id).cloned());
+    let mut read = std::collections::HashSet::new();
+    for c in cols {
+        super::compute::reads_columns(&c.expr, &derived, &mut read);
+    }
+    let mut ids: Vec<usize> = read.iter().filter(|(t, _)| *t == leaf.tbl_id).map(|(_, c)| *c as usize).collect();
+    ids.sort_unstable();
+    let width = cols.iter().map(|c| c.col_id as usize + 1).chain(ids.last().map(|i| i + 1)).max().unwrap_or(0);
+    let copy = |r: &Vec<&StoredRow>| {
+        let src = r[0];
+        if leaf.iterator.is_some() {
+            let mut cells = Vec::with_capacity(src.cells.len().max(width));
+            cells.extend_from_slice(&src.cells);
+            return StoredRow { rowid: src.rowid, cells, errors: src.errors.clone(), pos: src.pos.clone() };
+        }
+        let mut cells = vec![Value::Null; width];
+        let mut errors: Vec<Option<CellError>> = Vec::new();
+        for &i in &ids {
+            if let Some(v) = src.cells.get(i) {
+                cells[i] = v.clone();
+            }
+            if let Some(Some(e)) = src.errors.get(i) {
+                if errors.len() <= i {
+                    errors.resize(i + 1, None);
+                }
+                errors[i] = Some(e.clone());
+            }
+        }
+        StoredRow { rowid: src.rowid, cells, errors, pos: src.pos.clone() }
+    };
+    if super::par::worth_parallel(path_rows.len()) {
+        super::par::map_rows(path_rows.len(), |i| copy(&path_rows[i]))
+    } else {
+        path_rows.iter().map(copy).collect()
+    }
+}
+
+/// Takes the value and the error of column `col_id` out of `row` (evaluated by `eval_rows_batch()`).
+pub fn take_cell(row: &mut StoredRow, col_id: ColId) -> (Value, Option<CellError>) {
+    let v = row.cells.get_mut(col_id as usize).map_or(Value::Null, |c| std::mem::replace(c, Value::Null));
+    (v, row.errors.get_mut(col_id as usize).and_then(Option::take))
+}
+
 /// Evaluates the computed columns `cols` into `rows` (rows of table `infos[0]`; `rows[i]` belongs to the base path
 /// rows `bases[i]`), recording failures as cell errors (`eval_into()` semantics). Wave by wave (`compute::waves()`),
 /// the user-function calls of a wave's columns are made for all rows together (`prefetch`), then the rows are

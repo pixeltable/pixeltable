@@ -121,6 +121,13 @@ class TestParallelEval:
         with pytest.raises(pxt.Error, match="Error while evaluating computed column 'e'"):
             t.add_computed_column(e=t.a // (t.a % 3), on_error='abort')
         assert 'e' not in t.columns()
+        # new columns read what they need of each row: an unstored column (and what it reads), a cell with an error
+        t.add_computed_column(u=t.a * 10, stored=False)
+        t.add_computed_column(v=t.u + t.b)
+        t.add_computed_column(w=t.c * 2)
+        res = t.order_by(t.a).select(t.v, t.w).collect()
+        assert res['v'] == [12 * a for a in range(N)]
+        assert res['w'] == [None if a % 5 == 0 else 2 * ((2 * a + 1) // (a % 5)) for a in range(N)]
         t.update({'a': t.a + 1}, where=t.a < 10)
         assert t.order_by(t.a).select(t.d).limit(3).collect()['d'] == [3, 6, 9]
 

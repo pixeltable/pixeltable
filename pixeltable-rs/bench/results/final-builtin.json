@@ -1,0 +1,64 @@
+{
+  "results": {
+    "create_1m": 4.512545773000966,
+    "arith_1m": 0.2597866550004255,
+    "string_1m": 0.30660673300008057,
+    "filter_1m": 0.08307901799889805,
+    "groupby_1m": 0.13064410900005896,
+    "sort_1m": 0.1268889160000981,
+    "join_1m": 0.21678823599904717,
+    "add_column_1m": 2.565602503000264,
+    "embed_index_100k": 3.427193695999449,
+    "similarity_100k": 0.025479836000158684
+  },
+  "builds": {
+    "before": {
+      "create_1m": 4.655981692998466,
+      "arith_1m": 0.9447324640004808,
+      "string_1m": 0.8327065920002497,
+      "filter_1m": 0.5593956360007724,
+      "groupby_1m": 1.7149730619985348,
+      "sort_1m": 2.0337470380000013,
+      "join_1m": 1.8212512270001753,
+      "add_column_1m": 4.425054147999617,
+      "embed_index_100k": 3.0459177929988073,
+      "similarity_100k": 0.13209013000050618
+    },
+    "after": {
+      "create_1m": 4.512545773000966,
+      "arith_1m": 0.2597866550004255,
+      "string_1m": 0.30660673300008057,
+      "filter_1m": 0.08307901799889805,
+      "groupby_1m": 0.13064410900005896,
+      "sort_1m": 0.1268889160000981,
+      "join_1m": 0.21678823599904717,
+      "add_column_1m": 2.565602503000264,
+      "embed_index_100k": 3.427193695999449,
+      "similarity_100k": 0.025479836000158684
+    }
+  },
+  "descriptions": {
+    "create_1m": "builtin-only work over 1M rows",
+    "arith_1m": "builtin-only work over 1M rows",
+    "string_1m": "builtin-only work over 1M rows",
+    "filter_1m": "builtin-only work over 1M rows",
+    "groupby_1m": "builtin-only work over 1M rows",
+    "sort_1m": "builtin-only work over 1M rows",
+    "join_1m": "builtin-only work over 1M rows",
+    "add_column_1m": "builtin-only work over 1M rows",
+    "embed_index_100k": "similarity over 100k 64-d embeddings (embedding index built by a numpy UDF)",
+    "similarity_100k": "similarity over 100k 64-d embeddings (embedding index built by a numpy UDF)"
+  },
+  "env": {},
+  "machine": {
+    "platform": "Linux-6.18.44-fc-v153-x86_64-with-glibc2.39",
+    "python": "3.13.17",
+    "cpus": 4,
+    "load": [
+      0.8818359375,
+      1.083984375,
+      1.3583984375
+    ]
+  },
+  "commit": "6ab8dac1"
+}
