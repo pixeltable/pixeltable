@@ -8,7 +8,9 @@ use std::collections::HashSet;
 use uuid::Uuid;
 
 use super::compute::{ComputedCol, RowCells, eval_computed};
-use super::insert::{InputRow, InsertPlan, prepare_media_inputs};
+use super::insert::{InputRow, InsertPlan, UpdateStatus, prepare_media_inputs};
+use super::propagate::ViewCompute;
+use super::scan::{ElemInfo, PathCtx};
 use crate::catalog::Catalog;
 use crate::catalog::path::fold_identifier;
 use crate::catalog::table::{ColId, RowCountStats};
@@ -28,6 +30,11 @@ pub struct ComputeRowsPlan {
     pub outputs: Vec<(String, ColId, ColumnType)>,
     /// base table columns to evaluate
     pub needed: HashSet<ColId>,
+    /// a view target: the views of its path, root side first (each computes its rows from its base's rows); the
+    /// filters and `outputs` above are then unused
+    pub views: Vec<ViewCompute>,
+    /// a view target: the output columns as column references over its path
+    pub view_outputs: Vec<(String, ExprRef)>,
 }
 
 /// One computed output row: values (in output order) and the errors of failed cells, by column name.
@@ -47,10 +54,11 @@ impl ComputeRowsPlan {
         let base_id = source.base_tbl_id;
         let insert = InsertPlan::new(cat, base_id, None)?;
         let predicates = source.predicates.iter().map(crate::expr::serde::from_json).collect::<Result<Vec<_>>>()?;
-        let visible = cat.resolve_columns(tbl_id, None)?;
-        if visible.iter().any(|c| c.tbl_id != base_id) {
-            return Err(crate::error::Error::not_implemented("compute() on a view with columns of its own"));
+        let path = cat.tbl_path(tbl_id, None)?;
+        if path.len() > 1 {
+            return Self::for_view(cat, tbl_id, &path, insert, outputs);
         }
+        let visible = cat.resolve_columns(tbl_id, None)?;
         let selected: Vec<_> = match outputs {
             None => visible.clone(),
             Some(names) => {
@@ -72,7 +80,8 @@ impl ComputeRowsPlan {
         };
         let outputs: Vec<(String, ColId, ColumnType)> =
             selected.into_iter().map(|c| (c.name, c.md.id, c.md.col_type)).collect();
-        let mut plan = ComputeRowsPlan { insert, predicates, outputs, needed: HashSet::new() };
+        let mut plan =
+            ComputeRowsPlan { insert, predicates, outputs, needed: HashSet::new(), views: Vec::new(), view_outputs: Vec::new() };
         let mut todo: Vec<ColId> = plan.outputs.iter().map(|(_, id, _)| *id).collect();
         for p in &plan.predicates {
             todo.extend(p.column_refs().iter().map(|r| r.col_id));
@@ -86,6 +95,97 @@ impl ComputeRowsPlan {
             }
         }
         Ok(plan)
+    }
+
+    /// The plan for a view target: every base column is computed, then each view of the path produces its rows.
+    fn for_view(
+        cat: &mut Catalog,
+        tbl_id: Uuid,
+        path: &[crate::catalog::views::PathElem],
+        insert: InsertPlan,
+        outputs: Option<Vec<String>>,
+    ) -> Result<ComputeRowsPlan> {
+        let mut views = Vec::new();
+        for e in path[..path.len() - 1].iter().rev() {
+            let md = cat.table(e.tbl_id)?;
+            let mut vc = ViewCompute::of(md, cat.store().media_dir(e.tbl_id))?;
+            vc.media = None;
+            views.push(vc);
+        }
+        // the visible columns, root side first (within a table in schema order)
+        let mut visible = cat.resolve_columns(tbl_id, None)?;
+        let depth = |id: Uuid| path.iter().position(|e| e.tbl_id == id).unwrap_or(0);
+        visible.sort_by_key(|c| std::cmp::Reverse(depth(c.tbl_id)));
+        let selected: Vec<_> = match outputs {
+            None => visible.clone(),
+            Some(names) => {
+                if names.is_empty() {
+                    crate::bail!(MissingRequired, "At least one output column must be specified");
+                }
+                names
+                    .iter()
+                    .map(|n| {
+                        let folded = fold_identifier(n);
+                        visible
+                            .iter()
+                            .find(|c| c.name == folded)
+                            .cloned()
+                            .ok_or_else(|| crate::pxt_err!(ColumnNotFound, "Unknown column: {n}"))
+                    })
+                    .collect::<Result<_>>()?
+            }
+        };
+        let view_outputs = selected.iter().map(|c| (c.name.clone(), super::column_ref_expr(c, None))).collect();
+        let outputs = selected.into_iter().map(|c| (c.name, c.md.id, c.md.col_type)).collect();
+        let needed = insert.columns.iter().map(|c| c.col_id).collect();
+        Ok(ComputeRowsPlan { insert, predicates: Vec::new(), outputs, needed, views, view_outputs })
+    }
+
+    /// The rows of a view target for one computed base row.
+    fn run_views(&self, base_row: StoredRow, fail_on_exception: bool) -> Result<Vec<ComputedRow>> {
+        let base_info = ElemInfo { tbl_id: self.insert.tbl_id, unstored: self.insert.unstored.clone(), ..Default::default() };
+        let mut infos: Vec<ElemInfo> = vec![base_info];
+        // each entry: a row of the current level followed by its base rows (leaf first)
+        let mut paths: Vec<Vec<StoredRow>> = vec![vec![base_row]];
+        let mut status = UpdateStatus::default();
+        let mut saved = Vec::new();
+        for v in &self.views {
+            let mut vc_fail = v.clone();
+            vc_fail.fail_on_exception = fail_on_exception;
+            let base_infos: Vec<&ElemInfo> = infos.iter().collect();
+            let mut next = Vec::new();
+            for p in &paths {
+                let refs: Vec<&StoredRow> = p.iter().collect();
+                for row in vc_fail.rows_for(&base_infos, &refs, &mut status, &mut saved)? {
+                    let mut np = Vec::with_capacity(p.len() + 1);
+                    np.push(row);
+                    np.extend(p.iter().cloned());
+                    next.push(np);
+                }
+            }
+            infos.insert(0, v.info.clone());
+            paths = next;
+        }
+        let info_refs: Vec<&ElemInfo> = infos.iter().collect();
+        let mut out = Vec::with_capacity(paths.len());
+        for p in &paths {
+            let refs: Vec<&StoredRow> = p.iter().collect();
+            let ctx = PathCtx::new(&info_refs, &refs);
+            let mut values = Vec::with_capacity(self.view_outputs.len());
+            let mut errors = Vec::new();
+            for (name, e) in &self.view_outputs {
+                values.push(eval(e, &ctx)?);
+                if let Some(r) = e.as_column_ref() {
+                    if let Some(i) = infos.iter().position(|inf| inf.tbl_id == r.tbl_id) {
+                        if let Some(err) = p[i].error(r.col_id) {
+                            errors.push((name.clone(), err.clone()));
+                        }
+                    }
+                }
+            }
+            out.push(ComputedRow { values, errors });
+        }
+        Ok(out)
     }
 
     /// Names of the required (non-nullable, non-computed) input columns that the outputs and filters read.
@@ -126,6 +226,10 @@ impl ComputeRowsPlan {
             prepare_media_inputs(&self.insert, &mut row, fail_on_exception, &mut stats, &mut cols_with_excs, None)?;
             // every needed computed column is materialized into the row, so none is evaluated from its expression
             eval_computed(&mut row, &computed, None, fail_on_exception, &mut stats, &mut cols_with_excs)?;
+            if !self.views.is_empty() {
+                out.extend(self.run_views(row, fail_on_exception)?);
+                continue;
+            }
             for p in &self.predicates {
                 match eval(p, &RowCells::new(&row)) {
                     Ok(Value::Bool(true)) => {}

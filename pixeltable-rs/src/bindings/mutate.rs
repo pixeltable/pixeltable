@@ -667,6 +667,7 @@ pub fn tbl_alter_computed_column<'py>(
                 spec.get_type().str()?
             );
         };
+        crate::catalog::tables::check_no_cellmd_refs(&new_expr)?;
         let path = cat.tbl_path(id, None)?;
         if !cat.is_bound_by(&new_expr, &path)? {
             crate::bail!(

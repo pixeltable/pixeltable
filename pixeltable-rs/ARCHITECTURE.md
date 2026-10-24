@@ -313,6 +313,14 @@ changed column) and recomputes dependent stored columns, getting a version only 
 view rows of deleted base rows (a version only if rows were removed). View rows are computed without the lock (they
 may call UDFs) and committed with the base's.
 
+Component views (`ViewMd.iterator`, a serialized `IteratorCall`): the iterator's outputs (`pos` first) are the view's
+first columns (`TableMd::is_iterator_col`). A base row yields one view row per output row, keyed by the base row's key
+plus the position (`StoredRow.pos`; `Catalog::num_pos` counts the iterator levels of a path). `pos` reads the key;
+unstored outputs are not stored and are produced again on read (`PathCtx` -> `IteratorCall::seek_row`), except while
+a row is generated, when all outputs are in its cells (`ElemInfo::with_materialized_outputs`). An update that changes
+an iterator argument, or the base row's membership, regenerates that base row's view rows (`ViewUpdateNode.reload`).
+`Table.compute()` on a view runs the same `ViewCompute` levels over the computed base row without storing anything.
+
 To add a catalog operation: implement it as a `Catalog` method in the matching `catalog/*.rs` file (validate, mutate,
 `self.commit()`), expose it as a `#[pyfunction]` in `bindings/catalog.rs` or `bindings/table.rs` (convert arguments,
 call inside `with_catalog`), register it in `bindings/mod.rs`, and forward to it from the Python method.

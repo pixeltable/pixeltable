@@ -55,6 +55,28 @@ pub fn validate_column_name(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Upstream `_verify_computed_col_value()`: a computed column cannot read the cell metadata (errortype, errormsg,
+/// cellmd) of another column.
+pub fn check_no_cellmd_refs(e: &crate::expr::Expr) -> Result<()> {
+    use crate::expr::{ColumnProp, ExprKind};
+    let mut found = None;
+    e.visit(&mut |n| {
+        if let ExprKind::ColumnProperty { prop, .. } = &n.kind {
+            if matches!(prop, ColumnProp::ErrorType | ColumnProp::ErrorMsg | ColumnProp::CellMd) && found.is_none() {
+                found = Some(prop.name());
+            }
+        }
+    });
+    if let Some(name) = found {
+        crate::bail!(
+            UnsupportedOperation,
+            "Use of a reference to the {} property of another column is not allowed in a computed column.",
+            py_repr(name)
+        );
+    }
+    Ok(())
+}
+
 /// Upstream `Column` construction checks.
 pub fn validate_column_spec(spec: &ColumnSpec) -> Result<()> {
     validate_column_name(&spec.name)?;

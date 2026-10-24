@@ -95,7 +95,9 @@ pub struct UpdatePlan {
 /// dependency order; their ids are added to `changed`.
 pub fn dependent_columns(md: &TableMd, changed: &mut HashSet<QCol>) -> Result<Vec<ComputedCol>> {
     let mut candidates: Vec<(ComputedCol, Vec<QCol>)> = Vec::new();
-    for c in md.columns_at(None)? {
+    let visible = md.columns_at(None)?;
+    let stored: HashSet<ColId> = visible.iter().filter(|c| c.md.stored).map(|c| c.md.id).collect();
+    for c in &visible {
         if let Some(e) = &c.md.value_expr {
             let expr = crate::expr::serde::from_json(e)?;
             let refs: Vec<QCol> = expr.column_refs().iter().map(|r| (r.tbl_id, r.col_id)).collect();
@@ -119,7 +121,6 @@ pub fn dependent_columns(md: &TableMd, changed: &mut HashSet<QCol>) -> Result<Ve
         }
     }
     // dependency order: a column comes after the selected columns it references
-    let stored: HashSet<ColId> = md.columns_at(None)?.iter().filter(|c| c.md.stored).map(|c| c.md.id).collect();
     let mut ordered: Vec<ComputedCol> = Vec::new();
     let mut done: HashSet<ColId> = HashSet::new();
     while done.len() < selected.len() {
