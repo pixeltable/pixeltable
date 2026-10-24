@@ -581,16 +581,23 @@ class ContractTest(unittest.TestCase):
         manifest, result = fixture()
         prior_bad_finding = finding('prior:bad-finding')
         prior_bad_decision = finding('prior:bad-decision')
+        prior_deleted = {**finding('prior:deleted'), 'evidence': [{'path': 'deleted.py', 'line': 1}]}
         manifest['previous'] = {
             'records': [
                 {'claim': copy.deepcopy(prior_bad_finding), 'posted': True, 'status': 'keep'},
                 {'claim': copy.deepcopy(prior_bad_decision), 'posted': True, 'status': 'keep'},
+                {'claim': copy.deepcopy(prior_deleted), 'posted': True, 'status': 'keep'},
             ]
         }
         broken_finding = {**copy.deepcopy(prior_bad_finding), 'kind': 'design', 'severity': 'Low'}
         add_finding(result, broken_finding)
         add_finding(result, copy.deepcopy(prior_bad_decision))
         result['decisions'][-1]['decision'] = 'invalid-verdict'
+        add_finding(result, copy.deepcopy(prior_deleted))
+        result['decisions'].append({'finding_id': 'prior:deleted', 'decision': 'resolved'})
+        add_finding(result, finding('dup:question'))
+        result['decisions'][-1].update(decision='question', unknown='What caller?', check='Inspect caller.')
+        result['decisions'].append(copy.deepcopy(result['decisions'][-1]))
         bad_maint = {**finding('maint:bad'), 'kind': 'maintenance', 'severity': 'Low'}
         result['findings'].append(bad_maint)
         add_finding(result, finding('valid:sibling'))
@@ -601,12 +608,20 @@ class ContractTest(unittest.TestCase):
         self.assertNotIn('Maintenance suggestions', review['body'])
         self.assertTrue(any('prior:bad-finding: Only defects have severity' in gap for gap in stats['gaps']))
         self.assertTrue(any('prior:bad-decision: Unknown verification decision' in gap for gap in stats['gaps']))
+        self.assertTrue(
+            any('prior:deleted: Source reference does not exist: deleted.py:1' in gap for gap in stats['gaps'])
+        )
+        self.assertTrue(
+            any('dup:question: Decision has a duplicate or unknown finding ID' in gap for gap in stats['gaps'])
+        )
+        self.assertFalse(any('dup:question: decisive fact remains unresolved' in gap for gap in stats['gaps']))
         self.assertTrue(any('maint:bad: Only defects have severity' in gap for gap in stats['gaps']))
         self.assertFalse(any('prior claim not revalidated' in gap for gap in stats['gaps']))
         state = json.loads(review['body'].split(contract.STATE_MARKER)[1].split('\n-->')[0])
         records_by_id = {r['claim']['id']: r for r in state['records']}
         self.assertEqual(records_by_id['prior:bad-finding']['status'], 'unverified')
         self.assertEqual(records_by_id['prior:bad-decision']['status'], 'unverified')
+        self.assertEqual(records_by_id['prior:deleted']['status'], 'unverified')
         self.assertEqual(records_by_id['valid:sibling']['status'], 'keep')
 
 

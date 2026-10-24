@@ -80,7 +80,9 @@ def check_sync(root: Path, other: Path, base: str | None = None) -> None:
     different = [
         path
         for path in SHARED_FILES
-        if not (other / path).is_file() or (root / path).read_bytes() != (other / path).read_bytes()
+        if not (root / path).is_file()
+        or not (other / path).is_file()
+        or (root / path).read_bytes() != (other / path).read_bytes()
     ]
     if different:
         raise SystemExit('Shared review files differ: ' + ', '.join(different))

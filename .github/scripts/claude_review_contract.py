@@ -298,9 +298,7 @@ def check_decision(
     findings: dict[str, Any],
     invalid_keys: set[str],
     previous: dict[str, Any],
-    closing: set[Any],
     manifest: dict[str, Any],
-    gaps: list[str],
 ) -> tuple[str, dict[str, Any] | None]:
     if not isinstance(decision, dict):
         raise ValueError('Decision must be an object')
@@ -316,7 +314,9 @@ def check_decision(
         raise ValueError('Unknown verification decision')
     text(decision.get('reason'), 'verification reason')
     checked = decision.get('checked')
-    historical = previous.get(key, {}).get('claim') if key in closing else None
+    historical = (
+        previous.get(key, {}).get('claim') if decision['decision'] in {'resolved', 'reject', 'question'} else None
+    )
     validate_claim(checked, manifest, historical)
     assert isinstance(checked, dict)
     if (
@@ -328,7 +328,6 @@ def check_decision(
     if decision['decision'] == 'question':
         text(decision.get('unknown'), 'unknown')
         text(decision.get('check'), 'check')
-        gaps.append(f'{key}: decisive fact remains unresolved')
     if decision['decision'] == 'resolved':
         validate_resolution(key, decision, previous, manifest)
     return key, decision
@@ -398,11 +397,6 @@ def validate(data: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
     findings: dict[str, Any] = {}
     invalid_keys: set[str] = set()
     previous = {r['claim']['id']: r for r in manifest.get('previous', {}).get('records', [])}
-    closing = {
-        d.get('finding_id')
-        for d in data['decisions']
-        if isinstance(d, dict) and d.get('decision') in {'resolved', 'reject', 'question'}
-    }
     for index, claim in enumerate(data['findings'], 1):
         raw_id = claim.get('id') if isinstance(claim, dict) else None
         key = raw_id if isinstance(raw_id, str) and raw_id.strip() else ''
@@ -422,7 +416,7 @@ def validate(data: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
         label = key or f'decision {index}'
         try:
             key, validated_decision = check_decision(
-                decision, seen_decisions, findings, invalid_keys, previous, closing, manifest, gaps
+                decision, seen_decisions, findings, invalid_keys, previous, manifest
             )
             if validated_decision is not None:
                 decisions[key] = validated_decision
@@ -433,6 +427,9 @@ def validate(data: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
                 findings.pop(key, None)
                 decisions.pop(key, None)
                 invalid_keys.add(key)
+    for key, decision in decisions.items():
+        if decision['decision'] == 'question':
+            gaps.append(f'{key}: decisive fact remains unresolved')
     for key, claim in findings.items():
         if claim['kind'] != 'maintenance' and key not in decisions:
             gaps.append(f'{key}: not independently checked; omitted from published findings')
