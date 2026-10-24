@@ -23,8 +23,16 @@ use crate::value::py as vpy;
 use crate::value::{Json, Value};
 
 pub enum UdfImpl {
-    /// Python callables, one per signature; `is_async`: per callable, whether it is a coroutine function
-    Callable { py_fns: Vec<Py<PyAny>>, batch_size: Option<usize>, is_async: Vec<bool>, has_resource_pool: bool },
+    /// Python callables, one per signature; `is_async`: per callable, whether it is a coroutine function;
+    /// `max_concurrency`: at most this many calls run at the same time (`@pxt.udf(max_concurrency=n)`, see
+    /// `exec::dispatch`)
+    Callable {
+        py_fns: Vec<Py<PyAny>>,
+        batch_size: Option<usize>,
+        is_async: Vec<bool>,
+        has_resource_pool: bool,
+        max_concurrency: Option<usize>,
+    },
     /// template expressions, one per signature; parameters appear as `Variable` nodes
     Template { exprs: Vec<ExprRef> },
     /// a query template (`@pxt.query`, `pxt.retrieval_udf()`): parameters appear as `Variable` nodes in the query; a
@@ -270,6 +278,23 @@ fn conditional_return_type(
     })
 }
 
+/// The resource pool of a call of a function that has one (`Function._call_resource_pool()`, from the call's
+/// constant arguments); None if it has none or the pool cannot be determined from the arguments.
+pub fn resource_pool_of(call: &UdfCall, fc: &FunctionCall) -> Result<Option<String>> {
+    let UdfImpl::Callable { has_resource_pool: true, .. } = &call.def.imp else { return Ok(None) };
+    let sig = call.signature().ok_or_else(|| Error::internal("unresolved call"))?;
+    Python::attach(|py| {
+        let bound = PyDict::new(py);
+        for (pi, b) in &call.binding.bound {
+            if let Some(e) = bound_expr(b, &fc.args, &fc.kwargs) {
+                bound.set_item(&sig.params[*pi].name, crate::bindings::expr::PyExpr::new(e.clone()))?;
+            }
+        }
+        let pool = call.def.py_obj.bind(py).call_method1("_call_resource_pool", (call.sig_idx, bound))?;
+        Ok(if pool.is_none() { None } else { Some(pool.extract()?) })
+    })
+}
+
 /// Substitutes `f(node)` for every node for which it returns a replacement. Function calls whose arguments change
 /// are re-bound (their result type may change).
 pub fn substitute(e: &ExprRef, f: &dyn Fn(&Expr) -> Option<ExprRef>) -> Result<ExprRef> {
@@ -468,7 +493,7 @@ pub fn eval_call(call: &UdfCall, fc: &FunctionCall, e: &Expr, ctx: &dyn RowConte
             crate::bail!(InvalidState, "The UDF `{}` cannot be located, because\n{error_msg}", call.def.path_str())
         }
         UdfImpl::Query { spec, return_scalar } => eval_query_call(call, fc, spec, *return_scalar, ctx),
-        UdfImpl::Callable { py_fns, batch_size, is_async, has_resource_pool } => {
+        UdfImpl::Callable { py_fns, batch_size, is_async, has_resource_pool, .. } => {
             if *has_resource_pool && !is_async.get(call.sig_idx).copied().unwrap_or(false) {
                 crate::bail!(
                     InvalidConfiguration,
@@ -630,16 +655,17 @@ pub fn is_interrupt(err: &Error) -> bool {
 }
 
 pub fn is_coroutine(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
-    static ISCORO: OnceLock<Py<PyAny>> = OnceLock::new();
-    let f = match ISCORO.get() {
-        Some(f) => f.bind(py).clone(),
+    // `inspect.iscoroutine()`, without the Python call
+    static CORO: OnceLock<Py<PyAny>> = OnceLock::new();
+    let t = match CORO.get() {
+        Some(t) => t.bind(py).clone(),
         None => {
-            let f = py.import("inspect")?.getattr("iscoroutine")?;
-            let _ = ISCORO.set(f.clone().unbind());
-            f
+            let t = py.import("types")?.getattr("CoroutineType")?;
+            let _ = CORO.set(t.clone().unbind());
+            t
         }
     };
-    Ok(f.call1((obj,))?.is_truthy()?)
+    Ok(obj.is_instance(&t)?)
 }
 
 /// Runs a coroutine returned by an async UDF to completion.

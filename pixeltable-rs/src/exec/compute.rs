@@ -17,7 +17,8 @@ use crate::value::Value;
 
 use super::insert::UpdateStatus;
 use super::propagate::record_version_status;
-use super::scan::{PathInput, eval_into};
+use super::prefetch::CallSlot;
+use super::scan::{PathInput, eval_rows_batch};
 
 /// A computed column to evaluate.
 #[derive(Debug, Clone)]
@@ -48,11 +49,13 @@ impl ComputedCol {
 pub struct RowCells<'a> {
     pub row: &'a StoredRow,
     pub unstored: Option<&'a HashMap<ColId, ExprRef>>,
+    /// the outcomes of prefetched calls for this row (`exec::prefetch`)
+    pub calls: Option<CallSlot<'a>>,
 }
 
 impl<'a> RowCells<'a> {
     pub fn new(row: &'a StoredRow) -> Self {
-        RowCells { row, unstored: None }
+        RowCells { row, unstored: None, calls: None }
     }
 }
 
@@ -70,6 +73,10 @@ impl RowContext for RowCells<'_> {
 
     fn python_semantics(&self) -> bool {
         true
+    }
+
+    fn call_result(&self, e: &crate::expr::Expr) -> Option<Result<Value>> {
+        self.calls?.get(e)
     }
 }
 
@@ -177,22 +184,47 @@ pub fn eval_computed(
     stats: &mut RowCountStats,
     cols_with_excs: &mut Vec<String>,
 ) -> Result<()> {
-    for c in cols {
+    for k in 0..cols.len() {
+        if let Some((k, err)) = eval_computed_row(row, cols, &[k], unstored, None, stats, cols_with_excs)? {
+            if fail_on_exception {
+                return Err(eval_error(&cols[k].expr, err));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Evaluates the columns `cols[k]`, `k` in `which` (in order), into `row`: a failure becomes a NULL cell with the
+/// error recorded, as does a column that reads a cell with an error (it inherits the error). Returns the first
+/// failure that is not inherited (its index in `cols` and the error); an interrupt (a BaseException that is not an
+/// Exception: KeyboardInterrupt, SystemExit) is returned as an error.
+pub fn eval_computed_row(
+    row: &mut StoredRow,
+    cols: &[ComputedCol],
+    which: &[usize],
+    unstored: Option<&HashMap<ColId, ExprRef>>,
+    calls: Option<CallSlot<'_>>,
+    stats: &mut RowCountStats,
+    cols_with_excs: &mut Vec<String>,
+) -> Result<Option<(usize, Error)>> {
+    let mut first: Option<(usize, Error)> = None;
+    for &k in which {
+        let c = &cols[k];
         stats.computed_values += 1;
         let inherited = c.expr.column_refs().iter().find_map(|r| row.error(r.col_id).cloned());
         let outcome: std::result::Result<Value, CellError> = match inherited {
             Some(e) => Err(e),
-            None => match eval(&c.expr, &RowCells { row, unstored }).and_then(|v| c.storable(v)) {
+            None => match eval(&c.expr, &RowCells { row, unstored, calls }).and_then(|v| c.storable(v)) {
                 Ok(v) => Ok(v),
                 Err(err) => {
                     if crate::functions::udf::is_interrupt(&err) {
-                        // a BaseException that is not an Exception (KeyboardInterrupt, SystemExit) aborts as is
                         return Err(err);
                     }
-                    if fail_on_exception {
-                        return Err(eval_error(&c.expr, err));
+                    let cell = cell_error(&err);
+                    if first.is_none() {
+                        first = Some((k, err));
                     }
-                    Err(cell_error(&err))
+                    Err(cell)
                 }
             },
         };
@@ -208,7 +240,122 @@ pub fn eval_computed(
             }
         }
     }
-    Ok(())
+    Ok(first)
+}
+
+/// The column ids `e` reads, also through the value expressions of derived (unstored computed) columns.
+pub fn reads_columns(e: &ExprRef, derived: &dyn Fn(&ColumnRef) -> Option<ExprRef>, out: &mut HashSet<(Uuid, ColId)>) {
+    for r in e.column_refs() {
+        if out.insert((r.tbl_id, r.col_id)) {
+            if let Some(x) = derived(r) {
+                reads_columns(&x, derived, out);
+            }
+        }
+    }
+}
+
+/// The evaluation waves of `cols` (evaluated in this order, a column only reads columns before it): each column is in
+/// the wave after the latest wave of a column of `cols` it reads (directly or through derived columns), so the columns
+/// of a wave do not read each other and their user-function calls can be dispatched together. Each wave lists indices
+/// into `cols`, in order.
+pub fn waves(cols: &[ComputedCol], derived: &dyn Fn(&ColumnRef) -> Option<ExprRef>) -> Vec<Vec<usize>> {
+    let mut wave_of: Vec<usize> = Vec::with_capacity(cols.len());
+    for (k, c) in cols.iter().enumerate() {
+        let mut read = HashSet::new();
+        reads_columns(&c.expr, derived, &mut read);
+        let w = (0..k).filter(|j| read.iter().any(|(_, id)| *id == cols[*j].col_id)).map(|j| wave_of[j] + 1).max().unwrap_or(0);
+        wave_of.push(w);
+    }
+    let n = wave_of.iter().copied().max().map_or(0, |w| w + 1);
+    (0..n).map(|w| (0..cols.len()).filter(|k| wave_of[*k] == w).collect()).collect()
+}
+
+/// `eval_computed()` for a batch of new rows of table `info` (no failure is returned early): wave by wave (`waves()`),
+/// the user-function calls of a wave's columns are made for all rows together (`prefetch`), then the rows are
+/// evaluated in order; a column with window functions is evaluated over the whole batch in window order. With
+/// `fail_on_exception`, rows after the first failing row are skipped in later waves. Returns the first failure in
+/// sequential order (row, then column; inherited errors excluded) as (row, index in `cols`, error).
+pub fn eval_computed_batch(
+    rows: &mut [StoredRow],
+    cols: &[ComputedCol],
+    unstored: &HashMap<ColId, ExprRef>,
+    info: &super::scan::ElemInfo,
+    fail_on_exception: bool,
+    stats: &mut RowCountStats,
+    cols_with_excs: &mut Vec<String>,
+) -> Result<Option<(usize, usize, Error)>> {
+    let derived = |c: &ColumnRef| if c.tbl_id == info.tbl_id { unstored.get(&c.col_id).cloned() } else { None };
+    let mut first: Option<(usize, usize, Error)> = None;
+    let mut limit = rows.len();
+    let earlier = |first: &Option<(usize, usize, Error)>, r: usize, k: usize| first.as_ref().is_none_or(|(fr, fk, _)| (r, k) < (*fr, *fk));
+    for wave in waves(cols, &derived) {
+        let (windowed, plain): (Vec<usize>, Vec<usize>) =
+            wave.into_iter().partition(|k| super::query::has_window_calls(&cols[*k].expr));
+        if !plain.is_empty() {
+            let exprs: Vec<&ExprRef> = plain.iter().map(|k| &cols[*k].expr).collect();
+            let calls = {
+                let rows: &[StoredRow] = rows;
+                super::prefetch::prefetch(&exprs, &derived, limit, fail_on_exception, &|i, slot, f| {
+                    f(&RowCells { row: &rows[i], unstored: Some(unstored), calls: Some(slot) })
+                })?
+            };
+            for i in 0..limit {
+                let slot = calls.as_ref().map(|results| CallSlot { results, row: i });
+                if let Some((k, err)) = eval_computed_row(&mut rows[i], cols, &plain, Some(unstored), slot, stats, cols_with_excs)? {
+                    if fail_on_exception {
+                        if earlier(&first, i, k) {
+                            first = Some((i, k, err));
+                        }
+                        limit = i + 1;
+                        break;
+                    }
+                }
+            }
+        }
+        for k in windowed {
+            let col = &cols[k];
+            let results = {
+                let paths: Vec<Vec<&StoredRow>> = rows.iter().map(|r| vec![r]).collect();
+                super::query::eval_rows_with_windows(&[info], &paths, &col.expr, true)?
+            };
+            for (i, (row, res)) in rows.iter_mut().zip(results).enumerate() {
+                stats.computed_values += 1;
+                match res {
+                    Ok(v) => row.set_cell(col.col_id, v),
+                    Err(err) => {
+                        if crate::functions::udf::is_interrupt(&err) {
+                            return Err(err);
+                        }
+                        stats.num_excs += 1;
+                        if !cols_with_excs.contains(&col.name) {
+                            cols_with_excs.push(col.name.clone());
+                        }
+                        row.set_cell(col.col_id, Value::Null);
+                        row.set_error(col.col_id, Some(cell_error(&err)));
+                        if fail_on_exception && earlier(&first, i, k) {
+                            first = Some((i, k, err));
+                            limit = limit.min(i + 1);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(first)
+}
+
+/// The names of the columns with errors in `rows`, in the order in which row-by-row evaluation meets them (row by row,
+/// columns in the order of `cols`): what `cols_with_excs` holds after sequential evaluation.
+pub fn errors_in_order(rows: &[StoredRow], cols: &[(ColId, String)]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for row in rows {
+        for (col_id, name) in cols {
+            if row.error(*col_id).is_some() && !out.contains(name) {
+                out.push(name.clone());
+            }
+        }
+    }
+    out
 }
 
 /// Everything `add_computed_column()` needs, captured under the lock.
@@ -325,13 +472,18 @@ impl AddComputedPlan {
             }
             return Ok(out);
         }
-        for r in path_rows {
-            stats.upd_rows += 1;
-            let mut row = r[0].clone();
-            eval_into(&mut row, std::slice::from_ref(&col), &infos, &r[1..], &self.tbl_name, false, stats, cols_with_excs)?;
-            if let Some(err) = row.error(col.col_id).filter(|_| fail_on_exception) {
+        let mut rows: Vec<StoredRow> = path_rows.iter().map(|r| r[0].clone()).collect();
+        let bases: Vec<&[&StoredRow]> = path_rows.iter().map(|r| &r[1..]).collect();
+        stats.upd_rows += rows.len() as i64;
+        let cols = std::slice::from_ref(&col);
+        eval_rows_batch(&mut rows, &bases, cols, &infos, &self.tbl_name, fail_on_exception, stats, cols_with_excs)?;
+        if fail_on_exception {
+            // the error of the first row that failed (also an error it inherits from a cell it reads)
+            if let Some(err) = rows.iter().find_map(|r| r.error(col.col_id)) {
                 return Err(self.abort_error(err));
             }
+        }
+        for mut row in rows {
             if col.is_media {
                 self.media.materialize(&mut row, col.col_id, saved)?;
             }

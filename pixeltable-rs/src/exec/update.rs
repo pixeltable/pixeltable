@@ -19,7 +19,7 @@ use uuid::Uuid;
 use super::compute::{ComputedCol, MediaTarget, discard_media};
 use super::insert::UpdateStatus;
 use super::propagate::{ViewCompute, record_version_status};
-use super::scan::{ElemInfo, PathCtx, PathInput, eval_into, eval_rows_into};
+use super::scan::{ElemInfo, PathCtx, PathInput, eval_rows_into};
 use crate::catalog::Catalog;
 use crate::catalog::table::{ColId, TableMd};
 use crate::error::{Result, py_repr};
@@ -293,8 +293,9 @@ impl UpdatePlan {
         let mut own = TableChanges::default();
         let mut olds: Vec<Vec<&StoredRow>> = Vec::new();
         let mut matched: HashSet<RowKey> = HashSet::new();
-        // columns computed with window functions are recomputed over all updated rows, in window order
-        let windows = self.recompute.iter().any(|c| super::query::has_window_calls(&c.expr));
+        // with fail_on_exception: the failure of the first row whose new values could not be computed (rows after it
+        // are not updated; a computed column's failure in an earlier row comes first)
+        let mut value_error: Option<crate::error::Error> = None;
         for r in self.path.rows()? {
             let key: RowKey = (r[0].rowid, r[0].pos.clone());
             if self.errors_only.is_some_and(|c| r[0].error(c).is_none()) {
@@ -303,12 +304,23 @@ impl UpdatePlan {
             let values: Vec<(ColId, Value)> = match &self.selection {
                 RowSelection::Where { pred, targets } => {
                     let ctx = PathCtx::new(&infos, &r);
-                    if let Some(p) = pred {
-                        if !eval_predicate(p, &ctx)? {
-                            continue;
+                    let values = (|| -> Result<Option<Vec<(ColId, Value)>>> {
+                        if let Some(p) = pred {
+                            if !eval_predicate(p, &ctx)? {
+                                return Ok(None);
+                            }
                         }
+                        Ok(Some(targets.iter().map(|(c, e)| Ok((*c, eval(e, &ctx)?))).collect::<Result<_>>()?))
+                    })();
+                    match values {
+                        Ok(Some(v)) => v,
+                        Ok(None) => continue,
+                        Err(err) if fail_on_exception && !crate::functions::udf::is_interrupt(&err) => {
+                            value_error = Some(err);
+                            break;
+                        }
+                        Err(err) => return Err(err),
                     }
-                    targets.iter().map(|(c, e)| Ok((*c, eval(e, &ctx)?))).collect::<Result<_>>()?
                 }
                 RowSelection::Keys(rows) => match rows.get(&key) {
                     Some(v) => {
@@ -324,42 +336,29 @@ impl UpdatePlan {
                 row.set_error(c, None);
                 self.media.materialize(&mut row, c, saved)?;
             }
-            if !windows {
-                eval_into(
-                    &mut row,
-                    &self.recompute,
-                    &infos,
-                    &r[1..],
-                    &self.tbl_name,
-                    fail_on_exception,
-                    &mut own.status.row_count_stats,
-                    &mut own.status.cols_with_excs,
-                )?;
-                for c in self.recompute.iter().filter(|c| c.is_media) {
-                    self.media.materialize(&mut row, c.col_id, saved)?;
-                }
-            }
             own.status.row_count_stats.upd_rows += 1;
             own.retire.insert(key);
             own.new_rows.push(row);
             olds.push(r);
         }
-        if windows {
-            let bases: Vec<&[&StoredRow]> = olds.iter().map(|o| &o[1..]).collect();
-            eval_rows_into(
-                &mut own.new_rows,
-                &bases,
-                &self.recompute,
-                &infos,
-                &self.tbl_name,
-                fail_on_exception,
-                &mut own.status.row_count_stats,
-                &mut own.status.cols_with_excs,
-            )?;
-            for row in own.new_rows.iter_mut() {
-                for c in self.recompute.iter().filter(|c| c.is_media) {
-                    self.media.materialize(row, c.col_id, saved)?;
-                }
+        // the computed columns of all updated rows together (columns with window functions in window order)
+        let bases: Vec<&[&StoredRow]> = olds.iter().map(|o| &o[1..]).collect();
+        eval_rows_into(
+            &mut own.new_rows,
+            &bases,
+            &self.recompute,
+            &infos,
+            &self.tbl_name,
+            fail_on_exception,
+            &mut own.status.row_count_stats,
+            &mut own.status.cols_with_excs,
+        )?;
+        if let Some(err) = value_error {
+            return Err(err);
+        }
+        for row in own.new_rows.iter_mut() {
+            for c in self.recompute.iter().filter(|c| c.is_media) {
+                self.media.materialize(row, c.col_id, saved)?;
             }
         }
         let unmatched = match &self.selection {
@@ -484,9 +483,9 @@ fn compute_view_changes(
         }
         let rewrites = node.membership_change || node.reload || !node.recompute.is_empty();
         let mut ch = TableChanges::default();
-        // columns computed with window functions are recomputed over all of the view's updated rows: (index in
-        // `ch.new_rows`, index of its base change) of each row that awaits that
-        let windows = node.recompute.iter().any(|c| super::query::has_window_calls(&c.expr));
+        // the dependent columns are recomputed over all of the view's updated rows together (user-function calls
+        // dispatched together, window functions in window order): (index in `ch.new_rows`, index of its base change)
+        // of each row that awaits that
         let mut pending: Vec<(usize, usize)> = Vec::new();
         // (view row key, the row as the view's views see it, index of its base change)
         let mut child_bases: Vec<(RowKey, ChildBase<'_>, usize)> = Vec::new();
@@ -528,12 +527,8 @@ fn compute_view_changes(
             if node.compute.info.iterator.is_some() {
                 // a component view whose rows stay: recompute the dependent columns of each
                 for o in olds {
-                    let mut row = o.clone();
-                    if windows {
-                        pending.push((ch.new_rows.len(), ci));
-                    } else {
-                        node.compute.eval_columns(&mut row, &node.recompute, base_infos, bp, &mut ch.status, saved, false)?;
-                    }
+                    let row = o.clone();
+                    pending.push((ch.new_rows.len(), ci));
                     ch.status.row_count_stats.upd_rows += 1;
                     ch.retire.insert((o.rowid, o.pos.clone()));
                     child_bases.push(((o.rowid, o.pos.clone()), ChildBase::New(ch.new_rows.len()), ci));
@@ -545,12 +540,8 @@ fn compute_view_changes(
             let present = if node.membership_change { node.compute.accepts(base_infos, bp)? } else { old.is_some() };
             match (old, present) {
                 (Some(o), true) => {
-                    let mut row = o.clone();
-                    if windows {
-                        pending.push((ch.new_rows.len(), ci));
-                    } else {
-                        node.compute.eval_columns(&mut row, &node.recompute, base_infos, bp, &mut ch.status, saved, false)?;
-                    }
+                    let row = o.clone();
+                    pending.push((ch.new_rows.len(), ci));
                     ch.status.row_count_stats.upd_rows += 1;
                     ch.retire.insert(key.clone());
                     child_bases.push((key.clone(), ChildBase::New(ch.new_rows.len()), ci));

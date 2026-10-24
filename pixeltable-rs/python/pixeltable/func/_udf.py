@@ -80,6 +80,7 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
     resource_pool = kwargs.pop('resource_pool', None)
     type_substitutions = kwargs.pop('type_substitutions', None)
     display_name = kwargs.pop('display_name', None)
+    max_concurrency = kwargs.pop('max_concurrency', None)
     force_stored = kwargs.pop('_force_stored', False)
     if len(kwargs) > 0:
         raise excs.RequestError(
@@ -99,6 +100,7 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
             resource_pool=resource_pool,
             type_substitutions=type_substitutions,
             display_name=display_name,
+            max_concurrency=max_concurrency,
             force_stored=force_stored,
             from_decorator=True,
         )
@@ -119,10 +121,16 @@ def make_function(
     type_substitutions: Sequence[dict] | None = None,
     function_name: str | None = None,
     display_name: str | None = None,
+    max_concurrency: int | None = None,
     force_stored: bool = False,
     from_decorator: bool = False,
 ) -> CallableFunction:
-    """Constructs a `CallableFunction`; with `substitute_fn`, `decorated_fn` supplies only the signature."""
+    """Constructs a `CallableFunction`; with `substitute_fn`, `decorated_fn` supplies only the signature.
+
+    `max_concurrency`: at most this many calls of the function run at the same time (default: no limit for sync
+    functions beyond the UDF thread pool, `udf_async_concurrency` for async ones); 1 runs the calls one at a time, in
+    row order, in the thread that evaluates the expression (for functions that are not thread-safe).
+    """
     defined_in_script = False
     function_path: str | None
     if force_stored:
@@ -140,6 +148,13 @@ def make_function(
     if function_name is None:
         function_name = decorated_fn.__name__
     errmsg_name = function_name if function_path is None else function_path
+    if max_concurrency is not None and (
+        not isinstance(max_concurrency, int) or isinstance(max_concurrency, bool) or max_concurrency < 1
+    ):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'{errmsg_name}(): max_concurrency must be a positive integer, got {max_concurrency!r}',
+        )
 
     if defined_in_script:
         raise excs.RequestError(
@@ -225,6 +240,7 @@ def make_function(
         is_method=bool(is_method),
         is_property=bool(is_property),
         is_deterministic=True if is_deterministic is None else is_deterministic,
+        max_concurrency=max_concurrency,
     )
     if resource_pool is not None:
         result.resource_pool(lambda: resource_pool)

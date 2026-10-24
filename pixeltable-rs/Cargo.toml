@@ -26,6 +26,8 @@ indexmap = { version = "2", features = ["serde"] }
 fancy-regex = "0.14"
 chrono-tz = "0.10"
 unicode-normalization = "0.1"
+toml = { version = "0.8", default-features = false, features = ["parse"] }
+rayon = "1.10"
 
 [profile.release]
 opt-level = 3

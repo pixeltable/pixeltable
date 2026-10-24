@@ -24,6 +24,7 @@ would pick up upstream.
 src/
   lib.rs            module declarations + #[pymodule] _core (nothing else)
   error.rs          ErrorCode (mirrors the Python enum by name), Error, pxt_err!/bail!, py_repr()
+  config.rs         configuration values (environment variable `<SECTION>_<KEY>`, then `$PIXELTABLE_HOME/config.toml`)
   types.rs          ColumnType = TypeKind + nullable: matches, supertype, repr, as_dict/from_dict, array subscripts
   value.rs          Value (cell values), NdArray, ordering/equality (Postgres semantics), py_float_repr
   value/py.rs       Python <-> Value: coerce() (create_literal), validate() (validate_literal), infer_literal(),
@@ -57,7 +58,10 @@ src/
   exec/insert.rs    insert pipeline: InsertPlan -> build_rows -> commit (propagates to views)
   exec/propagate.rs ViewCompute (a view's rows from base path rows), ViewNode (live view tree), insert propagation
   exec/update.rs    update/batch_update/recompute_columns (UpdatePlan: plan -> compute -> commit), delete, propagation
-  exec/compute.rs   computed columns: eval_computed(), AddComputedPlan (plan -> compute -> commit)
+  exec/compute.rs   computed columns: eval_computed(), eval_computed_batch() (waves), AddComputedPlan (plan -> compute ->
+                    commit)
+  exec/prefetch.rs  batched evaluation, phase A: user-function calls of a batch of rows made before row evaluation
+  exec/dispatch.rs  running those calls: UDF worker pool, async event loop, batches, resource pools
   exec/compute_rows.rs Table.compute(): rows a table would hold for some input rows, nothing stored
   exec/index.rs     AddIndexPlan: embeddings of existing rows for a new embedding index
   bindings/         PyO3 glue only: types.rs (_core.ColumnType), expr.rs (_core.Expr, MethodRef), catalog.rs
@@ -203,9 +207,11 @@ parameter. The node is a `FunctionCall` whose `FuncRef::Udf` holds a `UdfCall` (
 `is_method_call`, for templates the instantiated expression, and `validation_error` for stored calls that no longer
 match the code). `Expr.fn` returns the resolved Python `Function`.
 
-Evaluation (`udf::eval_call`): NULL arguments of non-nullable parameters yield NULL without calling; the Python
-callable gets `value::py::to_py` values (batched UDFs get singleton batches; coroutines run via
-`pixeltable.func._runtime`); the result goes through `value::py::coerce`. A Python exception propagates as
+Evaluation: calls in the expressions of a batch of rows are made ahead of row evaluation (see "Concurrency of user
+code"); `udf::eval_call` makes the calls that are not (single rows, calls inside a JSON mapper's target): NULL
+arguments of non-nullable parameters yield NULL without calling; the Python callable gets `value::py::to_py` values
+(batched UDFs get singleton batches; coroutines run on `pixeltable.func._runtime`'s event loop); the result goes through
+`value::py::coerce`. A Python exception propagates as
 `Error::Python`, so `on_error='ignore'` records `errortype` = its class name and `errormsg` = `str(exc)`. Templates
 evaluate their instantiated expression (`udf::substitute` replaces `Variable`s and re-binds nested calls).
 
@@ -258,6 +264,46 @@ builtin iterators (`BuiltinIterator` entries in `iterator.rs::BUILTIN_ITERATORS`
 (`func._iterator.BuiltinGeneratingFunction`, which the generated stubs return for upstream iterator classes (`_cls`)
 and `@pxt.iterator` functions (`_fn`) alike) are resolved by path like Python iterators. A NULL argument for a non-nullable parameter yields no rows. Test hooks:
 `_core._iterator_rows(call, {col: value})` and `_core._iterator_seek(call, {col: value}, pos, stored)`.
+
+## Concurrency of user code
+
+Expressions are evaluated over batches of rows in two phases. Phase A (`exec::prefetch::prefetch()`) collects the
+dispatchable call nodes of the expressions: calls of Python callables, also inside the value expressions of unstored
+computed columns they read, but not inside a JSON mapper's target or an aggregate's arguments. Each node gets a level (0
+if its arguments hold no other such node, else one more than the highest among them); level by level, the arguments of
+every node are evaluated for every row and all calls of the level are run together by `exec::dispatch::run()`, so
+independent calls (different columns or sub-expressions) overlap. Phase B is ordinary row-at-a-time evaluation:
+contexts carry a `CallSlot` and `RowContext::call_result()` hands each call's outcome to `expr::eval`. Computed columns
+are evaluated in waves (`compute::waves()`: a column is one wave after the latest column of the batch it reads,
+directly or through unstored columns), each wave with its own phase A (`compute::eval_computed_batch()` for inserts,
+`scan::eval_rows_batch()` for add_computed_column, updates, view rows and index values); queries prefetch the calls of
+their where clause, grouping and aggregate arguments, ordering and select list.
+
+`dispatch::run()` runs the calls of a level: sync functions on a pool of worker threads (Rust threads with a Python
+thread state, attached only while they run a call; `udf_threads`), async functions as tasks on one persistent event
+loop thread (`func/_runtime.py`; at most `max_concurrency`, default `udf_async_concurrency`, in flight per function),
+batched functions in batches of `batch_size` (several in flight). The dispatching thread is detached from the
+interpreter while it waits (and checks signals every 50 ms). Sync calls start in the dispatching thread; only calls
+slower than 50 us get workers, and a probe of the first worker calls compares their summed duration with the elapsed
+time: calls that do not overlap (pure-Python CPU work holding the GIL) go back to the dispatching thread, one after the
+other. Resource pools (`resource_pool=`, async functions only, as upstream): `request-rate:<endpoint>[:<model>]` starts
+at most `rate_limit` requests per minute (config `<endpoint>.rate_limit` / `<endpoint>.rate_limits.<model>`, default
+600), `rate-limits:...` only limits concurrency (upstream's provider-reported limits need its internal `Env`); failed
+calls that look retryable (`_runtime.retry_info()`, upstream's `is_retryable_error()`) are retried with upstream's
+delays (3 resp. 10 times), and a pool starts no new request while a retry is pending.
+
+The contract, which every phase-B caller relies on:
+- outcomes equal sequential evaluation: each row gets its value or its error (a failed batch fails each of its rows);
+  `cols_with_excs` lists columns in the order row-by-row evaluation meets them;
+- with `on_error='abort'` (and in queries) the error is that of the first failing row in row order, then column order
+  (`eval_computed_batch()`/`eval_rows_batch()` return it); calls for rows after a failed row are not started, and
+  phase B evaluates (calls) what it still needs itself if a failure was not consulted (`&`/`|`);
+- a call is made even where `&`/`|` would not need it (upstream evaluates every sub-expression of a row too);
+- an interrupt (a BaseException that is not an Exception, raised by a call or delivered to the main thread while it
+  waits) cancels the outstanding work and propagates at once;
+- calls run sequentially in the evaluating thread, in row order, when `udf_threads` is 1, for a function with
+  `max_concurrency=1`, and for nested evaluation (from a worker thread, or while the catalog lock is held), which
+  must not wait for the pool.
 
 ## Catalog, storage and versioning
 

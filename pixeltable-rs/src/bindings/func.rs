@@ -86,7 +86,14 @@ impl PyUdf {
                 let iscoro = py_obj.py().import("inspect")?.getattr("iscoroutinefunction")?;
                 let is_async: Vec<bool> =
                     py_fns.iter().map(|f| Ok(iscoro.call1((f.bind(py_obj.py()),))?.is_truthy()?)).collect::<Result<_>>()?;
-                UdfImpl::Callable { py_fns, batch_size, is_async, has_resource_pool: flag("has_resource_pool")? }
+                let max_concurrency: Option<usize> = spec_item(spec, "max_concurrency")?.map(|v| v.extract()).transpose()?;
+                UdfImpl::Callable {
+                    py_fns,
+                    batch_size,
+                    is_async,
+                    has_resource_pool: flag("has_resource_pool")?,
+                    max_concurrency: max_concurrency.filter(|n| *n >= 1),
+                }
             }
             "template" => {
                 let mut exprs = Vec::new();
@@ -524,4 +531,13 @@ impl PyUda {
 #[pyfunction]
 pub fn builtin_agg_names() -> Vec<String> {
     crate::functions::agg::builtin_agg_names()
+}
+
+/// Overrides the UDF dispatch configuration of this process (`exec::dispatch`: worker threads for sync UDFs, the
+/// default limit of in-flight calls of an async UDF); None keeps a value. Returns the values now in effect.
+#[pyfunction]
+#[pyo3(signature = (threads=None, async_concurrency=None))]
+pub fn configure_udf_dispatch(threads: Option<usize>, async_concurrency: Option<usize>) -> (usize, usize) {
+    crate::exec::dispatch::configure(threads, async_concurrency);
+    (crate::exec::dispatch::udf_threads(), crate::exec::dispatch::async_concurrency())
 }

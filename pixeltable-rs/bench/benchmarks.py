@@ -159,6 +159,14 @@ def bench_py_cpu_tiny() -> float:
     return _insert_with(py_tiny, 100_000)
 
 
+def bench_py_cpu_tiny_select() -> float:
+    """select: trivial pure-Python UDF (call overhead, no storage), 100,000 rows (best of 3)"""
+    import pandas as pd
+
+    t = pxt.create_table('t', source=pd.DataFrame({'x': range(100_000)}))
+    return _best_of(lambda: t.select(y=py_tiny(t.x)).collect())
+
+
 def bench_async_sleep() -> float:
     """computed column on insert: async UDF awaiting asyncio.sleep(0.05), 1,000 rows"""
     return _insert_with(async_sleep, 1000)
