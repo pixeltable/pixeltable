@@ -87,19 +87,37 @@ pub struct UpdatePlan {
     pub writes_rows: bool,
     /// where in-memory media values and results are written
     pub media: MediaTarget,
+    /// false: the views are not revisited (`cascade=False`)
+    pub cascade: bool,
 }
 
 /// The stored computed columns of `md` (current schema) that depend, transitively, on a column in `changed`, in
 /// dependency order; their ids are added to `changed`.
 pub fn dependent_columns(md: &TableMd, changed: &mut HashSet<QCol>) -> Result<Vec<ComputedCol>> {
     let mut candidates: Vec<(ComputedCol, Vec<QCol>)> = Vec::new();
-    for c in md.columns_at(None)? {
+    let visible = md.columns_at(None)?;
+    let mut stored: HashSet<ColId> = visible.iter().filter(|c| c.md.stored).map(|c| c.md.id).collect();
+    for c in &visible {
         if let Some(e) = &c.md.value_expr {
             let expr = crate::expr::serde::from_json(e)?;
             let refs: Vec<QCol> = expr.column_refs().iter().map(|r| (r.tbl_id, r.col_id)).collect();
             let is_media = c.md.col_type.is_media();
             candidates.push((ComputedCol { col_id: c.md.id, name: c.name.clone(), expr, is_media }, refs));
         }
+    }
+    // the hidden value columns of embedding indexes (named `<column>:<index>`) follow their indexed column
+    for idx in &md.indexes.list {
+        let Some(val_col_id) = idx.val_col_id() else { continue };
+        let (Some(val_col), Some(indexed)) = (md.column(val_col_id), visible.iter().find(|c| c.md.id == idx.col_id && idx.col_tbl_id == md.id))
+        else {
+            continue;
+        };
+        let Some(e) = &val_col.value_expr else { continue };
+        let expr = crate::expr::serde::from_json(e)?;
+        let refs: Vec<QCol> = expr.column_refs().iter().map(|r| (r.tbl_id, r.col_id)).collect();
+        let name = format!("{}:{}", indexed.name, idx.name);
+        candidates.push((ComputedCol { col_id: val_col_id, name, expr, is_media: false }, refs));
+        stored.insert(val_col_id);
     }
     // the dependents (unstored columns propagate the dependency but are not recomputed)
     let mut selected: HashSet<ColId> = HashSet::new();
@@ -117,7 +135,6 @@ pub fn dependent_columns(md: &TableMd, changed: &mut HashSet<QCol>) -> Result<Ve
         }
     }
     // dependency order: a column comes after the selected columns it references
-    let stored: HashSet<ColId> = md.columns_at(None)?.iter().filter(|c| c.md.stored).map(|c| c.md.id).collect();
     let mut ordered: Vec<ComputedCol> = Vec::new();
     let mut done: HashSet<ColId> = HashSet::new();
     while done.len() < selected.len() {
@@ -376,6 +393,9 @@ impl UpdatePlan {
                 "The schema of table {} changed while the update was being prepared; retry",
                 py_repr(&self.tbl_name)
             );
+        }
+        if !self.cascade {
+            return Ok(());
         }
         check_views_unchanged(cat, self.tbl_id, &self.views)
     }

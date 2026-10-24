@@ -26,10 +26,12 @@ pub struct ViewCompute {
     pub predicate: Option<ExprRef>,
     /// the stored computed columns, in schema order
     pub computed: Vec<ComputedCol>,
-    /// where in-memory media results are written
-    pub media: MediaTarget,
+    /// where in-memory media results are written (None: they stay in memory, `Table.compute()`)
+    pub media: Option<MediaTarget>,
     /// `info` with the iterator's unstored outputs read from the row's cells (for rows being generated)
     pub compute_info: ElemInfo,
+    /// true: an evaluation error is an error (`compute(on_error='abort')`), else a cell error
+    pub fail_on_exception: bool,
 }
 
 impl ViewCompute {
@@ -55,7 +57,7 @@ impl ViewCompute {
         let media = MediaTarget { tbl_id: md.id, dir: media_dir, version: md.current_version + 1 };
         let info = ElemInfo::of(md, None)?;
         let compute_info = info.with_materialized_outputs();
-        Ok(ViewCompute { info, name: md.name.clone(), predicate, computed, media, compute_info })
+        Ok(ViewCompute { info, name: md.name.clone(), predicate, computed, media: Some(media), compute_info, fail_on_exception: false })
     }
 
     /// True if the base path row passes the view's filter.
@@ -83,9 +85,11 @@ impl ViewCompute {
         let mut infos: Vec<&ElemInfo> = Vec::with_capacity(base_infos.len() + 1);
         infos.push(if materialized { &self.compute_info } else { &self.info });
         infos.extend_from_slice(base_infos);
-        eval_into(row, cols, &infos, base, &self.name, false, &mut status.row_count_stats, &mut status.cols_with_excs)?;
-        for c in cols.iter().filter(|c| c.is_media) {
-            self.media.materialize(row, c.col_id, saved)?;
+        eval_into(row, cols, &infos, base, &self.name, self.fail_on_exception, &mut status.row_count_stats, &mut status.cols_with_excs)?;
+        if let Some(media) = &self.media {
+            for c in cols.iter().filter(|c| c.is_media) {
+                media.materialize(row, c.col_id, saved)?;
+            }
         }
         Ok(())
     }
@@ -119,10 +123,10 @@ impl ViewCompute {
             }
             self.eval_columns(&mut row, &self.computed, base_infos, base, status, saved, true)?;
             for (col_id, _, stored) in &it.outputs {
-                if *stored {
-                    self.media.materialize(&mut row, *col_id, saved)?;
-                } else {
+                if !*stored {
                     row.set_cell(*col_id, crate::value::Value::Null);
+                } else if let Some(media) = &self.media {
+                    media.materialize(&mut row, *col_id, saved)?;
                 }
             }
             status.row_count_stats.ins_rows += 1;

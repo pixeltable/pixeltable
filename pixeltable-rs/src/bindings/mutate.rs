@@ -195,7 +195,7 @@ fn build_plan(
     for c in &recompute {
         crate::functions::udf::check_valid_column(&tbl_display, &c.name, &c.expr, "updated in")?;
     }
-    for c in &recompute {
+    for c in recompute.iter().filter(|c| !c.name.contains(':')) {
         let q = format!("{}.{}", md.name, c.name);
         if !updated_cols.contains(&q) {
             updated_cols.push(q);
@@ -222,12 +222,27 @@ fn build_plan(
             dir: cat.store().media_dir(tbl_id),
             version: md.current_version + 1,
         },
+        cascade,
     })
 }
 
-/// The visible columns of `tbl_id` as (name, column reference) pairs, for `return_rows`.
+/// The stored columns of `tbl_id` (with the hidden value columns of its indexes, named `<column>:<index>`) as
+/// (name, column reference) pairs, for `return_rows`.
 fn return_columns(cat: &Catalog, tbl_id: Uuid) -> Result<Vec<(String, ExprRef)>> {
-    Ok(cat.resolve_columns(tbl_id, None)?.iter().map(|c| (c.name.clone(), crate::exec::column_ref_expr(c, None))).collect())
+    let md = cat.table(tbl_id)?;
+    let visible = md.columns_at(None)?;
+    let mut out: Vec<(String, ExprRef)> =
+        visible.iter().filter(|c| c.md.stored).map(|c| (c.name.clone(), crate::exec::column_ref_expr(c, None))).collect();
+    for idx in &md.indexes.list {
+        let Some(val_col_id) = idx.val_col_id() else { continue };
+        let (Some(val_col), Some(indexed)) = (md.column(val_col_id), visible.iter().find(|c| c.md.id == idx.col_id)) else {
+            continue;
+        };
+        let name = format!("{}:{}", indexed.name, idx.name);
+        let r = crate::expr::ColumnRef { tbl_id, col_id: val_col_id, name: name.clone(), tbl_version: None };
+        out.push((name, Expr::new(crate::expr::ExprKind::ColumnRef(r), val_col.col_type.clone())));
+    }
+    Ok(out)
 }
 
 /// Rows of values as a Python list of dicts.
@@ -685,6 +700,7 @@ pub fn tbl_alter_computed_column<'py>(
                 spec.get_type().str()?
             );
         };
+        crate::catalog::tables::check_no_cellmd_refs(&new_expr)?;
         let path = cat.tbl_path(id, None)?;
         if !cat.is_bound_by(&new_expr, &path)? {
             crate::bail!(

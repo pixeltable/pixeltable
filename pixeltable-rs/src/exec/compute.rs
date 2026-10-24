@@ -249,7 +249,7 @@ impl AddComputedPlan {
         }
         let col = ComputedCol {
             col_id: self.eval_col_id,
-            name: format!("{}.{}", self.tbl_name, self.spec.name),
+            name: self.spec.name.clone(),
             expr: self.expr.clone(),
             is_media: self.spec.col_type.is_media(),
         };
