@@ -148,6 +148,11 @@ class Comparison(Expr):
         left = data_row[self._op1.slot_idx]
         right = data_row[self._op2.slot_idx]
 
+        if left is None or right is None:
+            # SQL three-valued logic: a comparison with a NULL operand evaluates to NULL, which a
+            # where() predicate treats as not matching
+            data_row[self.slot_idx] = None
+            return
         if self.operator == ComparisonOperator.LT:
             data_row[self.slot_idx] = left < right
         elif self.operator == ComparisonOperator.LE:

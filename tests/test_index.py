@@ -1423,6 +1423,13 @@ class TestIndex:
                 f'precomputed_embeddings({idx_name}): similarity scores must be descending; got {sim_vals}'
             )
 
+        # an index on an array column has no embedding function; metadata and describe still report it
+        t.describe()
+        params = t.get_metadata()['indexes']['emb_idx_stored64']['parameters']
+        assert params is not None
+        assert params['embedding'] == 'precomputed_embeddings_f64'
+        assert params['embedding_functions'] == []
+
         reload_tester.run_reload_test()
 
     @staticmethod

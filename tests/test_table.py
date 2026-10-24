@@ -3521,6 +3521,29 @@ class TestTable:
         msgs = t.select(msg=t.add1.errormsg).collect()['msg']
         assert sum('division by zero' in msg for msg in msgs if msg is not None) == 10
 
+    @staticmethod
+    @pxt.udf
+    def wrong_return_type(s: str) -> str:
+        return [s]  # type: ignore[return-value]
+
+    def test_computed_col_return_type(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        # a UDF result that doesn't match its declared return type must not reach the database
+        t = pxt.create_table(p('test_ret_type'), {'s': pxt.String})
+        t.insert([{'s': 'a'}, {'s': 'b'}])
+
+        # on_error='abort' (the default) raises a clean Pixeltable error, not a psycopg error
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='returned an invalid value'):
+            t.add_computed_column(bad=self.wrong_return_type(t.s))
+
+        # on_error='ignore' records a per-row error
+        status = t.add_computed_column(bad=self.wrong_return_type(t.s), on_error='ignore')
+        assert status.num_excs == 2
+        assert 'test_ret_type.bad' in status.cols_with_excs
+        assert t.where(t.bad.errortype != None).count() == 2
+        msgs = t.select(msg=t.bad.errormsg).collect()['msg']
+        assert all('returned an invalid value' in msg for msg in msgs)
+
     # TODO: cannot be converted: KeyboardInterrupt injection is client-process-local and does not reach the daemon
     @pytest.mark.db_roots(
         'local', reason='KeyboardInterrupt injection is client-process-local and does not reach the daemon'

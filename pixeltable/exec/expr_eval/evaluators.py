@@ -239,9 +239,18 @@ class FnCallEvaluator(Evaluator):
             self.dispatcher.dispatch_exc(batched_call_args.rows, self.fn_call.slot_idx, exc_tb, self.eval_ctx)
             return
 
+        rows_with_excs: set[int] = set()  # records idxs into batched_call_args.rows
         for i, row in enumerate(batched_call_args.rows):
-            row[self.fn_call.slot_idx] = result_batch[i]
-        self.dispatcher.dispatch(batched_call_args.rows, self.eval_ctx)
+            try:
+                row[self.fn_call.slot_idx] = self.fn_call.check_return_value(result_batch[i])
+            except Exception as exc:
+                _, _, exc_tb = sys.exc_info()
+                row.set_exc(self.fn_call.slot_idx, exc)
+                rows_with_excs.add(i)
+                self.dispatcher.dispatch_exc([row], self.fn_call.slot_idx, exc_tb, self.eval_ctx)
+        self.dispatcher.dispatch(
+            [row for i, row in enumerate(batched_call_args.rows) if i not in rows_with_excs], self.eval_ctx
+        )
 
     async def eval_async(self, call_args: FnCallArgs) -> None:
         assert len(call_args.rows) == 1
@@ -252,7 +261,9 @@ class FnCallEvaluator(Evaluator):
             start_ts = datetime.datetime.now()
             _logger.debug(f'Start evaluating slot {self.fn_call.slot_idx}')
             with self._cell_span(call_args.row), telemetry_schemas.udf_call(self.fn):
-                call_args.row[self.fn_call.slot_idx] = await self.fn.aexec(*call_args.args, **call_args.kwargs)
+                call_args.row[self.fn_call.slot_idx] = self.fn_call.check_return_value(
+                    await self.fn.aexec(*call_args.args, **call_args.kwargs)
+                )
             end_ts = datetime.datetime.now()
             _logger.debug(f'Evaluated slot {self.fn_call.slot_idx} in {end_ts - start_ts}')
             self.dispatcher.dispatch([call_args.row], self.eval_ctx)
@@ -272,7 +283,9 @@ class FnCallEvaluator(Evaluator):
                 return
             try:
                 with self._cell_span(item.row), telemetry_schemas.udf_call(self.fn):
-                    item.row[self.fn_call.slot_idx] = self.scalar_py_fn(*item.args, **item.kwargs)
+                    item.row[self.fn_call.slot_idx] = self.fn_call.check_return_value(
+                        self.scalar_py_fn(*item.args, **item.kwargs)
+                    )
             except Exception as exc:
                 _, _, exc_tb = sys.exc_info()
                 item.row.set_exc(self.fn_call.slot_idx, exc)

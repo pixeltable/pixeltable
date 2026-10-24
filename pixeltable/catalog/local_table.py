@@ -153,7 +153,12 @@ class LocalTable(Table):
             if isinstance(info.idx, index.EmbeddingIndex):
                 indexed_col_md = self._tbl_version_path.get_column_md(QColumnId(info.col.tbl_handle.id, info.col.id))
                 col_ref = ColumnRef(indexed_col_md)
-                embedding_fncall = info.idx.embeddings[info.col.col_type._type](col_ref)
+                # an array column holds the embedding vectors directly; there is no embedding call to display
+                embedding_fncall = (
+                    col_ref
+                    if info.col.col_type.is_array_type()
+                    else info.idx.embeddings[info.col.col_type._type](col_ref)
+                )
                 index_info[info.name] = IndexMetadata(
                     name=info.name,
                     columns=[info.col.name],
@@ -449,7 +454,11 @@ class LocalTable(Table):
             if isinstance(info.idx, index.EmbeddingIndex):
                 col_md = self._tbl_version_path.get_column_md(QColumnId(info.col.tbl_handle.id, info.col.id))
                 col_ref = ColumnRef(col_md)
-                embedding = info.idx.embeddings[info.col.col_type._type](col_ref)
+                embedding = (
+                    col_ref
+                    if info.col.col_type.is_array_type()
+                    else info.idx.embeddings[info.col.col_type._type](col_ref)
+                )
                 row['Metric'] = str(info.idx.metric.name.lower())
                 row['Embedding'] = str(embedding)
             else:
