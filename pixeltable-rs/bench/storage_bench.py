@@ -125,7 +125,22 @@ def case_point_lookup(pxt: Any, home: Path, n: int) -> dict[str, Any]:
         filter_times.append(dt)
         dt, _ = timed(lambda: t.where(t.id == k).count())
         count_times.append(dt)
-    return {'pk_lookup_ms': avg_ms(pk_times), 'filter_lookup_ms': avg_ms(filter_times), 'pk_count_ms': avg_ms(count_times)}
+    # the same filter on a column with a B-tree index
+    t.add_btree_index('s')
+    t.where(t.s == 'none').count()  # warm-up
+    idx_times = []
+    for _ in range(30):
+        k = rng.randrange(n)
+        s = f'string value {k:08d}'
+        dt, rows = timed(lambda: t.where(t.s == s).collect())
+        assert len(rows) == 1
+        idx_times.append(dt)
+    return {
+        'pk_lookup_ms': avg_ms(pk_times),
+        'filter_lookup_ms': avg_ms(filter_times),
+        'pk_count_ms': avg_ms(count_times),
+        'indexed_filter_lookup_ms': avg_ms(idx_times),
+    }
 
 
 def case_update(pxt: Any, home: Path, n: int) -> dict[str, Any]:

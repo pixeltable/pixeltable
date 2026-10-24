@@ -111,6 +111,8 @@ pub struct ElemInput {
     pub pk: Vec<(ColId, crate::types::ColumnType)>,
     /// true if the table's primary-key index truncates strings (data-versioned tables)
     pub pk_truncates: bool,
+    /// the table's own columns with a B-tree index, with their types at the version read
+    pub indexed: Vec<(ColId, crate::types::ColumnType)>,
 }
 
 /// A table path (leaf first) captured for a scan.
@@ -132,7 +134,13 @@ impl PathInput {
                 md.columns.iter().filter(|c| c.is_pk).map(|c| (c.id, c.col_type.clone())).collect()
             };
             let pk_truncates = md.is_data_versioned;
-            elems.push(ElemInput { info, version, pinned: e.pinned, data, num_pos: 0, pk, pk_truncates });
+            let indexed = md
+                .columns_at(e.pinned)?
+                .into_iter()
+                .filter(|c| md.indexes.list.iter().any(|i| i.is_btree() && i.col_tbl_id == md.id && i.col_id == c.md.id))
+                .map(|c| (c.md.id, c.md.col_type))
+                .collect();
+            elems.push(ElemInput { info, version, pinned: e.pinned, data, num_pos: 0, pk, pk_truncates, indexed });
         }
         if elems.is_empty() {
             return Err(Error::internal("empty table path"));
@@ -175,11 +183,12 @@ impl PathInput {
         out
     }
 
-    /// The rows a filter `pred` can select, a superset of those that pass it (the caller evaluates it): when `pred`
-    /// fixes the primary key of a base table with equality (or `isin()`) conjuncts on literals, only the rows with
-    /// such a key (found by the table's primary-key index); else all visible rows. In key order.
+    /// The rows a filter `pred` can select, a superset of those that pass it (the caller evaluates it), in key order:
+    /// when `pred` has conjuncts that fix the primary key of the path's base table, or an equality (or `isin()`) on
+    /// literals for a column with a B-tree index, and the path has no component view (so that all its tables share
+    /// rowids), the rows with the rowids the table's key index gives; else, or when those are many, all visible rows.
     pub fn rows_where(&self, pred: Option<&ExprRef>) -> Result<Vec<Vec<&StoredRow>>> {
-        match pred.and_then(|p| self.pk_point_rowids(p)) {
+        match self.index_rowids(pred) {
             Some(rowids) => Ok(self.rows_for_keys(rowids.iter().map(|r| (*r, &[] as &[i64])))),
             None => self.rows(),
         }
@@ -187,7 +196,7 @@ impl PathInput {
 
     /// `rows_where()`, calling `f` with each joined row instead of collecting them.
     pub fn for_each_row_where<'s>(&'s self, pred: Option<&ExprRef>, mut f: impl FnMut(&[&'s StoredRow])) -> Result<()> {
-        match pred.and_then(|p| self.pk_point_rowids(p)) {
+        match self.index_rowids(pred) {
             Some(rowids) => {
                 for r in self.rows_for_keys(rowids.iter().map(|r| (*r, &[] as &[i64]))) {
                     f(&r);
@@ -198,74 +207,71 @@ impl PathInput {
         }
     }
 
-    /// For a filter that fixes the primary key of the path's table (a base table), the rowids of the rows that may
-    /// pass it (from the primary-key index).
-    fn pk_point_rowids(&self, pred: &ExprRef) -> Option<Vec<i64>> {
-        let leaf = &self.elems[0];
-        if self.elems.len() != 1 || leaf.pk.is_empty() {
+    /// The rowids `rows_where()` reads through a key index, if it uses one.
+    fn index_rowids(&self, pred: Option<&ExprRef>) -> Option<Vec<i64>> {
+        pred.and_then(|p| self.point_rowids(p)).filter(|r| r.len() <= (self.elems[0].data.num_live() / 8).max(64))
+    }
+
+    /// For a filter that `rows_where()` can serve from a key index, the rowids of the rows that may pass it.
+    fn point_rowids(&self, pred: &ExprRef) -> Option<Vec<i64>> {
+        if self.elems.iter().any(|e| e.num_pos > 0) {
             return None;
         }
-        // per primary-key column, the values the filter allows
-        let mut allowed: Vec<Option<Vec<Value>>> = vec![None; leaf.pk.len()];
-        let mut todo = vec![pred.clone()];
+        // (column, allowed values) of the conjuncts `column == literal` and `column.isin([literals])`
+        let mut conds: Vec<(&ColumnRef, Vec<Value>)> = Vec::new();
+        let mut todo = vec![pred];
         while let Some(e) = todo.pop() {
             match &e.kind {
-                ExprKind::Compound { op: crate::expr::LogicalOp::And, operands } => todo.extend(operands.iter().cloned()),
-                ExprKind::Comparison { op: crate::expr::CmpOp::Eq, lhs, rhs } => {
-                    let (col, lit) = match (&lhs.kind, &rhs.kind) {
-                        (ExprKind::ColumnRef(c), ExprKind::Literal(v)) | (ExprKind::Literal(v), ExprKind::ColumnRef(c)) => (c, v),
-                        _ => continue,
-                    };
-                    if let Some(i) = self.pk_position(col, lit) {
-                        allowed[i] = Some(vec![lit.clone()]);
+                ExprKind::Compound { op: crate::expr::LogicalOp::And, operands } => todo.extend(operands.iter()),
+                ExprKind::Comparison { op: crate::expr::CmpOp::Eq, lhs, rhs } => match (&lhs.kind, &rhs.kind) {
+                    (ExprKind::ColumnRef(c), ExprKind::Literal(v)) | (ExprKind::Literal(v), ExprKind::ColumnRef(c)) => {
+                        conds.push((c, vec![v.clone()]))
                     }
-                }
-                ExprKind::InList { lhs, values, .. } => {
-                    let ExprKind::ColumnRef(col) = &lhs.kind else { continue };
-                    if let Some(i) = values.first().and_then(|v| self.pk_position(col, v)) {
-                        if values.iter().all(|v| self.pk_position(col, v) == Some(i)) && values.len() <= 10_000 {
-                            allowed[i] = Some(values.clone());
-                        }
+                    _ => {}
+                },
+                ExprKind::InList { lhs, values, .. } if values.len() <= 10_000 => {
+                    if let ExprKind::ColumnRef(c) = &lhs.kind {
+                        conds.push((c, values.clone()));
                     }
                 }
                 _ => {}
             }
         }
-        let allowed: Vec<Vec<Value>> = allowed.into_iter().collect::<Option<_>>()?;
-        if allowed.iter().map(Vec::len).product::<usize>() > 10_000 {
-            return None;
+        // the primary key of the base table (the root of the path)
+        let root = self.elems.last()?;
+        if !root.pk.is_empty() {
+            let allowed: Option<Vec<&Vec<Value>>> = root
+                .pk
+                .iter()
+                .map(|(col_id, t)| {
+                    conds
+                        .iter()
+                        .find(|(c, vals)| c.tbl_id == root.info.tbl_id && c.col_id == *col_id && vals.iter().all(|v| fits(t, v)))
+                        .map(|(_, v)| v)
+                })
+                .collect();
+            if let Some(allowed) = allowed.filter(|a| a.iter().map(|v| v.len()).product::<usize>() <= 10_000) {
+                // every combination of allowed values
+                let mut keys: Vec<Vec<Value>> = vec![Vec::new()];
+                for vals in allowed {
+                    keys = keys.into_iter().flat_map(|k| vals.iter().map(move |v| [k.clone(), vec![v.clone()]].concat())).collect();
+                }
+                let cols: Vec<ColId> = root.pk.iter().map(|(c, _)| *c).collect();
+                let mut rowids: Vec<i64> = keys.iter().flat_map(|k| root.data.pk_candidates(&cols, root.pk_truncates, k)).collect();
+                rowids.sort_unstable();
+                rowids.dedup();
+                return Some(rowids);
+            }
         }
-        // every combination of allowed values
-        let mut keys: Vec<Vec<Value>> = vec![Vec::new()];
-        for vals in &allowed {
-            keys = keys.into_iter().flat_map(|k| vals.iter().map(move |v| [k.clone(), vec![v.clone()]].concat())).collect();
+        // a column with a B-tree index
+        for (c, vals) in &conds {
+            for e in &self.elems {
+                if e.info.tbl_id == c.tbl_id && e.indexed.iter().any(|(id, t)| *id == c.col_id && vals.iter().all(|v| fits(t, v))) {
+                    return Some(e.data.eq_candidates(c.col_id, vals));
+                }
+            }
         }
-        let cols: Vec<ColId> = leaf.pk.iter().map(|(c, _)| *c).collect();
-        let mut rowids: Vec<i64> = keys.iter().flat_map(|k| leaf.data.pk_candidates(&cols, leaf.pk_truncates, k)).collect();
-        rowids.sort();
-        rowids.dedup();
-        Some(rowids)
-    }
-
-    /// The position of `col` among the primary-key columns of the path's table, if `col` is one and `v` is a value
-    /// of its type that the index can look up (for others, SQL equality may hold between values of different kinds).
-    fn pk_position(&self, col: &ColumnRef, v: &Value) -> Option<usize> {
-        let leaf = &self.elems[0];
-        if col.tbl_id != leaf.info.tbl_id {
-            return None;
-        }
-        let i = leaf.pk.iter().position(|(c, _)| *c == col.col_id)?;
-        let t = &leaf.pk[i].1;
-        let fits = match v {
-            Value::Int(_) => t.is_int(),
-            Value::String(_) => t.is_string(),
-            Value::Bool(_) => t.is_bool(),
-            Value::Timestamp(_) => t.is_timestamp(),
-            Value::Date(_) => t.is_date(),
-            Value::Uuid(_) => t.is_uuid(),
-            _ => false,
-        };
-        fits.then_some(i)
+        None
     }
 
     /// The visible joined rows, in key order: each entry has one row per table of the path (leaf first).
@@ -314,6 +320,20 @@ impl PathInput {
             f(&joined);
         }
         Ok(())
+    }
+}
+
+/// True if `v` is a value of type `t` that a key index can look up (between values of different kinds, SQL equality
+/// may hold although the values hash differently).
+fn fits(t: &crate::types::ColumnType, v: &Value) -> bool {
+    match v {
+        Value::Int(_) => t.is_int(),
+        Value::String(_) => t.is_string(),
+        Value::Bool(_) => t.is_bool(),
+        Value::Timestamp(_) => t.is_timestamp(),
+        Value::Date(_) => t.is_date(),
+        Value::Uuid(_) => t.is_uuid(),
+        _ => false,
     }
 }
 
