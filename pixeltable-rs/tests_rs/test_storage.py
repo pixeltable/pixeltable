@@ -201,3 +201,45 @@ class TestPrimaryKeyIndex:
         t = pxt.get_table('o')
         assert sorted((r['id'], r['v']) for r in t.collect()) == expected
         assert t.count() == 45
+
+
+class TestThreads:
+    def test_readers_see_consistent_snapshots_while_a_writer_commits(self) -> None:
+        import threading
+
+        t = pxt.create_table('t', {'id': pxt.Int, 'b': pxt.Int}, primary_key='id')
+        errors: list[BaseException] = []
+        done = threading.Event()
+
+        def writer() -> None:
+            try:
+                for b in range(40):
+                    t.insert({'id': b * 25 + i, 'b': b} for i in range(25))
+                    if b % 5 == 4:
+                        t.update({'b': t.b + 100}, where=t.b == b)
+            except BaseException as e:
+                errors.append(e)
+            finally:
+                done.set()
+
+        def reader() -> None:
+            try:
+                while not done.is_set():
+                    n = t.count()
+                    assert n % 25 == 0, n
+                    rows = t.select(t.id, t.b).collect()
+                    assert len(rows) % 25 == 0
+                    k = len(rows) // 2
+                    if rows:
+                        assert t.where(t.id == k).count() == 1
+            except BaseException as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=writer)] + [threading.Thread(target=reader) for _ in range(3)]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join(timeout=300)
+        assert not errors, errors
+        assert t.count() == 1000
+        assert t.where(t.b >= 100).count() == 8 * 25

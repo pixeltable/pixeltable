@@ -340,14 +340,16 @@ impl Catalog {
         for tbl_id in staged {
             let Some(entry) = self.data.get_mut(&tbl_id) else { continue };
             let data = Arc::make_mut(entry);
-            if !data.has_unwritten() {
+            if data.has_unwritten() {
+                for (seg, vmax) in data.prepare_write() {
+                    written.push(self.store.write_segment(tbl_id, &seg, &vmax)?);
+                }
+                data.mark_written();
+            }
+            let ids = data.segment_ids();
+            if self.table(tbl_id)?.storage.segments == ids {
                 continue;
             }
-            for (seg, vmax) in data.prepare_write() {
-                written.push(self.store.write_segment(tbl_id, &seg, &vmax)?);
-            }
-            data.mark_written();
-            let ids = data.segment_ids();
             let md = self.table_mut(tbl_id)?;
             let old = std::mem::replace(&mut md.storage.segments, ids);
             let current: HashSet<u64> = md.storage.segments.iter().copied().collect();

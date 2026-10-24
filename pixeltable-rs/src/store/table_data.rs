@@ -32,8 +32,8 @@ const NOW: i64 = LIVE - 1;
 /// Segments with at least this many rows (or patches) are not merged with others; they are only rewritten on their
 /// own (see `TableData::plan_merge()`), which bounds the cost of a single commit.
 const MAX_MERGE_WEIGHT: usize = 1 << 16;
-/// A segment of at least this many rows is rewritten when half of it is dead or retired, or a quarter of it is
-/// patched by later segments.
+/// A segment of at least this many rows is rewritten when half of it is dead, or a quarter of it is patched by later
+/// segments.
 const MIN_REWRITE_ROWS: usize = 1024;
 
 /// A change of `v_max` of row `idx` of segment `seg`, carried by a later segment's file.
@@ -273,7 +273,9 @@ impl TableData {
     /// `MAX_MERGE_WEIGHT` rows and patches are not merged with others; among the segments after the last of them, the
     /// policy keeps every segment heavier than all later ones together (so there are O(log rows) of them, and a row
     /// is rewritten O(log rows) times), merging the trailing segments from the first one that is not. Besides, a
-    /// large segment that is mostly dead or retired rows, or mostly patched by later segments, is rewritten alone.
+    /// large segment that is mostly dead rows, or mostly patched by later segments, is rewritten alone. (Retired rows
+    /// stay: older versions read them; scans of other versions skip them by their version ranges without reading
+    /// them.) Every merge removes a segment or the condition that called for it, so `prepare_write()` terminates.
     fn plan_merge(&self) -> Option<std::ops::RangeInclusive<usize>> {
         let n = self.segs.len();
         if n == 0 {
@@ -303,21 +305,18 @@ impl TableData {
             if rows < MIN_REWRITE_ROWS {
                 continue;
             }
-            let retired = rows - s.live;
             let mostly_dead = s.dead * 2 > rows;
-            let mostly_history = s.live > 0 && retired * 2 > rows;
             let patched = patched.get(&s.seg.id).copied().unwrap_or(0) * 4 > rows;
-            if mostly_dead || mostly_history || patched {
+            if mostly_dead || patched {
                 return Some(j..=j);
             }
         }
         None
     }
 
-    /// Replaces the segments in `range` by new ones holding their rows that are not dead, with their current
-    /// `v_max`: one segment, or (when the retired rows are many) one of retired rows followed by one of live rows, so
-    /// that reads of the current version skip the former. The new segments carry the patches of the old ones that
-    /// target earlier segments, with the targets' current `v_max`.
+    /// Replaces the segments in `range` by one holding their rows that are not dead, with their current `v_max` (none
+    /// if nothing is left). It carries the patches of the old ones that target earlier segments, with the targets'
+    /// current `v_max` (which is what a later patch of the same row, if any, also records).
     fn merge(&mut self, range: std::ops::RangeInclusive<usize>) {
         let (start, end) = (*range.start(), *range.end());
         let members: Vec<Seg> = self.segs[range.clone()].to_vec();
@@ -335,7 +334,7 @@ impl TableData {
                 }
             }
         }
-        // (key, vmin, vmax, row) of the rows that stay
+        // (vmin, vmax, row) of the rows that stay
         let mut rows: Vec<(i64, i64, StoredRow)> = Vec::with_capacity(members.iter().map(|s| s.len() - s.dead).sum());
         for s in &members {
             for (i, r) in s.seg.rows.iter().enumerate() {
@@ -345,36 +344,19 @@ impl TableData {
             }
         }
         rows.sort_by(|a, b| a.2.key().cmp(&b.2.key()).then(a.0.cmp(&b.0)));
-        // (a rewrite for `mostly_history` in `plan_merge()` always splits, so its output does not qualify again)
-        let num_retired = rows.iter().filter(|r| r.1 != LIVE).count();
-        let split = num_retired * 2 >= MIN_REWRITE_ROWS && num_retired < rows.len();
-        let mut parts: Vec<Vec<(i64, i64, StoredRow)>> = Vec::new();
-        if split {
-            let (retired, live): (Vec<_>, Vec<_>) = rows.into_iter().partition(|r| r.1 != LIVE);
-            parts.push(retired);
-            parts.push(live);
-        } else {
-            parts.push(rows);
+        let mut vmin = Vec::with_capacity(rows.len());
+        let mut vmax = Vec::with_capacity(rows.len());
+        let mut out = Vec::with_capacity(rows.len());
+        for (a, b, r) in rows {
+            vmin.push(a);
+            vmax.push(b);
+            out.push(r);
         }
-        let mut new_segs = Vec::with_capacity(parts.len());
-        let num_parts = parts.len();
-        for (k, part) in parts.into_iter().enumerate() {
-            let mut vmin = Vec::with_capacity(part.len());
-            let mut vmax = Vec::with_capacity(part.len());
-            let mut out = Vec::with_capacity(part.len());
-            for (a, b, r) in part {
-                vmin.push(a);
-                vmax.push(b);
-                out.push(r);
-            }
-            let patches = if k + 1 == num_parts { std::mem::take(&mut carried) } else { Vec::new() };
-            if out.is_empty() && patches.is_empty() {
-                continue;
-            }
-            let seg = Segment { id: new_segment_id(), rows: out, vmin, patches };
-            new_segs.push(Seg::new(Arc::new(seg), Arc::new(vmax), false));
-        }
-        self.segs.splice(start..=end, new_segs);
+        let new_seg = (!out.is_empty() || !carried.is_empty()).then(|| {
+            let seg = Segment { id: new_segment_id(), rows: out, vmin, patches: carried };
+            Seg::new(Arc::new(seg), Arc::new(vmax), false)
+        });
+        self.segs.splice(start..=end, new_seg);
     }
 
     // ------------------------------------------------------------------------------------------- reading
@@ -923,6 +905,34 @@ mod tests {
             assert_eq!(&visible(&d, v as i64), rows, "version {v}");
             assert_eq!(&visible(&reloaded, v as i64), rows, "version {v} after reload");
             assert_eq!(reloaded.count_at(v as i64), rows.len());
+        }
+    }
+
+    #[test]
+    fn large_updates_keep_every_version() {
+        // updates of most rows, alternating with inserts: merges see segments of mostly retired rows and heavily
+        // patched ones
+        let mut d = TableData::default();
+        let mut expected: Vec<Vec<(i64, i64)>> = vec![Vec::new()];
+        d.append((0..3000).map(|i| row(i, i)).collect(), 1);
+        d.prepare_write();
+        d.mark_written();
+        expected.push(visible(&d, 1));
+        let mut next = 3000;
+        for v in 2..30i64 {
+            let lo = (v * 997) % 2500;
+            let keys: Vec<i64> = (lo..lo + 2000).filter(|k| d.live_row((*k, &[])).is_some()).collect();
+            d.retire(&keys.iter().map(|k| (*k, Vec::new())).collect(), v, true);
+            d.append(keys.iter().map(|k| row(*k, k + v * 10_000)).collect(), v);
+            d.append((next..next + 1500).map(|i| row(i, i)).collect(), v);
+            next += 1500;
+            d.prepare_write();
+            d.mark_written();
+            expected.push(visible(&d, v));
+        }
+        let reloaded = roundtrip(&mut d);
+        for (v, rows) in expected.iter().enumerate() {
+            assert_eq!(&visible(&reloaded, v as i64), rows, "version {v} after reload");
         }
     }
 
