@@ -1,7 +1,9 @@
+import asyncio
 import logging
 import os
 import random
 import time
+from typing import Any, ClassVar
 
 import PIL.Image
 import pytest
@@ -26,6 +28,103 @@ from .tool_utils import run_tool_invocations_test, server_state, stock_price, we
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 _logger = logging.getLogger('pixeltable_test')
+
+
+def test_image_url_content_block(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """image_url blocks accept a PIL image directly or nested under 'url' (the OpenAI wire shape)."""
+    skip_test_if_not_installed('openai')
+    import pixeltable.functions.openai as openai_fn
+
+    captured: dict[str, Any] = {}
+
+    class FakeRaw:
+        headers: ClassVar[dict] = {}
+        text = '{}'
+
+    class FakeWithRaw:
+        async def create(self, **kwargs: Any) -> FakeRaw:
+            captured.update(kwargs)
+            return FakeRaw()
+
+    class FakeClient:
+        class chat:
+            class completions:
+                with_raw_response = FakeWithRaw()
+
+    monkeypatch.setattr(openai_fn, '_openai_client', lambda: FakeClient())
+    img = PIL.Image.open(SAMPLE_IMAGE_FILE_PATH)
+    for shape, detail in ((img, None), ({'url': img}, None), ({'url': img, 'detail': 'low'}, 'low')):
+        asyncio.run(
+            openai_fn.chat_completions.aexec(
+                [{'role': 'user', 'content': [{'type': 'image_url', 'image_url': shape}]}], model='gpt-4o-mini'
+            )
+        )
+        sent = captured['messages'][0]['content'][0]['image_url']
+        assert sent['url'].startswith('data:image/png;base64,'), sent
+        assert sent.get('detail') == detail
+
+    # the resource estimator resolves a bare and a nested PIL identically, and tolerates remote URL strings
+    def estimate(shape: Any) -> dict[str, int]:
+        return openai_fn._messages_resource_estimate(
+            [{'role': 'user', 'content': [{'type': 'image_url', 'image_url': shape}]}],
+            max_completion_tokens=10,
+            text_type='text',
+            image_type='image_url',
+        )
+
+    assert estimate(img) == estimate({'url': img})
+    estimate({'url': 'https://example.com/x.png'})
+
+
+def test_image_url_content_block_query(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression for PXT-1476: nested image_url parts must survive the rate-limit scheduler.
+
+    The resource estimator runs inside the scheduler once response headers initialize the pool,
+    so the second row exercises the path that aborted the reported query.
+    """
+    skip_test_if_not_installed('openai')
+    import pixeltable.functions.openai as openai_fn
+
+    captured: list[dict[str, Any]] = []
+
+    class FakeRaw:
+        headers: ClassVar[dict] = {
+            'x-ratelimit-limit-requests': '10000',
+            'x-ratelimit-remaining-requests': '10000',
+            'x-ratelimit-reset-requests': '60s',
+            'x-ratelimit-limit-tokens': '1000000',
+            'x-ratelimit-remaining-tokens': '1000000',
+            'x-ratelimit-reset-tokens': '60s',
+        }
+        text = '{}'
+
+    class FakeWithRaw:
+        async def create(self, **kwargs: Any) -> FakeRaw:
+            captured.append(kwargs)
+            return FakeRaw()
+
+    class FakeClient:
+        class chat:
+            class completions:
+                with_raw_response = FakeWithRaw()
+
+    monkeypatch.setattr(openai_fn, '_openai_client', lambda: FakeClient())
+    t = pxt.create_table('test_image_url_query', {'img': pxt.Image | None})
+    t.add_computed_column(
+        response=openai_fn.chat_completions(
+            [{'role': 'user', 'content': [{'type': 'image_url', 'image_url': {'url': t.img, 'detail': 'low'}}]}],
+            model='gpt-4o-mini',
+        )
+    )
+    validate_update_status(
+        t.insert([{'img': SAMPLE_IMAGE_FILE_PATH}, {'img': SAMPLE_IMAGE_FILE_PATH}]), expected_rows=2
+    )
+    assert len(t.collect()) == 2
+    assert len(captured) == 2
+    for kwargs in captured:
+        sent = kwargs['messages'][0]['content'][0]['image_url']
+        assert sent['url'].startswith('data:image/png;base64,'), sent
+        assert sent['detail'] == 'low'
 
 
 @pytest.mark.remote_api

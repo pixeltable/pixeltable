@@ -505,6 +505,25 @@ def _token_count_for_image(image: PIL.Image.Image) -> int:
     )
 
 
+def _pil_image(image_url: Any) -> PIL.Image.Image | None:
+    # a PIL image may arrive bare or nested under 'url' (the API's dict shape)
+    img = image_url.get('url') if isinstance(image_url, dict) else image_url
+    return img if isinstance(img, PIL.Image.Image) else None
+
+
+def _encode_image_url_part(part: dict) -> None:
+    """Replaces a PIL image in an 'image_url' content part with a PNG data URL, in place.
+
+    `part['image_url']` may be a bare PIL image or the API's `{'url': ...}` dict; sibling keys
+    of the dict, such as 'detail', are preserved.
+    """
+    image_url = part.get('image_url')
+    img = _pil_image(image_url)
+    if img is not None:
+        image_dict = image_url if isinstance(image_url, dict) else {'url': image_url}
+        part['image_url'] = {**image_dict, 'url': f'data:image/png;base64,{to_base64(img, format="png")}'}
+
+
 def _messages_resource_estimate(
     messages: list, max_completion_tokens: int, text_type: str, image_type: str
 ) -> dict[str, int]:
@@ -521,8 +540,10 @@ def _messages_resource_estimate(
                             assert isinstance(part.get('text'), str)
                             num_tokens += len(part['text']) / 4
                         elif part.get('type') == image_type:
-                            assert isinstance(part.get('image_url'), PIL.Image.Image)
-                            num_tokens += _token_count_for_image(part['image_url'])
+                            img = _pil_image(part.get('image_url'))
+                            if img is not None:
+                                num_tokens += _token_count_for_image(img)
+                            # a remote URL string counts 0 tokens: its dimensions are unknown without fetching it
             if key == 'name':  # if there's a name, the role is omitted
                 num_tokens -= 1  # role is always required and always 1 token
 
@@ -590,6 +611,9 @@ async def chat_completions(
         ... tbl.add_computed_column(
         ...     response=chat_completions(messages, model='gpt-4o-mini')
         ... )
+
+        The `'image_url'` field also accepts the API's dictionary shape, including optional fields such as
+        `detail`: `{'url': tbl.image, 'detail': 'low'}`.
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -615,13 +639,8 @@ async def chat_completions(
         content = message.get('content')
         if isinstance(content, list):
             for part in content:
-                if (
-                    isinstance(part, dict)
-                    and part.get('type') == 'image_url'
-                    and isinstance(part.get('image_url'), PIL.Image.Image)
-                ):
-                    b64_encoded_image = to_base64(part['image_url'], format='png')
-                    part['image_url'] = {'url': f'data:image/png;base64,{b64_encoded_image}'}
+                if isinstance(part, dict) and part.get('type') == 'image_url':
+                    _encode_image_url_part(part)
 
     # make sure the pool info exists prior to making the request
     resource_pool = _rate_limits_pool(model)
@@ -722,6 +741,9 @@ async def responses(
         ...     }
         ... ]
         ... tbl.add_computed_column(response=responses(messages, model='gpt-4o-mini'))
+
+        For `input_image` parts, `image_url` may be an image or a URL string; the chat-completions
+        `{'url': ...}` dictionary shape is also accepted and normalized to the Responses API shape.
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -748,13 +770,16 @@ async def responses(
         content = item.get('content') if isinstance(item, dict) else None
         if isinstance(content, list):
             for part in content:
-                if (
-                    isinstance(part, dict)
-                    and part.get('type') == 'input_image'
-                    and isinstance(part.get('image_url'), PIL.Image.Image)
-                ):
-                    b64_encoded_image = to_base64(part['image_url'], format='png')
-                    part['image_url'] = f'data:image/png;base64,{b64_encoded_image}'
+                if isinstance(part, dict) and part.get('type') == 'input_image':
+                    image_url = part.get('image_url')
+                    if isinstance(image_url, dict):
+                        # Responses takes a plain string for image_url; the chat-style {'url': ...} dict
+                        # is normalized, with sibling keys such as 'detail' moved onto the part
+                        part.update({k: v for k, v in image_url.items() if k not in ('type', 'url')})
+                        image_url = image_url.get('url')
+                        part['image_url'] = image_url
+                    if isinstance(image_url, PIL.Image.Image):
+                        part['image_url'] = f'data:image/png;base64,{to_base64(image_url, format="png")}'
 
     resource_pool = _rate_limits_pool(model)
     rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool, OpenAIRateLimitsInfo)
