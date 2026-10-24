@@ -1,6 +1,6 @@
 //! Persistence under `$PIXELTABLE_HOME` (default `~/.pixeltable`).
 //!
-//! Layout (format version 2):
+//! Layout (format version 3):
 //!
 //! ```text
 //! $PIXELTABLE_HOME/
@@ -31,6 +31,7 @@
 pub mod codec;
 pub mod history;
 pub mod rows;
+pub mod segment;
 pub mod table_data;
 
 use serde::{Deserialize, Serialize};
@@ -47,7 +48,7 @@ use crate::value::{MAX_JSON_DEPTH, json_nesting_depth, parse_json_bounded};
 use table_data::Segment;
 
 pub const FORMAT_NAME: &str = "pixeltable-rs";
-pub const FORMAT_VERSION: u32 = 2;
+pub const FORMAT_VERSION: u32 = 3;
 
 /// Maximum nesting of `catalog.json` and of serialized expressions and queries: room for an expression of
 /// `MAX_EXPR_DEPTH` levels (two JSON levels each) holding a JSON literal of `MAX_JSON_DEPTH` levels. A commit that
@@ -302,10 +303,10 @@ impl Store {
         self.save_catalog_bytes(&Store::serialize_catalog(cf)?)
     }
 
-    /// Writes a segment of table `tbl_id` with the given `v_max` of its rows (fsynced; the directory is synced by
-    /// `sync_tables()`). Returns the file name.
-    pub fn write_segment(&self, tbl_id: Uuid, seg: &Segment, vmax: &[i64]) -> Result<String> {
-        let bytes = codec::encode(tbl_id, seg, vmax)?;
+    /// Writes a segment of table `tbl_id` with the given `v_max` of its rows, and the hashes of key `key` (see
+    /// `codec::encode()`), fsynced (the directory is synced by `sync_tables()`). Returns the file name.
+    pub fn write_segment(&self, tbl_id: Uuid, seg: &Segment, vmax: &[i64], key: Option<(&[crate::catalog::table::ColId], bool)>) -> Result<String> {
+        let bytes = codec::encode(tbl_id, seg, vmax, key)?;
         let name = Store::segment_file_name(tbl_id, seg.id);
         let mut f = fs::File::create(self.tables_dir().join(&name))?;
         f.write_all(&bytes)?;
@@ -313,12 +314,13 @@ impl Store {
         Ok(name)
     }
 
-    /// Reads segment `id` of table `tbl_id`: the segment and the `v_max` its file records.
+    /// Reads segment `id` of table `tbl_id`: the segment (its rows decoded on first use) and the `v_max` its file
+    /// records.
     pub fn read_segment(&self, tbl_id: Uuid, id: u64) -> Result<(Segment, Vec<i64>)> {
         let name = Store::segment_file_name(tbl_id, id);
         let bytes = fs::read(self.tables_dir().join(&name))
             .map_err(|e| Error::internal(format!("cannot read table data file {name}: {e}")))?;
-        codec::decode(&bytes, tbl_id, id).map_err(|e| Error::internal(format!("{} {name}", e.message())))
+        codec::decode(bytes, tbl_id, id).map_err(|e| Error::internal(format!("{} {name}", e.message())))
     }
 
     /// Appends `bytes` to history file `file` of table `tbl_id` at offset `len` (dropping whatever follows the
@@ -498,13 +500,17 @@ mod tests {
     #[test]
     fn older_formats_are_refused() -> Result<()> {
         let store = temp_store();
-        let v1 = br#"{"format":"pixeltable-rs","format_version":1,"catalog_id":"00000000-0000-0000-0000-000000000000","generation":3,"dirs":[],"tables":[]}"#;
-        std::fs::write(store.catalog_path(), v1)?;
-        match store.load_catalog() {
-            Err(Error::Pxt { code: crate::error::ErrorCode::StoreUnavailable, message }) => {
-                assert!(message.contains("format pixeltable-rs v1"), "{message}");
+        for v in [1, 2] {
+            let old = format!(
+                r#"{{"format":"pixeltable-rs","format_version":{v},"catalog_id":"00000000-0000-0000-0000-000000000000","generation":3,"dirs":[],"tables":[]}}"#
+            );
+            std::fs::write(store.catalog_path(), old)?;
+            match store.load_catalog() {
+                Err(Error::Pxt { code: crate::error::ErrorCode::StoreUnavailable, message }) => {
+                    assert!(message.contains(&format!("format pixeltable-rs v{v},")), "{message}");
+                }
+                other => panic!("expected StoreUnavailable, got {other:?}"),
             }
-            other => panic!("expected StoreUnavailable, got {other:?}"),
         }
         let _ = std::fs::remove_dir_all(store.home());
         Ok(())
@@ -528,10 +534,10 @@ mod tests {
         let tbl = Uuid::new_v4();
         let mut r = StoredRow::new(3, Vec::new());
         r.set_cell(1, crate::value::Value::String("x".into()));
-        let seg = Segment { id: 77, rows: vec![r], vmin: vec![2], patches: vec![Patch { seg: 5, idx: 1, vmax: 2 }] };
-        store.write_segment(tbl, &seg, &[rows::LIVE])?;
+        let seg = Segment::new(77, vec![r], vec![2], vec![Patch { seg: 5, idx: 1, vmax: 2 }]);
+        store.write_segment(tbl, &seg, &[rows::LIVE], None)?;
         let (back, vmax) = store.read_segment(tbl, 77)?;
-        assert_eq!(back.rows.len(), 1);
+        assert_eq!(back.rows().len(), 1);
         assert_eq!(back.vmin, vec![2]);
         assert_eq!(vmax, vec![rows::LIVE]);
         assert_eq!(back.patches, seg.patches);

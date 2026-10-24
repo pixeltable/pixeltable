@@ -144,7 +144,7 @@ class TestReload:
             env=env,
         )
         assert r.returncode == 0, r.stderr[-2000:]
-        assert 'has format pixeltable-rs v1, which this version of pixeltable-rs (format v2) cannot read' in r.stdout
+        assert 'has format pixeltable-rs v1, which this version of pixeltable-rs (format v3) cannot read' in r.stdout
 
 
 class TestPrimaryKeyIndex:
