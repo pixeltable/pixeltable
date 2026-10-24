@@ -6,6 +6,7 @@ import subprocess
 import typing
 import warnings
 from datetime import datetime, timezone
+from pathlib import Path
 from textwrap import dedent
 from typing import Any
 
@@ -1699,6 +1700,29 @@ class TestFunction:
         reload_catalog()
         with pytest.warns(pxt.PixeltableWarning, match=regex):
             t = pxt.get_table('test')
+
+    def test_udf_module_import_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, init_env: None
+    ) -> None:
+        # Regression test for PXT-1426: a stored UDF whose module fails to import must surface the import
+        # failure, not just 'no longer exists'.
+        (tmp_path / 'broken_udf_mod.py').write_text('import this_module_does_not_exist\n')
+        monkeypatch.syspath_prepend(str(tmp_path))
+        d = {
+            '_classpath': 'pixeltable.func.callable_function.CallableFunction',
+            'path': 'broken_udf_mod.f',
+            'signatures': [],
+        }
+        fn = Function.from_dict(d)
+        assert isinstance(fn, func.InvalidFunction)
+        assert 'no longer exists' in fn.error_msg
+        assert "No module named 'this_module_does_not_exist'" in fn.error_msg
+
+        # the cause also has to reach the protocol error shown to remote callers
+        from pixeltable.exprs.function_call import FunctionValidationError
+
+        validation_error = FunctionValidationError(function_path='broken_udf_mod.f', error_msg=fn.error_msg)
+        assert "No module named 'this_module_does_not_exist'" in validation_error.protocol_error_msg()
 
     def test_tool_errors(self) -> None:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:

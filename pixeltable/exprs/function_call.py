@@ -42,7 +42,8 @@ class FunctionValidationError(ValidationError):
     def protocol_error_msg(self) -> str:
         return (
             f'The request references the UDF `{self.function_path}`, '
-            'but that UDF is not defined in the remote database.'
+            'but that UDF is not defined in the remote database.\n'
+            f'Reported error: {self.error_msg}'
         )
 
 

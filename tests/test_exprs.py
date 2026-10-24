@@ -192,6 +192,21 @@ class TestExprs:
         _ = t.where(t.c1n != None).collect()
         print(_)
 
+    def test_bool_literal_operators(self, test_tbl: pxt.Table) -> None:
+        # Regression test for PXT-1659: a bool literal on either side of & / | wraps into an expr instead of
+        # raising TypeError.
+        t = test_tbl
+        for e in (t.c4 & True, True & t.c4, t.c4 | False, False | t.c4, (t.c2 > 0) & True, True & (t.c2 > 0)):
+            assert e.col_type.is_bool_type(), e
+
+        rows = t.select(t.c2, a=t.c4 & True, b=True & t.c4, c=t.c4 | False, d=False | t.c4).order_by(t.c2).collect()
+        assert all(r['a'] == r['b'] == r['c'] == r['d'] == (r['c2'] % 2 == 1) for r in rows)
+
+        with pytest.raises(TypeError):
+            _ = t.c4 & 5
+        with pytest.raises(TypeError):
+            _ = t.c4 | 'x'
+
     def test_exception_handling(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 

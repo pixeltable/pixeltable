@@ -566,6 +566,7 @@ def _check_valid_fn(fn: func.Function) -> func.Function:
             excs.ErrorCode.FUNCTION_NOT_FOUND,
             f'The request references the UDF `{fn.self_path}`, '
             'but that UDF is not defined in the remote database.\n'
+            f'Reported error: {fn.error_msg}\n'
             'You can use `pxt db update` to deploy a new version of the UDF to the remote database.',
         )
     return fn
