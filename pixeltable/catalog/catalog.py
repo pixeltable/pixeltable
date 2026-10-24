@@ -131,6 +131,71 @@ def _store_tbl_name(tbl_id: UUID, *, is_view: bool) -> str:
     return StoreBase.storage_name(tbl_id, is_view)
 
 
+class _LockRequest:
+    """The tables and catalog paths that an operation needs, and how it accesses them."""
+
+    op_class: _TblOpClass
+    # tables whose rows the operation reads, along with their bases
+    read_tvps: Collection[TableVersionPath]
+    read_tbl_keys: Collection[TableVersionKey]
+    # tables the operation writes as op_class; the bases of write_tvps are read
+    write_tvps: Collection[TableVersionPath]
+    write_tbl_ids: Collection[UUID]
+    # also lock each write target's mutable views, recursively
+    lock_mutable_tree: bool
+    # write catalog paths
+    write_paths: Collection[Path]
+    # also lock each directory's descendants and tables, or each table's views and snapshots
+    lock_path_subtree: bool
+
+    def __init__(
+        self,
+        op_class: _TblOpClass,
+        *,
+        read_tvps: Collection[TableVersionPath] | None = None,
+        read_tbl_keys: Collection[TableVersionKey] | None = None,
+        write_tvps: Collection[TableVersionPath] | None = None,
+        write_tbl_ids: Collection[UUID] | None = None,
+        lock_mutable_tree: bool = False,
+        write_paths: Collection[Path] | None = None,
+        lock_path_subtree: bool = False,
+    ) -> None:
+        self.op_class = op_class
+        self.read_tvps = read_tvps or ()
+        self.read_tbl_keys = read_tbl_keys or ()
+        self.write_tvps = write_tvps or ()
+        self.write_tbl_ids = write_tbl_ids or ()
+        self.lock_mutable_tree = lock_mutable_tree
+        self.write_paths = write_paths or ()
+        self.lock_path_subtree = lock_path_subtree
+        assert self.for_write or not (self.write_tvps or self.write_tbl_ids or self.write_paths), op_class
+        assert self.op_class is not _TblOpClass.DATA_READ or (self.read_tvps or self.read_tbl_keys), (
+            'DATA_READ requires at least one table or table path'
+        )
+        assert len(self.write_paths) == 0 or self.op_class is _TblOpClass.MD_WRITE, op_class
+
+    @property
+    def for_write(self) -> bool:
+        return self.op_class in (_TblOpClass.DATA_WRITE, _TblOpClass.MD_WRITE, _TblOpClass.FINALIZE)
+
+    def mutable_write_tbl_ids(self) -> list[UUID]:
+        """Return the ids of the write targets that are mutable tables."""
+        ids = [tvp.tbl_id for tvp in self.write_tvps if tvp.effective_version() is None]
+        ids.extend(self.write_tbl_ids)
+        return ids
+
+    def single_tbl(self) -> tuple[TableVersionHandle | None, UUID | None]:
+        """Return (tbl, None) or (None, tbl_id) iff the request contains exactly one table; else (None, None)."""
+        total = len(self.write_tvps) + len(self.read_tvps) + len(self.read_tbl_keys) + len(self.write_tbl_ids)
+        if total != 1:
+            return None, None
+        if self.write_tvps or self.read_tvps:
+            return next(iter(self.write_tvps or self.read_tvps)).tbl_version, None
+        if self.read_tbl_keys:
+            return None, next(iter(self.read_tbl_keys)).tbl_id
+        return None, next(iter(self.write_tbl_ids))
+
+
 def retry_md_read_loop(
     *, tbl_keys: Collection[TableVersionKey] | None = None
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
@@ -139,14 +204,14 @@ def retry_md_read_loop(
     `tbl_keys` identifies tables to refresh before running the operation. Any pending operations on those tables
     are finalized first.
     """
-    return _retry_loop(op_class=_TblOpClass.MD_READ, read_tbl_keys=tbl_keys)
+    return _retry_loop(_LockRequest(_TblOpClass.MD_READ, read_tbl_keys=tbl_keys))
 
 
 def retry_data_read_loop(
     *, tvps: Collection[TableVersionPath] | None = None, tbl_keys: Collection[TableVersionKey] | None = None
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Retry a data read, taking read locks on every table in the supplied paths and their bases."""
-    return _retry_loop(op_class=_TblOpClass.DATA_READ, read_tvps=tvps, read_tbl_keys=tbl_keys)
+    return _retry_loop(_LockRequest(_TblOpClass.DATA_READ, read_tvps=tvps, read_tbl_keys=tbl_keys))
 
 
 def retry_md_write_loop(
@@ -159,26 +224,18 @@ def retry_md_write_loop(
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Retry a metadata write or DDL operation, taking exclusive locks on its targets."""
     return _retry_loop(
-        op_class=_TblOpClass.MD_WRITE,
-        write_tvps=tvps,
-        write_tbl_ids=tbl_ids,
-        lock_mutable_tree=lock_mutable_tree,
-        write_paths=paths,
-        lock_path_subtree=lock_path_subtree,
+        _LockRequest(
+            _TblOpClass.MD_WRITE,
+            write_tvps=tvps,
+            write_tbl_ids=tbl_ids,
+            lock_mutable_tree=lock_mutable_tree,
+            write_paths=paths,
+            lock_path_subtree=lock_path_subtree,
+        )
     )
 
 
-def _retry_loop(
-    *,
-    op_class: _TblOpClass,
-    read_tvps: Collection[TableVersionPath] | None = None,
-    read_tbl_keys: Collection[TableVersionKey] | None = None,
-    write_tvps: Collection[TableVersionPath] | None = None,
-    write_tbl_ids: Collection[UUID] | None = None,
-    lock_mutable_tree: bool = False,
-    write_paths: Collection[Path] | None = None,
-    lock_path_subtree: bool = False,
-) -> Callable[[Callable[..., T]], Callable[..., T]]:
+def _retry_loop(request: _LockRequest) -> Callable[[Callable[..., T]], Callable[..., T]]:
     def decorator(op: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(op)
         def loop(*args: Any, **kwargs: Any) -> T:
@@ -197,18 +254,7 @@ def _retry_loop(
                     assert not get_runtime().in_xact
                     with (
                         cat._allow_tbl_md_read(),
-                        cat._begin_xact(
-                            op_class=op_class,
-                            read_tvps=read_tvps,
-                            read_tbl_keys=read_tbl_keys,
-                            write_tvps=write_tvps,
-                            write_tbl_ids=write_tbl_ids,
-                            lock_mutable_tree=lock_mutable_tree,
-                            write_paths=write_paths,
-                            lock_path_subtree=lock_path_subtree,
-                            convert_db_excs=False,
-                            finalize_pending_ops=True,
-                        ),
+                        cat._begin_xact(request, convert_db_excs=False, finalize_pending_ops=True),
                     ):
                         return op(*args, **kwargs)
                 except PendingTableOpsError as e:
@@ -549,7 +595,7 @@ class Catalog(CatalogBase):
         With `tbl_keys`, refresh those tables and finalize any pending operations before yielding the connection.
         Finalization uses its own transaction and may wait for a lock.
         """
-        with self._begin_xact(op_class=_TblOpClass.MD_READ, read_tbl_keys=tbl_keys) as conn:
+        with self._begin_xact(_LockRequest(_TblOpClass.MD_READ, read_tbl_keys=tbl_keys)) as conn:
             yield conn
 
     @contextmanager
@@ -560,7 +606,8 @@ class Catalog(CatalogBase):
 
         Reading a view requires read locks on its bases because the query also reads their rows.
         """
-        with self._begin_xact(op_class=_TblOpClass.DATA_READ, read_tvps=tvps, read_tbl_keys=tbl_keys) as conn:
+        request = _LockRequest(_TblOpClass.DATA_READ, read_tvps=tvps, read_tbl_keys=tbl_keys)
+        with self._begin_xact(request) as conn:
             yield conn
 
     @contextmanager
@@ -572,9 +619,10 @@ class Catalog(CatalogBase):
         Lock each target and all its mutable views, since writes propagate to those views. `read_tbl_keys` identifies
         additional tables read by the operation, such as the source of an insert from a query.
         """
-        with self._begin_xact(
-            op_class=_TblOpClass.DATA_WRITE, read_tbl_keys=read_tbl_keys, write_tvps=tvps, lock_mutable_tree=True
-        ) as conn:
+        request = _LockRequest(
+            _TblOpClass.DATA_WRITE, read_tbl_keys=read_tbl_keys, write_tvps=tvps, lock_mutable_tree=True
+        )
+        with self._begin_xact(request) as conn:
             yield conn
 
     @contextmanager
@@ -594,38 +642,27 @@ class Catalog(CatalogBase):
         - paths: resolve and lock the objects at these catalog paths, along with their parent directories.
         - lock_path_subtree: also lock each directory's descendants and tables, or each table's views and snapshots.
         """
-        with self._begin_xact(
-            op_class=_TblOpClass.MD_WRITE,
+        request = _LockRequest(
+            _TblOpClass.MD_WRITE,
             write_tvps=tvps,
             write_tbl_ids=tbl_ids,
             lock_mutable_tree=lock_mutable_tree,
             write_paths=paths,
             lock_path_subtree=lock_path_subtree,
-        ) as conn:
+        )
+        with self._begin_xact(request) as conn:
             yield conn
 
     @contextmanager
     def begin_finalize_xact(self, tbl_id: UUID) -> Iterator[sql.Connection]:
         """Open a pending-op finalization transaction, waiting for ACCESS EXCLUSIVE on the table."""
-        with self._begin_xact(
-            op_class=_TblOpClass.FINALIZE, write_tbl_ids=[tbl_id], convert_db_excs=False, finalize_pending_ops=False
-        ) as conn:
+        request = _LockRequest(_TblOpClass.FINALIZE, write_tbl_ids=[tbl_id])
+        with self._begin_xact(request, convert_db_excs=False, finalize_pending_ops=False) as conn:
             yield conn
 
     @contextmanager
     def _begin_xact(
-        self,
-        *,
-        op_class: _TblOpClass,
-        read_tvps: Collection[TableVersionPath] | None = None,
-        read_tbl_keys: Collection[TableVersionKey] | None = None,
-        write_tvps: Collection[TableVersionPath] | None = None,
-        write_tbl_ids: Collection[UUID] | None = None,
-        lock_mutable_tree: bool = False,
-        write_paths: Collection[Path] | None = None,
-        lock_path_subtree: bool = False,
-        convert_db_excs: bool = True,
-        finalize_pending_ops: bool = True,
+        self, request: _LockRequest, *, convert_db_excs: bool = True, finalize_pending_ops: bool = True
     ) -> Iterator[sql.Connection]:
         """Open or join a catalog transaction and yield its connection after lock setup.
 
@@ -639,24 +676,14 @@ class Catalog(CatalogBase):
         When `convert_db_excs` is True, translate supported database errors to Pixeltable exceptions. Errors during
         the caller's work are propagated; use a retry_*_loop() decorator if the whole operation needs to restart.
         """
-        for_write = op_class in (_TblOpClass.DATA_WRITE, _TblOpClass.MD_WRITE, _TblOpClass.FINALIZE)
-        assert for_write or not (write_tvps or write_tbl_ids or write_paths), (op_class, write_tvps, write_tbl_ids)
-        assert op_class is not _TblOpClass.DATA_READ or (read_tvps or read_tbl_keys), (
-            'DATA_READ requires at least one table or table path'
-        )
+        for_write = request.for_write
         if for_write and _frozen.get():
             raise ProhibitedWriteError()
-        read_tvps = read_tvps or []
-        write_tvps = write_tvps or []
-        read_tbl_keys = read_tbl_keys or []
-        write_tbl_ids = write_tbl_ids or []
-        write_paths = write_paths or []
         if get_runtime().in_xact:
             # TODO: restore _check_write_locks()'s check that the enclosing transaction holds all required locks.
             yield get_runtime().conn
             return
 
-        assert len(write_paths) == 0 or op_class is _TblOpClass.MD_WRITE, (write_paths, op_class)
         num_retries = 0
         pending_ops_tbl_id: UUID | None = None
         has_exc = False  # True if we exited the 'with ...begin_xact()' block with an exception
@@ -667,16 +694,7 @@ class Catalog(CatalogBase):
                 pending_ops_tbl_id = None
 
             try:
-                attempt_lock_set = self._resolve_lock_set(
-                    op_class=op_class,
-                    read_tvps=read_tvps,
-                    read_tbl_keys=read_tbl_keys,
-                    write_tvps=write_tvps,
-                    write_tbl_ids=write_tbl_ids,
-                    lock_mutable_tree=lock_mutable_tree,
-                    write_paths=write_paths,
-                    lock_path_subtree=lock_path_subtree,
-                )
+                attempt_lock_set = self._resolve_lock_set(request)
             except PendingTableOpsError as e:
                 if not finalize_pending_ops:
                     raise
@@ -690,9 +708,11 @@ class Catalog(CatalogBase):
                 **telemetry_schemas.XactAttrs(
                     for_write=for_write,
                     attempt=num_retries,
-                    read_table_ids=[str(k.tbl_id) for k in read_tbl_keys] + [str(tvp.tbl_id) for tvp in read_tvps]
+                    read_table_ids=[str(k.tbl_id) for k in request.read_tbl_keys]
+                    + [str(tvp.tbl_id) for tvp in request.read_tvps]
                     or None,
-                    write_table_ids=[str(tbl_id) for tbl_id in write_tbl_ids] + [str(tvp.tbl_id) for tvp in write_tvps]
+                    write_table_ids=[str(tbl_id) for tbl_id in request.write_tbl_ids]
+                    + [str(tvp.tbl_id) for tvp in request.write_tvps]
                     or None,
                 ),
             )
@@ -708,27 +728,13 @@ class Catalog(CatalogBase):
                 with get_runtime().begin_xact(for_write=for_write) as conn:
                     with self._allow_tbl_md_read():
                         try:
-                            self._acquire_locks(attempt_lock_set, op_class)
+                            self._acquire_locks(attempt_lock_set, request.op_class)
                             # LOCK TABLE leaves the snapshot unset, so this refresh sees changes committed
                             # while we waited for store table locks.
-                            self._refresh_md_cache(
-                                read_tvps,
-                                read_tbl_keys,
-                                write_tvps,
-                                write_tbl_ids,
-                                lock_mutable_tree=lock_mutable_tree,
-                                check_pending_ops=finalize_pending_ops,
-                            )
-                            self._validate_lock_set(
-                                op_class=op_class,
-                                write_tvps=write_tvps,
-                                write_tbl_ids=write_tbl_ids,
-                                lock_mutable_tree=lock_mutable_tree,
-                                write_paths=write_paths,
-                                lock_path_subtree=lock_path_subtree,
-                            )
-                            if for_write and lock_mutable_tree:
-                                self._compute_column_dependents(write_tvps, write_tbl_ids)
+                            self._refresh_md_cache(request, check_pending_ops=finalize_pending_ops)
+                            self._validate_lock_set(request)
+                            if for_write and request.lock_mutable_tree:
+                                self._compute_column_dependents(request.mutable_write_tbl_ids())
                             if _logger.isEnabledFor(logging.DEBUG):
                                 # validate only when we don't see errors
                                 self.validate()
@@ -776,7 +782,7 @@ class Catalog(CatalogBase):
                     ) from e
                 num_retries += 1
                 # Clear cached metadata so the next attempt rebuilds the set from the store.
-                self._invalidate_lock_set(read_tvps, read_tbl_keys, write_tvps, write_tbl_ids)
+                self._invalidate_lock_set(request)
                 continue
 
             except PendingTableOpsError as e:
@@ -792,7 +798,7 @@ class Catalog(CatalogBase):
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
                 has_exc = True
                 attempt_exc = e
-                single_tbl, single_tbl_id = self._get_single_tbl(read_tvps, read_tbl_keys, write_tvps, write_tbl_ids)
+                single_tbl, single_tbl_id = request.single_tbl()
                 self.convert_sql_exc(e, tbl_id=single_tbl_id, tbl=single_tbl, convert_db_excs=convert_db_excs)
                 raise  # re-raise the error if it didn't convert to a pxt.Error
 
@@ -820,7 +826,7 @@ class Catalog(CatalogBase):
 
                 # invalidate TVPs' cached md
                 # TODO: remove this once we stop mutating TV instances in-place
-                for tvp in write_tvps:
+                for tvp in request.write_tvps:
                     tvp.clear_cached_md()
 
                 if has_exc:
@@ -829,7 +835,7 @@ class Catalog(CatalogBase):
                     for handle in self._modified_tvs:
                         self._clear_tv_cache(handle.key)
                     # Clear potentially corrupted cached metadata
-                    for tvp in [*write_tvps, *read_tvps]:
+                    for tvp in [*request.write_tvps, *request.read_tvps]:
                         tvp.clear_cached_md()
 
                 self._evict_caches()
@@ -842,26 +848,15 @@ class Catalog(CatalogBase):
         except sql_exc.DBAPIError:
             pass
 
-    def _lock_set_from_store(
-        self,
-        *,
-        op_class: _TblOpClass,
-        read_tvps: Collection[TableVersionPath],
-        read_tbl_keys: Collection[TableVersionKey],
-        write_tvps: Collection[TableVersionPath],
-        write_tbl_ids: Collection[UUID],
-        lock_mutable_tree: bool,
-        write_paths: Collection[Path],
-        lock_path_subtree: bool,
-    ) -> _LockSet:
+    def _lock_set_from_store(self, request: _LockRequest) -> _LockSet:
         """Build a lock set from stored metadata in the current transaction.
 
         Read raw `tables` rows without constructing TableVersion instances, so pending operations do not prevent
         lock-set discovery. Targets named by id or TableVersionPath include tables pending drop; catalog-path
         lookups include only visible tables.
 
-        Apply `op_class` to write targets and the views or subtrees affected by their writes. Lock other tables,
-        including ancestors, for read. If a table has several roles, use the strongest required mode.
+        Apply the request's `op_class` to write targets and the views or subtrees affected by their writes. Lock other
+        tables, including ancestors, for read. If a table has several roles, use the strongest required mode.
         """
         assert get_runtime().in_xact
         conn = get_runtime().conn
@@ -876,17 +871,17 @@ class Catalog(CatalogBase):
         dirs_to_lock: dict[UUID, Path] = {}
 
         # A write path locks its leaf for write if it is a live table, and everything else for read.
-        for tvp in read_tvps:
+        for tvp in request.read_tvps:
             for key in tvp.tbl_keys:
                 tbl_id_to_op_classes[key.tbl_id].add(_TblOpClass.DATA_READ)
-        for tvp in write_tvps:
+        for tvp in request.write_tvps:
             for i, key in enumerate(tvp.tbl_keys):
                 is_live_tbl_leaf = i == 0 and key.effective_version is None
-                tbl_id_to_op_classes[key.tbl_id].add(op_class if is_live_tbl_leaf else _TblOpClass.DATA_READ)
-        for key in read_tbl_keys:
+                tbl_id_to_op_classes[key.tbl_id].add(request.op_class if is_live_tbl_leaf else _TblOpClass.DATA_READ)
+        for key in request.read_tbl_keys:
             tbl_id_to_op_classes[key.tbl_id].add(_TblOpClass.DATA_READ)
-        for tbl_id in write_tbl_ids:
-            tbl_id_to_op_classes[tbl_id].add(op_class)
+        for tbl_id in request.write_tbl_ids:
+            tbl_id_to_op_classes[tbl_id].add(request.op_class)
 
         def list_dir_contents(dir_id: UUID, dir_path: Path) -> tuple[dict[UUID, Path], set[UUID]]:
             """Return directory id-to-path mappings for the subtree and the ids of its visible tables."""
@@ -903,7 +898,7 @@ class Catalog(CatalogBase):
 
         # Resolve catalog paths; include all directory descendants when lock_path_subtree is requested.
         write_path_tbl_ids: set[UUID] = set()
-        for path in write_paths:
+        for path in request.write_paths:
             # path can be a hosted catalog (e.g. pxt://org:db/dir/), but we are only interested in its local form
             path = Path.from_components(path.components)  # noqa: PLW2901
             parent: schema.Dir | None = self._get_dir(path.parent)
@@ -918,7 +913,7 @@ class Catalog(CatalogBase):
             dir = self._get_dir(path)
             if dir is not None:
                 dirs_to_lock.setdefault(dir.id, path)
-                if lock_path_subtree:
+                if request.lock_path_subtree:
                     subtree_dirs, subtree_tbl_ids = list_dir_contents(dir.id, path)
                     dirs_to_lock.update(subtree_dirs)
                     write_path_tbl_ids |= subtree_tbl_ids
@@ -930,7 +925,7 @@ class Catalog(CatalogBase):
             if tbl_id is not None:
                 write_path_tbl_ids.add(tbl_id)
         for tbl_id in write_path_tbl_ids:
-            tbl_id_to_op_classes[tbl_id].add(op_class)
+            tbl_id_to_op_classes[tbl_id].add(request.op_class)
 
         # table ids that we already looked up, including those that did not exist in the store
         visited_tbl_ids: set[UUID] = set()
@@ -983,17 +978,17 @@ class Catalog(CatalogBase):
                     schema.Table.md['view_md']['base_versions'][0][0].astext.in_([i.hex for i in next_ids]),
                     snapshot_filter,
                 )
-                discovered_view_ids = visit_tables(where, op_class)
+                discovered_view_ids = visit_tables(where, request.op_class)
                 visited_ids |= next_ids
                 next_ids = discovered_view_ids - visited_ids
             return visited_ids
 
-        if lock_mutable_tree:
-            visit_transitive_views(set(self._mutable_write_tbl_ids(write_tvps, write_tbl_ids)), mutable_only=True)
+        if request.lock_mutable_tree:
+            visit_transitive_views(set(request.mutable_write_tbl_ids()), mutable_only=True)
 
         # Descendant table/view ids reached from write paths, including snapshots when requested.
         write_path_mutable_views: set[UUID] = set()
-        if lock_path_subtree:
+        if request.lock_path_subtree:
             write_path_mutable_views = visit_transitive_views(write_path_tbl_ids, mutable_only=False)
 
         # Visiting a table can add its ancestors. Continue until every discovered id has been checked.
@@ -1006,12 +1001,12 @@ class Catalog(CatalogBase):
             visited_tbl_ids.update(todo)
 
         # Require an exclusive lock on the base if finalization will advance its view_sn.
-        if op_class is _TblOpClass.FINALIZE:
-            for tbl_id in write_tbl_ids:
+        if request.op_class is _TblOpClass.FINALIZE:
+            for tbl_id in request.write_tbl_ids:
                 base_id = finalized_view_bases.get(tbl_id)
                 if base_id is not None:
                     tbl_id_to_op_classes[base_id].add(_TblOpClass.FINALIZE)
-        if lock_path_subtree:
+        if request.lock_path_subtree:
             for tbl_id in write_path_mutable_views:
                 # Views outside the target directory subtree also need their parent directories locked.
                 dir_id = tbl_dirs.get(tbl_id)
@@ -1032,7 +1027,7 @@ class Catalog(CatalogBase):
         return _LockSet(
             tbl_targets=sorted_tbl_targets,
             dir_ids=sorted_dir_ids,
-            wait=_should_wait(op_class, any(is_data_versioned.values())),
+            wait=_should_wait(request.op_class, any(is_data_versioned.values())),
         )
 
     def _path_lock_targets_from_cache(
@@ -1108,22 +1103,15 @@ class Catalog(CatalogBase):
             any_data_versioned |= subtree_data_versioned
         return targets, any_data_versioned
 
-    def _lock_set_from_cache(
-        self,
-        *,
-        op_class: _TblOpClass,
-        read_tvps: Collection[TableVersionPath],
-        read_tbl_keys: Collection[TableVersionKey],
-        write_tvps: Collection[TableVersionPath],
-        write_tbl_ids: Collection[UUID],
-        lock_mutable_tree: bool,
-    ) -> _LockSet | None:
+    def _lock_set_from_cache(self, request: _LockRequest) -> _LockSet | None:
         """Build a tentative lock set from cached metadata, without querying the store.
 
         Return None if required metadata is missing. Cached metadata may be stale, so validate the set after locking.
         Include each target's bases for read and, when `lock_mutable_tree` is True, each write target's mutable views.
-        Apply `op_class` to write targets and their affected views.
+        Apply the request's `op_class` to write targets and their affected views. Catalog paths are not supported.
         """
+        assert len(request.write_paths) == 0, request.write_paths
+        op_class = request.op_class
         # Store table name -> strongest required lock target.
         targets: dict[str, _LockTarget] = {}
         # If any of the involved tables is data-versioned.
@@ -1135,23 +1123,23 @@ class Catalog(CatalogBase):
                 if current_target is None or target.mode.is_at_least(current_target.mode):
                     targets[target.store_tbl_name] = target
 
-        for tvps, target_op_class in ((read_tvps, _TblOpClass.DATA_READ), (write_tvps, op_class)):
+        for tvps, target_op_class in ((request.read_tvps, _TblOpClass.DATA_READ), (request.write_tvps, op_class)):
             for tvp in tvps:
                 path_result = self._path_lock_targets_from_cache(tvp.tbl_keys, target_op_class)
                 if path_result is None:
                     return None
                 add(path_result[0])
                 any_data_versioned |= path_result[1]
-        write_tbl_keys = [TableVersionKey(tbl_id, None) for tbl_id in write_tbl_ids]
-        for tbl_keys, target_op_class in ((read_tbl_keys, _TblOpClass.DATA_READ), (write_tbl_keys, op_class)):
+        write_tbl_keys = [TableVersionKey(tbl_id, None) for tbl_id in request.write_tbl_ids]
+        for tbl_keys, target_op_class in ((request.read_tbl_keys, _TblOpClass.DATA_READ), (write_tbl_keys, op_class)):
             for key in tbl_keys:
                 ancestors_result = self._ancestors_lock_targets_from_cache(key, target_op_class)
                 if ancestors_result is None:
                     return None
                 add(ancestors_result[0])
                 any_data_versioned |= ancestors_result[1]
-        if lock_mutable_tree:
-            for write_tbl_id in self._mutable_write_tbl_ids(write_tvps, write_tbl_ids):
+        if request.lock_mutable_tree:
+            for write_tbl_id in request.mutable_write_tbl_ids():
                 tree_result = self._mutable_tree_lock_targets_from_cache(write_tbl_id, op_class)
                 if tree_result is None:
                     return None
@@ -1162,75 +1150,35 @@ class Catalog(CatalogBase):
             wait=_should_wait(op_class, any_data_versioned),
         )
 
-    def _resolve_lock_set(
-        self,
-        *,
-        op_class: _TblOpClass,
-        read_tvps: Collection[TableVersionPath],
-        read_tbl_keys: Collection[TableVersionKey],
-        write_tvps: Collection[TableVersionPath],
-        write_tbl_ids: Collection[UUID],
-        lock_mutable_tree: bool,
-        write_paths: Collection[Path],
-        lock_path_subtree: bool,
-    ) -> _LockSet:
+    def _resolve_lock_set(self, request: _LockRequest) -> _LockSet:
         """Build a tentative lock set from cached metadata or a separate store transaction."""
         assert not get_runtime().in_xact
         # Metadata-only reads do not take locks
-        if op_class is _TblOpClass.MD_READ:
+        if request.op_class is _TblOpClass.MD_READ:
             return _LockSet()
 
         # Read catalog paths and pending operations from the store: neither is cached.
-        if len(write_paths) == 0 and op_class is not _TblOpClass.FINALIZE:
-            lock_set: _LockSet | None = self._lock_set_from_cache(
-                op_class=op_class,
-                read_tvps=read_tvps,
-                read_tbl_keys=read_tbl_keys,
-                write_tvps=write_tvps,
-                write_tbl_ids=write_tbl_ids,
-                lock_mutable_tree=lock_mutable_tree,
-            )
-
+        if len(request.write_paths) == 0 and request.op_class is not _TblOpClass.FINALIZE:
+            lock_set = self._lock_set_from_cache(request)
             if lock_set is not None:
                 return lock_set
 
         with self.begin_md_read_xact():
-            return self._lock_set_from_store(
-                op_class=op_class,
-                read_tvps=read_tvps,
-                read_tbl_keys=read_tbl_keys,
-                write_tvps=write_tvps,
-                write_tbl_ids=write_tbl_ids,
-                lock_mutable_tree=lock_mutable_tree,
-                write_paths=write_paths,
-                lock_path_subtree=lock_path_subtree,
-            )
+            return self._lock_set_from_store(request)
 
-    def _invalidate_lock_set(
-        self,
-        read_tvps: Collection[TableVersionPath],
-        read_tbl_keys: Collection[TableVersionKey],
-        write_tvps: Collection[TableVersionPath],
-        write_tbl_ids: Collection[UUID],
-    ) -> None:
+    def _invalidate_lock_set(self, request: _LockRequest) -> None:
         """Clear the cached metadata used to build the lock set, forcing a store read on the next attempt."""
         assert not get_runtime().in_xact
         telemetry_schemas.lock_set_restarts.add(1)
-        for key in (*(k for tvp in (*read_tvps, *write_tvps) for k in tvp.tbl_keys), *read_tbl_keys):
+        for tvp in (*request.read_tvps, *request.write_tvps):
+            for key in tvp.tbl_keys:
+                self._clear_tv_cache(key)
+        for key in request.read_tbl_keys:
             self._clear_tv_cache(key)
-        for tbl_id in write_tbl_ids:
+        for tbl_id in request.write_tbl_ids:
             self._clear_tv_cache(TableVersionKey(tbl_id, None))
 
-    def _validate_lock_set(
-        self,
-        *,
-        op_class: _TblOpClass,
-        write_tvps: Collection[TableVersionPath],
-        write_tbl_ids: Collection[UUID],
-        lock_mutable_tree: bool,
-        write_paths: Collection[Path],
-        lock_path_subtree: bool,
-    ) -> None:
+    def _validate_lock_set(self, request: _LockRequest) -> None:
         """Check that the held locks cover the operation's targets according to refreshed metadata.
 
         Mutable views and catalog paths can change between building the lock set and acquiring its locks.
@@ -1249,42 +1197,24 @@ class Catalog(CatalogBase):
                     _logger.debug(msg)
                     raise _StaleLockSetError(msg)
 
-        if lock_mutable_tree:
-            for write_tbl_id in self._mutable_write_tbl_ids(write_tvps, write_tbl_ids):
-                mutable_tree = self._mutable_tree_lock_targets_from_cache(write_tbl_id, op_class)
+        if request.lock_mutable_tree:
+            for write_tbl_id in request.mutable_write_tbl_ids():
+                mutable_tree = self._mutable_tree_lock_targets_from_cache(write_tbl_id, request.op_class)
                 if mutable_tree is None:
                     msg = f'lock set mismatch: mutable tree of {write_tbl_id} is not fully cached'
                     _logger.debug(msg)
                     raise _StaleLockSetError(msg)
                 validate_targets_locked(mutable_tree[0])
 
-        if len(write_paths) > 0:
+        if len(request.write_paths) > 0:
             # Resolve paths again under the acquired locks and check for targets added since the initial store read.
-            lock_set_from_store = self._lock_set_from_store(
-                op_class=op_class,
-                read_tvps=(),
-                read_tbl_keys=(),
-                write_tvps=write_tvps,
-                write_tbl_ids=write_tbl_ids,
-                lock_mutable_tree=lock_mutable_tree,
-                write_paths=write_paths,
-                lock_path_subtree=lock_path_subtree,
-            )
+            lock_set_from_store = self._lock_set_from_store(request)
             validate_targets_locked(lock_set_from_store.tbl_targets)
             for dir_id in lock_set_from_store.dir_ids:
                 if not self._is_dir_locked(dir_id):
                     msg = f'lock set mismatch: directory {dir_id} is not locked'
                     _logger.debug(msg)
                     raise _StaleLockSetError(msg)
-
-    @classmethod
-    def _mutable_write_tbl_ids(
-        cls, write_tvps: Collection[TableVersionPath], write_tbl_ids: Collection[UUID]
-    ) -> list[UUID]:
-        """Return the mutable table ids from the supplied paths and ids, excluding snapshots."""
-        ids = [tvp.tbl_id for tvp in write_tvps if tvp.effective_version() is None]
-        ids.extend(write_tbl_ids)
-        return ids
 
     def is_tbl_locked(self, store_tbl_name: str, mode: _TblLockMode) -> bool:
         """Return whether this transaction holds the requested mode or stronger on the store table."""
@@ -1397,37 +1327,28 @@ class Catalog(CatalogBase):
         for dir_id in lock_set.dir_ids:
             self._acquire_dir_xlock(dir_id=dir_id)
 
-    def _refresh_md_cache(
-        self,
-        read_tvps: Collection[TableVersionPath],
-        read_tbl_keys: Collection[TableVersionKey],
-        write_tvps: Collection[TableVersionPath],
-        write_tbl_ids: Collection[UUID],
-        *,
-        lock_mutable_tree: bool,
-        check_pending_ops: bool,
-    ) -> None:
+    def _refresh_md_cache(self, request: _LockRequest, *, check_pending_ops: bool) -> None:
         """Refresh metadata for all read and write targets and their mutable views, if requested."""
         # Track refreshed write targets and views to avoid loading the same table twice.
         refreshed: set[UUID] = set()
-        for tvp in write_tvps:
+        for tvp in request.write_tvps:
             self._refresh_path_cache(
                 tbl=tvp,
                 for_write=True,
-                mutable_tree=lock_mutable_tree,
+                mutable_tree=request.lock_mutable_tree,
                 check_pending_ops=check_pending_ops,
                 refreshed=refreshed,
             )
-        for tbl_id in write_tbl_ids:
+        for tbl_id in request.write_tbl_ids:
             self._refresh_tbl_cache(
                 key=TableVersionKey(tbl_id, None),
-                mutable_tree=lock_mutable_tree,
+                mutable_tree=request.lock_mutable_tree,
                 check_pending_ops=check_pending_ops,
                 refreshed=refreshed,
             )
-        for tvp in read_tvps:
+        for tvp in request.read_tvps:
             self._refresh_path_cache(tbl=tvp, for_write=False, check_pending_ops=check_pending_ops)
-        for read_key in read_tbl_keys:
+        for read_key in request.read_tbl_keys:
             self._refresh_tbl_cache(key=read_key, check_pending_ops=check_pending_ops)
 
     def _evict_caches(self) -> None:
@@ -1448,23 +1369,6 @@ class Catalog(CatalogBase):
             _logger.info(f'Evicted {len(evicted_tbls)} LRU table(s) from cache: {evicted_tbls}')
         if evicted_tvs:
             _logger.info(f'Evicted {len(evicted_tvs)} LRU table version(s) from cache: {evicted_tvs}')
-
-    def _get_single_tbl(
-        self,
-        read_tvps: Collection[TableVersionPath],
-        read_tbl_keys: Collection[TableVersionKey],
-        write_tvps: Collection[TableVersionPath],
-        write_tbl_ids: Collection[UUID],
-    ) -> tuple[TableVersionHandle | None, UUID | None]:
-        """Return (tbl, None) or (None, tbl_id) iff the transaction touches exactly one table; else (None, None)."""
-        total = len(write_tvps) + len(read_tvps) + len(read_tbl_keys) + len(write_tbl_ids)
-        if total != 1:
-            return None, None
-        if write_tvps or read_tvps:
-            return next(iter(write_tvps or read_tvps)).tbl_version, None
-        if read_tbl_keys:
-            return None, next(iter(read_tbl_keys)).tbl_id
-        return None, next(iter(write_tbl_ids))
 
     def convert_sql_exc(
         self,
@@ -1958,10 +1862,8 @@ class Catalog(CatalogBase):
             result.update(self._get_mutable_tree(view.id))
         return result
 
-    def _compute_column_dependents(
-        self, write_tvps: Collection[TableVersionPath], write_tbl_ids: Collection[UUID]
-    ) -> None:
-        """Build the column-dependency graph for the write targets and their mutable descendant views.
+    def _compute_column_dependents(self, write_tbl_ids: Collection[UUID]) -> None:
+        """Build the column-dependency graph for the mutable write targets and their mutable descendant views.
 
         The caller must already hold write locks on these tables. Those locks prevent schema changes, keeping the
         graph valid until the transaction ends.
@@ -1969,7 +1871,7 @@ class Catalog(CatalogBase):
         assert self._column_dependents is None
         self._column_dependents = defaultdict(set)
         mutable_tbls: set[UUID] = set()
-        for tbl_id in self._mutable_write_tbl_ids(write_tvps, write_tbl_ids):
+        for tbl_id in write_tbl_ids:
             mutable_tbls |= self._get_mutable_tree(tbl_id)
         for tbl_id in mutable_tbls:
             assert tbl_id in self._column_dependencies, (
