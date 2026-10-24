@@ -904,14 +904,25 @@ pub fn load_warnings(cat: &crate::catalog::Catalog, tbl_id: uuid::Uuid) -> Resul
             }
         }
         let md = cat.table(id)?;
+        // computed columns, and the hidden value columns of embedding indexes (named after their index)
+        let mut exprs: Vec<(String, &Json)> = Vec::new();
         for c in md.columns_at(None)? {
-            let Some(j) = &c.md.value_expr else { continue };
+            if let Some(j) = md.column(c.md.id).and_then(|m| m.value_expr.as_ref()) {
+                exprs.push((c.name.clone(), j));
+            }
+        }
+        for idx in &md.indexes.list {
+            if let Some(j) = idx.val_col_id().and_then(|v| md.column(v)).and_then(|m| m.value_expr.as_ref()) {
+                exprs.push((idx.name.clone(), j));
+            }
+        }
+        for (name, j) in exprs {
             let e = crate::expr::serde::from_json(j)?;
             if let Some(msg) = validation_errors(&e).into_iter().next() {
                 out.push(format!(
                     "The computed column {} in table {} is no longer valid.\n{msg}\n\
                      You can continue to query existing data from this column, but evaluating it on new data will raise an error.",
-                    py_repr(&c.name),
+                    py_repr(&name),
                     py_repr(&md.name)
                 ));
             }
