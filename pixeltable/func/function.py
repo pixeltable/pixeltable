@@ -557,8 +557,13 @@ class Function(ABC):
                 return InvalidFunction(
                     path, d, f'the symbol `{path}` is no longer a UDF. (Was the `@pxt.udf` decorator removed?)'
                 )
-        except (AttributeError, ImportError):
-            return InvalidFunction(path, d, f'the symbol `{path}` no longer exists. (Was the UDF moved or renamed?)')
+        except (AttributeError, ImportError) as e:
+            return InvalidFunction(
+                path,
+                d,
+                f'the symbol `{path}` no longer exists. (Was the UDF moved or renamed?)\n'
+                f'Reported error: {e}',
+            )
 
     def to_store(self) -> tuple[dict, bytes]:
         """
