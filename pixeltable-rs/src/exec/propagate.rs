@@ -10,7 +10,6 @@ use uuid::Uuid;
 
 use super::compute::{ComputedCol, MediaTarget};
 use super::insert::UpdateStatus;
-use super::SampleClause;
 use super::scan::{ElemInfo, PathCtx, PathInput, eval_into};
 use crate::catalog::Catalog;
 use crate::catalog::table::{RowCountStats, TableMd};
@@ -25,11 +24,6 @@ pub struct ViewCompute {
     pub info: ElemInfo,
     pub name: String,
     pub predicate: Option<ExprRef>,
-    /// the view's sample clause and its seed for this operation (a clause without a seed samples with a fresh one
-    /// each time, as upstream's queries do)
-    pub sample: Option<(SampleClause, u64)>,
-    /// added to base rowids when ranking rows for the sample (inserted rows carry provisional rowids)
-    pub rowid_offset: i64,
     /// the stored computed columns, in schema order (and, see `current()`, the hidden index value columns)
     pub computed: Vec<ComputedCol>,
     /// where in-memory media results are written (None: they stay in memory, `Table.compute()`)
@@ -38,6 +32,8 @@ pub struct ViewCompute {
     pub compute_info: ElemInfo,
     /// true: an evaluation error is an error (`compute(on_error='abort')`), else a cell error
     pub fail_on_exception: bool,
+    /// the view's sample clause (a live view's is fractional and seeded)
+    pub sample: Option<super::SampleClause>,
 }
 
 impl ViewCompute {
@@ -45,14 +41,6 @@ impl ViewCompute {
     pub fn of(md: &TableMd, media_dir: std::path::PathBuf) -> Result<ViewCompute> {
         let predicate = match md.view.as_ref().and_then(|v| v.predicate.as_ref()) {
             Some(p) => Some(crate::expr::serde::from_json(p)?),
-            None => None,
-        };
-        let sample = match md.view.as_ref().and_then(|v| v.sample.as_ref()) {
-            Some(j) => {
-                let s = SampleClause::from_json(j)?;
-                let seed = super::query::sample_seed(&s);
-                Some((s, seed))
-            }
             None => None,
         };
         let mut computed = Vec::new();
@@ -71,16 +59,19 @@ impl ViewCompute {
         let media = MediaTarget { tbl_id: md.id, dir: media_dir, version: md.current_version + 1 };
         let info = ElemInfo::of(md, None)?;
         let compute_info = info.with_materialized_outputs();
+        let sample = match md.view.as_ref().and_then(|v| v.sample.as_ref()) {
+            Some(j) => Some(super::SampleClause::from_json(j)?),
+            None => None,
+        };
         Ok(ViewCompute {
             info,
             name: md.name.clone(),
             predicate,
-            sample,
-            rowid_offset: 0,
             computed,
             media: Some(media),
             compute_info,
             fail_on_exception: false,
+            sample,
         })
     }
 
@@ -92,51 +83,19 @@ impl ViewCompute {
         Ok(vc)
     }
 
-    /// True if the base path row passes the view's filter (and, for a fractional sample, is in the sample; other
-    /// samples define snapshots and are applied to the whole base by `populate()`).
+    /// True if the base path row passes the view's filter (and is in its fractional sample).
     pub fn accepts(&self, base_infos: &[&ElemInfo], base: &[&StoredRow]) -> Result<bool> {
-        if let Some((s, seed)) = &self.sample {
-            if let (true, Some(f)) = (s.is_repeatable(), s.fraction) {
-                if !super::query::in_fraction(super::query::sample_hash(*seed, base[0].rowid + self.rowid_offset, &base[0].pos), f) {
-                    return Ok(false);
-                }
+        if let Some(p) = &self.predicate {
+            if !eval_predicate(p, &PathCtx::new(base_infos, base))? {
+                return Ok(false);
             }
         }
-        match &self.predicate {
-            Some(p) => eval_predicate(p, &PathCtx::new(base_infos, base)),
-            None => Ok(true),
+        if let Some(sc) = self.sample.as_ref().filter(|s| s.is_repeatable()) {
+            let seed = sc.seed.unwrap_or(0) as u64;
+            let h = super::sample::key_hash(seed, base[0].rowid, &base[0].pos);
+            return Ok(super::sample::fraction_keeps(h, sc.fraction.unwrap_or(1.0)));
         }
-    }
-
-    /// The base path rows of a new view: those that pass the filter and are in the sample (`sample_select()`).
-    fn sampled<'a>(&self, base_infos: &[&ElemInfo], rows: Vec<Vec<&'a StoredRow>>) -> Result<Vec<Vec<&'a StoredRow>>> {
-        let Some((s, seed)) = &self.sample else { return Ok(rows) };
-        let mut kept = Vec::with_capacity(rows.len());
-        for r in rows {
-            let ok = match &self.predicate {
-                Some(p) => eval_predicate(p, &PathCtx::new(base_infos, &r))?,
-                None => true,
-            };
-            if ok {
-                kept.push(r);
-            }
-        }
-        let hashes: Vec<u64> = kept.iter().map(|r| super::query::sample_hash(*seed, r[0].rowid + self.rowid_offset, &r[0].pos)).collect();
-        let strata = if s.is_stratified() {
-            let mut keys = Vec::with_capacity(kept.len());
-            for r in &kept {
-                let ctx = PathCtx::new(base_infos, r);
-                let vals = s.stratify_by.iter().map(|e| crate::expr::eval::eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
-                keys.push(super::query::keys_of(&vals));
-            }
-            Some(keys)
-        } else {
-            None
-        };
-        let mut selected = super::query::sample_select(&hashes, strata.as_deref(), s);
-        selected.sort_unstable();
-        let mut kept: Vec<Option<Vec<&StoredRow>>> = kept.into_iter().map(Some).collect();
-        Ok(selected.into_iter().filter_map(|i| kept[i].take()).collect())
+        Ok(true)
     }
 
     /// Evaluates `cols` into `row`, a row of this view belonging to the base path row `base`. Evaluation errors
@@ -206,16 +165,64 @@ impl ViewCompute {
         Ok(rows)
     }
 
-    /// The rows of a new view over the base path `base` (its initial population).
+    /// The rows of a new view over the base path `base` (its initial population). A snapshot's sample that is not
+    /// fractional and unstratified selects among all the base rows that pass the filter, here.
     pub fn populate(&self, base: &PathInput, saved: &mut Vec<std::path::PathBuf>) -> Result<(TableData, UpdateStatus)> {
         let infos = base.infos();
         let mut status = UpdateStatus::default();
         let mut data = TableData::default();
-        for r in self.sampled(&infos, base.rows()?)? {
+        let mut rows = base.rows()?;
+        if let Some(sc) = self.sample.as_ref().filter(|s| !s.is_repeatable()) {
+            let mut candidates = Vec::new();
+            for r in rows {
+                let passes = match &self.predicate {
+                    Some(p) => eval_predicate(p, &PathCtx::new(&infos, &r))?,
+                    None => true,
+                };
+                if passes {
+                    candidates.push(r);
+                }
+            }
+            rows = select_sample(candidates, &infos, sc)?;
+            let unsampled = ViewCompute { predicate: None, sample: None, ..self.clone() };
+            for r in rows {
+                data.rows.extend(unsampled.rows_for(&infos, &r, &mut status, saved)?);
+            }
+            return Ok((data, status));
+        }
+        for r in rows {
             data.rows.extend(self.rows_for(&infos, &r, &mut status, saved)?);
         }
         Ok((data, status))
     }
+}
+
+/// The rows a sample clause keeps (upstream `SqlSampleNode`): rows are ranked by the hash of their key with the seed
+/// (a random one if none); `n` keeps the lowest-ranked rows, a fraction the rows below its share of the hash space;
+/// stratified samples rank within the strata (the values of the `stratify_by` expressions).
+pub fn select_sample<'a>(
+    rows: Vec<Vec<&'a StoredRow>>,
+    infos: &[&ElemInfo],
+    sc: &super::SampleClause,
+) -> Result<Vec<Vec<&'a StoredRow>>> {
+    // the same selection as `Query.sample()` (`exec::query::sample_select()`), so a seeded snapshot holds the rows
+    // its query returns
+    let seed = super::query::sample_seed(sc);
+    let hashes: Vec<u64> = rows.iter().map(|r| super::sample::key_hash(seed, r[0].rowid, &r[0].pos)).collect();
+    let strata = if sc.is_stratified() {
+        let mut keys = Vec::with_capacity(rows.len());
+        for r in &rows {
+            let ctx = PathCtx::new(infos, r);
+            let vals = sc.stratify_by.iter().map(|e| crate::expr::eval::eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
+            keys.push(super::query::keys_of(&vals));
+        }
+        Some(keys)
+    } else {
+        None
+    };
+    let selected = super::query::sample_select(&hashes, strata.as_deref(), sc);
+    let mut rows: Vec<Option<Vec<&StoredRow>>> = rows.into_iter().map(Some).collect();
+    Ok(selected.into_iter().filter_map(|i| rows[i].take()).collect())
 }
 
 /// A live view of a table, with its own live views.
@@ -247,19 +254,9 @@ impl ViewNode {
         self.compute.info.tbl_id
     }
 
-    /// Rows computed for these views will get base rowids `offset` higher (see `ViewCompute::rowid_offset`).
-    pub fn set_rowid_offset(nodes: &mut [ViewNode], offset: i64) {
-        for n in nodes {
-            n.compute.rowid_offset = offset;
-            ViewNode::set_rowid_offset(&mut n.children, offset);
-        }
-    }
-
-    /// The rowid offset the views were computed with, if any of them samples (its rows depend on the rowids).
-    pub fn sampled_rowid_offset(nodes: &[ViewNode]) -> Option<i64> {
-        nodes.iter().find_map(|n| {
-            if n.compute.sample.is_some() { Some(n.compute.rowid_offset) } else { ViewNode::sampled_rowid_offset(&n.children) }
-        })
+    /// True if this view or one of its views samples its rows.
+    pub fn samples(&self) -> bool {
+        self.compute.sample.is_some() || self.children.iter().any(ViewNode::samples)
     }
 
     /// Fails if the view tree of `tbl_id` changed since it was captured (views added or dropped, schemas changed).
@@ -349,7 +346,7 @@ pub fn compute_inserted_rows(
 }
 
 /// Appends computed view rows to their views, each at a new version caused by `root` (the table version of the
-/// insert); `rowid_offset` is added to every row's rowid (rows are computed with provisional rowids). Returns the
+/// insert); `rowid_offset` is added to every row's rowid (rows are computed with the rowids the insert expected). Returns the
 /// combined status of all views, as a cascade.
 pub fn commit_inserted_rows(
     cat: &mut Catalog,

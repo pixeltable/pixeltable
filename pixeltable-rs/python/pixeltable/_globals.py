@@ -86,8 +86,6 @@ def create_view(
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
 ) -> Table | None:
     """Create a view (or, with `is_snapshot=True`, a snapshot) of a table or a query over a table."""
-    if has_default_idxs:
-        raise NotImplementedError('create_view() with has_default_idxs is not implemented yet in pixeltable-rs')
     tbl_id, kind, _ = _core.create_view(
         path,
         base,
@@ -98,6 +96,7 @@ def create_view(
         custom_metadata,
         media_validation,
         if_exists,
+        has_default_idxs,
     )
     return _make_table(tbl_id, kind)
 

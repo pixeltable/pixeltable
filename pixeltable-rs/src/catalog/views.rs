@@ -37,8 +37,6 @@ pub struct ViewDef {
     pub base_id: Uuid,
     pub base_version: Option<i64>,
     pub predicate: Option<ExprRef>,
-    /// the sample clause of the base query
-    pub sample: Option<crate::exec::SampleClause>,
     /// the select list of the base query (then only the view's own columns are visible)
     pub select: Option<Vec<(ExprRef, Option<String>)>>,
     pub additional_columns: Vec<ColumnSpec>,
@@ -48,6 +46,9 @@ pub struct ViewDef {
     pub media_validation: MediaValidation,
     /// component views: the iterator call that produces the view's rows from each base row
     pub iterator: Option<std::sync::Arc<crate::functions::iterator::IteratorCall>>,
+    /// the sample clause of the base query
+    pub sample: Option<crate::exec::SampleClause>,
+    pub has_default_idxs: bool,
 }
 
 impl Catalog {
@@ -379,6 +380,24 @@ impl Catalog {
             }
         }
 
+        if let Some(sc) = &def.sample {
+            if !def.is_snapshot && !sc.is_repeatable() {
+                crate::bail!(
+                    UnsupportedOperation,
+                    "A view that is not a snapshot can only be defined by fractional, unstratified sampling."
+                );
+            }
+            for e in &sc.stratify_by {
+                if !self.is_bound_by(e, &live_base_path)? {
+                    crate::bail!(
+                        UnsupportedOperation,
+                        "View sample clause cannot be computed in the context of the base table {}",
+                        py_repr(&base_name)
+                    );
+                }
+            }
+        }
+
         // the filter and the value expressions must be computable in the context of the base
         if let Some(p) = &def.predicate {
             crate::functions::udf::validate_storable(p, "A view's filter")?;
@@ -388,18 +407,6 @@ impl Catalog {
                     "View filter cannot be computed in the context of the base table {}",
                     py_repr(&base_name)
                 );
-            }
-        }
-        if let Some(s) = &def.sample {
-            for e in &s.stratify_by {
-                if !self.is_bound_by(e, &live_base_path)? {
-                    crate::bail!(
-                        UnsupportedOperation,
-                        "View sample clause cannot be computed in the context of the base table {}",
-                        py_repr(&base_name)
-                    );
-                }
-                crate::functions::udf::validate_storable(e, "A view's sample clause")?;
             }
         }
         for spec in &specs {
@@ -427,7 +434,15 @@ impl Catalog {
         };
         let predicate = def.predicate.as_ref().map(retarget);
         let sample = match &def.sample {
-            Some(s) => Some(crate::exec::SampleClause { stratify_by: s.stratify_by.iter().map(retarget).collect(), ..s.clone() }.to_json()?),
+            Some(sc) => {
+                let mut sc = sc.clone();
+                sc.stratify_by = sc.stratify_by.iter().map(retarget).collect();
+                if sc.seed.is_none() && !def.is_snapshot {
+                    // a live view keeps sampling the same way: fix the seed
+                    sc.seed = Some((crate::exec::sample::random_u64() >> 1) as i64);
+                }
+                Some(sc.to_json()?)
+            }
             None => None,
         };
         for spec in specs.iter_mut() {
@@ -509,7 +524,7 @@ impl Catalog {
             name: path.name().to_string(),
             kind: if def.is_snapshot { TableKind::Snapshot } else { TableKind::View },
             is_data_versioned: true,
-            has_default_idxs: false,
+            has_default_idxs: def.has_default_idxs,
             created_at: ts,
             current_version: 0,
             current_schema_version: 0,

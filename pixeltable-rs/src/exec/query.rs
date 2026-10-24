@@ -46,9 +46,9 @@ pub struct QueryInput {
     width: usize,
     /// table id -> (source index, slot) of the first slot that provides its columns
     slot_of: HashMap<Uuid, (usize, usize)>,
-    /// (table id, pinned version) -> (source index, slot): a table can appear at two versions (joined with a
-    /// snapshot of itself); column references name the version they read
-    slot_of_version: HashMap<(Uuid, Option<i64>), (usize, usize)>,
+    /// (table id, pinned version) -> (source index, slot): a table can appear at two versions (a table joined with
+    /// a snapshot of itself); a column reference picks the one its own pinned version names
+    pinned_slot_of: HashMap<(Uuid, Option<i64>), (usize, usize)>,
 }
 
 impl QueryInput {
@@ -58,40 +58,40 @@ impl QueryInput {
         let mut sources = Vec::new();
         let mut unstored = HashMap::new();
         let mut slot_of = HashMap::new();
-        let mut slot_of_version = HashMap::new();
+        let mut pinned_slot_of = HashMap::new();
         let mut width = 0;
         for (i, (tbl_id, version)) in q.from_tbls().into_iter().enumerate() {
-            let elems = cat.tbl_path(tbl_id, version)?;
-            let path = PathInput::snapshot(cat, &elems)?;
+            let path = PathInput::snapshot(cat, &cat.tbl_path(tbl_id, version)?)?;
             let offset = width;
-            for (k, (e, pe)) in path.elems.iter().zip(&elems).enumerate() {
+            for (k, e) in path.elems.iter().enumerate() {
                 for (col_id, x) in &e.info.unstored {
                     unstored.insert((e.info.tbl_id, *col_id), x.clone());
                 }
                 slot_of.entry(e.info.tbl_id).or_insert((i, offset + k));
-                slot_of_version.entry((pe.tbl_id, pe.pinned)).or_insert((i, offset + k));
+                pinned_slot_of.entry((e.info.tbl_id, e.pinned)).or_insert((i, offset + k));
             }
             width += path.elems.len();
             sources.push(Source { path, offset });
         }
-        Ok(QueryInput { q: q.clone(), sources, select, unstored, width, slot_of, slot_of_version })
+        Ok(QueryInput { q: q.clone(), sources, select, unstored, width, slot_of, pinned_slot_of })
     }
 
     fn slot(&self, tbl_id: &Uuid) -> Option<usize> {
         self.slot_of.get(tbl_id).map(|(_, slot)| *slot)
     }
 
-    /// The from-table (source index) that provides the columns of `tbl_id`.
-    fn source_of(&self, tbl_id: &Uuid) -> Option<usize> {
-        self.slot_of.get(tbl_id).map(|(src, _)| *src)
+    /// The from-table (source index) that provides the column `col`: the one that reads its table at the version
+    /// the reference is pinned to, else the first one that has its table.
+    fn source_of(&self, col: &ColumnRef) -> Option<usize> {
+        self.pinned_slot_of
+            .get(&(col.tbl_id, col.tbl_version))
+            .or_else(|| self.slot_of.get(&col.tbl_id))
+            .map(|(src, _)| *src)
     }
 
-    /// The from-table that provides `col` (at the version it reads).
-    fn source_of_col(&self, col: &ColumnRef) -> Option<usize> {
-        match self.slot_of_version.get(&(col.tbl_id, col.tbl_version)) {
-            Some((src, _)) => Some(*src),
-            None => self.source_of(&col.tbl_id),
-        }
+    /// The from-table that provides the rows of `tbl_id` (the first one that has its table).
+    fn source_of_tbl(&self, tbl_id: &Uuid) -> Option<usize> {
+        self.slot_of.get(tbl_id).map(|(src, _)| *src)
     }
 
     /// A row with only the slots of source `i` set.
@@ -146,15 +146,15 @@ impl Ctx<'_> {
 
 impl RowContext for Ctx<'_> {
     fn column_value(&self, col: &ColumnRef) -> Result<Value> {
-        Ok(self.with_path(self.input.source_of_col(col), |ctx| ctx.column_value(col))?.unwrap_or(Value::Null))
+        Ok(self.with_path(self.input.source_of(col), |ctx| ctx.column_value(col))?.unwrap_or(Value::Null))
     }
 
     fn column_error(&self, col: &ColumnRef) -> Result<Option<crate::store::rows::CellError>> {
-        Ok(self.with_path(self.input.source_of_col(col), |ctx| ctx.column_error(col))?.flatten())
+        Ok(self.with_path(self.input.source_of(col), |ctx| ctx.column_error(col))?.flatten())
     }
 
     fn row_key(&self, tbl_id: Uuid) -> Result<Option<(i64, Vec<i64>)>> {
-        Ok(self.with_path(self.input.source_of(&tbl_id), |ctx| ctx.row_key(tbl_id))?.flatten())
+        Ok(self.with_path(self.input.source_of_tbl(&tbl_id), |ctx| ctx.row_key(tbl_id))?.flatten())
     }
 
     fn precomputed(&self, e: &Expr) -> Option<Value> {
@@ -504,7 +504,7 @@ fn equi_keys(pred: &ExprRef, input: &QueryInput, right_src: usize) -> (Vec<ExprR
         if refs.is_empty() {
             return None;
         }
-        let srcs: Vec<usize> = refs.iter().filter_map(|c| input.source_of_col(c)).collect();
+        let srcs: Vec<usize> = refs.iter().filter_map(|c| input.source_of(c)).collect();
         if srcs.len() != refs.len() {
             return None;
         }
@@ -644,22 +644,12 @@ fn filtered<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
 
 // ------------------------------------------------------------------------------------------------ sampling
 
+/// The rank of a row in a sample (`sample::key_hash()` of the key of its first table's row).
 fn row_hash(seed: u64, row: &JRow<'_>) -> u64 {
     match row.first().copied().flatten() {
-        Some(r) => sample_hash(seed, r.rowid, &r.pos),
+        Some(r) => super::sample::key_hash(seed, r.rowid, &r.pos),
         None => super::sample::splitmix64(seed),
     }
-}
-
-/// The rank of a row in a sample: a hash of (seed, row key), as upstream's `SqlSampleNode` ranks rows by
-/// `MD5(seed, rowid...)`.
-pub fn sample_hash(seed: u64, rowid: i64, pos: &[i64]) -> u64 {
-    use super::sample::splitmix64;
-    let mut h = splitmix64(rowid as u64);
-    for p in pos {
-        h = splitmix64(h ^ *p as u64);
-    }
-    splitmix64(seed ^ h)
 }
 
 /// The seed of a sample: the given one, or a fresh random one per execution.
@@ -668,11 +658,6 @@ pub fn sample_seed(s: &SampleClause) -> u64 {
         Some(sd) => sd as u64,
         None => super::sample::random_u64(),
     }
-}
-
-/// True if a row with rank `hash` is in a fractional, unstratified sample.
-pub fn in_fraction(hash: u64, fraction: f64) -> bool {
-    fraction >= 1.0 || hash < (fraction * u64::MAX as f64) as u64
 }
 
 /// Upstream `SqlSampleNode`: rows are ranked by their hash; a fraction keeps the rows whose hash falls below the
@@ -684,7 +669,7 @@ pub fn sample_select(hashes: &[u64], strata: Option<&[String]>, s: &SampleClause
     order.sort_by_key(|i| hashes[*i]);
     let Some(strata) = strata else {
         return match (s.fraction, s.n) {
-            (Some(f), _) => order.into_iter().filter(|i| in_fraction(hashes[*i], f)).collect(),
+            (Some(f), _) => order.into_iter().filter(|i| super::sample::fraction_keeps(hashes[*i], f)).collect(),
             (None, Some(n)) => order.into_iter().take(n.max(0) as usize).collect(),
             _ => order,
         };

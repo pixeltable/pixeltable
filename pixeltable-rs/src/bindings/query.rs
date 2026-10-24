@@ -136,16 +136,26 @@ impl PyQuerySpec {
     /// checking that the query can be used for `op_name` (upstream `_validate_mutable()`).
     fn mutation_target(&self, py: Python<'_>, op_name: &str) -> Result<(String, Option<i64>, Option<PyExpr>)> {
         let q = &self.q;
-        self.validate_mutable(op_name)?;
-        let is_snapshot = with_catalog(py, |cat| {
-            let md = cat.table(q.tbl_id)?;
-            if op_name == "delete" && md.is_view() && !md.is_snapshot() {
-                crate::bail!(UnsupportedOperation, "Cannot use `delete` on a view.");
+        for (clause, present) in [
+            ("group_by", q.group_by.is_some() || q.grouping_tbl.is_some()),
+            ("order_by", !q.order_by.is_empty()),
+            ("select", q.select.is_some()),
+            ("limit", q.limit.is_some() || q.offset.is_some()),
+            ("join", !q.joins.is_empty()),
+        ] {
+            if present {
+                crate::bail!(UnsupportedOperation, "Cannot use `{op_name}` after `{clause}`.");
             }
-            Ok(md.is_snapshot() || q.version.is_some())
+        }
+        let (is_snapshot, is_view) = with_catalog(py, |cat| {
+            let md = cat.table(q.tbl_id)?;
+            Ok((md.is_snapshot() || q.version.is_some(), md.is_view()))
         })?;
         if is_snapshot {
             crate::bail!(UnsupportedOperation, "Cannot use `{op_name}` on a snapshot.");
+        }
+        if op_name == "delete" && is_view {
+            crate::bail!(UnsupportedOperation, "Cannot use `delete` on a view.");
         }
         Ok((q.tbl_id.to_string(), q.version, q.where_.clone().map(PyExpr::new)))
     }

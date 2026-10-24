@@ -55,6 +55,9 @@ pub struct InsertPlan {
     pub info: ElemInfo,
     /// the live views the inserted rows propagate to
     pub views: Vec<ViewNode>,
+    /// the rowid the first inserted row is expected to get (rows are built with rowids from here; the commit shifts
+    /// them if another insert came first)
+    pub first_rowid: i64,
 }
 
 /// A column of the rows an insert or update returns (`return_rows`, upstream `RowBuilder.create_output_rows()`).
@@ -205,11 +208,8 @@ impl InsertPlan {
             unstored: unstored_exprs(md)?,
             media: MediaTarget { tbl_id, dir: cat.store().media_dir(tbl_id), version },
             info: ElemInfo::of(md, None)?,
-            views: {
-                let mut views = ViewNode::tree(cat, tbl_id)?;
-                ViewNode::set_rowid_offset(&mut views, md.next_rowid);
-                views
-            },
+            views: ViewNode::tree(cat, tbl_id)?,
+            first_rowid: md.next_rowid,
         })
     }
 
@@ -237,7 +237,7 @@ impl InsertPlan {
 /// A converted input row: a value for every column of the plan that was given (others are NULL or computed).
 pub type InputRow = Vec<(ColId, Value)>;
 
-/// Rows ready to be stored (rowids and versions are assigned at commit): the table's rows (with provisional rowids
+/// Rows ready to be stored (versions are assigned at commit): the table's rows (with the rowids the insert expects
 /// 0, 1, ...) and the rows they add to the table's views.
 pub struct BuiltRows {
     pub rows: Vec<StoredRow>,
@@ -324,7 +324,7 @@ fn build_rows_inner(
     let mut rows = Vec::with_capacity(inputs.len());
     let has_windows = computed.iter().any(|c| super::query::has_window_calls(&c.expr));
     for (i, input) in inputs.into_iter().enumerate() {
-        let mut row = StoredRow::new(i as i64, Vec::new());
+        let mut row = StoredRow::new(plan.first_rowid + i as i64, Vec::new());
         for (col_id, v) in input {
             row.set_cell(col_id, v);
         }
@@ -453,12 +453,12 @@ pub fn commit(cat: &mut Catalog, plan: &InsertPlan, built: BuiltRows) -> Result<
     }
     ViewNode::check_unchanged(cat, plan.tbl_id, &plan.views)?;
     let version = if md.is_data_versioned { md.current_version + 1 } else { md.current_version };
-    let rowid_offset = md.next_rowid;
-    if ViewNode::sampled_rowid_offset(&plan.views).is_some_and(|o| o != rowid_offset) {
-        // a sampled view's rows were selected by the rowids the rows were expected to get
+    let rowid_offset = md.next_rowid - plan.first_rowid;
+    if rowid_offset != 0 && plan.views.iter().any(ViewNode::samples) {
+        // a sampled view decided membership by the rows' keys
         crate::bail!(
             ConcurrentModification,
-            "Table {} was modified while the insert was being prepared; retry the insert",
+            "Table {} changed while the insert was being prepared; retry the insert",
             py_repr(&plan.tbl_name)
         );
     }
@@ -475,7 +475,7 @@ pub fn commit(cat: &mut Catalog, plan: &InsertPlan, built: BuiltRows) -> Result<
     if md.is_data_versioned {
         cat.bump_version(plan.tbl_id, None)?;
     }
-    cat.table_mut(plan.tbl_id)?.next_rowid = rowid_offset + num_rows;
+    cat.table_mut(plan.tbl_id)?.next_rowid = md.next_rowid + num_rows;
     let own = UpdateStatus {
         updated_cols: Vec::new(),
         cols_with_excs: built.cols_with_excs,

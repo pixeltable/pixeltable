@@ -85,9 +85,8 @@ impl SampleClause {
         !self.is_stratified() && self.fraction.is_some()
     }
 
-    /// Upstream `SampleClause.as_dict()`.
+    /// The serialized form (as in `Query.as_dict()`).
     pub fn to_json(&self) -> Result<serde_json::Value> {
-        let exprs = self.stratify_by.iter().map(|e| crate::expr::serde::to_json(e)).collect::<Result<Vec<_>>>()?;
         Ok(serde_json::json!({
             "_classname": "SampleClause",
             "version": 1,
@@ -95,7 +94,7 @@ impl SampleClause {
             "n_per_stratum": self.n_per_stratum,
             "fraction": self.fraction,
             "seed": self.seed,
-            "stratify_exprs": exprs,
+            "stratify_exprs": self.stratify_by.iter().map(|e| crate::expr::serde::to_json(e)).collect::<Result<Vec<_>>>()?,
         }))
     }
 

@@ -278,7 +278,8 @@ pub struct ViewMd {
     /// (`pos` first) are the view's first columns
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub iterator: Option<Json>,
-    /// the serialized sample clause of a view defined by a sampled query (`exec::SampleClause::to_json()`)
+    /// the serialized sample clause (`exec::SampleClause`): a live view samples a fraction of its base rows (by a
+    /// seeded hash of their keys); a snapshot's sample was applied when its rows were stored
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sample: Option<Json>,
 }
@@ -429,7 +430,8 @@ impl TableMd {
 
     /// A snapshot without columns or filter: it has no rows of its own and reads its (pinned) bases.
     pub fn is_pure_snapshot(&self) -> bool {
-        self.view.as_ref().is_some_and(|v| v.is_snapshot && v.predicate.is_none() && v.sample.is_none()) && self.columns.is_empty()
+        self.view.as_ref().is_some_and(|v| v.is_snapshot && v.predicate.is_none() && v.sample.is_none())
+            && self.columns.is_empty()
     }
 
     /// Ids of the visible stored columns at the current schema version, in schema order.

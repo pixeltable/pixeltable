@@ -108,6 +108,13 @@ impl ComputeRowsPlan {
         let mut views = Vec::new();
         for e in path[..path.len() - 1].iter().rev() {
             let md = cat.table(e.tbl_id)?;
+            if md.view.as_ref().is_some_and(|v| v.sample.is_some()) {
+                crate::bail!(
+                    UnsupportedOperation,
+                    "{}: compute() is not supported for views defined with a sample clause.",
+                    cat.display_str(tbl_id)?
+                );
+            }
             let mut vc = ViewCompute::of(md, cat.store().media_dir(e.tbl_id))?;
             vc.media = None;
             views.push(vc);
