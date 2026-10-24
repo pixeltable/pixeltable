@@ -307,8 +307,15 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
         ExprKind::Arithmetic { op, lhs, rhs } => {
             let a = eval(lhs, ctx)?;
             let b = eval(rhs, ctx)?;
-            // upstream evaluates SQL-expressible arithmetic of a query in SQL, computed columns in Python
-            let sql = !ctx.python_semantics() && crate::exec::query::is_sql_expr(e, &Default::default());
+            // upstream evaluates SQL-expressible arithmetic of a query in SQL, computed columns in Python; the two
+            // differ only for a zero divisor and for `%` with operands of different signs
+            let num = |v: &Value| v.json_scalar().as_f64();
+            let sensitive = match (num(&a), num(&b)) {
+                (_, Some(y)) if y == 0.0 => true,
+                (Some(x), Some(y)) => *op == ArithOp::Mod && (x < 0.0) != (y < 0.0),
+                _ => false,
+            };
+            let sql = sensitive && !ctx.python_semantics() && crate::exec::query::is_sql_expr(e, &Default::default());
             arithmetic(*op, &a, &b, lhs.col_type.is_json(), rhs.col_type.is_json(), &e.col_type, sql)
         }
         ExprKind::StringOp { op, lhs, rhs } => {
