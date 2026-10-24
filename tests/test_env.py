@@ -2,6 +2,8 @@ import asyncio
 import os
 import subprocess
 import sys
+import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Iterator
@@ -498,6 +500,36 @@ class TestApiClients:
         client = get_runtime().get_client('test_aclose_sdk')
         reset_runtime()
         assert (client.acloses, client.closes) == (1, 0)
+
+    def test_closed_on_thread_exit(self, init_env: None) -> None:
+        """A thread that ran Pixeltable calls owns a Runtime; when the thread exits, that runtime's
+        clients and event loop are closed rather than left for the GC (which emits ResourceWarnings)."""
+        n_clients = len(_test_clients)
+        runtime_in_thread: list[object] = []
+
+        def work() -> None:
+            runtime = get_runtime()
+            runtime.get_client('test_sdk')
+            _ = runtime.event_loop  # give it an owned event loop, as an async integration would
+            runtime_in_thread.append(runtime)
+
+        t = threading.Thread(target=work)
+        t.start()
+        t.join(timeout=30)
+
+        assert len(_test_clients) == n_clients + 1
+        client = _test_clients[-1]
+        # the sentinel's finalizer runs during the dying thread's teardown, just before join() returns
+        for _ in range(100):
+            if client.closes == 1:
+                break
+            time.sleep(0.05)
+        assert client.closes == 1
+        assert client.loop_was_open is True
+        assert len(runtime_in_thread) == 1
+        rt = runtime_in_thread[0]
+        assert len(rt._clients) == 0
+        assert rt._event_loop is None
 
 
 class TestRequirePackage:

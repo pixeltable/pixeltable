@@ -286,24 +286,22 @@ class TestConfig:
             project_config.write_text(f"{original}\n{hosted}uv_options = '--all-extras'\n", encoding='utf-8')
             assert 'hello' in cli('rows', f'{target}/docs', '-n', '1').stdout
 
-            # a binding of the local database is another matter: the daemon built its clients from the old one
+            # a binding of the local database is adopted the same way: the daemon reloads and rebuilds its
+            # clients rather than refusing until restart
             time.sleep(0.01)
             project_config.write_text(
                 f"{original}\n{hosted}\n[[pixeltable.database]]\nvars.pxt_test_key = '{_A_KEY}'\n", encoding='utf-8'
             )
-            r = cli('rows', f'{target}/docs', '-n', '1', check=False)
-            assert r.returncode != 0
-            # the refusal names the binding as the file spells it, and the file holding it
-            assert 'pixeltable.database.vars.pxt_test_key' in r.stderr
-            assert str(project_config) in r.stderr
-            assert 'pxt daemon restart' in r.stderr
-            assert _A_KEY not in r.stderr
+            assert 'hello' in cli('rows', f'{target}/docs', '-n', '1').stdout
+            entries = cli('config', '--json').json['entries']
+            var = next(e for e in entries if e['key'] == 'pxt_test_key')
+            assert (var['section'], var['source']) == ('pixeltable.database.vars', str(project_config))
         finally:
             project_config.write_text(original, encoding='utf-8')
             cli('daemon', 'restart')
 
     def test_edited_config_file(self, cli: PxtRunner, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
-        """Editing a credential in the config file of a running daemon is refused until it is restarted."""
+        """Editing a credential in the config file of a running daemon is adopted without a restart."""
         target = db_root.make_catalog_path('cfg')
         make_table(target)
 
@@ -320,14 +318,7 @@ class TestConfig:
             encoding='utf-8',
         )
 
-        r = cli('rows', f'{target}/docs', '-n', '1', env_overrides=own_config, check=False)
-        assert r.returncode != 0
-        assert 'pixeltable.database.vars.pxt_test_key' in r.stderr
-        assert 'pxt daemon restart' in r.stderr
-        assert _A_KEY not in r.stderr
-
-        # the restarted daemon serves with what the file now says
-        cli('daemon', 'restart', env_overrides=own_config)
+        # the daemon reloads, adopts the values and keeps serving; there is no restart
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=own_config).stdout
         entries = cli('config', '--json', env_overrides=own_config).json['entries']
         test_key = next(e for e in entries if (e['section'], e['key']) == ('pixeltable.database.vars', 'pxt_test_key'))

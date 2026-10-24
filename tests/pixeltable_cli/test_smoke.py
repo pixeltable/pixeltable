@@ -4,6 +4,7 @@ Each class focuses on one cli command. Methods bundle related scenarios so a sin
 table can serve multiple assertions (JSON + text + flag variants) without re-creating it.
 """
 
+import datetime
 import http.client
 import importlib.metadata
 import io
@@ -931,6 +932,54 @@ class TestGet:
         assert cli('get', p('cli_get_coerce/s'), '90210', '--json').json['row']['v'] == 2
         assert cli('get', p('cli_get_coerce/s'), '007', '--json').json['row']['v'] == 3
 
+    def test_pk_types(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        """Bool, Date, Timestamp and nullable PKs parse and match; an unsupported PK type and an
+        unparseable Bool are INVALID_ARGUMENT rather than silent misses."""
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('cli_get_types'), if_exists='ignore')
+        t = pxt.create_table(
+            p('cli_get_types/t'),
+            {'k': pxt.String, 'b': pxt.Bool, 'd': pxt.Date, 'ts': pxt.Timestamp, 'v': pxt.Int | None},
+            primary_key=['k', 'b', 'd', 'ts'],
+            if_exists='replace',
+        )
+        t.insert(
+            [
+                {
+                    'k': 'a',
+                    'b': True,
+                    'd': datetime.date(2024, 1, 2),
+                    'ts': datetime.datetime(2024, 1, 2, 3, 4, 5, tzinfo=datetime.timezone.utc),
+                    'v': 10,
+                },
+                {
+                    'k': 'b',
+                    'b': False,
+                    'd': datetime.date(2024, 2, 3),
+                    'ts': datetime.datetime(2024, 2, 3, 4, 5, 6, tzinfo=datetime.timezone.utc),
+                    'v': 20,
+                },
+            ]
+        )
+        out = cli('get', p('cli_get_types/t'), 'a', 'true', '2024-01-02', '2024-01-02T03:04:05+00:00', '--json').json
+        assert out['row']['v'] == 10
+        out = cli('get', p('cli_get_types/t'), 'b', 'false', '2024-02-03', '2024-02-03T04:05:06Z', '--json').json
+        assert out['row']['v'] == 20
+        # a miss on a parsed value is a normal miss
+        r = cli('get', p('cli_get_types/t'), 'a', 'false', '2024-01-02', '2024-01-02T03:04:05Z', '--json', check=False)
+        assert r.returncode == 1
+        assert r.json['row'] is None
+        # an unparseable Bool value is a usage error
+        r = cli('get', p('cli_get_types/t'), 'a', 'maybe', '2024-01-02', '2024-01-02T03:04:05Z', check=False)
+        assert r.returncode != 0
+        assert 'not a valid Bool value' in r.stderr
+
+        # a primary key of a type with no parser is a usage error, not a silent miss
+        pxt.create_table(p('cli_get_types/j'), {'k': pxt.Json, 'v': pxt.Int}, primary_key='k', if_exists='replace')
+        r = cli('get', p('cli_get_types/j'), '[1]', check=False)
+        assert r.returncode != 0
+        assert 'unsupported type' in r.stderr
+
     def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """No-PK rejection, PK count mismatch, unknown col, empty/whitespace PK, empty --cols token."""
         p = db_root.make_catalog_path
@@ -973,6 +1022,27 @@ class TestGet:
         r = cli('get', p('cli_get_err/t'), '1', '--cols', 'k,', check=False)
         assert r.returncode != 0
         assert 'must not be empty' in r.stderr
+
+    @pytest.mark.db_roots('local', reason='the did-you-mean hint searches the local directory tree')
+    def test_did_you_mean(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        """A bare table name that misses reports a 'did you mean' hint for catalog tables with that name."""
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('cli_hint'), if_exists='ignore')
+        t = pxt.create_table(p('cli_hint/widgets'), {'k': pxt.Int}, primary_key='k', if_exists='replace')
+        t.insert([{'k': 1}])
+
+        r = cli('get', 'widgets', '1', check=False)
+        assert r.returncode != 0
+        assert 'did you mean' in r.stderr
+        assert 'cli_hint/widgets' in r.stderr
+
+        # and the suggested path works
+        assert cli('get', p('cli_hint/widgets'), '1', '--json').json['row']['k'] == 1
+
+        # a genuinely absent name gets no hint
+        r = cli('get', 'no_such_table_xyz', '1', check=False)
+        assert r.returncode != 0
+        assert 'did you mean' not in r.stderr
 
 
 class TestCount:

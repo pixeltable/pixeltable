@@ -831,6 +831,37 @@ class TestService:
         cli('service', 'update', app, target, '-f')
         assert_serving(cli, app, target, 'ingest')
 
+    @pytest.mark.db_roots('local', reason='run serves from the calling process, which a hosted pod never does')
+    def test_run_busy_port(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+        """run refuses a busy port with an error, before printing the running banner."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        app, target = apps('basic.py'), db_root.make_catalog_path('app')
+        cli('schema', 'update', app, target)
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as holder:
+            holder.bind(('127.0.0.1', 0))
+            holder.listen()
+            port = holder.getsockname()[1]
+            r = cli('service', 'run', app, target, '--port', str(port), check=False)
+
+        assert r.returncode == EXIT_ERROR
+        assert 'cannot listen' in r.stderr, r.stderr
+        assert 'Pixeltable is running' not in r.stdout + r.stderr
+
+    def test_first_deploy_needs_no_force(
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
+    ) -> None:
+        """A first deploy only creates services: it asks for no confirmation even without a TTY."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        app, target = apps('basic.py'), db_root.make_catalog_path('app')
+        cli('schema', 'update', app, target)
+
+        # no -f: a pure create has nothing to interrupt, so there is nothing to confirm
+        cli('service', 'update', app, target)
+        assert_serving(cli, app, target, 'ingest')
+
     def test_blocked_on_database(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A service whose tables do not exist is blocked until the schema is applied."""
         skip_test_if_not_installed('fastapi')

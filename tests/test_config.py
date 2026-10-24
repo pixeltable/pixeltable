@@ -261,6 +261,10 @@ class TestConfig:
         Config.init(reinit=True, project_root=None)
         assert Config.get().project_root is None
 
+        # an explicit root that is not a directory is a configuration error, not an assert
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Not a directory'):
+            Config.init(reinit=True, project_root=tmp_path / 'proj' / 'pyproject.toml')
+
     def test_project_config_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A project config file that cannot be used names itself in the error."""
         project = tmp_path / 'proj'
@@ -343,6 +347,25 @@ class TestConfig:
         assert Config.reload_if_changed()
         assert Config.get().project_root == project
         assert Config.get().get_string_value('after_reload', section=VAR_SECTION) == 'yes'
+
+    def test_failed_reload_keeps_instance(self, tmp_path: Path) -> None:
+        """A reload whose rebuild fails keeps the working instance, including the project root."""
+        project = tmp_path / 'proj'
+        project.mkdir()
+        config_file = project / 'pixeltable.toml'
+        config_file.write_text('')
+        Config.init(reinit=True, project_root=project)
+
+        time.sleep(0.01)  # the stamp is (mtime, size), so a same-size rewrite needs a distinct mtime
+        config_file.write_text('[[pixeltable.database]\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION):
+            Config.reload_if_changed()
+        assert Config.get().project_root == project
+
+        # a failed re-init keeps the working instance too
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION):
+            Config.init(reinit=True, project_root=config_file)  # a file, not a directory
+        assert Config.get().project_root == project
 
     def test_project_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A config setting in the project is read, and wins over the home config."""

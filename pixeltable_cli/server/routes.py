@@ -47,6 +47,38 @@ from .router import RawResponse, Request, Router
 router = Router()
 _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
+
+def _get_table(path: PxtPath) -> pxt.Table:
+    """pxt.get_table with a 'did you mean' hint when a bare table name cannot be resolved.
+
+    A bare name that misses may still name a table deeper in the catalog; get_dir_tree()
+    finds those paths so the error can suggest them.
+    """
+    try:
+        return pxt.get_table(path)
+    except excs.Error as e:
+        if e.error_code == excs.ErrorCode.PATH_NOT_FOUND and '/' not in path and '.' not in path and path != '':
+            matches = _tables_named(path)
+            if len(matches) > 0:
+                hint = ', '.join(f"'{m}'" for m in sorted(matches)[:5])
+                raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f'{e}; did you mean: {hint}?') from e
+        raise
+
+
+def _tables_named(name: str) -> list[str]:
+    """Catalog paths of all tables/views/snapshots named `name`, in any directory (case-folded)."""
+    folded = fold_identifier(name)
+    found: list[str] = []
+    stack = list(pxt.get_dir_tree())
+    while len(stack) > 0:
+        node = stack.pop()
+        if node['kind'] == 'directory':
+            stack.extend(node['entries'])
+        elif fold_identifier(node['name']) == folded:
+            found.append(node['path'])
+    return found
+
+
 # Freeze the identity fingerprint at import time so /health reports what the daemon was
 # launched with, not what os.environ looks like right now. Used to trigger a daemon restart.
 _IDENTITY: dict[str, Any] = identity()
@@ -205,7 +237,7 @@ def table_rows(req: Request) -> models.RowsResponse:
     if cols_list is not None and len(cols_list) > 1000:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'too many columns requested (max 1000)')
 
-    t = pxt.get_table(path)
+    t = _get_table(path)
     cols_md = t.get_metadata()['columns']
     if cols_list is not None:
         missing = [c for c in cols_list if c not in cols_md]
@@ -241,7 +273,7 @@ def table_row(req: Request) -> models.GetResponse:
     cols_list = _split_csv(req.query_str('cols'))
     cols_list = [fold_identifier(c) for c in cols_list] if cols_list is not None else None
 
-    t = pxt.get_table(path)
+    t = _get_table(path)
     md = t.get_metadata()
     pk_names = md.get('primary_key')
     if pk_names is None or len(pk_names) == 0:
@@ -293,7 +325,7 @@ def table_row(req: Request) -> models.GetResponse:
 @router.get('/api/tables/count')
 def table_count(req: Request) -> models.CountResponse:
     path = req.resolve_path(req.query_str('path') or '')
-    return models.CountResponse(path=path, count=pxt.get_table(path).count())
+    return models.CountResponse(path=path, count=_get_table(path).count())
 
 
 @router.get('/api/tables/errors')
@@ -302,7 +334,7 @@ def table_errors(req: Request) -> models.ErrorsResponse:
     col = req.query_str('col')
     if col is not None:
         col = fold_identifier(col)
-    t = pxt.get_table(path)
+    t = _get_table(path)
     md = t.get_metadata()
 
     pk_names = md.get('primary_key')
@@ -372,7 +404,7 @@ def _defining_base(md: TableMetadata, column: str) -> tuple[str | None, bool]:
     owner = md['columns'][column]['defined_in']
     path = None
     while md['base'] is not None:
-        base_md = pxt.get_table(md['base']).get_metadata()
+        base_md = _get_table(md['base']).get_metadata()
         base_col = base_md['columns'].get(column)
         if base_col is None or base_col['defined_in'] != owner:
             break
@@ -388,7 +420,7 @@ def _defining_base(md: TableMetadata, column: str) -> tuple[str | None, bool]:
 def table_history(req: Request) -> models.HistoryResponse:
     path = req.resolve_path(req.query_str('path') or '')
     n = req.query_int('n', default=None, ge=1)
-    versions = pxt.get_table(path).get_versions(n)
+    versions = _get_table(path).get_versions(n)
     return models.HistoryResponse(versions=[dict(v) for v in versions])
 
 
@@ -404,7 +436,7 @@ def drop_table(req: Request) -> models.DropResponse:
 def recompute(req: Request) -> models.RecomputeResponse:
     body = req.body(models.RecomputeBody)
     path = req.resolve_path(body.path)
-    t = pxt.get_table(path)
+    t = _get_table(path)
     status = t.recompute_columns(*body.columns, errors_only=body.errors_only, cascade=body.cascade)
     return models.RecomputeResponse(
         path=path,
@@ -422,7 +454,7 @@ def revert(req: Request) -> models.RevertResponse:
     path = req.resolve_path(body.path)
     if body.steps < 1:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'steps must be >= 1')
-    t = pxt.get_table(path)
+    t = _get_table(path)
     from_version = t.get_metadata()['version']
     if body.steps > from_version:
         raise excs.RequestError(
@@ -430,14 +462,14 @@ def revert(req: Request) -> models.RevertResponse:
         )
     for _ in range(body.steps):
         t.revert()
-    to_version = pxt.get_table(path).get_metadata()['version']
+    to_version = _get_table(path).get_metadata()['version']
     return models.RevertResponse(path=path, from_version=from_version, to_version=to_version)
 
 
 @router.get('/api/tables/describe', checks_env=False)
 def describe_table(req: Request) -> models.DescribeResponse:
     path = req.resolve_path(req.query_str('path') or '')
-    t = pxt.get_table(path)
+    t = _get_table(path)
     return models.DescribeResponse(text=repr(t), metadata=dict(t.get_metadata()))
 
 
@@ -456,7 +488,7 @@ def columns(req: Request) -> models.ColumnsResponse:
     entries: list[models.ColumnEntry] = []
     for p in paths:
         try:
-            md = pxt.get_table(p).get_metadata()
+            md = _get_table(p).get_metadata()
         except excs.NotFoundError:
             # a table can disappear between dir-tree traversal and metadata fetch; other
             # pixeltable errors propagate as 500s so real bugs surface
@@ -489,7 +521,7 @@ def indexes(req: Request) -> models.IdxsResponse:
     entries: list[models.IdxEntry] = []
     for p in paths:
         try:
-            md = pxt.get_table(p).get_metadata()
+            md = _get_table(p).get_metadata()
         except excs.NotFoundError:
             continue
         for name, idx in md['indexes'].items():
@@ -629,7 +661,7 @@ def dashboard_search(req: Request) -> dict[str, Any]:
 @router.get('/api/dashboard/tables/meta', checks_env=False)
 def dashboard_table_meta(req: Request) -> dict[str, Any]:
     path = req.resolve_path(req.query_str('path') or '')
-    tbl = pxt.get_table(path)
+    tbl = _get_table(path)
     md = dict(tbl.get_metadata())
     md['row_count'] = tbl.count()
     return md
@@ -686,17 +718,36 @@ def dashboard_table_export(req: Request) -> RawResponse:
 _COUNT_POOL_WORKERS = 16
 
 
-_PK_PARSERS: dict[str, Callable[[str], Any]] = {'Int': int, 'Float': float, 'String': str, 'UUID': uuid.UUID}
+def _parse_bool(s: str) -> bool:
+    v = s.strip().lower()
+    if v in ('true', '1'):
+        return True
+    if v in ('false', '0'):
+        return False
+    raise ValueError(f'invalid Bool literal {s!r} (expected true/false/1/0)')
+
+
+_PK_PARSERS: dict[str, Callable[[str], Any]] = {
+    'Int': int,
+    'Float': float,
+    'String': str,
+    'UUID': uuid.UUID,
+    'Bool': _parse_bool,
+    'Date': datetime.date.fromisoformat,
+    'Timestamp': datetime.datetime.fromisoformat,
+}
 
 
 def _coerce_pk(s: str, col_name: str, col_type: str) -> Any:
     """Parse s as the declared type of column col_name."""
-    parser = _PK_PARSERS.get(col_type)
+    parser = _PK_PARSERS.get(col_type.removesuffix(' | None'))
     if parser is None:
-        return s
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'primary key column {col_name!r} has unsupported type {col_type!r}'
+        )
     try:
-        return parser(s)
-    except ValueError as e:
+        return parser(s.strip())
+    except (ValueError, TypeError) as e:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
             f'{s!r} is not a valid {col_type} value for primary key column {col_name!r}',
@@ -741,7 +792,7 @@ def _to_entry(node: TreeNode, details: bool) -> models.LsEntry:
         return models.LsEntry(path=node['path'], kind='dir')
     entry = models.LsEntry(path=node['path'], kind=node['kind'], last_version=node['version'])
     if details:
-        md = pxt.get_table(node['path']).get_metadata()
+        md = _get_table(node['path']).get_metadata()
         cols = md['columns']
         indices = md['indexes']
         entry.num_cols = len(cols)
@@ -764,7 +815,7 @@ def _fill_counts(entries: list[models.LsEntry]) -> None:
 
 def _tbl_count(path: str) -> int | None:
     try:
-        return pxt.get_table(path).count()
+        return _get_table(path).count()
     except excs.Error:
         return None
 

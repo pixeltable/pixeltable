@@ -27,6 +27,7 @@ import pydantic
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config, env_var_name
+from pixeltable.runtime import get_runtime
 from pixeltable.service import management_client
 
 from .daemon_state import compare_env_values, config_fingerprint, state as daemon_state
@@ -107,6 +108,10 @@ class _DaemonHandler(BaseHTTPRequestHandler):
             try:
                 if Config.reload_if_changed():
                     _logger.info('Reloaded %s', Config.get().config_file)
+                    # the values just adopted become this daemon's baseline; this thread's clients, which are
+                    # cached per thread and were built from the previous values, rebuild on next use
+                    get_runtime().close()
+                    daemon_state.record_env_fingerprint()
             except excs.Error as e:
                 self._send_json(
                     {'detail': str(e), 'error_code': e.error_code.name, 'retryable': e.is_retryable}, e.http_status

@@ -425,10 +425,15 @@ class Config:
         if config_overrides is None:
             config_overrides = {}
         with cls.__init_lock:
-            if reinit:
+            if reinit or cls.__instance is None:
+                old_instance = cls.__instance
                 cls.__instance = None
-            if cls.__instance is None:
-                cls.__instance = cls(config_overrides, project_root)
+                try:
+                    cls.__instance = cls(config_overrides, project_root)
+                except Exception:
+                    # keep the working configuration rather than a fresh default that loses the project root
+                    cls.__instance = old_instance
+                    raise
             elif len(config_overrides) > 0 or not isinstance(project_root, _Unspecified):
                 # ignoring either one would leave the caller believing a setting took effect
                 raise excs.RequestError(
@@ -450,7 +455,8 @@ class Config:
             resolved = Path(root).expanduser().resolve()
         if resolved is None:
             return None
-        assert resolved.is_dir(), f'not a directory: {resolved}'
+        if not resolved.is_dir():
+            raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Not a directory: {resolved}')
         # append(): we want an installed module to take precedence over a project module of the same name
         if str(resolved) not in sys.path:
             sys.path.append(str(resolved))
@@ -470,8 +476,14 @@ class Config:
             config_overrides = cls.__instance.__config_overrides
             # carried forward: the working directory may have moved
             project_root = cls.__instance.__project_root
+            old_instance = cls.__instance
             cls.__instance = None
-            cls.__instance = cls(config_overrides, project_root)
+            try:
+                cls.__instance = cls(config_overrides, project_root)
+            except Exception:
+                # keep the working configuration rather than a fresh default that loses the project root
+                cls.__instance = old_instance
+                raise
             return True
 
     def __file_stamp(self) -> tuple[tuple[float, int] | None, ...]:

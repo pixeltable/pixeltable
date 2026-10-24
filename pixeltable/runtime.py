@@ -8,7 +8,7 @@ import threading
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Iterator, Literal, TypeVar
 from uuid import UUID
-from weakref import WeakKeyDictionary
+from weakref import WeakKeyDictionary, finalize
 
 import sqlalchemy as sql
 from rich.progress import Progress
@@ -382,12 +382,36 @@ class Runtime:
             self.stop_progress()
 
 
+class _RuntimeSentinel:
+    """Dead-man's handle for a thread's Runtime.
+
+    When the owning thread exits, its thread-locals are dropped; this object's finalizer then runs
+    Runtime.close() on the dying thread, closing clients and the event loop instead of leaving them
+    for the GC (which leaks sockets and emits ResourceWarnings).
+    """
+
+
+def _close_runtime(runtime: Runtime) -> None:
+    try:
+        runtime.close()
+    except Exception as e:
+        # this runs on a dying thread, possibly during interpreter teardown: log and continue
+        _logger.debug(f'Error closing runtime on thread exit: {e}')
+
+
+def _set_thread_runtime(runtime: Runtime) -> None:
+    _thread_local.runtime = runtime
+    sentinel = _RuntimeSentinel()
+    _thread_local.sentinel = sentinel
+    finalize(sentinel, _close_runtime, runtime)
+
+
 def get_runtime() -> Runtime:
     """Get the current thread's Runtime instance, creating one if needed."""
     runtime = getattr(_thread_local, 'runtime', None)
     if runtime is None:
         runtime = Runtime()
-        _thread_local.runtime = runtime
+        _set_thread_runtime(runtime)
     return runtime
 
 
@@ -438,4 +462,4 @@ def reset_runtime() -> None:
             for tbl_version in local_catalog._tbl_versions.values():
                 tbl_version.is_validated = False
         runtime.close()
-    _thread_local.runtime = Runtime()
+    _set_thread_runtime(Runtime())

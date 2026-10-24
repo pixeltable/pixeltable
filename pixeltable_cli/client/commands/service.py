@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import sys
 from pathlib import Path
 
@@ -471,12 +472,14 @@ def _update(
         refuse_destructive(
             'pxt service update', s.destructive, force=force, on_refusal=lambda: _print_plan(plan, as_json=as_json)
         )
-    restarts = f', interrupting {s.restarts} running service(s)' if s.restarts > 0 else ''
-    confirm_or_exit(
-        f'start or restart {s.create + s.update_additive + s.update_destructive} service(s){restarts}?',
-        force,
-        on_refusal=lambda: _print_plan(plan, as_json=as_json),
-    )
+    if s.restarts > 0 or s.destructive > 0:
+        # only a restart or a destructive change can cost anything; a pure create asks for no confirmation
+        restarts = f', interrupting {s.restarts} running service(s)' if s.restarts > 0 else ''
+        confirm_or_exit(
+            f'start or restart {s.create + s.update_additive + s.update_destructive} service(s){restarts}?',
+            force,
+            on_refusal=lambda: _print_plan(plan, as_json=as_json),
+        )
 
     applied = ServicePlan.model_validate(
         post_request(
@@ -583,6 +586,25 @@ def _run_foreground(
     app, _, _ = create_app(app_file, service_name, target)
     if otel:
         instrument_app(app)
+
+    # claim the port before claiming it in the banner: a bind failure otherwise arrives after
+    # "Pixeltable is running" is already printed
+    probe: socket.socket | None = None
+    for family, _, _, _, addr in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM):
+        try:
+            probe = socket.socket(family, socket.SOCK_STREAM)
+            probe.bind(addr)
+            break
+        except OSError:
+            if probe is not None:
+                probe.close()
+                probe = None
+    if probe is not None:
+        probe.close()
+    else:
+        print(f'pxt service run: cannot listen on {host}:{port}: address is in use', file=sys.stderr)
+        sys.exit(EXIT_ERROR)
+
     n_routes = len(app.routes)
     display_host = 'localhost' if host in ('0.0.0.0', '::') else host
     url = f'http://{display_host}:{port}'
