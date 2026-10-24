@@ -323,8 +323,7 @@ pinned version of their table (`ColumnRef.tbl_version`, None: live), which bindi
 every view gets a version); updates rewrite the changed rows and each live view re-decides membership (filter reads a
 changed column) and recomputes dependent stored columns, getting a version only if it does either; deletes retire the
 view rows of deleted base rows (a version only if rows were removed). View rows are computed without the lock (they
-may call UDFs) and committed with the base's. A view column computed with window functions is evaluated over the batch
-of new view rows (`ViewCompute::rows_for_batch()`), as an insert evaluates one over its rows.
+may call UDFs) and committed with the base's.
 
 Component views (`ViewMd.iterator`, a serialized `IteratorCall`): the iterator's outputs (`pos` first) are the view's
 first columns (`TableMd::is_iterator_col`). A base row yields one view row per output row, keyed by the base row's key
@@ -350,8 +349,9 @@ an ungrouped aggregation over no rows) -> window functions (rows sorted by the c
 project. Unstored computed columns are evaluated on read. `count()` refuses what upstream cannot count in SQL
 (`is_sql_expr()`: non-SQL filters). Sampling ranks rows by a hash of (seed, rowid, pos), as upstream's
 `SqlSampleNode`. Results are a `ResultData` held in Rust (`_core.ResultSet`); values convert to Python objects on
-access. Window functions in computed columns are evaluated over all rows of the table
-(`eval_rows_with_windows()`).
+access. Window functions in computed columns are evaluated over all rows of the table when the column is added, and
+over the rows being inserted afterwards (`eval_rows_with_windows()`; for views, the new view rows of one insert,
+`ViewCompute::rows_for_all()`).
 
 ## Data sources, compute(), indexes
 

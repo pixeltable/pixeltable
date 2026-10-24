@@ -254,25 +254,7 @@ pub fn eval_into(
     stats: &mut RowCountStats,
     cols_with_excs: &mut Vec<String>,
 ) -> Result<()> {
-    eval_into_range(row, cols, 0..cols.len(), infos, base, tbl_name, fail_on_exception, stats, cols_with_excs)
-}
-
-/// `eval_into()` for the columns `cols[range]`; the columns before them count as evaluated by the same evaluation
-/// (their errors propagate).
-#[allow(clippy::too_many_arguments)]
-pub fn eval_into_range(
-    row: &mut StoredRow,
-    cols: &[ComputedCol],
-    range: std::ops::Range<usize>,
-    infos: &[&ElemInfo],
-    base: &[&StoredRow],
-    tbl_name: &str,
-    fail_on_exception: bool,
-    stats: &mut RowCountStats,
-    cols_with_excs: &mut Vec<String>,
-) -> Result<()> {
-    for k in range {
-        let c = &cols[k];
+    for (k, c) in cols.iter().enumerate() {
         stats.computed_values += 1;
         let outcome: std::result::Result<Value, CellError> = {
             let mut rows: Vec<&StoredRow> = Vec::with_capacity(base.len() + 1);

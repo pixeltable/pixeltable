@@ -130,7 +130,7 @@ class TestTables:
         with raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='needs to return `Bool`'):
             t.where(t.i)
         assert repr((t.i + 1) * 2) == '(i + 1) * 2'
-        assert repr(t.s.upper()) == 'upper(s)'
+        assert repr(t.s.upper()) == 's.upper()'
 
     def test_builtins_and_computed_columns(self) -> None:
         t = pxt.create_table('t', {'s': pxt.String | None, 'i': pxt.Int | None})
