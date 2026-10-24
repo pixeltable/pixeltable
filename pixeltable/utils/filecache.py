@@ -288,7 +288,8 @@ class FileCache:
                     # renewing the lease must be atomic w.r.t. eviction's check-and-remove; os.utime also
                     # validates existence in one syscall, raising FileNotFoundError if already evicted
                     os.utime(str(path))
-                    entry.last_used = datetime.fromtimestamp(os.stat(str(path)).st_mtime, tz=timezone.utc)
+                    file_info = os.stat(str(path))
+                    entry.last_used = datetime.fromtimestamp(file_info.st_mtime, tz=timezone.utc)
             except FileNotFoundError:
                 # reconcile the index and report a miss
                 del self.cache[key]
@@ -296,11 +297,32 @@ class FileCache:
                 _logger.debug(f'file cache miss for {redact_url(url)}')
                 return None
 
+            if file_info.st_size != entry.size:
+                # the file changed since it was cached (eg, a truncated write): drop it and report a miss,
+                # so the caller downloads it again rather than using a corrupt copy
+                self._try_remove_file(path)
+                del self.cache[key]
+                self.total_size -= entry.size
+                _logger.debug(f'file cache: evicted corrupt entry for {redact_url(url)}')
+                return None
+
             self.cache.move_to_end(key, last=True)
             self.num_hits += 1
             self.keys_retrieved.add(key)
             _logger.debug(f'file cache hit for {redact_url(url)}')
             return path
+
+    def remove(self, url: str) -> None:
+        """Drop the cache entry for `url`, if present, and delete its file, so the next lookup() re-downloads it.
+        Recovers an entry that lookup() cannot detect as corrupt (eg, a download that was truncated before it
+        was cached)."""
+        with self._lock:
+            key = self._url_hash(url)
+            entry = self.cache.pop(key, None)
+            if entry is not None:
+                self._try_remove_file(entry.path)
+                self.total_size -= entry.size
+                _logger.debug(f'file cache: removed entry for {redact_url(url)}')
 
     def add(self, tbl_id: UUID, col_id: int, url: str, path: Path) -> Path:
         """Adds url at 'path' to cache and returns its new path.
@@ -316,14 +338,21 @@ class FileCache:
                         # download); renew the lease atomically w.r.t. eviction. os.utime raises FileNotFoundError
                         # if the file was removed since we created the self.cache entry.
                         os.utime(str(existing.path))
+                        existing_file_info = os.stat(str(existing.path))
                         existing.last_used = datetime.fromtimestamp(
-                            os.stat(str(existing.path)).st_mtime, tz=timezone.utc
+                            existing_file_info.st_mtime, tz=timezone.utc
                         )
-                    # discard the redundant download and return the existing file
-                    self._try_remove_file(path)
-                    self.cache.move_to_end(key, last=True)
-                    self.keys_retrieved.add(key)
-                    return existing.path
+                    if existing_file_info.st_size == existing.size:
+                        # discard the redundant download and return the existing file
+                        self._try_remove_file(path)
+                        self.cache.move_to_end(key, last=True)
+                        self.keys_retrieved.add(key)
+                        return existing.path
+                    # the cached file changed since it was cached (eg, a truncated write): corrupt; drop it
+                    # and keep the fresh download, re-added below
+                    self._try_remove_file(existing.path)
+                    del self.cache[key]
+                    self.total_size -= existing.size
                 except FileNotFoundError:
                     # stale index entry: the file was evicted by another process; drop it and re-add below
                     del self.cache[key]
