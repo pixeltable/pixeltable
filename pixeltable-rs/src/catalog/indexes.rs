@@ -55,8 +55,61 @@ pub fn validate_btree_column(name: &str, md: &ColumnMd, is_iterator_col: bool) -
 }
 
 /// Upstream `BtreeIndex.can_index()`.
-pub fn can_btree_index(md: &ColumnMd) -> bool {
-    validate_btree_column("", md, false).is_ok()
+pub fn can_btree_index(md: &ColumnMd, is_iterator_col: bool) -> bool {
+    validate_btree_column("", md, is_iterator_col).is_ok()
+}
+
+/// Records a B-tree index on column `col_id` of `md` (see `Catalog::push_btree_index()`).
+pub fn push_btree_index_md(md: &mut TableMd, col_id: ColId, name: Option<String>) -> Result<Option<ColId>> {
+    let name = name.unwrap_or_else(|| generate_idx_name(md));
+    let schema_version_add = md.current_schema_version;
+    let val_col_id = if md.is_data_versioned {
+        let col = md.columns_at(None)?.into_iter().find(|c| c.md.id == col_id);
+        let col = col.ok_or_else(|| crate::error::Error::internal("B-tree index on an unknown column"))?;
+        let col_ref = crate::exec::column_ref_expr(&col, None);
+        let value_expr = if col.md.col_type.is_string() {
+            crate::functions::make_call(&format!("{}.str_filter", crate::functions::btree::MODULE), vec![col_ref], vec![])?
+        } else {
+            col_ref
+        };
+        let val_col_id = md.next_col_id;
+        md.next_col_id += 1;
+        md.columns.push(ColumnMd {
+            id: val_col_id,
+            col_type: value_expr.col_type.with_nullable(true),
+            is_pk: false,
+            stored: true,
+            value_expr: Some(crate::expr::serde::to_json(&value_expr)?),
+            schema_version_add,
+            schema_version_drop: None,
+            media_validation: None,
+            comment: None,
+            custom_metadata: crate::value::Json::Null,
+            destination: None,
+        });
+        Some(val_col_id)
+    } else {
+        None
+    };
+    let id = md.indexes.next_id;
+    md.indexes.next_id += 1;
+    let kind = IndexKind::Btree { val_col_id };
+    md.indexes.list.push(IndexMd { id, name, col_tbl_id: md.id, col_id, kind, schema_version_add });
+    Ok(val_col_id)
+}
+
+/// The default B-tree indexes of the eligible columns of a new view `md` with `has_default_idxs`.
+pub fn add_default_view_indexes(md: &mut TableMd) -> Result<()> {
+    let eligible: Vec<ColId> = md
+        .columns_at(None)?
+        .iter()
+        .filter(|c| can_btree_index(&c.md, md.is_iterator_col(c.md.id)))
+        .map(|c| c.md.id)
+        .collect();
+    for col_id in eligible {
+        push_btree_index_md(md, col_id, None)?;
+    }
+    Ok(())
 }
 
 /// Upstream `generate_idx_name()`.
@@ -106,42 +159,7 @@ impl Catalog {
     /// Records a B-tree index on column `col_id` of `tbl_id` (no version change, no validation), with a value column
     /// if the table is data-versioned; returns the id of the value column, which the caller populates.
     pub fn push_btree_index(&mut self, tbl_id: Uuid, col_id: ColId, name: Option<String>) -> Result<Option<ColId>> {
-        let md = self.table_mut(tbl_id)?;
-        let name = name.unwrap_or_else(|| generate_idx_name(md));
-        let schema_version_add = md.current_schema_version;
-        let val_col_id = if md.is_data_versioned {
-            let col = md.columns_at(None)?.into_iter().find(|c| c.md.id == col_id);
-            let col = col.ok_or_else(|| crate::error::Error::internal("B-tree index on an unknown column"))?;
-            let col_ref = crate::exec::column_ref_expr(&col, None);
-            let value_expr = if col.md.col_type.is_string() {
-                crate::functions::make_call(&format!("{}.str_filter", crate::functions::btree::MODULE), vec![col_ref], vec![])?
-            } else {
-                col_ref
-            };
-            let val_col_id = md.next_col_id;
-            md.next_col_id += 1;
-            md.columns.push(ColumnMd {
-                id: val_col_id,
-                col_type: value_expr.col_type.with_nullable(true),
-                is_pk: false,
-                stored: true,
-                value_expr: Some(crate::expr::serde::to_json(&value_expr)?),
-                schema_version_add,
-                schema_version_drop: None,
-                media_validation: None,
-                comment: None,
-                custom_metadata: crate::value::Json::Null,
-                destination: None,
-            });
-            Some(val_col_id)
-        } else {
-            None
-        };
-        let id = md.indexes.next_id;
-        md.indexes.next_id += 1;
-        let kind = IndexKind::Btree { val_col_id };
-        md.indexes.list.push(IndexMd { id, name, col_tbl_id: tbl_id, col_id, kind, schema_version_add });
-        Ok(val_col_id)
+        push_btree_index_md(self.table_mut(tbl_id)?, col_id, name)
     }
 
     /// Sets the value column `val_col_id` of a B-tree index on `col_id` from the column's values in every row
@@ -163,7 +181,7 @@ impl Catalog {
             return Ok(());
         }
         let Some(col) = md.column(col_id) else { return Ok(()) };
-        if can_btree_index(col) {
+        if can_btree_index(col, md.is_iterator_col(col_id)) {
             // the existing rows have no values for the new column yet (a computed column's caller sets them, and
             // the index values with them)
             self.push_btree_index(tbl_id, col_id, None)?;
@@ -216,7 +234,7 @@ impl Catalog {
                 py_repr(&col.name)
             );
         }
-        validate_btree_column(&col.name, &col.md, false)?;
+        validate_btree_column(&col.name, &col.md, md.is_iterator_col(col.md.id))?;
         if has_btree(&col) {
             crate::bail!(IndexAlreadyExists, "A B-tree index already exists on column {}.", py_repr(&col.name));
         }

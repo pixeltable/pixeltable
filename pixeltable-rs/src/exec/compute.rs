@@ -86,20 +86,29 @@ pub fn unstored_exprs(md: &crate::catalog::table::TableMd) -> Result<HashMap<Col
     Ok(out)
 }
 
-/// The hidden value columns of the embedding indexes of `tbl_id` (current schema), as computed columns named
+/// The hidden value columns of the indexes of `tbl_id` (current schema), as computed columns named
 /// `<indexed column>:<index>`; with `on`, only those of indexes on a column in `on`.
 pub fn index_value_columns(cat: &Catalog, tbl_id: Uuid, on: Option<&HashSet<(Uuid, ColId)>>) -> Result<Vec<ComputedCol>> {
-    let md = cat.table(tbl_id)?;
+    index_value_columns_md(cat.table(tbl_id)?, &cat.resolve_columns(tbl_id, None)?, on)
+}
+
+/// `index_value_columns()` of `md`, for the indexes on a column in `visible`.
+pub fn index_value_columns_md(
+    md: &crate::catalog::table::TableMd,
+    visible: &[crate::catalog::table::ResolvedColumn],
+    on: Option<&HashSet<(Uuid, ColId)>>,
+) -> Result<Vec<ComputedCol>> {
     let mut out = Vec::new();
-    for (col_name, idx) in cat.visible_indexes(tbl_id)? {
+    for idx in &md.indexes.list {
         let Some(val_col_id) = idx.val_col_id() else { continue };
         if on.is_some_and(|on| !on.contains(&(idx.col_tbl_id, idx.col_id))) {
             continue;
         }
+        let Some(indexed) = visible.iter().find(|c| c.tbl_id == idx.col_tbl_id && c.md.id == idx.col_id) else { continue };
         let Some(e) = md.column(val_col_id).and_then(|c| c.value_expr.as_ref()) else { continue };
         out.push(ComputedCol {
             col_id: val_col_id,
-            name: format!("{col_name}:{}", idx.name),
+            name: format!("{}:{}", indexed.name, idx.name),
             expr: crate::expr::serde::from_json(e)?,
             is_media: false,
         });
