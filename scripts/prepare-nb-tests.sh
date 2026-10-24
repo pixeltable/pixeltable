@@ -39,6 +39,7 @@ VERY_EXPENSIVE_NOTEBOOKS=(
     working-with-jina
     working-with-mistralai
     working-with-nebius
+    working-with-openllm
     working-with-openrouter
     working-with-voyageai
 )

@@ -1022,6 +1022,11 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'read_timeout': 'HTTP read timeout',
         'write_timeout': 'HTTP write timeout',
     },
+    'openllm': {
+        'api_key': 'OpenLLM API key',
+        'base_url': 'OpenLLM API base URL (default: the local daemon at http://127.0.0.1:8787/v1)',
+        'rate_limit': 'Rate limit for OpenLLM API requests',
+    },
     'openrouter': {
         'api_key': 'OpenRouter API key',
         'site_url': 'Optional URL for your application (for OpenRouter analytics)',
