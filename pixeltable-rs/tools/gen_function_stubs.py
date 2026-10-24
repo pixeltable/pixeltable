@@ -1,8 +1,8 @@
 """Generate the public stub modules `pixeltable.functions.*`, `pixeltable.iterators` and `pixeltable.io`.
 
 Reads the upstream sources (../pixeltable) with `ast` (nothing is imported) and writes, for each public module, one
-attribute per public upstream name: functions become `fn(__name__, 'name')`, which is the Rust builtin of that name
-if the backend registers one and an unimplemented placeholder otherwise; classes become placeholder classes.
+attribute per public upstream name: functions and UDAs become `fn(__name__, 'name')`, which is the Rust builtin of that
+name if the backend registers one and an unimplemented placeholder otherwise; classes become placeholder classes.
 
 Usage: python tools/gen_function_stubs.py   (from pixeltable-rs/; overwrites generated files only)
 """
@@ -29,7 +29,11 @@ def public_names(path: Path) -> tuple[list[str], list[str]]:
             if node.name not in funcs:
                 funcs.append(node.name)
         elif isinstance(node, ast.ClassDef) and not node.name.startswith('_'):
-            classes.append(node.name)
+            # a UDA (`@pxt.uda class sum(Aggregator)`) is a function object upstream
+            if any('uda' in ast.unparse(d) for d in node.decorator_list):
+                funcs.append(node.name)
+            else:
+                classes.append(node.name)
         elif isinstance(node, ast.Assign):
             for t in node.targets:
                 if isinstance(t, ast.Name) and t.id == '__all__' and isinstance(node.value, (ast.List, ast.Tuple)):

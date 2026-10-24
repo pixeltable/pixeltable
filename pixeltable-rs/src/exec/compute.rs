@@ -254,7 +254,34 @@ impl AddComputedPlan {
             is_media: self.spec.col_type.is_media(),
         };
         let infos = self.path.infos();
-        for r in self.path.rows()? {
+        let path_rows = self.path.rows()?;
+        if super::query::has_window_calls(&self.expr) {
+            // window functions are evaluated over all visible rows in window order
+            let results = super::query::eval_rows_with_windows(&infos, &path_rows, &self.expr, true)?;
+            for (r, res) in path_rows.iter().zip(results) {
+                stats.upd_rows += 1;
+                stats.computed_values += 1;
+                let key = (r[0].rowid, r[0].pos.clone());
+                match res {
+                    Ok(v) => out.push((key, v, None)),
+                    Err(err) => {
+                        if crate::functions::udf::is_interrupt(&err) {
+                            return Err(err);
+                        }
+                        if fail_on_exception {
+                            return Err(eval_error(&self.expr, err));
+                        }
+                        stats.num_excs += 1;
+                        if !cols_with_excs.contains(&col.name) {
+                            cols_with_excs.push(col.name.clone());
+                        }
+                        out.push((key, Value::Null, Some(cell_error(&err))));
+                    }
+                }
+            }
+            return Ok(out);
+        }
+        for r in path_rows {
             stats.upd_rows += 1;
             let mut row = r[0].clone();
             eval_into(&mut row, std::slice::from_ref(&col), &infos, &r[1..], &self.tbl_name, fail_on_exception, stats, cols_with_excs)?;

@@ -4,14 +4,13 @@
 
 
 from pixeltable.functions._registry import fn as _fn
-from pixeltable._unimplemented import unimplemented_class as _cls
 
-sum = _cls(__name__, 'sum')
-count = _cls(__name__, 'count')
-min = _cls(__name__, 'min')
-max = _cls(__name__, 'max')
-mean = _cls(__name__, 'mean')
 cast = _fn(__name__, 'cast')
+sum = _fn(__name__, 'sum')
+count = _fn(__name__, 'count')
+min = _fn(__name__, 'min')
+max = _fn(__name__, 'max')
+mean = _fn(__name__, 'mean')
 map = _fn(__name__, 'map')
 filter = _fn(__name__, 'filter')
 sort = _fn(__name__, 'sort')

@@ -4,6 +4,7 @@
 //! type-directed coercion and upstream's validation messages) is in `value::py`.
 
 pub mod py;
+pub mod time;
 
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -502,6 +503,243 @@ pub fn value_to_json(v: &Value) -> crate::error::Result<Json> {
         Value::Json(j) => j.clone(),
         other => return Err(Error::not_implemented(format!("storing a value of type `{}` inside a JSON value", other.py_type_name()))),
     })
+}
+
+/// Python's `str()` of the object a value converts to.
+pub fn py_str(v: &Value) -> String {
+    match v {
+        Value::Null => "None".into(),
+        Value::Bool(b) => if *b { "True".into() } else { "False".into() },
+        Value::Int(i) => i.to_string(),
+        Value::Float(f) => py_float_repr(*f),
+        Value::String(s) | Value::Media(s) => s.clone(),
+        Value::Timestamp(us) => time::py_str_timestamp(*us),
+        Value::Date(d) => time::date_of_days(*d).format("%Y-%m-%d").to_string(),
+        Value::Uuid(u) => u.to_string(),
+        Value::Binary(b) => py_bytes_repr(b),
+        Value::Json(j) => crate::expr::display::json_py_str(j, true),
+        Value::Array(a) => pyo3::Python::attach(|py| {
+            use pyo3::types::PyAnyMethods;
+            py::ndarray_to_py(py, a).and_then(|arr| arr.str().map(|s| s.to_string())).unwrap_or_else(|_| "<array>".into())
+        }),
+        Value::PyObj(o) => pyo3::Python::attach(|py| {
+            use pyo3::types::PyAnyMethods;
+            o.bind(py).str().map(|s| s.to_string()).unwrap_or_default()
+        }),
+    }
+}
+
+/// Python's `repr()` of the object a value converts to (strings quoted; JSON as Python literals).
+pub fn py_repr_value(v: &Value) -> String {
+    match v {
+        Value::String(s) | Value::Media(s) => crate::error::py_repr(s),
+        Value::Json(j) => crate::expr::display::json_py_str(j, false),
+        Value::Uuid(u) => format!("UUID('{u}')"),
+        other => py_str(other),
+    }
+}
+
+/// Python's `repr(bytes)`.
+pub fn py_bytes_repr(b: &[u8]) -> String {
+    let quote = if b.contains(&b'\'') && !b.contains(&b'"') { '"' } else { '\'' };
+    let mut s = String::from("b");
+    s.push(quote);
+    for &c in b {
+        match c {
+            b'\\' => s.push_str("\\\\"),
+            b'\n' => s.push_str("\\n"),
+            b'\r' => s.push_str("\\r"),
+            b'\t' => s.push_str("\\t"),
+            c if c as char == quote => {
+                s.push('\\');
+                s.push(c as char);
+            }
+            0x20..=0x7e => s.push(c as char),
+            c => s.push_str(&format!("\\x{c:02x}")),
+        }
+    }
+    s.push(quote);
+    s
+}
+
+/// Python's `==` on the objects two JSON values convert to (`1 == 1.0`, `True == 1`).
+pub fn py_eq_json(a: &Json, b: &Json) -> bool {
+    match (a, b) {
+        (Json::Number(_) | Json::Bool(_), Json::Number(_) | Json::Bool(_)) => json_num(a) == json_num(b),
+        (Json::Array(x), Json::Array(y)) => x.len() == y.len() && x.iter().zip(y.iter()).all(|(p, q)| py_eq_json(p, q)),
+        (Json::Object(x), Json::Object(y)) => {
+            x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| py_eq_json(v, w)))
+        }
+        _ => a == b,
+    }
+}
+
+fn json_num(j: &Json) -> f64 {
+    match j {
+        Json::Bool(b) => *b as i64 as f64,
+        Json::Number(n) => n.as_f64().unwrap_or(f64::NAN),
+        _ => f64::NAN,
+    }
+}
+
+/// Python's ordering (`<`) of the objects two JSON values convert to; None where Python raises TypeError
+/// (`None`, dicts, mixed types).
+pub fn py_cmp_json(a: &Json, b: &Json) -> Option<Ordering> {
+    match (a, b) {
+        (Json::Number(_) | Json::Bool(_), Json::Number(_) | Json::Bool(_)) => json_num(a).partial_cmp(&json_num(b)),
+        (Json::String(x), Json::String(y)) => Some(x.cmp(y)),
+        (Json::Array(x), Json::Array(y)) => {
+            for (p, q) in x.iter().zip(y.iter()) {
+                if py_eq_json(p, q) {
+                    continue;
+                }
+                return py_cmp_json(p, q);
+            }
+            Some(x.len().cmp(&y.len()))
+        }
+        _ => None,
+    }
+}
+
+/// Python's `json.dumps()` with default settings (`", "` / `": "` separators, `ensure_ascii=True`).
+pub fn py_json_dumps(j: &Json) -> String {
+    let mut out = String::new();
+    write_py_json(j, &mut out);
+    out
+}
+
+fn write_py_json(j: &Json, out: &mut String) {
+    match j {
+        Json::Null => out.push_str("null"),
+        Json::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        Json::Number(n) => {
+            if n.is_f64() {
+                let f = n.as_f64().unwrap_or(f64::NAN);
+                if f.is_nan() {
+                    out.push_str("NaN");
+                } else if f.is_infinite() {
+                    out.push_str(if f > 0.0 { "Infinity" } else { "-Infinity" });
+                } else {
+                    out.push_str(&py_float_repr(f));
+                }
+            } else {
+                out.push_str(&n.to_string());
+            }
+        }
+        Json::String(s) => write_py_json_str(s, out),
+        Json::Array(items) => {
+            out.push('[');
+            for (i, x) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                write_py_json(x, out);
+            }
+            out.push(']');
+        }
+        Json::Object(m) => {
+            out.push('{');
+            for (i, (k, v)) in m.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                write_py_json_str(k, out);
+                out.push_str(": ");
+                write_py_json(v, out);
+            }
+            out.push('}');
+        }
+    }
+}
+
+fn write_py_json_str(s: &str, out: &mut String) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            c if (c as u32) < 0x20 || (c as u32) > 0x7e => {
+                let mut buf = [0u16; 2];
+                for unit in c.encode_utf16(&mut buf) {
+                    out.push_str(&format!("\\u{unit:04x}"));
+                }
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
+/// float16 bits to f64.
+pub fn f16_to_f64(bits: u16) -> f64 {
+    let sign = if bits & 0x8000 != 0 { -1.0 } else { 1.0 };
+    let exp = ((bits >> 10) & 0x1f) as i32;
+    let frac = (bits & 0x3ff) as f64;
+    match exp {
+        0 => sign * frac * 2f64.powi(-24),
+        31 => {
+            if frac == 0.0 {
+                sign * f64::INFINITY
+            } else {
+                f64::NAN
+            }
+        }
+        e => sign * (1.0 + frac / 1024.0) * 2f64.powi(e - 15),
+    }
+}
+
+impl NdArray {
+    /// The element at flat (C-order) position `i`, as a scalar value.
+    pub fn element(&self, i: usize) -> Value {
+        match &self.data {
+            ArrayData::Bool(v) => Value::Bool(v[i]),
+            ArrayData::U8(v) => Value::Int(v[i] as i64),
+            ArrayData::U16(v) => Value::Int(v[i] as i64),
+            ArrayData::U32(v) => Value::Int(v[i] as i64),
+            ArrayData::U64(v) => Value::Int(v[i] as i64),
+            ArrayData::I8(v) => Value::Int(v[i] as i64),
+            ArrayData::I16(v) => Value::Int(v[i] as i64),
+            ArrayData::I32(v) => Value::Int(v[i] as i64),
+            ArrayData::I64(v) => Value::Int(v[i]),
+            ArrayData::F16(v) => Value::Float(f16_to_f64(v[i])),
+            ArrayData::F32(v) => Value::Float(v[i] as f64),
+            ArrayData::F64(v) => Value::Float(v[i]),
+            ArrayData::Str(v) => Value::String(v[i].clone()),
+        }
+    }
+
+    /// The elements at the given flat positions, as an array of the same dtype with shape `shape`.
+    pub fn gather(&self, idx: &[usize], shape: Vec<usize>) -> NdArray {
+        fn pick<T: Clone>(v: &[T], idx: &[usize]) -> Vec<T> {
+            idx.iter().map(|&i| v[i].clone()).collect()
+        }
+        let data = match &self.data {
+            ArrayData::Bool(v) => ArrayData::Bool(pick(v, idx)),
+            ArrayData::U8(v) => ArrayData::U8(pick(v, idx)),
+            ArrayData::U16(v) => ArrayData::U16(pick(v, idx)),
+            ArrayData::U32(v) => ArrayData::U32(pick(v, idx)),
+            ArrayData::U64(v) => ArrayData::U64(pick(v, idx)),
+            ArrayData::I8(v) => ArrayData::I8(pick(v, idx)),
+            ArrayData::I16(v) => ArrayData::I16(pick(v, idx)),
+            ArrayData::I32(v) => ArrayData::I32(pick(v, idx)),
+            ArrayData::I64(v) => ArrayData::I64(pick(v, idx)),
+            ArrayData::F16(v) => ArrayData::F16(pick(v, idx)),
+            ArrayData::F32(v) => ArrayData::F32(pick(v, idx)),
+            ArrayData::F64(v) => ArrayData::F64(pick(v, idx)),
+            ArrayData::Str(v) => ArrayData::Str(pick(v, idx)),
+        };
+        NdArray { shape, data }
+    }
+}
+
+/// All elements of an array in C order, as scalar values.
+pub fn array_elements(a: &NdArray) -> Vec<Value> {
+    (0..a.data.len()).map(|i| a.element(i)).collect()
 }
 
 #[cfg(test)]

@@ -41,24 +41,22 @@ pub fn display(e: &Expr) -> String {
             items.iter().map(|(k, v)| format!("'{}': {}", k, display(v))).collect::<Vec<_>>().join(", ")
         ),
         ExprKind::JsonPath { base, path } => {
-            let mut s = display(base);
-            for el in path {
-                match el {
-                    JsonPathElem::Key(k) => {
-                        if crate::catalog::path::is_valid_identifier(k, false) {
-                            s.push('.');
-                            s.push_str(k);
-                        } else {
-                            s.push_str(&format!("[{}]", py_repr(k)));
-                        }
-                    }
-                    JsonPathElem::Index(i) => s.push_str(&format!("[{i}]")),
-                    JsonPathElem::Slice(a, b, c) => s.push_str(&format!("[{}]", slice_str(*a, *b, *c))),
-                    JsonPathElem::Wildcard => s.push_str("[*]"),
-                }
+            let anchor = display(base);
+            if path.is_empty() {
+                return anchor;
             }
-            s
+            let sep = if matches!(path.first(), Some(JsonPathElem::Key(_))) { "." } else { "" };
+            format!("{anchor}{sep}{}", json_path_str(path))
         }
+        ExprKind::RelativeRoot { .. } => "R".to_string(),
+        ExprKind::JsonMapper { op, asc, src, target, .. } => match op {
+            MapperOp::Map => format!("{}.map(lambda R: {})", display(src), display(target)),
+            MapperOp::Filter => format!("{}.filter(lambda R: {})", display(src), display(target)),
+            MapperOp::Sort => {
+                let asc_repr = if *asc { "" } else { ", asc=False" };
+                format!("{}.sort(lambda R: {}{asc_repr})", display(src), display(target))
+            }
+        },
         ExprKind::ArraySlice { base, index } => {
             let parts: Vec<String> = index
                 .iter()
@@ -71,9 +69,36 @@ pub fn display(e: &Expr) -> String {
         }
         ExprKind::ColumnProperty { col, prop } => format!("{}.{}", display(col), prop.name()),
         ExprKind::Similarity(sim) => format!("{}.similarity({}, {})", display(&sim.col), display(&sim.item), py_repr(&sim.idx_name)),
-        ExprKind::FunctionCall(fc) => crate::functions::display_call(fc),
         ExprKind::Variable(name) => name.clone(),
+        ExprKind::FunctionCall(fc) => crate::functions::display_call(fc),
     }
+}
+
+/// Upstream `Expr.print_list()`.
+pub fn print_list(items: &[ExprRef]) -> String {
+    if items.len() == 1 {
+        return display(&items[0]);
+    }
+    format!("({})", items.iter().map(|e| display(e)).collect::<Vec<_>>().join(", "))
+}
+
+/// The path part of a JSON path's display (upstream `JsonPath._json_path()`).
+pub fn json_path_str(path: &[JsonPathElem]) -> String {
+    let mut out = String::new();
+    for (i, el) in path.iter().enumerate() {
+        match el {
+            JsonPathElem::Wildcard => out.push_str("[*]"),
+            JsonPathElem::Key(k) => {
+                if i > 0 {
+                    out.push('.');
+                }
+                out.push_str(k);
+            }
+            JsonPathElem::Index(n) => out.push_str(&format!("[{n}]")),
+            JsonPathElem::Slice(a, b, c) => out.push_str(&format!("[{}]", slice_str(*a, *b, *c))),
+        }
+    }
+    out
 }
 
 fn slice_str(a: Option<i64>, b: Option<i64>, c: Option<i64>) -> String {
@@ -118,12 +143,7 @@ pub fn literal_str(v: &Value, _t: &ColumnType) -> String {
         Value::Media(s) => s.clone(),
         Value::Uuid(u) => format!("'{u}'"),
         Value::Date(d) => crate::value::date_from_days(*d).map(|d| format!("'{}'", d.format("%Y-%m-%d"))).unwrap_or_default(),
-        Value::Timestamp(us) => pyo3::Python::attach(|py| {
-            crate::value::py::micros_to_timestamp(py, *us)
-                .and_then(|dt| dt.call_method0("isoformat"))
-                .map(|s| format!("'{s}'"))
-                .unwrap_or_else(|_| us.to_string())
-        }),
+        Value::Timestamp(us) => format!("'{}'", crate::value::time::isoformat(&crate::value::time::to_local(*us), 'T')),
         Value::Binary(b) => format!("{b:?}"),
         Value::Json(j) => json_py_str(j, true),
         Value::Array(a) => pyo3::Python::attach(|py| {

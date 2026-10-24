@@ -7,8 +7,8 @@ from pixeltable.functions._registry import fn as _fn
 from pixeltable._unimplemented import unimplemented_class as _cls
 
 DetectionEval = _cls(__name__, 'DetectionEval')
-mean_ap = _cls(__name__, 'mean_ap')
 eval_detections = _fn(__name__, 'eval_detections')
+mean_ap = _fn(__name__, 'mean_ap')
 bboxes_draw = _fn(__name__, 'bboxes_draw')
 bboxes_convert = _fn(__name__, 'bboxes_convert')
 bboxes_resize = _fn(__name__, 'bboxes_resize')

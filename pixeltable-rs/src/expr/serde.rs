@@ -122,6 +122,14 @@ fn path_elem_from_json(j: &Json) -> Result<JsonPathElem> {
     Err(bad(j))
 }
 
+fn parse_id(j: Option<&Json>) -> Option<u64> {
+    match j? {
+        Json::String(s) => s.parse().ok(),
+        Json::Number(n) => n.as_u64(),
+        _ => None,
+    }
+}
+
 pub fn to_json(e: &Expr) -> Result<Json> {
     let mut m = Map::new();
     let classname = match &e.kind {
@@ -174,6 +182,16 @@ pub fn to_json(e: &Expr) -> Result<Json> {
             m.insert("index".into(), Json::Array(index.iter().map(index_to_json).collect()));
             "ArraySlice"
         }
+        ExprKind::RelativeRoot { id } => {
+            m.insert("root_id".into(), json!(id.to_string()));
+            "RelativeRoot"
+        }
+        ExprKind::JsonMapper { op, asc, root_id, .. } => {
+            m.insert("op".into(), json!(*op as i64));
+            m.insert("asc".into(), json!(asc));
+            m.insert("root_id".into(), json!(root_id.to_string()));
+            "JsonMapper"
+        }
         ExprKind::Variable(name) => {
             m.insert("name".into(), json!(name));
             "Variable"
@@ -193,6 +211,9 @@ pub fn to_json(e: &Expr) -> Result<Json> {
         ExprKind::FunctionCall(fc) => {
             m.insert("fn".into(), fc.func.to_json()?);
             m.insert("kwarg_names".into(), Json::Array(fc.kwargs.iter().map(|(k, _)| json!(k)).collect()));
+            m.insert("num_group_by".into(), json!(fc.group_by.len()));
+            m.insert("num_order_by".into(), json!(fc.order_by.len()));
+            m.insert("is_method_call".into(), json!(fc.is_method_call));
             "FunctionCall"
         }
     };
@@ -286,6 +307,17 @@ pub fn from_json(d: &Json) -> Result<ExprRef> {
                 _ => return Err(bad(d)),
             },
         },
+        "RelativeRoot" => ExprKind::RelativeRoot { id: parse_id(d.get("root_id")).ok_or_else(|| bad(d))? },
+        "JsonMapper" => {
+            let (src, target) = two(&comps)?;
+            ExprKind::JsonMapper {
+                op: MapperOp::from_i64(d.get("op").and_then(Json::as_i64).unwrap_or(0)).ok_or_else(|| bad(d))?,
+                asc: d.get("asc").and_then(Json::as_bool).unwrap_or(true),
+                src,
+                target,
+                root_id: parse_id(d.get("root_id")).ok_or_else(|| bad(d))?,
+            }
+        }
         "SimilarityExpr" => {
             let (col, item) = two(&comps)?;
             ExprKind::Similarity(Similarity {
@@ -312,8 +344,12 @@ pub fn from_json(d: &Json) -> Result<ExprRef> {
                 Some(Json::Array(k)) => k.iter().filter_map(|k| k.as_str().map(str::to_owned)).collect(),
                 _ => Vec::new(),
             };
-            let n_args = comps.len().checked_sub(kwarg_names.len()).ok_or_else(|| bad(d))?;
+            let n_group_by = d.get("num_group_by").and_then(Json::as_u64).unwrap_or(0) as usize;
+            let n_order_by = d.get("num_order_by").and_then(Json::as_u64).unwrap_or(0) as usize;
+            let n_args = comps.len().checked_sub(kwarg_names.len() + n_group_by + n_order_by).ok_or_else(|| bad(d))?;
             let mut comps = comps;
+            let order_by = comps.split_off(comps.len() - n_order_by);
+            let group_by = comps.split_off(comps.len() - n_group_by);
             let kw_vals = comps.split_off(n_args);
             let kwargs: Vec<(String, ExprRef)> = kwarg_names.into_iter().zip(kw_vals).collect();
             let fn_json = d.get("fn").ok_or_else(|| bad(d))?;
@@ -322,7 +358,14 @@ pub fn from_json(d: &Json) -> Result<ExprRef> {
                 return crate::functions::udf::call_from_json(fn_json, comps, kwargs, col_type);
             }
             let func = crate::functions::FuncRef::from_json(fn_json)?;
-            ExprKind::FunctionCall(FunctionCall { func, args: comps, kwargs })
+            ExprKind::FunctionCall(FunctionCall {
+                func,
+                args: comps,
+                kwargs,
+                group_by,
+                order_by,
+                is_method_call: d.get("is_method_call").and_then(Json::as_bool).unwrap_or(false),
+            })
         }
         "Variable" => ExprKind::Variable(d.get("name").and_then(Json::as_str).ok_or_else(|| bad(d))?.to_string()),
         _ => return Err(bad(d)),

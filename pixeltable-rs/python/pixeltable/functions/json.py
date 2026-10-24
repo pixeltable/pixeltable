@@ -4,9 +4,7 @@
 
 
 from pixeltable.functions._registry import fn as _fn
-from pixeltable._unimplemented import unimplemented_class as _cls
 
-make_list = _cls(__name__, 'make_list')
 dumps = _fn(__name__, 'dumps')
 len = _fn(__name__, 'len')
 is_empty = _fn(__name__, 'is_empty')
@@ -23,4 +21,5 @@ items = _fn(__name__, 'items')
 flatten = _fn(__name__, 'flatten')
 concat = _fn(__name__, 'concat')
 merge = _fn(__name__, 'merge')
+make_list = _fn(__name__, 'make_list')
 list_iterator = _fn(__name__, 'list_iterator')

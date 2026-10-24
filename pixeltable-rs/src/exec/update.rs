@@ -218,7 +218,7 @@ pub fn is_sql_expressible(e: &Expr) -> bool {
     e.visit(&mut |n| {
         if let ExprKind::FunctionCall(fc) = &n.kind {
             match &fc.func {
-                FuncRef::Udf(_) => ok = false,
+                FuncRef::Udf(_) | FuncRef::Agg(_) => ok = false,
                 FuncRef::Builtin(b) => {
                     if ["image", "video", "audio", "document"].iter().any(|m| b.module.ends_with(&format!(".{m}"))) {
                         ok = false;

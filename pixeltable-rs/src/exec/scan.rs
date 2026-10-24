@@ -86,7 +86,7 @@ impl ElemInfo {
     }
 
     /// For a read-validated media column with a file: the validation error, if any.
-    fn read_validation_error(&self, row: &StoredRow, col_id: ColId) -> Option<Option<CellError>> {
+    pub(crate) fn read_validation_error(&self, row: &StoredRow, col_id: ColId) -> Option<Option<CellError>> {
         let rv = self.read_validation.as_ref()?;
         let kind = rv.kind(col_id)?;
         match row.cell(col_id) {

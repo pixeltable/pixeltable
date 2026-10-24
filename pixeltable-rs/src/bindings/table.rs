@@ -125,7 +125,7 @@ pub fn row_value_to_py<'py>(py: Python<'py>, v: &Value, t: &ColumnType) -> Resul
 /// result rows as input rows of `plan`.
 pub fn query_input_rows(py: Python<'_>, q: &crate::exec::QuerySpec, plan: &InsertPlan) -> Result<Vec<InputRow>> {
     let input = with_catalog(py, |cat| crate::exec::QueryInput::snapshot(cat, q))?;
-    let result = crate::exec::execute(&input, q, false)?;
+    let result = crate::exec::execute(&input, false)?;
     let mut targets = Vec::with_capacity(result.names.len());
     for name in &result.names {
         let col = plan.column(name).ok_or_else(|| crate::pxt_err!(ColumnNotFound, "Unknown column name {name}"))?;
