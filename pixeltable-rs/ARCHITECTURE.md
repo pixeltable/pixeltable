@@ -323,7 +323,8 @@ pinned version of their table (`ColumnRef.tbl_version`, None: live), which bindi
 every view gets a version); updates rewrite the changed rows and each live view re-decides membership (filter reads a
 changed column) and recomputes dependent stored columns, getting a version only if it does either; deletes retire the
 view rows of deleted base rows (a version only if rows were removed). View rows are computed without the lock (they
-may call UDFs) and committed with the base's.
+may call UDFs) and committed with the base's. A view column computed with window functions is evaluated over the batch
+of new view rows (`ViewCompute::rows_for_batch()`), as an insert evaluates one over its rows.
 
 Component views (`ViewMd.iterator`, a serialized `IteratorCall`): the iterator's outputs (`pos` first) are the view's
 first columns (`TableMd::is_iterator_col`). A base row yields one view row per output row, keyed by the base row's key
