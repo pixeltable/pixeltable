@@ -49,8 +49,12 @@ src/
   catalog/versions.rs revert(), version history (get_versions() with schema-change descriptions)
   catalog/indexes.rs B-tree and embedding index metadata, default indexes, drop/cascade
   catalog/runtime.rs the process-wide Catalog behind a mutex; reload/reset hooks; reserved column names
-  store/mod.rs      files under $PIXELTABLE_HOME, atomic writes
-  store/rows.rs     TableData / StoredRow with version ranges, cell errors
+  store/mod.rs      files under $PIXELTABLE_HOME: catalog.json, segment and history files, the store lock, without_gil()
+  store/rows.rs     StoredRow (cells, cell errors, key), LIVE/DEAD
+  store/table_data.rs TableData: a table's rows as immutable segments + current version ranges; lookups by key, the
+                    primary-key index, mutations, the compaction policy
+  store/history.rs  a table's version history file: records, diffing, replay
+  store/codec.rs    the binary encoding of segment files
   exec/mod.rs       QuerySpec (from-table + joins, select/where/group_by/order_by/limit/sample, validation, JSON)
   exec/query.rs     QueryInput snapshot, execute(), count(): joins, aggregation, window functions, sampling
   exec/sample.rs    the hash and seed source of sample()
@@ -312,35 +316,69 @@ The contract, which every phase-B caller relies on:
 from the store on first use, dropped by `reload_catalog()` and wiped by `reset_db()`.
 
 Atomicity: each `with_catalog` call is atomic. `Catalog::checkpoint()` captures the in-memory state (maps of `Arc`s,
-cheap); if the closure fails, `Catalog::finish()` restores it, rewrites `catalog.json` if the operation had already
-committed, and removes the data files it wrote. Never delete files directly: use `defer_delete_*` (applied only
-when the operation succeeds). An operation that spans several lock acquisitions (plan/compute/commit) is atomic
-only in its commit step, so put every mutation into the commit step (see `AddComputedPlan::commit`, which also
-performs the `if_exists='replace'` drop).
+cheap). The closure changes only memory: `commit()` marks the operation as committed and `stage_data()` replaces a
+table's `TableData`; `Catalog::finish()` then writes everything once (`flush()`, detached from the interpreter) and
+applies the deferred deletions, or, if the closure or the write failed, restores the checkpoint and removes the
+files the write had produced. Never delete files directly: use `defer_delete_*` (applied only when the operation
+succeeds). An operation that spans several lock acquisitions (plan/compute/commit) is atomic only in its commit step,
+so put every mutation into the commit step (see `AddComputedPlan::commit`, which also performs the
+`if_exists='replace'` drop).
 
 Locking rule: never run user Python code (UDFs, generators, pydantic serializers) while holding the catalog lock.
 Operations that may do so are split into plan (lock) -> compute (no lock) -> commit (lock, re-check the schema
 version): see `exec/insert.rs` and `exec/compute.rs`. Queries snapshot `Arc`s of metadata and data
 (`exec::QueryInput::snapshot`) and execute without the lock.
 
-Storage (`store/mod.rs`), format version 1, under `$PIXELTABLE_HOME/pxtrs/<db>/` (db = `PIXELTABLE_DB`, default
-`pixeltable`):
-- `catalog.json`: all directories and table metadata; atomically replaced on every mutation (the commit point);
-  starts with a stamp (`catalog_id`, `generation`) that every commit advances;
-- `tables/<tbl id>.v<version>.<seq>.bin`: MessagePack `TableData` (all row versions of a table) as of the version
-  named in `TableMd.data_file`; written before `catalog.json`, superseded files deleted after. JSON cells are stored
-  as JSON text;
+Storage (`store/`), format version 2, under `$PIXELTABLE_HOME/pxtrs/<db>/` (db = `PIXELTABLE_DB`, default
+`pixeltable`). A store of another format (including version 1) is refused with STORE_UNAVAILABLE ("... has format
+pixeltable-rs v1, which this version of pixeltable-rs (format v2) cannot read; remove that directory ...").
+- `catalog.json`: all directories and the current metadata of every table without its history (`TableMd` minus
+  `versions`/`schema_versions`), plus each table's manifest (`TableMd.storage`: its segment ids in order, and its
+  history file with the committed length); atomically replaced by every commit (the commit point); starts with a
+  stamp (`catalog_id`, `generation`) that every commit advances. Its size does not depend on rows or versions;
+- `tables/<tbl id>.<id>.seg`: a segment (`store/codec.rs`: tagged values, varints): rows sorted by key then `v_min`,
+  their `v_min` and `v_max` as of writing, and the patches it carries (`v_max` changes of rows of earlier segments:
+  deletes, the old versions of updated rows, `revert()`). JSON cells are stored as JSON text;
+- `tables/<tbl id>.<id>.hist`: the table's version history, one `VersionMd`/`SchemaVersionMd` record per line; a
+  commit appends the records that differ from the committed ones (compared by `Arc` identity), replay lets a record
+  replace those of the same and later versions and drops versions after `current_version`; rewritten when most of it
+  is superseded;
 - `catalog.lock`: the file lock below.
 
-Writes go to a temp file, fsync, rename, fsync of the directory. JSON is read without serde_json's 128-level limit
-but with the limit its writer enforced (`value::parse_json_bounded`: `MAX_JSON_DEPTH` for cells,
-`store::MAX_CATALOG_DEPTH` for `catalog.json` and `from_dict()`).
+A commit (`Catalog::flush()`) writes the new segment files (fsync), appends to history files (fsync; bytes past the
+committed length, left by a failed commit, are overwritten), fsyncs `tables/`, then writes `catalog.json` to a temp
+file, fsyncs and renames it. A failure or crash before the rename leaves the previous state: unreferenced files are
+deleted by the failed operation or by `Store::gc()` when a process first loads the catalog (under the store lock).
+All store I/O runs detached from the interpreter (`store::without_gil()`, `py.detach` in `runtime`). JSON is read
+without serde_json's 128-level limit but with the limit its writer enforced (`value::parse_json_bounded`:
+`MAX_JSON_DEPTH` for cells, `store::MAX_CATALOG_DEPTH` for `catalog.json`, history records and `from_dict()`).
+
+Row data (`store/table_data.rs`): a `TableData` is a list of `Arc`ed immutable `Segment`s plus the current `v_max` of
+their rows (one copy-on-write array per segment), so clones are cheap and the catalog, its checkpoint and query
+snapshots share segments. Mutations (`append`, `retire`, `retire_by_prefix`, `revert`, `set_live_cells`,
+`update_all_rows`) touch only the rows they change: `append` adds an unwritten segment, a `v_max` change of a written
+segment's row is recorded as a pending patch, a cell change rewrites the segment holding the row. `flush()` calls
+`prepare_write()` (merges per the compaction policy, attaches the pending patches to the last segment) and writes the
+unwritten segments. Compaction: every segment after the last large one (`MAX_MERGE_WEIGHT` rows+patches) must be
+heavier than all later ones together, else the trailing ones merge (O(log n) segments, each row rewritten O(log n)
+times); a large segment that is mostly dead or retired rows, or mostly patched, is rewritten alone, retired rows and
+live rows into separate segments. Merged segments drop dead rows (`v_max = DEAD`: inserts undone by `revert()`, rows
+deleted from operational tables) and carry the patches of the merged ones that target earlier segments. Reads:
+`visible_at(v)` skips segments that cannot hold a row visible at `v` (all inserted after `v`, or all retired before
+it); `row_at(key, v)` binary-searches each segment; `live_rows_by_prefix()` finds the view rows of base rows;
+`count_at(v)`. The primary-key index (`find_live_by_pks()`, `pk_candidates()`) maps a hash of a row's (truncated, for
+data-versioned tables) key values to rowids of any version; it is built on first use, extended as it sees new
+segments, and shared by all clones (it only grows; lookups verify the rows they find). It serves the insert uniqueness
+check, `batch_update()` by key, and filters that fix the key with `==`/`isin()` on literals
+(`scan::PathInput::rows_where()`, used by queries without joins, `update()` and `delete()`).
 
 Several processes may share a store. Every `with_catalog` call holds an exclusive OS file lock on `catalog.lock`
 (`Store::lock()`, taken after the in-process mutex, detached from the interpreter while waiting) and compares the stamp
 at the head of `catalog.json` (`Store::read_stamp()`, a 512-byte read) with the in-memory one; if another process
-committed, the catalog and its cached row data are reloaded before the closure runs. A plan/compute/commit operation
-therefore commits against the latest state (its commit step re-checks the schema version as usual).
+committed, the catalog is reloaded before the closure runs (`Catalog::reload()`: a table whose history file only grew
+reads just the new records, and cached rows of a table whose segment list only grew are kept, with the new segments
+read and their patches applied). A plan/compute/commit operation therefore commits against the latest state (its
+commit step re-checks the schema version as usual).
 
 Versioning: a data-versioned table gets a new version per mutation; a schema change also creates a schema version
 equal to the new table version (`Catalog::bump_version`). Rows carry `[v_min, v_max)` and a key `(rowid, pos)`
@@ -353,10 +391,6 @@ Operational tables (`_is_data_versioned=False`) bump the version only for schema
 place, and cannot be reverted, pinned or viewed. `get_table('t:3')` pins a handle to version 3 (queries read rows
 and schema as of 3). `revert()` undoes the current version of a table and the view versions it created
 (`VersionMd.cascade_from`); a version that a snapshot pins cannot be reverted.
-
-Performance note: a mutation currently copies the table's whole `TableData` and rewrites its data file (O(rows)
-per insert). The intended evolution is segment-based storage (`TableData` = list of `Arc` segments, one file per
-segment; inserts add a segment, deletes/updates rewrite only the affected segments).
 
 Table paths and views (`catalog/views.rs`, `exec/scan.rs`): a handle reads a *table path*, leaf first, each element
 live or pinned to a version (`Catalog::tbl_path`): a base table is a path of one; a view adds its bases
@@ -422,7 +456,8 @@ Computed columns are evaluated with Python semantics (`RowContext::python_semant
 `ZeroDivisionError`), query expressions with SQL semantics (NULL). `UpdateStatus.cols_with_excs` names columns
 `<table>.<column>` (`<table>.<column>:<index>` for index values).
 
-Indexes (`catalog/indexes.rs`, `TableMd.indexes`): nothing reads B-tree indexes (scans are full scans);
+Indexes (`catalog/indexes.rs`, `TableMd.indexes`): nothing reads B-tree indexes (only the primary-key index of the
+store, above, avoids scans);
 `has_default_idxs` adds one to every eligible column (`push_column()`, `create_table()`; for a view, its own
 columns, `add_default_view_indexes()`). An index can have a value
 column: a hidden stored computed column (`IndexMd::val_col_id()`, not listed in any schema version, named

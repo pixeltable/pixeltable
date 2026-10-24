@@ -5,7 +5,7 @@
 //! both without the lock; `commit()` re-checks the schema version, enforces the primary key, appends the rows at a
 //! new table version and persists them.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use super::compute::{ComputedCol, MediaTarget, cell_error, discard_media, errors_in_order, eval_computed_batch, unstored_exprs};
@@ -17,6 +17,7 @@ use crate::error::{Error, Result, py_repr};
 use crate::media::{self, MediaKind};
 use crate::expr::ExprRef;
 use crate::store::rows::StoredRow;
+use crate::store::table_data::{pk_hash, values_identical};
 use crate::types::ColumnType;
 use crate::value::Value;
 
@@ -378,10 +379,6 @@ fn pk_part(v: &Value, truncate: bool) -> Value {
     }
 }
 
-fn pk_key(row: &StoredRow, pk_cols: &[ColId], truncate: bool) -> String {
-    pk_cols.iter().map(|c| format!("{:?}", pk_part(row.cell(*c), truncate))).collect::<Vec<_>>().join("\u{1f}")
-}
-
 /// The size of a row's primary key value in the index (strings by their UTF-8 length, other values 8 bytes).
 fn pk_size(row: &StoredRow, pk_cols: &[ColId], truncate: bool) -> usize {
     pk_cols
@@ -431,12 +428,19 @@ pub fn commit(cat: &mut Catalog, plan: &InsertPlan, built: BuiltRows) -> Result<
                 );
             }
         }
-        let mut seen: HashSet<String> =
-            data.visible_at(md.current_version).map(|r| pk_key(r, &pk_cols, truncate)).collect();
-        for r in &built.rows {
-            if !seen.insert(pk_key(r, &pk_cols, truncate)) {
+        // against the live rows (the table's primary-key index), and among the new rows
+        let keys: Vec<Vec<Value>> = built.rows.iter().map(|r| pk_cols.iter().map(|c| r.cell(*c).clone()).collect()).collect();
+        let existing = data.find_live_by_pks(&pk_cols, truncate, &keys, false);
+        let mut seen: HashMap<u64, Vec<usize>> = HashMap::with_capacity(keys.len());
+        for (i, r) in built.rows.iter().enumerate() {
+            let h = pk_hash(keys[i].iter(), truncate);
+            let dup_in_batch = seen.get(&h).is_some_and(|js| {
+                js.iter().any(|j| keys[*j].iter().zip(&keys[i]).all(|(a, b)| values_identical(&pk_part(a, truncate), &pk_part(b, truncate))))
+            });
+            if existing[i].is_some() || dup_in_batch {
                 crate::bail!(ConstraintViolation, "Duplicate primary key value: {}", pk_display(r, plan));
             }
+            seen.entry(h).or_default().push(i);
         }
     }
     ViewNode::check_unchanged(cat, plan.tbl_id, &plan.views)?;

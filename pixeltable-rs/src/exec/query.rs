@@ -507,8 +507,12 @@ pub fn keys_of(vals: &[Value]) -> String {
     s
 }
 
-/// The visible rows of source `i` (each joined with its path's base rows), in key order.
+/// The visible rows of source `i` (each joined with its path's base rows), in key order. Without joins, only the
+/// rows the where clause can select when it fixes the table's primary key (`PathInput::rows_where()`).
 fn source_rows<'a>(input: &'a QueryInput, i: usize) -> Result<Vec<Vec<&'a StoredRow>>> {
+    if i == 0 && input.q.joins.is_empty() {
+        return input.sources[0].path.rows_where(input.q.where_.as_ref());
+    }
     input.sources[i].path.rows()
 }
 
@@ -983,6 +987,14 @@ pub fn count(input: &QueryInput) -> Result<usize> {
                 crate::bail!(UnsupportedOperation, "Filter {} not expressible in SQL", display(&f));
             }
             crate::bail!(UnsupportedOperation, "count() cannot be used: query plan contains a non-SQL node (FilterNode)");
+        }
+    }
+    if q.where_.is_none() && q.sample.is_none() && q.group_by.is_none() && q.grouping_tbl.is_none() && q.joins.is_empty() {
+        if let [src] = input.sources.as_slice() {
+            if let [e] = src.path.elems.as_slice() {
+                // the visible rows of one table: counted by the store
+                return Ok(e.data.count_at(e.version));
+            }
         }
     }
     let mut rows = filtered(input)?;

@@ -1,38 +1,53 @@
 //! Persistence under `$PIXELTABLE_HOME` (default `~/.pixeltable`).
 //!
-//! Layout (format version 1):
+//! Layout (format version 2):
 //!
 //! ```text
 //! $PIXELTABLE_HOME/
-//!   pxtrs/<db>/catalog.json          directories and all table metadata (the commit point)
-//!   pxtrs/<db>/tables/<id>.v<N>.bin  rows of table <id> as of version N (MessagePack of `TableData`)
-//!   media/<db>/<tbl id>/...          media files written by the store (in-memory images etc.)
+//!   pxtrs/<db>/catalog.json                 directories, table metadata and table manifests (the commit point)
+//!   pxtrs/<db>/catalog.lock                 the store lock
+//!   pxtrs/<db>/tables/<tbl id>.<id>.seg     a segment of a table's rows (binary, see `codec`)
+//!   pxtrs/<db>/tables/<tbl id>.<id>.hist    a table's version history (JSON lines, see `history`)
+//!   media/<db>/<tbl id>/...                 media files written by the store (in-memory images etc.)
 //! ```
 //!
-//! Every mutation writes the new data file (if rows changed) and then atomically replaces `catalog.json`
-//! (write to a temp file, fsync, rename, fsync the directory), which names the current data file of every table. A
-//! crash before the rename leaves the previous state intact; superseded data files are deleted after the rename.
+//! A table's rows are a list of immutable segments (`table_data::Segment`): every commit that changes rows writes
+//! one new segment with the rows it adds and the `v_max` changes it makes to older rows; compaction replaces
+//! segments by merged ones. A table's version history (`VersionMd`/`SchemaVersionMd` records) is appended to its
+//! history file. `catalog.json` holds the current metadata of every table without its history, plus its manifest
+//! (`TableStorage`: the segment list and the valid length of the history file), so its size does not grow with
+//! rows or versions.
+//!
+//! A commit writes the new segment files (fsync), appends to the history files (fsync), fsyncs `tables/`, and then
+//! atomically replaces `catalog.json` (temp file, fsync, rename, fsync of the directory): the rename is the commit
+//! point. A crash or error before it leaves the previous state intact: new segment files are not referenced yet
+//! (`gc()` removes them), and history bytes past the recorded length are ignored and overwritten. Superseded files
+//! are deleted after the rename.
 //!
 //! Several processes may share a store: each catalog operation holds an exclusive lock on `catalog.lock` (`lock()`),
 //! and `catalog.json` starts with a stamp (`catalog_id`, `generation`; `read_stamp()`) that every commit advances,
 //! so a process notices that another one committed and reloads (see `catalog::runtime`).
 
+pub mod codec;
+pub mod history;
 pub mod rows;
+pub mod table_data;
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs;
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path as FsPath, PathBuf};
 use uuid::Uuid;
 
 use crate::catalog::table::TableMd;
 use crate::error::{Error, Result};
 use crate::expr::MAX_EXPR_DEPTH;
-use crate::value::{MAX_JSON_DEPTH, json_nesting_depth, json_too_deep_msg, parse_json_bounded};
-use rows::TableData;
+use crate::value::{MAX_JSON_DEPTH, json_nesting_depth, parse_json_bounded};
+use table_data::Segment;
 
 pub const FORMAT_NAME: &str = "pixeltable-rs";
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 /// Maximum nesting of `catalog.json` and of serialized expressions and queries: room for an expression of
 /// `MAX_EXPR_DEPTH` levels (two JSON levels each) holding a JSON literal of `MAX_JSON_DEPTH` levels. A commit that
@@ -47,20 +62,41 @@ pub struct DirMd {
     pub created_at: f64,
 }
 
+/// Where a table's data is: its manifest, recorded in `catalog.json` with the table's metadata.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TableStorage {
+    /// the table's segments, in order
+    #[serde(default)]
+    pub segments: Vec<u64>,
+    /// the table's history file (None until the first commit writes it)
+    #[serde(default)]
+    pub history: Option<HistoryRef>,
+}
+
+/// A history file and how much of it is valid.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct HistoryRef {
+    pub file: u64,
+    /// the committed length in bytes (later bytes are left over from an operation that did not commit)
+    pub len: u64,
+    /// the number of records in the committed part
+    pub records: u64,
+}
+
 /// The content of `catalog.json`. `catalog_id` and `generation` are serialized before the bulk of the metadata, so
 /// that `Store::read_stamp()` finds them in the first bytes of the file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatalogFile {
     pub format: String,
     pub format_version: u32,
-    /// identifies one catalog across its generations (a new one after `reset_db()`); nil in files written before
-    /// stamps were recorded
+    /// identifies one catalog across its generations (a new one after `reset_db()`)
     #[serde(default)]
     pub catalog_id: Uuid,
     /// advanced by every commit
     #[serde(default)]
     pub generation: u64,
     pub dirs: Vec<DirMd>,
+    /// the tables' metadata (without their history, which is in their history files)
     pub tables: Vec<TableMd>,
 }
 
@@ -75,7 +111,22 @@ struct CatalogHeader {
     generation: u64,
 }
 
+/// Only the format of `catalog.json`, read before the rest so that a store of another format gets a clear error.
+#[derive(Deserialize)]
+struct FormatHeader {
+    format: String,
+    format_version: u32,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test hook: makes `save_catalog_bytes()` fail on this thread, as if the process failed after writing a commit's
+    /// segment and history files but before the commit point.
+    pub static FAIL_BEFORE_COMMIT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 const LOCK_FILE: &str = "catalog.lock";
+const CATALOG_FILE: &str = "catalog.json";
 
 /// The exclusive lock on a store (an OS file lock on `catalog.lock`, so it also excludes other processes); released
 /// when dropped.
@@ -108,6 +159,25 @@ fn db_name() -> String {
     }
 }
 
+/// Runs `f` (file I/O, (de)serialization) detached from the Python interpreter if this thread is attached to it,
+/// so that other Python threads run meanwhile.
+pub fn without_gil<T: Send>(f: impl FnOnce() -> T + Send) -> T {
+    // SAFETY: plain queries of the interpreter state; PyGILState_Check() is only called on an initialized interpreter
+    let attached = unsafe { pyo3::ffi::Py_IsInitialized() != 0 && pyo3::ffi::PyGILState_Check() == 1 };
+    let mut f = Some(f);
+    if attached {
+        if let Some(r) = pyo3::Python::try_attach(|py| py.detach(|| f.take().map(|f| f()))) {
+            if let Some(r) = r {
+                return r;
+            }
+        }
+    }
+    match f.take() {
+        Some(f) => f(),
+        None => unreachable!("the closure ran but returned no result"),
+    }
+}
+
 impl Store {
     /// Opens (creating if needed) the store of the configured database.
     pub fn open_default() -> Result<Store> {
@@ -131,11 +201,19 @@ impl Store {
     }
 
     fn catalog_path(&self) -> PathBuf {
-        self.root.join("catalog.json")
+        self.root.join(CATALOG_FILE)
     }
 
-    fn table_path(&self, file: &str) -> PathBuf {
-        self.root.join("tables").join(file)
+    fn tables_dir(&self) -> PathBuf {
+        self.root.join("tables")
+    }
+
+    pub fn segment_file_name(tbl_id: Uuid, id: u64) -> String {
+        format!("{tbl_id}.{id:016x}.seg")
+    }
+
+    pub fn history_file_name(tbl_id: Uuid, id: u64) -> String {
+        format!("{tbl_id}.{id:016x}.hist")
     }
 
     /// Waits for the exclusive lock on this store.
@@ -168,31 +246,38 @@ impl Store {
                 }
             }
         }
-        // a file written before stamps were recorded
+        // not a catalog this version wrote; `load_catalog()` says why
         Ok(Some((Uuid::nil(), 0)))
     }
 
+    /// Reads `catalog.json` (None if the store is new). The tables' metadata comes without history (see
+    /// `history::read()`). A store written in another format is refused.
     pub fn load_catalog(&self) -> Result<Option<CatalogFile>> {
         let path = self.catalog_path();
         if !path.exists() {
             return Ok(None);
         }
         let bytes = fs::read(&path)?;
-        let cf: CatalogFile = parse_json_bounded(&bytes, MAX_CATALOG_DEPTH)
+        let header: FormatHeader = parse_json_bounded(&bytes, MAX_CATALOG_DEPTH)
             .map_err(|e| Error::internal(format!("corrupt or unserializable metadata: {e}")))?;
-        if cf.format != FORMAT_NAME || cf.format_version > FORMAT_VERSION {
+        if header.format != FORMAT_NAME || header.format_version != FORMAT_VERSION {
             return Err(crate::pxt_err!(
                 StoreUnavailable,
-                "The store at {} has format {} v{}, which this version of pixeltable-rs cannot read",
+                "The store at {} has format {} v{}, which this version of pixeltable-rs (format v{FORMAT_VERSION}) cannot read; \
+                 remove that directory (and {}) to start over",
                 self.root.display(),
-                cf.format,
-                cf.format_version
+                header.format,
+                header.format_version,
+                self.media_root.display()
             ));
         }
+        let cf: CatalogFile = parse_json_bounded(&bytes, MAX_CATALOG_DEPTH)
+            .map_err(|e| Error::internal(format!("corrupt or unserializable metadata: {e}")))?;
         Ok(Some(cf))
     }
 
-    pub fn save_catalog(&self, cf: &CatalogFile) -> Result<()> {
+    /// Serializes `catalog.json` (refusing metadata that would be too deeply nested to load again).
+    pub fn serialize_catalog(cf: &CatalogFile) -> Result<Vec<u8>> {
         let bytes = serde_json::to_vec(cf)?;
         let depth = json_nesting_depth(&bytes);
         if depth > MAX_CATALOG_DEPTH {
@@ -200,38 +285,112 @@ impl Store {
                 "cannot save the catalog: its metadata is nested {depth} levels deep (the limit is {MAX_CATALOG_DEPTH})"
             )));
         }
-        write_atomic(&self.catalog_path(), &bytes)
+        Ok(bytes)
     }
 
-    pub fn load_table_data(&self, file: &str) -> Result<TableData> {
-        let bytes = fs::read(self.table_path(file))?;
-        rmp_serde::from_slice(&bytes).map_err(|e| Error::internal(format!("corrupt table data file {file}: {e}")))
+    /// Atomically replaces `catalog.json` (the commit point). Returns once the new file has replaced the old one;
+    /// the directory is synced after that, as far as possible.
+    pub fn save_catalog_bytes(&self, bytes: &[u8]) -> Result<()> {
+        #[cfg(test)]
+        if FAIL_BEFORE_COMMIT.with(|f| f.get()) {
+            return Err(Error::internal("injected failure before the commit point"));
+        }
+        write_atomic(&self.catalog_path(), bytes)
     }
 
-    /// Writes the rows of `tbl_id` as of `version`; returns the file name to record in the metadata.
-    pub fn write_table_data(&self, tbl_id: Uuid, version: i64, data: &TableData) -> Result<String> {
-        let bytes = rmp_serde::to_vec(data).map_err(|e| {
-            let msg = e.to_string();
-            if msg.contains(&json_too_deep_msg()) {
-                // a computed JSON value nested more deeply than the store accepts (see `value::MAX_JSON_DEPTH`)
-                Error::new(crate::error::ErrorCode::UnsupportedOperation, msg)
-            } else {
-                Error::internal(format!("cannot serialize table data: {msg}"))
+    pub fn save_catalog(&self, cf: &CatalogFile) -> Result<()> {
+        self.save_catalog_bytes(&Store::serialize_catalog(cf)?)
+    }
+
+    /// Writes a segment of table `tbl_id` with the given `v_max` of its rows (fsynced; the directory is synced by
+    /// `sync_tables()`). Returns the file name.
+    pub fn write_segment(&self, tbl_id: Uuid, seg: &Segment, vmax: &[i64]) -> Result<String> {
+        let bytes = codec::encode(tbl_id, seg, vmax)?;
+        let name = Store::segment_file_name(tbl_id, seg.id);
+        let mut f = fs::File::create(self.tables_dir().join(&name))?;
+        f.write_all(&bytes)?;
+        f.sync_data()?;
+        Ok(name)
+    }
+
+    /// Reads segment `id` of table `tbl_id`: the segment and the `v_max` its file records.
+    pub fn read_segment(&self, tbl_id: Uuid, id: u64) -> Result<(Segment, Vec<i64>)> {
+        let name = Store::segment_file_name(tbl_id, id);
+        let bytes = fs::read(self.tables_dir().join(&name))
+            .map_err(|e| Error::internal(format!("cannot read table data file {name}: {e}")))?;
+        codec::decode(&bytes, tbl_id, id).map_err(|e| Error::internal(format!("{} {name}", e.message())))
+    }
+
+    /// Appends `bytes` to history file `file` of table `tbl_id` at offset `len` (dropping whatever follows the
+    /// committed part), fsynced. Returns the new length.
+    pub fn append_history(&self, tbl_id: Uuid, file: u64, len: u64, bytes: &[u8]) -> Result<u64> {
+        let path = self.tables_dir().join(Store::history_file_name(tbl_id, file));
+        let mut f = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path)?;
+        f.set_len(len)?;
+        f.seek(SeekFrom::Start(len))?;
+        f.write_all(bytes)?;
+        f.sync_data()?;
+        Ok(len + bytes.len() as u64)
+    }
+
+    /// The committed part of a history file.
+    pub fn read_history(&self, tbl_id: Uuid, h: &HistoryRef) -> Result<Vec<u8>> {
+        use std::io::Read;
+        let name = Store::history_file_name(tbl_id, h.file);
+        let f = fs::File::open(self.tables_dir().join(&name))
+            .map_err(|e| Error::internal(format!("cannot read history file {name}: {e}")))?;
+        let mut out = Vec::with_capacity(h.len as usize);
+        f.take(h.len).read_to_end(&mut out)?;
+        if out.len() as u64 != h.len {
+            return Err(Error::internal(format!("history file {name} is shorter than its committed length")));
+        }
+        Ok(out)
+    }
+
+    /// Bytes `from..to` of a history file (records a commit appended after `from`).
+    pub fn read_history_range(&self, tbl_id: Uuid, file: u64, from: u64, to: u64) -> Result<Vec<u8>> {
+        use std::io::Read;
+        let name = Store::history_file_name(tbl_id, file);
+        let mut f = fs::File::open(self.tables_dir().join(&name))
+            .map_err(|e| Error::internal(format!("cannot read history file {name}: {e}")))?;
+        f.seek(SeekFrom::Start(from))?;
+        let mut out = Vec::with_capacity((to - from) as usize);
+        f.take(to - from).read_to_end(&mut out)?;
+        if out.len() as u64 != to - from {
+            return Err(Error::internal(format!("history file {name} is shorter than its committed length")));
+        }
+        Ok(out)
+    }
+
+    /// Makes the creation of the files written in `tables/` durable.
+    pub fn sync_tables(&self) -> Result<()> {
+        sync_dir(&self.tables_dir())
+    }
+
+    /// Deletes a file in `tables/` (best effort: a leftover file is garbage, not corruption).
+    pub fn delete_table_file(&self, name: &str) {
+        let _ = fs::remove_file(self.tables_dir().join(name));
+    }
+
+    /// Deletes the files in `tables/` that `keep` does not name (left over from operations that failed or crashed
+    /// before committing, or superseded files a crash kept from being deleted), and leftover temp files. The caller
+    /// holds the store lock, so no other process is writing files that it has yet to commit.
+    pub fn gc(&self, keep: &HashSet<String>) -> Result<()> {
+        for entry in fs::read_dir(self.tables_dir())? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !keep.contains(&name) {
+                let _ = fs::remove_file(entry.path());
             }
-        })?;
-        // the sequence number makes the name unique even when an operational table rewrites rows at one version
-        let seq = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or_default();
-        let file = format!("{tbl_id}.v{version}.{seq}.bin");
-        write_atomic(&self.table_path(&file), &bytes)?;
-        Ok(file)
-    }
-
-    pub fn delete_table_data(&self, file: &str) {
-        // best effort: a leftover file is garbage, not corruption
-        let _ = fs::remove_file(self.table_path(file));
+        }
+        for entry in fs::read_dir(&self.root)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with("catalog.tmp") {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+        Ok(())
     }
 
     pub fn delete_media(&self, tbl_id: Uuid) {
@@ -286,9 +445,9 @@ fn write_atomic(path: &FsPath, bytes: &[u8]) -> Result<()> {
         f.sync_data()?;
     }
     fs::rename(&tmp, path)?;
-    // make the rename itself durable
+    // make the rename itself durable; it has happened, so a failure here does not undo the commit
     if let Some(dir) = path.parent() {
-        sync_dir(dir)?;
+        let _ = sync_dir(dir);
     }
     Ok(())
 }
@@ -307,6 +466,8 @@ fn sync_dir(_dir: &FsPath) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rows::StoredRow;
+    use table_data::Patch;
 
     fn temp_store() -> Store {
         let tmp = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/test-tmp");
@@ -329,11 +490,22 @@ mod tests {
         };
         store.save_catalog(&cf)?;
         assert_eq!(store.read_stamp()?, Some((id, 42)));
-        // a file written before stamps were recorded
-        let legacy = br#"{"format":"pixeltable-rs","format_version":1,"dirs":[],"tables":[]}"#;
-        std::fs::write(store.catalog_path(), legacy)?;
-        assert_eq!(store.read_stamp()?, Some((Uuid::nil(), 0)));
-        assert_eq!(store.load_catalog()?.map(|c| c.generation), Some(0));
+        assert_eq!(store.load_catalog()?.map(|c| c.generation), Some(42));
+        let _ = std::fs::remove_dir_all(store.home());
+        Ok(())
+    }
+
+    #[test]
+    fn older_formats_are_refused() -> Result<()> {
+        let store = temp_store();
+        let v1 = br#"{"format":"pixeltable-rs","format_version":1,"catalog_id":"00000000-0000-0000-0000-000000000000","generation":3,"dirs":[],"tables":[]}"#;
+        std::fs::write(store.catalog_path(), v1)?;
+        match store.load_catalog() {
+            Err(Error::Pxt { code: crate::error::ErrorCode::StoreUnavailable, message }) => {
+                assert!(message.contains("format pixeltable-rs v1"), "{message}");
+            }
+            other => panic!("expected StoreUnavailable, got {other:?}"),
+        }
         let _ = std::fs::remove_dir_all(store.home());
         Ok(())
     }
@@ -346,6 +518,32 @@ mod tests {
         store.wipe()?;
         assert!(!store.catalog_path().exists());
         assert!(store.root.join(LOCK_FILE).exists());
+        let _ = std::fs::remove_dir_all(store.home());
+        Ok(())
+    }
+
+    #[test]
+    fn segments_and_history_roundtrip() -> Result<()> {
+        let store = temp_store();
+        let tbl = Uuid::new_v4();
+        let mut r = StoredRow::new(3, Vec::new());
+        r.set_cell(1, crate::value::Value::String("x".into()));
+        let seg = Segment { id: 77, rows: vec![r], vmin: vec![2], patches: vec![Patch { seg: 5, idx: 1, vmax: 2 }] };
+        store.write_segment(tbl, &seg, &[rows::LIVE])?;
+        let (back, vmax) = store.read_segment(tbl, 77)?;
+        assert_eq!(back.rows.len(), 1);
+        assert_eq!(back.vmin, vec![2]);
+        assert_eq!(vmax, vec![rows::LIVE]);
+        assert_eq!(back.patches, seg.patches);
+        let len = store.append_history(tbl, 9, 0, b"abc\n")?;
+        // bytes past the committed length are dropped by the next append
+        store.append_history(tbl, 9, len, b"garbage\n")?;
+        let len2 = store.append_history(tbl, 9, len, b"def\n")?;
+        assert_eq!(store.read_history(tbl, &HistoryRef { file: 9, len: len2, records: 2 })?, b"abc\ndef\n");
+        let keep: HashSet<String> = [Store::segment_file_name(tbl, 77)].into_iter().collect();
+        store.gc(&keep)?;
+        assert!(store.read_segment(tbl, 77).is_ok());
+        assert!(store.read_history(tbl, &HistoryRef { file: 9, len: 4, records: 1 }).is_err());
         let _ = std::fs::remove_dir_all(store.home());
         Ok(())
     }

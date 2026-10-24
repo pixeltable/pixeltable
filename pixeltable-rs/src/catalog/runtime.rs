@@ -10,7 +10,8 @@
 //!
 //! Processes sharing a store: each operation also holds the store's file lock (`Store::lock()`), and first compares
 //! the stamp of `catalog.json` with that of the in-memory catalog; if another process has committed since, the
-//! catalog (with its cached row data) is reloaded before the operation runs.
+//! catalog is reloaded before the operation runs (`Catalog::reload()`, which keeps the cached history and rows of a
+//! table that the other process only appended to).
 
 use parking_lot::Mutex;
 use pyo3::prelude::*;
@@ -61,10 +62,12 @@ pub fn with_catalog<R>(py: Python<'_>, f: impl FnOnce(&mut Catalog) -> Result<R>
         None => Store::open_default()?,
     };
     let _store_lock = py.detach(|| store.lock())?;
-    let on_disk = store.read_stamp()?;
-    if guard.as_ref().is_none_or(|cat| Some(cat.stamp()) != on_disk) {
-        *guard = None;
-        *guard = Some(Catalog::load(store)?);
+    let on_disk = py.detach(|| store.read_stamp())?;
+    match guard.take() {
+        Some(cat) if Some(cat.stamp()) == on_disk => *guard = Some(cat),
+        // another process committed: reload, keeping what is still valid of the cached history and rows
+        Some(cat) => *guard = Some(py.detach(|| Catalog::reload(store, cat))?),
+        None => *guard = Some(py.detach(|| Catalog::load(store, true))?),
     }
     let Some(cat) = guard.as_mut() else { return Err(Error::internal("catalog failed to initialize")) };
     let (result, discard) = run_atomic(cat, f);
@@ -115,8 +118,10 @@ pub fn reset(py: Python<'_>) -> Result<()> {
     crate::functions::udf::reset_load_state();
     let store = Store::open_default()?;
     let _store_lock = py.detach(|| store.lock())?;
-    store.wipe()?;
-    *guard = Some(Catalog::load(store)?);
+    *guard = Some(py.detach(|| {
+        store.wipe()?;
+        Catalog::load(store, false)
+    })?);
     Ok(())
 }
 
@@ -153,7 +158,7 @@ mod tests {
         let tmp = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/test-tmp");
         let dir = tmp.join(uuid::Uuid::new_v4().to_string());
         let store = Store::open(&dir, "test")?;
-        let mut cat = Catalog::load(store.clone())?;
+        let mut cat = Catalog::load(store.clone(), false)?;
         let d1 = Path::parse("d1", false, false)?;
         let (result, discard) = run_atomic(&mut cat, |cat| {
             cat.create_dir(&d1, IfExists::Error, false)?;
@@ -168,7 +173,7 @@ mod tests {
         }
         assert!(discard);
         assert!(cat.dir_at(&d1).is_none());
-        assert!(Catalog::load(store.clone())?.dir_at(&d1).is_none());
+        assert!(Catalog::load(store.clone(), false)?.dir_at(&d1).is_none());
         assert_eq!(store.read_stamp()?, Some(cat.stamp()));
         let _ = std::fs::remove_dir_all(store.home());
         Ok(())

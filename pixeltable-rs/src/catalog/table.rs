@@ -5,6 +5,7 @@
 //! a column records `schema_version_drop`, so older versions stay readable.
 
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::error::{Error, Result, py_repr};
@@ -309,11 +310,17 @@ pub struct TableMd {
     pub next_rowid: i64,
     /// every column ever created, in creation order
     pub columns: Vec<ColumnMd>,
-    pub schema_versions: Vec<SchemaVersionMd>,
-    pub versions: Vec<VersionMd>,
+    /// the schema versions, oldest first (persisted in the table's history file, not in `catalog.json`; entries are
+    /// shared until changed, see `store::history`)
+    #[serde(skip)]
+    pub schema_versions: Vec<Arc<SchemaVersionMd>>,
+    /// the table versions `0..=current_version`, oldest first (persisted like `schema_versions`)
+    #[serde(skip)]
+    pub versions: Vec<Arc<VersionMd>>,
     pub view: Option<ViewMd>,
-    /// file name (in the store) of the row data as of `current_version`
-    pub data_file: Option<String>,
+    /// where the table's rows and history are in the store
+    #[serde(default)]
+    pub storage: crate::store::TableStorage,
     #[serde(default)]
     pub indexes: Indexes,
 }
@@ -342,7 +349,18 @@ impl TableMd {
         self.schema_versions
             .iter()
             .find(|s| s.schema_version == schema_version)
+            .map(Arc::as_ref)
             .ok_or_else(|| Error::internal(format!("table {} has no schema version {schema_version}", self.id)))
+    }
+
+    /// The current (last) schema version, for changing it.
+    pub fn last_schema_version_mut(&mut self) -> Option<&mut SchemaVersionMd> {
+        self.schema_versions.last_mut().map(Arc::make_mut)
+    }
+
+    /// The metadata of version `version`, for changing it.
+    pub fn version_md_mut(&mut self, version: i64) -> Option<&mut VersionMd> {
+        self.versions.iter_mut().find(|v| v.version == version).map(Arc::make_mut)
     }
 
     pub fn current_schema(&self) -> Result<&SchemaVersionMd> {
@@ -350,7 +368,7 @@ impl TableMd {
     }
 
     pub fn version_md(&self, version: i64) -> Option<&VersionMd> {
-        self.versions.iter().find(|v| v.version == version)
+        self.versions.iter().find(|v| v.version == version).map(Arc::as_ref)
     }
 
     /// The schema version in effect at table version `version` (None: current).

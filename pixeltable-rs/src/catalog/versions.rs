@@ -93,7 +93,7 @@ impl Catalog {
     /// The most recent `n` versions of a table, newest first (upstream `get_versions()`).
     pub fn version_history(&self, tbl_id: Uuid, n: Option<usize>) -> Result<Vec<VersionInfo>> {
         let md = self.table(tbl_id)?;
-        let mut versions: Vec<&VersionMd> = md.versions.iter().collect();
+        let mut versions: Vec<&VersionMd> = md.versions.iter().map(|v| v.as_ref()).collect();
         versions.sort_by_key(|v| std::cmp::Reverse(v.version));
         let mut out = Vec::new();
         for (i, v) in versions.iter().enumerate().take(n.unwrap_or(usize::MAX)) {
