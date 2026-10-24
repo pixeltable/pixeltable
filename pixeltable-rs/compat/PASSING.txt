@@ -129,6 +129,7 @@ tests/test_table.py::TestTable::test_compute_media_errors
 tests/test_table.py::TestTable::test_compute_pydantic_scalars
 tests/test_table.py::TestTable::test_compute_with_errors
 tests/test_table.py::TestTable::test_computed_col_apply
+tests/test_table.py::TestTable::test_computed_col_with_interrupts
 tests/test_table.py::TestTable::test_computed_column_types
 tests/test_table.py::TestTable::test_create[data_versioned]
 tests/test_table.py::TestTable::test_create[operational]
@@ -142,6 +143,8 @@ tests/test_table.py::TestTable::test_drop_table_force_via_handle
 tests/test_table.py::TestTable::test_drop_table_if_not_exists
 tests/test_table.py::TestTable::test_drop_table_via_handle
 tests/test_table.py::TestTable::test_empty_table
+tests/test_table.py::TestTable::test_expr_udf_computed_cols[data_versioned]
+tests/test_table.py::TestTable::test_expr_udf_computed_cols[operational]
 tests/test_table.py::TestTable::test_file_paths
 tests/test_table.py::TestTable::test_image_formats
 tests/test_table.py::TestTable::test_insert[data_versioned]

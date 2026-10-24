@@ -43,14 +43,19 @@ src/
   catalog/dirs.rs   directory ops, path-collision handling (if_exists), listings
   catalog/tables.rs create/get/drop table, add/drop/rename column, version bumps
   catalog/views.rs  views/snapshots (filter over a base, live or pinned), column resolution through bases
+  catalog/indexes.rs B-tree and embedding index metadata, default indexes, drop/cascade
   catalog/runtime.rs the process-wide Catalog behind a mutex; reload/reset hooks; reserved column names
   store/mod.rs      files under $PIXELTABLE_HOME, atomic writes
   store/rows.rs     TableData / StoredRow with version ranges, cell errors
   exec/mod.rs       QuerySpec (select/where/order_by/limit, validation, JSON), QueryInput snapshot, execute(), count()
   exec/insert.rs    insert pipeline: InsertPlan -> build_rows -> commit
   exec/compute.rs   computed columns: eval_computed(), AddComputedPlan (plan -> compute -> commit)
+  exec/compute_rows.rs Table.compute(): rows a table would hold for some input rows, nothing stored
+  exec/index.rs     AddIndexPlan: embeddings of existing rows for a new embedding index
   bindings/         PyO3 glue only: types.rs (_core.ColumnType), expr.rs (_core.Expr, MethodRef), catalog.rs
                     (module-level functions), table.rs (tbl_* functions), query.rs (QuerySpec, ResultSet, cursor),
+                    sources.rs (data sources: rows, iterators, pydantic models, queries; schema inference),
+                    indexes.rs (index operations, similarity(), describe data),
                     func.rs (_core.Udf, _core.Iterator, _core.IteratorCall, the function registry)
 python/pixeltable/
   __init__.py       the public names (same as upstream's __init__)
@@ -82,7 +87,8 @@ PyErr`), `pixeltable.exceptions._error_class(code)(code, message)`, so the class
 variants map to TypeError/AttributeError/ValueError/NotImplementedError, and `Error::Python` re-raises an exception
 from Python code that Rust called. Write messages exactly as upstream formats them; `py_repr(s)` reproduces `{s!r}`.
 Unimplemented features: `Error::not_implemented("what")` -> `NotImplementedError("what is not implemented yet in
-pixeltable-rs")`.
+pixeltable-rs")`. User input must never panic (use checked arithmetic, char-safe slicing); as a safety net,
+`with_catalog` turns a panic into an InternalError and rolls the operation back.
 
 ## Values and types
 
@@ -100,6 +106,12 @@ context (an invalid file reads as NULL with a cell error). Column properties (`e
 `localpath`) are `ExprKind::ColumnProperty` nodes; `RowContext::column_error()` supplies cell errors. A computed column
 whose inputs have a cell error gets that error (`eval_computed()`). Timestamps: naive inputs are interpreted in the default time zone (`PIXELTABLE_TIME_ZONE`, `TZ`, the
 system zone, else UTC) and results are returned as aware datetimes in it.
+
+Nesting limits: JSON values hold at most `value::MAX_JSON_DEPTH` (500) levels of containers and Python-visible
+expressions at most `expr::MAX_EXPR_DEPTH` (500) levels (`Expr::depth`, checked by `bindings::expr::wrap()` and
+`from_object()`), so no recursive conversion, evaluation, serialization or drop can exhaust the stack. Recursive code
+over Python input must carry a depth (see `value::py::json_from_py_at`). The store enforces the same limits on write
+and read (below), so every value that inserts also reloads.
 
 `ColumnType` serializes to upstream's `as_dict()` form (`{'_classname': 'IntType', 'nullable': False}`), which is
 also what the catalog stores. The Python wrapper classes are built with `ColumnType._from_core(core)`.
@@ -123,7 +135,8 @@ Computed columns store their value expression in `ColumnMd.value_expr`; views st
 
 Evaluation (`expr/eval.rs`) is row at a time against a `RowContext` (column values by `ColumnRef`). NULL
 propagates, comparisons with NULL are NULL, a NULL predicate filters the row out, division by zero is NULL, `//` is
-floor division.
+floor division. Integer arithmetic is checked: overflow raises Postgres' "bigint out of range" (as upstream's SQL
+does), never wraps or panics.
 
 ## Functions
 
@@ -192,6 +205,13 @@ and `is_stored` (false for `unstored_cols`). Python wraps the result (`_core.Ite
 - `call.check_valid("View 'v'", "v", "updated in")`: upstream's INVALID_STATE error for an invalid stored call;
 - `call.display()`: `iterator_call` in `get_metadata()`.
 
+A running iterator is a `RowSource` (`next_row`, `seek`, `close`): Python iterators run through `PyRowSource`;
+builtin iterators (`BuiltinIterator` entries in `iterator.rs::BUILTIN_ITERATORS`: `video_iterators.rs`
+`frame_iterator`/`legacy_frame_iterator` over PyAV, `image_iterators.rs` `tile_iterator` over PIL) implement it in
+Rust, and their Python objects (`func._iterator.BuiltinGeneratingFunction`, what the generated stubs resolve to) are
+resolved by path like Python iterators. A NULL argument for a non-nullable parameter yields no rows. Test hooks:
+`_core._iterator_rows(call, {col: value})` and `_core._iterator_seek(call, {col: value}, pos, stored)`.
+
 ## Catalog, storage and versioning
 
 `Catalog` (in-memory) holds directories (`DirMd`), table metadata (`TableMd`) and, lazily, row data
@@ -213,8 +233,21 @@ version): see `exec/insert.rs` and `exec/compute.rs`. Queries snapshot `Arc`s of
 Storage (`store/mod.rs`), format version 1, under `$PIXELTABLE_HOME/pxtrs/<db>/` (db = `PIXELTABLE_DB`, default
 `pixeltable`):
 - `catalog.json`: all directories and table metadata; atomically replaced on every mutation (the commit point);
+  starts with a stamp (`catalog_id`, `generation`) that every commit advances;
 - `tables/<tbl id>.v<version>.<seq>.bin`: MessagePack `TableData` (all row versions of a table) as of the version
-  named in `TableMd.data_file`; written before `catalog.json`, superseded files deleted after.
+  named in `TableMd.data_file`; written before `catalog.json`, superseded files deleted after. JSON cells are stored
+  as JSON text;
+- `catalog.lock`: the file lock below.
+
+Writes go to a temp file, fsync, rename, fsync of the directory. JSON is read without serde_json's 128-level limit
+but with the limit its writer enforced (`value::parse_json_bounded`: `MAX_JSON_DEPTH` for cells,
+`store::MAX_CATALOG_DEPTH` for `catalog.json` and `from_dict()`).
+
+Several processes may share a store. Every `with_catalog` call holds an exclusive OS file lock on `catalog.lock`
+(`Store::lock()`, taken after the in-process mutex, detached from the interpreter while waiting) and compares the stamp
+at the head of `catalog.json` (`Store::read_stamp()`, a 512-byte read) with the in-memory one; if another process
+committed, the catalog and its cached row data are reloaded before the closure runs. A plan/compute/commit operation
+therefore commits against the latest state (its commit step re-checks the schema version as usual).
 
 Versioning: a data-versioned table gets a new version per mutation; a schema change also creates a schema version
 equal to the new table version (`Catalog::bump_version`). Rows carry `[v_min, v_max)`; inserts add rows at the new
@@ -242,3 +275,25 @@ scan visible rows (rowid order) -> view predicates and where clause -> stable so
 -> offset/limit -> project. Unstored computed columns are evaluated on read. Results are a `ResultData` held in Rust
 (`_core.ResultSet`); values convert to Python objects on access. Not built yet: joins, group by/aggregates, window
 functions, distinct, sample, update/delete, JSON paths, array slices.
+
+## Data sources, compute(), indexes
+
+Data sources (`bindings/sources.rs`, upstream `TableDataConduit`): `classify()` sorts a source into rows of dicts
+(lists, materialized iterators), pydantic models (dumped before any catalog access, validated against the table as
+upstream does) or a query (a `Table` or `Query`, executed in Rust and inserted value by value). `create_table(source=
+...)` infers the schema from rows (`infer_schema_from_rows()`, with `schema_overrides`) or takes the query's schema,
+creates the table, then inserts. `insert(return_rows=True)` reports the stored values (media by file URL).
+`Table.compute()` (`exec/compute_rows.rs`) evaluates only the requested outputs and their dependencies (stored and
+unstored computed columns alike) for rows of the root base table, applies view filters, and stores nothing.
+Computed columns are evaluated with Python semantics (`RowContext::python_semantics()`: a division by zero raises
+`ZeroDivisionError`), query expressions with SQL semantics (NULL). `UpdateStatus.cols_with_excs` names columns
+`<table>.<column>` (`<table>.<column>:<index>` for index values).
+
+Indexes (`catalog/indexes.rs`, `TableMd.indexes`): B-tree indexes are metadata only (scans are full scans);
+`has_default_idxs` adds one to every eligible column (`push_column()`, `create_table()`). An embedding index stores the
+embeddings of its column in a hidden stored computed column (`IndexKind::Embedding::val_col_id`, not listed in any
+schema version, computed by inserts like other stored computed columns, named `<col>:<idx>` in returned rows); its
+embedding functions are kept as `Function.as_dict()` descriptors per query modality. `col.similarity(...)` builds an
+`ExprKind::Similarity` node that holds the embedding call of the query item (computed once per expression) and
+compares it with the row's stored embedding (cosine similarity, inner product or L2 distance). Indexes on views are
+not supported yet (views have no rows of their own).

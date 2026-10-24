@@ -68,6 +68,7 @@ pub fn display(e: &Expr) -> String {
             format!("{}[{}]", display(base), parts.join(", "))
         }
         ExprKind::ColumnProperty { col, prop } => format!("{}.{}", display(col), prop.name()),
+        ExprKind::Similarity(sim) => format!("{}.similarity({}, {})", display(&sim.col), display(&sim.item), py_repr(&sim.idx_name)),
         ExprKind::Variable(name) => name.clone(),
         ExprKind::FunctionCall(fc) => crate::functions::display_call(fc),
     }

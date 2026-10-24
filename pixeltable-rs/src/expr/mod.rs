@@ -322,13 +322,41 @@ pub enum ExprKind {
     /// a named parameter of an expression template (`@pxt.expr_udf`, `Function.using()`, `@pxt.query`), replaced by
     /// an argument when the template is instantiated (`crate::functions::udf::substitute`)
     Variable(String),
+    /// `col.similarity(item)` against an embedding index of `col` (a ColumnRef node)
+    Similarity(Similarity),
+}
+
+/// A similarity lookup against an embedding index (upstream `SimilarityExpr`).
+#[derive(Debug, Clone)]
+pub struct Similarity {
+    pub col: ExprRef,
+    /// the query value (a constant)
+    pub item: ExprRef,
+    pub idx_name: String,
+    /// the table holding the index and its value column
+    pub idx_tbl_id: Uuid,
+    /// the index's hidden value column (the embeddings of the column's values)
+    pub val_col_id: ColId,
+    /// `cosine`, `ip` or `l2`
+    pub metric: String,
+    /// the embedding of `item` (the index's embedding function applied to it)
+    pub item_embedding: ExprRef,
+    /// `item_embedding`'s value, computed once per expression
+    pub cache: Arc<std::sync::OnceLock<Value>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Expr {
     pub kind: ExprKind,
     pub col_type: ColumnType,
+    /// nesting depth (1 for a leaf), computed by `Expr::new()`
+    depth: usize,
 }
+
+/// Maximum nesting depth of an expression handed to Python (`bindings::expr`), which bounds the recursion of
+/// evaluation, display, serialization and drop, and the nesting of serialized expressions in `catalog.json`.
+/// Upstream has no explicit limit; its Python recursion fails at a few hundred levels.
+pub const MAX_EXPR_DEPTH: usize = 500;
 
 impl ExprKind {
     /// Direct sub-expressions.
@@ -342,6 +370,7 @@ impl ExprKind {
             ExprKind::Compound { operands, .. } => operands.iter().collect(),
             ExprKind::IsNull(e) | ExprKind::TypeCast(e) => vec![e],
             ExprKind::ColumnProperty { col, .. } => vec![col],
+            ExprKind::Similarity(sim) => vec![&sim.col, &sim.item],
             ExprKind::InList { lhs, .. } => vec![lhs],
             ExprKind::InlineList(items) | ExprKind::InlineArray(items) => items.iter().collect(),
             ExprKind::InlineDict(items) => items.iter().map(|(_, e)| e).collect(),
@@ -376,6 +405,7 @@ impl ExprKind {
             ExprKind::IsNull(_) => ExprKind::IsNull(next()),
             ExprKind::TypeCast(_) => ExprKind::TypeCast(next()),
             ExprKind::ColumnProperty { prop, .. } => ExprKind::ColumnProperty { col: next(), prop: *prop },
+            ExprKind::Similarity(sim) => ExprKind::Similarity(Similarity { col: next(), item: next(), ..sim.clone() }),
             ExprKind::InList { values, display, .. } => {
                 ExprKind::InList { lhs: next(), values: values.clone(), display: display.clone() }
             }
@@ -401,7 +431,23 @@ impl ExprKind {
 
 impl Expr {
     pub fn new(kind: ExprKind, col_type: ColumnType) -> ExprRef {
-        Arc::new(Expr { kind, col_type })
+        let depth = 1 + kind.children().iter().map(|c| c.depth).max().unwrap_or(0);
+        Arc::new(Expr { kind, col_type, depth })
+    }
+
+    pub fn depth(&self) -> usize {
+        self.depth
+    }
+
+    /// Fails if this expression is nested more deeply than `MAX_EXPR_DEPTH`.
+    pub fn check_depth(&self) -> crate::error::Result<()> {
+        if self.depth > MAX_EXPR_DEPTH {
+            crate::bail!(
+                UnsupportedOperation,
+                "Expression is nested too deeply (more than {MAX_EXPR_DEPTH} levels)"
+            );
+        }
+        Ok(())
     }
 
     pub fn literal(v: Value, t: ColumnType) -> ExprRef {
@@ -470,6 +516,7 @@ impl Expr {
                 let clean = clean.trim_start_matches('_').to_string();
                 if clean.is_empty() { None } else { Some(clean) }
             }
+            ExprKind::Similarity(_) => Some("similarity".to_string()),
             _ => None,
         }
     }

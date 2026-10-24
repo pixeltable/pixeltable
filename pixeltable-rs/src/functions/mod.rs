@@ -23,6 +23,7 @@ pub mod agg;
 pub mod array;
 pub mod date;
 pub mod image;
+pub mod image_iterators;
 pub mod iterator;
 pub mod json;
 pub mod math;
@@ -31,6 +32,7 @@ pub mod string;
 pub mod timestamp;
 pub mod udf;
 pub mod uuid;
+pub mod video_iterators;
 pub mod video;
 
 use serde_json::json;

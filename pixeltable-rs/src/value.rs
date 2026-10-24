@@ -113,16 +113,77 @@ pub enum Value {
     PyObj(Arc<pyo3::Py<pyo3::PyAny>>),
 }
 
+/// Maximum nesting depth of a JSON value (a scalar has depth 0, `[]` and `{}` 1, `[[]]` 2). Values coming from
+/// Python are checked against it (`value::py`), and the store refuses to write a deeper value and reads with the same
+/// limit, so every stored value can be read back, and recursive conversion, comparison and drop cannot exhaust the
+/// stack. Upstream has no explicit limit; its Python recursion fails at about 490 levels.
+pub const MAX_JSON_DEPTH: usize = 500;
+
+/// The message for a value nested more deeply than `MAX_JSON_DEPTH` (starts with a word that `lower_first()` keeps
+/// readable, since insert prefixes it with the column).
+pub fn json_too_deep_msg() -> String {
+    format!("Value is nested too deeply to be stored as JSON (more than {MAX_JSON_DEPTH} levels)")
+}
+
+/// The nesting depth of serialized JSON (number of `[`/`{` on the deepest path), by a linear scan that does not
+/// recurse; `bytes` is assumed to be well-formed JSON.
+pub fn json_nesting_depth(bytes: &[u8]) -> usize {
+    let (mut depth, mut max, mut in_str, mut escaped) = (0usize, 0usize, false, false);
+    for &b in bytes {
+        if in_str {
+            if escaped {
+                escaped = false;
+            } else if b == b'\\' {
+                escaped = true;
+            } else if b == b'"' {
+                in_str = false;
+            }
+            continue;
+        }
+        match b {
+            b'"' => in_str = true,
+            b'[' | b'{' => {
+                depth += 1;
+                max = max.max(depth);
+            }
+            b']' | b'}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    max
+}
+
+/// Parses JSON nested at most `max_depth` levels deep. serde_json's own recursion limit (128) is replaced by this
+/// one, which every writer enforces too (see `MAX_JSON_DEPTH`, `store::MAX_CATALOG_DEPTH`).
+pub fn parse_json_bounded<T>(bytes: &[u8], max_depth: usize) -> std::result::Result<T, String>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let depth = json_nesting_depth(bytes);
+    if depth > max_depth {
+        return Err(format!("JSON nested {depth} levels deep exceeds the limit of {max_depth}"));
+    }
+    let mut de = serde_json::Deserializer::from_slice(bytes);
+    de.disable_recursion_limit();
+    let v = T::deserialize(&mut de).map_err(|e| e.to_string())?;
+    de.end().map_err(|e| e.to_string())?;
+    Ok(v)
+}
+
 mod json_as_string {
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S: Serializer>(v: &serde_json::Value, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&v.to_string())
+        let text = v.to_string();
+        if super::json_nesting_depth(text.as_bytes()) > super::MAX_JSON_DEPTH {
+            return Err(serde::ser::Error::custom(super::json_too_deep_msg()));
+        }
+        s.serialize_str(&text)
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<serde_json::Value, D::Error> {
         let s = String::deserialize(d)?;
-        serde_json::from_str(&s).map_err(serde::de::Error::custom)
+        super::parse_json_bounded(s.as_bytes(), super::MAX_JSON_DEPTH).map_err(serde::de::Error::custom)
     }
 }
 
@@ -679,4 +740,50 @@ impl NdArray {
 /// All elements of an array in C order, as scalar values.
 pub fn array_elements(a: &NdArray) -> Vec<Value> {
     (0..a.data.len()).map(|i| a.element(i)).collect()
+}
+
+#[cfg(test)]
+mod json_depth_tests {
+    use super::*;
+
+    fn nested(depth: usize) -> Json {
+        let mut j = Json::Array(Vec::new());
+        for _ in 1..depth {
+            j = Json::Array(vec![j]);
+        }
+        j
+    }
+
+    #[test]
+    fn nesting_depth_ignores_strings() {
+        assert_eq!(json_nesting_depth(b"1"), 0);
+        assert_eq!(json_nesting_depth(b"[[], {\"a\": [1]}]"), 3);
+        assert_eq!(json_nesting_depth(br#"{"k": "[[[{\"]]]"}"#), 1);
+    }
+
+    #[test]
+    fn stored_json_round_trips_up_to_the_limit() {
+        // serde_json alone stops at 128 levels; every value that can be written must read back
+        for depth in [127, 128, 129, MAX_JSON_DEPTH] {
+            let v = Value::Json(nested(depth));
+            let bytes = rmp_serde::to_vec(&v).unwrap_or_else(|e| panic!("depth {depth}: {e}"));
+            match rmp_serde::from_slice::<Value>(&bytes) {
+                Ok(Value::Json(j)) => assert_eq!(json_nesting_depth(j.to_string().as_bytes()), depth),
+                other => panic!("depth {depth}: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn deeper_json_is_not_written() {
+        let err = rmp_serde::to_vec(&Value::Json(nested(MAX_JSON_DEPTH + 1))).err().map(|e| e.to_string());
+        assert!(err.is_some_and(|e| e.contains("nested too deeply")));
+    }
+
+    #[test]
+    fn bounded_parse() {
+        let text = nested(300).to_string();
+        assert!(parse_json_bounded::<Json>(text.as_bytes(), 300).is_ok());
+        assert!(parse_json_bounded::<Json>(text.as_bytes(), 299).is_err());
+    }
 }

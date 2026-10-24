@@ -200,6 +200,14 @@ pub fn to_json(e: &Expr) -> Result<Json> {
             m.insert("prop".into(), json!(*prop as i64));
             "ColumnPropertyRef"
         }
+        ExprKind::Similarity(sim) => {
+            m.insert("idx_name".into(), json!(sim.idx_name));
+            m.insert("idx_tbl_id".into(), json!(sim.idx_tbl_id.to_string()));
+            m.insert("val_col_id".into(), json!(sim.val_col_id));
+            m.insert("metric".into(), json!(sim.metric));
+            m.insert("item_embedding".into(), to_json(&sim.item_embedding)?);
+            "SimilarityExpr"
+        }
         ExprKind::FunctionCall(fc) => {
             m.insert("fn".into(), fc.func.to_json()?);
             m.insert("kwarg_names".into(), Json::Array(fc.kwargs.iter().map(|(k, _)| json!(k)).collect()));
@@ -309,6 +317,23 @@ pub fn from_json(d: &Json) -> Result<ExprRef> {
                 target,
                 root_id: parse_id(d.get("root_id")).ok_or_else(|| bad(d))?,
             }
+        }
+        "SimilarityExpr" => {
+            let (col, item) = two(&comps)?;
+            ExprKind::Similarity(Similarity {
+                col,
+                item,
+                idx_name: d.get("idx_name").and_then(Json::as_str).ok_or_else(|| bad(d))?.to_string(),
+                idx_tbl_id: d
+                    .get("idx_tbl_id")
+                    .and_then(Json::as_str)
+                    .and_then(|s| uuid::Uuid::parse_str(s).ok())
+                    .ok_or_else(|| bad(d))?,
+                val_col_id: d.get("val_col_id").and_then(Json::as_u64).and_then(|v| u32::try_from(v).ok()).ok_or_else(|| bad(d))?,
+                metric: d.get("metric").and_then(Json::as_str).ok_or_else(|| bad(d))?.to_string(),
+                item_embedding: from_json(d.get("item_embedding").ok_or_else(|| bad(d))?)?,
+                cache: Default::default(),
+            })
         }
         "ColumnPropertyRef" => ExprKind::ColumnProperty {
             col: one(&comps)?,

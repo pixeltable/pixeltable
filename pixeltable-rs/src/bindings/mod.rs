@@ -5,6 +5,7 @@
 
 pub mod catalog;
 pub mod expr;
+pub mod indexes;
 pub mod func;
 pub mod query;
 pub mod sources;
@@ -35,6 +36,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(func::register_function, m)?)?;
     m.add_function(wrap_pyfunction!(func::registered_functions, m)?)?;
     m.add_function(wrap_pyfunction!(func::variable, m)?)?;
+    m.add_function(wrap_pyfunction!(func::table_udf, m)?)?;
+    m.add_function(wrap_pyfunction!(func::builtin_iterator_names, m)?)?;
+    m.add_function(wrap_pyfunction!(func::_iterator_rows, m)?)?;
+    m.add_function(wrap_pyfunction!(func::_iterator_seek, m)?)?;
 
     m.add_function(wrap_pyfunction!(catalog::init, m)?)?;
     m.add_function(wrap_pyfunction!(catalog::home, m)?)?;
@@ -65,6 +70,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(table::tbl_list_views, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_insert, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_compute, m)?)?;
+    m.add_function(wrap_pyfunction!(indexes::tbl_add_btree_index, m)?)?;
+    m.add_function(wrap_pyfunction!(indexes::tbl_add_embedding_index, m)?)?;
+    m.add_function(wrap_pyfunction!(indexes::tbl_drop_index, m)?)?;
+    m.add_function(wrap_pyfunction!(indexes::tbl_describe, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_metadata, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_add_columns, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_add_column, m)?)?;

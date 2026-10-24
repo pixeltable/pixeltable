@@ -140,6 +140,10 @@ pub fn eval_computed(
             None => match eval(&c.expr, &RowCells { row, unstored }) {
                 Ok(v) => Ok(v),
                 Err(err) => {
+                    if crate::functions::udf::is_interrupt(&err) {
+                        // a BaseException that is not an Exception (KeyboardInterrupt, SystemExit) aborts as is
+                        return Err(err);
+                    }
                     if fail_on_exception {
                         return Err(eval_error(&c.expr, err));
                     }
@@ -175,6 +179,7 @@ pub struct AddComputedPlan {
     pub replace: Option<ColId>,
     pub unstored: HashMap<ColId, ExprRef>,
     pub media: MediaTarget,
+    pub tbl_name: String,
 }
 
 impl AddComputedPlan {
@@ -221,6 +226,7 @@ impl AddComputedPlan {
             replace,
             unstored: unstored_exprs(&md)?,
             media,
+            tbl_name: md.name.clone(),
         }))
     }
 
@@ -239,7 +245,7 @@ impl AddComputedPlan {
         }
         let col = ComputedCol {
             col_id: self.eval_col_id,
-            name: self.spec.name.clone(),
+            name: format!("{}.{}", self.tbl_name, self.spec.name),
             expr: self.expr.clone(),
             is_media: self.spec.col_type.is_media(),
         };

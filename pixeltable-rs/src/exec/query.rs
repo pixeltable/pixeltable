@@ -24,7 +24,7 @@ use crate::catalog::views::ScanSource;
 use crate::error::{Error, Result};
 use crate::expr::display::display;
 use crate::expr::eval::{RowContext, eval};
-use crate::expr::{CmpOp, ColumnRef, Expr, ExprKind, ExprRef, LogicalOp};
+use crate::expr::{ArithOp, CmpOp, ColumnRef, Expr, ExprKind, ExprRef, LogicalOp};
 use crate::functions::agg::{AggPlan, AggState};
 use crate::store::rows::{StoredRow, TableData};
 use crate::value::{Value, cmp_values};
@@ -173,6 +173,9 @@ pub fn is_sql_expr(e: &Expr, unstored: &HashMap<(Uuid, ColId), ExprRef>) -> bool
             None => true,
         },
         ExprKind::Literal(_) => true,
+        // upstream evaluates a float `%` and an int `**` in Python
+        ExprKind::Arithmetic { op: ArithOp::Mod, .. } if e.col_type.is_float() => false,
+        ExprKind::Arithmetic { op: ArithOp::Pow, .. } if !e.col_type.is_float() => false,
         ExprKind::Arithmetic { lhs, rhs, .. } | ExprKind::StringOp { lhs, rhs, .. } | ExprKind::Comparison { lhs, rhs, .. } => {
             is_sql_expr(lhs, unstored) && is_sql_expr(rhs, unstored)
         }

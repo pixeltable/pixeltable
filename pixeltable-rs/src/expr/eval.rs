@@ -2,7 +2,8 @@
 //!
 //! Semantics follow what upstream produces on its usual (SQL) evaluation path: NULL propagates through operators,
 //! comparisons with NULL are NULL (and a NULL predicate filters the row out), division by zero yields NULL, and
-//! `//` is floor division.
+//! `//` is floor division. Integer arithmetic is checked: a result outside the 64-bit range raises upstream's
+//! (Postgres') "bigint out of range" error instead of wrapping or panicking.
 
 use std::cmp::Ordering;
 
@@ -248,17 +249,9 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
         ExprKind::Arithmetic { op, lhs, rhs } => {
             let a = eval(lhs, ctx)?;
             let b = eval(rhs, ctx)?;
-            match arithmetic(*op, &a, &b, lhs.col_type.is_json(), rhs.col_type.is_json(), &e.col_type) {
-                // upstream evaluates SQL-expressible arithmetic of a query in SQL, where a zero divisor yields NULL
-                Err(Error::PyExc("ZeroDivisionError", _))
-                    if !ctx.python_semantics()
-                        && crate::exec::query::is_sql_expr(lhs, &Default::default())
-                        && crate::exec::query::is_sql_expr(rhs, &Default::default()) =>
-                {
-                    Ok(Value::Null)
-                }
-                r => r,
-            }
+            // upstream evaluates SQL-expressible arithmetic of a query in SQL, computed columns in Python
+            let sql = !ctx.python_semantics() && crate::exec::query::is_sql_expr(e, &Default::default());
+            arithmetic(*op, &a, &b, lhs.col_type.is_json(), rhs.col_type.is_json(), &e.col_type, sql)
         }
         ExprKind::StringOp { op, lhs, rhs } => {
             let a = eval(lhs, ctx)?;
@@ -267,7 +260,11 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
                 (_, Value::Null, _) | (_, _, Value::Null) => Value::Null,
                 (StringOp::Concat, Value::String(x), Value::String(y)) => Value::String(format!("{x}{y}")),
                 (StringOp::Repeat, Value::String(s), Value::Int(n)) | (StringOp::Repeat, Value::Int(n), Value::String(s)) => {
-                    Value::String(s.repeat((*n).max(0) as usize))
+                    let n = usize::try_from(*n).unwrap_or(0);
+                    if s.len().checked_mul(n).is_none_or(|len| len > MAX_STRING_BYTES) {
+                        crate::bail!(UnsupportedOperation, "requested length too large");
+                    }
+                    Value::String(s.repeat(n))
                 }
                 _ => return Err(Error::internal("string operator applied to non-string values")),
             })
@@ -366,6 +363,26 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
             Value::Array(a) => eval_array_index(&a, index),
             other => Err(Error::internal(format!("array index applied to a {}", other.py_type_name()))),
         },
+        ExprKind::Similarity(sim) => {
+            if ctx.python_semantics() {
+                crate::bail!(UnsupportedOperation, "similarity(): cannot be used in a computed column");
+            }
+            let stored = ctx.column_value(&ColumnRef {
+                tbl_id: sim.idx_tbl_id,
+                col_id: sim.val_col_id,
+                name: String::new(),
+                tbl_version: None,
+            })?;
+            let query = match sim.cache.get() {
+                Some(v) => v.clone(),
+                None => {
+                    let v = eval(&sim.item_embedding, ctx)?;
+                    let _ = sim.cache.set(v.clone());
+                    v
+                }
+            };
+            Ok(similarity_score(&sim.metric, &stored, &query))
+        }
         ExprKind::ColumnProperty { col, prop } => {
             let c = col.as_column_ref().ok_or_else(|| Error::internal("column property of a non-column"))?;
             if prop.is_cellmd() {
@@ -427,18 +444,44 @@ fn numeric_operand(v: &Value, is_json: bool, side: &str, op: ArithOp) -> Result<
     }
 }
 
-fn floor_div_i64(a: i64, b: i64) -> i64 {
-    let q = a / b;
-    if (a % b != 0) && ((a < 0) != (b < 0)) { q - 1 } else { q }
+/// The largest string `*` may produce (Postgres' limit for `repeat()`, 1 GB).
+const MAX_STRING_BYTES: usize = (1 << 30) - 1;
+
+/// Python's `//` on integers (rounds toward negative infinity); None on overflow (`i64::MIN // -1`) or `b == 0`.
+fn floor_div_i64(a: i64, b: i64) -> Option<i64> {
+    let q = a.checked_div(b)?;
+    if a.checked_rem(b)? != 0 && ((a < 0) != (b < 0)) { q.checked_sub(1) } else { Some(q) }
 }
 
-pub fn arithmetic(op: ArithOp, a: &Value, b: &Value, a_json: bool, b_json: bool, result_type: &ColumnType) -> Result<Value> {
+/// `a ** exp` for a non-negative exponent; None on overflow.
+fn pow_i64(a: i64, exp: i64) -> Option<i64> {
+    match (a, u32::try_from(exp)) {
+        (_, Ok(e)) => a.checked_pow(e),
+        // an exponent beyond u32 overflows unless the base is 0, 1 or -1
+        (0 | 1, Err(_)) if exp > 0 => Some(a),
+        (-1, Err(_)) if exp > 0 => Some(if exp % 2 == 0 { 1 } else { -1 }),
+        _ => None,
+    }
+}
+
+/// `a op b` on numeric values. `sql`: evaluated as upstream's SQL translation would (a zero divisor yields NULL, an
+/// integer `%` truncates as in Postgres); otherwise with Python semantics (`ZeroDivisionError`, floored `%`).
+pub fn arithmetic(
+    op: ArithOp,
+    a: &Value,
+    b: &Value,
+    a_json: bool,
+    b_json: bool,
+    result_type: &ColumnType,
+    sql: bool,
+) -> Result<Value> {
     let a = numeric_operand(a, a_json, "left", op)?;
     let b = numeric_operand(b, b_json, "right", op)?;
     if a.is_null() || b.is_null() {
         return Ok(Value::Null);
     }
-    let overflow = || crate::pxt_err!(UnsupportedOperation, "integer out of range in `{}`", op.symbol());
+    let zero_div = |msg: &'static str| if sql { Ok(Value::Null) } else { Err(Error::py_exc("ZeroDivisionError", msg)) };
+    let overflow = || crate::pxt_err!(UnsupportedOperation, "bigint out of range");
     // int operands keep int semantics when the result is an Int, and for JSON operands (evaluated like Python)
     let int_semantics = match (&a, &b) {
         (Value::Int(_), Value::Int(y)) => (result_type.is_int() || a_json || b_json) && !(op == ArithOp::Pow && *y < 0),
@@ -452,25 +495,23 @@ pub fn arithmetic(op: ArithOp, a: &Value, b: &Value, a_json: bool, b_json: bool,
             ArithOp::Mul => Value::Int(x.checked_mul(y).ok_or_else(overflow)?),
             ArithOp::Mod => {
                 if y == 0 {
-                    return Err(Error::py_exc("ZeroDivisionError", "integer modulo by zero"));
+                    return zero_div("integer modulo by zero");
                 }
-                // Python modulo: the result has the sign of the divisor
-                let r = x.checked_rem(y).ok_or_else(overflow)?;
-                Value::Int(if r != 0 && ((r < 0) != (y < 0)) { r + y } else { r })
+                // truncated remainder (Postgres); i64::MIN % -1 is 0
+                let r = x.wrapping_rem(y);
+                // Python: the result has the sign of the divisor
+                Value::Int(if !sql && r != 0 && ((r < 0) != (y < 0)) { r + y } else { r })
             }
             ArithOp::FloorDiv => {
                 if y == 0 {
-                    return Err(Error::py_exc("ZeroDivisionError", "integer division or modulo by zero"));
+                    return zero_div("integer division or modulo by zero");
                 }
-                Value::Int(floor_div_i64(x, y))
+                Value::Int(floor_div_i64(x, y).ok_or_else(overflow)?)
             }
-            ArithOp::Pow => {
-                let exp = u32::try_from(y).map_err(|_| overflow())?;
-                Value::Int(x.checked_pow(exp).ok_or_else(overflow)?)
-            }
+            ArithOp::Pow => Value::Int(pow_i64(x, y).ok_or_else(overflow)?),
             ArithOp::Div => {
                 if y == 0 {
-                    return Err(Error::py_exc("ZeroDivisionError", "division by zero"));
+                    return zero_div("division by zero");
                 }
                 Value::Float(x as f64 / y as f64)
             }
@@ -484,27 +525,98 @@ pub fn arithmetic(op: ArithOp, a: &Value, b: &Value, a_json: bool, b_json: bool,
         ArithOp::Mul => Value::Float(x * y),
         ArithOp::Div => {
             if y == 0.0 {
-                let msg = if a_float { "float division by zero" } else { "division by zero" };
-                return Err(Error::py_exc("ZeroDivisionError", msg));
+                return zero_div(if a_float { "float division by zero" } else { "division by zero" });
             }
             Value::Float(x / y)
         }
         ArithOp::Mod => {
             if y == 0.0 {
-                return Err(Error::py_exc("ZeroDivisionError", if a_float { "float modulo by zero" } else { "integer modulo by zero" }));
-            } else {
-                // Python float modulo: the result has the sign of the divisor
-                let r = x % y;
-                Value::Float(if r != 0.0 && (r < 0.0) != (y < 0.0) { r + y } else { r })
+                return zero_div(if a_float { "float modulo by zero" } else { "integer modulo by zero" });
             }
+            // Python float modulo: the result has the sign of the divisor
+            let r = x % y;
+            Value::Float(if r != 0.0 && (r < 0.0) != (y < 0.0) { r + y } else { r })
         }
         ArithOp::FloorDiv => {
             if y == 0.0 {
-                let msg = if a_float { "float floor division by zero" } else { "integer division or modulo by zero" };
-                return Err(Error::py_exc("ZeroDivisionError", msg));
+                return zero_div(if a_float { "float floor division by zero" } else { "integer division or modulo by zero" });
             }
             Value::Float((x / y).floor())
         }
         ArithOp::Pow => Value::Float(x.powf(y)),
     })
+}
+
+fn vector(v: &Value) -> Option<Vec<f64>> {
+    use crate::value::ArrayData;
+    let Value::Array(a) = v else { return None };
+    Some(match &a.data {
+        ArrayData::F32(x) => x.iter().map(|f| *f as f64).collect(),
+        ArrayData::F64(x) => x.clone(),
+        ArrayData::F16(bits) => bits.iter().map(|b| half_to_f64(*b)).collect(),
+        ArrayData::I64(x) => x.iter().map(|i| *i as f64).collect(),
+        ArrayData::I32(x) => x.iter().map(|i| *i as f64).collect(),
+        _ => return None,
+    })
+}
+
+fn half_to_f64(bits: u16) -> f64 {
+    let sign = if bits & 0x8000 != 0 { -1.0 } else { 1.0 };
+    let exp = ((bits >> 10) & 0x1f) as i32;
+    let frac = (bits & 0x3ff) as f64;
+    match exp {
+        0 => sign * frac * 2f64.powi(-24),
+        31 => if frac == 0.0 { sign * f64::INFINITY } else { f64::NAN },
+        e => sign * (1.0 + frac / 1024.0) * 2f64.powi(e - 15),
+    }
+}
+
+/// The similarity of two embeddings under an index metric (upstream `EmbeddingIndex.similarity_clause()`): cosine
+/// similarity, inner product, or L2 distance.
+pub fn similarity_score(metric: &str, a: &Value, b: &Value) -> Value {
+    let (Some(x), Some(y)) = (vector(a), vector(b)) else { return Value::Null };
+    if x.len() != y.len() {
+        return Value::Null;
+    }
+    let dot: f64 = x.iter().zip(&y).map(|(p, q)| p * q).sum();
+    Value::Float(match metric {
+        "ip" => dot,
+        "l2" => x.iter().zip(&y).map(|(p, q)| (p - q) * (p - q)).sum::<f64>().sqrt(),
+        _ => {
+            let nx = x.iter().map(|p| p * p).sum::<f64>().sqrt();
+            let ny = y.iter().map(|q| q * q).sum::<f64>().sqrt();
+            if nx == 0.0 || ny == 0.0 { f64::NAN } else { dot / (nx * ny) }
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn int_op(op: ArithOp, a: i64, b: i64) -> Result<Value> {
+        arithmetic(op, &Value::Int(a), &Value::Int(b), false, false, &ColumnType::int(false), true)
+    }
+
+    fn overflows(r: Result<Value>) -> bool {
+        matches!(r, Err(Error::Pxt { message, .. }) if message == "bigint out of range")
+    }
+
+    #[test]
+    fn integer_ops_are_checked() {
+        assert!(overflows(int_op(ArithOp::FloorDiv, i64::MIN, -1)));
+        assert!(overflows(int_op(ArithOp::Mul, i64::MIN, -1)));
+        assert!(overflows(int_op(ArithOp::Add, i64::MAX, 1)));
+        assert!(overflows(int_op(ArithOp::Sub, i64::MIN, 1)));
+        assert!(overflows(int_op(ArithOp::Pow, 2, 63)));
+        assert!(overflows(int_op(ArithOp::Pow, 2, i64::MAX)));
+        assert!(matches!(int_op(ArithOp::Mod, i64::MIN, -1), Ok(Value::Int(0))));
+        assert!(matches!(int_op(ArithOp::FloorDiv, i64::MIN, 0), Ok(Value::Null)));
+        assert!(matches!(int_op(ArithOp::FloorDiv, -7, 2), Ok(Value::Int(-4))));
+        assert!(matches!(int_op(ArithOp::FloorDiv, 7, -2), Ok(Value::Int(-4))));
+        assert!(matches!(int_op(ArithOp::FloorDiv, i64::MIN, 1), Ok(Value::Int(i64::MIN))));
+        assert!(matches!(int_op(ArithOp::Pow, -1, (1 << 40) + 1), Ok(Value::Int(-1))));
+        assert!(matches!(int_op(ArithOp::Pow, 1, i64::MAX), Ok(Value::Int(1))));
+        assert!(matches!(int_op(ArithOp::Pow, 3, 4), Ok(Value::Int(81))));
+    }
 }

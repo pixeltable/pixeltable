@@ -7,7 +7,7 @@ use crate::types::{DType, JsonSchema, JsonSpec, TypeKind};
 use crate::value::{ArrayData, Json, NdArray};
 
 fn display(kind: &ExprKind, t: &ColumnType) -> String {
-    super::display::display(&Expr { kind: kind.clone(), col_type: t.clone() })
+    super::display::display(&Expr::new(kind.clone(), t.clone()))
 }
 
 pub fn arithmetic(op: ArithOp, lhs: ExprRef, rhs: ExprRef) -> Result<ExprRef> {
