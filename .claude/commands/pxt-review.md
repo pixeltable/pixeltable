@@ -64,8 +64,9 @@ This command takes precedence where a skill requires execution, file writes, pub
    each candidate. Apply walk-the-job's critic and challenge-the-design's final challenge. Merge established duplicate
    root causes and calibrate noise. Return keep, narrow, question, or reject decisions with accepted final records.
    Maintenance suggestions need evidence but can skip independent checking. Every open prior claim needs revalidation.
-   Preserve established IDs and subject/mechanism identity. A resolved decision needs the source change that removes
-   a previously posted trigger. An unchanged comment file alone never establishes an unchanged claim.
+   Copy its established ID, producer, subject, and mechanism from `previous.records` (updating only the path prefix on a
+   rename). A resolved decision needs the source change that removes a previously posted trigger. An unchanged comment
+   file alone never establishes an unchanged claim.
 4. **Assemble the final envelope.** Copy the checked records verbatim into decisions. Order and filter findings without
    strengthening them. A material replacement needs another independent check. Missing work or verification makes
    the outcome incomplete. There is no extra critic, wave, or checker allocation in this initial implementation.
@@ -99,9 +100,9 @@ Use this envelope, with empty arrays when appropriate:
 `status` is `complete`, `incomplete`, or `skipped`. Incomplete and skipped outcomes require a reason. Skipping requires
 the manifest's nonempty `skip_reason`, copied exactly, and no findings. Without that host-approved policy, review the
 change or report incomplete work. No findings is a valid result, but does not establish
-complete coverage. Decisive unresolved questions also require `incomplete`. The host downgrades recoverable coverage gaps
-to incomplete while preserving valid checked findings. Invalid snapshots, source references, and claim identities still
-fail validation. A complete review must account for every required pass.
+complete coverage. Decisive unresolved questions also require `incomplete`. The host downgrades recoverable coverage,
+identity, and resolution gaps to incomplete while preserving valid checked findings. Invalid snapshots and source
+references still fail validation. A complete review must account for every required pass.
 
 Each pass entry has this shape:
 

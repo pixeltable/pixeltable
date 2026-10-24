@@ -18,6 +18,7 @@ STATE_MARKER = '<!-- pxt-review-state\n'
 MAX_JSON_BYTES = 2_000_000
 MAX_SOURCES_BYTES = 20_000_000
 MAX_BODY_BYTES = 60_000
+SOURCE_INDEX_KEYS = {'diff_files', 'previous_tree', 'sources', 'tooling_files'}
 
 
 def digest(value: Any) -> str:
@@ -42,8 +43,9 @@ def read_json(path: Path) -> dict[str, Any]:
         if hashlib.sha256(raw).hexdigest() != value.get('sources_sha256'):
             raise ValueError('Prepared source index changed')
         extra = json.loads(raw.decode('utf-8'))
-        if not isinstance(extra, dict):
+        if not isinstance(extra, dict) or not set(extra).issubset(SOURCE_INDEX_KEYS):
             raise ValueError('Expected a JSON object')
+        value['sources_path'] = str(sources_path)
         value.update(extra)
     return value
 
@@ -157,8 +159,10 @@ def reference(ref: Any, manifest: dict[str, Any], historical: dict[str, Any] | N
 
 def verify_sources(manifest: dict[str, Any]) -> None:
     if 'sources_path' in manifest:
-        raw = Path(text(manifest.get('sources_path'), 'sources_path')).read_bytes()
-        if hashlib.sha256(raw).hexdigest() != manifest.get('sources_sha256'):
+        sources_path = Path(text(manifest.get('sources_path'), 'sources_path'))
+        if sources_path.stat().st_size > MAX_SOURCES_BYTES:
+            raise ValueError('Prepared source index exceeds the review size limit')
+        if hashlib.sha256(sources_path.read_bytes()).hexdigest() != manifest.get('sources_sha256'):
             raise ValueError('Prepared source index changed')
     for path, expected_hash in manifest.get('tooling_files', {}).items():
         content = (Path(manifest['tooling_root']) / repository_path(path)).read_bytes()
@@ -199,8 +203,10 @@ def validate_claim(claim: Any, manifest: dict[str, Any], historical: dict[str, A
     if claim['kind'] == 'defect':
         if claim.get('severity') not in {'High', 'Medium', 'Low'}:
             raise ValueError('A supported defect needs an impact severity')
-    elif claim.get('severity') is not None:
+    elif claim.get('severity') not in {None, '', 'High', 'Medium', 'Low'}:
         raise ValueError('Only defects have severity')
+    else:
+        claim['severity'] = None
     if claim['kind'] == 'rule':
         text(claim.get('rule'), 'rule')
     evidence = claim.get('evidence')
@@ -213,23 +219,54 @@ def validate_claim(claim: Any, manifest: dict[str, Any], historical: dict[str, A
         raise ValueError('Location must be an object or null')
 
 
+def split_subject(subject: str) -> tuple[str, str]:
+    parts = re.split(r'[#:]', subject, maxsplit=1)
+    return parts[0], parts[1] if len(parts) > 1 else ''
+
+
 def same_identity(claim: dict[str, Any], earlier: dict[str, Any], manifest: dict[str, Any]) -> bool:
     if claim['mechanism'] != earlier['mechanism']:
         return False
-    if claim['subject'] == earlier['subject']:
+    claim_path, claim_symbol = split_subject(claim['subject'])
+    earlier_path, earlier_symbol = split_subject(earlier['subject'])
+    if claim_symbol != earlier_symbol:
+        return False
+    if claim_path == earlier_path:
         return True
     renames = {change['old_path']: path for path, change in manifest['diff_files'].items() if change['old_path']}
     renames.update(manifest.get('previous_renames', {}))
-    for old, path in renames.items():
-        if not old or old == path:
-            continue
-        if earlier['subject'] == old and claim['subject'] == path:
-            return True
-        if earlier['subject'].startswith((old + '#', old + ':')) and (
-            claim['subject'] == path + earlier['subject'][len(old) :]
+    return bool(earlier_path and renames.get(earlier_path) == claim_path)
+
+
+def validate_resolution(key: str, decision: dict[str, Any], previous: dict[str, Any], manifest: dict[str, Any]) -> None:
+    if key not in previous:
+        raise ValueError('Only a prior claim can be resolved')
+    fixes = decision.get('fix_evidence', [])
+    removed = decision.get('removed_paths', [])
+    if not isinstance(fixes, list) or not isinstance(removed, list) or not (fixes or removed):
+        raise ValueError('Resolution needs source evidence of the fix')
+    changed = False
+    renamed_from = {new: old for old, new in manifest.get('previous_renames', {}).items()}
+    for ref in fixes:
+        reference(ref, manifest)
+        if ref.get('side', 'RIGHT') != 'RIGHT':
+            raise ValueError('Resolution must cite the current fix')
+        current_blob = manifest['sources']['RIGHT'][ref['path']].get('git_blob')
+        previous_path = renamed_from.get(ref['path'], ref['path'])
+        if current_blob and current_blob != manifest.get('previous_tree', {}).get(previous_path):
+            changed = True
+    for path in removed:
+        repository_path(path)
+        if path not in manifest.get('previous_tree', {}) or path in manifest['sources']['RIGHT']:
+            raise ValueError('Resolution did not remove the cited source path')
+        if path in manifest.get('previous_renames', {}) or any(
+            change.get('old_path') == path and new_path in manifest['sources']['RIGHT']
+            for new_path, change in manifest['diff_files'].items()
         ):
-            return True
-    return False
+            raise ValueError('Resolution moved the cited source path instead of removing it')
+        changed = True
+    if not manifest.get('previous_tree') or not changed:
+        raise ValueError('Resolution has no demonstrated source change since the prior review')
 
 
 def validate(data: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
@@ -294,31 +331,37 @@ def validate(data: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
         raise ValueError('user_surface must be explicit')
     gaps.extend(f'{name}: no result' for name in required if name not in passes)
     findings: dict[str, Any] = {}
+    invalid_keys: set[str] = set()
     previous = {r['claim']['id']: r for r in manifest.get('previous', {}).get('records', [])}
     closing = {
         d.get('finding_id')
         for d in data['decisions']
         if isinstance(d, dict) and d.get('decision') in {'resolved', 'reject', 'question'}
     }
-    historical_candidates = closing | {
-        d.get('finding_id') for d in data['decisions'] if isinstance(d, dict) and d.get('decision') == 'narrow'
-    }
     for claim in data['findings']:
         earlier = previous.get(claim.get('id'), {}).get('claim') if isinstance(claim, dict) else None
-        historical = earlier if isinstance(claim, dict) and claim.get('id') in historical_candidates else None
+        historical = earlier if isinstance(claim, dict) and claim.get('kind') != 'maintenance' else None
         validate_claim(claim, manifest, historical)
         key = claim['id']
         valid_producer = claim['producer'] in passes or (
             earlier is not None and claim['producer'] == earlier['producer']
         )
-        if key in findings or not valid_producer:
+        if key in findings or key in invalid_keys or not valid_producer:
             raise ValueError('Finding has a duplicate ID or an unknown producer')
+        if key in previous and not same_identity(claim, previous[key]['claim'], manifest):
+            gaps.append(f'{key}: Prior finding ID was reused for a different identity')
+            invalid_keys.add(key)
+            continue
         findings[key] = claim
     decisions: dict[str, Any] = {}
+    seen_decisions: set[str] = set()
     for decision in data['decisions']:
         key = text(decision.get('finding_id'), 'finding_id')
-        if key in decisions or key not in findings:
+        if key in seen_decisions or (key not in findings and key not in invalid_keys):
             raise ValueError('Decision has a duplicate or unknown finding ID')
+        seen_decisions.add(key)
+        if key in invalid_keys:
+            continue
         if decision.get('checker') != 'cross-check':
             raise ValueError('A finding needs an independent cross-checker')
         if decision.get('decision') not in {'keep', 'narrow', 'question', 'reject', 'resolved'}:
@@ -327,41 +370,27 @@ def validate(data: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
         checked = decision.get('checked')
         historical = previous.get(key, {}).get('claim') if key in closing else None
         validate_claim(checked, manifest, historical)
-        if any(checked[f] != findings[key][f] for f in ['id', 'producer', 'subject', 'mechanism']):
-            raise ValueError('Verification changed the finding identity')
+        if (
+            checked['id'] != findings[key]['id']
+            or checked['producer'] != findings[key]['producer']
+            or not same_identity(checked, findings[key], manifest)
+        ):
+            gaps.append(f'{key}: Verification changed the finding identity')
+            findings.pop(key, None)
+            invalid_keys.add(key)
+            continue
         if decision['decision'] == 'question':
             text(decision.get('unknown'), 'unknown')
             text(decision.get('check'), 'check')
             gaps.append(f'{key}: decisive fact remains unresolved')
         if decision['decision'] == 'resolved':
-            if key not in previous:
-                raise ValueError('Only a prior claim can be resolved')
-            fixes = decision.get('fix_evidence', [])
-            removed = decision.get('removed_paths', [])
-            if not isinstance(fixes, list) or not isinstance(removed, list) or not (fixes or removed):
-                raise ValueError('Resolution needs source evidence of the fix')
-            changed = False
-            renamed_from = {new: old for old, new in manifest.get('previous_renames', {}).items()}
-            for ref in fixes:
-                reference(ref, manifest)
-                if ref.get('side', 'RIGHT') != 'RIGHT':
-                    raise ValueError('Resolution must cite the current fix')
-                current_blob = manifest['sources']['RIGHT'][ref['path']].get('git_blob')
-                previous_path = renamed_from.get(ref['path'], ref['path'])
-                if current_blob and current_blob != manifest.get('previous_tree', {}).get(previous_path):
-                    changed = True
-            for path in removed:
-                repository_path(path)
-                if path not in manifest.get('previous_tree', {}) or path in manifest['sources']['RIGHT']:
-                    raise ValueError('Resolution did not remove the cited source path')
-                if path in manifest.get('previous_renames', {}) or any(
-                    change.get('old_path') == path and new_path in manifest['sources']['RIGHT']
-                    for new_path, change in manifest['diff_files'].items()
-                ):
-                    raise ValueError('Resolution moved the cited source path instead of removing it')
-                changed = True
-            if not manifest.get('previous_tree') or not changed:
-                raise ValueError('Resolution has no demonstrated source change since the prior review')
+            try:
+                validate_resolution(key, decision, previous, manifest)
+            except ValueError as e:
+                gaps.append(f'{key}: {e}')
+                findings.pop(key, None)
+                invalid_keys.add(key)
+                continue
         decisions[key] = decision
     for key, claim in findings.items():
         if claim['kind'] != 'maintenance' and key not in decisions:
@@ -370,12 +399,9 @@ def validate(data: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
         text(question.get('unknown'), 'unknown')
         text(question.get('check'), 'check')
         gaps.append(f'question {number}: decisive fact remains unresolved')
-    for key, claim in findings.items():
-        if key in previous and not same_identity(claim, previous[key]['claim'], manifest):
-            raise ValueError('Prior finding ID was reused for a different identity')
     previous_ids = {key for key, record in previous.items() if record['status'] not in {'resolved', 'reject'}}
-    gaps.extend(f'{key}: prior claim not revalidated' for key in sorted(previous_ids - decisions.keys()))
-    if status == 'skipped' and (findings or data['decisions']):
+    gaps.extend(f'{key}: prior claim not revalidated' for key in sorted(previous_ids - decisions.keys() - invalid_keys))
+    if status == 'skipped' and (findings or data['decisions'] or invalid_keys):
         raise ValueError('A skipped review cannot contain findings')
     incomplete = bool(gaps) and status == 'complete'
     return {

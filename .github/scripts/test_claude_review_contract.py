@@ -187,9 +187,12 @@ class ContractTest(unittest.TestCase):
         result['findings'][0]['comment'] = 'An unsupported stronger accusation.'
         review, _ = contract.render(result, manifest)
         self.assertNotIn('unsupported stronger', review['comments'][0]['body'])
+        add_finding(result, finding('second'))
         result['decisions'][0]['checked']['mechanism'] = 'different cause'
-        with self.assertRaisesRegex(ValueError, 'identity'):
-            contract.validate(result, manifest)
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'incomplete')
+        self.assertTrue(any('Verification changed the finding identity' in gap for gap in stats['gaps']))
+        self.assertEqual(len(review['comments']), 1)
 
     def test_only_one_invalid_location_moves_to_body(self) -> None:
         manifest, result = fixture()
@@ -214,6 +217,10 @@ class ContractTest(unittest.TestCase):
         claim = finding()
         claim['kind'] = 'design'
         add_finding(result, claim)
+        validated = contract.validate(result, manifest)
+        self.assertIsNone(validated['findings'][claim['id']]['severity'])
+        self.assertIsNone(validated['decisions'][claim['id']]['checked']['severity'])
+        result['findings'][0]['severity'] = 'Critical'
         with self.assertRaisesRegex(ValueError, 'Only defects'):
             contract.validate(result, manifest)
 
@@ -293,8 +300,11 @@ class ContractTest(unittest.TestCase):
         current = finding()
         current['subject'] = 'different.py#other'
         add_finding(result, current)
-        with self.assertRaisesRegex(ValueError, 'different identity'):
-            contract.validate(result, manifest)
+        add_finding(result, finding('PXT-2'))
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'incomplete')
+        self.assertTrue(any('different identity' in gap for gap in stats['gaps']))
+        self.assertEqual(len(review['comments']), 1)
 
     def test_resolution_requires_a_changed_current_source_blob(self) -> None:
         manifest, result = fixture()
@@ -303,8 +313,10 @@ class ContractTest(unittest.TestCase):
         manifest['sources']['RIGHT']['example.py']['git_blob'] = 'same blob'
         add_finding(result, finding())
         result['decisions'][0].update(decision='resolved', fix_evidence=[{'path': 'example.py', 'line': 2}])
-        with self.assertRaisesRegex(ValueError, 'no demonstrated source change'):
-            contract.validate(result, manifest)
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'incomplete')
+        self.assertTrue(any('no demonstrated source change' in gap for gap in stats['gaps']))
+        self.assertNotIn('Resolved:', review['body'])
         manifest['sources']['RIGHT']['example.py']['git_blob'] = 'changed blob'
         review, _ = contract.render(result, manifest)
         self.assertIn('Resolved:', review['body'])
@@ -394,8 +406,10 @@ class ContractTest(unittest.TestCase):
             entry['checks'] = [check for check in entry['checks'] if check['side'] == 'LEFT']
         add_finding(result, claim)
         result['decisions'][0].update(decision='resolved', removed_paths=['example.py'])
-        with self.assertRaisesRegex(ValueError, 'moved'):
-            contract.render(result, manifest)
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'incomplete')
+        self.assertTrue(any('moved' in gap for gap in stats['gaps']))
+        self.assertNotIn('Resolved:', review['body'])
 
     def test_skipped_artifact_explains_why(self) -> None:
         manifest, result = fixture()
@@ -421,8 +435,9 @@ class ContractTest(unittest.TestCase):
         review, _ = contract.render(result, manifest)
         self.assertIn('Resolved:', review['body'])
         result['decisions'][0]['removed_paths'] = ['never-existed.py']
-        with self.assertRaisesRegex(ValueError, 'did not remove'):
-            contract.validate(result, manifest)
+        checked = contract.validate(result, manifest)
+        self.assertEqual(checked['status'], 'incomplete')
+        self.assertTrue(any('did not remove' in gap for gap in checked['gaps']))
 
     def test_model_cannot_skip_missing_work_without_a_host_policy(self) -> None:
         manifest, result = fixture()
@@ -462,8 +477,9 @@ class ContractTest(unittest.TestCase):
         earlier = finding()
         add_finding(result, copy.deepcopy(earlier))
         result['decisions'][0].update(decision='resolved', fix_evidence=[{'path': 'example.py', 'line': 2}])
-        with self.assertRaisesRegex(ValueError, 'Only a prior claim can be resolved'):
-            contract.validate(result, manifest)
+        checked = contract.validate(result, manifest)
+        self.assertEqual(checked['status'], 'incomplete')
+        self.assertTrue(any('Only a prior claim can be resolved' in gap for gap in checked['gaps']))
         manifest['previous'] = {
             'records': [{'claim': copy.deepcopy(earlier), 'posted': False, 'ever_posted': False, 'status': 'question'}]
         }
@@ -477,7 +493,12 @@ class ContractTest(unittest.TestCase):
         manifest['diff_files'] = {
             'new.py': {'old_path': 'old.py', 'status': 'R100', 'hunks': [], 'changed': {'LEFT': [], 'RIGHT': []}}
         }
-        for old_subject, new_subject in [('old.py:helper', 'new.py:helper'), ('old.py', 'new.py')]:
+        for old_subject, new_subject in [
+            ('old.py:helper', 'new.py:helper'),
+            ('old.py:helper', 'new.py#helper'),
+            ('example.py:helper', 'example.py#helper'),
+            ('old.py', 'new.py'),
+        ]:
             earlier = {**finding(), 'subject': old_subject}
             current = {**finding(), 'subject': new_subject}
             self.assertTrue(contract.same_identity(current, earlier, manifest))

@@ -113,6 +113,10 @@ class PrepareTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'diff changed'):
             contract.verify_sources(manifest)
         sources_path = Path(raw_manifest['sources_path'])
+        raw_manifest['sources_path'] = '/nonexistent/dir/sources.json'
+        path.write_text(json.dumps(raw_manifest), encoding='utf-8')
+        relocated = contract.read_json(path)
+        self.assertEqual(relocated['sources_path'], str(sources_path))
         sources_path.write_text('{"tampered": true}\n', encoding='utf-8')
         with self.assertRaisesRegex(ValueError, 'source index changed'):
             contract.read_json(path)
@@ -166,12 +170,14 @@ class PrepareTest(unittest.TestCase):
             entry['reason'] = 'Historical check only'
         add_finding(result, claim)
         result['decisions'][0].update(decision='resolved', removed_paths=['added.py'])
-        with self.assertRaisesRegex(ValueError, 'moved'):
-            contract.render(result, manifest)
+        review, stats = contract.render(result, manifest)
+        self.assertTrue(any('moved' in gap for gap in stats['gaps']))
+        self.assertNotIn('Resolved:', review['body'])
         result['decisions'][0].pop('removed_paths')
         result['decisions'][0]['fix_evidence'] = [{'path': 'renamed.py', 'line': 1}]
-        with self.assertRaisesRegex(ValueError, 'no demonstrated source change'):
-            contract.render(result, manifest)
+        review, stats = contract.render(result, manifest)
+        self.assertTrue(any('no demonstrated source change' in gap for gap in stats['gaps']))
+        self.assertNotIn('Resolved:', review['body'])
         result['findings'][0].update(subject='renamed.py#contract', evidence=[{'path': 'renamed.py', 'line': 1}])
         result['decisions'][0].update(decision='keep', checked=dict(result['findings'][0]))
         self.assertEqual(contract.render(result, manifest)[1]['published'], 1)
