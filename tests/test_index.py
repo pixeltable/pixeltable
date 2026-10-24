@@ -143,8 +143,11 @@ class TestIndex:
             if not is_dummy_model:
                 assert sample_img in out_imgs, f'{metric} failed when using index {iname}'
 
-            # can also be used in a computed column
-            validate_update_status(t.add_computed_column(sim=t.img.similarity(string='parachute')))
+            # can also be used in a computed column (unstored only: similarity() is evaluated in SQL, not in
+            # memory, so it cannot back a stored column)
+            validate_update_status(
+                t.add_computed_column(sim=t.img.similarity(string='parachute'), stored=False)
+            )
             t.drop_column('sim')
 
             reload_tester.run_reload_test()
@@ -368,6 +371,35 @@ class TestIndex:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t.order_by(t.split.similarity(image=sample_img)).limit(1).collect()
         assert 'does not have an image embedding' in str(exc_info.value).lower()
+
+    def test_similarity_computed_column(self, db_root: DatabaseRoot, local_embed: pxt.Function) -> None:
+        """similarity() is evaluated in SQL: it cannot back a stored computed column, and an unstored
+        computed column blocks dropping the index it references."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('sim_col'), {'text': pxt.String})
+        t.insert([{'text': s} for s in get_sentences(5)])
+        t.add_embedding_index('text', idx_name='text_idx', string_embed=local_embed)
+
+        # a stored similarity column would materialize at add-time but fail on every subsequent insert
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='computed with similarity()'):
+            t.add_computed_column(sim=t.text.similarity(string='sunlight'))
+
+        validate_update_status(t.add_computed_column(sim=t.text.similarity(string='sunlight'), stored=False))
+
+        # the index referenced by the similarity column cannot be dropped, by name or by column
+        for drop in (
+            lambda: t.drop_embedding_index(idx_name='text_idx'),
+            lambda: t.drop_embedding_index(column='text'),
+        ):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                match="Cannot drop index 'text_idx' because the following columns depend on it",
+            ):
+                drop()
+
+        # dropping the column unblocks the index drop
+        t.drop_column('sim')
+        t.drop_embedding_index(idx_name='text_idx')
 
     def test_add_index_after_drop(
         self, small_img_tbl: pxt.Table, db_root: DatabaseRoot, local_embed: pxt.Function, is_data_versioned: bool
@@ -669,9 +701,18 @@ class TestIndex:
         ):
             img_t.drop_embedding_index(column=img_t.category)
 
-        img_t.add_computed_column(sim=img_t.category.similarity(string='red_truck', idx='cat_idx'))
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used in a computed column'):
-            img_t.insert([rows[7]])
+        # a stored similarity column cannot be created: similarity() is evaluated in SQL, not in memory, so it
+        # cannot back a stored column
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='computed with similarity()'):
+            img_t.add_computed_column(sim=img_t.category.similarity(string='red_truck', idx='cat_idx'))
+
+        # an unstored similarity column is allowed, but blocks dropping the index it references
+        img_t.add_computed_column(sim=img_t.category.similarity(string='red_truck', idx='cat_idx'), stored=False)
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match="Cannot drop index 'cat_idx' because the following columns depend on it",
+        ):
+            img_t.drop_embedding_index(column=img_t.category)
 
         img_t.drop_column('sim')
         img_t.drop_column('ebd_copy')
@@ -1583,9 +1624,11 @@ class TestIndex:
         tbl = pxt.create_table(p('test'), {'text': pxt.String | None, 'text2': pxt.String | None})
         tbl.insert([{'text': s, 'text2': s} for s in get_sentences(10)])
 
-        # add a stored similarity column
+        # a stored similarity column cannot be created: similarity() is evaluated in SQL, not in memory, so it
+        # cannot back a stored column
         tbl.add_embedding_index('text', string_embed=embed, idx_name='embed')
-        validate_update_status(tbl.add_computed_column(sim=tbl.text.similarity(string='sunlight', idx='embed')))
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='computed with similarity()'):
+            tbl.add_computed_column(sim=tbl.text.similarity(string='sunlight', idx='embed'))
 
         # add an unstored similarity column
         tbl.add_embedding_index('text2', string_embed=embed, idx_name='embed2')
@@ -1593,45 +1636,30 @@ class TestIndex:
             tbl.add_computed_column(sim_unstored=tbl.text2.similarity(string='sunlight'), stored=False)
         )
 
-        # check the stored sim column in the base table
-        res = tbl.select(tbl.text, tbl.sim).order_by(tbl.sim, asc=False).collect()
-        check('sunshine' in res[0]['text'])
-        check('winter' in res[1]['text'])
-
         # check the unstored sim column in the base table
-        res = tbl.select(tbl.text).order_by(tbl.sim_unstored, asc=False).collect()
-        check('sunshine' in res[0]['text'])
+        res = tbl.select(tbl.text2).order_by(tbl.sim_unstored, asc=False).collect()
+        check('sunshine' in res[0]['text2'])
 
         snap = pxt.create_snapshot(p('snap'), tbl)
 
-        # check the stored sim column in the snapshot
-        res = snap.select(snap.text, snap.sim).order_by(snap.sim, asc=False).collect()
-        check('sunshine' in res[0]['text'])
-        check('winter' in res[1]['text'])
-
-        # check the unstored sim column in the snapshot (should raise)
+        # the unstored sim column cannot be evaluated in the snapshot (should raise)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Snapshot does not support indices'):
             snap.select(snap.text).order_by(snap.sim_unstored, asc=False).collect()
 
-        # Drop the top row by similarity, then verify similarity results in the base table and the snapshot
-        validate_update_status(tbl.delete(where=pxtf.string.contains(tbl.text, 'sunshine')), expected_rows=1)
+        # the index referenced by the similarity column cannot be dropped
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Cannot drop index 'embed2' because"):
+            tbl.drop_embedding_index(column='text2')
 
-        res = tbl.select(tbl.text, tbl.sim).order_by(tbl.sim, asc=False).collect()
-        check('winter' in res[0]['text'])
-
-        res = snap.select(snap.text, snap.sim).order_by(snap.sim, asc=False).collect()
-        check('sunshine' in res[0]['text'])
-
-        # Drop the value and the similarity columns from base table, then verify that the snapshot still has them
-        tbl.drop_column(tbl.sim)
-        tbl.drop_column(tbl.text)
+        # Drop the similarity column and the indexed column it references, then verify that the snapshot still
+        # has their data
+        tbl.drop_column(tbl.sim_unstored)
+        tbl.drop_column(tbl.text2)
 
         reload_catalog(reload)
 
         snap = pxt.get_table(p('snap'))
-        res = snap.select(snap.text, snap.sim).order_by(snap.sim, asc=False).collect()
-        check('sunshine' in res[0]['text'])
-        check('winter' in res[1]['text'])
+        res = snap.select(snap.text2).collect()
+        assert len(res) == 10
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Snapshot does not support indices'):
             snap.select(snap.text).order_by(snap.sim_unstored, asc=False).collect()
