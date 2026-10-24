@@ -1,0 +1,8 @@
+pixeltable-rs
+
+This product includes software developed as part of Pixeltable (https://github.com/pixeltable/pixeltable),
+Copyright Pixeltable, Inc., licensed under the Apache License, Version 2.0:
+- compat/tests/: upstream test files and helper modules, copied unmodified (conftest.py and utils.py are
+  replacements written for this project, adapted from upstream's)
+- python/pixeltable/exceptions.py and the generated stubs under python/pixeltable/functions/, iterators/ and io/
+  mirror upstream's public API
