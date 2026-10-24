@@ -6,7 +6,7 @@ import os
 import pathlib
 import re
 import textwrap
-from typing import Any
+from typing import Any, Iterator, TypedDict
 
 import numpy as np
 import pytest
@@ -81,6 +81,18 @@ def is_long(text: str) -> bool:
 @pxt.udf
 def embed(text: str) -> pxt.Array[(4,), pxt.Float]:
     return np.zeros(4, dtype=np.float32)
+
+
+class KwIterOut(TypedDict):
+    piece: str
+
+
+@pxt.iterator
+def kwarg_iter(s: str, **kwargs: Any) -> Iterator[KwIterOut]:
+    # `scale` binds under the signature's VAR_KEYWORD parameter as a dict, not an Expr [PXT-1306]
+    scale = kwargs.get('scale', 1)
+    for _ in range(scale):
+        yield {'piece': s}
 
 
 class TestTableModel:
@@ -1153,6 +1165,26 @@ class TestTableModel:
             view_from_query.order_by(view_from_query.id, view_from_query.pos).collect(),
             view_from_query2.order_by(view_from_query2.id, view_from_query2.pos).collect(),
         )
+
+    @pytest.mark.db_roots('local', reason='uses uses_db')
+    def test_view_model_iterator_kwargs(self, uses_db: None) -> None:
+        """An iterator's `**kwargs` arguments bind under the VAR_KEYWORD parameter as a dict of Exprs,
+        which survives model resolution and is expanded back into kwargs at eval time [PXT-1306]."""
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='kw_docs'):
+            body: pxt.String
+
+        class Chunks(TableModel, name='kw_chunks', base=Docs, iterator=kwarg_iter(Docs.body, scale=2)):
+            pass
+
+        TableModel.create_all('')
+        Docs.insert(body='hello')
+        assert Chunks.table.count() == 2
+        assert Chunks.table.select(Chunks.table.piece).order_by(Chunks.table.piece).collect()['piece'] == [
+            'hello',
+            'hello',
+        ]
 
     def test_update_all_creates_queried_table(self, db_root: DatabaseRoot) -> None:
         """The table a @pxt.query reads is created by the same update_all() that adds or alters its calling column."""
@@ -2258,6 +2290,11 @@ class TestTableModel:
 
             class EmptyTableModel(TableModel, name='empty_table'):
                 pass
+
+        with pxt_raises(excs.ErrorCode.INVALID_COLUMN_NAME, match=r"'show' is a reserved name in Pixeltable"):
+
+            class ReservedName(TableModel, name='reserved_name'):
+                show: pxt.Int | None
 
         class ValidTableModel(TableModel, name='valid_table'):
             id: pxt.Int | None

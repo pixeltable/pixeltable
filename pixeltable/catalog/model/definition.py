@@ -331,6 +331,7 @@ class _ModelNamespace(dict):
             )
 
     def set_col_value(self, name: str, value: Any) -> None:
+        catalog.Column.validate_name(name)
         self._check_reserved(name)
         if name in self.known_cols:
             raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Column {name!r}: duplicate definition.')
@@ -362,6 +363,7 @@ class _ModelNamespace(dict):
         super().__setitem__(name, exprs.ColumnRefByName(name, col_type_from_spec(spec)))
 
     def set_col_type(self, name: str, type_: Any) -> None:
+        catalog.Column.validate_name(name)
         self._check_reserved(name)
         if isinstance(type_, str):
             # Under from __future__ import annotations (PEP 563), annotations arrive as strings. Evaluate

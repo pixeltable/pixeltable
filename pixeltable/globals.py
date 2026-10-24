@@ -241,6 +241,23 @@ def create_table(
     # mapping and report the same errors
     schema = catalog.normalize_schema(schema)
 
+    # A table being created has no columns yet, so a computed column's expression cannot reference a
+    # column; its ColumnRefs can only point at a different table. (Unlike in `add_column()` or view
+    # `additional_columns`, where references to the existing table are legitimate.)
+    for name, spec in schema.items():
+        if spec.get('value') is None:
+            continue
+        value_expr = exprs.Expr.from_object(spec['value'])
+        assert value_expr is not None
+        col_ref = next(
+            value_expr.subexprs(filter=lambda e: isinstance(e, (exprs.ColumnRef, exprs.ColumnRefByName))), None
+        )
+        if col_ref is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'Invalid spec for column {name!r}: computed columns of a new table cannot reference existing columns',
+            )
+
     # apply the primary_key parameter to the schema
     for pk_col in primary_key or []:
         folded_pk_col = fold_identifier(pk_col)

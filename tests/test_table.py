@@ -2194,6 +2194,15 @@ class TestTable:
             pxt.create_table(p('test'), {'c 1': pxt.Int | None})
         assert 'invalid column name' in str(exc_info.value).lower()
 
+        # a schema expression cannot reference a column of a different table [PXT-1161]
+        other = pxt.create_table(p('other'), {'c': pxt.Int | None})
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA) as exc_info:
+            pxt.create_table(p('test'), {'c1': other.c})  # type: ignore[dict-item]
+        assert 'cannot reference existing columns' in str(exc_info.value)
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA) as exc_info:
+            pxt.create_table(p('test'), {'c1': {'value': other.c + 1}})
+        assert 'cannot reference existing columns' in str(exc_info.value)
+
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED) as exc_info:
             pxt.create_table(p('test'), {'c1': {}})
         assert "'type' or 'value' must be specified" in str(exc_info.value)
@@ -4030,6 +4039,31 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="not bound by table 'recompute_test'"):
             y = pxt.create_table('other_table', {'i': pxt.Int | None})
             t.recompute_columns('i1', where=y.i == 0)
+
+    # TODO: cannot be converted because the UDF reads client-process-local class attributes the daemon cannot see
+    @pytest.mark.db_roots('local', reason='UDF reads client-process-local class attributes the daemon cannot see')
+    def test_recompute_unstored_column(self, uses_db: None) -> None:
+        """Recomputing a column is a no-op when neither it nor (with cascade) its dependents are stored
+        [PXT-1388]."""
+        t = pxt.create_table('recompute_unstored', {'i': pxt.Int})
+        t.add_computed_column(u=self.recompute_int_udf(t.i), stored=False)
+        t.insert({'i': i} for i in range(5))
+
+        # `u` is unstored and has no dependents: nothing to update
+        status = t.recompute_columns(t.u)
+        assert status.num_rows == 0
+        assert status.num_excs == 0
+        assert len(status.updated_cols or []) == 0
+
+        # `u` is unstored and cascade is off: its stored dependent is not recomputed
+        status = t.recompute_columns(t.u, cascade=False)
+        assert status.num_rows == 0
+
+        # ... but with cascade it is, via `u`'s stored dependent
+        t.add_computed_column(s=self.recompute_int_udf(t.u))
+        status = t.recompute_columns(t.u)
+        assert status.num_rows == 5
+        assert 'recompute_unstored.s' in status.updated_cols
 
     def __test_drop_column_if_not_exists(self, t: pxt.Table, non_existing_col: str | ColumnRef) -> None:
         """Test the if_not_exists parameter of drop_column API"""

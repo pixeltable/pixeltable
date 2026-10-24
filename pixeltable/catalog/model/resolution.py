@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Mapping, NamedTuple, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, Mapping, NamedTuple, TypedDict
 from uuid import UUID
 
 from pixeltable import catalog, exceptions as excs, exprs, func, index
@@ -67,7 +67,7 @@ def prepare_model(
         )
         subst_args = [arg.substitute(base_tbl_subst_dict) for arg in iterator.args]
         subst_kwargs = {k: v.substitute(base_tbl_subst_dict) for k, v in iterator.kwargs.items()}
-        subst_bound_args = {k: v.substitute(base_tbl_subst_dict) for k, v in iterator.bound_args.items()}
+        subst_bound_args = {k: _substitute_bound_arg(v, base_tbl_subst_dict) for k, v in iterator.bound_args.items()}
         iterator = func.GeneratingFunctionCall(
             iterator.it, subst_args, subst_kwargs, subst_bound_args, iterator.outputs, iterator.validation_error
         )
@@ -145,6 +145,19 @@ def prepare_model(
         preceding_names.add(name)
 
     return iterator, additional_cols, _resolve_model_idxs(idxs, user_cols, display_name, is_data_versioned)
+
+
+def _substitute_bound_arg(arg: Any, subst_dict: exprs.ExprDict[exprs.Expr]) -> Any:
+    """Substitute a bound iterator argument.
+
+    Signature binding aggregates `*args` into a tuple and `**kwargs` into a dict of Exprs rather than a
+    single Expr, so those containers are substituted elementwise.
+    """
+    if isinstance(arg, dict):
+        return {k: _substitute_bound_arg(v, subst_dict) for k, v in arg.items()}
+    if isinstance(arg, tuple):
+        return tuple(_substitute_bound_arg(v, subst_dict) for v in arg)
+    return arg.substitute(subst_dict)
 
 
 def _resolve_model_idxs(

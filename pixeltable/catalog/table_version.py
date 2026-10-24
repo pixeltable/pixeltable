@@ -1600,6 +1600,15 @@ class TableVersion:
         if where is not None:
             self._validate_where_clause(where, error_prefix='`where` argument')
             where_clause = where
+        # Recomputing only ever changes stored values: a target that is itself unstored and (when cascade
+        # applies) has no stored dependent, in this table or a view, can change nothing.
+        target_columns = [
+            c
+            for c in target_columns
+            if c.is_stored or (cascade and any(d.is_stored for d in self.get_dependent_columns([c])))
+        ]
+        if len(target_columns) == 0:
+            return UpdateStatus()
         if errors_only:
             errortype_pred = (
                 exprs.ColumnPropertyRef(

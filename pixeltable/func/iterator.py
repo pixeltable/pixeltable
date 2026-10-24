@@ -503,7 +503,25 @@ class GeneratingFunctionCall:
         if self.it._validate is not None:
             self.it._validate(bound_args_with_defaults)
 
-        return self.it.decorated_callable(**bound_args)
+        # bound_args is keyed by parameter name: a *args parameter binds its arguments to a tuple and a
+        # **kwargs parameter to a dict; expand them back into positional and keyword arguments.
+        positional_args: list[Any] = []
+        keyword_args: dict[str, Any] = {}
+        saw_var_positional = False
+        for name, param in self.it.py_sig.parameters.items():
+            if name not in bound_args:
+                continue
+            value = bound_args[name]
+            if param.kind == inspect.Parameter.VAR_POSITIONAL:
+                positional_args.extend(value)
+                saw_var_positional = True
+            elif param.kind == inspect.Parameter.VAR_KEYWORD:
+                keyword_args.update(value)
+            elif saw_var_positional or param.kind == inspect.Parameter.KEYWORD_ONLY:
+                keyword_args[name] = value
+            else:
+                positional_args.append(value)
+        return self.it.decorated_callable(*positional_args, **keyword_args)
 
     def as_dict(self) -> dict[str, Any]:
         return {
