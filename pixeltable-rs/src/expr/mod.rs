@@ -186,6 +186,52 @@ pub enum JsonPathElem {
     Wildcard,
 }
 
+/// A property of a column (`t.c.errortype`, `t.img.localpath`, ...), upstream `ColumnPropertyRef.Property`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColumnProp {
+    ErrorType = 0,
+    ErrorMsg = 1,
+    FileUrl = 2,
+    LocalPath = 3,
+    CellMd = 4,
+}
+
+impl ColumnProp {
+    pub fn name(self) -> &'static str {
+        match self {
+            ColumnProp::ErrorType => "errortype",
+            ColumnProp::ErrorMsg => "errormsg",
+            ColumnProp::FileUrl => "fileurl",
+            ColumnProp::LocalPath => "localpath",
+            ColumnProp::CellMd => "cellmd",
+        }
+    }
+    pub fn from_name(name: &str) -> Option<ColumnProp> {
+        Some(match name {
+            "errortype" => ColumnProp::ErrorType,
+            "errormsg" => ColumnProp::ErrorMsg,
+            "fileurl" => ColumnProp::FileUrl,
+            "localpath" => ColumnProp::LocalPath,
+            "cellmd" => ColumnProp::CellMd,
+            _ => return None,
+        })
+    }
+    pub fn from_i64(v: i64) -> Option<ColumnProp> {
+        Some(match v {
+            0 => ColumnProp::ErrorType,
+            1 => ColumnProp::ErrorMsg,
+            2 => ColumnProp::FileUrl,
+            3 => ColumnProp::LocalPath,
+            4 => ColumnProp::CellMd,
+            _ => return None,
+        })
+    }
+    /// True for the properties read from a cell's error (errortype, errormsg, cellmd).
+    pub fn is_cellmd(self) -> bool {
+        matches!(self, ColumnProp::ErrorType | ColumnProp::ErrorMsg | ColumnProp::CellMd)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FunctionCall {
     pub func: FuncRef,
@@ -214,6 +260,11 @@ pub enum ExprKind {
     JsonPath { base: ExprRef, path: Vec<JsonPathElem> },
     ArraySlice { base: ExprRef, index: Vec<ArrayIndex> },
     FunctionCall(FunctionCall),
+    /// `col.<prop>`: `col` is a ColumnRef node
+    ColumnProperty { col: ExprRef, prop: ColumnProp },
+    /// a named parameter of an expression template (`@pxt.expr_udf`, `Function.using()`, `@pxt.query`), replaced by
+    /// an argument when the template is instantiated (`crate::functions::udf::substitute`)
+    Variable(String),
 }
 
 #[derive(Debug, Clone)]
@@ -233,18 +284,52 @@ impl ExprKind {
     /// Direct sub-expressions.
     pub fn children(&self) -> Vec<&ExprRef> {
         match self {
-            ExprKind::ColumnRef(_) | ExprKind::Literal(_) => vec![],
+            ExprKind::ColumnRef(_) | ExprKind::Literal(_) | ExprKind::Variable(_) => vec![],
             ExprKind::Arithmetic { lhs, rhs, .. }
             | ExprKind::StringOp { lhs, rhs, .. }
             | ExprKind::Comparison { lhs, rhs, .. }
             | ExprKind::InExpr { lhs, rhs } => vec![lhs, rhs],
             ExprKind::Compound { operands, .. } => operands.iter().collect(),
             ExprKind::IsNull(e) | ExprKind::TypeCast(e) => vec![e],
+            ExprKind::ColumnProperty { col, .. } => vec![col],
             ExprKind::InList { lhs, .. } => vec![lhs],
             ExprKind::InlineList(items) | ExprKind::InlineArray(items) => items.iter().collect(),
             ExprKind::InlineDict(items) => items.iter().map(|(_, e)| e).collect(),
             ExprKind::JsonPath { base, .. } | ExprKind::ArraySlice { base, .. } => vec![base],
             ExprKind::FunctionCall(fc) => fc.args.iter().chain(fc.kwargs.iter().map(|(_, e)| e)).collect(),
+        }
+    }
+
+    /// The same node with its direct sub-expressions replaced (`children` in the order of `children()`). Function
+    /// calls of Python functions are rebuilt by `crate::functions::udf::substitute`, which re-binds them.
+    pub fn with_children(&self, children: Vec<ExprRef>) -> ExprKind {
+        let mut it = children.into_iter();
+        let mut next = || it.next().expect("with_children(): too few children");
+        match self {
+            ExprKind::ColumnRef(_) | ExprKind::Literal(_) | ExprKind::Variable(_) => self.clone(),
+            ExprKind::Arithmetic { op, .. } => ExprKind::Arithmetic { op: *op, lhs: next(), rhs: next() },
+            ExprKind::StringOp { op, .. } => ExprKind::StringOp { op: *op, lhs: next(), rhs: next() },
+            ExprKind::Comparison { op, .. } => ExprKind::Comparison { op: *op, lhs: next(), rhs: next() },
+            ExprKind::InExpr { .. } => ExprKind::InExpr { lhs: next(), rhs: next() },
+            ExprKind::Compound { op, operands } => {
+                ExprKind::Compound { op: *op, operands: operands.iter().map(|_| next()).collect() }
+            }
+            ExprKind::IsNull(_) => ExprKind::IsNull(next()),
+            ExprKind::TypeCast(_) => ExprKind::TypeCast(next()),
+            ExprKind::ColumnProperty { prop, .. } => ExprKind::ColumnProperty { col: next(), prop: *prop },
+            ExprKind::InList { values, display, .. } => {
+                ExprKind::InList { lhs: next(), values: values.clone(), display: display.clone() }
+            }
+            ExprKind::InlineList(items) => ExprKind::InlineList(items.iter().map(|_| next()).collect()),
+            ExprKind::InlineArray(items) => ExprKind::InlineArray(items.iter().map(|_| next()).collect()),
+            ExprKind::InlineDict(items) => ExprKind::InlineDict(items.iter().map(|(k, _)| (k.clone(), next())).collect()),
+            ExprKind::JsonPath { path, .. } => ExprKind::JsonPath { base: next(), path: path.clone() },
+            ExprKind::ArraySlice { index, .. } => ExprKind::ArraySlice { base: next(), index: index.clone() },
+            ExprKind::FunctionCall(fc) => ExprKind::FunctionCall(FunctionCall {
+                func: fc.func.clone(),
+                args: fc.args.iter().map(|_| next()).collect(),
+                kwargs: fc.kwargs.iter().map(|(k, _)| (k.clone(), next())).collect(),
+            }),
         }
     }
 }
@@ -320,6 +405,7 @@ impl Expr {
             ExprKind::ColumnRef(c) => Some(c.name.clone()),
             ExprKind::Literal(_) => Some("Literal".to_string()),
             ExprKind::FunctionCall(fc) => Some(fc.func.name().to_string()),
+            ExprKind::ColumnProperty { .. } => Some(crate::expr::display::display(self).replace('.', "_")),
             _ => None,
         }
     }

@@ -9,6 +9,7 @@
 //! (a grouping stage between filter and project), distinct, sample.
 
 pub mod compute;
+pub mod compute_rows;
 pub mod insert;
 
 use std::sync::Arc;
@@ -208,6 +209,35 @@ impl QuerySpec {
         Ok(())
     }
 
+    /// The query with every expression replaced by `f(expr)` (used to bind the parameters of a `@pxt.query`
+    /// template). Every expression-holding field must be mapped here (the destructuring makes a new field a compile
+    /// error until it is).
+    pub fn map_exprs(&self, f: &dyn Fn(&ExprRef) -> Result<ExprRef>) -> Result<QuerySpec> {
+        let QuerySpec { tbl_id, version, select, where_, order_by, limit, offset } = self;
+        Ok(QuerySpec {
+            tbl_id: *tbl_id,
+            version: *version,
+            select: select
+                .as_ref()
+                .map(|items| items.iter().map(|(e, n)| Ok((f(e)?, n.clone()))).collect::<Result<Vec<_>>>())
+                .transpose()?,
+            where_: where_.as_ref().map(f).transpose()?,
+            order_by: order_by.iter().map(|(e, asc)| Ok((f(e)?, *asc))).collect::<Result<_>>()?,
+            limit: *limit,
+            offset: *offset,
+        })
+    }
+
+    /// Every expression of the query.
+    pub fn exprs(&self) -> Vec<ExprRef> {
+        let out = std::cell::RefCell::new(Vec::new());
+        let _ = self.map_exprs(&|e| {
+            out.borrow_mut().push(e.clone());
+            Ok(e.clone())
+        });
+        out.into_inner()
+    }
+
     // ------------------------------------------------------------------------------------------- serialization
 
     pub fn to_json(&self) -> Result<serde_json::Value> {
@@ -319,6 +349,8 @@ pub struct QueryInput {
     pub predicates: Vec<ExprRef>,
     /// value expressions of unstored computed columns of the scanned table, evaluated on read
     pub unstored: std::collections::HashMap<crate::catalog::table::ColId, ExprRef>,
+    /// media columns of the scanned table that are validated on read
+    pub read_validation: Arc<crate::media::ReadValidation>,
 }
 
 impl QueryInput {
@@ -341,22 +373,50 @@ impl QueryInput {
                 }
             }
         }
+        let read_validation = Arc::new(crate::media::ReadValidation::for_table(cat.table(source.base_tbl_id)?)?);
         let data = cat.data(source.base_tbl_id)?;
-        Ok(QueryInput { source, version, data, select, predicates, unstored })
+        Ok(QueryInput { source, version, data, select, predicates, unstored, read_validation })
     }
 }
 
 struct StoredRowCtx<'a> {
     row: &'a StoredRow,
     unstored: &'a std::collections::HashMap<crate::catalog::table::ColId, ExprRef>,
+    read_validation: &'a crate::media::ReadValidation,
+}
+
+impl<'a> StoredRowCtx<'a> {
+    fn new(row: &'a StoredRow, input: &'a QueryInput) -> Self {
+        StoredRowCtx { row, unstored: &input.unstored, read_validation: &input.read_validation }
+    }
+
+    /// For a read-validated media column with a file: the validation error, if any.
+    fn read_validation_error(&self, col: &ColumnRef) -> Option<Option<crate::store::rows::CellError>> {
+        let kind = self.read_validation.kind(col.col_id)?;
+        match self.row.cell(col.col_id) {
+            Value::Media(s) => Some(self.read_validation.error(s, kind)),
+            _ => Some(None),
+        }
+    }
 }
 
 impl RowContext for StoredRowCtx<'_> {
     fn column_value(&self, col: &ColumnRef) -> Result<Value> {
-        match self.unstored.get(&col.col_id) {
-            Some(e) => eval(e, self),
-            None => Ok(self.row.cell(col.col_id).clone()),
+        if let Some(e) = self.unstored.get(&col.col_id) {
+            return eval(e, self);
         }
+        if let Some(Some(_)) = self.read_validation_error(col) {
+            // an invalid file reads as NULL; its error is the cell's error
+            return Ok(Value::Null);
+        }
+        Ok(self.row.cell(col.col_id).clone())
+    }
+
+    fn column_error(&self, col: &ColumnRef) -> Result<Option<crate::store::rows::CellError>> {
+        if let Some(e) = self.read_validation_error(col) {
+            return Ok(e);
+        }
+        Ok(self.row.error(col.col_id).cloned())
     }
 }
 
@@ -366,7 +426,7 @@ fn filtered_rows<'a>(input: &'a QueryInput, q: &QuerySpec) -> Result<Vec<&'a Sto
     rows.sort_by_key(|r| r.rowid);
     let mut out = Vec::with_capacity(rows.len());
     'rows: for r in rows {
-        let ctx = StoredRowCtx { row: r, unstored: &input.unstored };
+        let ctx = StoredRowCtx::new(r, input);
         for p in &input.predicates {
             if !eval_predicate(p, &ctx)? {
                 continue 'rows;
@@ -392,7 +452,7 @@ pub fn execute(input: &QueryInput, q: &QuerySpec, rowid_desc: bool) -> Result<Re
         let mut keyed: Vec<(Vec<Value>, &StoredRow)> = rows
             .into_iter()
             .map(|r| {
-                let ctx = StoredRowCtx { row: r, unstored: &input.unstored };
+                let ctx = StoredRowCtx::new(r, input);
                 let keys = q.order_by.iter().map(|(e, _)| eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
                 Ok((keys, r))
             })
@@ -417,7 +477,7 @@ pub fn execute(input: &QueryInput, q: &QuerySpec, rowid_desc: bool) -> Result<Re
     };
     let mut out_rows = Vec::with_capacity(rows.len());
     for r in rows {
-        let ctx = StoredRowCtx { row: r, unstored: &input.unstored };
+        let ctx = StoredRowCtx::new(r, input);
         out_rows.push(input.select.iter().map(|(e, _)| eval(e, &ctx)).collect::<Result<Vec<_>>>()?);
     }
     Ok(ResultData {

@@ -15,7 +15,7 @@ class BuiltinFunction(Function):
     """A function implemented in the Rust backend; calling it builds a `FunctionCall` expression."""
 
     def __init__(self, module: str, name: str):
-        super().__init__(name, f'{module}.{name}')
+        super().__init__([], f'{module}.{name}')
         self.__module__ = module
         self.__name__ = name
 

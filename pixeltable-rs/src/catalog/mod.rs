@@ -75,6 +75,8 @@ impl IfNotExists {
 enum PendingDelete {
     DataFile(String),
     Media(Uuid),
+    /// the media files a table version wrote (revert)
+    MediaVersion(Uuid, i64),
 }
 
 pub struct Catalog {
@@ -91,6 +93,8 @@ pub struct Catalog {
     pending_deletes: Vec<PendingDelete>,
     /// data files written by the current operation (deleted if it fails)
     written_files: Vec<String>,
+    /// media files written for the current operation (deleted if it fails)
+    written_media: Vec<std::path::PathBuf>,
     /// true once the current operation has written catalog.json
     committed: bool,
 }
@@ -123,6 +127,7 @@ impl Catalog {
                     data: HashMap::new(),
                     pending_deletes: Vec::new(),
                     written_files: Vec::new(),
+                    written_media: Vec::new(),
                     committed: false,
                 })
             }
@@ -138,6 +143,7 @@ impl Catalog {
                     data: HashMap::new(),
                     pending_deletes: Vec::new(),
                     written_files: Vec::new(),
+                    written_media: Vec::new(),
                     committed: false,
                 };
                 cat.commit()?;
@@ -165,6 +171,7 @@ impl Catalog {
     pub fn checkpoint(&mut self) -> Checkpoint {
         self.pending_deletes.clear();
         self.written_files.clear();
+        self.written_media.clear();
         self.committed = false;
         Checkpoint { dirs: self.dirs.clone(), tables: self.tables.clone(), data: self.data.clone() }
     }
@@ -175,9 +182,11 @@ impl Catalog {
                 match d {
                     PendingDelete::DataFile(f) => self.store.delete_table_data(&f),
                     PendingDelete::Media(id) => self.store.delete_media(id),
+                    PendingDelete::MediaVersion(id, version) => self.store.delete_media_version(id, version),
                 }
             }
             self.written_files.clear();
+            self.written_media.clear();
             return Ok(());
         }
         self.dirs = checkpoint.dirs;
@@ -191,7 +200,21 @@ impl Catalog {
         for f in written {
             self.store.delete_table_data(&f);
         }
+        for f in std::mem::take(&mut self.written_media) {
+            let _ = std::fs::remove_file(f);
+        }
         Ok(())
+    }
+
+    /// Makes media files written (without the lock) for the current operation part of it: they are deleted if the
+    /// operation fails.
+    pub fn adopt_media(&mut self, files: Vec<std::path::PathBuf>) {
+        self.written_media.extend(files);
+    }
+
+    /// Deletes the media files that table version `version` wrote, when the operation succeeds (revert).
+    pub fn defer_delete_media_version(&mut self, tbl_id: Uuid, version: i64) {
+        self.pending_deletes.push(PendingDelete::MediaVersion(tbl_id, version));
     }
 
     fn defer_delete_data_file(&mut self, file: String) {

@@ -675,7 +675,7 @@ fn pre_convert<'py>(obj: &Bound<'py, PyAny>, t: &ColumnType) -> Result<Bound<'py
     })
 }
 
-fn decode_data_url_image<'py>(py: Python<'py>, url: &str) -> Result<Bound<'py, PyAny>> {
+pub fn decode_data_url_image<'py>(py: Python<'py>, url: &str) -> Result<Bound<'py, PyAny>> {
     let attempt = || -> PyResult<Bound<'py, PyAny>> {
         let response = py.import("urllib.request")?.call_method1("urlopen", (url,))?;
         let data = response.call_method0("read")?;
@@ -724,7 +724,7 @@ fn convert_validated(obj: &Bound<'_, PyAny>, t: &ColumnType) -> Result<Value> {
         TypeKind::Array { .. } => Value::Array(Arc::new(ndarray_from_py(obj)?)),
         TypeKind::Image { .. } | TypeKind::Video | TypeKind::Audio | TypeKind::Document { .. } => {
             if obj.is_instance_of::<PyString>() {
-                Value::Media(obj.extract()?)
+                Value::Media(crate::media::normalize_input(&obj.extract::<String>()?))
             } else {
                 // in-memory media (a PIL image or bytes); the store writes it to the media directory
                 Value::PyObj(Arc::new(obj.clone().unbind()))
@@ -854,23 +854,18 @@ pub fn to_py<'py>(py: Python<'py>, v: &Value, t: &ColumnType) -> PyResult<Bound<
         Value::Binary(b) => PyBytes::new(py, b).into_any(),
         Value::Json(j) => json_to_py(py, j)?,
         Value::Array(a) => ndarray_to_py(py, a)?,
-        Value::Media(path) => {
+        Value::Media(stored) => {
             if t.is_image() {
-                open_image(py, path)?
+                crate::media::open_image(py, v)?
             } else {
-                PyString::new(py, path).into_any()
+                let path = crate::media::local_path(py, stored)?;
+                PyString::new(py, &path.to_string_lossy()).into_any()
             }
         }
         Value::PyObj(o) => o.bind(py).clone(),
     })
 }
 
-/// Opens a stored image (a local path or a file:// URL) as a PIL image.
-fn open_image<'py>(py: Python<'py>, path: &str) -> PyResult<Bound<'py, PyAny>> {
-    let local = path.strip_prefix("file://").unwrap_or(path);
-    let img = py.import("PIL.Image")?.call_method1("open", (local,))?;
-    Ok(img)
-}
 
 /// `ColumnType.create_literal()` returning the converted Python object (upstream returns Python values, not
 /// stored values: media stay paths, timestamps stay datetimes).

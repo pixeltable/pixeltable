@@ -26,11 +26,31 @@ use crate::store::Store;
 static CATALOG: Mutex<Option<Catalog>> = Mutex::new(None);
 static RESERVED_NAMES: RwLock<Option<HashSet<String>>> = RwLock::new(None);
 
+thread_local! {
+    /// true while this thread holds the catalog lock (in `with_catalog`)
+    static HELD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+struct HeldGuard;
+
+impl Drop for HeldGuard {
+    fn drop(&mut self) {
+        HELD.with(|h| h.set(false));
+    }
+}
+
 /// Runs `f` with exclusive access to the catalog (in this process and, through the store's file lock, among all
 /// processes sharing the store), loading or reloading it first if needed. `f` is atomic: if it fails or panics, its
 /// changes are rolled back in memory and on disk (see `Catalog::checkpoint()`); a panic becomes an InternalError.
 pub fn with_catalog<R>(py: Python<'_>, f: impl FnOnce(&mut Catalog) -> Result<R>) -> Result<R> {
+    if HELD.with(|h| h.get()) {
+        // Python code called while this thread holds the lock (e.g. resolving a stored UDF) re-entered the catalog;
+        // the mutex is not reentrant, so fail instead of deadlocking
+        return Err(Error::internal("the catalog was accessed re-entrantly (from Python code run under its lock)"));
+    }
     let mut guard = CATALOG.lock_py_attached(py);
+    HELD.with(|h| h.set(true));
+    let _reset = HeldGuard;
     let store = match guard.as_ref() {
         Some(cat) => cat.store().clone(),
         None => Store::open_default()?,
@@ -80,12 +100,14 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 pub fn reload(py: Python<'_>) {
     let mut guard = CATALOG.lock_py_attached(py);
     *guard = None;
+    crate::functions::udf::reset_load_state();
 }
 
 /// Deletes all data of the current database and starts with an empty catalog.
 pub fn reset(py: Python<'_>) -> Result<()> {
     let mut guard = CATALOG.lock_py_attached(py);
     *guard = None;
+    crate::functions::udf::reset_load_state();
     let store = Store::open_default()?;
     let _store_lock = py.detach(|| store.lock())?;
     store.wipe()?;

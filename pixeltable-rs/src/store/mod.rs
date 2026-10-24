@@ -230,6 +230,22 @@ impl Store {
         let _ = fs::remove_dir_all(self.media_dir(tbl_id));
     }
 
+    /// Deletes the media files written for table version `version` (named `<tbl id>_<col id>_<version>_<id>...`,
+    /// see `media::save_object()`).
+    pub fn delete_media_version(&self, tbl_id: Uuid, version: i64) {
+        let Ok(entries) = fs::read_dir(self.media_dir(tbl_id)) else { return };
+        let prefix = format!("{}_", tbl_id.simple());
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let Some(rest) = name.strip_prefix(&prefix) else { continue };
+            let mut parts = rest.splitn(3, '_');
+            let _col = parts.next();
+            if parts.next() == Some(version.to_string().as_str()) {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+
     /// Deletes everything in this database (test hook `reset_db()`); the caller holds the lock, whose file stays.
     pub fn wipe(&self) -> Result<()> {
         if self.root.exists() {
