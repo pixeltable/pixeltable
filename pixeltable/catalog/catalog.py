@@ -88,6 +88,10 @@ _frozen: contextvars.ContextVar[bool] = contextvars.ContextVar('pxt_catalog_froz
 # grows uncontrollably
 _MAX_RETRIES = -1
 
+# bound on consecutive failures of _finalize_pending_ops(); a persistently failing op must eventually surface the
+# error instead of retrying in place forever
+_MAX_FINALIZE_RETRIES = 10
+
 # Max internal cache size
 _MAX_TBL_CACHE_SIZE = 1024
 
@@ -158,7 +162,9 @@ def retry_loop(
                         return op(*args, **kwargs)
                 except PendingTableOpsError as e:
                     Env.get().console_logger.debug(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
-                    cat._finalize_pending_ops(e.tbl_id)
+                    finalize_exc = cat._finalize_pending_ops(e.tbl_id)
+                    if finalize_exc is not None:
+                        raise finalize_exc from e
                 except sql_exc.DBAPIError as e:
                     if _is_retryable_exc(e):
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
@@ -438,8 +444,10 @@ class Catalog(CatalogBase):
         while True:
             if pending_ops_tbl_id is not None:
                 Env.get().console_logger.debug(f'begin_xact(): finalizing pending ops for {pending_ops_tbl_id}')
-                self._finalize_pending_ops(pending_ops_tbl_id)
+                finalize_exc = self._finalize_pending_ops(pending_ops_tbl_id)
                 pending_ops_tbl_id = None
+                if finalize_exc is not None:
+                    raise finalize_exc
 
             # one span per acquisition attempt; retries show up as sibling spans
             xact_span = telemetry.span_start('pixeltable.catalog.begin_xact')
@@ -1006,6 +1014,7 @@ class Catalog(CatalogBase):
                         _logger.debug(f'Finalize pending ops({tbl_id}): op {op!s} done, updating status')
                         if self._set_pending_op_status(tbl_id, op, new_op_status, is_final_op=is_final_op):
                             return exc
+                        num_retries = 0
                         continue
 
                 # this op runs outside of a transaction
@@ -1023,6 +1032,7 @@ class Catalog(CatalogBase):
                 # no need to invalidate tv here: all operations that modify metadata (cached in tv) are executed
                 # inside a transaction and therefore wouldn't end up here
                 rollover_op_update = (op, new_op_status, is_final_op)
+                num_retries = 0
 
             except AssertionError as e:
                 _logger.error(f'Finalize pending ops({tbl_id}): assertion error: {e}', exc_info=True)
@@ -1091,15 +1101,39 @@ class Catalog(CatalogBase):
                         status = conn.execute(stmt)
                         assert status.rowcount == 1
                 else:
-                    # log this error but keep going
+                    # log this error but keep going, up to a bound on consecutive failures: a persistently
+                    # failing op would otherwise retry in place forever
                     _logger.error(
                         f'Finalize pending ops({tbl_id}): caught error: {e} of type {type(e)} but continuing',
                         exc_info=True,
                     )
+                    num_retries += 1
+                    if num_retries >= _MAX_FINALIZE_RETRIES:
+                        return e
+                    time.sleep(random.uniform(0.1, 0.5))
+
+            except BaseException as e:
+                # KeyboardInterrupt/SystemExit bypass the generic Exception handler; leaving an abortable
+                # statement in ROLLFORWARD here would strand the table with pending ops. Perform the same
+                # switch to ROLLBACK, then re-raise.
+                if not is_rollback and tbl_md is not None and tbl_md.pending_stmt.can_abort():
+                    _logger.error(
+                        f'Finalize pending ops({tbl_id}): aborting statement due to error: {e} of type {type(e)}',
+                        exc_info=True,
+                    )
+                    with self.begin_xact(
+                        for_write=True, write_tbl_ids=[tbl_id], convert_db_excs=False, finalize_pending_ops=False
+                    ) as conn:
+                        stmt = (
+                            sql.update(schema.Table)
+                            .where(schema.Table.id == tbl_id)
+                            .values(md=schema.Table.md.op('||')({'tbl_state': schema.TableState.ROLLBACK.value}))
+                        )
+                        status = conn.execute(stmt)
+                        assert status.rowcount == 1
+                raise
             finally:
                 self._clear_tv_cache(TableVersionKey(tbl_id, None))
-
-            num_retries = 0
 
     def _pending_table_ops_update_stmt(
         self, tbl_id: UUID, op: TableOp, new_status: OpStatus, *, is_final_op: bool

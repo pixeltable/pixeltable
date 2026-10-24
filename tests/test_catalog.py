@@ -172,6 +172,43 @@ class TestCatalog:
         assert len(ls) == 1, ls
         assert ls['Name'].iloc[0] == 'test', ls
 
+    @pytest.mark.db_roots('local', reason='fault-injection test against the in-process catalog internals')
+    def test_finalize_pending_ops_keyboard_interrupt(self, uses_db: None, fault_injection: None) -> None:
+        t = pxt.create_table('test', {'a': pxt.Int | None})
+        # KeyboardInterrupt is a BaseException: it must still switch the abortable statement to ROLLBACK before
+        # propagating, otherwise the view stays in ROLLFORWARD with pending ops.
+        fault = ExceptionFault(KeyboardInterrupt('injected'))
+        get_runtime().fault_manager.inject_fault(FaultLocation.CATALOG_LOAD_VIEW_OP_EXEC, fault)
+
+        with pytest.raises(KeyboardInterrupt):
+            _ = pxt.create_view('view', t.where(t.a > 0))
+        fault.assert_count(1)
+
+        # the aborted view's pending ops roll back on the next access; the view does not survive as a zombie
+        v = pxt.create_view('view2', t.where(t.a > 0))
+        assert v.count() == 0
+        ls = pxt.ls()
+        assert sorted(ls['Name'].tolist()) == ['test', 'view2'], ls
+
+    @pytest.mark.db_roots('local', reason='fault-injection test against the in-process catalog internals')
+    def test_finalize_pending_ops_bounded_retries(self, uses_db: None, fault_injection: None) -> None:
+        t = pxt.create_table('test', {'a': pxt.Int | None})
+        # A persistently failing op must surface the error rather than retry in place forever. DROP_TABLE is not
+        # abortable, so every failure lands in the bounded retry branch.
+        fault = ExceptionFault(Exception('injected'), recurring=True)
+        get_runtime().fault_manager.inject_fault(FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault)
+
+        with pxt_raises(code=excs.ErrorCode.INTERNAL_ERROR, match='injected'):
+            pxt.drop_table('test')
+        from pixeltable.catalog.catalog import _MAX_FINALIZE_RETRIES
+
+        assert fault.counter() == _MAX_FINALIZE_RETRIES
+
+        # with the fault disarmed, the pending drop finishes on the next access
+        get_runtime().fault_manager.uninject_fault(FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT)
+        pxt.drop_table('test', if_not_exists='ignore')
+        assert 'test' not in pxt.list_tables()
+
     @pytest.mark.db_roots('local', reason='recovers transparently when the server drops the pooled db connections')
     def test_dropped_connection(self, uses_db: None) -> None:
         if not Env.get().is_local:

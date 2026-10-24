@@ -43,6 +43,10 @@ class FaultManager:
                 raise AssertionError(f'A fault is already armed at {loc}')
             self._fault_state[loc] = fault
 
+    def uninject_fault(self, loc: FaultLocation) -> None:
+        with self._lock:
+            self._fault_state.pop(loc, None)
+
     def process_location(self, loc: FaultLocation) -> None:
         with self._lock:
             fault = self._fault_state.get(loc)
@@ -54,12 +58,12 @@ class FaultManager:
 
 
 class ExceptionFault:
-    e: Exception
+    e: BaseException
     _counter: int
     # guards internal state for thread safety
     _lock: Lock
 
-    def __init__(self, e: Exception, recurring: bool = False) -> None:
+    def __init__(self, e: BaseException, recurring: bool = False) -> None:
         self._lock = Lock()
         self._counter = 0
         self.e = e

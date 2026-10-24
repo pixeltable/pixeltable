@@ -1002,6 +1002,9 @@ def ls(path: str = '') -> pd.DataFrame:
                 assert entry.table is not None
                 assert isinstance(entry.table, schema.Table)
                 tbl = cat.get_table_by_id(entry.table.id)
+                if tbl is None:
+                    # the entry was deleted between get_dir_contents() and here (e.g. rolled back pending ops)
+                    continue
                 md = tbl.get_metadata()
                 base = md['base'] or ''
                 if md['is_snapshot']:
