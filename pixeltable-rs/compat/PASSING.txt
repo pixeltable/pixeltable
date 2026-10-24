@@ -48,6 +48,7 @@ tests/test_primary_key_index.py::TestPrimaryKeyIndex::test_pk_via_column_spec[op
 tests/test_primary_key_index.py::TestPrimaryKeyIndex::test_prohibited_pk_col_ops[data_versioned]
 tests/test_primary_key_index.py::TestPrimaryKeyIndex::test_prohibited_pk_col_ops[operational]
 tests/test_primary_key_index.py::TestPrimaryKeyIndex::test_unknown_pk_column
+tests/test_query.py::TestQuery::test_case_insensitive_result_access
 tests/test_query.py::TestQuery::test_count[data_versioned]
 tests/test_query.py::TestQuery::test_count[operational]
 tests/test_query.py::TestQuery::test_cursor_lifecycle
@@ -78,6 +79,8 @@ tests/test_table.py::TestTable::test_add_column_with_metadata[no_reload_catalog]
 tests/test_table.py::TestTable::test_add_column_with_metadata[reload_catalog]
 tests/test_table.py::TestTable::test_add_drop_column[data_versioned]
 tests/test_table.py::TestTable::test_add_drop_column[operational]
+tests/test_table.py::TestTable::test_array_and_media_columns[data_versioned]
+tests/test_table.py::TestTable::test_array_and_media_columns[operational]
 tests/test_table.py::TestTable::test_bulk_json_collect
 tests/test_table.py::TestTable::test_bulk_scalar_collect
 tests/test_table.py::TestTable::test_column_comment[no_reload_catalog]
@@ -87,9 +90,13 @@ tests/test_table.py::TestTable::test_column_custom_metadata[reload_catalog]
 tests/test_table.py::TestTable::test_columns[data_versioned]
 tests/test_table.py::TestTable::test_columns[operational]
 tests/test_table.py::TestTable::test_common_col_names
+tests/test_table.py::TestTable::test_compute_media_errors
+tests/test_table.py::TestTable::test_compute_pydantic_scalars
+tests/test_table.py::TestTable::test_compute_with_errors
 tests/test_table.py::TestTable::test_computed_column_types
 tests/test_table.py::TestTable::test_create[data_versioned]
 tests/test_table.py::TestTable::test_create[operational]
+tests/test_table.py::TestTable::test_create_from_rows
 tests/test_table.py::TestTable::test_create_if_exists
 tests/test_table.py::TestTable::test_drop_column_via_reference
 tests/test_table.py::TestTable::test_drop_last_column
@@ -103,9 +110,16 @@ tests/test_table.py::TestTable::test_file_paths
 tests/test_table.py::TestTable::test_image_formats
 tests/test_table.py::TestTable::test_insert_nulls[data_versioned]
 tests/test_table.py::TestTable::test_insert_nulls[operational]
+tests/test_table.py::TestTable::test_insert_pydantic_scalars
+tests/test_table.py::TestTable::test_insert_query
+tests/test_table.py::TestTable::test_insert_return_rows_with_idx[data_versioned]
+tests/test_table.py::TestTable::test_insert_return_rows_with_idx[operational]
 tests/test_table.py::TestTable::test_insert_string_with_null[data_versioned]
 tests/test_table.py::TestTable::test_insert_string_with_null[operational]
 tests/test_table.py::TestTable::test_move
+tests/test_table.py::TestTable::test_pydantic_errors
+tests/test_table.py::TestTable::test_pydantic_media
+tests/test_table.py::TestTable::test_pydantic_serializer_reads_table
 tests/test_table.py::TestTable::test_query[data_versioned]
 tests/test_table.py::TestTable::test_query[operational]
 tests/test_table.py::TestTable::test_rename_column[operational]

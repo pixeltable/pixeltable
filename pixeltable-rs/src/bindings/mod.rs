@@ -6,6 +6,7 @@
 pub mod catalog;
 pub mod expr;
 pub mod query;
+pub mod sources;
 pub mod table;
 pub mod types;
 
@@ -52,6 +53,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(table::tbl_column_ref, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_list_views, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_insert, m)?)?;
+    m.add_function(wrap_pyfunction!(table::tbl_compute, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_metadata, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_add_columns, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_add_column, m)?)?;

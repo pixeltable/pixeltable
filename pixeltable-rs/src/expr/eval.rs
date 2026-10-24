@@ -18,6 +18,32 @@ pub trait RowContext {
     fn column_error(&self, _col: &ColumnRef) -> Result<Option<crate::store::rows::CellError>> {
         Ok(None)
     }
+
+    /// True when evaluating with Python semantics (upstream materializes computed columns in Python, where a
+    /// division by zero raises `ZeroDivisionError`; query expressions evaluated in SQL yield NULL instead).
+    fn python_semantics(&self) -> bool {
+        false
+    }
+}
+
+/// Python's `ZeroDivisionError` for `a <op> b` with a zero divisor, if that is what the operation is.
+fn python_zero_division(op: ArithOp, a: &Value, b: &Value) -> Option<Error> {
+    let (a, b) = (a.json_scalar(), b.json_scalar());
+    let is_zero = matches!(b, Value::Int(0)) || matches!(b, Value::Float(f) if f == 0.0);
+    if a.is_null() || !is_zero || !matches!(a, Value::Int(_) | Value::Float(_)) {
+        return None;
+    }
+    let float = matches!(a, Value::Float(_)) || matches!(b, Value::Float(_));
+    let msg = match (op, float) {
+        (ArithOp::Div, false) => "division by zero",
+        (ArithOp::Div, true) => "float division by zero",
+        (ArithOp::FloorDiv, false) => "integer division or modulo by zero",
+        (ArithOp::FloorDiv, true) => "float floor division by zero",
+        (ArithOp::Mod, false) => "integer modulo by zero",
+        (ArithOp::Mod, true) => "float modulo by zero",
+        _ => return None,
+    };
+    Some(Error::Python(pyo3::exceptions::PyZeroDivisionError::new_err(msg)))
 }
 
 pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
@@ -27,6 +53,11 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
         ExprKind::Arithmetic { op, lhs, rhs } => {
             let a = eval(lhs, ctx)?;
             let b = eval(rhs, ctx)?;
+            if ctx.python_semantics() {
+                if let Some(err) = python_zero_division(*op, &a, &b) {
+                    return Err(err);
+                }
+            }
             arithmetic(*op, &a, &b, lhs.col_type.is_json(), rhs.col_type.is_json(), &e.col_type)
         }
         ExprKind::StringOp { op, lhs, rhs } => {
