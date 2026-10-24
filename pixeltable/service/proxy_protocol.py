@@ -36,6 +36,7 @@ from pixeltable.catalog.path import Path
 from pixeltable.catalog.table_path import TablePath, TablePathKey, TableVersionPath
 from pixeltable.catalog.types import TableVersionMd
 from pixeltable.catalog.update_status import RowCountStats, UpdateStatus
+from pixeltable.config import ConfigVar
 from pixeltable.env import Env
 from pixeltable.metadata import VERSION as MD_SCHEMA_VERSION, schema
 from pixeltable.query_clauses import SampleClause
@@ -547,6 +548,9 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
         return {_TAG: 'file', 'name': pathlib.Path(obj.path).name, **_ref_fields(sink.add_media_file(obj.path))}
     if isinstance(obj, MediaPath):
         return {_TAG: 'mediapath', 'v': obj.path}
+    if isinstance(obj, ConfigVar):
+        # a column destination declared as a config-var reference (see ConfigVar._as_dict())
+        return {_TAG: 'ConfigVar', 'v': obj._as_dict()}
     if isinstance(obj, list):
         return [_serialize(x, sink) for x in obj]
     if isinstance(obj, tuple):
@@ -680,6 +684,8 @@ def _deserialize(
         if tag == 'mediapath':
             # persisted daemon media; the client localizes it from the daemon's /media endpoint (see ProxyClient)
             return MediaPath(v)
+        if tag == 'ConfigVar':
+            return ConfigVar._from_dict(v)
         if tag == 'IfExistsParam':
             return IfExistsParam[v]
         if tag == 'IfNotExistsParam':

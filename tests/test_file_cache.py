@@ -1,4 +1,5 @@
 import os
+import pathlib
 import platform
 from collections import OrderedDict
 
@@ -83,3 +84,34 @@ class TestFileCache:
             t.insert({'index': len(image_files) + n, 'image': image_urls[n]} for n in range(10, 15))
         # Check that we saw the warning exactly once
         assert sum(r.category is pxt.PixeltableWarning for r in record) == 1
+
+    def test_corrupt_entry(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
+        """A cached file corrupted after caching is evicted on lookup and re-downloaded; remove() evicts
+        an entry that lookup() cannot detect as corrupt."""
+        fc = FileCache.get()
+        fc.clear()
+
+        image_file = get_image_files()[0]
+        url = sample_file_server.url(image_file)
+        t = pxt.create_table('images', {'image': pxt.Image | None})
+        t.insert(image=url)
+
+        cached = fc.lookup(url)
+        assert cached is not None
+        assert cached.read_bytes() == pathlib.Path(image_file).read_bytes()
+
+        # a file whose size no longer matches the recorded size is evicted on lookup, not handed out
+        with open(cached, 'r+b') as f:
+            f.truncate(1)
+        assert fc.lookup(url) is None
+        _ = t.select(t.image).collect()  # re-downloads the file
+        cached = fc.lookup(url)
+        assert cached is not None
+        assert cached.read_bytes() == pathlib.Path(image_file).read_bytes()
+
+        # remove() evicts an entry whose corruption leaves the size unchanged
+        fc.remove(url)
+        assert fc.lookup(url) is None
+        _ = t.select(t.image).collect()
+        assert fc.lookup(url) is not None
+        fc.remove(url)  # a second remove() on an uncached url is a no-op

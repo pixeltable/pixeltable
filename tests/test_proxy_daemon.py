@@ -224,6 +224,7 @@ class TestProxyDaemon:
             'reserved': {'$pxt': 'UUID', 'v': 'not-a-uuid'},
             'id': tbl_id,
             'data': b'abc',
+            'confvar': pxt.ConfigVar('media_dest', pxt.URI),
         }
         body = proxy_protocol.encode_response({'result': result})
         head, parts = proxy_protocol.decode_body(body)
@@ -236,6 +237,8 @@ class TestProxyDaemon:
         assert decoded['reserved'] == result['reserved']
         assert decoded['id'] == tbl_id
         assert decoded['data'] == b'abc'
+        assert decoded['confvar'].name == 'media_dest'
+        assert decoded['confvar'].type_ is pxt.URI
 
     def test_iter_body_chunks(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A body is sliced, without copying, into pieces of at most _BODY_CHUNK_SIZE bytes."""
