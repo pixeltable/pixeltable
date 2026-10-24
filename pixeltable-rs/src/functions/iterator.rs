@@ -574,6 +574,7 @@ static BUILTIN_ITERATORS: &[&BuiltinIterator] = &[
     &super::video_iterators::FRAME_ITERATOR,
     &super::video_iterators::LEGACY_FRAME_ITERATOR,
     &super::image_iterators::TILE_ITERATOR,
+    &super::string_iterators::STRING_SPLITTER,
 ];
 
 fn builtin_iterators() -> &'static [&'static BuiltinIterator] {

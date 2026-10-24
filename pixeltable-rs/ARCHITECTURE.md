@@ -246,9 +246,10 @@ and `is_stored` (false for `unstored_cols`). Python wraps the result (`_core.Ite
 
 A running iterator is a `RowSource` (`next_row`, `seek`, `close`): Python iterators run through `PyRowSource`;
 builtin iterators (`BuiltinIterator` entries in `iterator.rs::BUILTIN_ITERATORS`: `video_iterators.rs`
-`frame_iterator`/`legacy_frame_iterator` over PyAV, `image_iterators.rs` `tile_iterator` over PIL) implement it in
-Rust, and their Python objects (`func._iterator.BuiltinGeneratingFunction`, what the generated stubs resolve to) are
-resolved by path like Python iterators. A NULL argument for a non-nullable parameter yields no rows. Test hooks:
+`frame_iterator`/`legacy_frame_iterator` over PyAV, `image_iterators.rs` `tile_iterator` over PIL,
+`string_iterators.rs` `string_splitter` over spaCy) implement it in Rust. Their Python objects
+(`func._iterator.BuiltinGeneratingFunction`, which the generated stubs return for upstream iterator classes (`_cls`)
+and `@pxt.iterator` functions (`_fn`) alike) are resolved by path like Python iterators. A NULL argument for a non-nullable parameter yields no rows. Test hooks:
 `_core._iterator_rows(call, {col: value})` and `_core._iterator_seek(call, {col: value}, pos, stored)`.
 
 ## Catalog, storage and versioning

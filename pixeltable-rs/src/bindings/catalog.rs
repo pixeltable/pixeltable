@@ -549,6 +549,9 @@ pub fn create_view(
                 crate::bail!(UnsupportedOperation, "`{clause}` cannot be used in a view definition.");
             }
         }
+        for e in q.sample.iter().flat_map(|s| &s.stratify_by) {
+            crate::functions::udf::validate_storable(e, "A view's sample clause")?;
+        }
         (q.tbl_id, q.version, q.where_, q.select)
     } else if let Ok(tref) = base.getattr("_tbl_ref") {
         let (id, version): (String, Option<i64>) = tref.extract()?;

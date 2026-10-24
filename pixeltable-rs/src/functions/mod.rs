@@ -30,6 +30,7 @@ pub mod json;
 pub mod math;
 pub mod signature;
 pub mod string;
+pub mod string_iterators;
 pub mod timestamp;
 pub mod uda;
 pub mod udf;

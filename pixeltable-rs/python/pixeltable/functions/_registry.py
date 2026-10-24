@@ -68,4 +68,10 @@ def fn(module: str, name: str) -> Function | UnimplementedFunction | Callable[..
         return special
     if qualified in _BUILTINS:
         return BuiltinFunction(module, name)
+    from pixeltable.func._iterator import builtin_iterator
+
+    # upstream defines some iterators (`string_splitter`) as `@pxt.iterator` functions
+    it = builtin_iterator(module, name)
+    if it is not None:
+        return it
     return UnimplementedFunction(module, name)

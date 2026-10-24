@@ -216,6 +216,24 @@ class TestIterators:
         d = call._core.as_dict()
         assert d['fn'] == {'fqn': 'test_functions.count_to'} and list(d['outputs']) == ['pos', 'n', 's']
 
+    def test_string_splitter(self, t: pxt.Table, monkeypatch: pytest.MonkeyPatch) -> None:
+        import sys
+        import types
+
+        from pixeltable.functions.string import string_splitter
+
+        class Doc:
+            def __init__(self, text: str) -> None:
+                self.sents = [types.SimpleNamespace(text=s.strip() + '.') for s in text.split('.') if s.strip()]
+
+        fake = types.ModuleType('spacy')
+        fake.load = lambda name: Doc  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, 'spacy', fake)
+        call = string_splitter(t.s, separators='sentence', spacy_model='fake')  # the backend caches models by name
+        assert _core._iterator_rows(call, {'s': 'One. Two.'}) == [{'pos': 0, 'text': 'One.'}, {'pos': 1, 'text': 'Two.'}]
+        with raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Only 'sentence' is supported"):
+            string_splitter(t.s, separators='word')
+
     def test_frame_iterator(self) -> None:
         videos = sorted(glob.glob(os.path.join(VIDEOS, 'bangkok*.mp4')))
         if len(videos) == 0:
