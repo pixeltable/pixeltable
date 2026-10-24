@@ -21,6 +21,7 @@
 
 pub mod agg;
 pub mod array;
+pub mod btree;
 pub mod date;
 pub mod image;
 pub mod image_iterators;
@@ -263,6 +264,7 @@ fn builtin_tables() -> Vec<(&'static str, &'static [Builtin])> {
         (json::MODULE, json::FUNCTIONS),
         (uuid::MODULE, uuid::FUNCTIONS),
         (array::MODULE, array::FUNCTIONS),
+        (btree::MODULE, btree::FUNCTIONS),
     ]
 }
 

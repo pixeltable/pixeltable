@@ -115,7 +115,9 @@ the files of one table version (for revert). Write-validated media columns are v
 `exec::insert::build_rows()` (PIL/PyAV, upstream messages); read-validated ones by `media::ReadValidation` in the query
 context (an invalid file reads as NULL with a cell error). Column properties (`errortype`, `errormsg`, `fileurl`,
 `localpath`) are `ExprKind::ColumnProperty` nodes; `RowContext::column_error()` supplies cell errors. A computed column
-whose inputs have a cell error gets that error (`eval_computed()`). Timestamps: naive inputs are interpreted in the default time zone (`PIXELTABLE_TIME_ZONE`, `TZ`, the
+whose inputs got an error in the same evaluation (an earlier computed column of the row, a file validated on read)
+gets that error (`eval_computed()`, `scan::eval_into()`); an error stored by an earlier operation does not propagate
+(the cell reads as NULL, as upstream reads it from the store). Timestamps: naive inputs are interpreted in the default time zone (`PIXELTABLE_TIME_ZONE`, `TZ`, the
 system zone, else UTC) and results are returned as aware datetimes in it.
 
 Nesting limits: JSON values hold at most `value::MAX_JSON_DEPTH` (500) levels of containers and Python-visible
@@ -318,6 +320,14 @@ changed column) and recomputes dependent stored columns, getting a version only 
 view rows of deleted base rows (a version only if rows were removed). View rows are computed without the lock (they
 may call UDFs) and committed with the base's.
 
+Component views (`ViewMd.iterator`, a serialized `IteratorCall`): the iterator's outputs (`pos` first) are the view's
+first columns (`TableMd::is_iterator_col`). A base row yields one view row per output row, keyed by the base row's key
+plus the position (`StoredRow.pos`; `Catalog::num_pos` counts the iterator levels of a path). `pos` reads the key;
+unstored outputs are not stored and are produced again on read (`PathCtx` -> `IteratorCall::seek_row`), except while
+a row is generated, when all outputs are in its cells (`ElemInfo::with_materialized_outputs`). An update that changes
+an iterator argument, or the base row's membership, regenerates that base row's view rows (`ViewUpdateNode.reload`).
+`Table.compute()` on a view runs the same `ViewCompute` levels over the computed base row without storing anything.
+
 To add a catalog operation: implement it as a `Catalog` method in the matching `catalog/*.rs` file (validate, mutate,
 `self.commit()`), expose it as a `#[pyfunction]` in `bindings/catalog.rs` or `bindings/table.rs` (convert arguments,
 call inside `with_catalog`), register it in `bindings/mod.rs`, and forward to it from the Python method.
@@ -343,18 +353,23 @@ Data sources (`bindings/sources.rs`, upstream `TableDataConduit`): `classify()` 
 (lists, materialized iterators), pydantic models (dumped before any catalog access, validated against the table as
 upstream does) or a query (a `Table` or `Query`, executed in Rust and inserted value by value). `create_table(source=
 ...)` infers the schema from rows (`infer_schema_from_rows()`, with `schema_overrides`) or takes the query's schema,
-creates the table, then inserts. `insert(return_rows=True)` reports the stored values (media by file URL).
+creates the table, then inserts. `return_rows` (insert, update, batch_update) reports the stored columns of the new
+rows (media by file URL), index values as `<col>:<idx>` and cell errors as `<col>:md` (`exec::insert::ReturnCol`).
 `Table.compute()` (`exec/compute_rows.rs`) evaluates only the requested outputs and their dependencies (stored and
 unstored computed columns alike) for rows of the root base table, applies view filters, and stores nothing.
 Computed columns are evaluated with Python semantics (`RowContext::python_semantics()`: a division by zero raises
 `ZeroDivisionError`), query expressions with SQL semantics (NULL). `UpdateStatus.cols_with_excs` names columns
 `<table>.<column>` (`<table>.<column>:<index>` for index values).
 
-Indexes (`catalog/indexes.rs`, `TableMd.indexes`): B-tree indexes are metadata only (scans are full scans);
-`has_default_idxs` adds one to every eligible column (`push_column()`, `create_table()`). An embedding index stores the
-embeddings of its column in a hidden stored computed column (`IndexKind::Embedding::val_col_id`, not listed in any
-schema version, computed by inserts like other stored computed columns, named `<col>:<idx>` in returned rows); its
-embedding functions are kept as `Function.as_dict()` descriptors per query modality. `col.similarity(...)` builds an
+Indexes (`catalog/indexes.rs`, `TableMd.indexes`): nothing reads B-tree indexes (scans are full scans);
+`has_default_idxs` adds one to every eligible column (`push_column()`, `create_table()`). An index can have a value
+column: a hidden stored computed column (`IndexMd::val_col_id()`, not listed in any schema version, named
+`<col>:<idx>`). `exec::compute::index_value_columns()` lists them; inserts, updates (always, for indexes on updated or
+recomputed columns, as upstream) and view propagation (`ViewCompute::current()`) compute them like other stored
+computed columns. An embedding index keeps its embeddings there; a B-tree index of a data-versioned table keeps the
+indexed values (strings truncated by `pixeltable.index.btree.str_filter`), so its errors count as upstream's do.
+Embedding functions are kept as `Function.as_dict()` descriptors per query modality. `col.similarity(...)` builds an
 `ExprKind::Similarity` node that holds the embedding call of the query item (computed once per expression) and
-compares it with the row's stored embedding (cosine similarity, inner product or L2 distance). Indexes on views are
-not supported yet.
+compares it with the row's stored embedding (cosine similarity, inner product or L2 distance). A view can index its
+own and its bases' columns (`AddIndexPlan` evaluates over the view's path). Dropped indexes stay in
+`Indexes::dropped` so that `revert()` can restore them (`Indexes::revert()`).

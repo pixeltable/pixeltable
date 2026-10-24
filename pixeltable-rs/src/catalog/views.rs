@@ -215,6 +215,7 @@ impl Catalog {
     }
 
     pub fn list_views(&self, tbl_id: Uuid, recursive: bool) -> Result<Vec<String>> {
+        self.table(tbl_id)?;
         let mut out = Vec::new();
         for v in self.view_ids(tbl_id) {
             out.push(self.table_path(v)?.to_string());
