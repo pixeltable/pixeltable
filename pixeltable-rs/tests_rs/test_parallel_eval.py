@@ -88,6 +88,29 @@ class TestParallelEval:
         assert res['sim'][0] == pytest.approx(1.0, abs=1e-5)
         assert res['sim'] == sorted(res['sim'], reverse=True)
 
+    def test_computed_columns(self) -> None:
+        t = pxt.create_table('cc', {'a': pxt.Int})
+        t.add_computed_column(b=t.a * 2)
+        t.add_computed_column(c=(t.b + 1) // (t.a % 5))  # ZeroDivisionError where a % 5 == 0
+        status = t.insert(({'a': i} for i in range(N)), on_error='ignore')
+        assert status.num_excs == N // 5
+        assert status.updated_cols == [] and status.cols_with_excs == ['cc.c']
+        res = t.order_by(t.a).select(t.a, t.b, t.c, err=t.c.errortype).collect()
+        assert res['b'] == [2 * a for a in range(N)]
+        assert res['c'] == [None if a % 5 == 0 else (2 * a + 1) // (a % 5) for a in range(N)]
+        assert res['err'] == ['ZeroDivisionError' if a % 5 == 0 else None for a in range(N)]
+        with pytest.raises(pxt.Error, match='ZeroDivisionError'):
+            t.insert(({'a': i} for i in range(1, N)), on_error='abort')
+        assert t.count() == N
+        status = t.add_computed_column(d=t.a + t.b, on_error='abort')
+        assert status.num_excs == 0
+        assert t.order_by(t.a).select(t.d).collect()['d'] == [3 * a for a in range(N)]
+        with pytest.raises(pxt.Error, match="Error while evaluating computed column 'e'"):
+            t.add_computed_column(e=t.a // (t.a % 3), on_error='abort')
+        assert 'e' not in t.columns()
+        t.update({'a': t.a + 1}, where=t.a < 10)
+        assert t.order_by(t.a).select(t.d).limit(3).collect()['d'] == [3, 6, 9]
+
     def test_gil_released_during_query(self) -> None:
         n = 400_000
         t = pxt.create_table('gil', source=pd.DataFrame({'a': np.arange(n), 'b': np.arange(n) % 13}))

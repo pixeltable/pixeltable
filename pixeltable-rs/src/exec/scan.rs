@@ -538,6 +538,22 @@ fn inherited_error(ctx: &PathCtx<'_>, cols: &[ComputedCol], k: usize) -> Result<
     Ok(None)
 }
 
+/// True if `e` can be evaluated for many rows of a path on several threads (`par::is_pure()`), with the calls in
+/// `calls` made.
+fn path_expr_pure(e: &crate::expr::Expr, infos: &[&ElemInfo], calls: &Option<super::prefetch::CallResults>, depth: usize) -> bool {
+    let col_pure = |c: &ColumnRef| {
+        let Some(info) = infos.iter().find(|i| i.tbl_id == c.tbl_id) else { return false };
+        if info.iterator.is_some() || info.read_validation.as_ref().is_some_and(|rv| rv.kind(c.col_id).is_some()) {
+            return false;
+        }
+        match info.unstored.get(&c.col_id) {
+            Some(x) => depth < 64 && path_expr_pure(x, infos, calls, depth + 1),
+            None => true,
+        }
+    };
+    super::par::is_pure(e, &col_pure, &|n| calls.as_ref().is_some_and(|r| r.contains(n)))
+}
+
 /// `eval_into()` for a batch of rows of table `infos[0]` (`rows[i]` belongs to the base path rows `bases[i]`); with
 /// `fail_on_exception`, the first failure in sequential order (row, then column) is the error. See
 /// `eval_rows_batch()`.
@@ -595,7 +611,42 @@ pub fn eval_rows_batch(
                     f(&PathCtx { elems: infos, rows: &path, python: true, calls: Some(slot) })
                 })?
             };
-            'rows: for i in 0..limit {
+            let pure = super::par::worth_parallel(limit)
+                && exprs.iter().all(|e| path_expr_pure(e, infos, &calls, 0));
+            if pure {
+                // rows are independent: evaluate them on several threads, then account as sequential evaluation would
+                let sink_ref = &sink;
+                let (tbl_name, calls_ref) = (sink_ref.tbl_name, &calls);
+                let outcomes = super::par::map_mut(&mut rows[..limit], |i, row| -> Result<(RowCountStats, Option<(usize, Error)>)> {
+                    let mut stats = RowCountStats::default();
+                    let mut names = Vec::new();
+                    let mut local = EvalSink { tbl_name, fail_on_exception: false, stats: &mut stats, cols_with_excs: &mut names };
+                    let slot = calls_ref.as_ref().map(|results| CallSlot { results, row: i });
+                    let mut first = None;
+                    for &k in &plain {
+                        if let Some(err) = eval_col_into(row, cols, k, infos, bases[i], &mut local, slot)? {
+                            first.get_or_insert((k, err));
+                        }
+                    }
+                    Ok((stats, first))
+                });
+                for (i, outcome) in outcomes.into_iter().enumerate() {
+                    let (stats, failed) = outcome?;
+                    *sink.stats = super::propagate::add_stats(sink.stats, &stats);
+                    if let Some((k, err)) = failed {
+                        let qualified = format!("{}.{}", sink.tbl_name, cols[k].name);
+                        if !sink.cols_with_excs.contains(&qualified) {
+                            sink.cols_with_excs.push(qualified);
+                        }
+                        if abort && earlier(&first, i, k) {
+                            first = Some((i, k, err));
+                            limit = limit.min(i + 1);
+                        }
+                    }
+                }
+                // (failing rows of the other columns are recorded in their cells; `cols_with_excs` is rebuilt below)
+            }
+            'rows: for i in 0..if pure { 0 } else { limit } {
                 let slot = calls.as_ref().map(|results| CallSlot { results, row: i });
                 for &k in &plain {
                     if let Some(err) = eval_col_into(&mut rows[i], cols, k, infos, bases[i], &mut sink, slot)? {

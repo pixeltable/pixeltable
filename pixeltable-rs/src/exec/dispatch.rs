@@ -501,15 +501,20 @@ enum Mode {
     Async,
 }
 
-/// Measures whether the calls of a parallel node overlap: after `target` calls, the sum of their durations (each
-/// measured while its worker is attached) over the time since the first call started; below 1.5, the calls hold the
-/// GIL and run no faster in parallel.
+/// Measures whether the calls of a parallel node overlap: the node starts with `PROBE_WORKERS` workers; after `target`
+/// calls, the sum of their durations (each measured while its worker is attached) over the time since the first call
+/// started tells whether they ran at the same time. Below 1.5, the calls hold the GIL and run no faster in parallel:
+/// the dispatching thread runs the rest; else the node gets all its workers (`helpers`).
 struct Probe {
     busy: Duration,
     completed: usize,
     target: usize,
     decided: bool,
+    helpers: usize,
 }
+
+/// The workers a parallel node starts with, until the probe has decided.
+const PROBE_WORKERS: usize = 2;
 
 struct AsyncState {
     limit: usize,
@@ -652,14 +657,20 @@ impl<'o> Dispatch<'o> {
     /// Starts the worker jobs of parallel node `ni`: as many as it can use, up to the pool size.
     fn start_workers(&mut self, ni: usize) {
         let threads = udf_threads();
-        let pool = pool();
         let node = &self.nodes[ni];
         let helpers = threads.min(node.max_concurrency.unwrap_or(usize::MAX)).min(node.num_units).max(1);
-        self.probes[ni] = Some(Probe { busy: Duration::ZERO, completed: 0, target: node.num_units.min((2 * helpers).max(8)), decided: false });
-        for _ in 0..helpers {
+        let first = helpers.min(PROBE_WORKERS);
+        self.probes[ni] = Some(Probe { busy: Duration::ZERO, completed: 0, target: node.num_units.min(4 * first), decided: false, helpers });
+        self.spawn_workers(ni, first);
+    }
+
+    fn spawn_workers(&self, ni: usize, count: usize) {
+        let threads = udf_threads();
+        let pool = pool();
+        for _ in 0..count {
             let job = WorkerJob {
                 ni,
-                node: node.clone(),
+                node: self.nodes[ni].clone(),
                 tx: self.tx.clone(),
                 stop: self.stop.clone(),
                 abort_row: self.abort_row.clone(),
@@ -807,6 +818,7 @@ impl<'o> Dispatch<'o> {
                 Ok(())
             }
             Msg::Done { node, unit, results, busy } => {
+                let mut ramp_up = 0;
                 if let Some(p) = self.probes[node].as_mut() {
                     p.busy += busy;
                     p.completed += 1;
@@ -814,10 +826,15 @@ impl<'o> Dispatch<'o> {
                         p.decided = true;
                         let started = self.nodes[node].first_start.get().copied().unwrap_or_else(Instant::now);
                         let overlap = p.busy.as_secs_f64() / started.elapsed().as_secs_f64().max(1e-9);
-                        if overlap < 1.5 {
+                        if overlap < 1.5 && p.helpers > 1 {
                             self.nodes[node].serial.store(true, Ordering::SeqCst);
+                        } else {
+                            ramp_up = p.helpers.saturating_sub(PROBE_WORKERS.min(p.helpers));
                         }
                     }
+                }
+                if ramp_up > 0 && self.nodes[node].next.load(Ordering::SeqCst) < self.nodes[node].num_units {
+                    self.spawn_workers(node, ramp_up);
                 }
                 if self.modes[node] == Mode::Async {
                     let st = self.asyncs[node].as_mut().expect("async state");

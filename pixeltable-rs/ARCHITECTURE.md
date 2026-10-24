@@ -305,7 +305,9 @@ predicates, the select list) when the expressions are pure (`par::is_pure()`: no
 Python-backed builtin, no iterator output or media validated on read); results are collected in row order and the
 first failing row's error is reported, as sequentially. Sorting sorts row indices (stable, `par::sort_by()`), and with a
 limit selects the first `offset + limit` rows without sorting the rest. Group and join keys are typed (`KeyPart`, SQL
-equality). Aggregate state updates and window functions stay sequential, in row order.
+equality). Aggregate state updates and window functions stay sequential, in row order. The phase B of a wave of
+computed columns (`eval_computed_batch()`, `eval_rows_batch()`) evaluates its rows in parallel too when the columns are
+pure (rows are independent; statistics and the first failure are accounted in row order afterwards).
 
 The contract, which every phase-B caller relies on:
 - outcomes equal sequential evaluation: each row gets its value or its error (a failed batch fails each of its rows);

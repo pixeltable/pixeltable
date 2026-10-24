@@ -229,6 +229,7 @@ def bench_builtin_1m() -> dict[str, float]:
     )
     out['sort_1m'] = _best_of(lambda: t.order_by(t.b).select(t.a).limit(10).collect())
     out['join_1m'] = _best_of(lambda: t.join(d, on=t.g == d.g).select(c=pxtf.count(d.name)).collect())
+    out['add_column_1m'] = _timed(lambda: t.add_computed_column(c2=t.a * 2 + t.g))
     return out
 
 
