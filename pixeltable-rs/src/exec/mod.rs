@@ -269,7 +269,7 @@ impl QuerySpec {
     }
 
     /// `Query.where()`
-    pub fn with_where(&self, cat: &Catalog, pred: ExprRef) -> Result<QuerySpec> {
+    pub fn with_where(&self, pred: ExprRef) -> Result<QuerySpec> {
         if self.where_.is_some() {
             crate::bail!(InvalidState, "where() clause already specified");
         }
@@ -283,19 +283,16 @@ impl QuerySpec {
                 pred.col_type.repr()
             );
         }
-        self.check_bound(cat, &pred)?;
+        // as upstream, the predicate's tables are checked when the query runs (`QueryInput::snapshot()`)
         let mut q = self.clone();
         q.where_ = Some(pred);
         Ok(q)
     }
 
     /// `Query.order_by()`
-    pub fn with_order_by(&self, cat: &Catalog, exprs: Vec<ExprRef>, asc: bool) -> Result<QuerySpec> {
+    pub fn with_order_by(&self, exprs: Vec<ExprRef>, asc: bool) -> Result<QuerySpec> {
         if self.sample.is_some() {
             crate::bail!(UnsupportedOperation, "order_by() cannot be used with sample()");
-        }
-        for e in &exprs {
-            self.check_bound(cat, e)?;
         }
         let mut q = self.clone();
         q.order_by.extend(exprs.into_iter().map(|e| (e, asc)));

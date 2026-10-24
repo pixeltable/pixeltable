@@ -195,23 +195,23 @@ impl PyQuerySpec {
     }
 
     #[pyo3(name = "where_")]
-    fn where_clause(&self, py: Python<'_>, pred: &Bound<'_, PyAny>) -> Result<Self> {
+    fn where_clause(&self, pred: &Bound<'_, PyAny>) -> Result<Self> {
         if self.q.where_.is_some() {
             crate::bail!(InvalidState, "where() clause already specified");
         }
         let e = as_expr(pred).ok_or_else(|| {
             crate::pxt_err!(InvalidExpression, "where() expects a Pixeltable expression; got: {}", obj_str(pred))
         })?;
-        with_catalog(py, |cat| Ok(wrap(self.q.with_where(cat, e)?)))
+        Ok(wrap(self.q.with_where(e)?))
     }
 
     #[pyo3(signature = (exprs, asc=true))]
-    fn order_by(&self, py: Python<'_>, exprs: Vec<Bound<'_, PyAny>>, asc: bool) -> Result<Self> {
+    fn order_by(&self, exprs: Vec<Bound<'_, PyAny>>, asc: bool) -> Result<Self> {
         let mut es = Vec::new();
         for raw in exprs {
             es.push(as_expr(&raw).ok_or_else(|| crate::pxt_err!(InvalidExpression, "Invalid expression in order_by(): {}", obj_str(&raw)))?);
         }
-        with_catalog(py, |cat| Ok(wrap(self.q.with_order_by(cat, es, asc)?)))
+        Ok(wrap(self.q.with_order_by(es, asc)?))
     }
 
     #[pyo3(signature = (n, offset=None))]

@@ -53,6 +53,10 @@ pub struct QueryInput {
 
 impl QueryInput {
     pub fn snapshot(cat: &mut Catalog, q: &QuerySpec) -> Result<QueryInput> {
+        // where() and order_by() accept any expression; it must be computable from the query's tables
+        for e in q.where_.iter().chain(q.order_by.iter().map(|(e, _)| e)) {
+            q.check_bound(cat, e)?;
+        }
         q.check_columns_exist(cat)?;
         let select = q.effective_select(cat)?;
         let mut sources = Vec::new();
