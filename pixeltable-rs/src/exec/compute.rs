@@ -179,6 +179,7 @@ pub struct AddComputedPlan {
     pub replace: Option<ColId>,
     pub unstored: HashMap<ColId, ExprRef>,
     pub media: MediaTarget,
+    pub tbl_name: String,
 }
 
 impl AddComputedPlan {
@@ -225,6 +226,7 @@ impl AddComputedPlan {
             replace,
             unstored: unstored_exprs(&md)?,
             media,
+            tbl_name: md.name.clone(),
         }))
     }
 
@@ -243,7 +245,7 @@ impl AddComputedPlan {
         }
         let col = ComputedCol {
             col_id: self.eval_col_id,
-            name: self.spec.name.clone(),
+            name: format!("{}.{}", self.tbl_name, self.spec.name),
             expr: self.expr.clone(),
             is_media: self.spec.col_type.is_media(),
         };

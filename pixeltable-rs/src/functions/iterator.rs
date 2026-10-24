@@ -14,7 +14,7 @@
 //! surfaced through `check_valid()`).
 
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::PyDict;
 use std::sync::{Arc, OnceLock};
 
 use super::signature::{BoundArg, Binding, Signature};
@@ -40,6 +40,8 @@ pub struct IteratorDef {
     pub py_obj: Py<PyAny>,
     /// for an iterator that no longer resolves: why
     pub error_msg: Option<String>,
+    /// set for iterators implemented in the backend
+    pub builtin: Option<&'static BuiltinIterator>,
     descriptor: OnceLock<Json>,
 }
 
@@ -58,7 +60,22 @@ impl IteratorDef {
         py_obj: Py<PyAny>,
         error_msg: Option<String>,
     ) -> IteratorDef {
-        IteratorDef { fqn, signature, unstored_cols, has_seek, py_obj, error_msg, descriptor: OnceLock::new() }
+        IteratorDef { fqn, signature, unstored_cols, has_seek, py_obj, error_msg, builtin: None, descriptor: OnceLock::new() }
+    }
+
+    /// The definition of a builtin iterator (`py_obj`: its Python function object).
+    pub fn builtin(b: &'static BuiltinIterator, py_obj: Py<PyAny>) -> IteratorDef {
+        let signature = Signature { params: (b.params)(), return_type: ColumnType::json(false), is_batched: false };
+        IteratorDef {
+            fqn: b.fqn.to_string(),
+            signature: Some(signature),
+            unstored_cols: b.unstored_cols.iter().map(|s| s.to_string()).collect(),
+            has_seek: true,
+            py_obj,
+            error_msg: None,
+            builtin: Some(b),
+            descriptor: OnceLock::new(),
+        }
     }
 
     /// The unqualified name.
@@ -186,6 +203,29 @@ fn bind(def: &IteratorDef, sig: &Signature, args: &[ExprRef], kwargs: &[(String,
     Ok(binding)
 }
 
+/// The constant arguments of a call (plus the defaults of unbound parameters), by parameter name.
+fn literal_args(sig: &Signature, binding: &Binding, args: &[ExprRef], kwargs: &[(String, ExprRef)]) -> Vec<(String, Value)> {
+    let mut out = Vec::new();
+    for (pi, b) in &binding.bound {
+        let e = match b {
+            BoundArg::Arg(i) => &args[*i],
+            BoundArg::Kwarg(i) => &kwargs[*i].1,
+            _ => continue,
+        };
+        if let Some(v) = e.as_literal() {
+            out.push((sig.params[*pi].name.clone(), v.clone()));
+        }
+    }
+    for p in &sig.params {
+        if binding.bound.iter().all(|(pi, _)| sig.params[*pi].name != p.name) {
+            if let Some(v) = p.default.as_ref().and_then(|d| d.as_literal()) {
+                out.push((p.name.clone(), v.clone()));
+            }
+        }
+    }
+    out
+}
+
 /// `iterator(*args, **kwargs)`
 pub fn make_call(def: &Arc<IteratorDef>, args: Vec<ExprRef>, kwargs: Vec<(String, ExprRef)>) -> Result<IteratorCall> {
     let Some(sig) = &def.signature else {
@@ -197,10 +237,17 @@ pub fn make_call(def: &Arc<IteratorDef>, args: Vec<ExprRef>, kwargs: Vec<(String
         );
     };
     let binding = bind(def, sig, &args, &kwargs)?;
-    let schema = Python::attach(|py| -> Result<Vec<(String, ColumnType)>> {
-        let bound = bound_exprs(py, sig, &binding, &args, &kwargs)?;
-        schema_from_py(&def.py_obj.bind(py).call_method1("_check_call", (bound,))?)
-    })?;
+    let schema = match def.builtin {
+        Some(b) => {
+            let literals = literal_args(sig, &binding, &args, &kwargs);
+            (b.validate)(&literals)?;
+            (b.output_schema)(&literals)?
+        }
+        None => Python::attach(|py| -> Result<Vec<(String, ColumnType)>> {
+            let bound = bound_exprs(py, sig, &binding, &args, &kwargs)?;
+            schema_from_py(&def.py_obj.bind(py).call_method1("_check_call", (bound,))?)
+        })?,
+    };
     let outputs = make_outputs(&schema, &def.unstored_cols)?;
     Ok(IteratorCall { def: def.clone(), args, kwargs, binding, outputs, validation_error: None })
 }
@@ -239,28 +286,42 @@ impl IteratorCall {
         Ok(())
     }
 
-    /// The argument values for one base row, as Python keyword arguments.
-    fn py_kwargs<'py>(&self, py: Python<'py>, ctx: &dyn RowContext) -> Result<Bound<'py, PyDict>> {
+    /// The argument values for one base row, by parameter name (variadic arguments as JSON lists/dicts); None if a
+    /// non-nullable parameter gets a NULL (the base row then has no output rows).
+    pub fn arg_values(&self, ctx: &dyn RowContext) -> Result<Option<Vec<(String, Value, ColumnType)>>> {
         let sig = self.def.signature.as_ref().ok_or_else(|| Error::internal("call of an invalid iterator"))?;
-        let d = PyDict::new(py);
-        let val = |e: &ExprRef| -> Result<Bound<'py, PyAny>> { Ok(vpy::to_py(py, &eval(e, ctx)?, &e.col_type)?) };
+        let mut out = Vec::new();
         for (pi, b) in &self.binding.bound {
-            let name = &sig.params[*pi].name;
+            let p = &sig.params[*pi];
             match b {
-                BoundArg::Arg(i) => d.set_item(name, val(&self.args[*i])?)?,
-                BoundArg::Kwarg(i) => d.set_item(name, val(&self.kwargs[*i].1)?)?,
+                BoundArg::Arg(_) | BoundArg::Kwarg(_) => {
+                    let e = match b {
+                        BoundArg::Arg(i) => &self.args[*i],
+                        BoundArg::Kwarg(i) => &self.kwargs[*i].1,
+                        _ => unreachable!(),
+                    };
+                    let v = eval(e, ctx)?;
+                    if v.is_null() && p.col_type.as_ref().is_some_and(|t| !t.nullable) {
+                        return Ok(None);
+                    }
+                    out.push((p.name.clone(), v, e.col_type.clone()));
+                }
                 BoundArg::VarArgs(idxs) => {
-                    let items = idxs.iter().map(|i| val(&self.args[*i])).collect::<Result<Vec<_>>>()?;
-                    d.set_item(name, PyList::new(py, items)?)?;
+                    let items = idxs
+                        .iter()
+                        .map(|i| crate::value::value_to_json(&eval(&self.args[*i], ctx)?))
+                        .collect::<Result<Vec<_>>>()?;
+                    out.push((p.name.clone(), Value::Json(Json::Array(items)), ColumnType::json(false)));
                 }
                 BoundArg::VarKwargs(idxs) => {
                     for i in idxs {
-                        d.set_item(&self.kwargs[*i].0, val(&self.kwargs[*i].1)?)?;
+                        let (k, e) = &self.kwargs[*i];
+                        out.push((k.clone(), eval(e, ctx)?, e.col_type.clone()));
                     }
                 }
             }
         }
-        Ok(d)
+        Ok(Some(out))
     }
 
     fn convert_item(&self, item: &Bound<'_, PyAny>) -> Result<Vec<Value>> {
@@ -276,32 +337,49 @@ impl IteratorCall {
             .iter()
             .map(|o| match d.get_item(&o.orig_name)? {
                 Some(v) => vpy::coerce(&v, &o.col_type.with_nullable(true)),
-                None => Ok(Value::Null),
+                None => crate::bail!(
+                    InvalidConfiguration,
+                    "Invalid output from iterator `{}`: Expected to find a field {}. Output:\n{}",
+                    self.def.fqn,
+                    py_repr(&o.orig_name),
+                    d.str().map(|s| s.to_string()).unwrap_or_default()
+                ),
             })
             .collect()
     }
 
-    fn start<'py>(&self, py: Python<'py>, ctx: &dyn RowContext) -> Result<Bound<'py, PyAny>> {
+    /// A running iterator for the base row `ctx`, or None if the row has no output rows.
+    fn start(&self, py: Python<'_>, ctx: &dyn RowContext) -> Result<Option<Box<dyn RowSource>>> {
         if let Some(msg) = &self.validation_error {
             crate::bail!(InvalidState, "{msg}");
         }
-        let kwargs = self.py_kwargs(py, ctx)?;
-        Ok(self.def.py_obj.bind(py).call_method1("_start", (kwargs,))?)
+        let Some(args) = self.arg_values(ctx)? else { return Ok(None) };
+        if let Some(b) = self.def.builtin {
+            let args: Vec<(String, Value)> = args.into_iter().map(|(n, v, _)| (n, v)).collect();
+            (b.validate)(&args)?;
+            return Ok(Some((b.start)(py, &args)?));
+        }
+        let kwargs = PyDict::new(py);
+        for (name, v, t) in &args {
+            kwargs.set_item(name, vpy::to_py(py, v, t)?)?;
+        }
+        let it = self.def.py_obj.bind(py).call_method1("_start", (kwargs,))?;
+        Ok(Some(Box::new(PyRowSource { it: it.unbind() })))
     }
 
     /// Runs the iterator for the base row `ctx`: the values of `value_outputs()` for each output row, in `pos`
     /// order.
     pub fn eval_rows(&self, ctx: &dyn RowContext) -> Result<Vec<Vec<Value>>> {
         Python::attach(|py| {
-            let it = self.start(py, ctx)?;
+            let Some(mut src) = self.start(py, ctx)? else { return Ok(Vec::new()) };
             let mut rows = Vec::new();
             let result = (|| -> Result<()> {
-                for item in it.try_iter()? {
-                    rows.push(self.convert_item(&item?)?);
+                while let Some(row) = src.next_row(py, self)? {
+                    rows.push(row);
                 }
                 Ok(())
             })();
-            close(&it);
+            src.close(py);
             result.map(|_| rows)
         })
     }
@@ -310,19 +388,15 @@ impl IteratorCall {
     /// is positioned with `seek(pos, **stored)` (`stored`: the stored output values of that row, by folded name).
     pub fn seek_row(&self, ctx: &dyn RowContext, pos: i64, stored: &[(String, Value)]) -> Result<Vec<Value>> {
         Python::attach(|py| {
-            let it = self.start(py, ctx)?;
+            let Some(mut src) = self.start(py, ctx)? else {
+                crate::bail!(InvalidState, "iterator `{}` has no rows for this input row", self.def.fqn)
+            };
             let result = (|| -> Result<Vec<Value>> {
-                let kwargs = PyDict::new(py);
-                for (name, v) in stored {
-                    if let Some(o) = self.value_outputs().iter().find(|o| o.name == *name) {
-                        kwargs.set_item(&o.orig_name, vpy::to_py(py, v, &o.col_type)?)?;
-                    }
-                }
-                it.call_method("seek", (pos,), Some(&kwargs))?;
-                let item = it.call_method0("__next__")?;
-                self.convert_item(&item)
+                src.seek(py, self, pos, stored)?;
+                src.next_row(py, self)?
+                    .ok_or_else(|| crate::pxt_err!(InvalidState, "iterator `{}` has no row at position {pos}", self.def.fqn))
             })();
-            close(&it);
+            src.close(py);
             result
         })
     }
@@ -403,10 +477,13 @@ impl IteratorCall {
                 return Ok(call);
             }
         }
-        let schema = Python::attach(|py| -> Result<Vec<(String, ColumnType)>> {
-            let bound = bound_exprs(py, sig, &call.binding, &call.args, &call.kwargs)?;
-            schema_from_py(&def.py_obj.bind(py).call_method1("call_output_schema", (bound,))?)
-        })?;
+        let schema = match def.builtin {
+            Some(b) => (b.output_schema)(&literal_args(sig, &call.binding, &call.args, &call.kwargs))?,
+            None => Python::attach(|py| -> Result<Vec<(String, ColumnType)>> {
+                let bound = bound_exprs(py, sig, &call.binding, &call.args, &call.kwargs)?;
+                schema_from_py(&def.py_obj.bind(py).call_method1("call_output_schema", (bound,))?)
+            })?,
+        };
         let mut detail: Option<String> = None;
         for o in call.outputs.iter().filter(|o| !o.is_pos()) {
             match schema.iter().find(|(n, _)| *n == o.orig_name) {
@@ -439,10 +516,76 @@ impl IteratorCall {
     }
 }
 
-fn close(it: &Bound<'_, PyAny>) {
-    if let Ok(c) = it.getattr("close") {
-        let _ = c.call0();
+/// A running iterator: produces the output rows for one base row (values of `call.value_outputs()`).
+pub trait RowSource {
+    fn next_row(&mut self, py: Python<'_>, call: &IteratorCall) -> Result<Option<Vec<Value>>>;
+    /// Positions the iterator so that the next row is the one at `pos` (`stored`: that row's stored outputs, by
+    /// folded name).
+    fn seek(&mut self, py: Python<'_>, call: &IteratorCall, pos: i64, stored: &[(String, Value)]) -> Result<()>;
+    fn close(&mut self, py: Python<'_>);
+}
+
+/// An iterator implemented in Python (`@pxt.iterator`).
+struct PyRowSource {
+    it: Py<PyAny>,
+}
+
+impl RowSource for PyRowSource {
+    fn next_row(&mut self, py: Python<'_>, call: &IteratorCall) -> Result<Option<Vec<Value>>> {
+        match self.it.bind(py).call_method0("__next__") {
+            Ok(item) => Ok(Some(call.convert_item(&item)?)),
+            Err(e) if e.is_instance_of::<pyo3::exceptions::PyStopIteration>(py) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
     }
+
+    fn seek(&mut self, py: Python<'_>, call: &IteratorCall, pos: i64, stored: &[(String, Value)]) -> Result<()> {
+        let kwargs = PyDict::new(py);
+        for (name, v) in stored {
+            if let Some(o) = call.value_outputs().iter().find(|o| o.name == *name) {
+                kwargs.set_item(&o.orig_name, vpy::to_py(py, v, &o.col_type)?)?;
+            }
+        }
+        self.it.bind(py).call_method("seek", (pos,), Some(&kwargs))?;
+        Ok(())
+    }
+
+    fn close(&mut self, py: Python<'_>) {
+        if let Ok(c) = self.it.bind(py).getattr("close") {
+            let _ = c.call0();
+        }
+    }
+}
+
+/// An iterator implemented in the backend (e.g. `pixeltable.functions.video.frame_iterator`).
+pub struct BuiltinIterator {
+    /// `module.name`
+    pub fqn: &'static str,
+    pub params: fn() -> Vec<super::signature::Param>,
+    pub unstored_cols: &'static [&'static str],
+    /// the output schema for the constant arguments of a call
+    pub output_schema: fn(&[(String, Value)]) -> Result<Vec<(String, ColumnType)>>,
+    /// validation of the (constant, then actual) arguments
+    pub validate: fn(&[(String, Value)]) -> Result<()>,
+    pub start: fn(Python<'_>, &[(String, Value)]) -> Result<Box<dyn RowSource>>,
+}
+
+static BUILTIN_ITERATORS: &[&BuiltinIterator] = &[
+    &super::video_iterators::FRAME_ITERATOR,
+    &super::video_iterators::LEGACY_FRAME_ITERATOR,
+    &super::image_iterators::TILE_ITERATOR,
+];
+
+fn builtin_iterators() -> &'static [&'static BuiltinIterator] {
+    BUILTIN_ITERATORS
+}
+
+pub fn lookup_builtin(fqn: &str) -> Option<&'static BuiltinIterator> {
+    builtin_iterators().iter().copied().find(|b| b.fqn == fqn)
+}
+
+pub fn builtin_names() -> Vec<String> {
+    builtin_iterators().iter().map(|b| b.fqn.to_string()).collect()
 }
 
 /// The `IteratorDef` behind a Python `GeneratingFunction`.

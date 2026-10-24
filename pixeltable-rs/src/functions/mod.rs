@@ -12,12 +12,14 @@
 //! evaluation happen there; evaluation calls back into Python for the function body.
 
 pub mod image;
+pub mod image_iterators;
 pub mod iterator;
 pub mod math;
 pub mod signature;
 pub mod string;
 pub mod udf;
 pub mod uuid;
+pub mod video_iterators;
 pub mod video;
 
 use serde_json::json;

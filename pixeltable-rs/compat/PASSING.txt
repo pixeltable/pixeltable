@@ -143,6 +143,8 @@ tests/test_table.py::TestTable::test_drop_table_force_via_handle
 tests/test_table.py::TestTable::test_drop_table_if_not_exists
 tests/test_table.py::TestTable::test_drop_table_via_handle
 tests/test_table.py::TestTable::test_empty_table
+tests/test_table.py::TestTable::test_expr_udf_computed_cols[data_versioned]
+tests/test_table.py::TestTable::test_expr_udf_computed_cols[operational]
 tests/test_table.py::TestTable::test_file_paths
 tests/test_table.py::TestTable::test_image_formats
 tests/test_table.py::TestTable::test_insert[data_versioned]

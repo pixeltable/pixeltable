@@ -42,3 +42,21 @@ def _type_is_json_convertible(type_hint: Any) -> bool:
     if origin is typing.Literal:
         return all(isinstance(val, (str, int, float, bool, type(None))) for val in args)
     return False
+
+
+def resolve_embedding_fn(embed_fn: Any, expected_type: str) -> Any:
+    """The unary resolution of `embed_fn` whose (single required) parameter has type `expected_type` (a
+    `ColumnType.Type` name such as 'STRING'), or None (upstream `EmbeddingIndex._resolve_embedding_fn()`)."""
+    for resolved_fn in embed_fn._resolved_fns:
+        sig = resolved_fn.signature
+        if len(sig.parameters) == 0 or len(sig.required_parameters) > 1:
+            continue
+        first = sig.parameters_by_pos[0]
+        if first.col_type is None or first.col_type.type_enum.name != expected_type:
+            continue
+        if len(sig.parameters) == 1:
+            return resolved_fn
+        if not all(p.has_default() for p in sig.parameters_by_pos[1:]):
+            continue
+        return resolved_fn.using(**{p.name: p.default_value for p in sig.parameters_by_pos[1:]})
+    return None
