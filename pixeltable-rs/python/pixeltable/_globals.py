@@ -221,7 +221,12 @@ def list_functions() -> Any:
             'Return Type': [str(f.signatures[0].get_return_type()) for f in functions],
         }
     )
-    styler = pd_df.style.set_properties(None, **{'text-align': 'left'}).set_table_styles(
+    try:
+        styler = pd_df.style
+    except AttributeError:
+        # pandas' Styler needs jinja2; without it, the plain DataFrame
+        return pd_df
+    styler = styler.set_properties(None, **{'text-align': 'left'}).set_table_styles(
         [{'selector': 'th', 'props': [('text-align', 'center')]}]
     )
     return styler.hide(axis='index')
