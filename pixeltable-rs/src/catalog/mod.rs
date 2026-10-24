@@ -83,6 +83,14 @@ enum PendingDelete {
     MediaVersion(Uuid, i64),
 }
 
+/// A file write of a commit (see `Catalog::flush()`).
+enum FileWrite {
+    /// a new segment file, with the hashes of the given keys
+    Segment { tbl_id: Uuid, seg: Arc<crate::store::segment::Segment>, vmax: Arc<Vec<i64>>, keys: Arc<Vec<(Vec<ColId>, bool)>> },
+    /// bytes appended to a history file at `offset` (its committed length)
+    History { tbl_id: Uuid, file: u64, offset: u64, bytes: Vec<u8> },
+}
+
 pub struct Catalog {
     store: Store,
     /// the stamp of the committed state this catalog reflects (see `store::CatalogFile`)
@@ -335,6 +343,9 @@ impl Catalog {
     }
 
     fn flush_inner(&mut self, written: &mut Vec<String>) -> Result<()> {
+        // plan the writes (in memory), then do them in parallel: new segment files and history appends are
+        // independent; all of them are durable before catalog.json is replaced
+        let mut writes: Vec<FileWrite> = Vec::new();
         let mut staged: Vec<Uuid> = self.staged.iter().copied().filter(|id| self.tables.contains_key(id)).collect();
         staged.sort();
         for tbl_id in staged {
@@ -342,9 +353,10 @@ impl Catalog {
             let data = Arc::make_mut(entry);
             if data.has_unwritten() {
                 let md = self.tables.get(&tbl_id).ok_or_else(|| Error::internal("staged table has no metadata"))?;
-                let keys = key_indexes(md);
+                let keys = Arc::new(key_indexes(md));
                 for (seg, vmax) in data.prepare_write() {
-                    written.push(self.store.write_segment(tbl_id, &seg, &vmax, &keys)?);
+                    written.push(Store::segment_file_name(tbl_id, seg.id));
+                    writes.push(FileWrite::Segment { tbl_id, seg, vmax, keys: keys.clone() });
                 }
                 data.mark_written();
             }
@@ -367,7 +379,17 @@ impl Catalog {
             .collect();
         changed.sort();
         for tbl_id in changed {
-            self.write_history(tbl_id, written)?;
+            if let Some(w) = self.plan_history(tbl_id, written)? {
+                writes.push(w);
+            }
+        }
+        {
+            use rayon::prelude::*;
+            let store = &self.store;
+            writes.par_iter().try_for_each(|w| match w {
+                FileWrite::Segment { tbl_id, seg, vmax, keys } => store.write_segment(*tbl_id, seg, vmax, keys).map(|_| ()),
+                FileWrite::History { tbl_id, file, offset, bytes } => store.append_history(*tbl_id, *file, *offset, bytes).map(|_| ()),
+            })?;
         }
         self.store.sync_tables()?;
         let mut dirs: Vec<DirMd> = self.dirs.values().cloned().collect();
@@ -391,39 +413,38 @@ impl Catalog {
         Ok(())
     }
 
-    /// Appends the history records of table `tbl_id` that differ from what is committed (rewriting the history file
-    /// when most of it is superseded records) and records the new length in its manifest.
-    fn write_history(&mut self, tbl_id: Uuid, written: &mut Vec<String>) -> Result<()> {
+    /// The history records of table `tbl_id` that differ from what is committed, as an append to its history file
+    /// (or a new history file with every record, when most of it is superseded records); records the new length in
+    /// its manifest.
+    fn plan_history(&mut self, tbl_id: Uuid, written: &mut Vec<String>) -> Result<Option<FileWrite>> {
         let md = self.table(tbl_id)?.clone();
         let records = match self.persisted.get(&tbl_id) {
             Some(old) => history::changed_records(&old.versions, &old.schema_versions, &md.versions, &md.schema_versions),
             None => history::changed_records(&[], &[], &md.versions, &md.schema_versions),
         };
         let live = (md.versions.len() + md.schema_versions.len()) as u64;
-        let new_ref = match md.storage.history {
-            Some(h) if records.is_empty() => h,
+        let (new_ref, write) = match md.storage.history {
+            Some(h) if records.is_empty() => (h, None),
             Some(h) if h.records + (records.len() as u64) <= 2 * live + 64 => {
                 let bytes = history::serialize(&records)?;
-                let len = self.store.append_history(tbl_id, h.file, h.len, &bytes)?;
-                HistoryRef { file: h.file, len, records: h.records + records.len() as u64 }
+                let len = h.len + bytes.len() as u64;
+                (HistoryRef { file: h.file, len, records: h.records + records.len() as u64 }, Some((h.file, h.len, bytes)))
             }
             old => {
-                // a new history file with every record
                 let all = history::changed_records(&[], &[], &md.versions, &md.schema_versions);
                 let bytes = history::serialize(&all)?;
                 let file = crate::store::table_data::new_segment_id();
                 written.push(Store::history_file_name(tbl_id, file));
-                let len = self.store.append_history(tbl_id, file, 0, &bytes)?;
                 if let Some(old) = old {
                     self.pending_deletes.push(PendingDelete::TableFile(Store::history_file_name(tbl_id, old.file)));
                 }
-                HistoryRef { file, len, records: all.len() as u64 }
+                (HistoryRef { file, len: bytes.len() as u64, records: all.len() as u64 }, Some((file, 0, bytes)))
             }
         };
         if md.storage.history != Some(new_ref) {
             self.table_mut(tbl_id)?.storage.history = Some(new_ref);
         }
-        Ok(())
+        Ok(write.map(|(file, offset, bytes)| FileWrite::History { tbl_id, file, offset, bytes }))
     }
 
     // ---------------------------------------------------------------------------------------- lookups

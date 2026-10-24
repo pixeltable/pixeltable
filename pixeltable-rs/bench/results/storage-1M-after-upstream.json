@@ -1,0 +1,86 @@
+{
+  "rows": 1000000,
+  "repeat": 1,
+  "builds": {
+    "after": {
+      "label": "after",
+      "rows": 1000000,
+      "repeat": 1,
+      "results": {
+        "insert_batches_pk": {
+          "total_s": 58.062,
+          "first10_batch_ms": 2.312,
+          "last10_batch_ms": 2.742,
+          "disk_mb": 80.21
+        },
+        "insert_one_pk": {
+          "total_s": 3.748,
+          "disk_mb": 76.93
+        },
+        "point_lookup": {
+          "pk_lookup_ms": 0.052,
+          "filter_lookup_ms": 82.939,
+          "pk_count_ms": 0.221,
+          "indexed_filter_lookup_ms": 0.031
+        },
+        "update": {
+          "update_1pct_ms": 603.449,
+          "batch_update_1pct_ms": 79.328,
+          "update_1row_ms": 67.949,
+          "disk_growth_mb": 8.34
+        },
+        "delete": {
+          "delete_1pct_ms": 411.77,
+          "delete_1row_ms": 60.1
+        },
+        "time_travel": {
+          "old_version_count_ms": 0.273,
+          "old_version_lookup_ms": 0.066,
+          "mid_version_filter_ms": 126.562,
+          "current_count_ms": 0.034
+        },
+        "reload": {
+          "reload_first_count_ms": 52.13,
+          "warm_count_ms": 0.1,
+          "reload_first_lookup_ms": 32.03
+        }
+      }
+    },
+    "upstream": {
+      "label": "upstream",
+      "rows": 1000000,
+      "repeat": 1,
+      "results": {
+        "insert_batches_pk": {
+          "total_s": 142.737,
+          "first10_batch_ms": 13.773,
+          "last10_batch_ms": 12.777,
+          "disk_mb": 506.95
+        },
+        "insert_one_pk": {
+          "total_s": 42.525,
+          "disk_mb": 496.84
+        },
+        "point_lookup": {
+          "error": "(Background on this error at: https://sqlalche.me/e/21/9h9h)"
+        },
+        "update": {
+          "error": "(Background on this error at: https://sqlalche.me/e/21/9h9h)"
+        },
+        "delete": {
+          "delete_1pct_ms": 45.327,
+          "delete_1row_ms": 11.713
+        },
+        "time_travel": {
+          "old_version_count_ms": 56.886,
+          "old_version_lookup_ms": 63.991,
+          "mid_version_filter_ms": 59.856,
+          "current_count_ms": 210.208
+        },
+        "reload": {
+          "error": "(Background on this error at: https://sqlalche.me/e/21/9h9h)"
+        }
+      }
+    }
+  }
+}

@@ -219,13 +219,11 @@ impl TableData {
         !self.patches.is_empty() || self.segs.iter().any(|s| !s.written)
     }
 
-    /// Prepares writing: merges segments as the compaction policy says and attaches the pending patches to the last
-    /// segment. Returns the segments to write, each with the `v_max` to record (the current one); call
-    /// `mark_written()` once they are written.
+    /// Prepares writing: attaches the pending patches to the last segment and merges segments as the compaction policy
+    /// says. Returns the segments to write, each with the `v_max` to record (the current one); call `mark_written()`
+    /// once they are written.
     pub fn prepare_write(&mut self) -> Vec<(Arc<Segment>, Arc<Vec<i64>>)> {
-        while let Some(range) = self.plan_merge() {
-            self.merge(range);
-        }
+        // the pending patches first, so that the merge policy sees them
         let pending = std::mem::take(&mut self.patches);
         if !pending.is_empty() {
             let pos: HashMap<u64, usize> =
@@ -255,6 +253,9 @@ impl TableData {
                     }
                 }
             }
+        }
+        while let Some(range) = self.plan_merge() {
+            self.merge(range);
         }
         self.segs.iter().filter(|s| !s.written).map(|s| (s.seg.clone(), s.vmax.clone())).collect()
     }
