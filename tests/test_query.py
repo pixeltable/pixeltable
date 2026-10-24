@@ -156,6 +156,15 @@ class TestQuery:
             _ = t.select(t.c1, t2.c1 + t.c2).collect()
         assert 'cannot be evaluated in the context' in str(exc_info.value)
 
+        # where clause contains invalid references
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
+            _ = t.where(t.c2 == t2.c1).collect()
+        assert 'cannot be evaluated in the context' in str(exc_info.value)
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
+            _ = t.select(t.c2).where(t2.c1 > 0).collect()
+        assert 'cannot be evaluated in the context' in str(exc_info.value)
+
         with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'where\(\) clause already specified'):
             _ = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
 
@@ -759,7 +768,7 @@ class TestQuery:
 
         # delete from view
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
-            v2.where(t.c2 < 10).delete()
+            v2.where(v2.pos > 0).delete()
         assert 'Cannot use `delete` on a view.' in str(exc_info.value)
 
         # update snapshot
