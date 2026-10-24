@@ -200,6 +200,7 @@ tests/test_table.py::TestTable::test_case_insensitive_column_name_resolution
 tests/test_table.py::TestTable::test_case_insensitive_columns
 tests/test_table.py::TestTable::test_column_comment
 tests/test_table.py::TestTable::test_column_custom_metadata
+tests/test_table.py::TestTable::test_column_metadata
 tests/test_table.py::TestTable::test_columns
 tests/test_table.py::TestTable::test_common_col_names
 tests/test_table.py::TestTable::test_component_view_query_as_source
@@ -249,6 +250,7 @@ tests/test_table.py::TestTable::test_pydantic_errors
 tests/test_table.py::TestTable::test_pydantic_media
 tests/test_table.py::TestTable::test_pydantic_serializer_reads_table
 tests/test_table.py::TestTable::test_query
+tests/test_table.py::TestTable::test_recompute_column
 tests/test_table.py::TestTable::test_rename_column
 tests/test_table.py::TestTable::test_schema_spec
 tests/test_table.py::TestTable::test_schema_types

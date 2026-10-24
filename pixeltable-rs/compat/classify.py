@@ -165,7 +165,10 @@ class ModuleAnalysis:
                     if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         qual = f'{node.name}.{item.name}'
                         self.units[qual] = self._analyze(qual, item, node.name)
-                        class_unit.deps.add(qual)
+                        # pytest calls a test class's methods one at a time; code that uses any other class (an
+                        # iterator, an aggregator) may have any of its methods called implicitly
+                        if not node.name.startswith('Test'):
+                            class_unit.deps.add(qual)
 
     def _analyze(self, name: str, node: ast.AST, class_name: str | None, skip_methods: bool = False) -> Unit:
         unit = Unit(name)
@@ -212,6 +215,8 @@ class ModuleAnalysis:
                     unit.reasons.add(f'internal attribute .{sub.attr}')
                 if isinstance(base, ast.Name) and base.id in ('self', 'cls') and class_name is not None:
                     unit.deps.add(f'{class_name}.{sub.attr}')
+                elif isinstance(base, ast.Name) and base.id in self.module_defs:
+                    unit.deps.add(f'{base.id}.{sub.attr}')
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             for a in [*node.args.args, *node.args.kwonlyargs]:
                 if a.arg in INTERNAL_FIXTURES:

@@ -47,8 +47,14 @@ _PUBLIC_PREFIXES = (
 )
 
 
+_INTERNAL_PREFIXES = ('pixeltable.iterators.base',)  # legacy iterator base class, not part of the public API
+
+
 def is_public_module(name: str) -> bool:
-    return any(name == p or name.startswith(p + '.') for p in _PUBLIC_PREFIXES)
+    def under(prefixes: tuple[str, ...]) -> bool:
+        return any(name == p or name.startswith(p + '.') for p in prefixes)
+
+    return under(_PUBLIC_PREFIXES) and not under(_INTERNAL_PREFIXES)
 
 
 def _describe(qualname: str) -> str:
