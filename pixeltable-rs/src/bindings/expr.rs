@@ -535,7 +535,7 @@ impl PyExpr {
             ("document", document.as_ref()),
             ("vector", vector.as_ref()),
         ];
-        super::indexes::similarity(py, &self.e, item.as_ref(), &named, idx)
+        super::indexes::similarity(py, &self.e, self.path_tbl_id, item.as_ref(), &named, idx)
     }
 
     /// `col.recompute()`: `Table.recompute_columns()` for this column.

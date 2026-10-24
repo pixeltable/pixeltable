@@ -430,7 +430,7 @@ fn plain_column_spec(name: &str, col_type: crate::types::ColumnType) -> ColumnSp
 #[pyfunction]
 #[pyo3(signature = (
     path, schema, source, primary_key, comment, custom_metadata, media_validation, if_exists, is_data_versioned,
-    schema_overrides=None, on_error="abort", has_default_idxs=false
+    schema_overrides=None, on_error="abort", has_default_idxs=false, source_format=None, extra_args=None
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn create_table(
@@ -447,6 +447,8 @@ pub fn create_table(
     schema_overrides: Option<&Bound<'_, PyAny>>,
     on_error: &str,
     has_default_idxs: bool,
+    source_format: Option<&str>,
+    extra_args: Option<&Bound<'_, PyAny>>,
 ) -> Result<(String, String, bool)> {
     let path = &*path;
     let schema = schema.filter(|s| !s.is_none());
@@ -462,7 +464,7 @@ pub fn create_table(
     let p = Path::parse(path, false, false)?;
     let ie = IfExists::parse(if_exists, "if_exists")?;
     let mv = MediaValidation::parse(media_validation, "media_validation")?;
-    let pk = normalize_primary_key(primary_key)?;
+    let mut pk = normalize_primary_key(primary_key)?;
     let fail_on_exception = match on_error.to_ascii_lowercase().as_str() {
         "abort" => true,
         "ignore" => false,
@@ -473,8 +475,21 @@ pub fn create_table(
         (Some(schema), _) => parse_schema(schema.cast::<PyDict>().map_err(|_| Error::internal("schema"))?)?,
         (None, Some(source)) => {
             let overrides = super::sources::parse_schema_overrides(schema_overrides)?;
-            let c = super::sources::classify(py, source)?;
+            let extra = match extra_args.filter(|e| !e.is_none()) {
+                Some(e) => Some(e.cast::<PyDict>().map_err(|_| crate::pxt_err!(InvalidArgument, "`extra_args` must be a dictionary"))?.clone()),
+                None => None,
+            };
+            let mut c = super::sources::classify_with(py, source, source_format, extra.as_ref())?;
+            if let Conduit::Pandas { overrides: o, .. } = &mut c {
+                *o = overrides.clone();
+            }
             let inferred: Vec<(String, crate::types::ColumnType)> = match &c {
+                Conduit::Pandas { df, overrides } => {
+                    let cols = super::sources::pandas_schema(py, df, overrides, &pk)?;
+                    // the primary key, by the Pixeltable names of its columns
+                    pk = pk.iter().filter_map(|p| cols.iter().find(|c| c.src == *p).map(|c| c.name.clone())).collect();
+                    cols.into_iter().map(|c| (c.name, c.col_type)).collect()
+                }
                 Conduit::Query(q) => {
                     let items = with_catalog(py, |cat| q.effective_select(cat))?;
                     items.into_iter().map(|(e, n)| (n, e.col_type.clone())).collect()

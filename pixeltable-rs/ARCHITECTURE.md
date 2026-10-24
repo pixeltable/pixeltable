@@ -355,9 +355,12 @@ afterwards over the rows an insert adds or an update changes, as upstream's plan
 
 ## Data sources, compute(), indexes
 
-Data sources (`bindings/sources.rs`, upstream `TableDataConduit`): `classify()` sorts a source into rows of dicts
-(lists, materialized iterators), pydantic models (dumped before any catalog access, validated against the table as
-upstream does) or a query (a `Table` or `Query`, executed in Rust and inserted value by value). `create_table(source=
+Data sources (`bindings/sources.rs`, upstream `TableDataConduit`): `classify_with()` sorts a source into rows of
+dicts (lists, materialized iterators, JSON/JSONL files), pydantic models (dumped before any catalog access, validated
+against the table as upstream does), a query (a `Table` or `Query`, executed in Rust and inserted value by value) or a
+pandas DataFrame (also a CSV/Excel file read with pandas, `extra_args`/`insert()` keyword arguments passed to the
+reader); a DataFrame's schema comes from its dtypes (`pandas_schema()`, names normalized to identifiers) and its rows
+are converted by that schema (`pandas_rows()`). `create_table(source=
 ...)` infers the schema from rows (`infer_schema_from_rows()`, with `schema_overrides`) or takes the query's schema,
 creates the table, then inserts. `return_rows` (insert, update, batch_update) reports the stored columns of the new
 rows (media by file URL), index values as `<col>:<idx>` and cell errors as `<col>:md` (`exec::insert::ReturnCol`).
