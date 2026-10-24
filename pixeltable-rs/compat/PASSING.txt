@@ -111,6 +111,7 @@ tests/test_exprs.py::TestExprs::test_select_list
 tests/test_exprs.py::TestExprs::test_similarity
 tests/test_exprs.py::TestExprs::test_string_operations
 tests/test_exprs.py::TestExprs::test_udas
+tests/test_exprs.py::TestExprs::test_window_fns
 tests/test_exprs.py::test_gc_bug_leaked_slot
 tests/test_function.py::TestFunction::test_call
 tests/test_function.py::TestFunction::test_conditional_return_type

@@ -152,35 +152,70 @@ impl ViewCompute {
         saved: &mut Vec<std::path::PathBuf>,
     ) -> Result<Vec<(usize, StoredRow)>> {
         let materialized = self.info.iterator.is_some();
-        let mut rows: Vec<(usize, StoredRow)> = Vec::new();
+        let mut out: Vec<(usize, StoredRow)> = Vec::new();
         if !self.computed.iter().any(|c| super::query::has_window_calls(&c.expr)) {
             // row by row, so that only one base row's unstored iterator outputs are held at a time
             for (i, base) in bases.iter().enumerate() {
                 for mut row in self.new_rows(base_infos, base)? {
                     self.eval_columns(&mut row, &self.computed, base_infos, base, status, saved, materialized)?;
                     self.finish_row(&mut row, saved)?;
-                    rows.push((i, row));
+                    out.push((i, row));
                 }
             }
         } else {
+            let mut parents = Vec::new();
+            let mut rows = Vec::new();
             for (i, base) in bases.iter().enumerate() {
-                rows.extend(self.new_rows(base_infos, base)?.into_iter().map(|r| (i, r)));
-            }
-            for col in &self.computed {
-                if super::query::has_window_calls(&col.expr) {
-                    self.eval_window_column(&mut rows, col, base_infos, bases, status, saved, materialized)?;
-                } else {
-                    for (i, row) in rows.iter_mut() {
-                        self.eval_columns(row, std::slice::from_ref(col), base_infos, bases[*i], status, saved, materialized)?;
-                    }
+                for row in self.new_rows(base_infos, base)? {
+                    parents.push(i);
+                    rows.push(row);
                 }
             }
-            for (_, row) in rows.iter_mut() {
+            let row_bases: Vec<&[&StoredRow]> = parents.iter().map(|i| bases[*i]).collect();
+            self.eval_rows(&mut rows, &row_bases, &self.computed, base_infos, status, saved, materialized)?;
+            for row in rows.iter_mut() {
                 self.finish_row(row, saved)?;
             }
+            out = parents.into_iter().zip(rows).collect();
         }
-        status.row_count_stats.ins_rows += rows.len() as i64;
-        Ok(rows)
+        status.row_count_stats.ins_rows += out.len() as i64;
+        Ok(out)
+    }
+
+    /// `eval_columns()` for a batch of rows of this view (`rows[i]` belongs to the base path row `bases[i]`); columns
+    /// computed with window functions are evaluated over the whole batch.
+    #[allow(clippy::too_many_arguments)]
+    pub fn eval_rows(
+        &self,
+        rows: &mut [StoredRow],
+        bases: &[&[&StoredRow]],
+        cols: &[ComputedCol],
+        base_infos: &[&ElemInfo],
+        status: &mut UpdateStatus,
+        saved: &mut Vec<std::path::PathBuf>,
+        materialized: bool,
+    ) -> Result<()> {
+        let mut infos: Vec<&ElemInfo> = Vec::with_capacity(base_infos.len() + 1);
+        infos.push(if materialized { &self.compute_info } else { &self.info });
+        infos.extend_from_slice(base_infos);
+        super::scan::eval_rows_into(
+            rows,
+            bases,
+            cols,
+            &infos,
+            &self.name,
+            self.fail_on_exception,
+            &mut status.row_count_stats,
+            &mut status.cols_with_excs,
+        )?;
+        if let Some(media) = &self.media {
+            for row in rows.iter_mut() {
+                for c in cols.iter().filter(|c| c.is_media) {
+                    media.materialize(row, c.col_id, saved)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The rows of this view for one base path row before their computed columns are evaluated: one row keyed by the
@@ -215,60 +250,6 @@ impl ViewCompute {
                 row.set_cell(*col_id, crate::value::Value::Null);
             } else if let Some(media) = &self.media {
                 media.materialize(row, *col_id, saved)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Evaluates column `col`, computed with window functions, over the new rows `rows`.
-    #[allow(clippy::too_many_arguments)]
-    fn eval_window_column(
-        &self,
-        rows: &mut [(usize, StoredRow)],
-        col: &ComputedCol,
-        base_infos: &[&ElemInfo],
-        bases: &[&[&StoredRow]],
-        status: &mut UpdateStatus,
-        saved: &mut Vec<std::path::PathBuf>,
-        materialized: bool,
-    ) -> Result<()> {
-        let mut infos: Vec<&ElemInfo> = Vec::with_capacity(base_infos.len() + 1);
-        infos.push(if materialized { &self.compute_info } else { &self.info });
-        infos.extend_from_slice(base_infos);
-        let results = {
-            let paths: Vec<Vec<&StoredRow>> = rows
-                .iter()
-                .map(|(i, r)| std::iter::once(r).chain(bases[*i].iter().copied()).collect())
-                .collect();
-            super::query::eval_rows_with_windows(&infos, &paths, &col.expr, true)?
-        };
-        for ((_, row), res) in rows.iter_mut().zip(results) {
-            status.row_count_stats.computed_values += 1;
-            match res {
-                Ok(v) => {
-                    row.set_cell(col.col_id, v);
-                    row.set_error(col.col_id, None);
-                }
-                Err(err) => {
-                    if crate::functions::udf::is_interrupt(&err) {
-                        return Err(err);
-                    }
-                    if self.fail_on_exception {
-                        return Err(super::compute::eval_error(&col.expr, err));
-                    }
-                    status.row_count_stats.num_excs += 1;
-                    let qualified = format!("{}.{}", self.name, col.name);
-                    if !status.cols_with_excs.contains(&qualified) {
-                        status.cols_with_excs.push(qualified);
-                    }
-                    row.set_cell(col.col_id, crate::value::Value::Null);
-                    row.set_error(col.col_id, Some(super::compute::cell_error(&err)));
-                }
-            }
-            if col.is_media {
-                if let Some(media) = &self.media {
-                    media.materialize(row, col.col_id, saved)?;
-                }
             }
         }
         Ok(())
@@ -312,50 +293,24 @@ pub fn select_sample<'a>(
     infos: &[&ElemInfo],
     sc: &super::SampleClause,
 ) -> Result<Vec<Vec<&'a StoredRow>>> {
-    use super::sample::{fraction_keeps, key_hash, random_u64};
-    let seed = sc.seed.map(|s| s as u64).unwrap_or_else(random_u64);
-    let mut keyed: Vec<(u64, Vec<&StoredRow>)> = rows.into_iter().map(|r| (key_hash(seed, r[0].rowid, &r[0].pos), r)).collect();
-    keyed.sort_by_key(|(k, _)| *k);
-    if !sc.is_stratified() {
-        return Ok(match (sc.fraction, sc.n) {
-            (Some(f), _) => keyed.into_iter().filter(|(k, _)| fraction_keeps(*k, f)).map(|(_, r)| r).collect(),
-            (None, Some(n)) => keyed.into_iter().take(n.max(0) as usize).map(|(_, r)| r).collect(),
-            _ => keyed.into_iter().map(|(_, r)| r).collect(),
-        });
-    }
-    let mut strata: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    let mut counts: Vec<usize> = Vec::new();
-    let mut ranked: Vec<(usize, usize, u64, Vec<&StoredRow>)> = Vec::new();
-    for (k, r) in keyed {
-        let ctx = PathCtx::new(infos, &r);
-        let vals = sc.stratify_by.iter().map(|e| crate::expr::eval::eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
-        let skey = format!("{vals:?}");
-        let next = strata.len();
-        let sid = *strata.entry(skey).or_insert(next);
-        if sid == counts.len() {
-            counts.push(0);
+    // the same selection as `Query.sample()` (`exec::query::sample_select()`), so a seeded snapshot holds the rows
+    // its query returns
+    let seed = super::query::sample_seed(sc);
+    let hashes: Vec<u64> = rows.iter().map(|r| super::sample::key_hash(seed, r[0].rowid, &r[0].pos)).collect();
+    let strata = if sc.is_stratified() {
+        let mut keys = Vec::with_capacity(rows.len());
+        for r in &rows {
+            let ctx = PathCtx::new(infos, r);
+            let vals = sc.stratify_by.iter().map(|e| crate::expr::eval::eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
+            keys.push(super::query::keys_of(&vals));
         }
-        let rank = counts[sid];
-        counts[sid] += 1;
-        ranked.push((sid, rank, k, r));
-    }
-    let mut out: Vec<(usize, u64, Vec<&StoredRow>)> = match (sc.n_per_stratum, sc.n, sc.fraction) {
-        (Some(per), _, _) => ranked.into_iter().filter(|(_, rank, _, _)| (*rank as i64) < per).map(|(_, rk, k, r)| (rk, k, r)).collect(),
-        (None, Some(n), _) => {
-            let mut v: Vec<(usize, u64, Vec<&StoredRow>)> = ranked.into_iter().map(|(_, rk, k, r)| (rk, k, r)).collect();
-            v.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
-            v.truncate(n.max(0) as usize);
-            v
-        }
-        (None, None, Some(f)) => ranked
-            .into_iter()
-            .filter(|(sid, rank, _, _)| (*rank as f64) < (f * counts[*sid] as f64).ceil())
-            .map(|(_, rk, k, r)| (rk, k, r))
-            .collect(),
-        _ => Vec::new(),
+        Some(keys)
+    } else {
+        None
     };
-    out.sort_by_key(|(_, k, _)| *k);
-    Ok(out.into_iter().map(|(_, _, r)| r).collect())
+    let selected = super::query::sample_select(&hashes, strata.as_deref(), sc);
+    let mut rows: Vec<Option<Vec<&StoredRow>>> = rows.into_iter().map(Some).collect();
+    Ok(selected.into_iter().filter_map(|i| rows[i].take()).collect())
 }
 
 /// A live view of a table, with its own live views.
