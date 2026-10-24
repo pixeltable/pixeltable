@@ -109,6 +109,7 @@ impl Catalog {
                 is_snapshot,
             }),
             data_file: None,
+            indexes: Default::default(),
         };
         self.tables.insert(id, Arc::new(md));
         self.commit()?;

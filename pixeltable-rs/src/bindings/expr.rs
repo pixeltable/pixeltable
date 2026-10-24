@@ -460,6 +460,36 @@ impl PyExpr {
         }
     }
 
+    /// `col.similarity(...)`: a similarity lookup against an embedding index of the column.
+    #[pyo3(signature = (item=None, *, string=None, image=None, audio=None, video=None, document=None, vector=None, idx=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn similarity<'py>(
+        &self,
+        py: Python<'py>,
+        item: Option<&Bound<'py, PyAny>>,
+        string: Option<&Bound<'py, PyAny>>,
+        image: Option<&Bound<'py, PyAny>>,
+        audio: Option<&Bound<'py, PyAny>>,
+        video: Option<&Bound<'py, PyAny>>,
+        document: Option<&Bound<'py, PyAny>>,
+        vector: Option<&Bound<'py, PyAny>>,
+        idx: Option<&str>,
+    ) -> Result<PyExpr> {
+        let given = |v: Option<&Bound<'py, PyAny>>| v.filter(|v| !v.is_none()).cloned();
+        let (string, image, audio) = (given(string), given(image), given(audio));
+        let (video, document, vector) = (given(video), given(document), given(vector));
+        let item = given(item);
+        let named = [
+            ("string", string.as_ref()),
+            ("image", image.as_ref()),
+            ("audio", audio.as_ref()),
+            ("video", video.as_ref()),
+            ("document", document.as_ref()),
+            ("vector", vector.as_ref()),
+        ];
+        super::indexes::similarity(py, &self.e, item.as_ref(), &named, idx)
+    }
+
     fn _is_column_ref(&self) -> bool {
         self.e.as_column_ref().is_some()
     }
