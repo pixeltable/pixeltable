@@ -408,6 +408,8 @@ cd ~/proj
 pxt init                             # writes pixeltable.toml, making ~/proj the project root
 ```
 
+`pxt init` refuses (exit 3) your home directory, any directory above it and the Pixeltable home.
+
 That file has one entry for each database in the project:
 
 ```toml
