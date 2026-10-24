@@ -132,6 +132,7 @@ tests/test_function.py::TestFunction::test_nested_partial_binding
 tests/test_function.py::TestFunction::test_overloaded_uda
 tests/test_function.py::TestFunction::test_overloaded_udf
 tests/test_function.py::TestFunction::test_partial_binding
+tests/test_function.py::TestFunction::test_query
 tests/test_function.py::TestFunction::test_query2
 tests/test_function.py::TestFunction::test_query_bound_limit_offset
 tests/test_function.py::TestFunction::test_query_errors

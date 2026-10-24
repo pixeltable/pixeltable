@@ -574,6 +574,16 @@ fn eval_query_call(
         let input = crate::catalog::runtime::with_catalog(py, |cat| crate::exec::QueryInput::snapshot(cat, &q))?;
         crate::exec::execute(&input, false)
     })?;
+    // Rows whose values all have a JSON form are a JSON list. Others (an in-memory image, an array, a timestamp) are a
+    // list of Python objects, as upstream returns them: a query can return or index it (JSON paths over
+    // `Value::PyObj`, `expr::eval`), a JSON column cannot store it.
+    match query_rows_json(&data, return_scalar) {
+        Err(Error::NotImplemented(_)) => query_rows_py(&data, return_scalar),
+        res => Ok(Value::Json(res?)),
+    }
+}
+
+fn query_rows_json(data: &crate::exec::ResultData, return_scalar: bool) -> Result<Json> {
     let mut rows = Vec::with_capacity(data.rows.len());
     for row in &data.rows {
         if return_scalar {
@@ -586,7 +596,28 @@ fn eval_query_call(
             rows.push(Json::Object(m));
         }
     }
-    Ok(Value::Json(Json::Array(rows)))
+    Ok(Json::Array(rows))
+}
+
+fn query_rows_py(data: &crate::exec::ResultData, return_scalar: bool) -> Result<Value> {
+    Python::attach(|py| {
+        let rows = PyList::empty(py);
+        for row in &data.rows {
+            if return_scalar {
+                match (row.first(), data.types.first()) {
+                    (Some(v), Some(t)) => rows.append(vpy::to_py(py, v, t)?)?,
+                    _ => rows.append(py.None())?,
+                }
+            } else {
+                let d = PyDict::new(py);
+                for ((name, t), v) in data.names.iter().zip(&data.types).zip(row) {
+                    d.set_item(name, vpy::to_py(py, v, t)?)?;
+                }
+                rows.append(d)?;
+            }
+        }
+        Ok(Value::PyObj(Arc::new(rows.into_any().unbind())))
+    })
 }
 
 /// True for a Python exception that is not an `Exception` (`KeyboardInterrupt`, `SystemExit`, ...): it is never

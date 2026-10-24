@@ -48,6 +48,7 @@ pub struct ViewDef {
     pub iterator: Option<std::sync::Arc<crate::functions::iterator::IteratorCall>>,
     /// the sample clause of the base query
     pub sample: Option<crate::exec::SampleClause>,
+    /// a default B-tree index on each eligible column of the view (not on its bases' columns)
     pub has_default_idxs: bool,
 }
 
@@ -395,6 +396,7 @@ impl Catalog {
                         py_repr(&base_name)
                     );
                 }
+                crate::functions::udf::validate_storable(e, "A view's sample clause")?;
             }
         }
 
@@ -518,7 +520,7 @@ impl Catalog {
         let mut version0 = VersionMd::new(0, ts, 0, "schema", None);
         version0.base_versions =
             base_path.iter().map(|e| Ok(e.pinned.unwrap_or(self.table(e.tbl_id)?.current_version))).collect::<Result<_>>()?;
-        let md = TableMd {
+        let mut md = TableMd {
             id,
             dir_id: Uuid::nil(),
             name: path.name().to_string(),
@@ -551,6 +553,9 @@ impl Catalog {
             data_file: None,
             indexes: Default::default(),
         };
+        if def.has_default_idxs {
+            super::indexes::add_default_view_indexes(&mut md)?;
+        }
         Ok(ViewPlanOutcome::New(Box::new(md), base_path))
     }
 

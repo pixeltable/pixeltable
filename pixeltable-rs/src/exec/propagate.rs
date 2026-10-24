@@ -44,7 +44,8 @@ impl ViewCompute {
             None => None,
         };
         let mut computed = Vec::new();
-        for c in md.columns_at(None)? {
+        let own = md.columns_at(None)?;
+        for c in &own {
             if c.md.stored {
                 if let Some(e) = &c.md.value_expr {
                     computed.push(ComputedCol {
@@ -56,6 +57,8 @@ impl ViewCompute {
                 }
             }
         }
+        // the value columns of the indexes on the view's own columns (see `current()` for its bases' columns)
+        computed.extend(super::compute::index_value_columns_md(md, &own, None)?);
         let media = MediaTarget { tbl_id: md.id, dir: media_dir, version: md.current_version + 1 };
         let info = ElemInfo::of(md, None)?;
         let compute_info = info.with_materialized_outputs();
@@ -75,11 +78,15 @@ impl ViewCompute {
         })
     }
 
-    /// The current definition of view `tbl_id` in the catalog, including the hidden value columns of its embedding
-    /// indexes.
+    /// The current definition of view `tbl_id` in the catalog, including the value columns of the indexes on its
+    /// bases' columns.
     pub fn current(cat: &Catalog, tbl_id: Uuid) -> Result<ViewCompute> {
         let mut vc = ViewCompute::of(cat.table(tbl_id)?, cat.store().media_dir(tbl_id))?;
-        vc.computed.extend(super::compute::index_value_columns(cat, tbl_id, None)?);
+        for c in super::compute::index_value_columns(cat, tbl_id, None)? {
+            if !vc.computed.iter().any(|x| x.col_id == c.col_id) {
+                vc.computed.push(c);
+            }
+        }
         Ok(vc)
     }
 

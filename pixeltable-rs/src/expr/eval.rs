@@ -117,6 +117,55 @@ fn eval_json_path(v: &Json, path: &[JsonPathElem]) -> Json {
     cur.clone()
 }
 
+/// `eval_json_path()` over an in-flight list or dict of Python objects (the rows of a query function whose values have
+/// no JSON form, see `functions::udf`); the result is converted to the path's type.
+fn py_json_path(obj: &pyo3::Py<pyo3::PyAny>, path: &[JsonPathElem], t: &crate::types::ColumnType) -> Result<Value> {
+    pyo3::Python::attach(|py| {
+        let v = py_path(obj.bind(py), path)?;
+        crate::value::py::coerce(&v, &t.with_nullable(true))
+    })
+}
+
+fn py_path<'py>(v: &pyo3::Bound<'py, pyo3::PyAny>, path: &[JsonPathElem]) -> Result<pyo3::Bound<'py, pyo3::PyAny>> {
+    use pyo3::prelude::*;
+    use pyo3::types::{PyDict, PyList};
+    let py = v.py();
+    let none = || py.None().into_bound(py);
+    let mut cur = v.clone();
+    for (i, el) in path.iter().enumerate() {
+        match el {
+            JsonPathElem::Wildcard | JsonPathElem::Slice(..) => {
+                let Ok(list) = cur.cast::<PyList>() else { return Ok(none()) };
+                let items: Vec<Bound<'py, PyAny>> = list.iter().collect();
+                let selected = match el {
+                    JsonPathElem::Slice(a, b, c) => crate::functions::string::py_slice(&items, *a, *b, *c).unwrap_or_default(),
+                    _ => items,
+                };
+                let out = PyList::empty(py);
+                for x in &selected {
+                    out.append(py_path(x, &path[i + 1..])?)?;
+                }
+                return Ok(out.into_any());
+            }
+            JsonPathElem::Index(idx) => {
+                let Ok(list) = cur.cast::<PyList>() else { return Ok(none()) };
+                let n = list.len() as i64;
+                if !(-n <= *idx && *idx < n) {
+                    return Ok(none());
+                }
+                let item = list.get_item((if *idx < 0 { idx + n } else { *idx }) as usize)?;
+                cur = item;
+            }
+            JsonPathElem::Key(k) => {
+                let Ok(d) = cur.cast::<PyDict>() else { return Ok(none()) };
+                let Some(item) = d.get_item(k)? else { return Ok(none()) };
+                cur = item;
+            }
+        }
+    }
+    Ok(cur)
+}
+
 /// Python truthiness of a value.
 pub fn py_truthy(v: &Value) -> bool {
     match v {
@@ -361,6 +410,7 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
         ExprKind::JsonPath { base, path } => match eval(base, ctx)? {
             Value::Null => Ok(Value::Null),
             Value::Json(j) => Ok(json_as(eval_json_path(&j, path), &e.col_type)),
+            Value::PyObj(o) => py_json_path(&o, path, &e.col_type),
             other => Ok(json_as(eval_json_path(&crate::value::value_to_json(&other)?, path), &e.col_type)),
         },
         ExprKind::RelativeRoot { id } => {

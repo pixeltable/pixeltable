@@ -60,6 +60,11 @@ def triple(x: int) -> int:
     return x * 3
 
 
+@pxt.udf
+def pair(x: int) -> pxt.Array[(2,), pxt.Int]:
+    return np.array([x, x])
+
+
 @pxt.expr_udf
 def plus_one(x: int) -> int:
     return x + 1
@@ -194,6 +199,17 @@ class TestUdfCalls:
             @pxt.query
             def bad(n: int) -> pxt.Query:
                 return t.select(t.i).limit(n + 1)
+
+    def test_query_template_non_json_rows(self, t: pxt.Table) -> None:
+        # rows with values that have no JSON form are Python objects, as upstream returns them
+        @pxt.query(return_scalar=True)
+        def pairs(x: int) -> pxt.Query:
+            return t.where(t.i == x).select(p=pair(t.i))
+
+        res = t.where(t.i == 2).select(r=pairs(t.i), first=pairs(t.i)[0]).collect()[0]
+        assert np.array_equal(res['r'][0], [2, 2]) and np.array_equal(res['first'], [2, 2])
+        status = t.add_computed_column(c=pairs(t.i), on_error='ignore')  # a JSON column cannot store them
+        assert status.num_excs == 4
 
     def test_uda(self, t: pxt.Table) -> None:
         assert t.select(s=total(t.i)).collect()[0]['s'] == 6  # NULL for a non-nullable parameter is skipped

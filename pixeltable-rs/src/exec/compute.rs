@@ -29,6 +29,20 @@ pub struct ComputedCol {
     pub is_media: bool,
 }
 
+impl ComputedCol {
+    /// A value of the column as the store holds it: an in-flight Python object in a column that is not a media column
+    /// (the rows of a query function that hold images, `functions::udf`) is converted to the column's type, which
+    /// fails for what has no stored form.
+    pub fn storable(&self, v: Value) -> Result<Value> {
+        match v {
+            Value::PyObj(o) if !self.is_media => {
+                pyo3::Python::attach(|py| crate::value::py::coerce(o.bind(py), &self.expr.col_type))
+            }
+            v => Ok(v),
+        }
+    }
+}
+
 /// Evaluates against the cells of a stored (or about-to-be-stored) row; unstored computed columns are evaluated
 /// from their value expressions.
 pub struct RowCells<'a> {
@@ -72,20 +86,29 @@ pub fn unstored_exprs(md: &crate::catalog::table::TableMd) -> Result<HashMap<Col
     Ok(out)
 }
 
-/// The hidden value columns of the embedding indexes of `tbl_id` (current schema), as computed columns named
+/// The hidden value columns of the indexes of `tbl_id` (current schema), as computed columns named
 /// `<indexed column>:<index>`; with `on`, only those of indexes on a column in `on`.
 pub fn index_value_columns(cat: &Catalog, tbl_id: Uuid, on: Option<&HashSet<(Uuid, ColId)>>) -> Result<Vec<ComputedCol>> {
-    let md = cat.table(tbl_id)?;
+    index_value_columns_md(cat.table(tbl_id)?, &cat.resolve_columns(tbl_id, None)?, on)
+}
+
+/// `index_value_columns()` of `md`, for the indexes on a column in `visible`.
+pub fn index_value_columns_md(
+    md: &crate::catalog::table::TableMd,
+    visible: &[crate::catalog::table::ResolvedColumn],
+    on: Option<&HashSet<(Uuid, ColId)>>,
+) -> Result<Vec<ComputedCol>> {
     let mut out = Vec::new();
-    for (col_name, idx) in cat.visible_indexes(tbl_id)? {
+    for idx in &md.indexes.list {
         let Some(val_col_id) = idx.val_col_id() else { continue };
         if on.is_some_and(|on| !on.contains(&(idx.col_tbl_id, idx.col_id))) {
             continue;
         }
+        let Some(indexed) = visible.iter().find(|c| c.tbl_id == idx.col_tbl_id && c.md.id == idx.col_id) else { continue };
         let Some(e) = md.column(val_col_id).and_then(|c| c.value_expr.as_ref()) else { continue };
         out.push(ComputedCol {
             col_id: val_col_id,
-            name: format!("{col_name}:{}", idx.name),
+            name: format!("{}:{}", indexed.name, idx.name),
             expr: crate::expr::serde::from_json(e)?,
             is_media: false,
         });
@@ -159,7 +182,7 @@ pub fn eval_computed(
         let inherited = c.expr.column_refs().iter().find_map(|r| row.error(r.col_id).cloned());
         let outcome: std::result::Result<Value, CellError> = match inherited {
             Some(e) => Err(e),
-            None => match eval(&c.expr, &RowCells { row, unstored }) {
+            None => match eval(&c.expr, &RowCells { row, unstored }).and_then(|v| c.storable(v)) {
                 Ok(v) => Ok(v),
                 Err(err) => {
                     if crate::functions::udf::is_interrupt(&err) {
