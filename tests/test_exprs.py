@@ -590,8 +590,40 @@ class TestExprs:
         assert res['lt'] == [None if s is None else s < 'test string 42' for s in res['c1n']]
 
         # a null comparison result is non-matching in a where clause
-        filtered = t.where(c1n_py < 'test string 42').select(t.c1n).collect()
-        assert filtered['c1n'] == [s for s in res['c1n'] if s is not None and s < 'test string 42']
+        filtered = t.where(c1n_py < 'test string 42').order_by(t.c1n).select(t.c1n).collect()
+        assert filtered['c1n'] == sorted(s for s in res['c1n'] if s is not None and s < 'test string 42')
+
+        # compound predicates over Python-evaluated comparisons follow SQL three-valued logic:
+        # an operand with the deciding value (False for AND, True for OR) determines the result,
+        # otherwise a NULL operand yields NULL; NOT NULL is NULL
+        res2 = t.select(
+            c1n=t.c1n,
+            eq=c1n_py == 'test string 42',
+            lt=c1n_py < 'test string 50',
+            conj=(c1n_py == 'test string 42') & (c1n_py < 'test string 50'),
+            conj_nn=(c1n_py == 'test string 42') & (c1n_py != None),
+            disj=(c1n_py == 'test string 42') | (c1n_py == 'test string 43'),
+            disj_nn=(c1n_py == 'test string 42') | (c1n_py != None),
+            neg=~(c1n_py == 'test string 42'),
+        ).collect()
+        keys = ['c1n', 'eq', 'lt', 'conj', 'conj_nn', 'disj', 'disj_nn', 'neg']
+        for c1n, eq, lt, conj, conj_nn, disj, disj_nn, neg in zip(*(res2[k] for k in keys)):
+            eq43 = None if c1n is None else c1n == 'test string 43'
+            # NULL AND FALSE is FALSE; NULL AND {NULL, TRUE} is NULL
+            assert conj == (False if eq is False or lt is False else None if eq is None or lt is None else True)
+            assert conj_nn == (c1n is not None and c1n == 'test string 42')
+            # NULL OR TRUE is TRUE; NULL OR {NULL, FALSE} is NULL
+            assert disj == (True if eq is True or eq43 is True else None if eq is None or eq43 is None else False)
+            assert disj_nn == (None if c1n is None else True)
+            assert neg == (None if eq is None else not eq)
+
+        # an undecided compound predicate result of NULL is non-matching in a where clause
+        disj_filtered = (
+            t.where((c1n_py == 'test string 42') | (c1n_py == 'test string 43')).order_by(t.c1n).select(t.c1n).collect()
+        )
+        assert disj_filtered['c1n'] == sorted(s for s in res['c1n'] if s in ('test string 42', 'test string 43'))
+        neg_filtered = t.where(~(c1n_py == 'test string 42')).order_by(t.c1n).select(t.c1n).collect()
+        assert neg_filtered['c1n'] == sorted(s for s in res['c1n'] if s is not None and s != 'test string 42')
 
     def test_inline_dict(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -1968,6 +2000,25 @@ class TestExprs:
         )
         assert res['c_bool'] == [False, True]
         assert res['out'] == [0, int(df.c_bool.sum())]
+
+        # sum() over an expression with an untyped SQL translation (math.abs produces an untyped
+        # sql.func.abs() call) must not inspect val.type.python_type
+        res = (
+            t.where(t.c_int != None)
+            .group_by(t.c_int)
+            .select(t.c_int, out=pxtf.sum(pxtf.math.abs(t.c_float)))
+            .order_by(t.c_int)
+            .collect()
+        )
+        pd_result = (
+            df[df.c_int.notna()]
+            .assign(abs_float=lambda d: d.c_float.abs())
+            .groupby('c_int')
+            .agg(out=('abs_float', 'sum'))
+            .reset_index()
+            .sort_values('c_int')
+        )
+        assert res['out'] == pytest.approx(pd_result['out'].tolist())
 
     def test_agg_errors(self, test_tbl: pxt.Table) -> None:
         t = test_tbl

@@ -7,7 +7,7 @@ import logging
 import math
 import sys
 import time
-from typing import Collection
+from typing import Any, Collection
 
 from pixeltable import env, exceptions as excs, func, telemetry, telemetry_schemas
 from pixeltable.config import Config
@@ -20,6 +20,22 @@ from .globals import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
 _logger = logging.getLogger(__name__)
 
 __all__ = ['RateLimitsScheduler', 'RequestRateScheduler']
+
+
+def _record_results(dispatcher: Dispatcher, request: FnCallArgs, results: list[Any], exec_ctx: ExprEvalCtx) -> None:
+    """Assign one validated result per row and dispatch the rows.
+
+    A result that does not match the call's declared return type is a cell error, not a request
+    failure: it is recorded on the row and never retried.
+    """
+    for row, result in zip(request.rows, results):
+        try:
+            row[request.fn_call.slot_idx] = request.fn_call.check_return_value(result)
+        except Exception as exc:
+            _, _, exc_tb = sys.exc_info()
+            row.set_exc(request.fn_call.slot_idx, exc)
+            dispatcher.dispatch_exc([row], request.fn_call.slot_idx, exc_tb, exec_ctx)
+    dispatcher.dispatch([row for row in request.rows if not row.has_exc(request.fn_call.slot_idx)], exec_ctx)
 
 
 class RateLimitsScheduler(Scheduler):
@@ -217,24 +233,21 @@ class RateLimitsScheduler(Scheduler):
                 telemetry_schemas.udf_call(pxt_fn),
             ):
                 if request.is_batched:
-                    batch_result = await pxt_fn.aexec_batch(*request.batch_args, **request.batch_kwargs)
-                    assert len(batch_result) == len(request.rows)
-                    for row, result in zip(request.rows, batch_result):
-                        row[request.fn_call.slot_idx] = result
+                    result_batch = await pxt_fn.aexec_batch(*request.batch_args, **request.batch_kwargs)
+                    assert len(result_batch) == len(request.rows)
                 else:
                     request_kwargs = request.kwargs
                     if '_runtime_ctx' in pxt_fn.signature.system_parameters:
                         request_kwargs = {**request_kwargs, '_runtime_ctx': env.RuntimeCtx(is_retry=num_retries > 0)}
                     fault_injection.process_fault(FaultLocation.SCHEDULER_RATE_LIMITS_AEXEC)
-                    result = await pxt_fn.aexec(*request.args, **request_kwargs)
-                    request.row[request.fn_call.slot_idx] = result
+                    result_batch = [await pxt_fn.aexec(*request.args, **request_kwargs)]
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
             _logger.debug(
                 f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} '
                 f'in {end_ts - start_ts}, batch_size={len(request.rows)}'
             )
 
-            self.dispatcher.dispatch(request.rows, exec_ctx)
+            _record_results(self.dispatcher, request, result_batch, exec_ctx)
         except Exception as exc:
             _logger.exception(f'scheduler {self.resource_pool}: exception in slot {request.fn_call.slot_idx}: {exc}')
             if hasattr(exc, 'response') and hasattr(exc.response, 'headers'):
@@ -405,19 +418,16 @@ class RequestRateScheduler(Scheduler):
                 telemetry_schemas.udf_call(pxt_fn),
             ):
                 if request.is_batched:
-                    batch_result = await pxt_fn.aexec_batch(*request.batch_args, **request.batch_kwargs)
-                    assert len(batch_result) == len(request.rows)
-                    for row, result in zip(request.rows, batch_result):
-                        row[request.fn_call.slot_idx] = result
+                    result_batch = await pxt_fn.aexec_batch(*request.batch_args, **request.batch_kwargs)
+                    assert len(result_batch) == len(request.rows)
                 else:
-                    result = await pxt_fn.aexec(*request.args, **request.kwargs)
-                    request.row[request.fn_call.slot_idx] = result
+                    result_batch = [await pxt_fn.aexec(*request.args, **request.kwargs)]
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
             _logger.debug(
                 f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} '
                 f'in {end_ts - start_ts}, batch_size={len(request.rows)}'
             )
-            self.dispatcher.dispatch(request.rows, exec_ctx)
+            _record_results(self.dispatcher, request, result_batch, exec_ctx)
 
         except Exception as exc:
             _logger.exception(f'exception for {self.resource_pool}: type={type(exc)}\n{exc}')

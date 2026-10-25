@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import operator
 from typing import Any, Callable
 
 import sqlalchemy as sql
@@ -16,7 +15,7 @@ from .sql_element_cache import SqlElementCache
 
 class CompoundPredicate(Expr):
     def __init__(self, operator: LogicalOperator, operands: list[Expr]):
-        super().__init__(ts.BoolType())
+        super().__init__(ts.BoolType(nullable=any(operand.col_type.nullable for operand in operands)))
         self.operator = operator
         # operands are stored in self.components
         if self.operator == LogicalOperator.NOT:
@@ -82,13 +81,22 @@ class CompoundPredicate(Expr):
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         if self.operator == LogicalOperator.NOT:
-            data_row[self.slot_idx] = not data_row[self.components[0].slot_idx]
-        else:
-            val = self.operator == LogicalOperator.AND
-            op_function = operator.and_ if self.operator == LogicalOperator.AND else operator.or_
-            for op in self.components:
-                val = op_function(val, data_row[op.slot_idx])
-            data_row[self.slot_idx] = val
+            operand_val = data_row[self.components[0].slot_idx]
+            # SQL three-valued logic: NOT NULL is NULL
+            data_row[self.slot_idx] = None if operand_val is None else not operand_val
+            return
+        # SQL three-valued logic: an operand with the deciding value (False for AND, True for OR)
+        # determines the result; otherwise a NULL operand makes it NULL
+        is_and = self.operator == LogicalOperator.AND
+        result: bool | None = is_and
+        for op in self.components:
+            operand_val = data_row[op.slot_idx]
+            if operand_val is None:
+                result = None
+            elif operand_val != is_and:
+                result = not is_and
+                break
+        data_row[self.slot_idx] = result
 
     def _as_dict(self) -> dict:
         return {'operator': self.operator.value, **super()._as_dict()}

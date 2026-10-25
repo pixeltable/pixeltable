@@ -916,7 +916,7 @@ async def embeddings(
     requests_info, tokens_info = _get_header_info(result.headers)
     is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
     rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
-    return [np.array(data['embedding'], dtype=np.float64) for data in json.loads(result.content)['data']]
+    return [np.array(data['embedding'], dtype=np.float32) for data in json.loads(result.content)['data']]
 
 
 @embeddings.conditional_return_type

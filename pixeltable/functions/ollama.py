@@ -136,7 +136,7 @@ def embed(
 
     client = _ollama_client() or ollama
     results = client.embed(model=model, input=input, truncate=truncate, options=options).dict()
-    return [np.array(data, dtype=np.float64) for data in results['embeddings']]
+    return [np.array(data, dtype=np.float32) for data in results['embeddings']]
 
 
 __all__ = local_public_names(__name__)

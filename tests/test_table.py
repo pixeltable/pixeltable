@@ -18,7 +18,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable.env import Env
+from pixeltable.env import Env, RateLimitsInfo
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
 from pixeltable.functions.video import legacy_frame_iterator
@@ -3526,6 +3526,47 @@ class TestTable:
     def wrong_return_type(s: str) -> str:
         return [s]  # type: ignore[return-value]
 
+    @staticmethod
+    @pxt.udf
+    async def wrong_return_type_async(s: str) -> str:
+        return [s]  # type: ignore[return-value]
+
+    @staticmethod
+    @pxt.udf(batch_size=4)
+    def wrong_return_type_batched(s: Batch[str]) -> Batch[str]:
+        # only 'bad' inputs produce an invalid result
+        return [x if x != 'bad' else [x] for x in s]  # type: ignore[list-item,return-value]
+
+    @staticmethod
+    @pxt.udf(resource_pool='request-rate:test-ret-type')
+    async def wrong_return_type_pooled(s: str) -> str:
+        return [s]  # type: ignore[return-value]
+
+    @staticmethod
+    @pxt.udf(batch_size=4, resource_pool='request-rate:test-ret-type-batch')
+    async def wrong_return_type_pooled_batched(s: Batch[str]) -> Batch[str]:
+        return [x if x != 'bad' else [x] for x in s]  # type: ignore[list-item,return-value]
+
+    @staticmethod
+    @pxt.udf(resource_pool='rate-limits:test-ret-type')
+    async def wrong_return_type_rate_limited(s: str) -> str:
+        # the rate-limits scheduler initializes its resource pool from the UDF's first call
+        pool_info = Env.get().get_resource_pool_info('rate-limits:test-ret-type', RateLimitsInfo)
+        now = datetime.datetime.now(tz=datetime.timezone.utc)
+        pool_info.record(now, requests=(100, 99, now))
+        return [s]  # type: ignore[return-value]
+
+    @staticmethod
+    @pxt.udf
+    def int_result_for_float(s: str) -> float:
+        return len(s)  # type: ignore[return-value]
+
+    @staticmethod
+    @pxt.udf
+    def wrong_dtype(s: str) -> pxt.Array[(None,), pxt.Float]:
+        # declared float32 but returns float64
+        return np.array([1.0, 2.0], dtype=np.float64)  # type: ignore[return-value]
+
     def test_computed_col_return_type(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         # a UDF result that doesn't match its declared return type must not reach the database
@@ -3542,6 +3583,47 @@ class TestTable:
         assert 'test_ret_type.bad' in status.cols_with_excs
         assert t.where(t.bad.errortype != None).count() == 2
         msgs = t.select(msg=t.bad.errormsg).collect()['msg']
+        assert all('returned an invalid value' in msg for msg in msgs)
+
+        # the same holds on the async path and on both resource-pool schedulers
+        t2 = pxt.create_table(p('test_ret_type_sched'), {'s': pxt.String})
+        t2.insert([{'s': 'a'}, {'s': 'b'}])
+        for name, udf in [
+            ('bad_async', self.wrong_return_type_async),
+            ('bad_pooled', self.wrong_return_type_pooled),
+            ('bad_rate_limited', self.wrong_return_type_rate_limited),
+        ]:
+            status = t2.add_computed_column(on_error='ignore', **{name: udf(t2.s)})
+            assert status.num_excs == 2
+            assert t2.where(t2[name].errortype != None).count() == 2
+            msgs = t2.select(msg=t2[name].errormsg).collect()['msg']
+            assert all('returned an invalid value' in msg for msg in msgs)
+
+        # batched UDFs record errors per row: bad inputs fail, the rest of the batch still lands
+        status = t2.add_computed_column(mixed=self.wrong_return_type_batched(t2.s), on_error='ignore')
+        assert status.num_excs == 0
+        # the earlier erroring columns error again on the new rows; only 'mixed' is asserted below
+        t2.insert([{'s': 'bad'}, {'s': 'c'}, {'s': 'bad'}, {'s': 'd'}], on_error='ignore')
+        res = t2.where(t2.mixed != None).order_by(t2.mixed).select(t2.mixed).collect()['mixed']
+        assert res == ['a', 'b', 'c', 'd']
+        assert t2.where(t2.mixed.errortype != None).count() == 2
+        msgs = t2.select(msg=t2.mixed.errormsg).where(t2.mixed.errortype != None).collect()['msg']
+        assert all('returned an invalid value' in msg for msg in msgs)
+
+        status = t2.add_computed_column(mixed_p=self.wrong_return_type_pooled_batched(t2.s), on_error='ignore')
+        assert status.num_excs == 2
+        assert t2.where(t2.mixed_p.errortype != None).count() == 2
+
+        # a convertible result (int for a float return type) is normalized, not an error
+        t2.add_computed_column(f=self.int_result_for_float(t2.s))
+        res = t2.select(t2.f).order_by(t2.s).collect()['f']
+        assert res == [1.0, 1.0, 3.0, 3.0, 1.0, 1.0]
+        assert all(isinstance(v, float) for v in res)
+
+        # an array result with the wrong dtype is a clean error
+        status = t2.add_computed_column(arr=self.wrong_dtype(t2.s), on_error='ignore')
+        assert status.num_excs == 6
+        msgs = t2.select(msg=t2.arr.errormsg).collect()['msg']
         assert all('returned an invalid value' in msg for msg in msgs)
 
     # TODO: cannot be converted: KeyboardInterrupt injection is client-process-local and does not reach the daemon

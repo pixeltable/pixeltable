@@ -562,12 +562,17 @@ class FunctionCall(Expr):
         if result is None:
             return result
         try:
-            self.return_type.validate_literal(result)
-        except TypeError as e:
+            if isinstance(self.return_type, ts.JsonType):
+                # a Json type's type schema is often inferred and may be stricter than the values a
+                # UDF legitimately returns (e.g., x * 2 on a Json operand is assumed to produce
+                # floats); a Json column stores any valid JSON literal
+                return ts.JsonType().create_literal(result)
+            # create_literal applies the same conversions as inserts (int to float, Enum to value, etc.)
+            return self.return_type.create_literal(result)
+        except (TypeError, ValueError) as e:
             raise excs.RequestError(
-                excs.ErrorCode.TYPE_MISMATCH, f'{self.fn.display_name}() returned an invalid value: {e}'
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self.fn.display_name}() returned an invalid value: {e}'
             ) from e
-        return result
 
     def _as_dict(self) -> dict:
         return {

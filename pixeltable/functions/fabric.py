@@ -269,7 +269,7 @@ async def embeddings(
         data = response.json()
 
     # Return embeddings as numpy arrays (same format as OpenAI)
-    return [np.array(item['embedding'], dtype=np.float64) for item in data['data']]
+    return [np.array(item['embedding'], dtype=np.float32) for item in data['data']]
 
 
 # Known embedding dimensions for common models

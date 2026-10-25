@@ -158,7 +158,7 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
         An array representing the application of the given embedding to `input`.
     """
     result = await _together_client().embeddings.create(input=input, model=model)
-    return [np.array(data.embedding, dtype=np.float64) for data in result.data]
+    return [np.array(data.embedding, dtype=np.float32) for data in result.data]
 
 
 @embeddings.conditional_return_type

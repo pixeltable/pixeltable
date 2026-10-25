@@ -60,9 +60,9 @@ class sum(func.Aggregator, typing.Generic[T]):
 def _(val: sql.ColumnElement) -> sql.ColumnElement | None:
     # This can produce a Decimal. We are deliberately avoiding an explicit cast to a Bigint here, because that can
     # cause overflows in Postgres. We're instead doing the conversion to the target type in SqlNode.__iter__().
-    if val.type.python_type is bool:
-        # Postgres has no sum(boolean); sum() accepts Bool via numeric type promotion, so cast to int
-        # and count the True values
+    if isinstance(val.type, sql.Boolean):
+        # Postgres has no sum(boolean); cast to int so sum() counts the True values. The cast also
+        # preserves NULLs, unlike CASE WHEN.
         val = sql.cast(val, sql.Integer)
     return sql.sql.func.sum(val)
 

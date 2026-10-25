@@ -211,7 +211,7 @@ async def embeddings(
     result_json = json.loads(result.text)
     if 'error' in result_json:
         raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, str(result_json['error']), provider='nebius')
-    return [np.array(data['embedding'], dtype=np.float64) for data in result_json['data']]
+    return [np.array(data['embedding'], dtype=np.float32) for data in result_json['data']]
 
 
 @embeddings.conditional_return_type

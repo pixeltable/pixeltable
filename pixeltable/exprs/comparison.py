@@ -21,7 +21,8 @@ class Comparison(Expr):
     operator: ComparisonOperator
 
     def __init__(self, operator: ComparisonOperator, op1: Expr, op2: Expr):
-        super().__init__(ts.BoolType())
+        # a NULL operand makes the result NULL (three-valued logic)
+        super().__init__(ts.BoolType(nullable=(op1.col_type.nullable or op2.col_type.nullable)))
         self.operator = operator
 
         # if this is a comparison of a column to a constant (ie, could be used as a search argument in an index lookup),
