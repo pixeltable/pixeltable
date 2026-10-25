@@ -330,9 +330,14 @@ pub fn eval_computed_batch(
             let exprs: Vec<&ExprRef> = plain.iter().map(|k| &cols[*k].expr).collect();
             let calls = {
                 let rows: &[StoredRow] = rows;
-                super::prefetch::prefetch(&exprs, &derived, limit, fail_on_exception, &|i, slot, f| {
-                    f(&RowCells { row: &rows[i], unstored: Some(unstored), calls: Some(slot) })
-                })?
+                super::prefetch::prefetch(
+                    &exprs,
+                    &derived,
+                    limit,
+                    fail_on_exception,
+                    &|i, slot, f| f(&RowCells { row: &rows[i], unstored: Some(unstored), calls: Some(slot) }),
+                    &|e, done| cells_pure_with(e, unstored, done, 0),
+                )?
             };
             let pure = super::par::worth_parallel(limit) && exprs.iter().all(|e| cells_expr_pure(e, unstored, &calls, 0));
             if pure {
@@ -407,11 +412,16 @@ pub fn eval_computed_batch(
 /// True if `e` can be evaluated for many new rows on several threads (`par::is_pure()`), with the calls in `calls` made
 /// (cells are read as they are; unstored columns are evaluated).
 fn cells_expr_pure(e: &ExprRef, unstored: &HashMap<ColId, ExprRef>, calls: &Option<super::prefetch::CallResults>, depth: usize) -> bool {
+    cells_pure_with(e, unstored, &|n| calls.as_ref().is_some_and(|r| r.complete(n)), depth)
+}
+
+/// `cells_expr_pure()`, the calls `done` says have their outcomes made.
+fn cells_pure_with(e: &crate::expr::Expr, unstored: &HashMap<ColId, ExprRef>, done: &dyn Fn(&crate::expr::Expr) -> bool, depth: usize) -> bool {
     let col_pure = |c: &ColumnRef| match unstored.get(&c.col_id) {
-        Some(x) => depth < 64 && cells_expr_pure(x, unstored, calls, depth + 1),
+        Some(x) => depth < 64 && cells_pure_with(x, unstored, done, depth + 1),
         None => true,
     };
-    super::par::is_pure(e, &col_pure, &|n| calls.as_ref().is_some_and(|r| r.complete(n)))
+    super::par::is_pure(e, &col_pure, done)
 }
 
 /// The names of the columns with errors in `rows`, in the order in which row-by-row evaluation meets them (row by row,

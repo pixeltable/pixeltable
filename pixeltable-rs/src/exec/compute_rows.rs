@@ -4,10 +4,10 @@
 //! are evaluated (stored and unstored computed columns alike); a view's filters drop the rows they reject. In-memory
 //! media results stay in memory.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
-use super::compute::{ComputedCol, RowCells, eval_computed};
+use super::compute::{ComputedCol, RowCells, eval_computed_batch};
 use super::insert::{InputRow, InsertPlan, UpdateStatus, prepare_media_inputs};
 use super::propagate::ViewCompute;
 use super::scan::{ElemInfo, PathCtx};
@@ -223,17 +223,35 @@ impl ComputeRowsPlan {
             .collect();
         let mut stats = RowCountStats::default();
         let mut cols_with_excs = Vec::new();
-        let mut out = Vec::new();
-        'rows: for input in inputs {
+        // the input rows with their media inputs prepared; with `fail_on_exception`, a failure there is the error of
+        // its row, raised once the rows before it are computed
+        let mut rows = Vec::with_capacity(inputs.len());
+        let mut media_failure = None;
+        for input in inputs {
             let mut row = StoredRow::new(0, Vec::new());
             for (col_id, v) in input {
                 if self.needed.contains(&col_id) {
                     row.set_cell(col_id, v);
                 }
             }
-            prepare_media_inputs(&self.insert, &mut row, fail_on_exception, &mut stats, &mut cols_with_excs, None)?;
-            // every needed computed column is materialized into the row, so none is evaluated from its expression
-            eval_computed(&mut row, &computed, None, fail_on_exception, &mut stats, &mut cols_with_excs)?;
+            if let Err(err) = prepare_media_inputs(&self.insert, &mut row, fail_on_exception, &mut stats, &mut cols_with_excs, None) {
+                media_failure = Some(err);
+                break;
+            }
+            rows.push(row);
+        }
+        // the computed columns of all rows together (the user-function calls of a wave are dispatched together, see
+        // `eval_computed_batch()`); every needed computed column is materialized into the rows, so none is evaluated
+        // from its expression. With `fail_on_exception`, the first failure (row, then column) is the error, after the
+        // rows before it.
+        let info = ElemInfo { tbl_id: self.insert.tbl_id, ..Default::default() };
+        let failed = eval_computed_batch(&mut rows, &computed, &HashMap::new(), &info, fail_on_exception, &mut stats, &mut cols_with_excs)?
+            .filter(|_| fail_on_exception)
+            .map(|(r, k, err)| (r, super::compute::eval_error(&computed[k].expr, err)));
+        let limit = failed.as_ref().map_or(rows.len(), |(r, _)| *r);
+        rows.truncate(limit);
+        let mut out = Vec::new();
+        'rows: for row in rows {
             if !self.views.is_empty() {
                 out.extend(self.run_views(row, fail_on_exception)?);
                 continue;
@@ -250,6 +268,12 @@ impl ComputeRowsPlan {
             let errors =
                 self.outputs.iter().filter_map(|(name, id, _)| row.error(*id).map(|e| (name.clone(), e.clone()))).collect();
             out.push(ComputedRow { values, errors });
+        }
+        if let Some((_, err)) = failed {
+            return Err(err);
+        }
+        if let Some(err) = media_failure {
+            return Err(err);
         }
         Ok(out)
     }

@@ -180,16 +180,23 @@ fn short_circuits(call: &UdfCall, args: &[Value], kwargs: &[Value]) -> bool {
     })
 }
 
+/// Whether an expression can be evaluated for many rows on several threads (`par::is_pure()`), given which call nodes
+/// have their outcomes for every row (the second argument).
+pub type PureFn<'a> = &'a (dyn Fn(&Expr, &dyn Fn(&Expr) -> bool) -> bool + Sync);
+
 /// Phase A for `n_rows` rows: makes the calls in `exprs` and returns their outcomes (None if there are no calls to
 /// make ahead). `derived(col)`: the value expression of a column whose value evaluation computes (unstored computed
-/// columns). `with_row(i, slot, f)` calls `f` with the evaluation context of row `i`, which must carry `slot`.
+/// columns). `with_row(i, slot, f)` calls `f` with the evaluation context of row `i`, which must carry `slot`. The
+/// arguments of a call node are evaluated for many rows on several threads when `pure` says they can be (they need
+/// no call that was not made).
 /// Returns an error only for an interrupt.
 pub fn prefetch(
     exprs: &[&ExprRef],
     derived: &dyn Fn(&ColumnRef) -> Option<ExprRef>,
     n_rows: usize,
     abort_on_error: bool,
-    with_row: &dyn Fn(usize, CallSlot<'_>, &mut dyn FnMut(&dyn RowContext)),
+    with_row: &(dyn Fn(usize, CallSlot<'_>, &mut dyn FnMut(&dyn RowContext)) + Sync),
+    pure: PureFn<'_>,
 ) -> Result<Option<CallResults>> {
     let mut c = Collector { derived, nodes: Vec::new(), index: HashMap::new(), derived_levels: HashMap::new() };
     for e in exprs {
@@ -220,6 +227,26 @@ pub fn prefetch(
                 kwargs: Vec::new(),
             };
             let mut slots: Vec<Option<Result<Value>>> = (0..n_rows).map(|_| None).collect();
+            // pure arguments of many rows: evaluated on several threads ahead (the rows after a failure as well; their
+            // values are dropped below as a sequential evaluation would not compute them)
+            let end = if abort_on_error { abort_row.saturating_add(1).min(n_rows) } else { n_rows };
+            let done = |n: &Expr| results.complete(n);
+            let ahead: Option<Vec<Option<Result<(Vec<Value>, Vec<Value>)>>>> = (super::par::worth_parallel(end)
+                && fc.args.iter().chain(fc.kwargs.iter().map(|(_, a)| a)).all(|a| pure(a, &done)))
+            .then(|| {
+                super::par::map_rows(end, |i| {
+                    let mut out = None;
+                    with_row(i, CallSlot { results: &results, row: i }, &mut |ctx| {
+                        out = Some((|| -> Result<(Vec<Value>, Vec<Value>)> {
+                            let args = fc.args.iter().map(|a| eval(a, ctx)).collect::<Result<Vec<_>>>()?;
+                            let kwargs = fc.kwargs.iter().map(|(_, a)| eval(a, ctx)).collect::<Result<Vec<_>>>()?;
+                            Ok((args, kwargs))
+                        })());
+                    });
+                    out
+                })
+            });
+            let mut ahead = ahead.map(Vec::into_iter);
             for (i, slot) in slots.iter_mut().enumerate() {
                 if abort_on_error && i > abort_row {
                     break;
@@ -227,17 +254,27 @@ pub fn prefetch(
                 // the arguments go straight to the end of `calls.args`/`calls.kwargs` (removed again if not called)
                 let (na, nk) = (calls.args.len(), calls.kwargs.len());
                 let mut evaluated: Option<Result<()>> = None;
-                with_row(i, CallSlot { results: &results, row: i }, &mut |ctx| {
-                    evaluated = Some((|| -> Result<()> {
-                        for a in &fc.args {
-                            calls.args.push(eval(a, ctx)?);
-                        }
-                        for (_, a) in &fc.kwargs {
-                            calls.kwargs.push(eval(a, ctx)?);
-                        }
-                        Ok(())
-                    })());
-                });
+                match ahead.as_mut() {
+                    Some(it) => {
+                        evaluated = it.next().flatten().map(|r| {
+                            r.map(|(args, kwargs)| {
+                                calls.args.extend(args);
+                                calls.kwargs.extend(kwargs);
+                            })
+                        })
+                    }
+                    None => with_row(i, CallSlot { results: &results, row: i }, &mut |ctx| {
+                        evaluated = Some((|| -> Result<()> {
+                            for a in &fc.args {
+                                calls.args.push(eval(a, ctx)?);
+                            }
+                            for (_, a) in &fc.kwargs {
+                                calls.kwargs.push(eval(a, ctx)?);
+                            }
+                            Ok(())
+                        })());
+                    }),
+                }
                 match evaluated {
                     None => {
                         calls.args.truncate(na);

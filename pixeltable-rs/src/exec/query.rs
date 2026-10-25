@@ -109,21 +109,22 @@ impl QueryInput {
 
     /// True if `e` can be evaluated over rows on several threads (`par::is_pure()`), the calls in `calls` made.
     fn expr_pure(&self, e: &Expr, calls: &Option<CallResults>) -> bool {
-        self.expr_pure_at(e, calls, 0)
+        self.expr_pure_with(e, &|n| calls.as_ref().is_some_and(|r| r.complete(n)), 0)
     }
 
-    fn expr_pure_at(&self, e: &Expr, calls: &Option<CallResults>, depth: usize) -> bool {
+    /// `expr_pure()`, the calls `done` says have their outcomes made.
+    fn expr_pure_with(&self, e: &Expr, done: &dyn Fn(&Expr) -> bool, depth: usize) -> bool {
         let col_pure = |c: &ColumnRef| {
             let read = self.reads.get(&(c.tbl_id, c.col_id, c.tbl_version)).copied().unwrap_or_else(|| self.col_read(c));
             match (read, self.unstored.get(&(c.tbl_id, c.col_id))) {
                 (ColRead::Slot(_), _) => true,
                 // an unstored computed column is pure if its expression is (iterator outputs and media validated on
                 // read are not)
-                (ColRead::Path, Some(x)) => depth < 64 && self.expr_pure_at(x, calls, depth + 1),
+                (ColRead::Path, Some(x)) => depth < 64 && self.expr_pure_with(x, done, depth + 1),
                 (ColRead::Path, None) => false,
             }
         };
-        super::par::is_pure(e, &col_pure, &|n| calls.as_ref().is_some_and(|r| r.complete(n)))
+        super::par::is_pure(e, &col_pure, done)
     }
 
     fn col_read(&self, col: &ColumnRef) -> ColRead {
@@ -1055,13 +1056,18 @@ fn prefetch_calls<'a>(
     input: &'a QueryInput,
     exprs: &[&ExprRef],
     n: usize,
-    with_row: &dyn Fn(usize, &mut dyn FnMut(&[Option<&StoredRow>], &[Value])),
+    with_row: &(dyn Fn(usize, &mut dyn FnMut(&[Option<&StoredRow>], &[Value])) + Sync),
     slots: &'a HashMap<usize, usize>,
 ) -> Result<Option<CallResults>> {
     let derived = |c: &ColumnRef| input.unstored.get(&(c.tbl_id, c.col_id)).cloned();
-    super::prefetch::prefetch(exprs, &derived, n, true, &|i, slot, f| {
-        with_row(i, &mut |row, pre| f(&Ctx { input, row, pre, slots, calls: Some(slot) }))
-    })
+    super::prefetch::prefetch(
+        exprs,
+        &derived,
+        n,
+        true,
+        &|i, slot, f| with_row(i, &mut |row, pre| f(&Ctx { input, row, pre, slots, calls: Some(slot) })),
+        &|e, done| input.expr_pure_with(e, done, 0),
+    )
 }
 
 fn slot_of(calls: &Option<CallResults>, row: usize) -> Option<CallSlot<'_>> {
@@ -1502,7 +1508,14 @@ fn aggregate<'a>(input: &'a QueryInput, plan: &Plan, rows: &Scan<'a>, grouping: 
     };
     // pure arguments of aggregates whose states merge: chunks of rows in parallel, merged in row order
     let chunked = pure && plan.aggs.iter().all(|a| a.plan.func.mergeable()) && super::par::worth_parallel(n);
-    let parts = if chunked { super::par::map_chunks(n, aggregate_rows) } else { vec![aggregate_rows(0..n)] };
+    let parts = if chunked {
+        super::par::map_chunks(n, aggregate_rows)
+    } else if plan.aggs.iter().any(|a| a.plan.func.calls_python()) {
+        // a Python aggregate's calls, one after the other: attached once for all of them
+        vec![pyo3::Python::attach(|_| aggregate_rows(0..n))]
+    } else {
+        vec![aggregate_rows(0..n)]
+    };
     if parts.len() > 1 && parts.iter().all(|(_, failed)| failed.is_none()) {
         // the partial states of each group, in chunk order, merged group by group in parallel
         let mut firsts: Vec<usize> = Vec::new();

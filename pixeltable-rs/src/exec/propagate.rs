@@ -18,6 +18,10 @@ use crate::expr::ExprRef;
 use crate::expr::eval::eval_predicate;
 use crate::store::rows::{StoredRow, TableData};
 
+/// The fewest rows of a component view whose computed columns are evaluated together (unless its iterator has unstored
+/// outputs).
+const COMPONENT_BATCH_ROWS: usize = 4096;
+
 /// How the rows of a view are computed from base path rows.
 #[derive(Debug, Clone)]
 pub struct ViewCompute {
@@ -131,15 +135,27 @@ impl ViewCompute {
         let materialized = self.info.iterator.is_some();
         let mut out: Vec<(usize, StoredRow)> = Vec::new();
         if materialized && !self.computed.iter().any(|c| super::query::has_window_calls(&c.expr)) {
-            // a component view: base row by base row, so that only one base row's unstored iterator outputs are held
-            // at a time
-            for (i, base) in bases.iter().enumerate() {
-                let mut rows = self.new_rows(base_infos, base)?;
-                let row_bases: Vec<&[&StoredRow]> = rows.iter().map(|_| *base).collect();
+            // a component view: the rows of several base rows at a time (their user-function calls are dispatched
+            // together), at least `COMPONENT_BATCH_ROWS` of them; base row by base row if the iterator has unstored
+            // outputs (frames, tiles), so that only one base row's are held at a time
+            let unstored = self.info.iterator.as_ref().is_some_and(|it| it.outputs.iter().any(|(_, _, stored)| !stored));
+            let budget = if unstored { 1 } else { COMPONENT_BATCH_ROWS };
+            let mut i = 0;
+            while i < bases.len() {
+                let mut rows = Vec::new();
+                let mut parents = Vec::new();
+                while i < bases.len() && rows.len() < budget {
+                    for row in self.new_rows(base_infos, bases[i])? {
+                        parents.push(i);
+                        rows.push(row);
+                    }
+                    i += 1;
+                }
+                let row_bases: Vec<&[&StoredRow]> = parents.iter().map(|p| bases[*p]).collect();
                 self.eval_rows(&mut rows, &row_bases, &self.computed, base_infos, status, saved, materialized)?;
-                for mut row in rows {
+                for (p, mut row) in parents.into_iter().zip(rows) {
                     self.finish_row(&mut row, saved)?;
-                    out.push((i, row));
+                    out.push((p, row));
                 }
             }
         } else {

@@ -299,9 +299,14 @@ impl PathInput {
             let candidates: Vec<Vec<&StoredRow>> = self.rows_where(pred)?.into_iter().filter(|r| keep(r[0])).collect();
             let Some(p) = pred else { return Ok((candidates, None)) };
             let derived = |c: &ColumnRef| infos.iter().find(|e| e.tbl_id == c.tbl_id).and_then(|e| e.unstored.get(&c.col_id).cloned());
-            let calls = super::prefetch::prefetch(&[p], &derived, candidates.len(), true, &|i, slot, f| {
-                f(&PathCtx { elems: &infos, rows: &candidates[i], python: false, calls: Some(slot) })
-            })?;
+            let calls = super::prefetch::prefetch(
+                &[p],
+                &derived,
+                candidates.len(),
+                true,
+                &|i, slot, f| f(&PathCtx { elems: &infos, rows: &candidates[i], python: false, calls: Some(slot) }),
+                &|e, done| path_pure_with(e, &infos, done, 0),
+            )?;
             let mut out = Vec::new();
             for (i, r) in candidates.iter().enumerate() {
                 let slot = calls.as_ref().map(|results| CallSlot { results, row: i });
@@ -647,17 +652,22 @@ fn inherited_error(ctx: &PathCtx<'_>, cols: &[ComputedCol], k: usize) -> Result<
 /// True if `e` can be evaluated for many rows of a path on several threads (`par::is_pure()`), with the calls in
 /// `calls` made.
 fn path_expr_pure(e: &crate::expr::Expr, infos: &[&ElemInfo], calls: &Option<super::prefetch::CallResults>, depth: usize) -> bool {
+    path_pure_with(e, infos, &|n| calls.as_ref().is_some_and(|r| r.complete(n)), depth)
+}
+
+/// `path_expr_pure()`, the calls `done` says have their outcomes made.
+pub(crate) fn path_pure_with(e: &crate::expr::Expr, infos: &[&ElemInfo], done: &dyn Fn(&crate::expr::Expr) -> bool, depth: usize) -> bool {
     let col_pure = |c: &ColumnRef| {
         let Some(info) = infos.iter().find(|i| i.tbl_id == c.tbl_id) else { return false };
         if info.iterator.is_some() || info.read_validation.as_ref().is_some_and(|rv| rv.kind(c.col_id).is_some()) {
             return false;
         }
         match info.unstored.get(&c.col_id) {
-            Some(x) => depth < 64 && path_expr_pure(x, infos, calls, depth + 1),
+            Some(x) => depth < 64 && path_pure_with(x, infos, done, depth + 1),
             None => true,
         }
     };
-    super::par::is_pure(e, &col_pure, &|n| calls.as_ref().is_some_and(|r| r.complete(n)))
+    super::par::is_pure(e, &col_pure, done)
 }
 
 /// `eval_into()` for a batch of rows of table `infos[0]` (`rows[i]` belongs to the base path rows `bases[i]`); with
@@ -764,10 +774,17 @@ pub fn eval_rows_batch(
             let exprs: Vec<&ExprRef> = plain.iter().map(|k| &cols[*k].expr).collect();
             let calls = {
                 let rows: &[StoredRow] = rows;
-                super::prefetch::prefetch(&exprs, &derived, limit, abort, &|i, slot, f| {
-                    let path: Vec<&StoredRow> = std::iter::once(&rows[i]).chain(bases[i].iter().copied()).collect();
-                    f(&PathCtx { elems: infos, rows: &path, python, calls: Some(slot) })
-                })?
+                super::prefetch::prefetch(
+                    &exprs,
+                    &derived,
+                    limit,
+                    abort,
+                    &|i, slot, f| {
+                        let path: Vec<&StoredRow> = std::iter::once(&rows[i]).chain(bases[i].iter().copied()).collect();
+                        f(&PathCtx { elems: infos, rows: &path, python, calls: Some(slot) })
+                    },
+                    &|e, done| path_pure_with(e, infos, done, 0),
+                )?
             };
             let pure = super::par::worth_parallel(limit)
                 && exprs.iter().all(|e| path_expr_pure(e, infos, &calls, 0));

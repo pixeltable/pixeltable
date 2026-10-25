@@ -97,6 +97,37 @@ def embed(s: str) -> pxt.Array[(64,), pxt.Float]:
     return v / np.linalg.norm(v)
 
 
+@pxt.uda
+class py_sum(pxt.Aggregator):
+    def __init__(self) -> None:
+        self.total = 0
+
+    def update(self, x: int) -> None:
+        self.total += x
+
+    def value(self) -> int:
+        return self.total
+
+
+from typing import Iterator as _Iterator, TypedDict as _TypedDict  # noqa: E402
+
+
+class _PieceOut(_TypedDict):
+    piece: str
+
+
+@pxt.iterator
+def split3(text: str) -> _Iterator[_PieceOut]:
+    for i in range(3):
+        yield {'piece': f'{text}/{i}'}
+
+
+@pxt.udf
+def sleep_10ms_str(s: str) -> str:
+    time.sleep(0.01)
+    return s.upper()
+
+
 # ------------------------------------------------------------------------------------------------ helpers
 
 
@@ -175,6 +206,40 @@ def bench_async_sleep() -> float:
 def bench_batched_sleep() -> float:
     """computed column on insert: batched UDF (batch_size=16) sleeping 20 ms per batch, 1,000 rows"""
     return _insert_with(batched_sleep, 1000)
+
+
+def bench_compute_sleep() -> float:
+    """Table.compute() of 1,000 rows: sync UDF sleeping 10 ms"""
+    t = pxt.create_table('t', {'x': pxt.Int})
+    t.add_computed_column(y=sleep_10ms(t.x))
+    rows = [{'x': i} for i in range(1000)]
+    res: list[Any] = []
+    elapsed = _timed(lambda: res.append(t.compute(rows)))
+    assert [r['y'] for r in res[0]] == [i + 1 for i in range(1000)]
+    return elapsed
+
+
+def bench_component_view_sleep() -> float:
+    """insert into a table with a component view (3 rows per base row) whose computed column is a sync UDF sleeping
+    10 ms, 500 base rows"""
+    t = pxt.create_table('docs', {'text': pxt.String})
+    v = pxt.create_view('pieces', t, iterator=split3(text=t.text))
+    v.add_computed_column(u=sleep_10ms_str(v.piece))
+    rows = [{'text': f'd{i}'} for i in range(500)]
+    elapsed = _timed(lambda: t.insert(rows))
+    assert v.where(v.u == None).count() == 0
+    return elapsed
+
+
+def bench_uda_100k() -> float:
+    """group by with a Python aggregate (UDA) over 100,000 rows, 100 groups (best of 3)"""
+    import pandas as pd
+
+    t = pxt.create_table('t', source=pd.DataFrame({'x': range(100_000), 'g': [i % 100 for i in range(100_000)]}))
+    res: list[Any] = []
+    elapsed = _best_of(lambda: res.append(t.group_by(t.g).select(t.g, s=py_sum(t.x)).collect()))
+    assert res[-1]['s'][0] == sum(range(0, 100_000, 100))
+    return elapsed
 
 
 def bench_two_cols_insert() -> float:

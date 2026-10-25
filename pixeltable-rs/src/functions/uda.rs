@@ -90,6 +90,9 @@ impl AggregateFunction for UdaFunction {
     fn name(&self) -> &str {
         &self.name
     }
+    fn calls_python(&self) -> bool {
+        true
+    }
     fn qualified_name(&self) -> String {
         self.self_path.clone()
     }

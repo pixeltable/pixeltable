@@ -48,6 +48,10 @@ fn same<T: 'static>(later: &mut dyn AggState) -> Result<&mut T> {
 pub trait AggregateFunction: Send + Sync + Debug {
     /// display name (`sum`, or a UDA's class name)
     fn name(&self) -> &str;
+    /// True if the states call Python (a UDA's aggregator).
+    fn calls_python(&self) -> bool {
+        false
+    }
     fn qualified_name(&self) -> String;
     /// how calls and messages name the function (upstream `Function.display_name`: the path without
     /// `pixeltable.functions.`, e.g. `globals.sum`, or a UDA's class path)

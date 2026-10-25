@@ -290,7 +290,8 @@ fn where_values(
     match pred {
         None => keep.extend(0..candidates.len()),
         Some(p) => {
-            let calls = prefetch(&[p], &derived, candidates.len(), true, &|i, slot, f| f(&ctx(infos, &candidates[i], Some(slot))))?;
+            let pure = |e: &Expr, done: &dyn Fn(&Expr) -> bool| super::scan::path_pure_with(e, infos, done, 0);
+            let calls = prefetch(&[p], &derived, candidates.len(), true, &|i, slot, f| f(&ctx(infos, &candidates[i], Some(slot))), &pure)?;
             for i in 0..candidates.len() {
                 let slot = calls.as_ref().map(|results| CallSlot { results, row: i });
                 match eval_predicate(p, &ctx(infos, &candidates[i], slot)) {
@@ -305,7 +306,8 @@ fn where_values(
         }
     }
     let exprs: Vec<&ExprRef> = targets.iter().map(|(_, e)| e).collect();
-    let calls = prefetch(&exprs, &derived, keep.len(), true, &|k, slot, f| f(&ctx(infos, &candidates[keep[k]], Some(slot))))?;
+    let pure = |e: &Expr, done: &dyn Fn(&Expr) -> bool| super::scan::path_pure_with(e, infos, done, 0);
+    let calls = prefetch(&exprs, &derived, keep.len(), true, &|k, slot, f| f(&ctx(infos, &candidates[keep[k]], Some(slot))), &pure)?;
     let mut out = Vec::with_capacity(keep.len());
     for (k, &i) in keep.iter().enumerate() {
         let ctx = ctx(infos, &candidates[i], calls.as_ref().map(|results| CallSlot { results, row: k }));
