@@ -227,8 +227,11 @@ class CreateColumnMdOp(TableOp):
         # write_tbl_md() can't be used here: it asserts on the presence of pending ops, and we are inside one.
         assert get_runtime().in_xact
         for col_id in self.column_ids:
-            tv._tbl_md.column_md.pop(col_id, None)
-            tv.cols_by_id.pop(col_id, None)
+            del tv._tbl_md.column_md[col_id]
+        # add_columns_ops() also records an IndexMd for each new column's default B-tree index; leaving it
+        # behind makes the next schema change assert in TableVersion._init_idx()
+        for idx_id in [md.id for md in tv._tbl_md.index_md.values() if md.indexed_col_id in self.column_ids]:
+            del tv._tbl_md.index_md[idx_id]
         result = get_runtime().session.execute(
             sql.update(schema.Table.__table__)
             .values({schema.Table.md: dataclasses.asdict(tv._tbl_md, dict_factory=schema.md_dict_factory)})

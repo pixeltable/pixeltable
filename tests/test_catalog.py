@@ -11,7 +11,7 @@ from pixeltable.utils.fault_injection import FaultLocation
 
 from .coordinator import MultiThreadedScenario
 from .fault_injection import BlockFault, ExceptionFault
-from .utils import DatabaseRoot, pxt_raises
+from .utils import DatabaseRoot, pxt_raises, reload_catalog
 
 
 class TestCatalog:
@@ -174,7 +174,9 @@ class TestCatalog:
 
     @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_add_column_abort_rolls_back_column_md(self, uses_db: None, fault_injection: None) -> None:
-        t = pxt.create_table('test', {'a': pxt.Int | None})
+        # has_default_idxs: each added column also gets an IndexMd, which the rollback must remove as well;
+        # otherwise the next add_column() asserts when the stored md is reloaded
+        t = pxt.create_table('test', {'a': pxt.Int | None}, has_default_idxs=True)
         t.insert([{'a': 1}])
         # a failure in a non-transactional op aborts the statement after the column md was committed;
         # rollback must remove the column so the schema stays consistent and the table remains usable
@@ -188,6 +190,10 @@ class TestCatalog:
         # a subsequent add_column goes through the same pending-ops path and must still work
         t.add_column(c=pxt.Int | None)
         assert 'c' in t.get_metadata()['columns']
+        # the rolled-back schema must also survive a catalog reload
+        reload_catalog()
+        t = pxt.get_table('test')
+        assert t.count() == 1
 
     @pytest.mark.db_roots('local', reason='recovers transparently when the server drops the pooled db connections')
     def test_dropped_connection(self, uses_db: None) -> None:

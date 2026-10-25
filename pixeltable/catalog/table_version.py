@@ -790,7 +790,17 @@ class TableVersion:
                     plan.ctx.title = self.display_str()
                     excs_per_col = self.store_tbl.write_column(col, plan, on_error == 'abort' and col not in idx_cols)
                 except sql_exc.DBAPIError as exc:
-                    get_runtime().catalog.convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
+                    try:
+                        get_runtime().catalog.convert_sql_exc(
+                            exc,
+                            self.id,
+                            self.handle,
+                            convert_db_excs=True,
+                            data_error_code=excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        )
+                    except excs.Error as e:
+                        # convert_sql_exc() doesn't know which computed column was being populated
+                        raise type(e)(e.error_code, f'Error in computed column {col.name!r}:\n{e}') from e
                     # If it wasn't converted, re-raise as a generic Pixeltable error
                     # (this means it's not a known concurrency error; it's something else)
                     raise excs.InternalError(

@@ -160,33 +160,22 @@ class Analyzer:
             )
         )
         self.window_fn_calls = list(window_fn_calls)
-        if len(self.agg_fn_calls) == 0:
-            # distinct() is group_by() over the select list and has no aggregate calls. The grouping
-            # keys still have to be expressible in SQL; otherwise rows are not ordered and every input
-            # row is emitted.
-            self._validate_grouping_exprs()
-            if self.group_by_clause is not None:
-                # select items that aren't grouping exprs would emit 'SELECT <non-grouped> ... GROUP BY'
-                grouping_expr_ids = {e.id for e in self.group_by_clause}
-                is_agg_output = [self._determine_agg_status(e, grouping_expr_ids)[0] for e in self.select_list]
-                if is_agg_output.count(False) > 0:
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_EXPRESSION,
-                        'Invalid non-aggregate expression in aggregate query: '
-                        f'{self.select_list[is_agg_output.index(False)]}',
-                    )
+        if len(self.agg_fn_calls) == 0 and self.group_by_clause is None:
             return
         # if we're doing grouping aggregation and don't have an explicit Group By clause, we're creating a single group
         if self.group_by_clause is None:
             self.group_by_clause = []
 
-        # check that select list only contains aggregate output
+        # check that select list only contains aggregate output; a group_by() without aggregate calls gets the
+        # same check: select items that aren't grouping exprs would emit 'SELECT <non-grouped> ... GROUP BY'
         grouping_expr_ids = {e.id for e in self.group_by_clause}
         is_agg_output = [self._determine_agg_status(e, grouping_expr_ids)[0] for e in self.select_list]
         if is_agg_output.count(False) > 0:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_EXPRESSION,
-                f'Invalid non-aggregate expression in aggregate query: {self.select_list[is_agg_output.index(False)]}',
+                'Invalid non-aggregate expression in aggregate query: '
+                f'{self.select_list[is_agg_output.index(False)]}. '
+                'Wrap the expression in an aggregate function or add it to group_by().',
             )
 
         # check that Where clause and filter doesn't contain aggregates
@@ -244,12 +233,15 @@ class Analyzer:
             return True, False
         elif isinstance(e, (exprs.Literal, exprs.Variable)):
             return True, True
-        elif isinstance(e, (exprs.ColumnRef, exprs.RowidRef)):
-            # we already know that this isn't a grouping expr
+        elif isinstance(e, (exprs.ColumnRef, exprs.RowidRef, exprs.ObjectRef)):
+            # we already know that this isn't a grouping expr; an ObjectRef is a JsonMapper's scope variable,
+            # whose source can't be verified against the grouping exprs
             return False, True
+        elif len(e.components) == 0:
+            # a component-free expr (eg, a zero-argument function call) has no column dependencies
+            return True, True
         else:
             # an expression such as <grouping expr 1> + <grouping expr 2> can both be the output and input of agg
-            assert len(e.components) > 0
             statuses: list[tuple[bool, bool]] = [self._determine_agg_status(c, grouping_expr_ids) for c in e.components]
             is_output = all(out for out, _ in statuses)
             is_input = all(inp for _, inp in statuses)

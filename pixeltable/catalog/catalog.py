@@ -666,6 +666,7 @@ class Catalog(CatalogBase):
         tbl_id: UUID | None = None,
         tbl: TableVersionHandle | None = None,
         convert_db_excs: bool = True,
+        data_error_code: excs.ErrorCode = excs.ErrorCode.INVALID_DATA_FORMAT,
     ) -> None:
         # we got some db error during the actual operation (not just while trying to get locks on the metadata
         # records); we convert these into pxt.Error exceptions if appropriate
@@ -713,8 +714,10 @@ class Catalog(CatalogBase):
             ) from raise_from
         elif isinstance(e.orig, psycopg.errors.DataError):
             # sqlstate class 22 errors (invalid operand in a SQL-evaluated expression, invalid input value, ...)
-            # are user errors; surface the postgres message without the SQL statement
-            raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, str(e.orig)) from (
+            # are user errors and are not retriable, so convert them even when convert_db_excs is False.
+            # diag.message_primary is the postgres error text; str(e.orig) appends 'LINE n: <sql statement>'.
+            # Suppress the underlying SQL exception unless DEBUG is enabled.
+            raise excs.RequestError(data_error_code, e.orig.diag.message_primary) from (
                 e if _logger.isEnabledFor(logging.DEBUG) else None
             )
 

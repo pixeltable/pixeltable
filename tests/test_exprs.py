@@ -226,7 +226,7 @@ class TestExprs:
 
         # psycopg DataError (sqlstate class 22) raised during SQL evaluation surfaces as pxt.Error,
         # not a raw sqlalchemy error
-        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='zero raised to a negative power'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='zero raised to a negative power'):
             _ = t.select((t.c2 - t.c2).pow(-1)).collect()
 
     @staticmethod
@@ -1968,11 +1968,16 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION):
             # nested aggregates
             _ = t.group_by(t.c2 % 2).select(sum(count(t.c2))).collect()
-        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION):
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='Invalid non-aggregate expression'):
             # non-grouping expr in select of a group_by query without aggregates
             _ = t.group_by(t.c4).select(t.c4, t.c2).collect()
-        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION):
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='Invalid non-aggregate expression'):
             _ = t.select(t.c4, t.c2).group_by(t.c4).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='Invalid non-aggregate expression'):
+            # a JsonMapper's scope variable isn't a grouping expr
+            _ = t.group_by(t.c4).select(t.c6.f5.map(lambda x: x + 1)).collect()
+        # a zero-argument function call has no column dependencies and is valid in a grouped query
+        _ = t.group_by(t.c4).select(t.c4, pxtf.uuid.uuid4()).collect()
 
     def test_function_call_errors(self, test_tbl: pxt.Table) -> None:
         t = test_tbl

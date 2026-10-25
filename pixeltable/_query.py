@@ -650,7 +650,10 @@ class Query(QueryBase):
                 self._raise_expr_eval_err(e)
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
                 single_tbl = next(iter(tbl_ids)) if len(tbl_ids) == 1 else None
-                get_runtime().catalog.convert_sql_exc(e, tbl_id=single_tbl)
+                # a SQL data error here is an expression evaluation failure (see raise_from_expr_eval_err())
+                get_runtime().catalog.convert_sql_exc(
+                    e, tbl_id=single_tbl, data_error_code=excs.ErrorCode.UNSUPPORTED_OPERATION
+                )
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def _tbl_names(self) -> list[str]:
@@ -752,7 +755,11 @@ class Query(QueryBase):
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
         except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
-            get_runtime().catalog.convert_sql_exc(e, tbl=(single_tbl.tbl_version if single_tbl is not None else None))
+            get_runtime().catalog.convert_sql_exc(
+                e,
+                tbl=(single_tbl.tbl_version if single_tbl is not None else None),
+                data_error_code=excs.ErrorCode.UNSUPPORTED_OPERATION,
+            )
             raise  # just re-raise if not converted to a Pixeltable error
 
     @telemetry.spanned('pixeltable.count', set_current=True)
