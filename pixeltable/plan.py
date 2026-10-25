@@ -161,7 +161,10 @@ class Analyzer:
         )
         self.window_fn_calls = list(window_fn_calls)
         if len(self.agg_fn_calls) == 0:
-            # nothing to do
+            # distinct() is group_by() over the select list and has no aggregate calls. The grouping
+            # keys still have to be expressible in SQL; otherwise rows are not ordered and every input
+            # row is emitted.
+            self._validate_grouping_exprs()
             return
         # if we're doing grouping aggregation and don't have an explicit Group By clause, we're creating a single group
         if self.group_by_clause is None:
@@ -191,13 +194,25 @@ class Analyzer:
                 excs.ErrorCode.INVALID_EXPRESSION, f'where() cannot contain aggregate functions: {self.filter}'
             )
 
-        # check that grouping exprs don't contain aggregates and can be expressed as SQL (we perform sort-based
-        # aggregation and rely on the SqlScanNode returning data in the correct order)
+        # sort-based aggregation relies on the SQL scan returning rows in group order
+        self._validate_grouping_exprs()
+
+    def _validate_grouping_exprs(self) -> None:
+        """Reject grouping keys that the SQL scan cannot order by.
+
+        Aggregation, including ``distinct()`` (which is ``group_by()`` over the select list), emits one
+        row each time the grouping key changes. A key that is not expressible in SQL is never ordered, so
+        the same value is returned once per input row.
+        """
+        if not self.group_by_clause:
+            return
         for e in self.group_by_clause:
             if not self.sql_elements.contains(e):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_EXPRESSION,
-                    f'Invalid grouping expression, needs to be expressible in SQL: {e}',
+                    f'Invalid grouping expression, needs to be expressible in SQL: {e}. '
+                    'Store the value in a computed column of a scalar type (cast with .astype() if needed) '
+                    'and use that column with distinct() or group_by().',
                 )
             if e.contains_(filter=_is_agg_fn_call):
                 raise excs.RequestError(
