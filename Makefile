@@ -40,7 +40,7 @@ help:
 	@echo '  test          Run pytest and check'
 	@echo '  fulltest      Run fullpytest, nbtest, and check'
 	@echo '  slimtest      Run a slimpytest and check'
-	@echo '  check         Run typecheck, lint, formatcheck, and nbcheck'
+	@echo '  check         Run typecheck, lint, formatcheck, nbcheck, and check-review-scripts'
 	@echo '  format        Run `ruff format` (updates .py files in place)'
 	@echo '  release       Create a pypi release and post to github'
 	@echo '  docs          Build mintlify documentation'
@@ -59,6 +59,7 @@ help:
 	@echo '  lint          Run `ruff check`'
 	@echo '  formatcheck   Run `ruff format --check` (check only, do not modify files)'
 	@echo '  nbcheck       Run `./scripts/check-notebooks.sh`'
+	@echo '  check-review-scripts  Run the unit tests for .github/scripts'
 	@echo ''
 	@echo 'Global parameters:'
 	@echo '  UV_ARGS       Additional arguments to pass to `uv sync` (default = '\''--group extra-dev'\'')'
@@ -148,8 +149,13 @@ slimtest: slimpytest check
 	@echo 'All tests passed.'
 
 .PHONY: check
-check: typecheck lint formatcheck nbcheck
+check: typecheck lint formatcheck nbcheck check-review-scripts
 	@echo 'All static checks passed.'
+
+.PHONY: check-review-scripts
+check-review-scripts:
+	@echo 'Checking .github/scripts ...'
+	@python -m unittest discover -s .github/scripts -p 'test_*.py'
 
 .PHONY: pytest
 pytest: install
@@ -188,6 +194,8 @@ typecheck: install
 	@mypy pixeltable pixeltable_cli tests tool
 	# Separate direct check of definition.py (which is shadowed by the generated definition.pyi in the main run)
 	@mypy pixeltable/catalog/model/definition.py
+	@echo 'Running `mypy` on .github/scripts ...'
+	@MYPYPATH=.github/scripts mypy .github/scripts --exclude claude_erosion_check.py
 	@echo 'Running `mypy` on $(OTEL_PKG) ...'
 	@MYPYPATH=$(OTEL_PKG)/src mypy --explicit-package-bases --namespace-packages \
 		$(OTEL_PKG)/src/opentelemetry/instrumentation/pixeltable $(OTEL_PKG)/tests
@@ -195,14 +203,14 @@ typecheck: install
 .PHONY: lint
 lint: install
 	@echo 'Running `ruff check` ...'
-	@ruff check pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
+	@ruff check pixeltable pixeltable_cli tests tool .github/scripts $(OTEL_PKG)/src $(OTEL_PKG)/tests
 
 .PHONY: formatcheck
 formatcheck: install
 	@echo 'Running `ruff format --check` ...'
-	@ruff format --check pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
+	@ruff format --check pixeltable pixeltable_cli tests tool .github/scripts $(OTEL_PKG)/src $(OTEL_PKG)/tests
 	@echo 'Running `ruff check --select I` ...'
-	@ruff check --select I pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
+	@ruff check --select I pixeltable pixeltable_cli tests tool .github/scripts $(OTEL_PKG)/src $(OTEL_PKG)/tests
 
 .PHONY: nbcheck
 nbcheck: install
@@ -212,9 +220,9 @@ nbcheck: install
 .PHONY: format
 format: install
 	@echo 'Running `ruff format` ...'
-	@ruff format pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
+	@ruff format pixeltable pixeltable_cli tests tool .github/scripts $(OTEL_PKG)/src $(OTEL_PKG)/tests
 	@echo 'Running `ruff check --select I --fix` ...'
-	@ruff check --select I --fix pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
+	@ruff check --select I --fix pixeltable pixeltable_cli tests tool .github/scripts $(OTEL_PKG)/src $(OTEL_PKG)/tests
 	@echo 'Running `./scripts/format-notebooks.sh` ...'
 	@./scripts/format-notebooks.sh
 
