@@ -1661,30 +1661,30 @@ class TestView:
         t.delete(where=t.n == 2)
         assert v.select(v.n).collect()['n'] == []
 
-    def test_update_base_of_nested_view(self, db_root: DatabaseRoot) -> None:
+    def test_base_update_propagation(self, db_root: DatabaseRoot) -> None:
         """Updating a base column keeps every row of a view two levels below it visible."""
         p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'n': pxt.Int, 'm': pxt.Int, 'k': pxt.Int})
         t.insert([{'n': 1, 'm': 1, 'k': 1}, {'n': 2, 'm': 2, 'k': 2}, {'n': 3, 'm': 3, 'k': 3}])
-        v1 = pxt.create_view(p('v1'), t, additional_columns={'c1': t.k * 2})
-        v2 = pxt.create_view(p('v2'), v1, additional_columns={'c2': v1.m * 3})
+        v1 = pxt.create_view(p('v1'), t, additional_columns={'k2': t.k * 2})
+        v2 = pxt.create_view(p('v2'), v1, additional_columns={'m2': v1.m * 3})
 
         # each update recomputes a column of a different view in the chain
         t.update({'k': 100}, where=t.n == 2)
         t.update({'m': 50}, where=t.n == 3)
 
         assert v2.select(v2.n).order_by(v2.n).collect()['n'] == [1, 2, 3]
-        assert v2.select(v2.c1).order_by(v2.n).collect()['c1'] == [2, 200, 6]
-        assert v2.select(v2.c2).order_by(v2.n).collect()['c2'] == [3, 6, 150]
+        assert v2.select(v2.k2).order_by(v2.n).collect()['k2'] == [2, 200, 6]
+        assert v2.select(v2.m2).order_by(v2.n).collect()['m2'] == [3, 6, 150]
 
-    def test_update_base_of_nested_filtered_view(self, db_root: DatabaseRoot) -> None:
+    def test_base_update_propagation_with_filter(self, db_root: DatabaseRoot) -> None:
         """A row entering a filtered view is added even when the view between it and the updated table is unchanged."""
         p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'n': pxt.Int, 'm': pxt.Int, 'k': pxt.Int})
         t.insert([{'n': 1, 'm': 1, 'k': 1}, {'n': 2, 'm': 2, 'k': 2}, {'n': 3, 'm': 3, 'k': 3}])
         # v1 computes from k, so an update of m leaves it untouched; v2 filters on m
-        v1 = pxt.create_view(p('v1'), t, additional_columns={'c1': t.k * 2})
-        v2 = pxt.create_view(p('v2'), v1.where(v1.m > 10), additional_columns={'c2': v1.m * 3})
+        v1 = pxt.create_view(p('v1'), t, additional_columns={'k2': t.k * 2})
+        v2 = pxt.create_view(p('v2'), v1.where(v1.m > 10), additional_columns={'m2': v1.m * 3})
         assert v2.select(v2.n).order_by(v2.n).collect()['n'] == []
 
         # move v1 off its initial version, so that its rows no longer all carry v_min == v1's current version
@@ -1692,13 +1692,13 @@ class TestView:
 
         t.update({'m': 50}, where=t.n == 3)
         assert v2.select(v2.n).order_by(v2.n).collect()['n'] == [3]
-        assert v2.select(v2.c2).order_by(v2.n).collect()['c2'] == [150]
+        assert v2.select(v2.m2).order_by(v2.n).collect()['m2'] == [150]
 
         # and out again
         t.update({'m': 0}, where=t.n == 3)
         assert v2.select(v2.n).order_by(v2.n).collect()['n'] == []
 
-    def test_update_view_column_reaches_view_above(self, db_root: DatabaseRoot) -> None:
+    def test_view_update_propagation(self, db_root: DatabaseRoot) -> None:
         """An update of a view's own column reaches the filtered view on top of it."""
         p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'n': pxt.Int})
@@ -1706,7 +1706,7 @@ class TestView:
         # rows 1-3 then predate t's current version
         t.insert([{'n': 4}])
         v1 = pxt.create_view(p('v1'), t, additional_columns={'x': pxt.Int | None})
-        v2 = pxt.create_view(p('v2'), v1.where(v1.x > 0), additional_columns={'c': v1.x * 10})
+        v2 = pxt.create_view(p('v2'), v1.where(v1.x > 0), additional_columns={'x2': v1.x * 10})
 
         v1.where(v1.n <= 2).update({'x': 7})
-        assert v2.select(v2.c).order_by(v2.n).collect()['c'] == [70, 70]
+        assert v2.select(v2.x2).order_by(v2.n).collect()['x2'] == [70, 70]

@@ -1721,33 +1721,33 @@ class TableVersion:
                 )
 
                 # a base that produced no plans of its own didn't create a new version, so its rows are matched
-                # live rather than by v_min; base_versions records that as a None, and zip() drops the ancestors
-                # this update never reached
-                created_bases = [b for b, v in zip(view_tv.path.get_bases(), base_versions) if v is not None]
+                # live rather than by v_min; base_versions records that as a None, and zip() drops the skipped
+                # ancestors
+                updated_bases = [b for b, v in zip(view_tv.path.get_bases(), base_versions) if v is not None]
 
                 view_plans: list[exec.ExecNode] = []
                 if needs_iterator_reload or (membership_change and view_tv.is_component_view):
                     view_plans.append(
-                        Planner.create_view_load_plan(view_tv.path, created_at_current_version=created_bases)
+                        Planner.create_view_load_plan(view_tv.path, created_at_current_version=updated_bases)
                     )
                 elif membership_change:
                     # rows already in the view that still satisfy the predicate; their stored columns that aren't
                     # recomputed carry over from the row that was just soft-deleted
                     view_plans.append(
                         Planner.create_view_update_plan(
-                            view_tv.path, recompute_targets=recomputed_cols, created_at_current_version=created_bases
+                            view_tv.path, recompute_targets=recomputed_cols, created_at_current_version=updated_bases
                         )
                     )
                     # rows that satisfy the predicate now and weren't in the view; nothing to carry over
                     view_plans.append(
                         Planner.create_view_load_plan(
-                            view_tv.path, created_at_current_version=created_bases, exclude_existing_rows=True
+                            view_tv.path, created_at_current_version=updated_bases, exclude_existing_rows=True
                         )
                     )
                 elif len(recomputed_cols) > 0:
                     view_plans.append(
                         Planner.create_view_update_plan(
-                            view_tv.path, recompute_targets=recomputed_cols, created_at_current_version=created_bases
+                            view_tv.path, recompute_targets=recomputed_cols, created_at_current_version=updated_bases
                         )
                     )
 
@@ -1810,21 +1810,22 @@ class TableVersion:
             del_rows = self.store_tbl.delete_rows(where_clause=sql_where_clause)
         row_counts = RowCountStats(del_rows=del_rows)  # delete
         result = UpdateStatus(row_count_stats=row_counts)
-        if del_rows > 0 and self.is_data_versioned:
+        if del_rows == 0:
+            # nothing left to do or propagate
+            return result
+
+        if self.is_data_versioned:
             # we're creating a new version
             self.bump_version(timestamp, bump_schema_version=False)
-        # a table that deleted nothing has nothing beneath it to delete, and never bumped: passing on its
-        # current version would match the rows an earlier operation retired at that version
-        if del_rows > 0:
-            for view in self.mutable_views:
-                status = view.get().propagate_delete(
-                    where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
-                )
-                result += status.to_cascade()
-
-        if del_rows > 0 and self.is_data_versioned:
+        for view in self.mutable_views:
+            status = view.get().propagate_delete(
+                where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
+            )
+            result += status.to_cascade()
+        if self.is_data_versioned:
             self.set_version_update_status(result)
             self._write_md(new_version=True, new_schema_version=False)
+
         return result
 
     def revert(self) -> None:
