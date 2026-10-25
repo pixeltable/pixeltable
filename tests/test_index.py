@@ -145,9 +145,7 @@ class TestIndex:
 
             # can also be used in a computed column (unstored only: similarity() is evaluated in SQL, not in
             # memory, so it cannot back a stored column)
-            validate_update_status(
-                t.add_computed_column(sim=t.img.similarity(string='parachute'), stored=False)
-            )
+            validate_update_status(t.add_computed_column(sim=t.img.similarity(string='parachute'), stored=False))
             t.drop_column('sim')
 
             reload_tester.run_reload_test()
@@ -386,10 +384,16 @@ class TestIndex:
 
         validate_update_status(t.add_computed_column(sim=t.text.similarity(string='sunlight'), stored=False))
 
-        # the index referenced by the similarity column cannot be dropped, by name or by column
+        # a stored column that reaches similarity() through an unstored computed column is rejected the same way
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='computed with similarity()'):
+            t.add_computed_column(sim_copy=t.sim + 1)
+
+        # the index referenced by the similarity column cannot be dropped, by name or by column, and cannot be
+        # replaced either (the similarity column binds it by name)
         for drop in (
             lambda: t.drop_embedding_index(idx_name='text_idx'),
             lambda: t.drop_embedding_index(column='text'),
+            lambda: t.add_embedding_index('text', idx_name='text_idx', string_embed=local_embed, if_exists='replace'),
         ):
             with pxt_raises(
                 pxt.ErrorCode.UNSUPPORTED_OPERATION,
@@ -397,7 +401,27 @@ class TestIndex:
             ):
                 drop()
 
-        # dropping the column unblocks the index drop
+        # dropping the indexed column would drop the index with it, so it is blocked the same way
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match="Cannot drop column 'text' because the following columns depend on it",
+        ):
+            t.drop_column('text')
+
+        # a similarity column in a view binds the base index and blocks its drop the same way; an index on a
+        # different table that happens to share the name is a different index and drops freely
+        v = pxt.create_view(p('sim_view'), t)
+        v.add_embedding_index('text', idx_name='text_idx', string_embed=local_embed)
+        validate_update_status(v.add_computed_column(vsim=t.text.similarity(string='sunlight'), stored=False))
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match="Cannot drop index 'text_idx' because the following columns depend on it",
+        ):
+            t.drop_embedding_index(idx_name='text_idx')
+        v.drop_embedding_index(idx_name='text_idx')
+
+        # dropping the referencing columns unblocks the index drop
+        v.drop_column('vsim')
         t.drop_column('sim')
         t.drop_embedding_index(idx_name='text_idx')
 
@@ -707,7 +731,9 @@ class TestIndex:
             img_t.add_computed_column(sim=img_t.category.similarity(string='red_truck', idx='cat_idx'))
 
         # an unstored similarity column is allowed, but blocks dropping the index it references
-        img_t.add_computed_column(sim=img_t.category.similarity(string='red_truck', idx='cat_idx'), stored=False)
+        validate_update_status(
+            img_t.add_computed_column(sim=img_t.category.similarity(string='red_truck', idx='cat_idx'), stored=False)
+        )
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
             match="Cannot drop index 'cat_idx' because the following columns depend on it",

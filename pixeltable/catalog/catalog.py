@@ -1941,6 +1941,12 @@ class Catalog(CatalogBase):
                 zip((tbl._tbl_version_path for tbl in tbls), (tbl._tbl_version.get() for tbl in tbls), change_sets)
             )
 
+            # Columns dropped anywhere in this batch do not block each other's index drops: the recorded
+            # column dependencies predate the batch.
+            all_dropped_col_qids = {
+                tv.cols_by_name[name].qid for _, tv, change_set in tbl_info for name in change_set['dropped_columns']
+            }
+
             # Record the metadata per table in forward order (base tables first), so a view's new column can
             # reference a base's new column: the view's resolution sees the base's already-mutated columns through
             # tvp.columns().
@@ -1976,7 +1982,13 @@ class Catalog(CatalogBase):
                     f'drop indexes {change_set["dropped_idxs"]}'
                 )
                 tv.apply_schema_change_md(
-                    expected_schema_version, added_cols, altered_cols, dropped_cols, added_idxs, dropped_idx_ids
+                    expected_schema_version,
+                    added_cols,
+                    altered_cols,
+                    dropped_cols,
+                    added_idxs,
+                    dropped_idx_ids,
+                    dropped_col_qids=all_dropped_col_qids,
                 )
                 validation_tvs[tv.id] = tv
                 for view_tv in self._mutable_view_tvs(tv):

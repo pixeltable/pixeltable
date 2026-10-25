@@ -582,17 +582,56 @@ class TableVersion:
             self._record_new_columns(new_cols)
         self._record_new_index(col, val_col, undo_col, idx_name, idx)
 
-    def _validate_idx_drops(self, idx_ids: Iterable[int]) -> None:
-        """Reject the removal of a default B-tree index."""
-        if not self.has_default_idxs:
-            return
+    def _validate_idx_drops(self, idx_ids: Iterable[int], dropped_col_qids: Iterable[QColumnId] = ()) -> None:
+        """Reject the removal of a default B-tree index or of an index that user columns still depend on.
+
+        dropped_col_qids: columns being dropped in the same change set; they are excluded because the
+        recorded column dependencies predate this change.
+        """
+        dropped_col_qids = set(dropped_col_qids)
         for idx_id in idx_ids:
             info = self.idxs[idx_id]
-            if isinstance(info.idx, index.BtreeIndex):
+            if self.has_default_idxs and isinstance(info.idx, index.BtreeIndex):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Cannot drop B-tree index {info.name!r} from a table with has_default_idxs=True',
                 )
+            dependent_user_cols = self._idx_dependent_user_cols(info, dropped_col_qids)
+            if len(dependent_user_cols) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot drop index {info.name!r} because the following columns depend on it:\n'
+                    f'{", ".join(c.qualified_name for c in dependent_user_cols)}',
+                )
+
+    def _idx_dependent_user_cols(self, idx_info: TableVersion.IndexInfo, excluded: set[QColumnId]) -> list[Column]:
+        """The named columns that depend on the given index, excluding `excluded`.
+
+        Two dependency shapes are recorded in the catalog: a column computed from the index's value column
+        depends on the value column, and a column containing similarity() depends on the indexed column,
+        because a similarity() expression references the index by name and owning table rather than through
+        its value column. Matching on the owning table keeps a same-named index that belongs to a different
+        table (eg, a view's own index on a base column) from blocking this drop.
+        """
+        cat = get_runtime().catalog
+        dependents: dict[QColumnId, Column] = {}
+        # An index created directly on the indexed column has no value column, and therefore nothing that
+        # can reference it.
+        if idx_info.val_col is not None:
+            for c in cat.get_column_dependents(idx_info.val_col.get_tbl().id, idx_info.val_col.id):
+                if c.name is not None and c.qid not in excluded:
+                    dependents[c.qid] = c
+        for c in cat.get_column_dependents(idx_info.col.get_tbl().id, idx_info.col.id):
+            if c.name is None or c.qid in excluded or c.qid in dependents or c.value_expr is None:
+                continue
+            if any(
+                e.qcol_id == idx_info.col.qid
+                and e.table_version_key.tbl_id == self.id
+                and (e.idx_name is None or e.idx_name == idx_info.name)
+                for e in c.value_expr.subexprs(expr_class=exprs.SimilarityExpr)
+            ):
+                dependents[c.qid] = c
+        return list(dependents.values())
 
     def drop_index(self, idx_id: int) -> None:
         assert self.is_mutable
@@ -935,6 +974,7 @@ class TableVersion:
         dropped_cols: list[Column],
         added_idxs: list[IndexSpec],
         dropped_idx_ids: list[int],
+        dropped_col_qids: Iterable[QColumnId] = (),
     ) -> None:
         """Record multiple column and index add/drop operations as a single new schema version.
 
@@ -947,6 +987,8 @@ class TableVersion:
           attached to a dropped column is processed only once.
         - altered_cols pair an existing computed column with its new value expression, which may reference a column
           in added_cols by name; they only change metadata (no recomputing).
+        - dropped_col_qids additionally names columns dropped elsewhere in the same batch (which may span
+          tables); they do not block this table's index drops.
         """
         assert self.is_mutable
 
@@ -956,7 +998,9 @@ class TableVersion:
                 f'Table {self.name!r} was modified since update_all() computed its changes; re-run update_all().',
             )
 
-        self._validate_idx_drops(dropped_idx_ids)
+        self._validate_idx_drops(
+            dropped_idx_ids, dropped_col_qids=set(dropped_col_qids) | {c.qid for c in dropped_cols}
+        )
 
         self.bump_version(bump_schema_version=True)
 
@@ -1025,7 +1069,7 @@ class TableVersion:
             if value_expr is not None:
                 col.set_value_expr(value_expr.substitute(subst))
             if col.is_computed:
-                col.check_value_expr()
+                col.check_value_expr(new_cols)
 
         default_idxs: list[tuple[Column, index.BtreeIndex, Column | None, Column | None]] = []
         all_cols: list[Column] = []

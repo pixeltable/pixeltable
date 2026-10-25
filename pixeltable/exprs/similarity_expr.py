@@ -177,9 +177,8 @@ class SimilarityExpr(Expr):
         return idx_info
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, 'similarity(): cannot be used in a computed column'
-        )
+        # similarity() is evaluated in SQL against an embedding index; it has no in-memory implementation
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'similarity(): cannot be evaluated in memory')
 
     def _as_dict(self) -> dict:
         return {

@@ -148,7 +148,7 @@ def create_table_version_md(
         if value_expr is not None:
             col.set_value_expr(value_expr.substitute(subst))
         if col.is_computed:
-            col.check_value_expr()
+            col.check_value_expr(cols)
         col_md, col_schema_md = col.to_md(pos)
         column_md[col.id] = col_md
         schema_col_md[col.id] = col_schema_md

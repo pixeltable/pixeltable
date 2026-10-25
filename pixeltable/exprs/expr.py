@@ -491,8 +491,14 @@ class Expr(abc.ABC):
     @classmethod
     def get_refd_column_ids(cls, expr_dict: dict[str, Any]) -> set[catalog.QColumnId]:
         """Return Columns referenced by expr_dict."""
-        result: set[catalog.QColumnId] = set()
         assert '_classname' in expr_dict
+        # dispatch on the serialized class, like from_dict(), so subclass overrides (eg,
+        # SimilarityExpr's qcol_id) run instead of the generic walk
+        exprs_module = importlib.import_module(cls.__module__.rsplit('.', 1)[0])
+        type_class = getattr(exprs_module, expr_dict['_classname'])
+        if type_class is not cls:
+            return type_class.get_refd_column_ids(expr_dict)
+        result: set[catalog.QColumnId] = set()
         from .column_ref import ColumnRef
 
         if expr_dict['_classname'] == 'ColumnRef':

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 import pgvector.sqlalchemy
 import sqlalchemy as sql
@@ -509,7 +509,9 @@ class Column:
         self._value_expr = value_expr
         self.value_expr_dict = self._value_expr.as_dict()
 
-    def check_value_expr(self) -> None:
+    def check_value_expr(self, sibling_cols: Iterable[Column] = ()) -> None:
+        """sibling_cols: columns being created or updated in the same statement, which do not resolve through
+        the catalog yet."""
         assert self._value_expr is not None
         self._value_expr.validate_storable(f'Computed column {self.name!r}')
         for e in self._value_expr.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
@@ -525,7 +527,7 @@ class Column:
                 f'Column {self.name!r}: `stored={self.stored}` not supported for columns '
                 f'computed with window functions:\n{self.value_expr}',
             )
-        if self.stored and self._value_expr.contains_(cls=exprs.SimilarityExpr):
+        if self.stored and self._expr_reaches_similarity(sibling_cols):
             # similarity() has no in-memory implementation; a stored column's value_expr is evaluated
             # per-row on insert, which would fail every time
             raise excs.RequestError(
@@ -533,6 +535,31 @@ class Column:
                 f'Column {self.name!r}: `stored={self.stored}` not supported for columns '
                 f'computed with similarity():\n{self.value_expr}',
             )
+
+    def _expr_reaches_similarity(self, sibling_cols: Iterable[Column]) -> bool:
+        """True if this column's value_expr contains similarity(), directly or through an unstored computed
+        column. A stored column's value_expr is evaluated per-row on insert, where references to unstored
+        computed columns are inlined, so the check expands them the same way. Columns that do not resolve
+        through the catalog yet (they are being created or updated in the same statement) resolve through
+        sibling_cols.
+        """
+        assert self._value_expr is not None
+        siblings_by_qid = {c.qid: c for c in sibling_cols}
+        seen: set[QColumnId] = set()
+        worklist: list[exprs.Expr] = [self._value_expr]
+        while len(worklist) > 0:
+            e = worklist.pop()
+            if e.contains_(cls=exprs.SimilarityExpr):
+                return True
+            for ref in e.subexprs(expr_class=exprs.ColumnRef):
+                md = ref.col_md
+                if md.qcolid in seen or not md.is_computed or md.is_stored:
+                    continue
+                seen.add(md.qcolid)
+                ref_col = siblings_by_qid.get(md.qcolid) or ref.col
+                if ref_col.value_expr is not None:
+                    worklist.append(ref_col.value_expr)
+        return False
 
     def has_window_fn_call(self) -> bool:
         from pixeltable import exprs

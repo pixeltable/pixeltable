@@ -491,10 +491,7 @@ class TestConcurrentModelUpdate:
         v = View.table
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=re.escape(
-                "Column 'dep' in 'test_view' would be left referencing a column of 'test_table', "
-                'which no longer exists.'
-            ),
+            match=re.escape("Cannot drop index 'idx0' because the following columns depend on it"),
         ):
             _run_with_concurrent_apply(
                 lambda: TM2.update_all(ROOT, allow_destructive=True),

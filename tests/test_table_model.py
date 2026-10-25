@@ -2148,10 +2148,7 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=re.escape(
-                "Column 'vc2' in 'test_view' would be left referencing a column of 'test_table', "
-                'which no longer exists.'
-            ),
+            match=re.escape("Cannot drop index 'idx' because the following columns depend on it"),
         ):
             TableModelV3.update_all(p(''), allow_destructive=True)
 
