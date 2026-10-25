@@ -333,12 +333,21 @@ def bench_interactive_1m() -> dict[str, float]:
     out['update_1row_noindex'] = _median_of(lambda: t.update({'b': 0.25}, where=t.a == next(keys)))
     keys = iter(range(20_000, 30_000))
     out['delete_few_noindex'] = _median_of(lambda: t.delete(where=t.a == next(keys)))
+    expected_g7 = t.where(t.g == 7).count()
     if hasattr(_testing, '_initialized'):
         # the harness's hooks for upstream Pixeltable (compat/upstream_baseline) wipe the database on their first use
         _testing._initialized = True
     _testing.reload_catalog()
     out['reload_first_head'] = _timed(lambda: res.append(pxt.get_table('big').head(10)))
     assert len(res[-1]) == 10
+    # the first scans after a reload read the table's data from disk (or the OS cache)
+    _testing.reload_catalog()
+    out['reload_first_count'] = _timed(lambda: res.append((lambda t: t.where(t.a == 54321).count())(pxt.get_table('big'))))
+    _testing.reload_catalog()
+    out['reload_first_where_collect'] = _timed(
+        lambda: res.append((lambda t: t.where(t.g == 7).select(t.s, t.b).collect())(pxt.get_table('big')))
+    )
+    assert len(res[-1]) == expected_g7
     return out
 
 

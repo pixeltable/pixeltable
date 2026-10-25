@@ -23,7 +23,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 use super::rows::{CellError, DEAD, LIVE, RowKey, StoredRow};
-pub use super::segment::{ColChunk, Patch, Segment, TypedCol, new_segment_id};
+pub use super::segment::{ColChunk, Patch, Segment, StrCol, TypedCol, new_segment_id};
 use crate::catalog::table::ColId;
 use crate::value::Value;
 
@@ -517,6 +517,21 @@ impl TableData {
         }
         out.truncate(limit);
         out
+    }
+
+    /// Decodes the storage chunks that hold the rows at `addrs` (in parallel, those not decoded yet), so that reading
+    /// those rows one after the other does not decode them one at a time.
+    pub fn decode_chunks_of(&self, addrs: &[RowAddr]) {
+        use super::segment::CHUNK_ROWS;
+        let mut chunks: Vec<(u32, usize)> = addrs.iter().map(|(p, i)| (*p, *i as usize / CHUNK_ROWS)).collect();
+        chunks.dedup();
+        chunks.sort_unstable();
+        chunks.dedup();
+        chunks.retain(|(p, k)| !self.segs[*p as usize].seg.chunk_decoded(*k));
+        if chunks.len() > 1 {
+            use rayon::prelude::*;
+            chunks.par_iter().for_each(|(p, k)| self.segs[*p as usize].seg.decode_chunk(*k));
+        }
     }
 
     /// The row at an address from `scan_order()`.

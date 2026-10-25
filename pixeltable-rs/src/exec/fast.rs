@@ -94,7 +94,7 @@ impl Fast {
     }
 
     /// The value for `row` (`ctx`: the same row's context, for `Other` nodes).
-    pub fn eval<'v>(&'v self, row: &'v [Option<&'v StoredRow>], ctx: &dyn RowContext) -> Result<Cow<'v, Value>> {
+    pub fn eval<'v>(&'v self, row: &[Option<&'v StoredRow>], ctx: &dyn RowContext) -> Result<Cow<'v, Value>> {
         static NULL: Value = Value::Null;
         Ok(match self {
             Fast::Cell { slot, col } => Cow::Borrowed(row[*slot].map_or(&NULL, |r| r.cell(*col))),
@@ -252,6 +252,7 @@ impl VPred {
                 let nulls = match col(id) {
                     Some(ColChunk::Int(c)) | Some(ColChunk::Timestamp(c)) => &c.nulls,
                     Some(ColChunk::Float(c)) => &c.nulls,
+                    Some(ColChunk::Str(c)) => &c.nulls,
                     _ => return false,
                 };
                 match nulls {
@@ -341,7 +342,7 @@ pub fn chunk_runs(addrs: &[RowAddr], range: std::ops::Range<usize>) -> Vec<(usiz
 }
 
 fn is_vector_lit(v: &Value) -> bool {
-    matches!(v, Value::Int(_) | Value::Float(_) | Value::Timestamp(_) | Value::Date(_))
+    matches!(v, Value::Int(_) | Value::Float(_) | Value::Timestamp(_) | Value::Date(_) | Value::String(_))
 }
 
 /// `lit op col` as `col op' lit`.
@@ -388,6 +389,12 @@ fn cmp_column(c: &ColChunk, op: CmpOp, lit: &Value, range: std::ops::Range<usize
         (ColChunk::Timestamp(col), Value::Date(d)) => {
             let y = *d as i64 * 86_400_000_000;
             apply(col, range, out, |x: i64| decide(x.cmp(&y)))
+        }
+        // strings order by their bytes (`String`'s order, as `cmp_values()` has it)
+        (ColChunk::Str(col), Value::String(y)) => {
+            for (o, i) in out.iter_mut().zip(range) {
+                *o = if col.is_null(i) { V_NULL } else { decide(col.get(i).as_bytes().cmp(y.as_bytes())) };
+            }
         }
         _ => return false,
     }
@@ -467,10 +474,13 @@ mod tests {
                     _ => Value::Float((i as f64 - 20.0) / 3.0),
                 };
                 let t = if i % 5 == 0 { Value::Null } else { Value::Timestamp(i * 86_400_000_000 / 2) };
-                StoredRow { rowid: i, cells: vec![a, b, t], errors: Vec::new(), pos: Vec::new() }
+                let s = if i % 6 == 0 { Value::Null } else { Value::String(format!("k{}", i % 13)) };
+                StoredRow { rowid: i, cells: vec![a, b, t, s], errors: Vec::new(), pos: Vec::new() }
             })
             .collect();
         let tc = col(2, ts.clone());
+        let string = ColumnType::string(true);
+        let sc = col(3, string.clone());
         let vexprs = vec![
             cmp(CmpOp::Eq, &a, &lit(Value::Int(3), int.clone())),
             cmp(CmpOp::Lt, &a, &lit(Value::Float(2.5), float.clone())),
@@ -481,6 +491,9 @@ mod tests {
             cmp(CmpOp::Le, &tc, &lit(Value::Timestamp(10 * 86_400_000_000), ts.clone())),
             cmp(CmpOp::Lt, &tc, &lit(Value::Date(6), ColumnType::new(crate::types::TypeKind::Date, true))),
             cmp(CmpOp::Gt, &lit(Value::Int(0), int.clone()), &a),
+            cmp(CmpOp::Eq, &sc, &lit(Value::String("k3".into()), string.clone())),
+            cmp(CmpOp::Lt, &sc, &lit(Value::String("k12".into()), string.clone())),
+            or(vec![cmp(CmpOp::Ge, &sc, &lit(Value::String("k7".into()), string.clone())), node(ExprKind::IsNull(sc.clone()), boolean.clone())]),
             and(vec![cmp(CmpOp::Gt, &a, &lit(Value::Int(-5), int.clone())), cmp(CmpOp::Lt, &b, &lit(Value::Float(4.0), float.clone()))]),
             or(vec![cmp(CmpOp::Gt, &a, &lit(Value::Int(10), int.clone())), node(ExprKind::IsNull(b.clone()), boolean.clone())]),
             not(and(vec![cmp(CmpOp::Ne, &a, &lit(Value::Int(1), int.clone())), not(node(ExprKind::IsNull(tc.clone()), boolean.clone()))])),

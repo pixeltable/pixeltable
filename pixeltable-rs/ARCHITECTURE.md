@@ -54,7 +54,9 @@ src/
   store/rows.rs     StoredRow (cells, cell errors, key), LIVE/DEAD
   store/table_data.rs TableData: a table's rows as immutable segments + current version ranges; lookups by key, key
                     indexes, mutations, the compaction policy
-  store/segment.rs  Segment (rows decoded on first use, per chunk), Patch, stored key hashes
+  store/segment.rs  Segment (rows decoded on first use, per chunk), Patch, stored key hashes, typed chunk columns
+                    (ColChunk)
+  store/file_bytes.rs segment files mapped into memory (read on first access)
   store/history.rs  a table's version history file: records, diffing, replay
   store/codec.rs    the binary encoding of segment files
   exec/mod.rs       QuerySpec (from-table + joins, select/where/group_by/order_by/limit/sample, validation, JSON)
@@ -71,6 +73,8 @@ src/
   exec/txn.rs       mutations that compute without the catalog lock: read sets (commit validation), writer locks,
                     the plan/compute/commit runner with retries
   exec/par.rs       data parallelism (rayon) for pure-Rust evaluation and sorting; is_pure()
+  exec/fast.rs      expressions compiled against a query's row layout (Fast); vectorized filters over typed chunk
+                    columns (VPred)
   exec/compute_rows.rs Table.compute(): rows a table would hold for some input rows, nothing stored
   exec/index.rs     AddIndexPlan: embeddings of existing rows for a new embedding index
   bindings/         PyO3 glue only: types.rs (_core.ColumnType), expr.rs (_core.Expr, MethodRef), catalog.rs
@@ -296,9 +300,12 @@ independent calls (different columns or sub-expressions) overlap. Phase B is ord
 contexts carry a `CallSlot` and `RowContext::call_result()` hands each call's outcome to `expr::eval`. Computed columns
 are evaluated in waves (`compute::waves()`: a column is one wave after the latest column of the batch it reads,
 directly or through unstored columns), each wave with its own phase A (`compute::eval_computed_batch()` for inserts,
-`scan::eval_rows_batch()` for add_computed_column, updates, view rows and index values); queries prefetch the calls of
-their where clause, grouping and aggregate arguments, ordering and select list; updates those of their where clause,
-then of their new values (`update::where_values()`).
+`scan::eval_rows_batch()` for add_computed_column, updates, view rows and index values, `Table.compute()` through
+`eval_computed_batch()` too); queries prefetch the calls of their where clause, grouping and aggregate arguments,
+ordering and select list; updates those of their where clause, then of their new values (`update::where_values()`). A
+component view evaluates the rows of several base rows together (at least `COMPONENT_BATCH_ROWS`, base row by base row
+if its iterator has unstored outputs, which must not pile up). Phase A evaluates the arguments of a node for many rows on
+several threads when its caller's purity test (`prefetch::PureFn`) says they need no call that was not made.
 
 `dispatch::run()` runs the calls of a level: sync functions on a pool of worker threads (Rust threads with a Python
 thread state, attached only while they run a call; `udf_threads`), async functions as tasks on one persistent event
@@ -328,7 +335,8 @@ each chunk in row order up to its first failure, combined in chunk order: aggreg
 states are merged in row order (`AggState::merge()`, for functions that are `mergeable()`: count, sum, min, max, mean,
 make_list; a float sum over many rows is thus summed per chunk), else runs in one pass. Sorting sorts row indices
 (stable, `par::sort_by()`); under a limit, each chunk keeps its first `offset + limit` rows and those are sorted. Group
-and join keys are typed (`KeyPart`, SQL equality). Window functions stay sequential, in row order. The query
+and join keys are typed (`KeyPart`, SQL equality). Window functions stay sequential, in row order. A Python aggregate
+(UDA), whose states do not merge, aggregates in one pass attached to the interpreter once. The query
 embeddings of similarity lookups are computed before rows are evaluated (`init_similarities()`). The phase B of a wave of
 computed columns (`eval_computed_batch()`, `eval_rows_batch()`) evaluates its rows in parallel too when the columns are
 pure (rows are independent; statistics and the first failure are accounted in row order afterwards).
@@ -421,9 +429,9 @@ format pixeltable-rs v1, which this version of pixeltable-rs (format v4) cannot 
   (hash, row) pairs of the rows sorted by hash, and the patches it
   carries (`v_max` changes of rows of earlier segments: deletes, the old versions of updated rows, `revert()`); then
   the cells (tagged values, varints; JSON as text) in chunks of 8192 rows, each with its offset and checksum. Loading
-  a table reads its files (in parallel) and decodes only headers: a chunk is decoded on first use
-  (`Segment::row()`; a scan decodes a segment's chunks in parallel, `Segment::decode_all()`), so counting needs no
-  decoding and a key lookup decodes one chunk;
+  a table maps its files (`store::file_bytes`, `libc::mmap`; segment files are immutable, and a mapping outlives the
+  file's deletion) and decodes only headers: a chunk is read and decoded on first use, by the thread that reads it
+  (`Segment::row()`), so counting needs no decoding and a key lookup decodes one chunk;
 - `tables/<tbl id>.<id>.hist`: the table's version history, one `VersionMd`/`SchemaVersionMd` record per line; a
   commit appends the records that differ from the committed ones (compared by `Arc` identity), replay lets a record
   replace those of the same and later versions and drops versions after `current_version`; rewritten when most of it
@@ -450,7 +458,10 @@ heavier than all later ones together, else the trailing ones merge (O(log n) sma
 O(log n) times); a large segment that is mostly dead rows, or mostly patched, is rewritten alone. Merged segments drop dead rows (`v_max = DEAD`: inserts undone by `revert()`, rows
 deleted from operational tables) and carry the patches of the merged ones that target earlier segments. Reads:
 `visible_at(v)` skips segments that cannot hold a row visible at `v` (all inserted after `v`, or all retired before
-it); `row_at(key, v)` binary-searches each segment; `live_rows_by_prefix()` finds the view rows of base rows;
+it); `scan_order(v)` (`scan_order_upto(v, n)`: its first `n`) gives the rows visible at `v` in key order as addresses
+(segment, row), from the segments' key and version arrays alone: the longest runs of rows whose key ranges do not overlap
+follow each other, and the other runs (new versions of updated rows) are merged in by binary search; `row_at(key, v)`
+binary-searches each segment; `live_rows_by_prefix()` finds the view rows of base rows;
 `count_at(v)`. Key indexes (`KeyIndex`) map a hash of some columns' values in a row (the primary key, truncated for
 data-versioned tables as upstream's index does; or a column with a B-tree index) to the rowids of all row versions
 that hold them; they are built on first use, extended as they see new segments, shared by all clones (lookups verify
@@ -459,7 +470,11 @@ segments written with sorted key hashes are binary-searched instead of being add
 primary-key index (`find_live_by_pks()`, `pk_candidates()`) serves the insert uniqueness check and `batch_update()` by
 key; `scan::PathInput::rows_where()` (queries without joins, `update()`, `delete()`) serves filters that fix the
 primary key, or compare an indexed column (`eq_candidates()`), with `==`/`isin()` on literals of the column's type,
-unless that finds more than an eighth of the rows.
+unless that finds more than an eighth of the rows. A scan builds, on first use, a storage chunk's column in contiguous
+typed form (`segment::ColChunk`: int, float or timestamp values, or strings in one buffer, with NULL flags; cached with
+the segment, dropped when its rows change), from the decoded rows or, if the chunk is not decoded, straight from its
+encoding (`codec::decode_column()`, skipping the other cells), for vectorized filters, typed aggregation, join and sort
+keys and projections of stored cells; rows are then decoded only for what has no typed form.
 
 Several processes may share a store. Every `with_catalog` call holds an exclusive OS file lock on `catalog.lock`
 (`Store::lock()`, taken after the in-process mutex, detached from the interpreter while waiting) and compares the stamp
@@ -515,9 +530,9 @@ call inside `with_catalog`), register it in `bindings/mod.rs`, and forward to it
 
 `exec::QuerySpec` is the state of a `pxt.Query`; its `with_*` methods validate as upstream does. Execution
 (`exec/query.rs`): `QueryInput::snapshot()` captures the table path of every from-table under the catalog lock; then,
-without the lock: scan each path (key order) and join (hash join on equality conjuncts, else nested loop; inner,
-left, full outer, cross) into `JRow`s (one slot per table of each path; None for the missing side of an outer join)
--> where -> sample -> aggregate (groups by key, or by base row for `group_by(base_table)`; rows sorted first for
+without the lock: scan each path (key order; a base table by address, `Scan::Leaf`, its rows fetched and their chunks
+decoded on use) and join (hash join on equality conjuncts, else nested loop; inner, left, full outer, cross) into
+`Rows` (flat, one slot per table of each path per row; None for the missing side of an outer join) -> where -> sample -> aggregate (groups by key, or by base row for `group_by(base_table)`; rows sorted first for
 aggregates with an ordering requirement; SQL semantics: one row for an ungrouped aggregation over no rows) -> window functions (rows sorted by the combined partition/order clauses,
 "Incompatible ordering requirements" otherwise) -> stable sort (ASC nulls last, DESC nulls first) -> offset/limit ->
 project. Column reads go through `scan::PathCtx` of the from-table that holds the column at the version the reference
@@ -528,6 +543,22 @@ query's tables when it runs, as upstream. Unstored computed columns are evaluate
 access. Window functions in computed columns are evaluated over all rows of the table when the column is added, and
 afterwards over the rows an insert adds or an update changes, as upstream's plans do (`eval_rows_with_windows()`, via
 `scan::eval_rows_into()` for updates and view rows).
+
+Speed without changing results: a limit without ordering, aggregation, window functions, sample or join stops the scan
+once `offset + limit` rows passed the filter, evaluated over batches of growing size (as SQL's LIMIT stops a scan; rows
+after those are not evaluated, so an error there is not raised, and their calls are not made). Filters, keys, aggregate
+arguments, sort keys, join keys and the select list are compiled against the row layout (`exec::fast::Fast`: column reads
+resolved to slots, borrowed values, comparisons, `&`/`|`/`~`, `isnull`, `isin`, arithmetic and similarity evaluated
+natively, failures located as `expr::eval::locate()` does, every other node through `expr::eval`). A base table's filter
+of comparisons of numeric cells with literals runs over runs of rows of one storage chunk from its typed columns
+(`fast::VPred`; none of its nodes can fail, so evaluating every operand gives the short-circuiting results); so do
+`update()`/`delete()` row selection (`PathInput::rows_passing()`, in parallel). Aggregation over a base table takes
+numeric keys and one-argument aggregate values from the typed columns; keys of one integer use their own map; partial
+states are merged group by group in parallel, in chunk order. A join probes from a base table's rows by address with
+integer keys from its typed columns, and needs no evaluation of a predicate made only of equalities of stored columns of
+exact-equality types (`keys_decide()`). An ordering by one numeric cell or similarity is computed from numbers
+(`NumKey`, ordered as `cmp_values()`); similarities are scored four embeddings at a time in lanes that each sum in element
+order, with the query's norm computed once (`expr::eval::SimilarityQuery`: bit-identical scores).
 
 ## Data sources, compute(), indexes
 

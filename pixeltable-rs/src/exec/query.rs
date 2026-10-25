@@ -3,8 +3,9 @@
 //! `QueryInput::snapshot()` captures, under the catalog lock, the table path (`scan::PathInput`: the table and the
 //! bases its rows join with) of every from-table. `execute()` and `count()` run without the lock.
 //!
-//! Rows flow as `JRow`s: one optional stored row per slot, where each from-table occupies one slot per table of its
-//! path (leaf first); None is the missing side of an outer join.
+//! Rows flow as `Rows`: one optional stored row per slot, where each from-table occupies one slot per table of its
+//! path (leaf first); None is the missing side of an outer join. A query without joins scans its base table by address
+//! (`Scan`), fetching (and decoding) only the rows it reads.
 //! Aggregate and window function results are computed outside of expression evaluation and handed to it through
 //! `RowContext::precomputed()`: `Plan::slots` maps each aggregate/window call node (by address) to an index into
 //! the per-output-row `pre` values.
@@ -30,12 +31,13 @@ use crate::expr::eval::{RowContext, eval};
 use crate::expr::{ArithOp, CmpOp, ColumnRef, Expr, ExprKind, ExprRef, LogicalOp};
 use crate::functions::agg::{AggPlan, AggState};
 use crate::store::rows::{RowAddr, StoredRow, TableData};
+use crate::store::table_data::ColChunk;
 use crate::value::{Value, cmp_values};
 
 /// One from-table of a query: its table path, captured under the catalog lock.
 pub struct Source {
     pub path: PathInput,
-    /// the slot of the path's first (leaf) table in a `JRow`
+    /// the slot of the path's first (leaf) table in a row
     pub offset: usize,
 }
 
@@ -46,7 +48,7 @@ pub struct QueryInput {
     pub select: Vec<(ExprRef, String)>,
     /// value expressions of unstored computed columns, evaluated on read
     pub unstored: HashMap<(Uuid, ColId), ExprRef>,
-    /// number of slots of a `JRow`
+    /// number of slots of a row
     width: usize,
     /// table id -> (source index, slot) of the first slot that provides its columns
     slot_of: HashMap<Uuid, (usize, usize)>,
@@ -229,18 +231,14 @@ impl<'a> Rows<'a> {
     }
 }
 
-/// Output rows: the (representative) input rows, and for each the precomputed aggregate/window values (`pre`, empty if
-/// the query has none).
+/// Output rows: the (representative) input rows (a base table's rows by address, or materialized rows), and for each
+/// the precomputed aggregate/window values (`pre`, empty if the query has none).
 struct OutRows<'a> {
-    rows: Rows<'a>,
+    rows: Scan<'a>,
     pre: Vec<Vec<Value>>,
 }
 
 impl<'a> OutRows<'a> {
-    fn plain(rows: Rows<'a>) -> OutRows<'a> {
-        OutRows { rows, pre: Vec::new() }
-    }
-
     fn len(&self) -> usize {
         self.rows.len()
     }
@@ -251,7 +249,7 @@ impl<'a> OutRows<'a> {
 
     /// The rows `order` (indexes), in that order.
     fn permute(mut self, order: &[u32]) -> OutRows<'a> {
-        let rows = self.rows.gather(order.iter().map(|i| *i as usize));
+        let rows = self.rows.pick(order.iter().map(|i| *i as usize));
         let pre = if self.pre.is_empty() {
             Vec::new()
         } else {
@@ -268,7 +266,7 @@ impl<'a> OutRows<'a> {
             return self;
         }
         let start = offset.min(end);
-        let rows = self.rows.gather(start..end);
+        let rows = self.rows.pick(start..end);
         let pre = if self.pre.is_empty() { Vec::new() } else { self.pre.drain(start..end).collect() };
         OutRows { rows, pre }
     }
@@ -767,14 +765,23 @@ impl<'a> Scan<'a> {
         }
     }
 
-    /// The rows `idx`, in that order (fetched in parallel when they are many).
+    /// The rows `idx`, in that order (their storage chunks decoded in parallel first).
     fn select(&self, idx: &[usize]) -> Rows<'a> {
         match self {
-            Scan::Leaf { data, addrs } => Rows {
-                width: 1,
-                slots: super::par::map_rows(idx.len(), |k| Some(data.row_by_addr(addrs[idx[k]]))),
-            },
+            Scan::Leaf { data, addrs } => {
+                let picked: Vec<RowAddr> = idx.iter().map(|i| addrs[*i]).collect();
+                super::par::detached(|| data.decode_chunks_of(&picked));
+                Rows { width: 1, slots: super::par::map_rows(picked.len(), |k| Some(data.row_by_addr(picked[k]))) }
+            }
             Scan::Rows(r) => r.gather(idx.iter().copied()),
+        }
+    }
+
+    /// The rows `idx`, in that order, as a scan (a base table's stay addresses).
+    fn pick(self, idx: impl ExactSizeIterator<Item = usize>) -> Scan<'a> {
+        match self {
+            Scan::Leaf { data, addrs } => Scan::Leaf { data, addrs: idx.map(|i| addrs[i]).collect() },
+            Scan::Rows(r) => Scan::Rows(r.gather(idx)),
         }
     }
 
@@ -782,6 +789,7 @@ impl<'a> Scan<'a> {
     fn into_rows(self) -> Rows<'a> {
         match self {
             Scan::Leaf { data, addrs } => {
+                super::par::detached(|| data.decode_chunks_of(&addrs));
                 Rows { width: 1, slots: super::par::map_rows(addrs.len(), |k| Some(data.row_by_addr(addrs[k]))) }
             }
             Scan::Rows(r) => r,
@@ -875,7 +883,6 @@ impl JoinIndex {
 
 /// Scans the from-tables and joins them (in from-clause order): rows of `input.width` slots.
 fn scan_and_join<'a>(input: &'a QueryInput) -> Result<Rows<'a>> {
-    use crate::store::table_data::ColChunk;
     let n = input.width;
     let empty = HashMap::new();
     type Row<'a> = SmallVec<[Option<&'a StoredRow>; 4]>;
@@ -1182,21 +1189,20 @@ fn filtered_scan<'a>(input: &'a QueryInput) -> Result<Scan<'a>> {
 /// The first `need` rows of `scan` that pass the where clause (all rows without one), in order: the filter is
 /// evaluated over batches of rows of growing size until enough rows passed (as SQL's LIMIT stops a scan), so rows after
 /// those are not evaluated and their user-function calls not made.
-fn first_rows<'a>(input: &'a QueryInput, scan: &Scan<'a>, need: usize) -> Result<Rows<'a>> {
+fn first_rows<'a>(input: &'a QueryInput, scan: Scan<'a>, need: usize) -> Result<Scan<'a>> {
     let n = scan.len();
     let Some(w) = &input.q.where_ else {
-        let idx: Vec<usize> = (0..need.min(n)).collect();
-        return Ok(scan.select(&idx));
+        return Ok(scan.pick(0..need.min(n)));
     };
     let mut out: Vec<usize> = Vec::new();
     let (mut start, mut batch) = (0, need.saturating_mul(2).max(1024));
     while start < n && out.len() < need {
         let end = start.saturating_add(batch).min(n);
-        out.extend(filter_scan(input, scan, w, start..end, need - out.len())?);
+        out.extend(filter_scan(input, &scan, w, start..end, need - out.len())?);
         start = end;
         batch = batch.saturating_mul(2).min(1 << 18);
     }
-    Ok(scan.select(&out))
+    Ok(scan.pick(out.into_iter()))
 }
 
 // ------------------------------------------------------------------------------------------------ sampling
@@ -1331,18 +1337,25 @@ impl Groups {
 
 /// A value of a typed chunk column (`ColChunk`), as the cell holds it.
 fn typed_value(c: &crate::store::table_data::ColChunk, k: usize) -> Value {
-    use crate::store::table_data::ColChunk;
     match c {
         ColChunk::Int(t) if !t.is_null(k) => Value::Int(t.vals[k]),
         ColChunk::Float(t) if !t.is_null(k) => Value::Float(t.vals[k]),
         ColChunk::Timestamp(t) if !t.is_null(k) => Value::Timestamp(t.vals[k]),
+        ColChunk::Str(t) if !t.is_null(k) => Value::String(t.get(k).to_string()),
         _ => Value::Null,
+    }
+}
+
+/// `key_part()` of a value of a typed chunk column (a string copied once).
+fn typed_key_part(c: &crate::store::table_data::ColChunk, k: usize) -> KeyPart {
+    match c {
+        ColChunk::Str(t) if !t.is_null(k) => KeyPart::Str(t.get(k).to_string()),
+        c => key_part(&typed_value(c, k)),
     }
 }
 
 /// Groups `rows` by the grouping keys (groups in key order, ASC with NULLs last) and computes the aggregates.
 fn aggregate<'a>(input: &'a QueryInput, plan: &Plan, rows: &Scan<'a>, grouping: &[ExprRef]) -> Result<OutRows<'a>> {
-    use crate::store::table_data::ColChunk;
     let empty = HashMap::new();
     struct Group {
         key: Vec<Value>,
@@ -1474,7 +1487,8 @@ fn aggregate<'a>(input: &'a QueryInput, plan: &Plan, rows: &Scan<'a>, grouping: 
             let off = addrs[a].1 as usize % crate::store::segment::CHUNK_ROWS;
             let keys: Vec<&ColChunk> = key_cols.iter().map(col).collect();
             let vals: Vec<&ColChunk> = arg_cols.iter().map(col).collect();
-            if keys.iter().chain(vals.iter()).any(|c| matches!(c, ColChunk::Mixed)) {
+            // (string arguments are passed as the cells are, not copied)
+            if keys.iter().any(|c| matches!(c, ColChunk::Mixed)) || vals.iter().any(|c| matches!(c, ColChunk::Mixed | ColChunk::Str(_))) {
                 for i in a..b {
                     if let Err(err) = aggregate_row(i, &mut part, &mut args) {
                         return (part, Some(err));
@@ -1490,7 +1504,7 @@ fn aggregate<'a>(input: &'a QueryInput, plan: &Plan, rows: &Scan<'a>, grouping: 
                     } else {
                         match keys.as_slice() {
                             [ColChunk::Int(t)] if !t.is_null(k) => part.get_int(t.vals[k], i, &new_states)?,
-                            _ => part.get(keys.iter().map(|c| key_part(&typed_value(c, k))).collect(), i, &new_states)?,
+                            _ => part.get(keys.iter().map(|c| typed_key_part(c, k)).collect(), i, &new_states)?,
                         }
                     };
                     for ((ag, c), state) in plan.aggs.iter().zip(&vals).zip(part.list[gi].2.iter_mut()) {
@@ -1597,7 +1611,7 @@ fn aggregate<'a>(input: &'a QueryInput, plan: &Plan, rows: &Scan<'a>, grouping: 
         for (a, mut st) in plan.aggs.iter().zip(states) {
             pre.push(st.value().map_err(|err| agg_error(&a.expr, err))?);
         }
-        return Ok(OutRows { rows: reps, pre: vec![pre] });
+        return Ok(OutRows { rows: Scan::Rows(reps), pre: vec![pre] });
     }
     groups.sort_by(|a, b| {
         for (x, y) in a.key.iter().zip(b.key.iter()) {
@@ -1617,7 +1631,7 @@ fn aggregate<'a>(input: &'a QueryInput, plan: &Plan, rows: &Scan<'a>, grouping: 
         }
         pres.push(pre);
     }
-    Ok(OutRows { rows: rows.select(&reps), pre: pres })
+    Ok(OutRows { rows: Scan::Rows(rows.select(&reps)), pre: pres })
 }
 
 /// Sorts `rows` by `ordering` (stable; ASC puts NULLs last, DESC first; a wildcard direction sorts ascending).
@@ -1655,17 +1669,18 @@ fn sort_rows_upto<'a>(
     }
     let n = rows.len();
     let exprs: Vec<&ExprRef> = ordering.iter().map(|(e, _)| e).collect();
-    let calls = prefetch_calls(input, &exprs, n, &|i, f| f(rows.rows.row(i), rows.pre(i)), &plan.slots)?;
+    let calls = prefetch_calls(input, &exprs, n, &|i, f| rows.rows.with_row(i, |r| f(r, rows.pre(i))), &plan.slots)?;
     let pure = exprs.iter().all(|e| input.expr_pure(e, &calls));
     let fasts: Vec<Fast> = exprs.iter().map(|e| input.compile(e)).collect();
     let row_keys = |i: usize| -> Result<SmallVec<[std::borrow::Cow<'_, Value>; 2]>> {
-        let row = rows.rows.row(i);
-        let ctx = Ctx { input, row, pre: rows.pre(i), slots: &plan.slots, calls: slot_of(&calls, i) };
-        fasts
-            .iter()
-            .zip(&exprs)
-            .map(|(f, e)| f.eval(row, &ctx).map_err(|err| super::compute::eval_error(e, err)))
-            .collect()
+        rows.rows.with_row(i, |row| {
+            let ctx = Ctx { input, row, pre: rows.pre(i), slots: &plan.slots, calls: slot_of(&calls, i) };
+            fasts
+                .iter()
+                .zip(&exprs)
+                .map(|(f, e)| f.eval(row, &ctx).map_err(|err| super::compute::eval_error(e, err)))
+                .collect()
+        })
     };
     if keep == Some(0) {
         return Ok(rows.window(0, Some(0)));
@@ -1748,11 +1763,41 @@ fn numeric_order(rows: &OutRows<'_>, ordering: &[(ExprRef, Option<bool>)], fasts
         Value::Float(x) => Some(NumKey::Float(*x)),
         _ => None,
     };
-    let keys_of = |range: std::ops::Range<usize>| -> Option<Vec<NumKey>> {
-        match f {
-            Fast::Cell { slot, col } => range.map(|i| num(rows.rows.row(i)[*slot].map_or(&NULL, |r| r.cell(*col)))).collect(),
-            Fast::Similarity { slot, col, query, .. } => {
-                let stored: Vec<&Value> = range.map(|i| rows.rows.row(i)[*slot].map_or(&NULL, |r| r.cell(*col))).collect();
+    // the cell of `col` in the row in `slot` of row `i`
+    let cell = |i: usize, slot: usize, col: ColId| -> &Value {
+        match &rows.rows {
+            Scan::Leaf { data, addrs } => data.row_by_addr(addrs[i]).cell(col),
+            Scan::Rows(r) => r.row(i)[slot].map_or(&NULL, |r| r.cell(col)),
+        }
+    };
+    let num_keys = |range: std::ops::Range<usize>| -> Option<Vec<NumKey>> {
+        match (f, &rows.rows) {
+            // a base table's cells: from the typed columns of its chunks, run by run
+            (Fast::Cell { col, .. }, Scan::Leaf { data, addrs }) => {
+                let mut out = Vec::with_capacity(range.len());
+                for (a, b) in super::fast::chunk_runs(addrs, range) {
+                    let (c, off) = data.column_at(addrs[a], *col);
+                    for k in off..off + (b - a) {
+                        out.push(match c.as_ref() {
+                            ColChunk::Mixed => num(data.row_by_addr(addrs[a + k - off]).cell(*col))?,
+                            c => match typed_value(c, k) {
+                                Value::Int(x) => NumKey::Int(x),
+                                Value::Float(x) => NumKey::Float(x),
+                                Value::Null => NumKey::Null,
+                                // timestamps order as `cmp_values()` orders them, not as numbers
+                                _ => return None,
+                            },
+                        });
+                    }
+                }
+                Some(out)
+            }
+            (Fast::Cell { slot, col }, _) => range.map(|i| num(cell(i, *slot, *col))).collect(),
+            (Fast::Similarity { slot, col, query, .. }, _) => {
+                if let Scan::Leaf { data, addrs } = &rows.rows {
+                    data.decode_chunks_of(&addrs[range.clone()]);
+                }
+                let stored: Vec<&Value> = range.map(|i| cell(i, *slot, *col)).collect();
                 Some(query.scores(&stored).into_iter().map(|s| s.map_or(NumKey::Null, NumKey::Float)).collect())
             }
             _ => None,
@@ -1764,7 +1809,7 @@ fn numeric_order(rows: &OutRows<'_>, ordering: &[(ExprRef, Option<bool>)], fasts
             // the first `k` rows of each run (by key, ties by position), then the first `k` of those
             let firsts = |range: std::ops::Range<usize>| -> Option<Vec<(NumKey, u32)>> {
                 let start = range.start;
-                let keys = keys_of(range)?;
+                let keys = num_keys(range)?;
                 let mut best: Vec<(NumKey, u32)> = Vec::with_capacity(k + 1);
                 for (j, key) in keys.into_iter().enumerate() {
                     if best.len() == k && cmp(&key, &best[k - 1].0).is_ge() {
@@ -1786,7 +1831,7 @@ fn numeric_order(rows: &OutRows<'_>, ordering: &[(ExprRef, Option<bool>)], fasts
         }
         None => {
             let mut keys = Vec::with_capacity(n);
-            for part in super::par::map_chunks(n, keys_of) {
+            for part in super::par::map_chunks(n, num_keys) {
                 keys.extend(part?);
             }
             let mut order: Vec<u32> = (0..n as u32).collect();
@@ -1815,15 +1860,18 @@ fn eval_windows<'a>(input: &'a QueryInput, plan: &Plan, rows: &mut OutRows<'a>) 
         let mut state: Option<Box<dyn AggState>> = None;
         let mut partition: Option<String> = None;
         for i in 0..n {
-            let ctx = Ctx { input, row: rows.rows.row(i), pre: &[], slots: &empty, calls: None };
-            let part_vals = fc.group_by.iter().map(|e| eval(e, &ctx)).collect::<Result<Vec<_>>>().map_err(|e| agg_error(&w.expr, e))?;
+            let (part_vals, args, kwargs) = rows.rows.with_row(i, |row| -> Result<_> {
+                let ctx = Ctx { input, row, pre: &[], slots: &empty, calls: None };
+                let part_vals = fc.group_by.iter().map(|e| eval(e, &ctx)).collect::<Result<Vec<_>>>().map_err(|e| agg_error(&w.expr, e))?;
+                let (args, kwargs) = call_args(&w.expr, &ctx).map_err(|e| agg_error(&w.expr, e))?;
+                Ok((part_vals, args, kwargs))
+            })?;
             let pkey = keys_of(&part_vals);
             if state.is_none() || partition.as_ref() != Some(&pkey) {
                 state = Some(w.plan.new_state().map_err(|e| agg_error(&w.expr, e))?);
                 partition = Some(pkey);
             }
             let st = state.as_mut().expect("state");
-            let (args, kwargs) = call_args(&w.expr, &ctx).map_err(|e| agg_error(&w.expr, e))?;
             let v = if w.plan.skips(&args, &kwargs) {
                 Value::Null
             } else {
@@ -1848,7 +1896,8 @@ fn result_rows<'a>(input: &'a QueryInput, plan: &Plan, rowid_desc: bool, need: O
         let scan = filtered_scan(input)?;
         return aggregate(input, plan, &scan, g);
     }
-    let mut rows = match limited {
+    // the rows that pass the filter (a base table's by address)
+    let mut scan = match limited {
         Some(need) => {
             // without a filter, only the first `need` rows are read (unless the scan is reversed)
             let prefix = (q.where_.is_none() && !rowid_desc).then_some(need);
@@ -1856,26 +1905,26 @@ fn result_rows<'a>(input: &'a QueryInput, plan: &Plan, rowid_desc: bool, need: O
             if rowid_desc {
                 scan.reverse();
             }
-            first_rows(input, &scan, need)?
+            first_rows(input, scan, need)?
         }
         None => {
-            let mut rows = filtered(input)?;
+            let mut scan = filtered_scan(input)?;
             if rowid_desc {
-                rows.reverse();
+                scan.reverse();
             }
-            rows
+            scan
         }
     };
     if let Some(s) = &q.sample {
-        rows = apply_sample(input, rows, s)?;
+        scan = Scan::Rows(apply_sample(input, scan.into_rows(), s)?);
     }
     if !plan.agg_order.is_empty() {
         // ordered aggregates see their rows in order (groups keep the input order)
-        rows = sort_rows(input, plan, OutRows::plain(rows), &plan.agg_order)?.rows;
+        scan = sort_rows(input, plan, OutRows { rows: scan, pre: Vec::new() }, &plan.agg_order)?.rows;
     }
     let mut out = match &plan.grouping {
-        Some(g) => aggregate(input, plan, &Scan::Rows(rows), g)?,
-        None => OutRows::plain(rows),
+        Some(g) => aggregate(input, plan, &scan, g)?,
+        None => OutRows { rows: scan, pre: Vec::new() },
     };
     if !plan.windows.is_empty() {
         out = sort_rows(input, plan, out, &plan.window_order)?;
@@ -1925,19 +1974,71 @@ pub fn execute(input: &QueryInput, rowid_desc: bool) -> Result<ResultData> {
     }
     let rows = rows.window(offset, limit);
     let exprs: Vec<&ExprRef> = input.select.iter().map(|(e, _)| e).collect();
-    let calls = prefetch_calls(input, &exprs, rows.len(), &|i, f| f(rows.rows.row(i), rows.pre(i)), &plan.slots)?;
+    let calls = prefetch_calls(input, &exprs, rows.len(), &|i, f| rows.rows.with_row(i, |r| f(r, rows.pre(i))), &plan.slots)?;
     let pure = exprs.iter().all(|e| input.expr_pure(e, &calls));
     let fasts: Vec<Fast> = exprs.iter().map(|e| input.compile(e)).collect();
+    if let Some(projected) = project_cells(&rows, &fasts, pure && calls.is_none()) {
+        return Ok(ResultData { names, types, rows: projected });
+    }
+    if let Scan::Leaf { data, addrs } = &rows.rows {
+        super::par::detached(|| data.decode_chunks_of(addrs));
+    }
     let projected = super::par::try_map_rows(rows.len(), pure, |i| {
-        let row = rows.rows.row(i);
-        let ctx = Ctx { input, row, pre: rows.pre(i), slots: &plan.slots, calls: slot_of(&calls, i) };
-        let mut vals = Vec::with_capacity(fasts.len());
-        for (f, e) in fasts.iter().zip(&exprs) {
-            vals.push(f.eval(row, &ctx).map_err(|err| super::compute::eval_error(e, err))?.into_owned());
-        }
-        Ok(vals)
+        rows.rows.with_row(i, |row| {
+            let ctx = Ctx { input, row, pre: rows.pre(i), slots: &plan.slots, calls: slot_of(&calls, i) };
+            let mut vals = Vec::with_capacity(fasts.len());
+            for (f, e) in fasts.iter().zip(&exprs) {
+                vals.push(f.eval(row, &ctx).map_err(|err| super::compute::eval_error(e, err))?.into_owned());
+            }
+            Ok(vals)
+        })
     })?;
     Ok(ResultData { names, types, rows: projected })
+}
+
+/// The select list of a base table's rows when it is only stored cells: values taken from the typed columns of the
+/// storage chunks where they have one (the rows' cells otherwise), run by run, without decoding rows the typed columns
+/// cover. None for other select lists.
+fn project_cells(rows: &OutRows<'_>, fasts: &[Fast], pure: bool) -> Option<Vec<Vec<Value>>> {
+    let Scan::Leaf { data, addrs } = &rows.rows else { return None };
+    let cols: Vec<ColId> = fasts
+        .iter()
+        .map(|f| match f {
+            Fast::Cell { slot: 0, col } => Some(*col),
+            _ => None,
+        })
+        .collect::<Option<_>>()?;
+    if !pure || !rows.pre.is_empty() || cols.is_empty() {
+        return None;
+    }
+    // the rows of the runs a typed column does not cover: their chunks decoded in parallel first
+    let runs = super::fast::chunk_runs(addrs, 0..addrs.len());
+    let untyped: Vec<RowAddr> = runs
+        .iter()
+        .filter(|(a, _)| cols.iter().any(|c| matches!(data.column_at(addrs[*a], *c).0.as_ref(), ColChunk::Mixed)))
+        .map(|(a, _)| addrs[*a])
+        .collect();
+    super::par::detached(|| data.decode_chunks_of(&untyped));
+    let parts = super::par::map_chunks(addrs.len(), |range| {
+        let mut out = Vec::with_capacity(range.len());
+        for (a, b) in super::fast::chunk_runs(addrs, range) {
+            let typed: Vec<(std::sync::Arc<ColChunk>, usize)> = cols.iter().map(|c| data.column_at(addrs[a], *c)).collect();
+            for i in a..b {
+                out.push(
+                    typed
+                        .iter()
+                        .zip(&cols)
+                        .map(|((c, off), col)| match c.as_ref() {
+                            ColChunk::Mixed => data.row_by_addr(addrs[i]).cell(*col).clone(),
+                            c => typed_value(c, off + (i - a)),
+                        })
+                        .collect(),
+                );
+            }
+        }
+        out
+    });
+    Some(parts.into_iter().flatten().collect())
 }
 
 /// `Query.count()`

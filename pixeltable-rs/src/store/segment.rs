@@ -61,7 +61,8 @@ pub enum ColChunk {
     Int(TypedCol<i64>),
     Float(TypedCol<f64>),
     Timestamp(TypedCol<i64>),
-    /// cells of other kinds (or of several kinds): not cached
+    Str(StrCol),
+    /// cells of other kinds (or of several kinds), or only NULLs: no typed form
     Mixed,
 }
 
@@ -78,46 +79,137 @@ impl<T> TypedCol<T> {
     }
 }
 
+/// Strings, one after the other in one buffer (`ends[i]`: the end of string `i`), and NULL flags; a NULL is empty.
+#[derive(Debug)]
+pub struct StrCol {
+    pub bytes: String,
+    pub ends: Vec<u32>,
+    pub nulls: Option<Vec<bool>>,
+}
+
+impl StrCol {
+    pub fn is_null(&self, i: usize) -> bool {
+        self.nulls.as_ref().is_some_and(|n| n[i])
+    }
+
+    pub fn get(&self, i: usize) -> &str {
+        let start = if i == 0 { 0 } else { self.ends[i - 1] as usize };
+        &self.bytes[start..self.ends[i] as usize]
+    }
+}
+
+/// The kind of a typed column (the codec's value tags).
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum CellKind {
+    Int = 3,
+    Float = 4,
+    Str = 5,
+    Timestamp = 6,
+}
+
+/// Builds a `ColChunk` cell by cell: the first non-NULL cell decides the kind; a cell of another kind makes the column
+/// `Mixed`.
+pub(crate) struct ColBuilder {
+    kind: Option<CellKind>,
+    mixed: bool,
+    n: usize,
+    /// ints, timestamps and float bits
+    vals: Vec<i64>,
+    bytes: Vec<u8>,
+    ends: Vec<u32>,
+    nulls: Option<Vec<bool>>,
+}
+
+impl ColBuilder {
+    pub(crate) fn new(capacity: usize) -> ColBuilder {
+        ColBuilder { kind: None, mixed: false, n: 0, vals: Vec::with_capacity(capacity), bytes: Vec::new(), ends: Vec::with_capacity(capacity), nulls: None }
+    }
+
+    /// True once the column has no typed form (later cells need not be given).
+    pub(crate) fn is_mixed(&self) -> bool {
+        self.mixed
+    }
+
+    pub(crate) fn null(&mut self) {
+        let (n, cap) = (self.n, self.vals.capacity());
+        self.nulls.get_or_insert_with(|| {
+            let mut v = Vec::with_capacity(cap.max(n + 1));
+            v.resize(n, false);
+            v
+        });
+        self.push(0, None);
+        if let Some(nulls) = self.nulls.as_mut() {
+            nulls.push(true);
+        }
+    }
+
+    /// A non-NULL cell: an int, a timestamp or a float's bits (`v`), or a string (`s`).
+    pub(crate) fn cell(&mut self, kind: CellKind, v: i64, s: Option<&[u8]>) {
+        match self.kind {
+            None => self.kind = Some(kind),
+            Some(k) if k != kind => {
+                self.mixed = true;
+                return;
+            }
+            _ => {}
+        }
+        self.push(v, s);
+        if let Some(nulls) = self.nulls.as_mut() {
+            nulls.push(false);
+        }
+    }
+
+    fn push(&mut self, v: i64, s: Option<&[u8]>) {
+        self.vals.push(v);
+        if let Some(s) = s {
+            self.bytes.extend_from_slice(s);
+        }
+        self.ends.push(self.bytes.len() as u32);
+        self.n += 1;
+    }
+
+    /// The column (None: its strings are not UTF-8).
+    pub(crate) fn finish(self) -> Option<ColChunk> {
+        if self.mixed || self.bytes.len() > u32::MAX as usize {
+            return Some(ColChunk::Mixed);
+        }
+        let nulls = self.nulls;
+        Some(match self.kind {
+            Some(CellKind::Int) => ColChunk::Int(TypedCol { vals: self.vals, nulls }),
+            Some(CellKind::Timestamp) => ColChunk::Timestamp(TypedCol { vals: self.vals, nulls }),
+            Some(CellKind::Float) => ColChunk::Float(TypedCol {
+                vals: self
+                    .vals
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| if nulls.as_ref().is_some_and(|n| n[i]) { 0.0 } else { f64::from_bits(*v as u64) })
+                    .collect(),
+                nulls,
+            }),
+            Some(CellKind::Str) => ColChunk::Str(StrCol { bytes: String::from_utf8(self.bytes).ok()?, ends: self.ends, nulls }),
+            None => ColChunk::Mixed,
+        })
+    }
+}
+
 impl ColChunk {
     pub(crate) fn of(rows: &[StoredRow], col: ColId) -> ColChunk {
         use crate::value::Value;
-        let n = rows.len();
-        let mut nulls: Option<Vec<bool>> = None;
-        let null_at = |nulls: &mut Option<Vec<bool>>, i: usize| nulls.get_or_insert_with(|| vec![false; n])[i] = true;
-        let first = rows.iter().map(|r| r.cell(col)).find(|v| !v.is_null());
-        match first {
-            Some(Value::Int(_)) | Some(Value::Timestamp(_)) => {
-                let ts = matches!(first, Some(Value::Timestamp(_)));
-                let mut vals = Vec::with_capacity(n);
-                for (i, r) in rows.iter().enumerate() {
-                    match (r.cell(col), ts) {
-                        (Value::Int(v), false) | (Value::Timestamp(v), true) => vals.push(*v),
-                        (Value::Null, _) => {
-                            vals.push(0);
-                            null_at(&mut nulls, i);
-                        }
-                        _ => return ColChunk::Mixed,
-                    }
-                }
-                let c = TypedCol { vals, nulls };
-                if ts { ColChunk::Timestamp(c) } else { ColChunk::Int(c) }
+        let mut b = ColBuilder::new(rows.len());
+        for r in rows {
+            match r.cell(col) {
+                Value::Null => b.null(),
+                Value::Int(v) => b.cell(CellKind::Int, *v, None),
+                Value::Timestamp(v) => b.cell(CellKind::Timestamp, *v, None),
+                Value::Float(v) => b.cell(CellKind::Float, v.to_bits() as i64, None),
+                Value::String(s) => b.cell(CellKind::Str, 0, Some(s.as_bytes())),
+                _ => return ColChunk::Mixed,
             }
-            Some(Value::Float(_)) => {
-                let mut vals = Vec::with_capacity(n);
-                for (i, r) in rows.iter().enumerate() {
-                    match r.cell(col) {
-                        Value::Float(v) => vals.push(*v),
-                        Value::Null => {
-                            vals.push(0.0);
-                            null_at(&mut nulls, i);
-                        }
-                        _ => return ColChunk::Mixed,
-                    }
-                }
-                ColChunk::Float(TypedCol { vals, nulls })
+            if b.is_mixed() {
+                return ColChunk::Mixed;
             }
-            _ => ColChunk::Mixed,
         }
+        b.finish().unwrap_or(ColChunk::Mixed)
     }
 }
 
@@ -249,6 +341,16 @@ impl Segment {
         })
     }
 
+    /// True if chunk `k` is decoded.
+    pub fn chunk_decoded(&self, k: usize) -> bool {
+        self.chunks[k].get().is_some()
+    }
+
+    /// Decodes chunk `k` if it is not decoded yet.
+    pub fn decode_chunk(&self, k: usize) {
+        self.chunk(k);
+    }
+
     /// Row `i` (decoding its chunk if needed).
     pub fn row(&self, i: usize) -> &StoredRow {
         &self.chunk(i / CHUNK_ROWS)[i % CHUNK_ROWS]
@@ -277,7 +379,18 @@ impl Segment {
         if let Some((_, c)) = self.columns[k].read().iter().find(|(id, _)| *id == col) {
             return c.clone();
         }
-        let built = Arc::new(ColChunk::of(self.chunk(k), col));
+        // from the decoded rows, or else from the encoded chunk (without decoding the rows)
+        let body = if self.chunks[k].get().is_some() { None } else { self.body.lock().clone() };
+        let built = Arc::new(match body {
+            Some(body) => {
+                let n = self.len().min((k + 1) * CHUNK_ROWS) - k * CHUNK_ROWS;
+                match codec::decode_column(&body, k, n, col) {
+                    Ok(c) => c,
+                    Err(e) => panic!("table data segment {:016x} cannot be decoded: {}", self.id, e.message()),
+                }
+            }
+            None => ColChunk::of(self.chunk(k), col),
+        });
         let mut cache = self.columns[k].write();
         match cache.iter().find(|(id, _)| *id == col) {
             Some((_, c)) => c.clone(),

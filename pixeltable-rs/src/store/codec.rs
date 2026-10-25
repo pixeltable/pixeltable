@@ -22,7 +22,7 @@
 use uuid::Uuid;
 
 use super::rows::{CellError, StoredRow};
-use super::segment::{Body, CHUNK_ROWS, KeyHashes, Patch, Segment};
+use super::segment::{Body, CHUNK_ROWS, CellKind, ColBuilder, ColChunk, KeyHashes, Patch, Segment};
 use crate::catalog::table::ColId;
 use crate::error::{Error, ErrorCode, Result};
 use crate::value::{MAX_JSON_DEPTH, Value, json_nesting_depth, json_too_deep_msg, parse_json_bounded};
@@ -191,6 +191,27 @@ impl<'a> Reader<'a> {
     }
     fn string(&mut self) -> Result<String> {
         String::from_utf8(self.bytes()?.to_vec()).map_err(|_| corrupt())
+    }
+
+    /// Skips an encoded value (see `value()`).
+    fn skip_value(&mut self) -> Result<()> {
+        match self.u8()? {
+            0..=2 => {}
+            3 | 6 | 7 => {
+                self.varint()?;
+            }
+            4 => {
+                self.take(8)?;
+            }
+            8 => {
+                self.take(16)?;
+            }
+            5 | 9..=12 => {
+                self.bytes()?;
+            }
+            _ => return Err(corrupt()),
+        }
+        Ok(())
     }
 
     fn value(&mut self) -> Result<Value> {
@@ -398,6 +419,54 @@ pub fn decode_chunk(body: &Body, k: usize, rowids: &[i64], pos: &[Vec<i64>]) -> 
     if r.pos == bytes.len() { Ok(rows) } else { Err(corrupt()) }
 }
 
+/// Column `col` of chunk `k` of a segment (of `n` rows) in typed form, read from the encoded body without decoding the
+/// rows: the other cells are skipped. The same column as `ColChunk::of()` makes of the decoded rows.
+pub fn decode_column(body: &Body, k: usize, n: usize, col: ColId) -> Result<ColChunk> {
+    let (offset, sum) = body.chunks[k];
+    let end = body.chunks.get(k + 1).map_or(body.bytes.len() - body.start, |c| c.0 as usize);
+    let bytes = &body.bytes[body.start + offset as usize..body.start + end];
+    if checksum(bytes) != sum {
+        return Err(Error::internal("table data file is corrupt (checksum mismatch)"));
+    }
+    let mut r = Reader { buf: bytes, pos: 0 };
+    let mut b = ColBuilder::new(n);
+    for _ in 0..n {
+        let ncells = r.count()?;
+        if ncells <= col as usize {
+            b.null();
+        }
+        for c in 0..ncells {
+            if c == col as usize {
+                match r.u8()? {
+                    0 => b.null(),
+                    3 => b.cell(CellKind::Int, r.int()?, None),
+                    6 => b.cell(CellKind::Timestamp, r.int()?, None),
+                    4 => b.cell(CellKind::Float, r.u64()? as i64, None),
+                    5 => b.cell(CellKind::Str, 0, Some(r.bytes()?)),
+                    // a cell of another kind: the column has no typed form
+                    _ => return Ok(ColChunk::Mixed),
+                }
+                if b.is_mixed() {
+                    return Ok(ColChunk::Mixed);
+                }
+            } else {
+                r.skip_value()?;
+            }
+        }
+        for _ in 0..r.count()? {
+            match r.u8()? {
+                0 => {}
+                1 => {
+                    r.bytes()?;
+                    r.bytes()?;
+                }
+                _ => return Err(corrupt()),
+            }
+        }
+    }
+    b.finish().ok_or_else(corrupt)
+}
+
 /// A fast checksum of a segment body (four independent multiply-rotate lanes over 8-byte words).
 fn checksum(b: &[u8]) -> u64 {
     const K: u64 = 0x9e37_79b9_7f4a_7c15;
@@ -445,6 +514,37 @@ impl Reader<'_> {
 mod tests {
     use super::*;
     use crate::value::{ArrayData, NdArray};
+
+    #[test]
+    fn columns_from_encoded_chunks() -> Result<()> {
+        let tbl = Uuid::new_v4();
+        let rows: Vec<StoredRow> = (0..300)
+            .map(|i| {
+                let mut r = StoredRow::new(i, Vec::new());
+                r.set_cell(0, if i % 9 == 0 { Value::Null } else { Value::String(format!("s{i}\u{e9}")) });
+                r.set_cell(5, Value::Media(format!("/m/{i}")));
+                r.set_cell(1, if i % 7 == 0 { Value::Null } else { Value::Int(i * 3 - 100) });
+                r.set_cell(2, if i % 5 == 0 { Value::Null } else { Value::Float(i as f64 / 3.0) });
+                r.set_cell(3, Value::Timestamp(i * 1000));
+                if i % 2 == 0 {
+                    r.set_cell(4, Value::Int(i));
+                }
+                if i % 11 == 0 {
+                    r.set_error(2, Some(CellError { errortype: "E".into(), errormsg: "m".into() }));
+                }
+                r
+            })
+            .collect();
+        let n = rows.len();
+        let seg = Segment::new(9, rows.clone(), vec![1; n], Vec::new());
+        let bytes = encode(tbl, &seg, &vec![crate::store::rows::LIVE; n], &[])?;
+        let (back, _) = decode(bytes, tbl, 9)?;
+        for col in 0..7 {
+            let from_rows = format!("{:?}", ColChunk::of(&rows, col));
+            assert_eq!(format!("{:?}", back.column(0, col)), from_rows, "column {col}");
+        }
+        Ok(())
+    }
 
     #[test]
     fn roundtrip() -> Result<()> {
