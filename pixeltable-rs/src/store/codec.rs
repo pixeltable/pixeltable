@@ -320,7 +320,8 @@ impl Writer {
 
 /// Decodes the header of segment file `bytes` (segment `id` of table `tbl_id`): the segment, with its rows still
 /// encoded, and the `v_max` its file records.
-pub fn decode(bytes: Vec<u8>, tbl_id: Uuid, id: u64) -> Result<(Segment, Vec<i64>)> {
+pub fn decode(bytes: impl Into<super::file_bytes::FileBytes>, tbl_id: Uuid, id: u64) -> Result<(Segment, Vec<i64>)> {
+    let bytes: super::file_bytes::FileBytes = bytes.into();
     let mut r = Reader { buf: &bytes, pos: 0 };
     if r.take(8)? != MAGIC || r.take(16)? != tbl_id.as_bytes() || r.u64()? != id {
         return Err(corrupt());

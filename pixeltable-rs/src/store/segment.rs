@@ -48,7 +48,7 @@ impl KeyHashes {
 /// offset (from `start`) and checksum.
 #[derive(Debug)]
 pub struct Body {
-    pub bytes: Vec<u8>,
+    pub bytes: super::file_bytes::FileBytes,
     pub start: usize,
     pub chunks: Vec<(u64, u64)>,
 }

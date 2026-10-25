@@ -13,8 +13,9 @@
 //!
 //! A table's rows are a list of immutable segments (`segment::Segment`, at most 65536 rows each): every commit that
 //! changes rows writes one new segment with the rows it adds and the `v_max` changes it makes to older rows;
-//! compaction replaces segments by merged ones (`table_data`). Reading a segment file decodes its header (keys,
-//! version ranges, patches, sorted key hashes); its cells are decoded on first use, in chunks of 8192 rows. A table's version history (`VersionMd`/`SchemaVersionMd` records) is appended to its
+//! compaction replaces segments by merged ones (`table_data`). Reading a segment file maps it (`file_bytes`) and decodes
+//! its header (keys, version ranges, patches, sorted key hashes); its cells are read and decoded on first use, in chunks
+//! of 8192 rows. A table's version history (`VersionMd`/`SchemaVersionMd` records) is appended to its
 //! history file. `catalog.json` holds the current metadata of every table without its history, plus its manifest
 //! (`TableStorage`: the segment list and the valid length of the history file), so its size does not grow with
 //! rows or versions.
@@ -30,6 +31,7 @@
 //! so a process notices that another one committed and reloads (see `catalog::runtime`).
 
 pub mod codec;
+pub mod file_bytes;
 pub mod history;
 pub mod rows;
 pub mod segment;
@@ -319,7 +321,7 @@ impl Store {
     /// records.
     pub fn read_segment(&self, tbl_id: Uuid, id: u64) -> Result<(Segment, Vec<i64>)> {
         let name = Store::segment_file_name(tbl_id, id);
-        let bytes = fs::read(self.tables_dir().join(&name))
+        let bytes = file_bytes::FileBytes::open(&self.tables_dir().join(&name))
             .map_err(|e| Error::internal(format!("cannot read table data file {name}: {e}")))?;
         codec::decode(bytes, tbl_id, id).map_err(|e| Error::internal(format!("{} {name}", e.message())))
     }

@@ -180,7 +180,10 @@ impl TableData {
                 }
             }
         }
-        let segs = segs.into_iter().zip(vmaxes).map(|(s, v)| Seg::new(s, Arc::new(v), true)).collect();
+        let segs = {
+            use rayon::prelude::*;
+            segs.into_par_iter().zip(vmaxes).map(|(s, v)| Seg::new(s, Arc::new(v), true)).collect()
+        };
         TableData { segs, patches: Vec::new(), indexes: Default::default() }
     }
 

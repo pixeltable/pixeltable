@@ -453,6 +453,7 @@ dependencies = [
  "chrono-tz",
  "fancy-regex",
  "indexmap",
+ "libc",
  "numpy",
  "parking_lot",
  "pyo3",
