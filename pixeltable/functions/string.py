@@ -718,7 +718,7 @@ def _(
     if start is None:
         if stop is None:
             return self
-        return sql.func.substr(self, 1, sql.func.greatest(stop - 1, 0))
+        start = sql.literal(1)  # an omitted start means from the beginning; substr() positions are 1-based
     if stop is None:
         return sql.func.substr(self, start)
     return sql.func.substr(self, start, sql.func.greatest(stop - start, 0))

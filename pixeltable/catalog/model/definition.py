@@ -26,7 +26,7 @@ import dataclasses
 import sys
 from pathlib import Path
 from types import FrameType
-from typing import TYPE_CHECKING, Any, Literal, MutableMapping, Sequence, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Iterable, Literal, MutableMapping, Sequence, TypedDict, cast
 from uuid import UUID, uuid4
 
 from typing_extensions import TypeForm
@@ -308,6 +308,26 @@ class _ModelNamespace(dict):
             base = base.model_cls.__table_spec__['base']
         return models
 
+    def check_refs_in_scope(self, refs: Iterable[ColumnRefByName], what: str) -> None:
+        """Reject a reference that belongs to a model outside this one's base ancestry.
+
+        ColumnRefByName resolves by name (its _equals() ignores model_cls), so such a reference would silently
+        bind to a same-named column of this model at resolution; it is rejected here while its declaring model
+        is still identifiable. `what` names the offending column or index in the error.
+        """
+        base_models = self._base_models()
+        foreign_names = [
+            f'{ref.model_cls.__name__}.{ref.name}'
+            for ref in refs
+            if ref.model_cls is not None and ref.model_cls not in base_models
+        ]
+        if len(foreign_names) > 0:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'{what} references columns of other models: {foreign_names}; a model may reference only its own '
+                "columns and the columns of its base and the base's ancestors",
+            )
+
     def __setitem__(self, key: str, value: Any) -> None:
         if key.startswith('__') and key.endswith('__'):
             # "Dunder" methods and attributes are not table columns.
@@ -365,22 +385,13 @@ class _ModelNamespace(dict):
                     f'Column {name!r} aggregates over the table: {expr}\nA computed column is evaluated one '
                     'row at a time, so it cannot aggregate.',
                 )
-            # A column reference belonging to a model outside this one's base ancestry (its model_cls is set
-            # by then) would bind to a same-named column of this model at resolution -- ColumnRefByName._equals
-            # ignores model_cls -- so reject it here while its model is still identifiable.
-            base_models = self._base_models()
-            foreign_refs = [
-                ref
-                for ref in expr.subexprs(exprs.ColumnRefByName)
-                if ref.model_cls is not None and ref.model_cls not in base_models
-            ]
-            if len(foreign_refs) > 0:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'Column {name!r} references columns of models outside its base: '
-                    f'{[f"{ref.model_cls.__name__}.{ref.name}" for ref in foreign_refs]}',
-                )
             spec = {'value': expr}
+        value_expr = spec.get('value')
+        if value_expr is not None and not isinstance(value_expr, exprs.Expr):
+            # Column(value=...) specs store the value unconverted; literal containers can still hold references
+            value_expr = exprs.Expr.from_object(value_expr)
+        if isinstance(value_expr, exprs.Expr):
+            self.check_refs_in_scope(value_expr.subexprs(exprs.ColumnRefByName), f'Column {name!r}')
         self.known_cols[name] = spec
         # Add the column to the namespace so that it can be referenced in subsequent expressions in the class body.
         super().__setitem__(name, exprs.ColumnRefByName(name, col_type_from_spec(spec)))
@@ -672,14 +683,10 @@ class TableModelMeta(type):
                     excs.ErrorCode.INVALID_SCHEMA,
                     f'model `{cls_name}`: Invalid {type(idx).__name__} column reference: {idx.column!r}',
                 )
-            if idx.column.model_cls is not None and idx.column.model_cls not in namespace._base_models():
-                # this reference belongs to a model outside the base ancestry; at this point the model's own
-                # columns are still unclaimed placeholders (their model_cls is assigned only once the class exists)
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'model `{cls_name}`: {type(idx).__name__} references a column of a model outside its base: '
-                    f'`{idx.column.model_cls.__name__}.{idx.column.name}`',
-                )
+            # a reference to a column of a model outside the base ancestry would bind to a same-named column
+            # of this model at resolution; the model's own columns are still unclaimed placeholders (their
+            # model_cls is assigned only once the class exists), so they are not flagged here
+            namespace.check_refs_in_scope([idx.column], f'model `{cls_name}`: {type(idx).__name__}')
             if (
                 isinstance(idx, EmbeddingIndex)
                 and idx.name is not None

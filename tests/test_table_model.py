@@ -893,7 +893,7 @@ class TestTableModel:
             has_default_idxs=True,
         ):
             subview_col_1 = ExampleTableModel.img.rotate(180)
-            subview_col_2 = ExampleViewModel.view_col_1.rotate(270)
+            subview_col_2 = ExampleViewModelFromQuery.view_col_1.rotate(270)
             subview_col_3 = subview_col_2.rotate(30)
 
         prefix = '' if root == '' else f'{root}/'
@@ -2326,31 +2326,42 @@ class TestTableModel:
         # whether or not the name would collide with one of the model's own columns
         class OtherModel(TableModel, name='other_model'):
             x: pxt.Int | None
+            z: pxt.Int | None
 
-        with pxt_raises(
-            excs.ErrorCode.INVALID_SCHEMA, match=r"references columns of models outside its base: \['OtherModel.x'\]"
-        ):
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"references columns of other models: \['OtherModel.x'\]"):
 
             class RefsOutOfScope(TableModel, name='refs_out_of_scope'):
                 y: pxt.Int | None
                 bad = OtherModel.x + 1
 
-        with pxt_raises(
-            excs.ErrorCode.INVALID_SCHEMA, match=r"references columns of models outside its base: \['OtherModel.x'\]"
-        ):
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"references columns of other models: \['OtherModel.x'\]"):
 
             class RefsCollidingName(TableModel, name='refs_colliding_name'):
                 x: pxt.Int | None
                 bad = OtherModel.x + 1
 
-        with pxt_raises(
-            excs.ErrorCode.INVALID_SCHEMA, match=r'references a column of a model outside its base: `OtherModel.x`'
-        ):
+        # the same check applies to a computed column declared through Column(value=...)
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"references columns of other models: \['OtherModel.x'\]"):
+
+            class RefsViaColumnSpec(TableModel, name='refs_via_column_spec'):
+                x: pxt.Int | None
+                bad = Column(value=OtherModel.x + 1, stored=False)
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"references columns of other models: \['OtherModel.x'\]"):
 
             class RefsInIndex(TableModel, name='refs_in_index'):
                 x: pxt.Int | None
 
                 __indexes__ = [BtreeIndex(OtherModel.x)]
+
+        # a reference to a base-model column that the base query does not project passes the definition check
+        # (the model itself is in scope) and is still rejected at create() time
+        class RefsUnprojected(TableModel, name='refs_unprojected', base=OtherModel.select(OtherModel.x)):
+            bad = OtherModel.z + 1
+
+        OtherModel._create(p(''))
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"references columns that are not in the model's scope"):
+            RefsUnprojected._create(p(''))
 
         class NullablePk(TableModel, name='nullable_pk'):
             note_id = Column(type=pxt.Int | None, primary_key=True)

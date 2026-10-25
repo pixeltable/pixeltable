@@ -198,6 +198,7 @@ class TestExprs:
         t = test_tbl
         t.add_computed_column(cplus=t.c2 + 1, stored=False)
         res = t.where(t.cplus == 8).select(t.c2, t.cplus).collect()
+        assert len(res) == 1
         assert all(r['cplus'] == 8 and r['c2'] == 7 for r in res)
 
     def test_exception_handling(self, test_tbl: pxt.Table) -> None:
@@ -237,9 +238,22 @@ class TestExprs:
         # an expression-evaluation error reports its input values, bounded in length
         t = pxt.create_table('test_eval_err', {'s': pxt.String})
         validate_update_status(t.insert([{'s': 'x' * 10000}]), expected_rows=1)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as excinfo:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='ZeroDivisionError') as excinfo:
             _ = t.select(t.s.apply(lambda s: 1 / 0, col_type=pxt.Float)).collect()
+        # print_value() quotes a string, so the 256-char bound leaves 255 x's ahead of the ellipsis
+        assert 'x' * 255 + '...' in excinfo.value.message
         assert len(excinfo.value.message) < 2000
+
+        # the exception's own text is bounded too: a UDF that quotes its input cannot produce a huge message
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='rejected input') as excinfo:
+            _ = t.select(self.raise_quoting_input(t.s)).collect()
+        assert 'x' * 10000 not in excinfo.value.message
+        assert len(excinfo.value.message) < 2000
+
+    @staticmethod
+    @pxt.udf
+    def raise_quoting_input(s: str) -> str:
+        raise ValueError(f'rejected input: {s}')
 
     @staticmethod
     @pxt.udf

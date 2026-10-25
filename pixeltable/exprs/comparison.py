@@ -17,24 +17,18 @@ from .variable import Variable
 
 
 class Comparison(Expr):
-    is_search_arg_comparison: bool
     operator: ComparisonOperator
 
     def __init__(self, operator: ComparisonOperator, op1: Expr, op2: Expr):
         super().__init__(ts.BoolType())
         self.operator = operator
 
-        # if this is a comparison of a column to a constant (ie, could be used as a search argument in an index lookup),
-        # normalize it to <column> <operator> <constant>.
-        if isinstance(op1, ColumnRef) and isinstance(op2, (Literal, Variable)):
-            self.is_search_arg_comparison = True
-            self.components = [op1, op2]
-        elif isinstance(op1, (Literal, Variable)) and isinstance(op2, ColumnRef):
-            self.is_search_arg_comparison = True
+        # if this is a comparison of a constant to a column, normalize it to <column> <operator> <constant> so
+        # that _index_value_col() can recognize it as an index search argument
+        if isinstance(op1, (Literal, Variable)) and isinstance(op2, ColumnRef):
             self.components = [op2, op1]
             self.operator = self.operator.reverse()
         else:
-            self.is_search_arg_comparison = False
             self.components = [op1, op2]
 
         self.id = self._create_id()
@@ -74,8 +68,9 @@ class Comparison(Expr):
         """The value column of a B-tree index that can answer this comparison, or None if no such index is present"""
         import pixeltable.index as index
 
-        if not self.is_search_arg_comparison or not isinstance(self._op1, ColumnRef):
-            # _op1 is no longer a ColumnRef if substitution (e.g. of an unstored computed column) replaced it
+        # this comparison is a search argument only in the normalized <column> <op> <constant> form, which
+        # substitution may have left behind (e.g. when it resolved an unstored computed column reference)
+        if not isinstance(self._op1, ColumnRef) or not isinstance(self._op2, (Literal, Variable)):
             return None
         col = self._op1.col
         tbl = col.get_tbl()

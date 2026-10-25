@@ -253,8 +253,13 @@ class ConcurrencyError(Error):
     """Serialization failure, deadlock, or concurrent modification conflict."""
 
 
-# bound on the formatted size of each input value reported in an expression-evaluation error
-_PRINT_VALUE_MAX_LEN = 256
+# bound on each piece of runtime data quoted in an expression-evaluation error: printed input values, and the
+# exception's own text (a UDF exception may itself quote an input)
+_QUOTED_VALUE_MAX_LEN = 256
+
+
+def _truncate_quoted(s: str) -> str:
+    return s if len(s) <= _QUOTED_VALUE_MAX_LEN else f'{s[:_QUOTED_VALUE_MAX_LEN]}...'
 
 
 class ExprEvalError(Exception):
@@ -294,15 +299,15 @@ class ExprEvalError(Exception):
 
 def raise_from_expr_eval_err(e: ExprEvalError) -> NoReturn:
     """Convert an ExprEvalError (internal) into a user-facing Error."""
-    msg = f'In row {e.row_num} the {e.expr_msg} encountered exception {type(e.exc).__name__}:\n{e.exc}'
+    msg = (
+        f'In row {e.row_num} the {e.expr_msg} encountered exception {type(e.exc).__name__}:\n'
+        f'{_truncate_quoted(str(e.exc))}'
+    )
     if len(e.input_vals) > 0:
         input_msgs = []
         for i, d in enumerate(e.expr.dependencies()):
-            # print_value() renders the entire value (e.g. a document); bound it so the message stays readable
-            val_str = d.col_type.print_value(e.input_vals[i])
-            if len(val_str) > _PRINT_VALUE_MAX_LEN:
-                val_str = f'{val_str[:_PRINT_VALUE_MAX_LEN]}...'
-            input_msgs.append(f"'{d}' = {val_str}")
+            # print_value() renders the entire value; long strings and JSON are bounded so the message stays readable
+            input_msgs.append(f"'{d}' = {_truncate_quoted(d.col_type.print_value(e.input_vals[i]))}")
         msg += f'\nwith {", ".join(input_msgs)}'
     assert e.exc_tb is not None
     stack_trace = traceback.format_tb(e.exc_tb)
