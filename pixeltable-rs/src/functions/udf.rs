@@ -102,6 +102,12 @@ impl UdfDef {
         self.self_path.clone().unwrap_or_else(|| self.display_name.clone())
     }
 
+    /// `str(Function.self_path)`, as upstream's signature validation messages show it ("None" for a function stored
+    /// by value).
+    fn self_path_str(&self) -> &str {
+        self.self_path.as_deref().unwrap_or("None")
+    }
+
     /// The serialized function (`Function.as_dict()`), computed once.
     pub fn descriptor(&self) -> Result<Json> {
         if let Some(d) = self.descriptor.get() {
@@ -241,7 +247,8 @@ pub fn resolve(def: &UdfDef, args: &[ExprRef], kwargs: &[(String, ExprRef)]) -> 
     crate::bail!(
         UnsupportedOperation,
         "Function {} has no matching signature for arguments",
-        py_repr(def.name.as_deref().unwrap_or(&def.display_name))
+        // upstream formats `Function.name` with `!r`: None for a function without a name (`using()`)
+        def.name.as_deref().map_or_else(|| "None".to_string(), py_repr)
     )
 }
 
@@ -467,7 +474,7 @@ pub fn bind_template(def: &Arc<UdfDef>, bindings: &[(String, ExprRef)]) -> Resul
         crate::bail!(
             UnsupportedOperation,
             "Function {} has no matching signature for arguments",
-            py_repr(def.name.as_deref().unwrap_or(&def.display_name))
+            def.name.as_deref().map_or_else(|| "None".to_string(), py_repr)
         );
     }
     Ok(out)
@@ -495,11 +502,13 @@ pub fn eval_call(call: &UdfCall, fc: &FunctionCall, e: &Expr, ctx: &dyn RowConte
         UdfImpl::Query { spec, return_scalar } => eval_query_call(call, fc, spec, *return_scalar, ctx),
         UdfImpl::Callable { py_fns, batch_size, is_async, has_resource_pool, .. } => {
             if *has_resource_pool && !is_async.get(call.sig_idx).copied().unwrap_or(false) {
-                crate::bail!(
-                    InvalidConfiguration,
-                    "{}: resource_pool requires an async function",
-                    call.def.display_name
-                );
+                // upstream raises this when it sets up the evaluation of the call (`FnCallEvaluator`)
+                let err = crate::pxt_err!(InvalidConfiguration, "{}: resource_pool requires an async function", call.def.display_name);
+                return Err(Error::Located(Box::new(crate::error::Located {
+                    site: crate::error::EvalSite::Setup,
+                    inputs: Vec::new(),
+                    err,
+                })));
             }
             let sig = call.signature().ok_or_else(|| Error::internal("unresolved call"))?;
             let args: Vec<Value> = fc.args.iter().map(|a| eval(a, ctx)).collect::<Result<_>>()?;
@@ -645,11 +654,12 @@ fn query_rows_py(data: &crate::exec::ResultData, return_scalar: bool) -> Result<
     })
 }
 
-/// True for a Python exception that is not an `Exception` (`KeyboardInterrupt`, `SystemExit`, ...): it is never
-/// recorded as a cell error.
+/// True for a Python exception that is not an `Exception` (`KeyboardInterrupt`, `SystemExit`, ...), and for an invalid
+/// setup of the evaluation (`EvalSite::Setup`): it is never recorded as a cell error.
 pub fn is_interrupt(err: &Error) -> bool {
     match err {
         Error::Python(e) => Python::attach(|py| !e.is_instance_of::<pyo3::exceptions::PyException>(py)),
+        Error::Located(l) => matches!(l.site, crate::error::EvalSite::Setup),
         _ => false,
     }
 }
@@ -722,7 +732,7 @@ pub fn resolve_descriptor(descriptor: &Json) -> Result<Arc<UdfDef>> {
 }
 
 fn signature_error(def: &UdfDef, args: &[ExprRef], kwargs: &[(String, ExprRef)], return_type: &ColumnType) -> String {
-    let path = def.path_str();
+    let path = def.self_path_str();
     let mut parts: Vec<String> = args.iter().map(|a| format!("pxt.{}", a.col_type.repr())).collect();
     parts.extend(kwargs.iter().map(|(k, a)| format!("{k}: pxt.{}", a.col_type.repr())));
     let expr_sig = format!("({}) -> pxt.{}", parts.join(", "), return_type.repr());
@@ -742,7 +752,7 @@ fn signature_error(def: &UdfDef, args: &[ExprRef], kwargs: &[(String, ExprRef)],
 }
 
 fn return_type_error(def: &UdfDef, stored: &ColumnType, current: &ColumnType) -> String {
-    let path = def.path_str();
+    let path = def.self_path_str();
     let note = if def.is_polymorphic() { "any of its return types" } else { "its return type" };
     format!(
         "The return type stored in the database for a UDF call to `{path}` no longer\n\
@@ -813,7 +823,7 @@ pub fn call_from_json(
             let msg = format!(
                 "A UDF call to `{}` could not be fully resolved, because a module required\n\
                  by the UDF could not be imported:\n{import_msg}",
-                def.path_str()
+                def.self_path_str()
             );
             Ok(invalid_call(def, args, kwargs, is_method_call, col_type, msg))
         }
@@ -920,10 +930,65 @@ pub fn registered_functions(py: Python<'_>) -> Vec<Py<PyAny>> {
 
 // ------------------------------------------------------------------------------------------------ validity
 
+/// The validation errors of `e`'s stored calls (`validation_errors()`), including calls of query functions stored by
+/// value whose query no longer matches the catalog: upstream cannot load such a query (a table or column it reads was
+/// dropped) or derives a different return type from it (it selects all columns of a table that changed).
+pub fn stored_call_errors(cat: &crate::catalog::Catalog, e: &Expr) -> Vec<String> {
+    let mut out = Vec::new();
+    e.visit(&mut |x| {
+        let ExprKind::FunctionCall(FunctionCall { func: FuncRef::Udf(call), .. }) = &x.kind else { return };
+        if let Some(msg) = &call.validation_error {
+            out.push(msg.clone());
+        } else if let (UdfImpl::Query { spec, return_scalar }, None) = (&call.def.imp, &call.def.self_path) {
+            out.extend(query_error(cat, &call.def, spec, *return_scalar, &x.col_type));
+        }
+    });
+    out
+}
+
+fn query_error(
+    cat: &crate::catalog::Catalog,
+    def: &UdfDef,
+    spec: &crate::exec::QuerySpec,
+    return_scalar: bool,
+    stored: &ColumnType,
+) -> Option<String> {
+    use crate::error::ErrorCode;
+    let name = def.name.clone().unwrap_or_default();
+    match spec.check_loadable(cat).and_then(|()| spec.effective_select(cat)) {
+        Err(e) if matches!(e.code(), Some(ErrorCode::TableNotFound | ErrorCode::ColumnNotFound)) => Some(format!(
+            "The UDF `{name}` cannot be located, because\nthe @pxt.query UDF {} cannot be loaded: {}",
+            py_repr(&name),
+            e.message()
+        )),
+        Err(_) => None,
+        Ok(items) => {
+            let current = query_return_type(&items, return_scalar);
+            (!stored.is_supertype_of(&current, true, true)).then(|| return_type_error(def, stored, &current))
+        }
+    }
+}
+
+/// The return type of a query function over these result columns (upstream `_query_return_type()`): a list of
+/// rows (dicts), or of the values of the single column with `return_scalar`.
+fn query_return_type(items: &[(ExprRef, String)], return_scalar: bool) -> ColumnType {
+    use crate::types::{JsonSchema, JsonSpec, TypeKind};
+    let row = match items {
+        [(e, _)] if return_scalar => e.col_type.clone(),
+        _ => {
+            let fields = items.iter().map(|(e, n)| (n.clone(), e.col_type.clone())).collect();
+            let schema = JsonSchema { spec: JsonSpec::Dict(fields), variadic: None, optional_keys: Default::default() };
+            ColumnType { kind: TypeKind::Json(Some(Box::new(schema))), nullable: false }
+        }
+    };
+    let schema = JsonSchema { spec: JsonSpec::List(Vec::new()), variadic: Some(row), optional_keys: Default::default() };
+    ColumnType { kind: TypeKind::Json(Some(Box::new(schema))), nullable: false }
+}
+
 /// Upstream's INVALID_STATE error for an operation that would evaluate a computed column whose stored expression
 /// no longer matches the code; `op` is e.g. "inserted into", `tbl_display` e.g. "Table 't'".
-pub fn check_valid_column(tbl_display: &str, col_name: &str, e: &Expr, op: &str) -> Result<()> {
-    if let Some(msg) = validation_errors(e).into_iter().next() {
+pub fn check_valid_column(cat: &crate::catalog::Catalog, tbl_display: &str, col_name: &str, e: &Expr, op: &str) -> Result<()> {
+    if let Some(msg) = stored_call_errors(cat, e).into_iter().next() {
         crate::bail!(
             InvalidState,
             "Data cannot be {op} the {tbl_display},\nbecause the column {} is currently invalid:\n{msg}",
@@ -977,7 +1042,7 @@ pub fn load_warnings(cat: &crate::catalog::Catalog, tbl_id: uuid::Uuid) -> Resul
         }
         for (name, j) in exprs {
             let e = crate::expr::serde::from_json(j)?;
-            if let Some(msg) = validation_errors(&e).into_iter().next() {
+            if let Some(msg) = stored_call_errors(cat, &e).into_iter().next() {
                 out.push(format!(
                     "The computed column {} in table {} is no longer valid.\n{msg}\n\
                      You can continue to query existing data from this column, but evaluating it on new data will raise an error.",

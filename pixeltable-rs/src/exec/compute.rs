@@ -156,19 +156,52 @@ pub fn discard_media(files: &[std::path::PathBuf]) {
     }
 }
 
-/// The error an evaluation failure raises with `on_error='abort'` (upstream `raise_from_expr_eval_err()`).
+/// The error an evaluation failure raises with `on_error='abort'` (upstream `raise_from_expr_eval_err()`): names
+/// the node that failed (`expr` if the failure is not located) and the values of its inputs; a failure of a Python
+/// aggregate's method carries the Python stack as the error's detail.
 pub fn eval_error(expr: &ExprRef, err: Error) -> Error {
-    let msg = format!(
-        "In row 0 the expression {} encountered exception {}:\n{}",
-        crate::expr::display::display(expr),
-        err.py_type_name(),
-        err.message()
-    );
-    match err {
-        Error::Pxt { code, .. } => Error::new(code, msg),
-        Error::NotImplemented(_) => err,
-        _ => crate::pxt_err!(UnsupportedOperation, "{msg}"),
+    use crate::error::EvalSite;
+    use crate::expr::display::{display, print_value};
+    let (what, inputs, err) = match err {
+        Error::Located(l) if matches!(l.site, EvalSite::Setup) => return l.err,
+        Error::Located(l) => {
+            let l = *l;
+            let call = |fc: &crate::expr::FunctionCall| crate::functions::display_call(fc);
+            let what = match &l.site {
+                EvalSite::Expr(e) => format!("expression {}", display(e)),
+                EvalSite::AggInit(fc) => format!("init() function of the aggregate {}", call(fc)),
+                EvalSite::AggUpdate(fc) => format!("update() function of the aggregate {}", call(fc)),
+                EvalSite::AggValue(fc) => format!("expression {}", call(fc)),
+                EvalSite::Setup => String::new(), // returned as it is above
+            };
+            let stack = !matches!(l.site, EvalSite::Expr(_));
+            (what, l.inputs.iter().map(|(e, v)| format!("'{}' = {}", display(e), print_value(v, &e.col_type))).collect(), (l.err, stack))
+        }
+        err => (format!("expression {}", display(expr)), Vec::<String>::new(), (err, false)),
+    };
+    let (err, stack) = err;
+    let mut msg = format!("In row 0 the {what} encountered exception {}:\n{}", err.py_type_name(), err.message());
+    if !inputs.is_empty() {
+        msg.push_str(&format!("\nwith {}", inputs.join(", ")));
     }
+    let code = match &err {
+        Error::Pxt { code, .. } => *code,
+        Error::NotImplemented(_) => return err,
+        _ => crate::error::ErrorCode::UnsupportedOperation,
+    };
+    if let (true, Error::Python(py_err)) = (stack, &err) {
+        // the frames of the user's code, most recent first (upstream drops its own two evaluation frames)
+        let detail = pyo3::Python::attach(|py| -> Option<String> {
+            use pyo3::prelude::*;
+            let tb = py_err.traceback(py)?;
+            let frames: Vec<String> = py.import("traceback").ok()?.call_method1("format_tb", (tb,)).ok()?.extract().ok()?;
+            (!frames.is_empty()).then(|| format!("Stack:\n{}", frames.iter().rev().cloned().collect::<Vec<_>>().join("\n")))
+        });
+        if let Some(detail) = detail {
+            return pyo3::Python::attach(|py| crate::error::pxt_exception_with_detail(py, code, &msg, &detail, Some(py_err)));
+        }
+    }
+    Error::new(code, msg)
 }
 
 pub fn cell_error(err: &Error) -> CellError {

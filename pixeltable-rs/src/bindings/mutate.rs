@@ -203,7 +203,7 @@ fn build_plan(
     recompute.extend(crate::exec::compute::index_value_columns(cat, tbl_id, Some(&modified))?);
     let tbl_display = crate::functions::udf::tbl_version_display(&md);
     for c in &recompute {
-        crate::functions::udf::check_valid_column(&tbl_display, &c.name, &c.expr, "updated in")?;
+        crate::functions::udf::check_valid_column(cat, &tbl_display, &c.name, &c.expr, "updated in")?;
     }
     let views = if cascade { view_update_tree(cat, tbl_id, &changed, false, &mut updated_cols)? } else { Vec::new() };
     let path = cat.tbl_path(tbl_id, None)?;

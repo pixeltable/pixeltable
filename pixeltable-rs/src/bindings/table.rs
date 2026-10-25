@@ -645,6 +645,12 @@ pub fn tbl_add_computed_column<'py>(
 pub fn tbl_add_columns(py: Python<'_>, tbl_id: &str, schema: &Bound<'_, PyDict>, if_exists: &str) -> Result<Vec<String>> {
     let id = parse_uuid(tbl_id)?;
     let ie = IfExists::parse(if_exists, "if_exists")?;
+    // upstream validates the names as given, before folding them (`Table._validate_column_schema()`)
+    for k in schema.keys() {
+        if let Ok(name) = k.extract::<String>() {
+            crate::catalog::tables::validate_column_name(&name)?;
+        }
+    }
     let specs = parse_schema(schema)?;
     txn::write(py, id, Mode::Exclusive, |cat| cat.add_columns(id, specs, ie))
 }

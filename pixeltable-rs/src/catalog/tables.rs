@@ -83,6 +83,22 @@ pub fn validate_column_spec(spec: &ColumnSpec) -> Result<()> {
     if spec.stored == Some(false) && spec.value_expr.is_none() {
         crate::bail!(UnsupportedOperation, "Column {}: `stored=False` only applies to computed columns", py_repr(&spec.name));
     }
+    if let (Some(false), Some(e)) = (spec.stored, &spec.value_expr) {
+        let mut has_window_call = false;
+        e.visit(&mut |n| {
+            if let crate::expr::ExprKind::FunctionCall(fc) = &n.kind {
+                has_window_call |= fc.is_window();
+            }
+        });
+        if has_window_call {
+            // upstream's wording (`Column.verify()`)
+            crate::bail!(
+                UnsupportedOperation,
+                "Column {}: `stored=False` is not valid for image columns computed with a streaming function",
+                py_repr(&spec.name)
+            );
+        }
+    }
     if spec.destination.is_some() && (spec.value_expr.is_none() || spec.stored == Some(false)) {
         crate::bail!(
             UnsupportedOperation,
@@ -94,20 +110,6 @@ pub fn validate_column_spec(spec: &ColumnSpec) -> Result<()> {
     if let Some(e) = &spec.value_expr {
         crate::functions::udf::validate_storable(e, &format!("Computed column {}", py_repr(&spec.name)))?;
         check_no_cellmd_refs(e)?;
-        let mut has_window_call = false;
-        e.visit(&mut |n| {
-            if let crate::expr::ExprKind::FunctionCall(fc) = &n.kind {
-                has_window_call |= fc.is_window();
-            }
-        });
-        if spec.stored == Some(false) && has_window_call {
-            crate::bail!(
-                UnsupportedOperation,
-                "Column {}: `stored=False` not supported for columns computed with window functions:\n{}",
-                py_repr(&spec.name),
-                crate::expr::display::display(e)
-            );
-        }
     }
     Ok(())
 }

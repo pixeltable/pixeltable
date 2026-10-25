@@ -130,8 +130,9 @@ class TestExprDepth:
         assert t.select(x=e).collect()['x'] == []
 
 
-# a row error wraps the overflow as upstream does: In row N the expression ... encountered exception ...
-_OVERFLOW = r'encountered exception RequestError:\nbigint out of range$'
+# a row error wraps the overflow as upstream does: In row N the expression ... encountered exception ..., followed by
+# the values of the failing expression's inputs
+_OVERFLOW = r'encountered exception RequestError:\nbigint out of range\nwith [^\n]*$'
 
 
 class TestIntegerOverflow:

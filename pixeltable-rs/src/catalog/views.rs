@@ -344,7 +344,17 @@ impl Catalog {
         let base_cols = self.path_visible_columns(&live_base_path)?;
         for spec in &def.additional_columns {
             if def.select.is_none() && base_cols.iter().any(|c| c.name == spec.name) {
-                crate::bail!(ColumnAlreadyExists, "Column {} already exists in the base table", py_repr(&spec.name));
+                // upstream names the leaf of the base's path (for a pure snapshot: the table it pins)
+                let base_name = match live_base_path.first() {
+                    Some(b) => self.table(b.tbl_id)?.name.clone(),
+                    None => String::new(),
+                };
+                crate::bail!(
+                    ColumnAlreadyExists,
+                    "Column {} already exists in the base table {}.",
+                    py_repr(&spec.name),
+                    py_repr(&base_name)
+                );
             }
         }
         specs.extend(def.additional_columns.iter().cloned());
