@@ -52,6 +52,16 @@ def _tbl() -> pxt.Table:
     return t
 
 
+def _int_div_by_zero() -> str:
+    """How this Python words a ZeroDivisionError of `//` (3.14 words it differently from 3.13)."""
+    zero = 0
+    try:
+        _ = 1 // zero
+    except ZeroDivisionError as e:
+        return str(e)
+    raise AssertionError('no ZeroDivisionError')
+
+
 def _msg(f: object) -> str:
     with pytest.raises(pxt.Error) as exc_info:
         f()  # type: ignore[operator]
@@ -87,7 +97,7 @@ def test_aggregate_errors() -> None:
     msg = _msg(lambda: t.select(update_exc(t.a - 1)).collect())
     assert msg.startswith(
         f'In row 0 the update() function of the aggregate {m}.update_exc(a - 1) encountered exception '
-        "ZeroDivisionError:\ninteger division or modulo by zero\nwith 'a - 1' = 0\nStack:\n"
+        f"ZeroDivisionError:\n{_int_div_by_zero()}\nwith 'a - 1' = 0\nStack:\n"
     )
     # value() is evaluated in the group's last row
     msg = _msg(lambda: t.select(value_exc(t.a)).collect())
@@ -207,3 +217,115 @@ def test_query_udf_invalid_after_drop() -> None:
     assert any('The return type stored in the database for a UDF call to `None` no longer' in m for m in msgs), msgs
     with pytest.raises(pxt.Error, match="because the column 'rows_col' is currently invalid"):
         host.insert([{'threshold': 30}])
+
+
+def test_tbl_path() -> None:
+    """`Table._tbl_path` answers for the leaf of the handle's path; a pure snapshot's leaf is the table it pins."""
+    t = pxt.create_table('t', {'a': pxt.Int})
+    t.insert(a=1)
+    v = pxt.create_view('v', t)
+    s = pxt.create_snapshot('s', t)
+    s2 = pxt.create_snapshot('s2', t, additional_columns={'b': pxt.Int | None})
+    p = pxt.get_table('t:1')
+    info = [(h._tbl_path.tbl_name(), h._tbl_path.is_snapshot(), h._tbl_path.is_view()) for h in (t, v, s, s2, p)]
+    assert info == [('t', False, False), ('v', False, True), ('t', True, False), ('s2', True, True), ('t', True, False)]
+
+
+def test_select_list_and_subexprs() -> None:
+    t = pxt.create_table('t', {'a': pxt.Int, 'img': pxt.Image | None})
+    q = t.select(t.a, b=t.a + 1)
+    assert [(str(e), n) for e, n in q.select_list] == [('a', None), ('a + 1', 'b')]
+    assert t.select().select_list is None
+    e = t.img.rotate(90).resize((224, 224))
+    assert [str(x) for x in e.subexprs()] == [
+        'img', '90', 'img.rotate(90)', '[224, 224]', 'img.rotate(90).resize([224, 224])'
+    ]
+    # the outer call matches; its components are not visited
+    assert [str(x) for x in e.subexprs(filter=lambda x: 'rotate' in str(x), traverse_matches=False)] == [
+        'img.rotate(90).resize([224, 224])'
+    ]
+    assert [str(x) for x in e.subexprs(filter=lambda x: 'rotate' in str(x))] == [
+        'img.rotate(90)',
+        'img.rotate(90).resize([224, 224])',
+    ]
+
+
+def test_sql_semantics_outside_inserts() -> None:
+    """Upstream evaluates SQL-expressible expressions in SQL wherever it computes values with a query over stored rows
+    (adding a computed column, updates, recomputation, view rows); only an insert's own computed columns, and
+    compute(), are evaluated in Python."""
+    t = pxt.create_table('t', {'a': pxt.Int, 'z': pxt.Int | None})
+    t.insert([{'a': 1, 'z': 0}, {'a': 2, 'z': 0}])
+    assert t.add_computed_column(b=t.a // t.z).num_excs == 0
+    assert t.select(t.b, t.b.errortype).collect()['b_errortype'] == [None, None]
+    assert t.update({'a': t.a + 0}).num_excs == 0
+    assert t.recompute_columns('b').num_excs == 0
+    v = pxt.create_view('v', t, additional_columns={'vc': t.a // t.z})
+    status = t.insert([{'a': 3, 'z': 0}], on_error='ignore')
+    assert status.num_excs == 1 and status.cols_with_excs == ['t.b']
+    assert v.select(v.vc.errortype).collect()['vc_errortype'] == [None, None, None]
+    out = v.compute([{'a': 3, 'z': 0}], on_error='ignore')
+    assert out[0].errors['vc']['errortype'] == 'ZeroDivisionError'
+
+
+def test_console_messages(capsys: pytest.CaptureFixture[str]) -> None:
+    """Operations report what they did on stdout, as upstream's console logger does."""
+    import re
+
+    pxt.create_dir('d')
+    pxt.create_dir('d', if_exists='ignore')
+    t = pxt.create_table('d/t', {'a': pxt.Int})
+    pxt.create_table('d/t', {'a': pxt.Int}, if_exists='ignore')
+    t.insert([{'a': 1}, {'a': 2}])
+    t.add_computed_column(b=t.a + 1)
+    t.add_computed_column(b=t.a + 1, if_exists='ignore')
+    pxt.create_view('d/v', t)
+    pxt.create_snapshot('d/s', t, if_exists='ignore')
+    pxt.create_snapshot('d/s', t, if_exists='ignore')
+    out = re.sub(r'in \d+\.\d\d s \([\d.]+ rows/s\)', 'in <t>', capsys.readouterr().out)
+    assert out.splitlines() == [
+        "Created directory 'd'.",
+        "Created table 't'.",
+        "Table 't' already exists.",
+        'Inserted 2 rows with 0 errors in <t>',
+        'Added 2 column values with 0 errors in <t>',
+        "Created view 'd/v'.",
+        "Created snapshot 'd/s'.",
+        "Snapshot 'd/s' already exists.",
+    ]
+
+
+def test_media_validation_cols_with_excs(tmp_path: object) -> None:
+    import pathlib
+
+    bad = pathlib.Path(str(tmp_path)) / 'bad.jpg'
+    bad.write_bytes(b'not an image')
+    t = pxt.create_table('t', {'img': pxt.Image | None})
+    status = t.insert([{'img': str(bad)}], on_error='ignore')
+    assert status.num_excs == 1 and status.cols_with_excs == ['t.img']
+
+
+def test_metadata_as_upstream() -> None:
+    t = pxt.create_table('t', {'a': pxt.Int, 's': pxt.String | None}, comment='hello')
+    t.insert([{'a': 1, 's': 'x'}, {'a': 2, 's': 'y'}])
+    t.add_btree_index('s')
+    md = t.get_metadata()
+    keys = list(md.keys())
+    assert keys.index('kind') == keys.index('primary_key') + 1
+    # a pure snapshot reports the table version it pins; pinned versions have no indexes
+    s = pxt.create_snapshot('s', t)
+    smd = s.get_metadata()
+    assert (smd['version'], smd['schema_version'], smd['comment']) == (md['version'], md['schema_version'], 'hello')
+    assert smd['indexes'] == {} and pxt.get_table('t:1').get_metadata()['indexes'] == {}
+    assert 'idx0' in md['indexes']
+    # the version that added the index records the rows whose index values it computed
+    assert t.get_versions()[0]['updates'] == 2
+
+
+def test_add_computed_column_status() -> None:
+    t = pxt.create_table('t', {'a': pxt.Int})
+    t.insert([{'a': 1}, {'a': 2}, {'a': 3}])
+    for stored in (True, False):
+        status = t.add_computed_column(**{f'c{int(stored)}': t.a + 1}, stored=stored)
+        assert (status.num_rows, status.updated_cols, status.num_computed_values) == (3, [], 0)
+    assert t.insert([{'a': 4}]).num_computed_values == 0

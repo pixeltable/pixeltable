@@ -167,6 +167,12 @@ impl PyQuerySpec {
         self.q.select.is_some()
     }
 
+    /// The select list as given: (expression, name or None) pairs; None: all columns (upstream `Query.select_list`).
+    #[getter]
+    fn select_list(&self) -> Option<Vec<(PyExpr, Option<String>)>> {
+        self.q.select.as_ref().map(|items| items.iter().map(|(e, n)| (PyExpr::new(e.clone()), n.clone())).collect())
+    }
+
     #[getter]
     fn has_order_by(&self) -> bool {
         !self.q.order_by.is_empty()

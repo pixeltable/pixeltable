@@ -31,6 +31,13 @@ _thread: threading.Thread | None = None
 _pid: int | None = None
 _lock = threading.Lock()
 
+# the loop runs `_beat()` every `_BEAT_INTERVAL` seconds: a beat that is long overdue means a callback (a UDF that
+# blocks instead of awaiting) holds the loop
+_BEAT_INTERVAL = 1.0
+_last_beat = 0.0
+# how long the loop may be held before a dispatcher waiting for it warns (`report_stall()`)
+_STALL_WARNING_S = 30.0
+
 
 def _mark_loop_thread() -> None:
     # nested evaluation from this thread must not wait for the persistent loop (see `exec::dispatch`)
@@ -39,9 +46,16 @@ def _mark_loop_thread() -> None:
     _core._mark_udf_loop_thread()
 
 
+def _beat(loop: asyncio.AbstractEventLoop) -> None:
+    global _last_beat
+    _last_beat = time.monotonic()
+    loop.call_later(_BEAT_INTERVAL, _beat, loop)
+
+
 def _run_loop(loop: asyncio.AbstractEventLoop, ready: threading.Event) -> None:
     _mark_loop_thread()
     asyncio.set_event_loop(loop)
+    loop.call_soon(_beat, loop)
     loop.call_soon(ready.set)
     while True:
         try:
@@ -76,6 +90,22 @@ def _get_loop_locked() -> asyncio.AbstractEventLoop:
 def loop_alive() -> bool:
     """False if the loop that tasks were submitted to stopped running (its thread ended)."""
     return _thread is not None and _thread.is_alive() and _pid == os.getpid()
+
+
+def report_stall() -> bool:
+    """Logs a warning if the loop has not run for more than `_STALL_WARNING_S` seconds (a UDF blocks it); returns True
+    if it did."""
+    stalled = time.monotonic() - _last_beat - _BEAT_INTERVAL
+    if not loop_alive() or stalled <= _STALL_WARNING_S:
+        return False
+    from pixeltable import _console
+
+    # a user-visible warning (upstream's console logger: stdout)
+    _console.warning(
+        f'Async UDF calls are waiting for the event loop that runs them, which has not run for {stalled:.0f} s: '
+        'an async UDF blocks it (a synchronous call that does not await)'
+    )
+    return True
 
 
 def in_loop_thread() -> bool:

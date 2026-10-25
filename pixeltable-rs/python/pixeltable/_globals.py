@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping
 from uuid import UUID
 
 import pandas as pd
 
-from pixeltable import _core
+from pixeltable import _console, _core
 from pixeltable._table import Dir, Table, _make_table
+from pixeltable._update_status import _status_from_core
 from pixeltable._unimplemented import unimplemented
 from pixeltable.types import DirContents, TreeNode
 
@@ -45,7 +47,8 @@ def create_table(
 ) -> Table:
     """Create a new base table from a `schema` (a mapping of column names to types or column specs), or from a
     `source` (rows, a table or a query) whose schema is inferred."""
-    tbl_id, kind, _ = _core.create_table(
+    start_ts = time.perf_counter()
+    tbl_id, kind, created, inserted = _core.create_table(
         path,
         schema,
         source,
@@ -61,7 +64,14 @@ def create_table(
         source_format,
         extra_args,
     )
-    return _make_table(tbl_id, kind)
+    tbl = _make_table(tbl_id, kind)
+    if created:
+        _console.info(f'Created table {tbl._name()!r}.')
+    else:
+        _console.info(f'Table {tbl._name()!r} already exists.')
+    if inserted is not None:
+        _console.info(_status_from_core(inserted).insert_msg(start_ts))
+    return tbl
 
 
 def create_view(
@@ -78,7 +88,7 @@ def create_view(
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
 ) -> Table | None:
     """Create a view (or, with `is_snapshot=True`, a snapshot) of a table or a query over a table."""
-    tbl_id, kind, _ = _core.create_view(
+    tbl_id, kind, created = _core.create_view(
         path,
         base,
         additional_columns,
@@ -90,7 +100,13 @@ def create_view(
         if_exists,
         has_default_idxs,
     )
-    return _make_table(tbl_id, kind)
+    view = _make_table(tbl_id, kind)
+    if created:
+        _console.info(f'Created {view._display_str()}.')
+    else:
+        d = view._display_str()
+        _console.info(f'{d[0].upper()}{d[1:]} already exists.')
+    return view
 
 
 def create_snapshot(
@@ -170,7 +186,10 @@ def create_dir(
     path: str, *, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', parents: bool = False
 ) -> Dir | None:
     """Create a directory (with `parents=True`, also missing parent directories)."""
-    return Dir(UUID(_core.create_dir(path, if_exists, parents)))
+    dir_id, created, normalized_path = _core.create_dir(path, if_exists, parents)
+    if created:
+        _console.info(f'Created directory {normalized_path!r}.')
+    return Dir(UUID(dir_id))
 
 
 def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:

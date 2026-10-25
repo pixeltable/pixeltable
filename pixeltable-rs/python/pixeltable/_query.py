@@ -169,6 +169,11 @@ class Query:
     def has_select_list(self) -> bool:
         return self._spec.has_select_list
 
+    @property
+    def select_list(self) -> list[tuple[_core.Expr, str | None]] | None:
+        """The select list as given to `select()`: (expression, name or None) pairs; None selects all columns."""
+        return self._spec.select_list
+
     def select(self, *items: Any, **named_items: Any) -> Query:
         """Select columns or expressions."""
         return Query(self._spec.select([(e, None) for e in items] + [(e, k) for k, e in named_items.items()]))

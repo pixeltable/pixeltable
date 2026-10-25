@@ -29,7 +29,8 @@ fn stats_dict<'py>(py: Python<'py>, s: &RowCountStats) -> PyResult<Bound<'py, Py
     d.set_item("del_rows", s.del_rows)?;
     d.set_item("upd_rows", s.upd_rows)?;
     d.set_item("num_excs", s.num_excs)?;
-    d.set_item("computed_values", s.computed_values)?;
+    // upstream does not count computed values (its `RowCountStats.computed_values` stays 0)
+    d.set_item("computed_values", 0)?;
     Ok(d)
 }
 
@@ -53,6 +54,21 @@ pub fn tbl_kind(py: Python<'_>, tbl_id: &str) -> Result<String> {
 pub fn tbl_name(py: Python<'_>, tbl_id: &str) -> Result<String> {
     let id = parse_uuid(tbl_id)?;
     with_catalog(py, |cat| Ok(cat.table(id)?.name.clone()))
+}
+
+/// The leaf of the table path a handle reads (upstream `Table._tbl_path`): (its table's name, is_snapshot, is_view,
+/// is_component_view). A pure snapshot's leaf is the base it pins.
+#[pyfunction]
+#[pyo3(signature = (tbl_id, version))]
+pub fn tbl_path_leaf(py: Python<'_>, tbl_id: &str, version: Option<i64>) -> Result<(String, bool, bool, bool)> {
+    let id = parse_uuid(tbl_id)?;
+    with_catalog(py, |cat| {
+        let path = cat.tbl_path(id, version)?;
+        let leaf = path.first().ok_or_else(|| Error::internal("empty table path"))?;
+        let md = cat.table(leaf.tbl_id)?;
+        let is_component_view = md.view.as_ref().is_some_and(|v| v.iterator.is_some());
+        Ok((md.name.clone(), leaf.pinned.is_some() || md.is_snapshot(), md.is_view(), is_component_view))
+    })
 }
 
 #[pyfunction]
@@ -222,20 +238,55 @@ pub fn plan_insert(py: Python<'_>, tbl_id: uuid::Uuid, version: Option<i64>) -> 
     Ok((guard, plan))
 }
 
-/// Inserts input rows into a table (planned by `plan_insert()`, whose guard is `guard`): evaluates computed columns,
-/// commits, and returns the status and the stored rows.
+/// Inserts input rows into a table (planned by `plan_insert()`, whose guard is `guard`): evaluates computed columns and
+/// commits; returns the status and, with `keep_rows`, the stored rows (and the plan they were built for). If another
+/// process changed the table's schema or views meanwhile (this process's writers wait for the guard), the insert is
+/// planned again and the same input rows are built again, if they still fit the table (`insert::rebuild_inputs()`).
 pub fn insert_built_rows(
     py: Python<'_>,
     guard: &WriterGuard,
-    plan: &InsertPlan,
+    plan: InsertPlan,
     rows: Vec<InputRow>,
     fail_on_exception: bool,
-) -> Result<(UpdateStatus, Vec<StoredRow>)> {
-    let built = py.detach(|| insert::build_rows(plan, rows, fail_on_exception))?;
-    let stored = built.rows.clone();
-    let status = with_catalog(py, |cat| insert::commit(cat, plan, built))?;
-    guard.committed();
-    Ok((status, stored))
+    keep_rows: bool,
+) -> Result<(UpdateStatus, Vec<StoredRow>, InsertPlan)> {
+    let (mut plan, mut rows, mut carried) = (plan, rows, Vec::new());
+    let mut attempts = txn::Attempts::new(guard);
+    loop {
+        attempts.planned();
+        let mut built = py.detach(|| insert::build_rows(&plan, rows, fail_on_exception))?;
+        built.saved_media.append(&mut carried);
+        let stored = if keep_rows { built.rows.clone() } else { Vec::new() };
+        let mut slot = Some(built);
+        let result = with_catalog(py, |cat| {
+            insert::check_current(cat, &plan)?;
+            insert::commit(cat, &plan, slot.take().ok_or_else(|| Error::internal("insert committed twice"))?)
+        });
+        match (result, slot) {
+            (Ok(status), _) => {
+                guard.committed();
+                return Ok((status, stored, plan));
+            }
+            (Err(e), Some(built)) if txn::is_conflict(&e) => {
+                let new_plan = with_catalog(py, |cat| InsertPlan::new(cat, plan.tbl_id, None))?;
+                let Some((inputs, media)) = insert::rebuild_inputs(&plan, &new_plan, built) else {
+                    crate::bail!(
+                        ConcurrentModification,
+                        "The schema of table {} changed while the insert was being prepared; retry the insert",
+                        py_repr(&plan.tbl_name)
+                    );
+                };
+                attempts.conflict(py, e, &plan.tbl_name)?;
+                (plan, rows, carried) = (new_plan, inputs, media);
+            }
+            (Err(e), built) => {
+                if let Some(b) = built {
+                    crate::exec::compute::discard_media(&b.saved_media);
+                }
+                return Err(e);
+            }
+        }
+    }
 }
 
 /// Inserts input rows into table `tbl_id` (`plan_insert()`, `insert_built_rows()`).
@@ -247,7 +298,8 @@ pub fn insert_input_rows(
     fail_on_exception: bool,
 ) -> Result<(UpdateStatus, Vec<StoredRow>)> {
     let (guard, plan) = plan_insert(py, tbl_id, version)?;
-    insert_built_rows(py, &guard, &plan, rows, fail_on_exception)
+    let (status, stored, _) = insert_built_rows(py, &guard, plan, rows, fail_on_exception, true)?;
+    Ok((status, stored))
 }
 
 /// Inserts input rows into a table (see `insert_built_rows()`) and returns the status dict (with the stored rows if
@@ -255,23 +307,16 @@ pub fn insert_input_rows(
 pub fn insert_rows<'py>(
     py: Python<'py>,
     guard: &WriterGuard,
-    plan: &InsertPlan,
+    plan: InsertPlan,
     rows: Vec<InputRow>,
     fail_on_exception: bool,
     return_rows: bool,
 ) -> Result<Bound<'py, PyDict>> {
-    let built = py.detach(|| insert::build_rows(plan, rows, fail_on_exception))?;
-    let returned = if return_rows {
-        let cols = with_catalog(py, |cat| insert::return_columns(cat, plan.tbl_id))?;
-        Some(returned_rows_to_py(py, &cols, &built.rows.iter().collect::<Vec<_>>())?)
-    } else {
-        None
-    };
-    let status = with_catalog(py, |cat| insert::commit(cat, plan, built))?;
-    guard.committed();
+    let (status, stored, plan) = insert_built_rows(py, guard, plan, rows, fail_on_exception, return_rows)?;
     let d = status_dict(py, &status)?;
-    if let Some(rows) = returned {
-        d.set_item("rows", rows)?;
+    if return_rows {
+        let cols = with_catalog(py, |cat| insert::return_columns(cat, plan.tbl_id))?;
+        d.set_item("rows", returned_rows_to_py(py, &cols, &stored.iter().collect::<Vec<_>>())?)?;
     }
     Ok(d)
 }
@@ -304,7 +349,7 @@ pub fn tbl_insert<'py>(
     let (guard, plan) = plan_insert(py, id, version)?;
     // conversion and computed columns run Python code (pydantic, generators, PIL, UDFs): no catalog lock here
     let rows = source_input_rows(py, source, kwargs, source_format, overrides, &plan)?;
-    insert_rows(py, &guard, &plan, rows, fail_on_exception, return_rows)
+    insert_rows(py, &guard, plan, rows, fail_on_exception, return_rows)
 }
 
 /// `Table.compute()`: returns (rows as tuples, {name: ColumnType}, per-row error dicts).
@@ -426,6 +471,21 @@ fn calls_custom_udf(e: &crate::expr::Expr) -> bool {
     custom
 }
 
+/// The table and version whose version metadata a handle reports (upstream reads the table version at the leaf of
+/// the handle's path): a pure snapshot reports the base it pins, at the pinned version.
+pub(crate) fn metadata_source(
+    cat: &crate::catalog::Catalog,
+    id: uuid::Uuid,
+    version: Option<i64>,
+) -> Result<(uuid::Uuid, Option<i64>)> {
+    if version.is_none() && cat.table(id)?.is_pure_snapshot() {
+        if let Some(leaf) = cat.tbl_path(id, None)?.first() {
+            return Ok((leaf.tbl_id, leaf.pinned));
+        }
+    }
+    Ok((id, version))
+}
+
 /// `Table.get_metadata()`
 #[pyfunction]
 #[pyo3(signature = (tbl_id, version=None))]
@@ -487,9 +547,11 @@ pub fn tbl_metadata<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
             columns.set_item(&c.name, cm)?;
         }
         let pk: Vec<String> = cols.iter().filter(|c| c.md.is_pk).map(|c| c.name.clone()).collect();
-        let sv = md.schema_version_md(md.schema_version_at(version)?)?;
-        let tv = version.unwrap_or(md.current_version);
-        let created = md.version_md(tv).map(|v| v.created_at).unwrap_or(md.created_at);
+        let (src_id, src_version) = metadata_source(cat, id, version)?;
+        let src = cat.table(src_id)?.clone();
+        let sv = src.schema_version_md(src.schema_version_at(src_version)?)?;
+        let tv = src_version.unwrap_or(src.current_version);
+        let created = src.version_md(tv).map(|v| v.created_at).unwrap_or(src.created_at);
         let d = PyDict::new(py);
         let uuid_cls = py.import("uuid")?.getattr("UUID")?;
         d.set_item("id", uuid_cls.call1((id.to_string(),))?)?;
@@ -500,10 +562,11 @@ pub fn tbl_metadata<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
         };
         d.set_item("name", name)?;
         d.set_item("path", path_str)?;
-        d.set_item("kind", kind)?;
         d.set_item("columns", columns)?;
-        d.set_item("indexes", super::indexes::indexes_metadata(py, cat, id)?)?;
-        d.set_item("is_data_versioned", md.is_data_versioned)?;
+        // a version-pinned table version (a snapshot) has no indexes (upstream)
+        let indexes = if src_version.is_some() { PyDict::new(py) } else { super::indexes::indexes_metadata(py, cat, src_id)? };
+        d.set_item("indexes", indexes)?;
+        d.set_item("is_data_versioned", src.is_data_versioned)?;
         d.set_item("has_default_idxs", md.has_default_idxs)?;
         d.set_item("is_view", md.is_view() || version.is_some())?;
         d.set_item("is_snapshot", md.is_snapshot() || version.is_some())?;
@@ -516,6 +579,7 @@ pub fn tbl_metadata<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
         d.set_item("custom_metadata", vpy::json_to_py(py, &sv.custom_metadata)?)?;
         d.set_item("media_validation", sv.media_validation.name())?;
         d.set_item("primary_key", if pk.is_empty() { None } else { Some(pk) })?;
+        d.set_item("kind", kind)?;
         d.set_item(
             "base",
             match version {
@@ -620,13 +684,19 @@ pub fn tbl_add_computed_column<'py>(
     schema.set_item(&folded, spec_dict)?;
     let mut specs = parse_schema(&schema)?;
     let spec = specs.pop().ok_or_else(|| Error::internal("missing column spec"))?;
+    // set when the column exists and `if_exists='ignore'`: nothing is added
+    let mut ignored = false;
     // a column whose expression runs no user code is computed in the plan's catalog-lock section
     let status = txn::run(
         py,
         id,
         Mode::Exclusive,
         |cat| {
-            let Some(plan) = AddComputedPlan::new(cat, id, spec.clone(), ie)? else { return Ok(Step::Done(UpdateStatus::default())) };
+            let Some(plan) = AddComputedPlan::new(cat, id, spec.clone(), ie)? else {
+                ignored = true;
+                return Ok(Step::Done(UpdateStatus::default()));
+            };
+            ignored = false;
             if plan.runs_user_code() {
                 return Ok(Step::Compute(plan));
             }
@@ -636,6 +706,11 @@ pub fn tbl_add_computed_column<'py>(
         |plan| plan.compute_column(fail_on_exception),
         |cat, plan, c| plan.commit_column(cat, c),
     )?;
+    if ignored {
+        let d = status_dict(py, &status)?;
+        d.set_item("ignored", true)?;
+        return Ok(d);
+    }
     Ok(status_dict(py, &status)?)
 }
 

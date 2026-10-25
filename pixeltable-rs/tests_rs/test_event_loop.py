@@ -62,17 +62,23 @@ async def async_runs_sync_query(x: int) -> int:
     return sum(t2.select(y=sync_runs_async_query(t2.k)).collect()['y']) + x
 
 
-def run_case(body: str, tmp_path, timeout: float = 60) -> list[str]:
-    """Runs `body` in a fresh interpreter with its own store, the names of this module imported; returns its output
-    lines (it fails if the process hangs or exits with an error)."""
+def run_process(body: str, tmp_path, timeout: float = 60) -> subprocess.CompletedProcess:
+    """Runs `body` in a fresh interpreter with its own store, the names of this module imported (it fails if the process
+    hangs or exits with an error)."""
     code = 'import asyncio\nimport pixeltable as pxt\nfrom test_event_loop import *\n' + textwrap.dedent(body)
-    env = dict(os.environ, PIXELTABLE_HOME=str(tmp_path / 'home'))
+    # no console messages ("Created table ..."): the output is compared
+    env = dict(os.environ, PIXELTABLE_HOME=str(tmp_path / 'home'), PIXELTABLE_VERBOSITY='0')
     r = subprocess.run(
         [sys.executable, '-c', code], env=env, cwd=os.path.dirname(os.path.abspath(__file__)), capture_output=True,
         text=True, timeout=timeout,
     )
     assert r.returncode == 0, r.stderr[-3000:]
-    return r.stdout.strip().splitlines()
+    return r
+
+
+def run_case(body: str, tmp_path, timeout: float = 60) -> list[str]:
+    """`run_process()`; returns its output lines."""
+    return run_process(body, tmp_path, timeout).stdout.strip().splitlines()
 
 
 QUERY_THEN_RECOVER = """
@@ -145,6 +151,33 @@ def test_stopped_loop_is_detected(tmp_path) -> None:
         tmp_path,
     )
     assert out == ['raised InternalError True', 'after [1, 2, 3]']
+
+
+@pxt.udf
+async def blocks_the_loop(x: int) -> int:
+    if x == 0:
+        time.sleep(1.5)  # does not await
+    return x
+
+
+def test_blocked_loop_is_reported(tmp_path) -> None:
+    # the dispatcher keeps waiting (the UDF may be slow, not stuck) but says why
+    r = run_process(
+        """
+        import logging
+        from pixeltable.func import _runtime
+        _runtime._STALL_WARNING_S = 0.2
+        logging.basicConfig(level=logging.WARNING, format='%(message)s')
+        t = pxt.create_table('t', {'x': pxt.Int})
+        t.insert({'x': i} for i in range(5))
+        print(t.order_by(t.x).select(y=blocks_the_loop(t.x)).collect()['y'])
+        """,
+        tmp_path,
+    )
+    # the warning is a console message (stdout), as upstream's console logger prints warnings
+    lines = r.stdout.strip().splitlines()
+    assert lines[-1] == '[0, 1, 2, 3, 4]'
+    assert any('which has not run for' in line for line in lines[:-1]), r.stdout[-2000:]
 
 
 def test_nested_async_sync_async(tmp_path) -> None:

@@ -301,6 +301,7 @@ class TestSyncDispatch:
         script = f"""
 import os, sys
 os.environ['PIXELTABLE_HOME'] = {str(tmp_path)!r}
+os.environ['PIXELTABLE_VERBOSITY'] = '0'  # no console messages: the test reads stdout
 sys.path.insert(0, {str(Path(__file__).parent)!r})
 import pixeltable as pxt
 import test_concurrency as tc

@@ -233,3 +233,29 @@ class TestProcesses:
         assert status.num_rows == 15
         assert t.count() == 15
         assert t.order_by(t.x).collect()['y'] == [x + 1 for x in range(15)]
+
+    def test_insert_against_other_process(self, tmp_path: Path) -> None:
+        # another process changes the schema while this one computes an insert: the insert is planned and built again
+        ready, go = self.gate(tmp_path)
+        t = pxt.create_table('e', {'x': pxt.Int})
+        t.add_computed_column(y=file_gated_inc(t.x))
+
+        def other_process() -> subprocess.CompletedProcess:
+            wait_for(ready)
+            r = run_python("""
+                import pixeltable as pxt
+                pxt.get_table('e').add_column(z=pxt.String | None)
+                """)
+            go.touch()
+            return r
+
+        th, out = run_in_thread(other_process)
+        try:
+            status = t.insert({'x': i} for i in range(5))
+        finally:
+            th.join(120)
+            del os.environ['GATE_READY'], os.environ['GATE_GO']
+        assert out['result'].returncode == 0, out['result'].stderr[-2000:]
+        assert status.num_rows == 5
+        assert t.columns() == ['x', 'y', 'z']
+        assert t.order_by(t.x).collect()['y'] == [x + 1 for x in range(5)]

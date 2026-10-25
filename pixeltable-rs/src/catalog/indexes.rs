@@ -245,6 +245,9 @@ impl Catalog {
         self.bump_version_for_index(tbl_id)?;
         if let Some(val_col_id) = self.push_btree_index(tbl_id, col.md.id, idx_name)? {
             self.fill_btree_values(tbl_id, col.md.id, val_col_id)?;
+            // the version records the live rows whose index values it computed, as upstream's does
+            let n = self.data(tbl_id)?.num_live() as i64;
+            self.current_version_md_mut(tbl_id)?.row_count_stats.upd_rows += n;
         }
         self.commit()
     }

@@ -6,13 +6,14 @@ backend by id, so handles stay valid across `reload_catalog()` and see renames a
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence
 from uuid import UUID
 
 import pandas as pd
 
-from pixeltable import _core
+from pixeltable import _console, _core
 from pixeltable._metadata import TableMetadata, VersionMetadata
 from pixeltable._unimplemented import unimplemented
 from pixeltable._update_status import UpdateStatus, _status_from_core
@@ -41,6 +42,29 @@ class Dir(SchemaObject):
         return f'Dir({self._id})'
 
 
+class _TablePath:
+    """What upstream's `TablePath` answers about the leaf of a handle's table path (a pure snapshot's leaf is the
+    table it pins)."""
+
+    def __init__(self, tbl_name: str, is_snapshot: bool, is_view: bool, is_component_view: bool):
+        self._tbl_name = tbl_name
+        self._is_snapshot = is_snapshot
+        self._is_view = is_view
+        self._is_component_view = is_component_view
+
+    def tbl_name(self) -> str:
+        return self._tbl_name
+
+    def is_snapshot(self) -> bool:
+        return self._is_snapshot
+
+    def is_view(self) -> bool:
+        return self._is_view
+
+    def is_component_view(self) -> bool:
+        return self._is_component_view
+
+
 class Table(SchemaObject):
     """
     A handle to a table, view, or snapshot: the primary interface for table operations (queries, insertions,
@@ -67,6 +91,11 @@ class Table(SchemaObject):
 
     def _name(self) -> str:
         return _core.tbl_name(str(self._id))
+
+    @property
+    def _tbl_path(self) -> _TablePath:
+        """The table path backing this handle (upstream `Table._tbl_path`)."""
+        return _TablePath(*_core.tbl_path_leaf(str(self._id), self._version))
 
     def _path(self) -> str:
         return _core.tbl_path(str(self._id))
@@ -219,11 +248,20 @@ class Table(SchemaObject):
         **kwargs: Any,
     ) -> UpdateStatus:
         """Add a computed column, given as `name=expression`."""
-        return _status_from_core(
-            _core.tbl_add_computed_column(
-                str(self._id), kwargs, stored, destination, custom_metadata, comment, on_error, if_exists
-            )
+        start_ts = time.perf_counter()
+        d = _core.tbl_add_computed_column(
+            str(self._id), kwargs, stored, destination, custom_metadata, comment, on_error, if_exists
         )
+        status = _status_from_core(d)
+        if not d.get('ignored', False):
+            duration = time.perf_counter() - start_ts
+            rate_str = f' ({status.num_rows / duration:.2f} rows/s)' if duration > 0 and status.num_rows > 0 else ''
+            _console.info(
+                f'Added {status.num_rows} column value{"" if status.num_rows == 1 else "s"} '
+                f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"} '
+                f'in {duration:.2f} s{rate_str}'
+            )
+        return status
 
     def drop_column(self, column: str | _core.Expr, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
         """Drop a column, given by name or by reference."""
@@ -316,7 +354,8 @@ class Table(SchemaObject):
     ) -> UpdateStatus:
         """Insert rows: a list (or iterable) of dicts, a list of pydantic models, a table or query, or a single row
         given as keyword arguments."""
-        return _status_from_core(
+        start_ts = time.perf_counter()
+        status = _status_from_core(
             _core.tbl_insert(
                 str(self._id),
                 self._version,
@@ -328,6 +367,8 @@ class Table(SchemaObject):
                 schema_overrides,
             )
         )
+        _console.info(status.insert_msg(start_ts))
+        return status
 
     def compute(
         self,

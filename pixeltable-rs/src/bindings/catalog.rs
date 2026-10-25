@@ -219,6 +219,12 @@ pub fn init(py: Python<'_>) -> Result<()> {
     with_catalog(py, |_| Ok(()))
 }
 
+/// The configuration value `section.key` (see `config::get()`).
+#[pyfunction]
+pub fn config_value(section: &str, key: &str) -> Option<String> {
+    crate::config::get(section, key)
+}
+
 #[pyfunction]
 pub fn home(py: Python<'_>) -> Result<String> {
     with_catalog(py, |cat| Ok(cat.store().home().to_string_lossy().to_string()))
@@ -241,11 +247,19 @@ pub fn register_reserved_names(names: Vec<String>) {
 
 #[pyfunction]
 #[pyo3(signature = (path, if_exists, parents))]
-pub fn create_dir(py: Python<'_>, path: NameArg, if_exists: &str, parents: bool) -> Result<String> {
+/// Returns the directory's id, whether it was created (false: an existing one was returned) and its normalized path.
+pub fn create_dir(py: Python<'_>, path: NameArg, if_exists: &str, parents: bool) -> Result<(String, bool, String)> {
     let path = &*path;
     let p = Path::parse(path, false, false)?;
     let ie = IfExists::parse(if_exists, "if_exists")?;
-    with_catalog(py, |cat| Ok(cat.create_dir(&p, ie, parents)?.to_string()))
+    with_catalog(py, |cat| {
+        let before = match cat.get_object(&p, crate::catalog::dirs::Expected::Any, false, false) {
+            Ok(Some(crate::catalog::Entry::Dir(id))) => Some(id),
+            _ => None,
+        };
+        let id = cat.create_dir(&p, ie, parents)?;
+        Ok((id.to_string(), before != Some(id), p.to_string()))
+    })
 }
 
 #[pyfunction]
@@ -448,7 +462,7 @@ pub fn create_table(
     has_default_idxs: bool,
     source_format: Option<&str>,
     extra_args: Option<&Bound<'_, PyAny>>,
-) -> Result<(String, String, bool)> {
+) -> Result<(String, String, bool, Option<Py<PyDict>>)> {
     let path = &*path;
     let schema = schema.filter(|s| !s.is_none());
     let source = source.filter(|s| !s.is_none());
@@ -530,6 +544,8 @@ pub fn create_table(
     let (id, created) = with_catalog(py, |cat| {
         cat.create_table(&p, specs, ie, comment, custom_metadata, mv, is_data_versioned, has_default_idxs)
     })?;
+    // the status of inserting the source's rows
+    let mut inserted = None;
     if created {
         if let Some(c) = conduit {
             let (guard, plan) = super::table::plan_insert(py, id, None)?;
@@ -537,10 +553,10 @@ pub fn create_table(
                 Conduit::Query(q) => super::table::query_input_rows(py, q, &plan)?,
                 other => super::sources::convert_rows(py, other, &plan, true)?,
             };
-            super::table::insert_rows(py, &guard, &plan, rows, fail_on_exception, false)?;
+            inserted = Some(super::table::insert_rows(py, &guard, plan, rows, fail_on_exception, false)?.unbind());
         }
     }
-    Ok((id.to_string(), "table".to_string(), created))
+    Ok((id.to_string(), "table".to_string(), created, inserted))
 }
 
 /// Returns (view id, kind, created).

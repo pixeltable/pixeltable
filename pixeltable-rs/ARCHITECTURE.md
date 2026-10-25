@@ -96,6 +96,8 @@ python/pixeltable/
   functions/, iterators/, io/   generated stubs; functions/_registry.py resolves names to Rust builtins
   _metadata.py, _update_status.py, _row.py   public data classes copied from upstream
   _testing.py       reset_db(), reload_catalog(), validate_store() (test hooks)
+  _console.py       user-visible console messages ("Created table 't'.", "Inserted 2 rows ..."), as upstream's
+                    console logger prints them (logger `pixeltable`, stdout, config `pixeltable.verbosity`)
   _unimplemented.py helpers for not-yet-implemented API
 tools/gen_function_stubs.py   generates the stub modules from upstream sources (ast only)
 tests_rs/                     pixeltable-rs's own tests
@@ -176,8 +178,11 @@ Evaluation (`expr/eval.rs`) is row at a time against a `RowContext` (column valu
 propagates, comparisons with NULL are NULL, a NULL predicate filters the row out, division by zero is NULL, `//` is
 floor division. Integer arithmetic is checked: overflow raises Postgres' "bigint out of range" (as upstream's SQL
 does), never wraps or panics. Arithmetic that upstream would run in SQL (`exec::query::is_sql_expr()`, and not
-`RowContext::python_semantics()`) yields NULL for a zero divisor and truncates an integer `%`; computed columns use
-Python semantics (`ZeroDivisionError`, floored `%`). Aggregate and window function results are computed by the
+`RowContext::python_semantics()`) yields NULL for a zero divisor and truncates an integer `%`; an insert's own
+computed columns and `Table.compute()` use Python semantics (`ZeroDivisionError`, floored `%`), as upstream evaluates
+them in Python. Everything upstream computes with a query over stored rows (adding a computed column, updates and
+recomputation, a view's rows, index values) uses SQL semantics for SQL-expressible nodes (`scan::EvalSink::python`,
+`ViewCompute::python`). Aggregate and window function results are computed by the
 executor and handed to evaluation through `RowContext::precomputed()`.
 
 ## Functions
@@ -355,7 +360,9 @@ The event loop (`func/_runtime.py`): every coroutine runs wrapped in `_guarded()
 also a `KeyboardInterrupt`, `SystemExit` or a `CancelledError` the UDF raises itself (asyncio would let these escape and
 stop the loop, and the dispatcher would wait forever); the dispatcher re-raises them as interrupts. The loop thread
 restarts `run_forever()` if a callback raises or user code stops it, and the dispatcher checks every 50 ms that the
-loop's thread is alive while tasks are in flight. The loop persists (user code may cache loop-bound clients, as
+loop's thread is alive while tasks are in flight (else INTERNAL_ERROR), and logs a warning when the loop has not run
+for 30 s (`_runtime.report_stall()`, from a 1 s heartbeat): a UDF blocks it instead of awaiting, which may be slow
+work or a deadlock in user code, so the dispatcher keeps waiting. The loop persists (user code may cache loop-bound clients, as
 upstream's runtime loop allows) until `_runtime.shutdown()`: at exit, and from the test hooks `reset_db()` and
 `reload_catalog()` if idle (upstream's runtime reset closes its loop; the compat harness asserts none is left open).
 Threads that run a loop are marked (`_core._mark_udf_loop_thread()`, `dispatch::in_loop_thread()`).
@@ -397,8 +404,10 @@ Concurrent writers (`exec/txn.rs`; upstream serializes them with table locks, an
   holds another tree's lock) only takes a lock that is free and else runs on validation alone, so nothing waits for
   user code that waits for it; re-entry by the holding thread is allowed. A redo caused by such nested commits (the
   operation's own UDF writes its table) is not repeated forever: after three, CONCURRENT_MODIFICATION.
-- Other processes are not excluded by writer locks: their commits are caught by validation. An insert that meets a
-  schema or view change by another process between plan and commit still fails with CONCURRENT_MODIFICATION.
+- Other processes are not excluded by writer locks: their commits are caught by validation. An insert (a blind append,
+  so only a schema or view change invalidates it: `insert::check_current()`) whose table another process changed is
+  planned again and its input rows built again (`insert::rebuild_inputs()`, `bindings::table::insert_built_rows()`),
+  unless they no longer fit the new schema (CONCURRENT_MODIFICATION).
 
 Storage (`store/`), format version 4, under `$PIXELTABLE_HOME/pxtrs/<db>/` (db = `PIXELTABLE_DB`, default
 `pixeltable`). A store of another format (including versions 1 to 3) is refused with STORE_UNAVAILABLE ("... has
@@ -476,7 +485,9 @@ Table paths and views (`catalog/views.rs`, `exec/scan.rs`): a handle reads a *ta
 live or pinned to a version (`Catalog::tbl_path`): a base table is a path of one; a view adds its bases
 (`ViewMd.bases`, each live or pinned); a version-pinned view reads its bases at the versions recorded for that view
 version (`VersionMd.base_versions`, recorded by every `bump_version` of a view); a pure snapshot (no columns, no
-filter) has no rows and is the pinned path of its bases. A view stores its own rows: one per base row that passes its
+filter) has no rows and is the pinned path of its bases (its `get_metadata()`/`describe()` report the version
+metadata of the table version it pins, `bindings::table::metadata_source()`; version-pinned table versions report no
+indexes, as upstream's; `Table._tbl_path` answers for the path's leaf). A view stores its own rows: one per base row that passes its
 filter, keyed by the base row's key, holding the view's stored columns. A scan (`PathInput::rows`) joins each visible
 leaf row with the base rows of the same key at the versions the path pins; `PathCtx` resolves a column reference by
 its table id (unstored computed columns are evaluated, read-validated media checked). Column references carry the
@@ -532,8 +543,9 @@ creates the table, then inserts. `return_rows` (insert, update, batch_update) re
 rows (media by file URL), index values as `<col>:<idx>` and cell errors as `<col>:md` (`exec::insert::ReturnCol`).
 `Table.compute()` (`exec/compute_rows.rs`) evaluates only the requested outputs and their dependencies (stored and
 unstored computed columns alike) for rows of the root base table, applies view filters, and stores nothing.
-Computed columns are evaluated with Python semantics (`RowContext::python_semantics()`: a division by zero raises
-`ZeroDivisionError`), query expressions with SQL semantics (NULL). `UpdateStatus.cols_with_excs` names columns
+An insert's computed columns are evaluated with Python semantics (`RowContext::python_semantics()`: a division by
+zero raises `ZeroDivisionError`), queries and the other mutations with SQL semantics (NULL, see Expressions).
+`UpdateStatus.cols_with_excs` names columns
 `<table>.<column>` (`<table>.<column>:<index>` for index values).
 
 Indexes (`catalog/indexes.rs`, `TableMd.indexes`): equality filters on a column with a B-tree index use a key index of

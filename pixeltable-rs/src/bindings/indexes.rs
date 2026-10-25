@@ -621,7 +621,10 @@ pub fn tbl_describe<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
             }
         }
         let idx_rows = PyList::empty(py);
-        let visible = cat.visible_indexes(id)?;
+        let (src_id, src_version) = super::table::metadata_source(cat, id, version)?;
+        let src = cat.table(src_id)?.clone();
+        // a version-pinned table version has no indexes (upstream)
+        let visible = if src_version.is_some() { Vec::new() } else { cat.visible_indexes(src_id)? };
         let show_type = visible.iter().any(|(_, i)| i.is_btree());
         let show_embedding = visible.iter().any(|(_, i)| !i.is_btree());
         for (col_name, idx) in &visible {
@@ -649,7 +652,7 @@ pub fn tbl_describe<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
             }
             idx_rows.append(row)?;
         }
-        let sv = md.schema_version_md(md.schema_version_at(version)?)?;
+        let sv = src.schema_version_md(src.schema_version_at(src_version)?)?;
         let d = PyDict::new(py);
         d.set_item("title", title)?;
         d.set_item("columns", rows)?;

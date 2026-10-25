@@ -159,6 +159,7 @@ impl ComputeRowsPlan {
         for v in &self.views {
             let mut vc_fail = v.clone();
             vc_fail.fail_on_exception = fail_on_exception;
+            vc_fail.python = true;
             let base_infos: Vec<&ElemInfo> = infos.iter().collect();
             let mut next = Vec::new();
             for p in &paths {

@@ -49,6 +49,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(catalog::init, m)?)?;
     m.add_function(wrap_pyfunction!(catalog::home, m)?)?;
+    m.add_function(wrap_pyfunction!(catalog::config_value, m)?)?;
     m.add_function(wrap_pyfunction!(catalog::reload_catalog, m)?)?;
     m.add_function(wrap_pyfunction!(catalog::reset_db, m)?)?;
     m.add_function(wrap_pyfunction!(catalog::register_reserved_names, m)?)?;
@@ -68,6 +69,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(table::tbl_kind, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_name, m)?)?;
+    m.add_function(wrap_pyfunction!(table::tbl_path_leaf, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_path, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_version, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_columns, m)?)?;

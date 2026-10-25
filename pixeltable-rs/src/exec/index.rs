@@ -86,7 +86,7 @@ impl AddIndexPlan {
         let mut rows = crate::exec::scan::rows_for_eval(&path_rows, &infos, cols);
         let bases: Vec<&[&StoredRow]> = path_rows.iter().map(|r| &r[1..]).collect();
         stats.upd_rows += rows.len() as i64;
-        eval_rows_batch(&mut rows, &bases, cols, &infos, &self.tbl_name, false, stats, cols_with_excs)?;
+        eval_rows_batch(&mut rows, &bases, cols, &infos, &self.tbl_name, false, stats, cols_with_excs, false)?;
         Ok(rows
             .into_iter()
             .map(|mut row| {

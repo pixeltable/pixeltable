@@ -545,6 +545,10 @@ impl AddComputedPlan {
     ) -> Result<Vec<KeyedValue>> {
         let mut out = Vec::new();
         if !self.spec.stored.unwrap_or(true) {
+            // nothing to store, but upstream reports the rows the column covers as updated
+            let mut n = 0;
+            self.path.for_each_row(|_| n += 1)?;
+            stats.upd_rows += n;
             return Ok(out);
         }
         let col = ComputedCol {
@@ -557,7 +561,7 @@ impl AddComputedPlan {
         let path_rows = self.path.rows()?;
         if super::query::has_window_calls(&self.expr) {
             // window functions are evaluated over all visible rows in window order
-            let results = super::query::eval_rows_with_windows(&infos, &path_rows, &self.expr, true)?;
+            let results = super::query::eval_rows_with_windows(&infos, &path_rows, &self.expr, false)?;
             for (r, res) in path_rows.iter().zip(results) {
                 stats.upd_rows += 1;
                 stats.computed_values += 1;
@@ -585,7 +589,7 @@ impl AddComputedPlan {
         let mut rows = super::scan::rows_for_eval(&path_rows, &infos, cols);
         let bases: Vec<&[&StoredRow]> = path_rows.iter().map(|r| &r[1..]).collect();
         stats.upd_rows += rows.len() as i64;
-        eval_rows_batch(&mut rows, &bases, cols, &infos, &self.tbl_name, fail_on_exception, stats, cols_with_excs)?;
+        eval_rows_batch(&mut rows, &bases, cols, &infos, &self.tbl_name, fail_on_exception, stats, cols_with_excs, false)?;
         if fail_on_exception {
             // the error of the first row that failed (also an error it inherits from a cell it reads)
             if let Some(err) = rows.iter().find_map(|r| r.error(col.col_id)) {
@@ -644,8 +648,9 @@ impl AddComputedPlan {
         data.set_live_cells(col_id, values);
         record_version_status(cat, self.tbl_id, &UpdateStatus { row_count_stats: stats, ..Default::default() })?;
         cat.write_data(self.tbl_id, data)?;
+        // upstream reports no updated columns for a new column
         Ok(UpdateStatus {
-            updated_cols: vec![format!("{}.{}", self.tbl_name, self.spec.name)],
+            updated_cols: Vec::new(),
             cols_with_excs,
             row_count_stats: stats,
             cascade_row_count_stats: RowCountStats::default(),
