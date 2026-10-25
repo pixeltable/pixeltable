@@ -797,21 +797,37 @@
       btnPreview.disabled = true;
       btnPreview.textContent = 'Running /preview...';
       try {
-        const res = await fetchJson('preview', {
+        // Same UUID rule as insert: an unchanged form retries the paid preview under one Idempotency-Key,
+        // so treg replays it instead of charging again.
+        const payload = {
+          full_name,
+          domain,
+          role: form.role.value.trim() || 'Founder',
+          stage: form.stage.value,
+        };
+        const signature = JSON.stringify(payload);
+        if (signature !== pendingPayload || !pendingLeadId) {
+          pendingLeadId = crypto.randomUUID();
+          pendingPayload = signature;
+        }
+        payload.lead_id = pendingLeadId;
+        const row = await fetchJson('preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            lead_id: crypto.randomUUID(),
-            full_name,
-            domain,
-            role: form.role.value.trim() || 'Founder',
-            stage: form.stage.value,
-          }),
+          body: JSON.stringify(payload),
         });
-        const row = res;
         showNotice(
           `Paid preview (not stored): ${row.email || 'no email'} [${row.verdict || 'n/a'} via ${row.served_by || 'treg'}] | Tier: ${row.tier} | Cost: $${Number(row.cost_usd || 0).toFixed(6)} - "${row.cold_email || ''}"`
         );
+        if (row.voice_note) {
+          const player = document.createElement('audio');
+          player.className = 'voice-player';
+          player.controls = true;
+          player.src = row.voice_note;
+          player.style.display = 'block';
+          player.style.marginTop = '8px';
+          notice.appendChild(player);
+        }
       } catch (err) {
         showNotice(`Preview failed: ${err.message}`, true);
       } finally {

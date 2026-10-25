@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import dataclasses
 import io
 import json
 import os
+import re
 import time
 import uuid
 import wave
@@ -21,6 +23,10 @@ from pixeltable.utils.local_store import TempStore
 
 _TREG_NAMESPACE = uuid.UUID('6ba7b811-9dad-11d1-80b4-00c04fd430c8')
 
+# Retries run through this pool (default 600 RPM): a retry repeats the deterministic Idempotency-Key,
+# so treg replays or coalesces the call instead of charging twice.
+_TREG_POOL = 'request-rate:treg'
+
 
 def _check_response(response: httpx.Response) -> None:
     status = response.status_code
@@ -33,8 +39,8 @@ def _check_response(response: httpx.Response) -> None:
             503: excs.ErrorCode.PROVIDER_OVERLOADED,
         }.get(status, excs.ErrorCode.PROVIDER_ERROR if status >= 500 else excs.ErrorCode.PROVIDER_BAD_REQUEST)
         error = excs.ExternalServiceError(code, f'treg returned HTTP {status}', provider='treg', status_code=status)
-        # The scheduler reads the httpx response, not ExternalServiceError.is_retryable.
-        # A 409 is an in-flight idempotency key; treat it like a busy provider.
+        # The request-rate scheduler retries only when the error's httpx response carries a retryable status,
+        # not by ErrorCode.is_retryable. A 409 is an in-flight idempotency key; treat it like a busy provider.
         error.response = httpx.Response(503, headers=response.headers) if status == 409 or status >= 500 else response  # type: ignore[attr-defined]
         raise error
     if response.headers.get('X-Treg-Upstream-Failed'):
@@ -52,20 +58,37 @@ def _cost_micro(response: httpx.Response) -> int:
     return int(response.headers[header])
 
 
+@dataclasses.dataclass
+class _TregResult:
+    """A settled treg call: the routed output or the binary body, plus its billing receipt."""
+
+    output: Any  # the 'output' field of a routed JSON endpoint
+    content: bytes  # the raw body of a binary endpoint
+    content_type: str
+    cost_micro: int
+    call_id: str | None
+    served_by: str | None
+    verification: dict[str, Any] | None
+
+
 def _at_path(document: Any, path: str) -> Any:
     for part in path.split('.'):
         document = document.get(part) if isinstance(document, dict) else None
     return document
 
 
-async def _poll_pending(
-    client: httpx.AsyncClient, base_url: str, headers: dict[str, str], response: httpx.Response
-) -> httpx.Response:
+async def _poll_task(
+    client: httpx.AsyncClient,
+    base_url: str,
+    headers: dict[str, str],
+    *,
+    served_by: str,
+    call_ref: str,
+    task_id: str,
+    prior_cost_micro: int,
+) -> tuple[Any, int]:
     """Poll the submitted child, never resubmit a routed operation with a new key."""
-    data = response.json()
-    meta = data['_treg']
-    pending = meta['async']
-    catalog = await client.get(f'{base_url}/catalog/endpoints/{meta["served_by"]}')
+    catalog = await client.get(f'{base_url}/catalog/endpoints/{served_by}')
     _check_response(catalog)
     descriptor = catalog.json()['endpoint']['async']
     poll = descriptor['poll']
@@ -78,7 +101,7 @@ async def _poll_pending(
     while time.monotonic() < deadline:
         await asyncio.sleep(float(descriptor.get('interval', 30)))
         result = await client.get(
-            f'{base_url}/call/{endpoint}', headers=headers, params={poll['param']['name']: pending['task_id']}
+            f'{base_url}/call/{endpoint}', headers=headers, params={poll['param']['name']: task_id}
         )
         _check_response(result)
         document = result.json()
@@ -91,32 +114,23 @@ async def _poll_pending(
                 if descriptor.get('result', {}).get('path')
                 else document
             )
-            receipt = await client.get(f'{base_url}/calls/{meta["call_ref"]}', headers=headers)
+            receipt = await client.get(f'{base_url}/calls/{call_ref}', headers=headers)
             _check_response(receipt)
-            cost = _cost_micro(response) + int(receipt.json()['charged_micro'])
-            meta.update(outcome='hit', charged_micro=cost)
-            return httpx.Response(
-                200,
-                json={'output': output, 'raw': document, '_treg': meta},
-                headers={
-                    'X-Treg-Cost-Micro': str(cost),
-                    'X-Treg-Call-Id': meta['call_ref'],
-                    'X-Treg-Served-By': meta['served_by'],
-                },
-            )
+            return output, prior_cost_micro + int(receipt.json()['charged_micro'])
         if status in status_rule.get('failure', []) + status_rule.get('billed_failure', []):
-            raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_BAD_REQUEST, f'treg task {meta["call_ref"]} failed')
+            raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_BAD_REQUEST, f'treg task {call_ref} failed')
     raise excs.ExternalServiceError(
         excs.ErrorCode.PROVIDER_TIMEOUT,
-        f'treg task {meta["call_ref"]} is still pending. Inspect this call before starting new work.',
+        f'treg task {call_ref} is still pending. Inspect this call before starting new work.',
     )
 
 
 async def _finish_verification(
-    client: httpx.AsyncClient, base_url: str, headers: dict[str, str], response: httpx.Response
-) -> httpx.Response:
-    data = response.json()
-    verification = data['_treg']['verification']
+    client: httpx.AsyncClient, base_url: str, headers: dict[str, str], result: _TregResult
+) -> None:
+    """Settle the asynchronous verifier the routed call started, into `result`."""
+    verification = result.verification
+    assert verification is not None
     if verification['served_by'] != 'bounceban.people.email.verify':
         raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, 'Unsupported pending verifier schema')
     call = await client.get(f'{base_url}/calls/{verification["call_id"]}', headers=headers)
@@ -126,33 +140,56 @@ async def _finish_verification(
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR, f'No pollable task for {verification["call_id"]}'
         )
-    pending = httpx.Response(
-        202,
-        json={
-            '_treg': {
-                'served_by': verification['served_by'],
-                'call_ref': verification['call_id'],
-                'async': {'task_id': task['task_id']},
-            }
-        },
-        headers={'X-Treg-Cost-Micro': '0'},
+    output, charged_micro = await _poll_task(
+        client,
+        base_url,
+        headers,
+        served_by=verification['served_by'],
+        call_ref=verification['call_id'],
+        task_id=task['task_id'],
+        prior_cost_micro=0,
     )
-    completed = await _poll_pending(client, base_url, headers, pending)
-    verdict = {'deliverable': 'valid', 'undeliverable': 'invalid', 'risky': 'risky', 'unknown': 'unknown'}.get(
-        completed.json()['output']
-    )
+    verdict = {'deliverable': 'valid', 'undeliverable': 'invalid', 'risky': 'risky', 'unknown': 'unknown'}.get(output)
     if verdict is None:
         raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, 'Unsupported BounceBan verdict')
-    cost = _cost_micro(response) + _cost_micro(completed)
-    verification.update(pending=False, verdict=verdict, cost_micro=_cost_micro(completed))
-    data['_treg']['charged_micro'] = cost
-    result_headers = dict(response.headers)
-    # Replace replay headers: this receipt now includes the settled asynchronous verifier.
-    result_headers.pop('x-treg-idempotent-replay', None)
-    result_headers['x-treg-cost-micro'] = str(cost)
-    result_headers.pop('content-length', None)
-    result_headers.pop('content-encoding', None)
-    return httpx.Response(200, json=data, headers=result_headers)
+    verification.update(pending=False, verdict=verdict, cost_micro=charged_micro)
+    result.cost_micro += charged_micro
+
+
+async def _settle_response(
+    client: httpx.AsyncClient, base_url: str, headers: dict[str, str], response: httpx.Response, *, verify: bool
+) -> _TregResult:
+    """Resolve a routed call through pending tasks and verification into a settled result."""
+    _check_response(response)
+    data = response.json() if response.headers.get('Content-Type', '').startswith('application/json') else {}
+    meta = data.get('_treg', {})
+    result = _TregResult(
+        output=data.get('output'),
+        content=response.content,
+        content_type=response.headers.get('Content-Type', ''),
+        cost_micro=_cost_micro(response),
+        call_id=response.headers.get('X-Treg-Call-Id') or meta.get('call_ref'),
+        served_by=response.headers.get('X-Treg-Served-By') or meta.get('served_by'),
+        verification=meta.get('verification'),
+    )
+    if response.status_code == 202 or meta.get('outcome') == 'pending':
+        # A pending call settles through its catalog descriptor, as a JSON document.
+        result.output, result.cost_micro = await _poll_task(
+            client,
+            base_url,
+            headers,
+            served_by=meta['served_by'],
+            call_ref=meta['call_ref'],
+            task_id=meta['async']['task_id'],
+            prior_cost_micro=result.cost_micro,
+        )
+        result.call_id = meta['call_ref']
+        result.served_by = meta['served_by']
+        result.content = b''
+        result.content_type = 'application/json'
+    if verify and (result.verification or {}).get('pending'):
+        await _finish_verification(client, base_url, headers, result)
+    return result
 
 
 async def _treg_post(
@@ -164,7 +201,7 @@ async def _treg_post(
     verify: bool = False,
     timeout_s: float = 90.0,
     extra_headers: dict[str, str] | None = None,
-) -> httpx.Response:
+) -> _TregResult:
     token = os.environ.get('TREG_TOKEN', '')
     if not token:
         raise excs.AuthorizationError(
@@ -193,15 +230,7 @@ async def _treg_post(
     try:
         async with httpx.AsyncClient(timeout=timeout_s) as client:
             response = await client.post(f'{base_url}/call/{endpoint}', headers=headers, json=body)
-            _check_response(response)
-            if response.status_code == 202 or (
-                response.headers.get('Content-Type', '').startswith('application/json')
-                and response.json().get('_treg', {}).get('outcome') == 'pending'
-            ):
-                response = await _poll_pending(client, base_url, auth_headers, response)
-            if verify and response.json().get('_treg', {}).get('verification', {}).get('pending'):
-                response = await _finish_verification(client, base_url, auth_headers, response)
-            return response
+            return await _settle_response(client, base_url, auth_headers, response, verify=verify)
     except httpx.TransportError as cause:
         timeout = isinstance(cause, httpx.TimeoutException)
         error = excs.ExternalServiceError(
@@ -213,7 +242,7 @@ async def _treg_post(
         raise error from cause
 
 
-@pxt.udf(is_deterministic=False)
+@pxt.udf(is_deterministic=False, resource_pool=_TREG_POOL)
 async def treg_find_email(
     lead_id: uuid.UUID, full_name: str, domain: str, max_cost_usd: float = 0.03
 ) -> dict[str, Any]:
@@ -227,19 +256,17 @@ async def treg_find_email(
             'call_id': f'demo:{lead_id}',
             'cost_micro': 0,
         }
-    response = await _treg_post(
+    result = await _treg_post(
         'treg.people.email.find',
         {'full_name': full_name, 'domain': domain},
         lead_id=lead_id,
         max_cost_usd=max_cost_usd,
         verify=True,
     )
-    data = response.json()
-    output = data['output']
+    output = result.output
     if not isinstance(output, dict) or 'email' not in output:
         raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, 'Unsupported treg email result schema')
-    meta = data['_treg']
-    verification = meta.get('verification', {})
+    verification = result.verification or {}
     # A pending verifier is not evidence of a deliverable mailbox.
     if verification.get('pending'):
         raise excs.ExternalServiceError(
@@ -250,13 +277,13 @@ async def treg_find_email(
         'email': output['email'],
         'verified': bool(output.get('verified')),
         'verdict': verification.get('verdict'),
-        'served_by': response.headers.get('X-Treg-Served-By') or meta.get('served_by'),
-        'call_id': response.headers.get('X-Treg-Call-Id'),
-        'cost_micro': _cost_micro(response),
+        'served_by': result.served_by,
+        'call_id': result.call_id,
+        'cost_micro': result.cost_micro,
     }
 
 
-@pxt.udf(is_deterministic=False)
+@pxt.udf(is_deterministic=False, resource_pool=_TREG_POOL)
 async def treg_extract_site(lead_id: uuid.UUID, domain: str, max_cost_usd: float = 0.02) -> dict[str, Any]:
     """Read text from the provider-native page objects in output.pages."""
     if os.environ.get('LEAD_ENRICHMENT_DEMO') == '1':
@@ -268,8 +295,8 @@ async def treg_extract_site(lead_id: uuid.UUID, domain: str, max_cost_usd: float
             'cost_micro': 0,
         }
     url = domain if domain.startswith(('http://', 'https://')) else f'https://{domain}'
-    response = await _treg_post('treg.web.extract', {'url': url}, lead_id=lead_id, max_cost_usd=max_cost_usd)
-    output = response.json()['output']
+    result = await _treg_post('treg.web.extract', {'url': url}, lead_id=lead_id, max_cost_usd=max_cost_usd)
+    output = result.output
     if not isinstance(output, dict) or not isinstance(output.get('pages'), list):
         raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, 'Unsupported treg website result schema')
     pages = output['pages']
@@ -282,9 +309,9 @@ async def treg_extract_site(lead_id: uuid.UUID, domain: str, max_cost_usd: float
     return {
         'url': url,
         'markdown': '\n\n'.join(excerpts)[:4000],
-        'served_by': response.headers.get('X-Treg-Served-By'),
-        'call_id': response.headers.get('X-Treg-Call-Id'),
-        'cost_micro': _cost_micro(response),
+        'served_by': result.served_by,
+        'call_id': result.call_id,
+        'cost_micro': result.cost_micro,
     }
 
 
@@ -296,7 +323,7 @@ async def outreach_copywriter(prompt: str, model: str = 'gpt-4o-mini') -> dict[s
     return await chat_completions.py_fn(model=model, messages=[{'role': 'user', 'content': prompt}])
 
 
-@pxt.udf(is_deterministic=False)
+@pxt.udf(is_deterministic=False, resource_pool=_TREG_POOL)
 async def treg_voice_note(lead_id: uuid.UUID, script: str, max_cost_usd: float = 0.02) -> dict[str, Any]:
     """Keep the audio and billing receipt together so computing cost never repeats synthesis."""
     if os.environ.get('LEAD_ENRICHMENT_DEMO') == '1':
@@ -312,17 +339,23 @@ async def treg_voice_note(lead_id: uuid.UUID, script: str, max_cost_usd: float =
             'call_id': f'demo:{lead_id}',
             'cost_micro': 0,
         }
-    response = await _treg_post(
+    result = await _treg_post(
         'fishaudio.tts.s2-1-pro',
         {'text': script, 'format': 'mp3'},
         lead_id=lead_id,
         max_cost_usd=max_cost_usd,
         extra_headers={'model': 's2.1-pro'},
     )
+    # A pending or errored call settles as a JSON document; storing it would corrupt the audio column.
+    if not result.content_type.startswith('audio/'):
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'treg voice synthesis returned {result.content_type or "no Content-Type"}, not audio',
+        )
     return {
-        'audio_base64': base64.b64encode(response.content).decode('ascii'),
-        'call_id': response.headers.get('X-Treg-Call-Id'),
-        'cost_micro': _cost_micro(response),
+        'audio_base64': base64.b64encode(result.content).decode('ascii'),
+        'call_id': result.call_id,
+        'cost_micro': result.cost_micro,
     }
 
 
@@ -335,9 +368,21 @@ def voice_note_audio(receipt: dict[str, Any]) -> pxt.Audio:
 
 
 @pxt.udf
+def outreach_prompt(full_name: str, role: str | None, domain: str, site_markdown: str) -> str:
+    """Build the cold-email prompt; a null role drops the parenthetical instead of formatting 'None'."""
+    recipient = f'{full_name} ({role})' if role else full_name
+    return (
+        f'Write a concise 3-sentence cold outreach email to {recipient} at {domain}.\n'
+        'Ground the opener in the website excerpt. If it is empty, do not invent company facts. No placeholders.\n\n'
+        f'WEBSITE EXCERPT:\n{site_markdown}'
+    )
+
+
+@pxt.udf
 def lead_tier(verdict: str | None, role: str | None) -> str:
     """Classify outreach readiness from mailbox verification and role."""
-    is_exec = any(k in (role or '').lower() for k in ('founder', 'ceo', 'cto', 'vp', 'head', 'director', 'chief'))
+    words = set(re.findall(r'[a-z]+', (role or '').lower()))
+    is_exec = bool(words & {'founder', 'cofounder', 'ceo', 'cto', 'vp', 'head', 'director', 'chief'})
     if (verdict or '').lower() == 'valid':
         return 'priority' if is_exec else 'ready'
     return 'review' if (verdict or '').lower() in ('catch_all', 'risky', 'unknown') else 'skip'

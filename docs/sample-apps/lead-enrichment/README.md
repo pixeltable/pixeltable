@@ -28,7 +28,7 @@ Supply a new `lead_id` for new work. Keep that ID and the same input on retries 
 | `POST` | `/preview` | Paid enrichment, including audio, without saving a lead |
 | `POST` | `/leads/stage` | Update `stage` by `lead_id` |
 | `POST` | `/leads/delete` | Delete by `lead_id` |
-| `GET` | `/leads/all?limit=50` | List ordered by descending `lead_id` |
+| `GET` | `/leads/all?limit=50` | List ordered by `full_name` (`lead_id` is a random UUID, not an ordering) |
 | `GET` | `/leads/by-verdict?verdict=valid` | List filtered by verification verdict |
 | `GET` | `/leads/by-tier?tier=priority&stage=new` | List filtered by tier (`priority`, `ready`, `review`, `skip`) and required stage |
 | `GET` | `/leads/by-domain?domain=pixeltable.com` | List of all matching leads, including website context |
@@ -38,7 +38,15 @@ Query routes return lists in a `rows` envelope. Insert, preview, and update retu
 
 ## Try the offline demo
 
-Set `export LEAD_ENRICHMENT_DEMO=1` before the local commands below to run without provider keys or charges. The UI shows a demo banner. The demo uses synthetic website text, an explicitly labelled draft, no verified email address, and a silent WAV voice note. Unset `LEAD_ENRICHMENT_DEMO` and restart the daemon and service before using real provider keys. Missing keys and live provider failures raise errors; they never switch to demo data.
+Set `export LEAD_ENRICHMENT_DEMO=1` before the local commands below to run without provider keys or charges. The UI shows a demo banner. The demo uses synthetic website text, an explicitly labelled draft, no verified email address, and a silent WAV voice note. Missing keys and live provider failures raise errors; they never switch to demo data.
+
+To go live afterwards: unset `LEAD_ENRICHMENT_DEMO`, restart the daemon, stop `pxt service run` and start it again, and delete the demo rows so seeded prospects and the fixed-UUID examples below cannot collide with real inserts:
+
+```bash
+unset LEAD_ENRICHMENT_DEMO
+uv run pxt daemon restart
+uv run python -c "import pixeltable as pxt; pxt.get_table('leads/leads').delete()"
+```
 
 ## Run locally
 
@@ -72,12 +80,14 @@ curl --fail-with-body -o voice_note.mp3 \
 
 ## Recover and iterate
 
-After changing exported keys, restart the daemon and service:
+After changing exported keys, restart the daemon, stop `pxt service run` (Ctrl-C), and start it again:
 
 ```bash
 uv run pxt daemon restart
-uv run pxt service update app.py leads
+uv run pxt service run app.py leads --port 8000
 ```
+
+`pxt service update` starts a separate background service; it does not restart the foreground `pxt service run` process.
 
 A failed HTTP insert rolls back its row. Inspect the error and retry the same POST with the same UUID and unchanged inputs. A pending response is polled through its catalog descriptor, rather than submitted again. An unsupported provider-native terminal shape fails explicitly instead of storing an empty result. Pending BounceBan verification is polled separately and its settled charge is included. If polling times out or a verifier cannot be resumed, inspect the call ID in the error through treg before starting new work: the task may still complete and charge.
 
@@ -93,14 +103,13 @@ After editing a computed expression, update the schema and recompute the column 
 ```bash
 uv run pxt schema update app.py leads
 uv run pxt recompute leads/leads prompt
-uv run pxt service update app.py leads
 ```
 
-Editing the model in `llm_response` instead requires recomputing `llm_response`. These operations call OpenAI again for every selected row and cascade to `voice` and `voice_note`, which can incur another treg charge for changed audio input. Recomputing `cold_email` only extracts the stored response; it does not call OpenAI again. The CLI asks for confirmation; `-f` skips that cost confirmation.
+Then restart the service as above so it serves the edited file. Editing the model in `llm_response` instead requires recomputing `llm_response`. These operations call OpenAI again for every selected row and cascade to `voice` and `voice_note`, which can incur another treg charge for changed audio input. Recomputing `cold_email` only extracts the stored response; it does not call OpenAI again. The CLI asks for confirmation; `-f` skips that cost confirmation.
 
 ## Deploy to Pixeltable Cloud
 
-Replace `pxt://<your-org>:<your-db>` in `pixeltable.toml` with the URI of an existing hosted database, for example `pxt://acme:main`. `pxt db update` requires that matching named entry. Use the same real URI in these commands:
+Replace `pxt://<your-org>:<your-db>` in `pixeltable.toml` with the hosted URI to use, for example `pxt://acme:main`. `pxt db update` requires that matching named entry and creates the database if it does not exist. Use the same real URI in these commands:
 
 ```bash
 uv run pxt login
@@ -112,7 +121,7 @@ uv run pxt service update app.py pxt://acme:main
 uv run pxt service list pxt://acme:main
 ```
 
-Pods read secrets at startup. For database creation and authenticated service access, see [Pixeltable Cloud](https://docs.pixeltable.com/cloud) and [HTTP serving](https://docs.pixeltable.com/howto/deployment/serving). The bundled UI is for the unauthenticated local service; use the API-key-aware Python client for hosted endpoints.
+Pods read secrets at startup. For authenticated service access, see [Pixeltable Cloud](https://docs.pixeltable.com/cloud) and [HTTP serving](https://docs.pixeltable.com/howto/deployment/serving). The bundled UI is for the unauthenticated local service; use the API-key-aware Python client for hosted endpoints.
 
 ## Learn more
 

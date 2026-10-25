@@ -61,6 +61,7 @@ def test_idempotency_and_audio_receipt(sample_app: types.ModuleType, treg_transp
             200,
             content=_AUDIO.read_bytes(),
             headers={
+                'Content-Type': 'audio/mpeg',
                 'X-Treg-Cost-Micro': '0',
                 'X-Treg-Original-Cost-Micro': '1234',
                 'X-Treg-Idempotent-Replay': 'true',
@@ -223,6 +224,28 @@ def test_pending_polls_existing_task(
     assert seen.count('/call/provider.status') == (0 if max_age == 0 else 1)
 
 
+@pytest.mark.parametrize(
+    'verdict,role,expected',
+    [
+        ('valid', 'Co-Founder & CTO', 'priority'),
+        ('valid', 'VP Engineering', 'priority'),
+        ('valid', 'Head of Sales', 'priority'),
+        ('valid', 'Doctor', 'ready'),  # 'cto' must not match inside 'Doctor'
+        ('valid', 'Contractor', 'ready'),  # 'cto' must not match inside 'Contractor'
+        ('valid', 'Headhunter', 'ready'),  # 'head' must not match inside 'Headhunter'
+        ('valid', 'Engineer', 'ready'),
+        ('valid', None, 'ready'),
+        ('catch_all', 'CEO', 'review'),
+        ('risky', 'CEO', 'review'),
+        ('unknown', None, 'review'),
+        ('invalid', 'CEO', 'skip'),
+        (None, 'CEO', 'skip'),
+    ],
+)
+def test_lead_tier(sample_app: types.ModuleType, verdict: str | None, role: str | None, expected: str) -> None:
+    assert sys.modules['udfs'].lead_tier.py_fn(verdict, role) == expected
+
+
 @pytest.mark.db_roots('local', reason='Runs the sample with mocked providers in process')
 def test_sample_api(sample_app: types.ModuleType, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
     from pixeltable.runtime import reset_runtime
@@ -242,27 +265,40 @@ def test_sample_api(sample_app: types.ModuleType, db_root: DatabaseRoot, monkeyp
     calls: list[str] = []
     fail_site = False
 
-    async def post(endpoint: str, body: dict[str, Any], **kwargs: Any) -> httpx.Response:
+    async def post(endpoint: str, body: dict[str, Any], **kwargs: Any) -> Any:
         await asyncio.sleep(0)
         calls.append(endpoint)
         if endpoint == 'treg.people.email.find':
-            return httpx.Response(
-                200,
-                json={
-                    'output': {'email': 'test@example.com', 'verified': True},
-                    '_treg': {'verification': {'verdict': 'valid'}},
-                },
-                headers={'X-Treg-Cost-Micro': '1000'},
+            return udfs._TregResult(
+                output={'email': 'test@example.com', 'verified': True},
+                content=b'',
+                content_type='application/json',
+                cost_micro=1000,
+                call_id=None,
+                served_by=None,
+                verification={'verdict': 'valid'},
             )
         if endpoint == 'treg.web.extract':
             if fail_site:
                 raise pxt.ExternalServiceError(pxt.ErrorCode.PROVIDER_BAD_REQUEST, 'Mock site failure')
-            return httpx.Response(
-                200,
-                json={'output': {'pages': [{'markdown': 'Real company context'}]}},
-                headers={'X-Treg-Cost-Micro': '2000'},
+            return udfs._TregResult(
+                output={'pages': [{'markdown': 'Real company context'}]},
+                content=b'',
+                content_type='application/json',
+                cost_micro=2000,
+                call_id=None,
+                served_by=None,
+                verification=None,
             )
-        return httpx.Response(200, content=_AUDIO.read_bytes(), headers={'X-Treg-Cost-Micro': '3000'})
+        return udfs._TregResult(
+            output=None,
+            content=_AUDIO.read_bytes(),
+            content_type='audio/mpeg',
+            cost_micro=3000,
+            call_id=None,
+            served_by=None,
+            verification=None,
+        )
 
     async def chat(*args: Any, **kwargs: Any) -> dict:
         await asyncio.sleep(0)

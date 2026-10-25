@@ -25,10 +25,17 @@ import uuid
 from pathlib import Path
 
 from fastapi.responses import HTMLResponse
-from udfs import lead_tier, outreach_copywriter, treg_extract_site, treg_find_email, treg_voice_note, voice_note_audio
+from udfs import (
+    lead_tier,
+    outreach_copywriter,
+    outreach_prompt,
+    treg_extract_site,
+    treg_find_email,
+    treg_voice_note,
+    voice_note_audio,
+)
 
 import pixeltable as pxt
-import pixeltable.functions as pxtf
 from pixeltable.serving import FastAPIRouter
 
 UI_HTML = Path(__file__).resolve().parent / 'ui.html'
@@ -54,15 +61,7 @@ class Leads(TableModel, name='leads', has_default_idxs=False):
 
     tier = lead_tier(verdict, role)
 
-    prompt = pxtf.string.format(
-        'Write a concise 3-sentence cold outreach email to {0} ({1}) at {2}.\n'
-        'Ground the opener in the website excerpt. If it is empty, do not invent company facts. No placeholders.\n\n'
-        'WEBSITE EXCERPT:\n{3}',
-        full_name,
-        role,
-        domain,
-        site_markdown,
-    )
+    prompt = outreach_prompt(full_name, role, domain, site_markdown)
     llm_response = outreach_copywriter(prompt, model='gpt-4o-mini')
     cold_email = llm_response.choices[0].message.content.astype(pxt.String)
 
@@ -79,9 +78,9 @@ class Leads(TableModel, name='leads', has_default_idxs=False):
 # ---- queries ----
 @pxt.query
 def all_leads(limit: int = 50) -> pxt.Query:
-    """All enriched leads, ordered by descending lead ID."""
+    """All enriched leads, ordered by name (caller-chosen UUIDs carry no recency order)."""
     return (
-        Leads.order_by(Leads.lead_id, asc=False)
+        Leads.order_by(Leads.full_name, Leads.lead_id)
         .limit(limit)
         .select(
             Leads.lead_id,
@@ -105,7 +104,7 @@ def by_verdict(verdict: str) -> pxt.Query:
     """Leads matching a mailbox verification verdict (verdict index)."""
     return (
         Leads.where(Leads.verdict == verdict)
-        .order_by(Leads.lead_id, asc=False)
+        .order_by(Leads.full_name, Leads.lead_id)
         .select(
             Leads.lead_id,
             Leads.full_name,
@@ -208,7 +207,15 @@ leads_api.add_compute_route(
     Leads,
     path='/preview',
     inputs=[Leads.lead_id, Leads.full_name, Leads.domain, Leads.role, Leads.stage],
-    outputs=[Leads.email, Leads.verdict, Leads.served_by, Leads.tier, Leads.cold_email, Leads.cost_usd],
+    outputs=[
+        Leads.email,
+        Leads.verdict,
+        Leads.served_by,
+        Leads.tier,
+        Leads.cold_email,
+        Leads.voice_note,
+        Leads.cost_usd,
+    ],
 )
 leads_api.add_update_route(
     Leads, path='/leads/stage', inputs=[Leads.stage], outputs=[Leads.lead_id, Leads.full_name, Leads.stage, Leads.tier]
