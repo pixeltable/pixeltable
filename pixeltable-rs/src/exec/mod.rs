@@ -597,6 +597,21 @@ impl QuerySpec {
     /// Fails if an expression of the query references a column that no longer exists (it was dropped after the
     /// query was built).
     pub fn check_columns_exist(&self, cat: &Catalog) -> Result<()> {
+        self.check_columns(cat, true)
+    }
+
+    /// Fails as upstream fails to deserialize the query (`Query.from_dict()`) if a table it reads or a column it
+    /// references no longer exists.
+    pub fn check_loadable(&self, cat: &Catalog) -> Result<()> {
+        for (id, _) in self.from_tbls() {
+            cat.table(id)?;
+        }
+        self.check_columns(cat, false)
+    }
+
+    /// `with_drop_info`: name the version that dropped the column (upstream `ColumnHandle.get()`; deserialization
+    /// does not).
+    fn check_columns(&self, cat: &Catalog, with_drop_info: bool) -> Result<()> {
         let mut visible: std::collections::HashSet<(Uuid, crate::catalog::table::ColId)> = std::collections::HashSet::new();
         for (id, v) in self.from_tbls() {
             visible.extend(cat.path_columns(&cat.tbl_path(id, v)?)?.iter().map(|c| (c.tbl_id, c.md.id)));
@@ -604,11 +619,23 @@ impl QuerySpec {
         for e in self.clause_exprs() {
             for r in e.column_refs() {
                 if !visible.contains(&(r.tbl_id, r.col_id)) {
+                    // upstream `ColumnHandle.get()`: the column's table (versioned name) and when it was dropped
+                    let (name, dropped) = match cat.table(r.tbl_id) {
+                        Ok(md) => (
+                            r.tbl_version.map_or_else(|| md.name.clone(), |v| format!("{}:{v}", md.name)),
+                            md.column(r.col_id)
+                                .and_then(|c| c.schema_version_drop)
+                                .filter(|_| md.is_data_versioned && with_drop_info)
+                                .map(|v| format!("; it was dropped in table version {v}"))
+                                .unwrap_or_default(),
+                        ),
+                        Err(_) => (self.tbl_name(cat), String::new()),
+                    };
                     crate::bail!(
                         ColumnNotFound,
-                        "Column was dropped (no record for column ID {} in table {})",
+                        "Column was dropped (no record for column ID {} in table {}{dropped})",
                         r.col_id,
-                        py_repr(&self.tbl_name(cat))
+                        py_repr(&name)
                     );
                 }
             }

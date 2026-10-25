@@ -307,7 +307,7 @@ impl ViewNode {
             .into_iter()
             .map(|v| {
                 let md = cat.table(v)?;
-                check_view_valid(md, "updated in")?;
+                check_view_valid(cat, md, "updated in")?;
                 Ok(ViewNode {
                     compute: ViewCompute::current(cat, v)?,
                     schema_version: md.current_schema_version,
@@ -352,14 +352,14 @@ impl ViewNode {
 }
 
 /// Fails with upstream's INVALID_STATE error if the view's iterator or computed columns no longer match the code.
-pub fn check_view_valid(md: &TableMd, op: &str) -> Result<()> {
+pub fn check_view_valid(cat: &Catalog, md: &TableMd, op: &str) -> Result<()> {
     let display = crate::functions::udf::tbl_version_display(md);
     if let Some(j) = md.view.as_ref().and_then(|v| v.iterator.as_ref()) {
         crate::functions::iterator::IteratorCall::from_json(j)?.check_valid(&display, &md.name, op)?;
     }
     for c in md.columns_at(None)?.iter().filter(|c| c.md.stored) {
         if let Some(e) = &c.md.value_expr {
-            crate::functions::udf::check_valid_column(&display, &c.name, &*crate::expr::serde::from_json(e)?, op)?;
+            crate::functions::udf::check_valid_column(cat, &display, &c.name, &*crate::expr::serde::from_json(e)?, op)?;
         }
     }
     Ok(())

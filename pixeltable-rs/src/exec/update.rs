@@ -160,7 +160,7 @@ pub fn view_update_tree(
     let mut out = Vec::new();
     for v in cat.mutable_view_ids(tbl_id) {
         let md = cat.table(v)?.clone();
-        super::propagate::check_view_valid(&md, "updated in")?;
+        super::propagate::check_view_valid(cat, &md, "updated in")?;
         let compute = ViewCompute::current(cat, v)?;
         let mut changed = changed.clone();
         let reads_changed = |e: &ExprRef| e.column_refs().iter().any(|r| changed.contains(&(r.tbl_id, r.col_id)));
@@ -182,7 +182,7 @@ pub fn view_update_tree(
         recompute.extend(super::compute::index_value_columns(cat, v, Some(&changed))?);
         let tbl_display = crate::functions::udf::tbl_version_display(&md);
         for c in &recompute {
-            crate::functions::udf::check_valid_column(&tbl_display, &c.name, &c.expr, "updated in")?;
+            crate::functions::udf::check_valid_column(cat, &tbl_display, &c.name, &c.expr, "updated in")?;
         }
         let data = cat.data(v)?;
         let children = view_update_tree(cat, v, &changed, membership_change || reload, updated_cols)?;

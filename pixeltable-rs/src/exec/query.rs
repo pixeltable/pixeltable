@@ -1288,7 +1288,8 @@ pub fn count(input: &QueryInput) -> Result<usize> {
                 let f = conjuncts(w).into_iter().find(|c| !is_sql_expr(c, &input.unstored)).expect("non-SQL conjunct");
                 crate::bail!(UnsupportedOperation, "Filter {} not expressible in SQL", display(&f));
             }
-            crate::bail!(UnsupportedOperation, "count() cannot be used: query plan contains a non-SQL node (FilterNode)");
+            // upstream plans count(1) over the rows: with a Python filter, the root is a Python aggregation
+            crate::bail!(UnsupportedOperation, "count() cannot be used: query plan contains a non-SQL node (AggregationNode)");
         }
     }
     if q.where_.is_none() && q.sample.is_none() && q.group_by.is_none() && q.grouping_tbl.is_none() && q.joins.is_empty() {

@@ -133,6 +133,9 @@ pub enum EvalSite {
     AggUpdate(std::sync::Arc<crate::expr::FunctionCall>),
     /// value() of an aggregate: "the expression {call}"
     AggValue(std::sync::Arc<crate::expr::FunctionCall>),
+    /// not an evaluation failure but an invalid setup that upstream detects before evaluating any row (it raises the
+    /// error as it is, whatever `on_error` says)
+    Setup,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

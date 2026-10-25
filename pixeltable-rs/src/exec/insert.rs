@@ -178,7 +178,7 @@ impl InsertPlan {
         let tbl_display = crate::functions::udf::tbl_version_display(md);
         for c in columns.iter().filter(|c| c.stored) {
             if let Some(e) = &c.value_expr {
-                crate::functions::udf::check_valid_column(&tbl_display, &c.name, e, "inserted into")?;
+                crate::functions::udf::check_valid_column(cat, &tbl_display, &c.name, e, "inserted into")?;
             }
         }
         let mut columns: Vec<InsertColumn> = columns;
@@ -249,19 +249,6 @@ pub struct BuiltRows {
     pub views: Vec<InsertedViewRows>,
 }
 
-/// The error an insert with `on_error='abort'` raises for a media column whose file failed validation.
-fn media_abort_error(col_name: &str, err: Error) -> Error {
-    let msg = format!(
-        "In row 0 the expression {col_name} encountered exception {}:\n{}",
-        err.py_type_name(),
-        err.message()
-    );
-    match err.code() {
-        Some(code) => Error::new(code, msg),
-        None => crate::pxt_err!(UnsupportedOperation, "{msg}"),
-    }
-}
-
 /// Prepares the media inputs of a row: writes in-memory media to the media directory and validates the files of
 /// write-validated columns. A failed validation is an error with `fail_on_exception`, else a NULL cell with the
 /// error recorded.
@@ -284,7 +271,8 @@ pub fn prepare_media_inputs(
         let Value::Media(stored) = row.cell(c.col_id).clone() else { continue };
         if let Err(err) = pyo3::Python::attach(|py| media::validate_stored(py, &stored, kind)) {
             if fail_on_exception {
-                return Err(media_abort_error(&c.name, err));
+                // raised as it is (upstream raises it from `ColumnType.validate_media()`, not as an evaluation failure)
+                return Err(err);
             }
             stats.num_excs += 1;
             if !cols_with_excs.contains(&c.name) {
@@ -390,12 +378,20 @@ fn pk_size(row: &StoredRow, pk_cols: &[ColId], truncate: bool) -> usize {
         .sum()
 }
 
-fn pk_display(row: &StoredRow, plan: &InsertPlan) -> String {
+fn pk_display(row: &StoredRow, plan: &InsertPlan, truncate: bool) -> String {
+    use crate::functions::btree::MAX_STRING_LEN;
     let pk: Vec<&InsertColumn> = plan.columns.iter().filter(|c| c.is_pk).collect();
-    let names: Vec<&str> = pk.iter().map(|c| c.name.as_str()).collect();
+    // the key as Postgres reports it for upstream's index: on a data-versioned table, string columns are indexed by
+    // their first `MAX_STRING_LEN` characters
+    let truncated = |c: &InsertColumn| truncate && c.col_type.is_string();
+    let names: Vec<String> = pk
+        .iter()
+        .map(|c| if truncated(c) { format!("\"left\"({}::text, {MAX_STRING_LEN})", c.name) } else { c.name.clone() })
+        .collect();
     let vals: Vec<String> = pk
         .iter()
         .map(|c| match row.cell(c.col_id) {
+            Value::String(s) if truncated(c) => s.chars().take(MAX_STRING_LEN).collect(),
             Value::String(s) => s.clone(),
             v => crate::expr::display::literal_str(v, &c.col_type),
         })
@@ -438,7 +434,7 @@ pub fn commit(cat: &mut Catalog, plan: &InsertPlan, built: BuiltRows) -> Result<
                 js.iter().any(|j| keys[*j].iter().zip(&keys[i]).all(|(a, b)| values_identical(&pk_part(a, truncate), &pk_part(b, truncate))))
             });
             if existing[i].is_some() || dup_in_batch {
-                crate::bail!(ConstraintViolation, "Duplicate primary key value: {}", pk_display(r, plan));
+                crate::bail!(ConstraintViolation, "Duplicate primary key value: {}", pk_display(r, plan, truncate));
             }
             seen.entry(h).or_default().push(i);
         }

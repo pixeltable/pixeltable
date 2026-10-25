@@ -161,6 +161,7 @@ pub fn eval_error(expr: &ExprRef, err: Error) -> Error {
     use crate::error::EvalSite;
     use crate::expr::display::{display, print_value};
     let (what, inputs, err) = match err {
+        Error::Located(l) if matches!(l.site, EvalSite::Setup) => return l.err,
         Error::Located(l) => {
             let l = *l;
             let call = |fc: &crate::expr::FunctionCall| crate::functions::display_call(fc);
@@ -169,6 +170,7 @@ pub fn eval_error(expr: &ExprRef, err: Error) -> Error {
                 EvalSite::AggInit(fc) => format!("init() function of the aggregate {}", call(fc)),
                 EvalSite::AggUpdate(fc) => format!("update() function of the aggregate {}", call(fc)),
                 EvalSite::AggValue(fc) => format!("expression {}", call(fc)),
+                EvalSite::Setup => String::new(), // returned as it is above
             };
             let stack = !matches!(l.site, EvalSite::Expr(_));
             (what, l.inputs.iter().map(|(e, v)| format!("'{}' = {}", display(e), print_value(v, &e.col_type))).collect(), (l.err, stack))

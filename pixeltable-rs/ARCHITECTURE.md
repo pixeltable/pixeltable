@@ -108,7 +108,13 @@ PyErr`), `pixeltable.exceptions._error_class(code)(code, message)`, so the class
 variants map to TypeError/AttributeError/ValueError/NotImplementedError, and `Error::Python` re-raises an exception
 from Python code that Rust called. Write messages exactly as upstream formats them; `py_repr(s)` reproduces `{s!r}`.
 Unimplemented features: `Error::not_implemented("what")` -> `NotImplementedError("what is not implemented yet in
-pixeltable-rs")`. User input must never panic (use checked arithmetic, char-safe slicing); as a safety net,
+pixeltable-rs")`. Evaluation failures carry where they happened (`Error::Located`, upstream's `ExprEvalError`):
+`expr::eval()` wraps a failure in the innermost node whose own evaluation failed, with the values of its inputs (its
+`children()`, evaluated again without calling Python functions that were not called ahead), and `AggPlan` wraps the
+failures of an aggregate's `init()`/`update()`/`value()`; code, class and message stay those of the wrapped error, and
+`exec::compute::eval_error()` builds upstream's "In row 0 the expression ... encountered exception ...\nwith 'x' = 1"
+from it (a Python UDA's stack becomes the error's `detail`). `EvalSite::Setup` marks an invalid setup that upstream
+raises before evaluating any row (a resource pool on a sync function): it is raised as it is, whatever `on_error`. User input must never panic (use checked arithmetic, char-safe slicing); as a safety net,
 `with_catalog` turns a panic into an InternalError and rolls the operation back. Python strings that UTF-8 cannot
 encode (lone surrogates) must not raise UnicodeEncodeError: values are refused as invalid (`value::py::str_value`),
 and path/name arguments are declared as `bindings::NameArg` (escaped, so validation refuses them as upstream does).
