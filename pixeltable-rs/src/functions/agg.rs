@@ -400,6 +400,18 @@ struct SumState(Option<Value>);
 
 impl AggState for SumState {
     fn update(&mut self, args: &[Value], _: &[(String, Value)]) -> Result<()> {
+        // the common cases in place (the same results as below)
+        match (&mut self.0, args.first()) {
+            (Some(Value::Int(a)), Some(Value::Int(b))) => {
+                *a = a.checked_add(*b).ok_or_else(|| crate::pxt_err!(UnsupportedOperation, "integer out of range in sum()"))?;
+                return Ok(());
+            }
+            (Some(Value::Float(a)), Some(Value::Float(b))) => {
+                *a += *b;
+                return Ok(());
+            }
+            _ => {}
+        }
         let v = match args.first().map(Value::json_scalar) {
             None | Some(Value::Null) => return Ok(()),
             Some(Value::Bool(b)) => Value::Int(b as i64),
@@ -475,6 +487,21 @@ struct MeanState {
 
 impl AggState for MeanState {
     fn update(&mut self, args: &[Value], _: &[(String, Value)]) -> Result<()> {
+        // the common cases without copying the value (the same results as below)
+        match args.first() {
+            Some(Value::Int(i)) => {
+                self.int_sum += *i as i128;
+                self.count += 1;
+                return Ok(());
+            }
+            Some(Value::Float(f)) => {
+                self.is_float = true;
+                self.float_sum += *f;
+                self.count += 1;
+                return Ok(());
+            }
+            _ => {}
+        }
         match args.first().map(Value::json_scalar) {
             None | Some(Value::Null) => return Ok(()),
             Some(Value::Int(i)) => self.int_sum += i as i128,

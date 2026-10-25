@@ -156,6 +156,11 @@ impl<'a> Reader<'a> {
     fn i64(&mut self) -> Result<i64> {
         Ok(i64::from_le_bytes(self.arr()?))
     }
+    /// `n` little-endian i64s (one bounds check for all of them).
+    fn i64s(&mut self, n: usize) -> Result<Vec<i64>> {
+        let bytes = self.take(n.checked_mul(8).ok_or_else(corrupt)?)?;
+        Ok(bytes.chunks_exact(8).map(|c| i64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]])).collect())
+    }
     fn varint(&mut self) -> Result<u64> {
         let mut v: u64 = 0;
         for shift in (0..64).step_by(7) {
@@ -330,9 +335,9 @@ pub fn decode(bytes: Vec<u8>, tbl_id: Uuid, id: u64) -> Result<(Segment, Vec<i64
     if n.saturating_mul(24).saturating_add(m.saturating_mul(20)).saturating_add(body_len) > bytes.len() {
         return Err(corrupt());
     }
-    let vmin = (0..n).map(|_| r.i64()).collect::<Result<Vec<_>>>()?;
-    let vmax = (0..n).map(|_| r.i64()).collect::<Result<Vec<_>>>()?;
-    let rowids = (0..n).map(|_| r.i64()).collect::<Result<Vec<_>>>()?;
+    let vmin = r.i64s(n)?;
+    let vmax = r.i64s(n)?;
+    let rowids = r.i64s(n)?;
     let pos = if flags & FLAG_POS != 0 {
         (0..n)
             .map(|_| {
@@ -349,12 +354,17 @@ pub fn decode(bytes: Vec<u8>, tbl_id: Uuid, id: u64) -> Result<(Segment, Vec<i64
             let k = r.count()?;
             let cols = (0..k).map(|_| u32::try_from(r.varint()?).map_err(|_| corrupt())).collect::<Result<Vec<_>>>()?;
             let truncate = r.u8()? != 0;
-            let sorted = (0..n)
-                .map(|_| {
-                    let (h, i) = (r.u64()?, r.u32()?);
-                    if i as usize >= n { Err(corrupt()) } else { Ok((h, i)) }
+            let bytes = r.take(n.checked_mul(12).ok_or_else(corrupt)?)?;
+            let sorted: Vec<(u64, u32)> = bytes
+                .chunks_exact(12)
+                .map(|c| {
+                    let h = u64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]);
+                    (h, u32::from_le_bytes([c[8], c[9], c[10], c[11]]))
                 })
-                .collect::<Result<Vec<_>>>()?;
+                .collect();
+            if sorted.iter().any(|(_, i)| *i as usize >= n) {
+                return Err(corrupt());
+            }
             hashes.push(KeyHashes { cols, truncate, sorted });
         }
     }
