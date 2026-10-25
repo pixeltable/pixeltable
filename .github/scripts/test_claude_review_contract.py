@@ -197,16 +197,85 @@ class ContractTest(unittest.TestCase):
         self.assertTrue(any('Verification changed the finding identity' in gap for gap in stats['gaps']))
         self.assertEqual(len(review['comments']), 1)
 
-    def test_only_one_invalid_location_moves_to_body(self) -> None:
+    def test_unchanged_line_in_a_changed_file_stays_inline(self) -> None:
         manifest, result = fixture()
         add_finding(result, finding('first'))
-        bad = finding('second')
-        bad['location']['line'] = 8
-        add_finding(result, bad)
-        review, _ = contract.render(result, manifest)
-        self.assertEqual(len(review['comments']), 1)
-        self.assertEqual(review['comments'][0]['line'], 2)
-        self.assertIn('An empty input reaches the caller', review['body'])
+        outside = finding('second')
+        outside['subject'] = 'example.py#outside'
+        outside['location'] = {'path': 'example.py', 'side': 'RIGHT', 'line': 8}
+        add_finding(result, outside)
+        spanning = finding('third')
+        spanning['subject'] = 'example.py#span'
+        spanning['suggestion'] = 'return early\n'
+        spanning['comment'] = 'The range is wider than one hunk.\n\n```suggestion\nreturn early\n```'
+        spanning['location'] = {'path': 'example.py', 'side': 'RIGHT', 'start_line': 4, 'line': 10}
+        add_finding(result, spanning)
+        absent = finding('fourth')
+        absent['subject'] = 'other.py#absent'
+        absent['title'] = 'Absent file finding'
+        absent['comment'] = 'This file is not in the pull request.'
+        absent['evidence'] = [{'path': 'other.py', 'side': 'RIGHT', 'line': 2}]
+        absent['location'] = {'path': 'other.py', 'side': 'RIGHT', 'line': 2}
+        for side in ['LEFT', 'RIGHT']:
+            manifest['sources'][side]['other.py'] = {'lines': 30, 'sha256': 'content'}
+        add_finding(result, absent)
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'complete')
+        self.assertEqual(
+            [(c['path'], c['line']) for c in review['comments']],
+            [('example.py', 2), ('example.py', 8), ('example.py', 10)],
+        )
+        self.assertNotIn('start_line', review['comments'][1])
+        self.assertNotIn('start_line', review['comments'][2])
+        self.assertNotIn('```suggestion', review['comments'][2]['body'])
+        prose = review['body'].split(contract.STATE_MARKER)[0]
+        self.assertIn('Absent file finding', prose)
+        self.assertIn('  This file is not in the pull request.', prose)
+        self.assertNotIn('An empty input reaches the caller', prose)
+
+    def test_suggestion_replaces_only_a_right_side_diff_range(self) -> None:
+        manifest, result = fixture()
+        fixed = finding('suggested')
+        fixed['suggestion'] = 'if value:\n    return value\n'
+        fixed['location'] = {'path': 'example.py', 'side': 'RIGHT', 'start_line': 1, 'line': 2}
+        add_finding(result, fixed)
+        outside = finding('outside-suggestion')
+        outside['subject'] = 'example.py#outside'
+        outside['suggestion'] = 'return value\n'
+        outside['comment'] = 'Guard the caller.\n\n```suggestion\nreturn value\n```'
+        outside['location'] = {'path': 'example.py', 'side': 'RIGHT', 'line': 8}
+        left = finding('left-suggestion')
+        left['subject'] = 'example.py#left'
+        left['suggestion'] = 'old\n'
+        left['location'] = {'path': 'example.py', 'side': 'LEFT', 'line': 2}
+        add_finding(result, outside)
+        add_finding(result, left)
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'complete')
+        self.assertIn('```suggestion\nif value:\n    return value\n```', review['comments'][0]['body'])
+        self.assertEqual(review['comments'][0]['start_line'], 1)
+        self.assertEqual(review['comments'][0]['start_side'], 'RIGHT')
+        self.assertIn('```suggestion\nreturn value\n```', review['comments'][1]['body'])
+        self.assertEqual(review['comments'][1]['line'], 8)
+        self.assertNotIn('```suggestion', review['comments'][2]['body'])
+        self.assertNotIn('```suggestion', review['body'].split(contract.STATE_MARKER)[0])
+        long_fix = {**fixed, 'suggestion': 'a\n' * 6}
+        self.assertEqual(contract.suggestion_fence(long_fix, fixed['location']), '')
+
+    def test_existing_debt_is_maintenance_and_stays_complete(self) -> None:
+        manifest, result = fixture()
+        debt = finding('existing-debt')
+        debt['attribution'] = 'existing'
+        debt['kind'] = 'defect'
+        debt['title'] = 'Old helper still allocates twice'
+        add_finding(result, debt)
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'complete')
+        self.assertEqual(stats['gaps'], [])
+        self.assertEqual(review['comments'], [])
+        self.assertIn('### Maintenance suggestions', review['body'])
+        self.assertIn('Old helper still allocates twice', review['body'])
+        self.assertNotIn('Existing debt is only a maintenance suggestion', review['body'])
 
     def test_source_references_and_nondefect_severity(self) -> None:
         manifest, result = fixture()
@@ -593,9 +662,10 @@ class ContractTest(unittest.TestCase):
         self.assertIn(
             '- **Medium: Body-only defect title** ([source](https://github.com/o/r/blob/'
             + manifest['head_sha']
-            + '/example.py#L2-L2)): Body-only defect explanation.',
+            + '/example.py#L2-L2))',
             review['body'],
         )
+        self.assertIn('  Body-only defect explanation.', review['body'])
         self.assertEqual(review['body'].count('Body-only defect title'), 2)  # once in body, once in hidden JSON state
         self.assertIn(
             '### Maintenance suggestions\n\n'

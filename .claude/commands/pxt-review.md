@@ -148,9 +148,14 @@ Each finding has this shape:
 
 Kinds are `defect`, `design`, `rule`, and `maintenance`. Severity is High, Medium, or Low for defects only and follows
 established impact. Other kinds omit severity. Rule findings also have `rule` with the exact quoted instruction.
-Attribution is `new`, `newly_exposed`, or `existing`. Existing debt is at most a maintenance suggestion. A finding needs
-an ordered source trace that accounts for visible preventing controls. `location` can be null or outside the diff. The
-host keeps only valid locations inline and renders the rest in the body. IDs exclude line numbers, agent, and severity.
+Attribution is `new`, `newly_exposed`, or `existing`. Existing debt is at most a maintenance suggestion. The host
+publishes that record as maintenance, and it does not by itself make the review incomplete. A finding needs
+an ordered source trace that accounts for visible preventing controls. `location` can be null. The host attaches a
+comment on any line of a file the pull request changes, including a line outside the diff hunks. A file the pull
+request does not change is rendered in the body. Add `suggestion` with the exact replacement only when it completely
+fixes the finding, the location is the right side, and both the range and the replacement are shorter than six lines.
+The host turns that field into a GitHub suggestion on those exact lines and leaves it out when the comment has to
+be anchored to a different line. IDs exclude line numbers, agent, and severity.
 Use `path#symbol-or-contract` for the canonical subject. On a rename, change only its path prefix when the symbol or
 contract is unchanged. ID spelling alone cannot prove two claims equivalent. Match subject, mechanism, and evidence
 before preserving an ID. A different identity needs a new ID and does not replace the prior claim's revalidation.
@@ -184,8 +189,9 @@ Separate questions use `{"unknown":"<exact missing fact>","check":"<smallest che
 ## Writing
 
 Write about the code, problem first, in articulate-the-abstraction's voice. Use concrete active sentences and the code's
-own names. Keep each comment within 80 words before a suggestion. Add a suggestion only when it completely fixes the
-finding and spans fewer than six lines. Do not invent test results, deployment facts, or stronger impact than the trace.
+own names. Keep each comment within 80 words. Put a complete fix of fewer than six lines in `suggestion`, not in the
+comment. Omit `suggestion` when the fix is partial, longer, or not the commented right-side range. Do not invent test
+results, deployment facts, or stronger impact than the trace.
 
 Do not flag formatting or static type errors left to CI, unrelated debt, exempted rules, or style preferences without
 consequences. Preserve substantive design objections, but keep their label distinct from defect severity. Keep optional

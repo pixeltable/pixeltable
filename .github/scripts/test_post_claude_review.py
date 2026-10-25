@@ -139,6 +139,34 @@ class PublishTest(unittest.TestCase):
         self.assertIn(manifest['head_sha'], fallback['body'])
         self.assertIn('A supported finding', fallback['body'])
 
+    def test_rejected_unchanged_line_keeps_the_diff_comment_inline(self) -> None:
+        manifest, _ = fixture()
+        review = {
+            'commit_id': manifest['head_sha'],
+            'body': f'Reviewed {manifest["head_sha"]}',
+            'event': 'COMMENT',
+            'comments': [
+                {'path': 'example.py', 'line': 2, 'side': 'RIGHT', 'body': 'On the changed line.'},
+                {'path': 'example.py', 'line': 15, 'side': 'RIGHT', 'body': 'On an unchanged line.'},
+            ],
+        }
+        results = [
+            subprocess.CompletedProcess([], 1, '', 'HTTP 422'),
+            subprocess.CompletedProcess([], 0, '{"html_url":"https://example.invalid/review"}', ''),
+        ]
+        with (
+            mock.patch.object(post, 'source_status', return_value='current'),
+            mock.patch.object(post, 'post', side_effect=results) as submit,
+        ):
+            outcome = post.publish(manifest, review)
+        self.assertEqual(outcome['delivery'], 'posted')
+        self.assertTrue(outcome['publication_fallback'])
+        narrowed = submit.call_args_list[1].args[2]
+        self.assertEqual(narrowed['commit_id'], manifest['head_sha'])
+        self.assertEqual([c['line'] for c in narrowed['comments']], [2])
+        self.assertIn('On an unchanged line.', narrowed['body'])
+        self.assertNotIn('On the changed line.', narrowed['body'])
+
     def test_transport_error_is_not_retried(self) -> None:
         import subprocess
         from unittest import mock

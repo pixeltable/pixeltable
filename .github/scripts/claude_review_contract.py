@@ -134,6 +134,66 @@ def inline_valid(location: dict[str, Any], files: dict[str, Any]) -> bool:
         return False
 
 
+def review_anchor(location: Any, files: dict[str, Any]) -> dict[str, Any] | None:
+    """A GitHub review comment on a changed file, including a line outside the hunks."""
+    if not isinstance(location, dict):
+        return None
+    try:
+        path = repository_path(location.get('path'))
+        side = location.get('side', 'RIGHT')
+        end = positive_int(location.get('line'))
+        start = positive_int(location.get('start_line', end))
+    except (ValueError, TypeError):
+        return None
+    if start > end or side not in {'LEFT', 'RIGHT'} or path not in files:
+        return None
+    anchor: dict[str, Any] = {'path': path, 'line': end, 'side': side}
+    if inline_valid(location, files) and start < end:
+        anchor['start_line'] = start
+        anchor['start_side'] = side
+    return anchor
+
+
+_SUGGESTION_FENCE = re.compile(r'```suggestion\n.*?```', re.DOTALL)
+
+
+def same_comment_range(anchor: dict[str, Any], location: dict[str, Any]) -> bool:
+    if anchor.get('line') != location.get('line') or anchor.get('side', 'RIGHT') != location.get('side', 'RIGHT'):
+        return False
+    return anchor.get('start_line', anchor['line']) == location.get('start_line', location.get('line'))
+
+
+def suggestion_fence(claim: dict[str, Any], location: dict[str, Any]) -> str:
+    """A GitHub suggestion replaces exactly the commented right-side lines."""
+    if not isinstance(location, dict) or location.get('side', 'RIGHT') != 'RIGHT':
+        return ''
+    try:
+        end = positive_int(location.get('line'))
+        start = positive_int(location.get('start_line', end))
+    except (ValueError, TypeError):
+        return ''
+    if end - start + 1 > 5:
+        return ''
+    replacement = claim.get('suggestion')
+    if not isinstance(replacement, str) or not replacement.strip() or '```' in replacement:
+        return ''
+    if len(replacement.splitlines()) > 5:
+        return ''
+    if not replacement.endswith('\n'):
+        replacement += '\n'
+    return f'\n\n```suggestion\n{replacement}```'
+
+
+def without_suggestion(text: str) -> str:
+    return _SUGGESTION_FENCE.sub('', text).strip()
+
+
+def body_finding(label: str, title: str, link: str, comment: str) -> list[str]:
+    lines = ['', f'- **{label}: {title}** ({link})', '']
+    lines.extend(f'  {line}' if line else '' for line in comment.splitlines())
+    return lines
+
+
 def reference(ref: Any, manifest: dict[str, Any], historical: dict[str, Any] | None = None) -> None:
     if not isinstance(ref, dict):
         raise ValueError('Source reference must be an object')
@@ -197,7 +257,8 @@ def validate_claim(claim: Any, manifest: dict[str, Any], historical: dict[str, A
     if claim.get('kind') not in KINDS:
         raise ValueError('Invalid finding kind')
     if claim.get('attribution') == 'existing' and claim['kind'] != 'maintenance':
-        raise ValueError('Existing debt is only a maintenance suggestion')
+        claim['kind'] = 'maintenance'
+        claim['severity'] = None
     if claim.get('attribution') not in {'new', 'newly_exposed', 'existing'}:
         raise ValueError('Invalid attribution')
     if claim['kind'] == 'defect':
@@ -571,7 +632,7 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
     if manifest.get('focus'):
         body += ['', '### Focus', '', scrub_marker(data['focus_answer'])]
     if checked['status'] == 'incomplete':
-        body += ['', 'Coverage incomplete: ' + checked['reason']]
+        body += ['', 'Coverage incomplete: ' + checked['reason'], '']
         body += ['- ' + gap for gap in checked['gaps']]
     elif checked['status'] == 'skipped':
         body += ['', 'Skipped: ' + checked['reason']]
@@ -619,17 +680,20 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
         ref = claim['evidence'][0]
         link = f'[source]({source_link(ref, manifest)})'
         location = claim.get('location')
+        anchor = None if claim['kind'] == 'maintenance' else review_anchor(location, manifest['diff_files'])
         if claim['kind'] == 'maintenance':
             maintenance.append(f'- **{claim["title"]}** ({link}): {claim["comment"]}')
-        elif location is not None and inline_valid(location, manifest['diff_files']):
+        elif anchor is not None:
             body += ['', f'- **{label}: {claim["title"]}** ({link}).']
-            comment = {k: location[k] for k in ['path', 'line']}
-            comment |= {'side': location.get('side', 'RIGHT'), 'body': comment_body}
-            if location.get('start_line', location['line']) < location['line']:
-                comment |= {'start_line': location['start_line'], 'start_side': comment['side']}
-            comments.append(comment)
+            same_range = isinstance(location, dict) and same_comment_range(anchor, location)
+            if same_range and location.get('side', 'RIGHT') == 'RIGHT':
+                if '```suggestion' not in comment_body:
+                    comment_body += suggestion_fence(claim, location)
+            else:
+                comment_body = without_suggestion(comment_body)
+            comments.append({**anchor, 'body': comment_body})
         else:
-            body += ['', f'- **{label}: {claim["title"]}** ({link}): {claim["comment"]}']
+            body += body_finding(label, claim['title'], link, claim['comment'])
         published += 1
     if not published and checked['status'] == 'complete':
         body += ['', 'No new supported findings.' if previous else 'No supported findings.']
