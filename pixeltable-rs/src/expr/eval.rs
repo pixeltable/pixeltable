@@ -778,55 +778,183 @@ fn half_slice(bits: &[u16]) -> &[Half] {
     unsafe { std::slice::from_raw_parts(bits.as_ptr().cast::<Half>(), bits.len()) }
 }
 
-/// The score of two embeddings of equal length (each sum is taken in element order, in f64).
-fn score<A: Elem, B: Elem>(metric: &str, x: &[A], y: &[B]) -> f64 {
-    let dot: f64 = x.iter().zip(y).map(|(p, q)| p.f() * q.f()).sum();
+/// The initial value of `Iterator::sum()` of f64s, so that the fused loops below sum exactly as `sum()` does.
+fn sum_init() -> f64 {
+    std::iter::empty::<f64>().sum()
+}
+
+/// The score of two embeddings of equal length (each sum is taken in element order, in f64; `ny`: the norm of `y`, if
+/// known). The sums of one pass are independent, so they are taken in one loop.
+fn score<A: Elem, B: Elem>(metric: &str, x: &[A], y: &[B], ny: Option<f64>) -> f64 {
+    let z = sum_init();
     match metric {
-        "ip" => dot,
+        "ip" => x.iter().zip(y).fold(z, |acc, (p, q)| acc + p.f() * q.f()),
         "l2" => x
             .iter()
             .zip(y)
-            .map(|(p, q)| {
+            .fold(z, |acc, (p, q)| {
                 let d = p.f() - q.f();
-                d * d
+                acc + d * d
             })
-            .sum::<f64>()
             .sqrt(),
         _ => {
-            let nx = x.iter().map(|p| p.f() * p.f()).sum::<f64>().sqrt();
-            let ny = y.iter().map(|q| q.f() * q.f()).sum::<f64>().sqrt();
+            let (mut dot, mut nx) = (z, z);
+            for (p, q) in x.iter().zip(y) {
+                let (p, q) = (p.f(), q.f());
+                dot += p * q;
+                nx += p * p;
+            }
+            let nx = nx.sqrt();
+            let ny = ny.unwrap_or_else(|| norm(y));
             if nx == 0.0 || ny == 0.0 { f64::NAN } else { dot / (nx * ny) }
         }
     }
 }
 
-fn score_with<A: Elem>(metric: &str, x: &[A], b: &crate::value::ArrayData) -> Option<f64> {
+fn norm<A: Elem>(y: &[A]) -> f64 {
+    y.iter().fold(sum_init(), |acc, q| acc + q.f() * q.f()).sqrt()
+}
+
+fn score_with<A: Elem>(metric: &str, x: &[A], b: &crate::value::ArrayData, ny: Option<f64>) -> Option<f64> {
     use crate::value::ArrayData;
     let n = x.len();
     Some(match b {
-        ArrayData::F32(y) if y.len() == n => score(metric, x, y),
-        ArrayData::F64(y) if y.len() == n => score(metric, x, y),
-        ArrayData::F16(y) if y.len() == n => score(metric, x, half_slice(y)),
-        ArrayData::I64(y) if y.len() == n => score(metric, x, y),
-        ArrayData::I32(y) if y.len() == n => score(metric, x, y),
+        ArrayData::F32(y) if y.len() == n => score(metric, x, y, ny),
+        ArrayData::F64(y) if y.len() == n => score(metric, x, y, ny),
+        ArrayData::F16(y) if y.len() == n => score(metric, x, half_slice(y), ny),
+        ArrayData::I64(y) if y.len() == n => score(metric, x, y, ny),
+        ArrayData::I32(y) if y.len() == n => score(metric, x, y, ny),
         _ => return None,
     })
+}
+
+fn score_values(metric: &str, a: &Value, b: &Value, ny: Option<f64>) -> Value {
+    use crate::value::ArrayData;
+    let (Value::Array(a), Value::Array(b)) = (a, b) else { return Value::Null };
+    let s = match &a.data {
+        ArrayData::F32(x) => score_with(metric, x, &b.data, ny),
+        ArrayData::F64(x) => score_with(metric, x, &b.data, ny),
+        ArrayData::F16(x) => score_with(metric, half_slice(x), &b.data, ny),
+        ArrayData::I64(x) => score_with(metric, x, &b.data, ny),
+        ArrayData::I32(x) => score_with(metric, x, &b.data, ny),
+        _ => None,
+    };
+    s.map_or(Value::Null, Value::Float)
 }
 
 /// The similarity of two embeddings under an index metric (upstream `EmbeddingIndex.similarity_clause()`): cosine
 /// similarity, inner product, or L2 distance; NULL unless both are numeric arrays of the same length.
 pub fn similarity_score(metric: &str, a: &Value, b: &Value) -> Value {
-    use crate::value::ArrayData;
-    let (Value::Array(a), Value::Array(b)) = (a, b) else { return Value::Null };
-    let s = match &a.data {
-        ArrayData::F32(x) => score_with(metric, x, &b.data),
-        ArrayData::F64(x) => score_with(metric, x, &b.data),
-        ArrayData::F16(x) => score_with(metric, half_slice(x), &b.data),
-        ArrayData::I64(x) => score_with(metric, x, &b.data),
-        ArrayData::I32(x) => score_with(metric, x, &b.data),
-        _ => None,
-    };
-    s.map_or(Value::Null, Value::Float)
+    score_values(metric, a, b, None)
+}
+
+/// `similarity_score(metric, stored, query)` for many stored embeddings and one query embedding, whose norm is computed
+/// once.
+pub struct SimilarityQuery {
+    metric: String,
+    query: Value,
+    norm: Option<f64>,
+}
+
+impl SimilarityQuery {
+    pub fn new(metric: &str, query: Value) -> SimilarityQuery {
+        use crate::value::ArrayData;
+        let norm = match &query {
+            Value::Array(a) => match &a.data {
+                ArrayData::F32(y) => Some(norm(y)),
+                ArrayData::F64(y) => Some(norm(y)),
+                ArrayData::F16(y) => Some(norm(half_slice(y))),
+                ArrayData::I64(y) => Some(norm(y)),
+                ArrayData::I32(y) => Some(norm(y)),
+                _ => None,
+            },
+            _ => None,
+        };
+        SimilarityQuery { metric: metric.to_string(), query, norm }
+    }
+
+    pub fn score(&self, stored: &Value) -> Value {
+        score_values(&self.metric, stored, &self.query, self.norm)
+    }
+
+    /// `score()` of each of `stored` (None: NULL). float32 embeddings of a float32 query are scored four at a time, in
+    /// lanes that each take their sums in element order, so every score is `score()`'s.
+    pub fn scores(&self, stored: &[&Value]) -> Vec<Option<f64>> {
+        use crate::value::ArrayData;
+        fn as_f32(v: &Value) -> Option<&[f32]> {
+            match v {
+                Value::Array(a) => match &a.data {
+                    ArrayData::F32(x) => Some(x.as_slice()),
+                    _ => None,
+                },
+                _ => None,
+            }
+        }
+        let one = |v: &Value| match self.score(v) {
+            Value::Float(f) => Some(f),
+            _ => None,
+        };
+        let Some(y) = as_f32(&self.query) else { return stored.iter().map(|v| one(v)).collect() };
+        let mut out = Vec::with_capacity(stored.len());
+        for group in stored.chunks(4) {
+            let xs: Option<Vec<&[f32]>> = group.iter().map(|v| as_f32(v).filter(|x| x.len() == y.len())).collect();
+            match xs {
+                Some(xs) if xs.len() == 4 => {
+                    out.extend(score4_f32(&self.metric, [xs[0], xs[1], xs[2], xs[3]], y, self.norm).map(Some));
+                }
+                _ => out.extend(group.iter().map(|v| one(v))),
+            }
+        }
+        out
+    }
+}
+
+/// `score()` of four float32 embeddings against one, as four lanes (each lane's sums in element order).
+fn score4_f32(metric: &str, xs: [&[f32]; 4], y: &[f32], ny: Option<f64>) -> [f64; 4] {
+    let n = y.len();
+    let xs = xs.map(|x| &x[..n]);
+    let z = sum_init();
+    match metric {
+        "ip" => {
+            let mut d = [z; 4];
+            for i in 0..n {
+                let q = y[i] as f64;
+                for r in 0..4 {
+                    d[r] += xs[r][i] as f64 * q;
+                }
+            }
+            d
+        }
+        "l2" => {
+            let mut d = [z; 4];
+            for i in 0..n {
+                let q = y[i] as f64;
+                for r in 0..4 {
+                    let t = xs[r][i] as f64 - q;
+                    d[r] += t * t;
+                }
+            }
+            d.map(f64::sqrt)
+        }
+        _ => {
+            let (mut dot, mut nx) = ([z; 4], [z; 4]);
+            for i in 0..n {
+                let q = y[i] as f64;
+                for r in 0..4 {
+                    let p = xs[r][i] as f64;
+                    dot[r] += p * q;
+                    nx[r] += p * p;
+                }
+            }
+            let ny = ny.unwrap_or_else(|| norm(y));
+            let mut out = [0.0; 4];
+            for r in 0..4 {
+                let nxr = nx[r].sqrt();
+                out[r] = if nxr == 0.0 || ny == 0.0 { f64::NAN } else { dot[r] / (nxr * ny) };
+            }
+            out
+        }
+    }
 }
 
 #[cfg(test)]
@@ -839,6 +967,51 @@ mod tests {
 
     fn overflows(r: Result<Value>) -> bool {
         matches!(r, Err(Error::Pxt { message, .. }) if message == "bigint out of range")
+    }
+
+    #[test]
+    fn similarity_sums_in_order() {
+        use crate::value::{ArrayData, NdArray};
+        let arr = |v: Vec<f32>| Value::Array(std::sync::Arc::new(NdArray { shape: vec![v.len()], data: ArrayData::F32(v) }));
+        let x: Vec<f32> = (0..64).map(|i| ((i * 37 % 17) as f32 - 8.0) / 3.1).collect();
+        let y: Vec<f32> = (0..64).map(|i| ((i * 11 % 13) as f32 - 6.0) / 7.3).collect();
+        // the reference: each sum taken separately, as `Iterator::sum()`
+        let xf: Vec<f64> = x.iter().map(|v| *v as f64).collect();
+        let yf: Vec<f64> = y.iter().map(|v| *v as f64).collect();
+        let dot: f64 = xf.iter().zip(&yf).map(|(p, q)| p * q).sum();
+        let nx = xf.iter().map(|p| p * p).sum::<f64>().sqrt();
+        let ny = yf.iter().map(|q| q * q).sum::<f64>().sqrt();
+        let l2 = xf.iter().zip(&yf).map(|(p, q)| (p - q) * (p - q)).sum::<f64>().sqrt();
+        let (a, b) = (arr(x), arr(y));
+        let bits = |v: Value| match v {
+            Value::Float(f) => f.to_bits(),
+            _ => panic!("not a float"),
+        };
+        assert_eq!(bits(similarity_score("cosine", &a, &b)), (dot / (nx * ny)).to_bits());
+        assert_eq!(bits(similarity_score("ip", &a, &b)), dot.to_bits());
+        assert_eq!(bits(similarity_score("l2", &a, &b)), l2.to_bits());
+        assert_eq!(bits(SimilarityQuery::new("cosine", b.clone()).score(&a)), (dot / (nx * ny)).to_bits());
+        // four at a time: the same scores
+        for metric in ["cosine", "ip", "l2"] {
+            let q = SimilarityQuery::new(metric, b.clone());
+            let many: Vec<Value> = (0..9)
+                .map(|k| arr((0..64).map(|i| (((i * 7 + k * 3) % 19) as f32 - 9.0) / 5.7).collect()))
+                .chain([Value::Null, arr(vec![1.0])])
+                .collect();
+            let refs: Vec<&Value> = many.iter().collect();
+            let got = q.scores(&refs);
+            for (v, s) in many.iter().zip(got) {
+                let expected = match q.score(v) {
+                    Value::Float(f) => Some(f.to_bits()),
+                    _ => None,
+                };
+                assert_eq!(s.map(f64::to_bits), expected, "{metric}");
+            }
+        }
+        let zero = arr(vec![0.0, -0.0]);
+        let neg = arr(vec![-1.0, 0.0]);
+        let ip0 = [0.0f64, -0.0].iter().zip([-1.0f64, 0.0].iter()).map(|(p, q)| p * q).sum::<f64>();
+        assert_eq!(bits(similarity_score("ip", &zero, &neg)), ip0.to_bits());
     }
 
     #[test]

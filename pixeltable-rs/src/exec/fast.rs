@@ -32,7 +32,7 @@ pub enum Fast {
     Arith { node: ExprRef, lhs: Box<Fast>, rhs: Box<Fast>, lhs_json: bool, rhs_json: bool, sql: bool },
     /// a similarity lookup whose query embedding is computed: the stored embedding is the cell of the index's value
     /// column in a slot
-    Similarity { node: ExprRef, slot: usize, col: ColId, metric: String, query: Value },
+    Similarity { node: ExprRef, slot: usize, col: ColId, query: crate::expr::eval::SimilarityQuery },
     /// evaluated by `expr::eval()`
     Other(ExprRef),
 }
@@ -65,8 +65,7 @@ impl Fast {
                         node: e.clone(),
                         slot,
                         col: sim.val_col_id,
-                        metric: sim.metric.clone(),
-                        query: query.clone(),
+                        query: crate::expr::eval::SimilarityQuery::new(&sim.metric, query.clone()),
                     },
                     _ => Fast::Other(e.clone()),
                 }
@@ -101,13 +100,13 @@ impl Fast {
             Fast::Cell { slot, col } => Cow::Borrowed(row[*slot].map_or(&NULL, |r| r.cell(*col))),
             Fast::Lit(v) => Cow::Borrowed(v),
             Fast::Other(e) => Cow::Owned(eval(e, ctx)?),
-            Fast::Similarity { node, slot, col, metric, query } => {
+            Fast::Similarity { node, slot, col, query } => {
                 if ctx.python_semantics() {
                     let err = crate::pxt_err!(UnsupportedOperation, "similarity(): cannot be used in a computed column");
                     return Err(locate(node, err, ctx));
                 }
                 let stored = row[*slot].map_or(&NULL, |r| r.cell(*col));
-                Cow::Owned(crate::expr::eval::similarity_score(metric, stored, query))
+                Cow::Owned(query.score(stored))
             }
             Fast::Arith { node, lhs, rhs, lhs_json, rhs_json, sql } => {
                 let ExprKind::Arithmetic { op, .. } = &node.kind else { unreachable!("an arithmetic node") };
@@ -308,6 +307,23 @@ pub fn filter_runs(
     cols: &[ColId],
     range: std::ops::Range<usize>,
 ) -> Vec<(usize, usize, Vec<u8>)> {
+    chunk_runs(addrs, range)
+        .into_iter()
+        .map(|(i, j)| {
+            let typed: Vec<(ColId, std::sync::Arc<ColChunk>)> = cols.iter().map(|c| (*c, data.column_at(addrs[i], *c).0)).collect();
+            let off = addrs[i].1 as usize % crate::store::segment::CHUNK_ROWS;
+            let mut res = vec![0u8; j - i];
+            if !vpred.eval(&typed, off..off + (j - i), &mut res) {
+                res.clear();
+            }
+            (i, j, res)
+        })
+        .collect()
+}
+
+/// The runs of consecutive rows of one storage chunk among the rows at `addrs[range]`: (start, end) positions in
+/// `addrs`.
+pub fn chunk_runs(addrs: &[RowAddr], range: std::ops::Range<usize>) -> Vec<(usize, usize)> {
     use crate::store::segment::CHUNK_ROWS;
     let mut out = Vec::new();
     let mut i = range.start;
@@ -318,13 +334,7 @@ pub fn filter_runs(
         while j < range.end && addrs[j] == (p, idx + (j - i) as u32) && (idx as usize + (j - i)) < chunk_end {
             j += 1;
         }
-        let typed: Vec<(ColId, std::sync::Arc<ColChunk>)> = cols.iter().map(|c| (*c, data.column_at((p, idx), *c).0)).collect();
-        let off = idx as usize % CHUNK_ROWS;
-        let mut res = vec![0u8; j - i];
-        if !vpred.eval(&typed, off..off + (j - i), &mut res) {
-            res.clear();
-        }
-        out.push((i, j, res));
+        out.push((i, j));
         i = j;
     }
     out
