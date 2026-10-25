@@ -45,8 +45,11 @@ This command takes precedence where a skill requires execution, file writes, pub
    `user_surface` true only when the change alters a workflow a person completes, and name that job. A docs wording
    tweak, an internal change, or a change with no such workflow is `user_surface: false`. Enumerate every
    `.github/instructions/*.instructions.md` file that exists and matches a changed path, and give that list to `rules`.
-   When the file is present, `tests.instructions.md` matches `tests/`, `docs.instructions.md` matches docs and README,
-   and `serving.instructions.md` matches HTTP, CLI, catalog, and app paths. When earlier review records exist, note the
+   When the file is present, use its `applyTo`: `tests.instructions.md` matches `tests/**`,
+   `docs.instructions.md` matches `docs/**,README.md`, and `serving.instructions.md` matches
+   `pixeltable/serving/**`, `pixeltable/service/**`, `pixeltable_cli/**`, `pixeltable/runtime.py`,
+   `pixeltable/utils/cloud_utils.py`, `pixeltable/utils/app_module.py`, and `pixeltable/utils/project.py`.
+   When earlier review records exist, note the
    prior reviewed commit SHA so passes can compare follow-up fixes against the full change. Every file needs review or
    an explicit exclusion reason.
    Generated content can be excluded, but inspect dependency pins or generated contracts when their effects matter.
@@ -74,8 +77,9 @@ This command takes precedence where a skill requires execution, file writes, pub
    Copy its established ID, producer, subject, and mechanism from `previous.records` (updating only the path prefix on a
    rename). A resolved decision needs the source change that removes a previously posted trigger. An unchanged comment
    file alone never establishes an unchanged claim.
-4. **Assemble the final envelope.** Put a finding in `findings` only when its decision is keep, narrow, question, or
-   resolved, or when it is unchecked maintenance. Omit a rejected candidate from both `findings` and `decisions`.
+4. **Assemble the final envelope.** Put a finding in `findings` when its decision is keep, narrow, question, or
+   resolved, when it is unchecked maintenance, or when it is an open prior claim with a reject decision. Omit any
+   other rejected candidate from both `findings` and `decisions`. Do not relabel an open prior claim as maintenance.
    Copy the checked records verbatim into decisions. Order and filter findings without
    strengthening them. A material replacement needs another independent check. Missing work or verification makes
    the outcome incomplete. There is no extra critic, wave, or checker allocation in this initial implementation.

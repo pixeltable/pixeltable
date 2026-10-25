@@ -149,10 +149,15 @@ class ContractTest(unittest.TestCase):
         add_finding(result, finding())
         review, stats = contract.render(result, manifest)
         self.assertEqual(stats['status'], 'incomplete')
+        self.assertEqual(stats['reason'], 'The review left work unfinished.')
         self.assertTrue(any('no result' in gap for gap in stats['gaps']))
         self.assertEqual(len(review['comments']), 1)
-        self.assertIn('Coverage incomplete', review['body'])
-        self.assertNotIn('No supported findings', review['body'])
+        prose = review['body'].split(contract.STATE_MARKER)[0]
+        self.assertLess(prose.find('Validate the input'), prose.find('Left unfinished:'))
+        self.assertIn('The rules pass returned no result.', prose)
+        self.assertNotIn('Coverage incomplete', prose)
+        self.assertNotIn('coverage gaps', prose)
+        self.assertNotIn('No supported findings', prose)
 
     def test_line_and_rules_passes_account_for_all_changed_ranges(self) -> None:
         manifest, result = fixture()
@@ -311,6 +316,95 @@ class ContractTest(unittest.TestCase):
         self.assertTrue(
             any('prior:open: Decision has a duplicate or unknown finding ID' in gap for gap in unresolved['gaps'])
         )
+
+    def test_unfinished_work_follows_the_finding_and_skips_questions(self) -> None:
+        manifest, result = fixture()
+        result['user_surface'] = True
+        add_finding(result, finding())
+        result['decisions'].append({'finding_id': 'BR-1', 'decision': 'keep'})
+        result['questions'] = [{'unknown': 'Does the hosted server retarget the key?', 'check': 'Trace from_dict.'}]
+        review, stats = contract.render(result, manifest)
+        prose = review['body'].split(contract.STATE_MARKER)[0]
+        self.assertEqual(stats['status'], 'incomplete')
+        self.assertLess(prose.find('**Medium: Validate the input**'), prose.find('Left unfinished:'))
+        self.assertLess(prose.find('### Questions'), prose.find('Left unfinished:'))
+        self.assertIn('The walk pass returned no result.', prose)
+        self.assertIn('A decision named BR-1 matched no finding, so it was left out.', prose)
+        self.assertIn('Does the hosted server retarget the key?', prose)
+        self.assertNotIn('decisive fact remains unresolved', prose)
+        self.assertNotIn('Coverage incomplete', prose)
+        self.assertEqual(prose.count('Does the hosted server retarget the key?'), 1)
+
+    def test_suggestion_does_not_follow_evidence_into_another_file(self) -> None:
+        manifest, result = fixture()
+        manifest['diff_files']['other.py'] = {
+            'old_path': None,
+            'hunks': [{'LEFT': [], 'RIGHT': [8]}],
+            'changed': {'LEFT': [], 'RIGHT': [8]},
+        }
+        for side in ('LEFT', 'RIGHT'):
+            manifest['sources'][side]['other.py'] = {'lines': 20, 'sha256': 'content'}
+        claim = finding('cross-file')
+        claim['subject'] = 'example.py#cross'
+        claim['location'] = {'path': 'example.py', 'side': 'RIGHT', 'line': 8}
+        claim['evidence'] = [{'path': 'other.py', 'side': 'RIGHT', 'line': 8}]
+        claim['suggestion'] = 'return value\n'
+        claim['comment'] = 'Wrong file.\n\n```suggestion\nreturn value\n```'
+        add_finding(result, claim)
+        review, _ = contract.render(result, manifest)
+        self.assertEqual(review['comments'][0]['path'], 'other.py')
+        self.assertEqual(review['comments'][0]['line'], 8)
+        self.assertNotIn('```suggestion', review['comments'][0]['body'])
+
+    def test_embedded_suggestion_fence_is_replaced_by_the_checked_field(self) -> None:
+        manifest, result = fixture()
+        claim = finding('fenced')
+        claim['suggestion'] = 'return value\n'
+        claim['comment'] = 'Guard.\n\n```suggestion:-1+1\n' + '\n'.join(['x'] * 6) + '\n```'
+        add_finding(result, claim)
+        review, _ = contract.render(result, manifest)
+        self.assertIn('```suggestion\nreturn value\n```', review['comments'][0]['body'])
+        self.assertNotIn('x\nx\nx', review['comments'][0]['body'])
+
+    def test_malformed_location_side_does_not_drop_the_sibling(self) -> None:
+        manifest, result = fixture()
+        add_finding(result, finding('sibling'))
+        bad = finding('bad-side')
+        bad['subject'] = 'example.py#bad-side'
+        bad['title'] = 'Bad side finding'
+        bad['evidence'] = [{'path': 'example.py', 'side': 'RIGHT', 'line': 15}]
+        bad['location'] = {'path': 'example.py', 'side': [], 'line': 15}
+        add_finding(result, bad)
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'complete')
+        self.assertEqual([comment['line'] for comment in review['comments']], [2])
+        self.assertIn('Bad side finding', review['body'].split(contract.STATE_MARKER)[0])
+
+    def test_open_prior_claim_is_not_rewritten_into_maintenance(self) -> None:
+        manifest, result = fixture()
+        prior = finding('prior:open')
+        manifest['previous'] = {'records': [{'claim': copy.deepcopy(prior), 'posted': True, 'status': 'keep'}]}
+        returned = finding('prior:open')
+        returned['attribution'] = 'existing'
+        add_finding(result, returned)
+        result['decisions'][-1]['decision'] = 'reject'
+        result['decisions'][-1]['reason'] = 'The trigger is gone.'
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'complete')
+        self.assertEqual(stats['gaps'], [])
+        prose = review['body'].split(contract.STATE_MARKER)[0]
+        self.assertNotIn('Maintenance suggestions', prose)
+        state = json.loads(review['body'].split(contract.STATE_MARKER)[1].split('\n-->')[0])
+        self.assertNotIn('prior:open', {record['claim']['id'] for record in state['records']})
+        gone = copy.deepcopy(prior)
+        gone['evidence'] = [{'path': 'gone.py', 'side': 'RIGHT', 'line': 1}]
+        gone['attribution'] = 'existing'
+        manifest['previous'] = {'records': [{'claim': copy.deepcopy(gone), 'posted': True, 'status': 'keep'}]}
+        result['findings'] = [copy.deepcopy(gone)]
+        result['decisions'] = []
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'incomplete')
+        self.assertIn('prior:open was not revalidated.', review['body'])
 
     def test_existing_debt_is_maintenance_and_stays_complete(self) -> None:
         manifest, result = fixture()
