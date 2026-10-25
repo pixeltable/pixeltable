@@ -38,7 +38,8 @@ rows concurrently:
 
 Results are the same as with sequential execution: each value is placed in its row, an exception is recorded for the
 row that raised it (a failed batch fails each of its rows), `on_error='abort'` reports the error of the first failing
-row in row order (and calls for later rows are not started), and a `KeyboardInterrupt` aborts the operation. As in
+row in row order (and calls for later rows are not started), and a `KeyboardInterrupt` aborts the operation (also one
+raised by an async UDF). As in
 upstream, every UDF call of an expression is made for every row, also where `&` or `|` would not need its result.
 
 A UDF that is not thread-safe (it mutates shared state without a lock, or uses a library that must not be called
@@ -60,6 +61,16 @@ over many rows, on all cores, with results and errors as a single pass would pro
 
 `bench/run.py` measures these paths; see [ARCHITECTURE.md](ARCHITECTURE.md), "Concurrency of user code", for how it
 works.
+
+## Concurrent writers
+
+Several threads or processes may change the same tables, with the outcome of running the operations one after the
+other, as upstream's table locks give: no update is lost, a deleted row stays deleted, a column added while rows are
+inserted gets values for those rows too. In one process, operations on a table (and the views over it) wait for each
+other, as in upstream. Across processes, an operation that computed rows with user code while another process changed
+what it read is computed again (a builtin-only operation commits atomically); after 100 such conflicts it fails with
+`pxt.ConcurrencyError` (SERIALIZATION_FAILURE), as upstream's retry limit does. An operation whose own UDFs keep
+changing the table it computes cannot complete and fails with `pxt.ConcurrencyError` (CONCURRENT_MODIFICATION).
 
 ## Setup
 

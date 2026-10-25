@@ -355,7 +355,9 @@ The event loop (`func/_runtime.py`): every coroutine runs wrapped in `_guarded()
 also a `KeyboardInterrupt`, `SystemExit` or a `CancelledError` the UDF raises itself (asyncio would let these escape and
 stop the loop, and the dispatcher would wait forever); the dispatcher re-raises them as interrupts. The loop thread
 restarts `run_forever()` if a callback raises or user code stops it, and the dispatcher checks every 50 ms that the
-loop's thread is alive while tasks are in flight. The loop persists (user code may cache loop-bound clients, as
+loop's thread is alive while tasks are in flight (else INTERNAL_ERROR), and logs a warning when the loop has not run
+for 30 s (`_runtime.report_stall()`, from a 1 s heartbeat): a UDF blocks it instead of awaiting, which may be slow
+work or a deadlock in user code, so the dispatcher keeps waiting. The loop persists (user code may cache loop-bound clients, as
 upstream's runtime loop allows) until `_runtime.shutdown()`: at exit, and from the test hooks `reset_db()` and
 `reload_catalog()` if idle (upstream's runtime reset closes its loop; the compat harness asserts none is left open).
 Threads that run a loop are marked (`_core._mark_udf_loop_thread()`, `dispatch::in_loop_thread()`).

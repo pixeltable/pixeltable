@@ -650,6 +650,8 @@ struct Dispatch<'o> {
     group: Option<Py<PyAny>>,
     done_cb: Option<Py<AsyncDone>>,
     last_signal_check: Instant,
+    /// true once a stall of the event loop was reported (`check_loop()`)
+    stall_reported: bool,
 }
 
 /// Runs the calls of `work` (independent nodes) and stores their outcomes in `outcomes` (`outcomes[i][row]` for node
@@ -720,6 +722,7 @@ impl<'o> Dispatch<'o> {
             group: None,
             done_cb: None,
             last_signal_check: Instant::now(),
+            stall_reported: false,
         })
     }
 
@@ -1028,15 +1031,21 @@ impl<'o> Dispatch<'o> {
         self.remaining[ni] -= 1;
     }
 
-    /// Fails if tasks are in flight on an event loop that no longer runs (they would never report).
-    fn check_loop(&self, py: Python<'_>) -> Result<()> {
+    /// Fails if tasks are in flight on an event loop that no longer runs (they would never report); logs a warning
+    /// (once per dispatch) if the loop is held by a callback that does not return (a UDF that blocks instead of
+    /// awaiting), which may be slow work or a deadlock in user code.
+    fn check_loop(&mut self, py: Python<'_>) -> Result<()> {
         if self.group.is_none() || !self.asyncs.iter().flatten().any(|st| st.in_flight > 0) {
             return Ok(());
         }
-        if py.import("pixeltable.func._runtime")?.call_method0("loop_alive")?.is_truthy()? {
-            return Ok(());
+        let rt = py.import("pixeltable.func._runtime")?;
+        if !rt.call_method0("loop_alive")?.is_truthy()? {
+            return Err(Error::internal("The event loop running async UDFs stopped while calls were in flight"));
         }
-        Err(Error::internal("The event loop running async UDFs stopped while calls were in flight"))
+        if !self.stall_reported {
+            self.stall_reported = rt.call_method0("report_stall")?.is_truthy()?;
+        }
+        Ok(())
     }
 
     fn cancel_async(&self, py: Python<'_>) {
