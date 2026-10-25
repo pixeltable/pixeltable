@@ -2,7 +2,7 @@
 
 `Catalog` coordinates concurrent reads, writes, and schema changes using Postgres locks on store tables.
 This document explains the rules and why they are needed. The implementation is in
-`pixeltable/catalog/catalog.py`.
+`pixeltable/catalog/catalog.py` and `pixeltable/catalog/locking.py`.
 
 ## 1. Lock store tables before reading metadata
 
@@ -22,7 +22,7 @@ Directory locks come later and need the retry mechanism described in section 5.
 
 ## 2. Lock modes and waiting
 
-The `Catalog.begin_*_xact()` methods and `retry_*_loop()` decorators select an operation class (`_TblOpClass`).
+The `Catalog.begin_*_xact()` methods and `retry_*_loop()` decorators select an operation class (`TblOpClass`).
 That class and the table's versioning, data-versioned or operational, determine the required lock mode.
 
 | Operation class | Operational table | Data-versioned table | Wait policy |
@@ -111,7 +111,7 @@ lock set before opening the transaction:
 
 Use cached `TableVersion` metadata when available. It supplies store table names, bases, mutable views, and each
 table's versioning. On a cache miss, read raw `tables` rows in a separate metadata transaction
-(`_resolve_lock_set_from_store()`).
+(`resolve_lock_set_from_store()`).
 
 Catalog paths always require a store read because Catalog does not cache directory structure or path resolution.
 Both cached and stored results can become stale before lock acquisition.
@@ -132,7 +132,7 @@ that invalidate it until this transaction commits or rolls back.
 
 ### Retrying a stale lock set
 
-Two conditions raise `_StaleLockSetError`:
+Two conditions raise `StaleLockSetError`:
 
 - A store table in the set no longer exists. `LOCK TABLE` raises Postgres `UndefinedTable`.
 - Refreshed metadata requires a table or directory lock that was not acquired, or a stronger table lock.

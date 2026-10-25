@@ -10,7 +10,7 @@ import sqlalchemy.exc as sql_exc
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import telemetry_schemas
-from pixeltable.catalog.catalog import _store_tbl_name, _TblOpClass
+from pixeltable.catalog.locking import TblOpClass, get_store_tbl_name
 from pixeltable.catalog.view import View
 from pixeltable.env import Env, store_app_name
 from pixeltable.runtime import get_runtime
@@ -359,14 +359,14 @@ class Outcome(enum.Enum):
     FAILS_FAST = 'fails_fast'
 
 
-_READ = _TblOpClass.DATA_READ
-_WRITE = _TblOpClass.DATA_WRITE
-_MD_WRITE = _TblOpClass.MD_WRITE
-_FINALIZE = _TblOpClass.FINALIZE
+_READ = TblOpClass.DATA_READ
+_WRITE = TblOpClass.DATA_WRITE
+_MD_WRITE = TblOpClass.MD_WRITE
+_FINALIZE = TblOpClass.FINALIZE
 _PROCEEDS, _WAITS, _FAILS_FAST = Outcome.PROCEEDS, Outcome.WAITS, Outcome.FAILS_FAST
 
 # (Lock holder, arriving operation) -> expected outcome for operational tables.
-OP_MATRIX: dict[tuple[_TblOpClass, _TblOpClass], Outcome] = {
+OP_MATRIX: dict[tuple[TblOpClass, TblOpClass], Outcome] = {
     (_READ, _READ): _PROCEEDS,
     (_READ, _WRITE): _PROCEEDS,
     (_READ, _MD_WRITE): _WAITS,
@@ -382,7 +382,7 @@ OP_MATRIX: dict[tuple[_TblOpClass, _TblOpClass], Outcome] = {
 }
 
 # Data-versioned tables serialize writers and wait for schema changes.
-VERSIONED_MATRIX: dict[tuple[_TblOpClass, _TblOpClass], Outcome] = {
+VERSIONED_MATRIX: dict[tuple[TblOpClass, TblOpClass], Outcome] = {
     (_READ, _READ): _PROCEEDS,
     (_READ, _WRITE): _PROCEEDS,
     (_READ, _MD_WRITE): _WAITS,
@@ -406,7 +406,7 @@ class TestLocking:
 
     Unlike most tests, these depend on catalog internals, because the public API cannot express the scenarios:
     - The holder must be paused inside its transaction while it holds its locks. Only a fault point can do that, and
-      _TblOpClass selects which of an operation's transactions to pause.
+      TblOpClass selects which of an operation's transactions to pause.
     - "Waits" has no public signal: a waiting operation and a slow one look the same until both return. The tests
       detect a wait by an ungranted request in pg_locks, which is keyed by the store table name. A timeout instead
       would be slow and flaky.
@@ -419,7 +419,7 @@ class TestLocking:
             'SELECT count(*) FROM pg_locks '
             "WHERE locktype = 'relation' AND relation = CAST(:name AS regclass) AND NOT granted"
         )
-        store_tbl_name = _store_tbl_name(t._id, is_view=isinstance(t, View))
+        store_tbl_name = get_store_tbl_name(t._id, is_view=isinstance(t, View))
         with Env.get().engine.connect() as conn:
             return conn.execute(q, {'name': store_tbl_name}).scalar() > 0
 
@@ -430,22 +430,22 @@ class TestLocking:
         return t
 
     @staticmethod
-    def op_fn(op_class: _TblOpClass, t: pxt.Table, col_name: str) -> Callable[[], Any]:
+    def op_fn(op_class: TblOpClass, t: pxt.Table, col_name: str) -> Callable[[], Any]:
         """Build a callable for `op_class` on `t`. MD_WRITE and FINALIZE add a column named `col_name`.
 
         Build queries and column expressions before starting the scenario. Their metadata reads open separate
         transactions and would otherwise interfere with the operation being tested.
         """
-        if op_class is _TblOpClass.DATA_READ:
+        if op_class is TblOpClass.DATA_READ:
             return t.select().collect
-        if op_class is _TblOpClass.DATA_WRITE:
+        if op_class is TblOpClass.DATA_WRITE:
             return lambda: t.insert([{'a': 2}])
-        if op_class is _TblOpClass.MD_WRITE:
+        if op_class is TblOpClass.MD_WRITE:
             value_expr = t.a + 1
             return lambda: t.add_computed_column(**{col_name: value_expr})
         # add_column() leaves pending DDL for a finalization transaction, which the fault filter can pause.
         # add_computed_column() runs ALTER TABLE in the metadata transaction instead.
-        assert op_class is _TblOpClass.FINALIZE
+        assert op_class is TblOpClass.FINALIZE
         return lambda: t.add_column(**{col_name: pxt.Int | None})
 
     @staticmethod
@@ -459,12 +459,7 @@ class TestLocking:
 
     @pytest.mark.parametrize('in_flight,arriving', list(OP_MATRIX))
     def test_blocking_matrix(
-        self,
-        is_data_versioned: bool,
-        in_flight: _TblOpClass,
-        arriving: _TblOpClass,
-        uses_db: None,
-        fault_injection: None,
+        self, is_data_versioned: bool, in_flight: TblOpClass, arriving: TblOpClass, uses_db: None, fault_injection: None
     ) -> None:
         """Check every supported pair of concurrent operation classes.
 
@@ -503,24 +498,24 @@ class TestLocking:
         scenario.execute()
 
         expected_rows = 1
-        if in_flight is _TblOpClass.DATA_WRITE:
+        if in_flight is TblOpClass.DATA_WRITE:
             expected_rows += 1
-        if arriving is _TblOpClass.DATA_WRITE and outcome is not Outcome.FAILS_FAST:
+        if arriving is TblOpClass.DATA_WRITE and outcome is not Outcome.FAILS_FAST:
             expected_rows += 1
         assert t.count() == expected_rows
 
-        if in_flight is _TblOpClass.MD_WRITE and is_data_versioned:
-            if arriving is _TblOpClass.DATA_WRITE:
+        if in_flight is TblOpClass.MD_WRITE and is_data_versioned:
+            if arriving is TblOpClass.DATA_WRITE:
                 # re-fetch: this thread's handle predates the schema change
                 t2 = pxt.get_table('tbl')
                 assert t2.where(t2.a == 2).select(t2.c_holder).collect()['c_holder'] == [3]
-            if arriving is _TblOpClass.DATA_READ:
+            if arriving is TblOpClass.DATA_READ:
                 assert arriving_result[0].schema.keys() == {'a', 'c_holder'}, arriving_result[0].schema
 
     def test_concurrent_schema_changes(self, is_data_versioned: bool, uses_db: None, fault_injection: None) -> None:
         """A waiting schema change must see metadata committed by the preceding schema change."""
         t = self.make_tbl(is_data_versioned=is_data_versioned)
-        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is _TblOpClass.MD_WRITE)
+        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is TblOpClass.MD_WRITE)
         # both expressions are built here, outside the operations that use them: see self.op_fn()
         b_expr, c_expr = t.a + 1, t.a + 100
 
@@ -548,7 +543,7 @@ class TestLocking:
     def test_concurrent_insert_schema_change(self, uses_db: None, fault_injection: None) -> None:
         """An insert waiting for a schema change must populate the newly added computed column."""
         t = pxt.create_table('tbl', {'a': pxt.Int | None}, _is_data_versioned=True)
-        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is _TblOpClass.MD_WRITE)
+        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is TblOpClass.MD_WRITE)
         b_expr = t.a + 1
 
         (
@@ -577,7 +572,7 @@ class TestLocking:
         b = self.make_tbl('b', is_data_versioned=is_data_versioned)
         x_expr = a.a + 1
         read_b = b.select(b.a).collect
-        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is _TblOpClass.MD_WRITE)
+        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is TblOpClass.MD_WRITE)
 
         (
             MultiThreadedScenario()
@@ -598,7 +593,7 @@ class TestLocking:
         schema changes that do not use pending table ops, therefore do not block concurrent reads."""
         t = self.make_tbl(is_data_versioned=is_data_versioned)
         b_expr = t.a + 1
-        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is _TblOpClass.MD_WRITE)
+        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is TblOpClass.MD_WRITE)
 
         def md_only_reads() -> None:
             assert 'tbl' in pxt.list_tables()
@@ -623,7 +618,7 @@ class TestLocking:
     ) -> None:
         """A metadata read that encounters pending operations must wait for finalization."""
         t = self.make_tbl(is_data_versioned=is_data_versioned)
-        block_on_finalize = BlockFault(filter=lambda kwargs: kwargs['op_class'] is _TblOpClass.FINALIZE)
+        block_on_finalize = BlockFault(filter=lambda kwargs: kwargs['op_class'] is TblOpClass.FINALIZE)
         result: list[pxt.Table] = []
 
         (
@@ -654,7 +649,7 @@ class TestLocking:
         v = pxt.create_view('v', base)
         other_base = pxt.create_table('other_base', {'a': pxt.Int | None})
         other_v = pxt.create_view('other_v', other_base)
-        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is _TblOpClass.DATA_WRITE)
+        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is TblOpClass.DATA_WRITE)
         b_expr, other_expr = v.a + 1, other_v.a + 1
 
         (
@@ -685,7 +680,7 @@ class TestLocking:
     def test_base_tabl_write_blocks_create_view(self, uses_db: None, fault_injection: None) -> None:
         """create_view() must wait for a base-table write and include the inserted row."""
         base = pxt.create_table('base', {'a': pxt.Int | None})
-        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is _TblOpClass.DATA_WRITE)
+        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is TblOpClass.DATA_WRITE)
 
         (
             MultiThreadedScenario()
@@ -710,7 +705,7 @@ class TestLocking:
     ) -> None:
         """A base table write's tentative lock set is invalidated by a concurrent view creation."""
         base = pxt.create_table('base', {'a': pxt.Int | None})
-        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is _TblOpClass.DATA_WRITE)
+        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is TblOpClass.DATA_WRITE)
 
         def create_view() -> None:
             v = pxt.create_view('v', base)
@@ -742,7 +737,7 @@ class TestLocking:
         """A base write must retry if a view in its tentative lock set is dropped before lock acquisition."""
         base = pxt.create_table('base', {'a': pxt.Int | None})
         pxt.create_view('v', base)
-        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is _TblOpClass.DATA_WRITE)
+        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is TblOpClass.DATA_WRITE)
 
         assert telemetry_recorder.counter_total(telemetry_schemas.lock_set_restarts) == 0
         (
@@ -803,7 +798,7 @@ class TestLocking:
         """A directory drop must include a table created after its lock set was built."""
         pxt.create_dir('d')
         _ = pxt.create_table('d/victim', {'a': pxt.Int | None}, _is_data_versioned=False)
-        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is _TblOpClass.MD_WRITE)
+        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is TblOpClass.MD_WRITE)
 
         assert telemetry_recorder.counter_total(telemetry_schemas.lock_set_restarts) == 0
         (
@@ -828,7 +823,7 @@ class TestLocking:
         pxt.create_dir('d1')
         pxt.create_dir('d2')
         base = pxt.create_table('d1/base', {'a': pxt.Int | None})
-        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is _TblOpClass.MD_WRITE)
+        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is TblOpClass.MD_WRITE)
 
         def create_view_after_the_drop() -> None:
             with pxt_raises(excs.ErrorCode.TABLE_NOT_FOUND):
@@ -894,7 +889,7 @@ class TestLocking:
         """A missing store table during lock acquisition must result in TABLE_NOT_FOUND."""
         t = self.make_tbl(is_data_versioned=is_data_versioned)
         b_expr = t.a + 1
-        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is _TblOpClass.MD_WRITE)
+        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is TblOpClass.MD_WRITE)
 
         def expect_dropped() -> None:
             with pxt_raises(excs.ErrorCode.TABLE_NOT_FOUND):
