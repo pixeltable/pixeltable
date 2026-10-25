@@ -86,6 +86,14 @@ impl ElemInfo {
         out
     }
 
+    /// True if a reference to column `col_id` of this table reads the stored cell as it is (not an unstored computed
+    /// column, an iterator output or a media column validated on read).
+    pub fn reads_cell(&self, col_id: ColId) -> bool {
+        !self.unstored.contains_key(&col_id)
+            && self.iterator.is_none()
+            && !self.read_validation.as_ref().is_some_and(|rv| rv.kind(col_id).is_some())
+    }
+
     /// For a read-validated media column with a file: the validation error, if any.
     pub(crate) fn read_validation_error(&self, row: &StoredRow, col_id: ColId) -> Option<Option<CellError>> {
         let rv = self.read_validation.as_ref()?;
@@ -306,8 +314,14 @@ impl PathInput {
             }
             return Ok((out, None));
         }
-        // a base table and a pure predicate: the rows by address, evaluated in parallel
+        // a base table and a pure predicate: the rows by address, evaluated in parallel (a filter of the table's cells
+        // over runs of rows of a storage chunk at once, from its typed columns: `exec::fast::VPred`)
         let order = leaf.data.scan_order(leaf.version);
+        let info = &leaf.info;
+        let vector = pred.and_then(|p| {
+            let fast = super::fast::Fast::compile(p, &|c| (c.tbl_id == info.tbl_id && info.reads_cell(c.col_id)).then_some(0));
+            super::fast::VPred::compile(&fast)
+        });
         let run = |range: std::ops::Range<usize>| -> (Vec<usize>, Option<Error>) {
             let mut out = Vec::new();
             for i in range {
@@ -325,8 +339,35 @@ impl PathInput {
             }
             (out, None)
         };
+        let parts = match &vector {
+            Some(vpred) => {
+                let mut cols = Vec::new();
+                vpred.columns(&mut cols);
+                super::par::map_chunks(order.len(), |r| {
+                    let mut out = Vec::new();
+                    for (a, b, ok) in super::fast::filter_runs(&leaf.data, &order, vpred, &cols, r) {
+                        if ok.is_empty() {
+                            let (part, failed) = run(a..b);
+                            out.extend(part);
+                            if failed.is_some() {
+                                return (out, failed);
+                            }
+                            continue;
+                        }
+                        out.extend(
+                            ok.iter()
+                                .enumerate()
+                                .filter(|(k, v)| **v == super::fast::V_TRUE && keep(leaf.data.row_by_addr(order[a + k])))
+                                .map(|(k, _)| a + k),
+                        );
+                    }
+                    (out, None)
+                })
+            }
+            None => super::par::map_chunks(order.len(), run),
+        };
         let mut out = Vec::new();
-        for (part, failed) in super::par::map_chunks(order.len(), run) {
+        for (part, failed) in parts {
             out.extend(part.into_iter().map(|i| vec![leaf.data.row_by_addr(order[i])]));
             if failed.is_some() {
                 return Ok((out, failed));

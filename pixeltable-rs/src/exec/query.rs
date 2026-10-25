@@ -18,7 +18,7 @@ use smallvec::{SmallVec, smallvec};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use super::fast::Fast;
+use super::fast::{Fast, VPred};
 use super::prefetch::{CallResults, CallSlot};
 use super::scan::{ElemInfo, PathCtx, PathInput};
 use super::{JoinType, QuerySpec, ResultData, SampleClause};
@@ -1047,7 +1047,43 @@ fn filter_scan<'a>(input: &'a QueryInput, scan: &Scan<'a>, w: &ExprRef, range: s
         }
         (out, None)
     };
-    let parts = if input.expr_pure(w, &calls) { super::par::map_chunks(n, run) } else { vec![run(0..n)] };
+    let vector = match (scan, &calls) {
+        (Scan::Leaf { data, addrs }, None) => VPred::compile(&fast).map(|v| (v, *data, addrs)),
+        _ => None,
+    };
+    let parts = match &vector {
+        // a filter of a base table's cells: over runs of rows of a storage chunk at once, from its typed columns
+        Some((vpred, data, addrs)) => {
+            let mut cols = Vec::new();
+            vpred.columns(&mut cols);
+            let run_vec = |r: std::ops::Range<usize>| -> (Vec<usize>, Option<Error>) {
+                let mut out = Vec::new();
+                for (a, b, ok) in super::fast::filter_runs(data, &addrs[start..start + n], vpred, &cols, r) {
+                    if ok.is_empty() {
+                        // a column the filter cannot read in typed form: these rows one by one
+                        let (part, failed) = run(a..b);
+                        out.extend(part);
+                        if failed.is_some() || out.len() >= want {
+                            return (out, failed);
+                        }
+                        continue;
+                    }
+                    for (k, v) in ok.iter().enumerate() {
+                        if *v == super::fast::V_TRUE {
+                            out.push(start + a + k);
+                            if out.len() >= want {
+                                return (out, None);
+                            }
+                        }
+                    }
+                }
+                (out, None)
+            };
+            super::par::map_chunks(n, run_vec)
+        }
+        None if input.expr_pure(w, &calls) => super::par::map_chunks(n, run),
+        None => vec![run(0..n)],
+    };
     let mut out = Vec::with_capacity(parts.iter().map(|(p, _)| p.len()).sum::<usize>().min(want));
     for (part, failed) in parts {
         let room = want - out.len();

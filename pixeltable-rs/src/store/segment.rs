@@ -53,6 +53,74 @@ pub struct Body {
     pub chunks: Vec<(u64, u64)>,
 }
 
+/// One column of a chunk's rows in contiguous typed form, for scans that compare or aggregate many values (built on
+/// first use, `Segment::column()`): the cells of the chunk's rows for one column, when they are all of one numeric kind
+/// (or NULL).
+#[derive(Debug)]
+pub enum ColChunk {
+    Int(TypedCol<i64>),
+    Float(TypedCol<f64>),
+    Timestamp(TypedCol<i64>),
+    /// cells of other kinds (or of several kinds): not cached
+    Mixed,
+}
+
+/// Values and NULL flags (None: no NULLs); a NULL's value is 0.
+#[derive(Debug)]
+pub struct TypedCol<T> {
+    pub vals: Vec<T>,
+    pub nulls: Option<Vec<bool>>,
+}
+
+impl<T> TypedCol<T> {
+    pub fn is_null(&self, i: usize) -> bool {
+        self.nulls.as_ref().is_some_and(|n| n[i])
+    }
+}
+
+impl ColChunk {
+    pub(crate) fn of(rows: &[StoredRow], col: ColId) -> ColChunk {
+        use crate::value::Value;
+        let n = rows.len();
+        let mut nulls: Option<Vec<bool>> = None;
+        let null_at = |nulls: &mut Option<Vec<bool>>, i: usize| nulls.get_or_insert_with(|| vec![false; n])[i] = true;
+        let first = rows.iter().map(|r| r.cell(col)).find(|v| !v.is_null());
+        match first {
+            Some(Value::Int(_)) | Some(Value::Timestamp(_)) => {
+                let ts = matches!(first, Some(Value::Timestamp(_)));
+                let mut vals = Vec::with_capacity(n);
+                for (i, r) in rows.iter().enumerate() {
+                    match (r.cell(col), ts) {
+                        (Value::Int(v), false) | (Value::Timestamp(v), true) => vals.push(*v),
+                        (Value::Null, _) => {
+                            vals.push(0);
+                            null_at(&mut nulls, i);
+                        }
+                        _ => return ColChunk::Mixed,
+                    }
+                }
+                let c = TypedCol { vals, nulls };
+                if ts { ColChunk::Timestamp(c) } else { ColChunk::Int(c) }
+            }
+            Some(Value::Float(_)) => {
+                let mut vals = Vec::with_capacity(n);
+                for (i, r) in rows.iter().enumerate() {
+                    match r.cell(col) {
+                        Value::Float(v) => vals.push(*v),
+                        Value::Null => {
+                            vals.push(0.0);
+                            null_at(&mut nulls, i);
+                        }
+                        _ => return ColChunk::Mixed,
+                    }
+                }
+                ColChunk::Float(TypedCol { vals, nulls })
+            }
+            _ => ColChunk::Mixed,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Segment {
     /// unique within the table (names the file)
@@ -70,6 +138,8 @@ pub struct Segment {
     undecoded: AtomicUsize,
     /// one per key index known when the segment was written
     hashes: Vec<KeyHashes>,
+    /// per chunk: the typed columns built so far (`column()`)
+    columns: Vec<parking_lot::RwLock<Vec<(ColId, Arc<ColChunk>)>>>,
 }
 
 /// A new segment id (random, so that files of a failed operation never collide with committed ones).
@@ -96,7 +166,8 @@ impl Segment {
             }
             chunks.push(OnceLock::from(chunk));
         }
-        Segment { id, vmin, patches, rowids, pos, chunks, body: Mutex::new(None), undecoded: AtomicUsize::new(0), hashes: Vec::new() }
+        let columns = (0..chunks.len()).map(|_| Default::default()).collect();
+        Segment { id, vmin, patches, rowids, pos, chunks, body: Mutex::new(None), undecoded: AtomicUsize::new(0), hashes: Vec::new(), columns }
     }
 
     /// A segment read from a file whose rows are still encoded (see `codec`).
@@ -120,6 +191,7 @@ impl Segment {
             body: Mutex::new((n > 0).then(|| Arc::new(body))),
             undecoded: AtomicUsize::new(n),
             hashes,
+            columns: (0..n).map(|_| Default::default()).collect(),
         }
     }
 
@@ -199,10 +271,30 @@ impl Segment {
         (0..self.chunks.len()).flat_map(move |k| self.chunk(k).iter())
     }
 
+    /// Column `col` of chunk `k` in typed form (built on first use; `ColChunk::Mixed` if its cells are not all of one
+    /// numeric kind).
+    pub fn column(&self, k: usize, col: ColId) -> Arc<ColChunk> {
+        if let Some((_, c)) = self.columns[k].read().iter().find(|(id, _)| *id == col) {
+            return c.clone();
+        }
+        let built = Arc::new(ColChunk::of(self.chunk(k), col));
+        let mut cache = self.columns[k].write();
+        match cache.iter().find(|(id, _)| *id == col) {
+            Some((_, c)) => c.clone(),
+            None => {
+                cache.push((col, built.clone()));
+                built
+            }
+        }
+    }
+
     /// The rows, for changing their cells (keys stay); drops the stored key hashes.
     pub fn rows_mut(&mut self) -> impl Iterator<Item = &mut StoredRow> {
         self.decode_all();
         self.hashes.clear();
+        for c in &mut self.columns {
+            c.get_mut().clear();
+        }
         self.chunks.iter_mut().flat_map(|c| match c.get_mut() {
             Some(rows) => rows.iter_mut(),
             None => unreachable!("decode_all() decoded every chunk"),
@@ -213,6 +305,7 @@ impl Segment {
     pub fn row_mut(&mut self, i: usize) -> &mut StoredRow {
         self.chunk(i / CHUNK_ROWS);
         self.hashes.clear();
+        self.columns[i / CHUNK_ROWS].get_mut().clear();
         match self.chunks[i / CHUNK_ROWS].get_mut() {
             Some(rows) => &mut rows[i % CHUNK_ROWS],
             None => unreachable!("chunk() decoded the chunk"),

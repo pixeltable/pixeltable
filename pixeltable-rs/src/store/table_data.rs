@@ -23,7 +23,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 use super::rows::{CellError, DEAD, LIVE, RowKey, StoredRow};
-pub use super::segment::{Patch, Segment, new_segment_id};
+pub use super::segment::{ColChunk, Patch, Segment, TypedCol, new_segment_id};
 use crate::catalog::table::ColId;
 use crate::value::Value;
 
@@ -522,6 +522,13 @@ impl TableData {
     /// The row at an address from `scan_order()`.
     pub fn row_by_addr(&self, (p, i): RowAddr) -> &StoredRow {
         self.segs[p as usize].seg.row(i as usize)
+    }
+
+    /// Column `col` of the storage chunk holding the row at `(p, i)`, in typed form (see `Segment::column()`), and the
+    /// row's index in it.
+    pub fn column_at(&self, (p, i): RowAddr, col: ColId) -> (std::sync::Arc<super::segment::ColChunk>, usize) {
+        let k = i as usize / super::segment::CHUNK_ROWS;
+        (self.segs[p as usize].seg.column(k, col), i as usize % super::segment::CHUNK_ROWS)
     }
 
     /// The key of the row at an address from `scan_order()` (without decoding the row).
