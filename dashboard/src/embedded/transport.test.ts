@@ -19,6 +19,15 @@ it('refuses foreign catalogs, exports, URLs and repeated scope parameters before
   expect(callServerTool).not.toHaveBeenCalled()
 })
 
+it('rejects a stripped path that still carries a URI or climbs out of the catalog', async () => {
+  const callServerTool = vi.fn()
+  const read = createMcpDashboardTransport({ callServerTool }, 'pxt://org:main')
+  for (const target of ['pxt://org:main/pxt://other:db/secret', 'pxt://org:main/../x', 'a/../b']) {
+    await expect(read(`/api/dirs?path=${encodeURIComponent(target)}`)).rejects.toThrow('Choose an item in the connected catalog.')
+  }
+  expect(callServerTool).not.toHaveBeenCalled()
+})
+
 it('reports host refusals and missing dashboard capabilities without falling back to HTTP', async () => {
   const callServerTool = vi.fn().mockResolvedValueOnce({ isError: true, content: [{ type: 'text', text: 'Refresh this catalog.' }] }).mockResolvedValueOnce({})
   const read = createMcpDashboardTransport({ callServerTool }, 'pxt://org:main')

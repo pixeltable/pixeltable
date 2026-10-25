@@ -581,32 +581,35 @@ export default function App() {
 
         {/* ── Sidebar Footer ─────────────────────────────────────────── */}
         <div className="px-2 pb-2 pt-1 space-y-0.5 shrink-0 border-t border-border/40">
-          <a
-            href="https://docs.pixeltable.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Docs"
-            className={cn(
-              'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground',
-              !sidebarOpen && 'justify-center',
-            )}
-          >
-            <BookOpen className="h-[15px] w-[15px] shrink-0" />
-            {sidebarOpen && <span>Docs</span>}
-          </a>
-          <a
-            href="https://github.com/pixeltable/pixeltable/issues"
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Feedback"
-            className={cn(
-              'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground',
-              !sidebarOpen && 'justify-center',
-            )}
-          >
-            <MessageSquare className="h-[15px] w-[15px] shrink-0" />
-            {sidebarOpen && <span>Feedback</span>}
-          </a>
+          {/* Chat hosts may not open external links; keep them in the local build. */}
+          {runtime.kind === 'local' && <>
+            <a
+              href="https://docs.pixeltable.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Docs"
+              className={cn(
+                'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground',
+                !sidebarOpen && 'justify-center',
+              )}
+            >
+              <BookOpen className="h-[15px] w-[15px] shrink-0" />
+              {sidebarOpen && <span>Docs</span>}
+            </a>
+            <a
+              href="https://github.com/pixeltable/pixeltable/issues"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Feedback"
+              className={cn(
+                'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground',
+                !sidebarOpen && 'justify-center',
+              )}
+            >
+              <MessageSquare className="h-[15px] w-[15px] shrink-0" />
+              {sidebarOpen && <span>Feedback</span>}
+            </a>
+          </>}
           {runtime.kind === 'local' && <button
             type="button"
             onClick={toggleTheme}

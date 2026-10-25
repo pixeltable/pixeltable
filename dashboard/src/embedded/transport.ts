@@ -32,9 +32,14 @@ export function createMcpDashboardTransport(app: Pick<App, 'callServerTool'>, ca
       parameters[key] = value;
     }
     const target = parameters.path;
-    if (target === catalog || target === 'local') parameters.path = '';
+    if (target === catalog) parameters.path = '';
     else if (target?.startsWith(catalog + '/')) parameters.path = target.slice(catalog.length + 1);
     else if (target?.includes('://')) throw new Error('Choose an item in the connected catalog.');
+    // After the prefix strip, a remainder can still carry a second catalog URI or climb above the root.
+    const relative = parameters.path;
+    if (relative !== undefined && (relative.includes('://') || relative.split('/').includes('..'))) {
+      throw new Error('Choose an item in the connected catalog.');
+    }
     const result = await app.callServerTool({ name: 'read_dashboard', arguments: { db, endpoint, parameters } });
     if (result.isError) {
       const message = result.content?.find((item) => item.type === 'text');

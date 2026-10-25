@@ -22,7 +22,7 @@ it('keeps clients isolated and does not replace the browser fetch function', asy
   expect(fetch).not.toHaveBeenCalled()
 })
 
-it('preserves useful HTTP errors through either transport', async () => {
+it('preserves useful HTTP errors', async () => {
   const client = createDashboardClient(async () => Response.json({ error_code: 'TABLE_NOT_FOUND', detail: 'private trace' }, { status: 404 }))
   await expect(client.getTableMetadata('gone')).rejects.toThrow('Not found.')
 })

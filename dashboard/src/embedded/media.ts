@@ -3,7 +3,8 @@ import { z } from 'zod';
 
 const referenceSchema = z.object({
   organization: z.string(), db: z.string(),
-  path: z.string().min(1).max(1024), table_id: z.string().min(1).max(128),
+  path: z.string().min(1).max(1024).refine((value) => !value.includes('://') && !value.split('/').includes('..')),
+  table_id: z.string().min(1).max(128),
   version: z.number().int().nonnegative().nullable(),
   offset: z.number().int().min(0).max(100000),
   fingerprint: z.string().regex(/^[a-f0-9]{64}$/),

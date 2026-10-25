@@ -147,4 +147,3 @@ export function createDashboardClient(transport: DashboardTransport = (url) => f
 }
 
 export type DashboardClient = ReturnType<typeof createDashboardClient>;
-export const { getDirectoryTree, getTableMetadata, getTableData, search, getPipeline, getStatus } = createDashboardClient();

@@ -1994,7 +1994,8 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
           >
             <RefreshCw className={cn('h-3 w-3', dataLoading && 'animate-spin')} />
           </button>
-          <button
+          {/* Auto-refresh polls the host tool every 10 s; keep it in the local build. */}
+          {runtime.kind === 'local' && <button
             onClick={() => setAutoRefresh(!autoRefresh)}
             className={cn(
               'flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-colors',
@@ -2008,7 +2009,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
               autoRefresh ? 'bg-emerald-400 animate-pulse' : 'bg-muted-foreground/50',
             )} />
             Auto
-          </button>
+          </button>}
 
           <div className="w-px h-4 bg-border/30" />
 
@@ -2073,9 +2074,14 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
           <span
-            className="text-[11px] text-muted-foreground tabular-nums cursor-pointer hover:text-foreground transition-colors px-0.5"
-            title="Go to page…"
+            className={cn(
+              'text-[11px] text-muted-foreground tabular-nums px-0.5',
+              runtime.kind === 'local' && 'cursor-pointer hover:text-foreground transition-colors',
+            )}
+            title={runtime.kind === 'local' ? 'Go to page…' : undefined}
             onClick={() => {
+              // Sandboxed chat hosts may block window.prompt(); keep the jump local-only.
+              if (runtime.kind !== 'local') return
               const input = prompt(`Go to page (1–${totalPages || 1}):`, String(page + 1))
               if (input !== null) {
                 const n = parseInt(input, 10)
