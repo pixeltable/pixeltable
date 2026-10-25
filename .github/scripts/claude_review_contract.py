@@ -15,6 +15,11 @@ REQUIRED_PASSES = ['abstractions', 'lines', 'design', 'blast-radius', 'rules']
 KINDS = {'defect', 'design', 'rule', 'maintenance'}
 AGENT_FILES = {'CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', '.claude', '.mcp.json'}
 STATE_MARKER = '<!-- pxt-review-state\n'
+# A GitHub token, or the userinfo the review action writes into an origin URL. A bare prefix is
+# shorter than this and stays. The value is only token characters, so a quoted token cannot eat
+# the JSON escape that follows it.
+_CREDENTIAL = re.compile(r'x-access-token:[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}|gh[pousr]_[A-Za-z0-9_]{16,}')
+_CREDENTIAL_NOTE = 'A credential-shaped string was removed before publication.'
 MAX_JSON_BYTES = 2_000_000
 MAX_SOURCES_BYTES = 20_000_000
 MAX_BODY_BYTES = 60_000
@@ -23,6 +28,35 @@ SOURCE_INDEX_KEYS = {'diff_files', 'previous_tree', 'sources', 'tooling_files'}
 
 def digest(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
+
+
+def redact_credentials(text: str) -> str:
+    """Replace GitHub credential shapes. The review job must not post or log one."""
+    return _CREDENTIAL.sub('[redacted credential]', text)
+
+
+def redact_model(value: Any) -> tuple[Any, bool]:
+    """Copy model JSON with credential shapes replaced. Returns whether any were removed."""
+    if isinstance(value, str):
+        redacted = redact_credentials(value)
+        return redacted, redacted != value
+    if isinstance(value, list):
+        changed = False
+        copied: list[Any] = []
+        for item in value:
+            redacted, item_changed = redact_model(item)
+            copied.append(redacted)
+            changed = changed or item_changed
+        return copied, changed
+    if isinstance(value, dict):
+        changed = False
+        copied_map: dict[str, Any] = {}
+        for key, item in value.items():
+            redacted, item_changed = redact_model(item)
+            copied_map[key] = redacted
+            changed = changed or item_changed
+        return copied_map, changed
+    return value, False
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -666,6 +700,7 @@ def public_gap(gap: str) -> str | None:
 
 
 def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    data, credential_removed = redact_model(data)
     checked = validate(data, manifest)
     body = [
         '## Claude review',
@@ -742,6 +777,8 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
     if questions:
         body += ['', '### Questions', '']
         body += [f'- {q["unknown"]} Check: {q["check"]}' for q in questions]
+    if credential_removed:
+        body += ['', _CREDENTIAL_NOTE]
     unfinished = [line for gap in checked['gaps'] if (line := public_gap(gap))]
     if unfinished:
         body += ['', 'Left unfinished:', '']
@@ -785,6 +822,13 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
         'published': published,
         'gaps': checked['gaps'],
     }
+    if credential_removed:
+        stats['credentials_redacted'] = True
+        if stats['status'] == 'complete':
+            stats['status'] = 'incomplete'
+            stats['reason'] = _CREDENTIAL_NOTE
+        elif _CREDENTIAL_NOTE not in stats['reason']:
+            stats['reason'] = f'{stats["reason"]} {_CREDENTIAL_NOTE}'.strip()
     return {
         'commit_id': manifest['head_sha'],
         'body': publication_body('\n'.join(body)),

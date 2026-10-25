@@ -61,6 +61,7 @@ incomplete. A skipped result records its reason in the artifacts and makes no pu
 Binary, rename, and mode-only changes retain metadata without requiring nonexistent text lines. Relevant passes
 still inspect their effects or record an exclusion.
 
+Publication removes GitHub token shapes before posting, and the job log redacts the model result the same way. A removed credential leaves the review incomplete.
 Publication stops when the head, comparison merge base, or target branch changes. An unrelated base-branch advance
 can proceed when its merge base stays the same. A source change during submission records a stale result tied to the
 original revision. If GitHub rejects a batch that mixes diff lines and unchanged lines, the host retries with the
