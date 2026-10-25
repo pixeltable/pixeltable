@@ -746,7 +746,7 @@ pub fn agg_call_from_py(
     args: Vec<Bound<'_, PyAny>>,
     kwargs: Vec<(String, Bound<'_, PyAny>)>,
 ) -> Result<ExprRef> {
-    let name = f.name().to_string();
+    let name = f.display_name();
     let mut args = args;
     let mut kwargs = kwargs;
     let mut order_by_obj: Option<Bound<'_, PyAny>> = None;

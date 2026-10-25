@@ -75,6 +75,18 @@ pub fn display(e: &Expr) -> String {
     }
 }
 
+/// How an error message shows the value of an expression (upstream `ColumnType.print_value()`): `str()` of the value,
+/// quoted for strings and UUIDs (also inside a JSON value).
+pub fn print_value(v: &Value, t: &ColumnType) -> String {
+    if t.is_string() || t.is_uuid() {
+        return format!("'{}'", crate::value::py_str(v));
+    }
+    match v {
+        Value::Json(Json::String(s)) => format!("'{s}'"),
+        v => crate::value::py_str(v),
+    }
+}
+
 /// Upstream `Expr.print_list()`.
 pub fn print_list(items: &[ExprRef]) -> String {
     if items.len() == 1 {

@@ -12,6 +12,7 @@ use crate::value::{Json, Value};
 
 pub static TILE_ITERATOR: BuiltinIterator = BuiltinIterator {
     fqn: "pixeltable.functions.image.tile_iterator",
+    defined_at: "pixeltable.functions.image.tile_iterator",
     params: tile_params,
     unstored_cols: &["tile"],
     output_schema: tile_schema,

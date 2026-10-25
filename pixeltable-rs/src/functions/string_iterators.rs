@@ -14,6 +14,7 @@ use crate::value::Value;
 
 pub static STRING_SPLITTER: BuiltinIterator = BuiltinIterator {
     fqn: "pixeltable.functions.string.string_splitter",
+    defined_at: "pixeltable.functions.string.string_splitter",
     params: splitter_params,
     unstored_cols: &[],
     output_schema: splitter_schema,

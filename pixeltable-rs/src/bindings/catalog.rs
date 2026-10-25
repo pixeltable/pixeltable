@@ -680,9 +680,9 @@ fn create_view_from_def(py: Python<'_>, p: &Path, def: &ViewDef, ie: IfExists) -
             Err(e) => {
                 crate::exec::compute::discard_media(&saved);
                 // upstream creates the view's rows in a table operation that rolls back on failure
-                return Err(match e {
+                return Err(match e.unlocated() {
                     e if crate::functions::udf::is_interrupt(&e) => e,
-                    Error::Pxt { .. } | Error::Python(_) => {
+                    e @ (Error::Pxt { .. } | Error::Python(_)) => {
                         crate::pxt_err!(InternalError, "Table operation was aborted with\n{}", e.message())
                     }
                     other => other,

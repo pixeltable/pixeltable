@@ -307,6 +307,62 @@ pub fn eval_array_index(a: &crate::value::NdArray, index: &[crate::types::ArrayI
 }
 
 pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
+    match eval_node(e, ctx) {
+        Ok(v) => Ok(v),
+        Err(err) => Err(locate(e, err, ctx)),
+    }
+}
+
+/// Records where an evaluation failed (upstream `ExprEvalError`): `e`, if the failure is its own (not one of an input,
+/// which is located already), and the values of its inputs. Interrupts and unimplemented features stay as they are.
+#[cold]
+#[inline(never)]
+fn locate(e: &Expr, err: Error, ctx: &dyn RowContext) -> Error {
+    if matches!(err, Error::Located(_) | Error::NotImplemented(_)) || crate::functions::udf::is_interrupt(&err) {
+        return err;
+    }
+    let calls = NoCalls(ctx);
+    let inputs = e
+        .kind
+        .children()
+        .into_iter()
+        .map(|c| eval(c, &calls).map(|v| (c.clone(), v)))
+        .collect::<Result<Vec<_>>>()
+        .unwrap_or_default();
+    let node: ExprRef = std::sync::Arc::new(e.clone());
+    Error::Located(Box::new(crate::error::Located { site: crate::error::EvalSite::Expr(node), inputs, err }))
+}
+
+/// Evaluates the inputs of a failed node again (for its error message) without calling Python functions: an input that
+/// needs a call that was not made ahead of evaluation (`exec::prefetch`) fails, and the message shows no inputs.
+struct NoCalls<'a>(&'a dyn RowContext);
+
+impl RowContext for NoCalls<'_> {
+    fn column_value(&self, col: &ColumnRef) -> Result<Value> {
+        self.0.column_value(col)
+    }
+    fn relative_root(&self, id: u64) -> Option<Value> {
+        self.0.relative_root(id)
+    }
+    fn precomputed(&self, e: &Expr) -> Option<Value> {
+        self.0.precomputed(e)
+    }
+    fn column_error(&self, col: &ColumnRef) -> Result<Option<crate::store::rows::CellError>> {
+        self.0.column_error(col)
+    }
+    fn python_semantics(&self) -> bool {
+        self.0.python_semantics()
+    }
+    fn row_key(&self, tbl_id: uuid::Uuid) -> Result<Option<(i64, Vec<i64>)>> {
+        self.0.row_key(tbl_id)
+    }
+    fn call_result(&self, e: &Expr) -> Option<Result<Value>> {
+        Some(self.0.call_result(e).unwrap_or_else(|| Err(Error::internal("call not made ahead"))))
+    }
+}
+
+#[inline(always)]
+fn eval_node(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
     if let Some(v) = ctx.precomputed(e) {
         return Ok(v);
     }

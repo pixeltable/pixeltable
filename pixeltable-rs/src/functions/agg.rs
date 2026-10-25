@@ -20,7 +20,7 @@ use serde_json::json;
 
 use super::FuncRef;
 use super::signature::{Binding, Signature};
-use crate::error::{Error, Result, py_repr};
+use crate::error::{Error, EvalSite, Located, Result, py_repr};
 use crate::expr::{Expr, ExprKind, ExprRef, FunctionCall};
 use crate::types::ColumnType;
 use crate::value::{Json, Value, cmp_values};
@@ -49,6 +49,12 @@ pub trait AggregateFunction: Send + Sync + Debug {
     /// display name (`sum`, or a UDA's class name)
     fn name(&self) -> &str;
     fn qualified_name(&self) -> String;
+    /// how calls and messages name the function (upstream `Function.display_name`: the path without
+    /// `pixeltable.functions.`, e.g. `globals.sum`, or a UDA's class path)
+    fn display_name(&self) -> String {
+        let q = self.qualified_name();
+        q.strip_prefix("pixeltable.functions.").map(str::to_string).unwrap_or(q)
+    }
     /// one or more signatures (type substitutions), tried in order; init parameters are keyword-only parameters
     fn signatures(&self) -> &[Signature];
     /// names of the parameters passed to the aggregator's constructor rather than to `update()`
@@ -107,7 +113,7 @@ pub fn make_agg_call(
     order_by: Option<ExprRef>,
     group_by: Vec<ExprRef>,
 ) -> Result<ExprRef> {
-    let name = f.name().to_string();
+    let name = f.display_name();
     let mut order_by = order_by;
     if let Some(pos) = kwargs.iter().position(|(k, _)| k == "order_by") {
         if f.requires_order_by() {
@@ -167,6 +173,8 @@ pub struct AggPlan {
     skip_null_args: Vec<bool>,
     /// for each keyword argument: its name and Some(skip-if-NULL) for an update() argument, None for an init one
     kwarg_roles: Vec<(String, Option<bool>)>,
+    /// the call (for the messages of failures, see `located()`)
+    call: Arc<FunctionCall>,
 }
 
 impl AggPlan {
@@ -191,11 +199,26 @@ impl AggPlan {
             matches!(p.kind, super::signature::ParamKind::PositionalOnly | super::signature::ParamKind::PositionalOrKeyword)
         });
         let skip_null_args = fc.args.iter().map(|_| positional.next().is_some_and(|p| p.col_type.as_ref().is_some_and(|t| !t.nullable))).collect();
-        Ok(AggPlan { func: f.clone(), sig_idx, init_args, skip_null_args, kwarg_roles })
+        Ok(AggPlan { func: f.clone(), sig_idx, init_args, skip_null_args, kwarg_roles, call: Arc::new(fc.clone()) })
     }
 
     pub fn new_state(&self) -> Result<Box<dyn AggState>> {
-        self.func.create(self.sig_idx, &self.init_args)
+        let state = self.func.create(self.sig_idx, &self.init_args).map_err(|e| located(EvalSite::AggInit(self.call.clone()), Vec::new(), e))?;
+        if self.func.py_function().is_none() {
+            return Ok(state);
+        }
+        // a Python UDA's `value()` failure names the inputs of the last row (upstream evaluates it in that row)
+        Ok(Box::new(LocatingState { inner: state, call: self.call.clone(), last: Vec::new() }))
+    }
+
+    /// The call's inputs (upstream `FunctionCall.dependencies()`: arguments, then keyword arguments) with their values.
+    fn inputs(&self, args: &[Value], kwargs: &[Value]) -> Vec<(ExprRef, Value)> {
+        let exprs = self.call.args.iter().chain(self.call.kwargs.iter().map(|(_, e)| e));
+        exprs.zip(args.iter().chain(kwargs.iter())).map(|(e, v)| (e.clone(), v.clone())).collect()
+    }
+
+    fn update_failed(&self, args: &[Value], kwargs: &[Value], err: Error) -> Error {
+        located(EvalSite::AggUpdate(self.call.clone()), self.inputs(args, kwargs), err)
     }
 
     /// True if a row with these arguments is skipped (a NULL argument for a non-nullable parameter).
@@ -209,8 +232,11 @@ impl AggPlan {
         if self.skips(args, kwargs) {
             return Ok(());
         }
+        if let Some(s) = state.as_any().downcast_mut::<LocatingState>() {
+            s.last = self.inputs(args, kwargs);
+        }
         if kwargs.is_empty() {
-            return state.update(args, &[]);
+            return state.update(args, &[]).map_err(|e| self.update_failed(args, kwargs, e));
         }
         let mut kw = Vec::new();
         for (v, (k, role)) in kwargs.iter().zip(self.kwarg_roles.iter()) {
@@ -218,7 +244,7 @@ impl AggPlan {
                 kw.push((k.clone(), v.clone()));
             }
         }
-        state.update(args, &kw)
+        state.update(args, &kw).map_err(|e| self.update_failed(args, kwargs, e))
     }
 
     /// Feeds one row (the evaluated positional and keyword arguments, in call order) to `state`; a row with a NULL
@@ -227,16 +253,46 @@ impl AggPlan {
         if self.skips(&args, &kwargs) {
             return Ok(());
         }
+        if let Some(s) = state.as_any().downcast_mut::<LocatingState>() {
+            s.last = self.inputs(&args, &kwargs);
+        }
         let mut kw = Vec::new();
-        for (v, (k, role)) in kwargs.into_iter().zip(self.kwarg_roles.iter()) {
+        for (v, (k, role)) in kwargs.iter().zip(self.kwarg_roles.iter()) {
             if let Some(skip) = role {
                 if *skip && v.is_null() {
                     return Ok(());
                 }
-                kw.push((k.clone(), v));
+                kw.push((k.clone(), v.clone()));
             }
         }
-        state.update(&args, &kw)
+        state.update(&args, &kw).map_err(|e| self.update_failed(&args, &kwargs, e))
+    }
+}
+
+/// `err` located at `site` (see `Error::Located`); interrupts and unimplemented features stay as they are.
+fn located(site: EvalSite, inputs: Vec<(ExprRef, Value)>, err: Error) -> Error {
+    if matches!(err, Error::Located(_) | Error::NotImplemented(_)) || super::udf::is_interrupt(&err) {
+        return err;
+    }
+    Error::Located(Box::new(Located { site, inputs, err }))
+}
+
+/// The state of a Python UDA, remembering the inputs of the last row for the message of a `value()` failure.
+struct LocatingState {
+    inner: Box<dyn AggState>,
+    call: Arc<FunctionCall>,
+    last: Vec<(ExprRef, Value)>,
+}
+
+impl AggState for LocatingState {
+    fn update(&mut self, args: &[Value], kwargs: &[(String, Value)]) -> Result<()> {
+        self.inner.update(args, kwargs)
+    }
+    fn value(&mut self) -> Result<Value> {
+        self.inner.value().map_err(|e| located(EvalSite::AggValue(self.call.clone()), std::mem::take(&mut self.last), e))
+    }
+    fn as_any(&mut self) -> &mut dyn std::any::Any {
+        self
     }
 }
 

@@ -109,6 +109,33 @@ pub enum Error {
     PyExc(&'static str, String),
     /// An exception raised by Python code that the backend called; re-raised unchanged.
     Python(PyErr),
+    /// An evaluation failure with where it happened (upstream `ExprEvalError`), for the message that
+    /// `exec::compute::eval_error()` builds; everything else (code, class, message) is that of the wrapped error.
+    Located(Box<Located>),
+}
+
+/// Where an evaluation failed: the innermost node whose own evaluation failed (or an aggregate's `init()`/`update()`/
+/// `value()`) and the values of its inputs (upstream's `dependencies()` of the node), in input order.
+#[derive(Debug)]
+pub struct Located {
+    pub site: EvalSite,
+    pub inputs: Vec<(crate::expr::ExprRef, crate::value::Value)>,
+    pub err: Error,
+}
+
+#[derive(Debug, Clone)]
+pub enum EvalSite {
+    /// "the expression {node}"
+    Expr(crate::expr::ExprRef),
+    /// "the init() function of the aggregate {call}"
+    AggInit(std::sync::Arc<crate::expr::FunctionCall>),
+    /// "the update() function of the aggregate {call}"
+    AggUpdate(std::sync::Arc<crate::expr::FunctionCall>),
+    /// value() of an aggregate: "the expression {call}"
+    AggValue(std::sync::Arc<crate::expr::FunctionCall>),
+    /// not an evaluation failure but an invalid setup that upstream detects before evaluating any row (it raises the
+    /// error as it is, whatever `on_error` says)
+    Setup,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -134,7 +161,16 @@ impl Error {
     pub fn code(&self) -> Option<ErrorCode> {
         match self {
             Error::Pxt { code, .. } => Some(*code),
+            Error::Located(l) => l.err.code(),
             _ => None,
+        }
+    }
+
+    /// The error without the location of an evaluation failure.
+    pub fn unlocated(self) -> Error {
+        match self {
+            Error::Located(l) => l.err,
+            e => e,
         }
     }
 
@@ -163,6 +199,11 @@ impl Error {
             Error::NotImplemented(m) => Error::NotImplemented(m.clone()),
             Error::PyExc(name, m) => Error::PyExc(name, m.clone()),
             Error::Python(e) => Python::attach(|py| Error::Python(e.clone_ref(py))),
+            Error::Located(l) => Error::Located(Box::new(Located {
+                site: l.site.clone(),
+                inputs: l.inputs.clone(),
+                err: l.err.clone_plain(),
+            })),
         }
     }
 
@@ -194,6 +235,7 @@ impl Error {
             Error::Python(e) => Python::attach(|py| {
                 e.get_type(py).name().map(|n| n.to_string()).unwrap_or_else(|_| "Exception".to_string())
             }),
+            Error::Located(l) => l.err.py_type_name(),
         }
     }
 
@@ -207,6 +249,7 @@ impl Error {
             | Error::PyExc(_, message) => message.clone(),
             // `str(exc)`, as upstream records it in cell errors and messages
             Error::Python(e) => Python::attach(|py| e.value(py).str().map(|s| s.to_string()).unwrap_or_else(|_| e.to_string())),
+            Error::Located(l) => l.err.message(),
         }
     }
 }
@@ -215,6 +258,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Pxt { code, message } => write!(f, "{}: {}", code.name(), message),
+            Error::Located(l) => l.err.fmt(f),
             other => write!(f, "{}", other.message()),
         }
     }
@@ -276,8 +320,26 @@ impl From<Error> for PyErr {
                 }
             }),
             Error::Python(e) => e,
+            Error::Located(l) => l.err.into(),
         }
     }
+}
+
+/// Builds the `pixeltable.exceptions` error for `code` with `message` and the diagnostic `detail` (shown after the
+/// message by `str()`), caused by `cause`.
+pub fn pxt_exception_with_detail(py: Python<'_>, code: ErrorCode, message: &str, detail: &str, cause: Option<&PyErr>) -> Error {
+    let exc = match make_pxt_exception(py, code, message) {
+        Ok(e) => e,
+        Err(_) => return Error::new(code, message),
+    };
+    let value = exc.value(py);
+    if value.setattr("detail", detail).is_err() {
+        return Error::new(code, message);
+    }
+    if let Some(c) = cause {
+        value.setattr("__cause__", c.value(py)).ok();
+    }
+    Error::Python(exc)
 }
 
 /// `pxt_err!(Code, "fmt", args...)` builds an `Error::Pxt`.

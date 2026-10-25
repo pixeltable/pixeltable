@@ -63,6 +63,11 @@ impl IteratorDef {
         IteratorDef { fqn, signature, unstored_cols, has_seek, py_obj, error_msg, builtin: None, descriptor: OnceLock::new() }
     }
 
+    /// The path messages name the iterator by (upstream `fqn`: where it is defined).
+    pub fn display_fqn(&self) -> &str {
+        self.builtin.map_or(&self.fqn, |b| b.defined_at)
+    }
+
     /// The definition of a builtin iterator (`py_obj`: its Python function object).
     pub fn builtin(b: &'static BuiltinIterator, py_obj: Py<PyAny>) -> IteratorDef {
         let signature = Signature { params: (b.params)(), return_type: ColumnType::json(false), is_batched: false };
@@ -199,7 +204,7 @@ fn bind(def: &IteratorDef, sig: &Signature, args: &[ExprRef], kwargs: &[(String,
     let binding = sig
         .bind(args.len(), &kwarg_names(kwargs))
         .map_err(|msg| crate::pxt_err!(UnsupportedOperation, "Invalid iterator arguments: {msg}"))?;
-    sig.validate_args(&binding, args, kwargs, &format!("in iterator `{}`", def.fqn))?;
+    sig.validate_args(&binding, args, kwargs, &format!("in iterator `{}`", def.display_fqn()))?;
     Ok(binding)
 }
 
@@ -561,6 +566,8 @@ impl RowSource for PyRowSource {
 pub struct BuiltinIterator {
     /// `module.name`
     pub fqn: &'static str,
+    /// where upstream defines it (`pixeltable.functions.video.iterators.frame_iterator`), as messages name it
+    pub defined_at: &'static str,
     pub params: fn() -> Vec<super::signature::Param>,
     pub unstored_cols: &'static [&'static str],
     /// the output schema for the constant arguments of a call

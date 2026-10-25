@@ -14,6 +14,7 @@ use crate::value::{Json, Value};
 
 pub static FRAME_ITERATOR: BuiltinIterator = BuiltinIterator {
     fqn: "pixeltable.functions.video.frame_iterator",
+    defined_at: "pixeltable.functions.video.iterators.frame_iterator",
     params: frame_params,
     unstored_cols: &["frame"],
     output_schema: frame_schema,
@@ -23,6 +24,7 @@ pub static FRAME_ITERATOR: BuiltinIterator = BuiltinIterator {
 
 pub static LEGACY_FRAME_ITERATOR: BuiltinIterator = BuiltinIterator {
     fqn: "pixeltable.functions.video.legacy_frame_iterator",
+    defined_at: "pixeltable.functions.video.iterators.legacy_frame_iterator",
     params: frame_params,
     unstored_cols: &["frame"],
     output_schema: legacy_frame_schema,
