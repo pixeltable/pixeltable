@@ -51,7 +51,8 @@ def post(repo: str, pr: str, review: dict[str, Any]) -> subprocess.CompletedProc
     )
 
 
-def current_target(manifest: dict[str, Any]) -> bool:
+def source_status(manifest: dict[str, Any]) -> str:
+    """'current', 'head' when only the reviewed head moved, or 'base' when the target no longer matches."""
     result = subprocess.run(
         ['gh', 'pr', 'view', manifest['pr_url'], '--json', 'baseRefOid,headRefOid,baseRefName'],
         text=True,
@@ -59,28 +60,31 @@ def current_target(manifest: dict[str, Any]) -> bool:
         check=True,
     )
     current = json.loads(result.stdout)
-    if current['headRefOid'] != manifest['head_sha'] or current['baseRefName'] != manifest['metadata']['baseRefName']:
-        return False
-    if current['baseRefOid'] == manifest['base_sha']:
-        return True
-    result = subprocess.run(
-        [
-            'gh',
-            'api',
-            f'repos/{manifest["repo"]}/compare/{current["baseRefOid"]}...{current["headRefOid"]}',
-            '--jq',
-            '.merge_base_commit.sha',
-        ],
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    return bool(result.stdout.strip() == manifest['merge_base_sha'])
+    if current['baseRefName'] != manifest['metadata']['baseRefName']:
+        return 'base'
+    if current['baseRefOid'] != manifest['base_sha']:
+        compared = subprocess.run(
+            [
+                'gh',
+                'api',
+                f'repos/{manifest["repo"]}/compare/{current["baseRefOid"]}...{current["headRefOid"]}',
+                '--jq',
+                '.merge_base_commit.sha',
+            ],
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        if compared.stdout.strip() != manifest['merge_base_sha']:
+            return 'base'
+    if current['headRefOid'] != manifest['head_sha']:
+        return 'head'
+    return 'current'
 
 
 def publish(manifest: dict[str, Any], review: dict[str, Any]) -> dict[str, Any]:
-    if not current_target(manifest):
-        return {'status': 'incomplete', 'delivery': 'not_posted', 'reason': 'PR source changed during review'}
+    if source_status(manifest) == 'base':
+        return {'status': 'incomplete', 'delivery': 'not_posted', 'reason': 'PR target changed during review'}
     fallback_used = False
     result = post(manifest['repo'], str(manifest['pr']), review)
     if result.returncode and 'HTTP 422' in result.stderr:
@@ -90,8 +94,8 @@ def publish(manifest: dict[str, Any], review: dict[str, Any]) -> dict[str, Any]:
             fallback = {'event': 'COMMENT', 'body': publication_body(review['body'], appendix)}
         except ValueError as e:
             return {'delivery': 'failed', 'publication_fallback': False, 'reason': str(e)}
-        if not current_target(manifest):
-            return {'status': 'incomplete', 'delivery': 'not_posted', 'reason': 'PR source changed before retry'}
+        if source_status(manifest) == 'base':
+            return {'status': 'incomplete', 'delivery': 'not_posted', 'reason': 'PR target changed before retry'}
         fallback_used = True
         result = post(manifest['repo'], str(manifest['pr']), fallback)
     if result.returncode:
@@ -111,7 +115,7 @@ def publish(manifest: dict[str, Any], review: dict[str, Any]) -> dict[str, Any]:
         if isinstance(response, dict):
             outcome['review_url'] = response.get('html_url')
     try:
-        fresh = current_target(manifest)
+        fresh = source_status(manifest)
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError):
         return {
             **outcome,
@@ -119,11 +123,11 @@ def publish(manifest: dict[str, Any], review: dict[str, Any]) -> dict[str, Any]:
             'freshness': 'unknown',
             'reason': 'Review was posted; the final source check was unavailable',
         }
-    if not fresh:
+    if fresh != 'current':
         return {
             **outcome,
             'status': 'incomplete',
-            'delivery': 'posted_stale',
+            'freshness': 'stale',
             'reason': 'PR source changed during publication',
         }
     return outcome
@@ -182,7 +186,7 @@ def process_review(args: argparse.Namespace) -> int:
         outcome.update(publish(manifest, review))
     outcome_path.write_text(json.dumps(outcome, indent=2) + '\n')
     print(json.dumps(outcome))
-    undelivered = outcome.get('delivery') in {'failed', 'unknown', 'not_posted', 'posted_stale'}
+    undelivered = outcome.get('delivery') in {'failed', 'unknown', 'not_posted'}
     return 1 if undelivered or outcome.get('freshness') == 'unknown' else 0
 
 

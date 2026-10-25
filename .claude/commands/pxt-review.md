@@ -100,9 +100,10 @@ Use this envelope, with empty arrays when appropriate:
 `status` is `complete`, `incomplete`, or `skipped`. Incomplete and skipped outcomes require a reason. Skipping requires
 the manifest's nonempty `skip_reason`, copied exactly, and no findings. Without that host-approved policy, review the
 change or report incomplete work. No findings is a valid result, but does not establish
-complete coverage. Decisive unresolved questions also require `incomplete`. The host downgrades coverage, finding,
-and decision gaps to incomplete while preserving valid checked findings. Invalid snapshots, tampered sources, and
-malformed pass envelopes still fail validation. A complete review must account for every required pass.
+complete coverage. Decisive unresolved questions also require `incomplete`. A bad check, exclusion, question,
+finding, or decision, and any missing path coverage, becomes a gap. The host then publishes the checked findings
+as an incomplete review. Invalid snapshots, tampered sources, and malformed pass envelopes still fail validation.
+A complete review must account for every required pass.
 
 Each pass entry has this shape:
 
@@ -119,10 +120,10 @@ Each pass entry has this shape:
 
 Paths are repository-relative. `side` is RIGHT or LEFT. `start_line` defaults to `line`. Use LEFT for deletions.
 For renamed files, references use the new repository path and LEFT maps to the old path. The `lines` and `rules` passes
-must cover every changed line or give an explicit per-file exclusion. Other passes follow the relevant whole change
-and downstream contracts. Checks need source references and a specific check description, even when no finding survives.
-Files without text hunks retain status, rename, and mode metadata. They have no changed lines to cover, but relevant
-passes still inspect their effects or give an exclusion. Do not silently skip binary, rename, or permission changes.
+must cite every changed path or exclude it. One check on the path is enough; the host does not require every changed
+line. Other passes follow the relevant whole change and downstream contracts. Checks need source references and a
+specific check description, even when no finding survives.
+Files without text hunks still need a check or an exclusion. Do not silently skip binary, rename, or permission changes.
 
 Each finding has this shape:
 
@@ -169,11 +170,12 @@ Each independent decision has this shape:
 `checked` is the complete accepted finding record, including unchanged ID, producer, subject, and mechanism. It is not
 an edit instruction or summary. The host renders this exact record, never the unverified candidate text.
 Use `narrow` for an accepted replacement, `reject` for a disproved claim, and `question` for a decisive unresolved fact.
-A question decision also includes `unknown` and `check`. Use `resolved` only for a previously posted claim whose trigger
-new source removes. Include `fix_evidence`, a nonempty array of RIGHT-side source references to the fix.
-For a fix that deletes code, provide `removed_paths` with repository paths present in the earlier tree and absent now.
+A question decision also includes `unknown` and `check`. Use `resolved` only for a previously posted claim whose earlier evidence path changed.
+Cite that path in `fix_evidence` (RIGHT-side references) or `removed_paths`. A new file or an unrelated deletion does not
+resolve it. For a deletion, `removed_paths` names evidence paths present in the earlier tree and absent now.
 Moving a file does not establish deletion; preparation records renames from the prior reviewed head as well as the PR diff.
-The host compares blobs or removals with the earlier reviewed tree and checks subject/mechanism identity. Unchecked work is incomplete, not rejected.
+The host compares that evidence path's blob, or its removal, with the earlier reviewed tree and checks subject/mechanism
+identity. Unchecked work is incomplete, not rejected.
 For a non-published decision about a historical claim, retain its exact earlier evidence when that source no longer
 exists in either current tree. Historical references cannot support a published keep or narrow decision. Resolved and
 rejected claims leave reusable history; subsequent runs discover regressions through fresh source review.

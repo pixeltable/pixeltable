@@ -253,7 +253,6 @@ def prepare(pr_url: str, output: Path, tooling: Path, focus: str = '', history: 
                 'fetch',
                 '--quiet',
                 '--depth=1',
-                '--filter=blob:none',
                 'origin',
                 previous['head_sha'],
             )

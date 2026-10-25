@@ -121,7 +121,8 @@ Once you've set up your dev environment, you're ready to start contributing PRs.
 
     * Don't worry about making small, incremental commits to your branch; they'll be squash-committed when it
         eventually gets merged to `main`.
-    * Use `make format` to format your Python code, and `make check` for static checks. These checks are
+    * Use `make format` to format your Python code, and `make check` for static checks, including the
+        `.github/scripts` unit tests. These checks are
         enforced by CI during pull request.
     * If you're updating documentation, use `make docs-serve` to preview your changes locally before submitting
         your PR (requires Node.js and Mintlify CLI installation - see "Building and Serving Documentation Locally"

@@ -238,6 +238,14 @@ def same_identity(claim: dict[str, Any], earlier: dict[str, Any], manifest: dict
     return bool(earlier_path and renames.get(earlier_path) == claim_path)
 
 
+def prior_evidence_paths(record: dict[str, Any]) -> set[str]:
+    paths = set()
+    for ref in record.get('claim', {}).get('evidence') or []:
+        if isinstance(ref, dict) and isinstance(ref.get('path'), str):
+            paths.add(ref['path'])
+    return paths
+
+
 def validate_resolution(key: str, decision: dict[str, Any], previous: dict[str, Any], manifest: dict[str, Any]) -> None:
     if key not in previous:
         raise ValueError('Only a prior claim can be resolved')
@@ -245,15 +253,21 @@ def validate_resolution(key: str, decision: dict[str, Any], previous: dict[str, 
     removed = decision.get('removed_paths', [])
     if not isinstance(fixes, list) or not isinstance(removed, list) or not (fixes or removed):
         raise ValueError('Resolution needs source evidence of the fix')
-    changed = False
+    evidence = prior_evidence_paths(previous[key])
     renamed_from = {new: old for old, new in manifest.get('previous_renames', {}).items()}
+    cited_evidence = False
+    changed = False
     for ref in fixes:
         reference(ref, manifest)
         if ref.get('side', 'RIGHT') != 'RIGHT':
             raise ValueError('Resolution must cite the current fix')
-        current_blob = manifest['sources']['RIGHT'][ref['path']].get('git_blob')
         previous_path = renamed_from.get(ref['path'], ref['path'])
-        if current_blob and current_blob != manifest.get('previous_tree', {}).get(previous_path):
+        if previous_path not in evidence and ref['path'] not in evidence:
+            continue
+        cited_evidence = True
+        current_blob = manifest['sources']['RIGHT'][ref['path']].get('git_blob')
+        previous_blob = manifest.get('previous_tree', {}).get(previous_path)
+        if current_blob and previous_blob and current_blob != previous_blob:
             changed = True
     for path in removed:
         repository_path(path)
@@ -264,7 +278,11 @@ def validate_resolution(key: str, decision: dict[str, Any], previous: dict[str, 
             for new_path, change in manifest['diff_files'].items()
         ):
             raise ValueError('Resolution moved the cited source path instead of removing it')
-        changed = True
+        if path in evidence:
+            cited_evidence = True
+            changed = True
+    if not cited_evidence:
+        raise ValueError('Resolution does not cite a prior evidence path')
     if not manifest.get('previous_tree') or not changed:
         raise ValueError('Resolution has no demonstrated source change since the prior review')
 
@@ -333,6 +351,22 @@ def check_decision(
     return key, decision
 
 
+def gap_boundary(gaps: list[str], label: str, examine: Any) -> Any:
+    try:
+        return examine()
+    except (ValueError, TypeError, KeyError, AttributeError) as error:
+        gaps.append(f'{label}: {error}')
+        return None
+
+
+def open_claim_ids(previous: dict[str, Any]) -> set[str]:
+    return {
+        key
+        for key, record in previous.items()
+        if record.get('status') not in {'resolved', 'reject'} and record.get('claim', {}).get('kind') != 'maintenance'
+    }
+
+
 def validate(data: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
     if data.get('schema_version') != VERSION or data.get('snapshot_id') != manifest['snapshot_id']:
         raise ValueError('Review does not match the prepared snapshot')
@@ -364,30 +398,38 @@ def validate(data: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
             gaps.append(f'{name}: {text(result.get("reason"), "reason")}')
         if not isinstance(result.get('checks'), list) or not isinstance(result.get('exclusions'), list):
             raise ValueError('Pass needs checks and exclusions')
-        for check in result['checks']:
-            reference(check, manifest)
-            text(check.get('check'), 'check')
+        valid_checks: list[Any] = []
+        for index, check in enumerate(result['checks'], 1):
+
+            def examine_check(check: Any = check) -> Any:
+                reference(check, manifest)
+                text(check.get('check'), 'check')
+                return check
+
+            if gap_boundary(gaps, f'{name} check {index}', examine_check) is not None:
+                valid_checks.append(check)
         exclusions: set[str] = set()
-        for exclusion in result['exclusions']:
-            path = repository_path(exclusion.get('path'))
-            if path not in manifest['files'] or path in exclusions:
-                raise ValueError('Invalid or duplicate exclusion')
-            text(exclusion.get('reason'), 'exclusion reason')
-            exclusions.add(path)
+        for index, exclusion in enumerate(result['exclusions'], 1):
+
+            def examine_exclusion(exclusion: Any = exclusion) -> str:
+                if not isinstance(exclusion, dict):
+                    raise ValueError('Exclusion must be an object')
+                path = repository_path(exclusion.get('path'))
+                if path not in manifest['files'] or path in exclusions:
+                    raise ValueError('Invalid or duplicate exclusion')
+                text(exclusion.get('reason'), 'exclusion reason')
+                return path
+
+            path = gap_boundary(gaps, f'{name} exclusion {index}', examine_exclusion)
+            if path is not None:
+                exclusions.add(path)
         if result['status'] == 'complete' and not result['checks'] and exclusions != set(manifest['files']):
             gaps.append(f'{name}: no source check or complete exclusion')
         if name in {'lines', 'rules'}:
+            cited = {check['path'] for check in valid_checks}
             for path in manifest['files']:
-                if path in exclusions:
-                    continue
-                diff = manifest['diff_files'].get(path)
-                if diff is None:
+                if path not in exclusions and path not in cited:
                     gaps.append(f'{name}: {path} has no review or exclusion')
-                    continue
-                for side, changed in diff['changed'].items():
-                    checks = [c for c in result['checks'] if c['path'] == path and c.get('side', 'RIGHT') == side]
-                    if any(not any(c.get('start_line', c['line']) <= n <= c['line'] for c in checks) for n in changed):
-                        gaps.append(f'{name}: {path} has uncovered {side} changes')
     required = [*manifest['required_passes']]
     if data.get('user_surface') is True:
         required.append('walk')
@@ -401,52 +443,68 @@ def validate(data: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
         raw_id = claim.get('id') if isinstance(claim, dict) else None
         key = raw_id if isinstance(raw_id, str) and raw_id.strip() else ''
         label = key or f'finding {index}'
-        try:
-            findings[key] = check_finding(claim, key, passes, findings, invalid_keys, previous, manifest)
-        except ValueError as e:
-            gaps.append(f'{label}: {e}')
-            if key:
-                findings.pop(key, None)
-                invalid_keys.add(key)
+
+        def examine_finding(claim: Any = claim, key: str = key) -> Any:
+            return check_finding(claim, key, passes, findings, invalid_keys, previous, manifest)
+
+        accepted = gap_boundary(gaps, label, examine_finding)
+        if accepted is not None:
+            findings[key] = accepted
+        elif key:
+            findings.pop(key, None)
+            invalid_keys.add(key)
     decisions: dict[str, Any] = {}
     seen_decisions: set[str] = set()
     for index, decision in enumerate(data['decisions'], 1):
         raw_id = decision.get('finding_id') if isinstance(decision, dict) else None
         key = raw_id if isinstance(raw_id, str) and raw_id.strip() else ''
         label = key or f'decision {index}'
-        try:
-            key, validated_decision = check_decision(
-                decision, seen_decisions, findings, invalid_keys, previous, manifest
-            )
-            if validated_decision is not None:
-                decisions[key] = validated_decision
-        except ValueError as e:
-            gaps.append(f'{label}: {e}')
+
+        def examine_decision(decision: Any = decision) -> Any:
+            return check_decision(decision, seen_decisions, findings, invalid_keys, previous, manifest)
+
+        accepted = gap_boundary(gaps, label, examine_decision)
+        if accepted is None:
             if key:
                 seen_decisions.add(key)
                 findings.pop(key, None)
                 decisions.pop(key, None)
                 invalid_keys.add(key)
+            continue
+        key, validated_decision = accepted
+        if validated_decision is not None:
+            decisions[key] = validated_decision
     for key, decision in decisions.items():
         if decision['decision'] == 'question':
             gaps.append(f'{key}: decisive fact remains unresolved')
     for key, claim in findings.items():
         if claim['kind'] != 'maintenance' and key not in decisions:
             gaps.append(f'{key}: not independently checked; omitted from published findings')
+    questions: list[Any] = []
     for number, question in enumerate(data['questions'], 1):
-        if not isinstance(question, dict):
-            raise ValueError('Question must be an object')
-        text(question.get('unknown'), 'unknown')
-        text(question.get('check'), 'check')
-        gaps.append(f'question {number}: decisive fact remains unresolved')
-    previous_ids = {key for key, record in previous.items() if record['status'] not in {'resolved', 'reject'}}
-    gaps.extend(f'{key}: prior claim not revalidated' for key in sorted(previous_ids - decisions.keys() - invalid_keys))
+
+        def examine_question(question: Any = question) -> Any:
+            if not isinstance(question, dict):
+                raise ValueError('Question must be an object')
+            text(question.get('unknown'), 'unknown')
+            text(question.get('check'), 'check')
+            return question
+
+        accepted = gap_boundary(gaps, f'question {number}', examine_question)
+        if accepted is not None:
+            questions.append(accepted)
+            gaps.append(f'question {number}: decisive fact remains unresolved')
+    gaps.extend(
+        f'{key}: prior claim not revalidated'
+        for key in sorted(open_claim_ids(previous) - decisions.keys() - invalid_keys)
+    )
     if status == 'skipped' and (data['findings'] or data['decisions'] or findings or invalid_keys):
         raise ValueError('A skipped review cannot contain findings')
     incomplete = bool(gaps) and status == 'complete'
     return {
         'findings': findings,
         'decisions': decisions,
+        'questions': questions,
         'gaps': gaps,
         'status': 'incomplete' if incomplete else status,
         'reason': 'The host found coverage gaps.' if incomplete else data.get('reason', ''),
@@ -476,13 +534,29 @@ def claim_digest(claim: dict[str, Any], manifest: dict[str, Any]) -> str:
     return digest([public_claim, evidence])
 
 
+def scrub_marker(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.replace(STATE_MARKER, '')
+    if isinstance(value, list):
+        return [scrub_marker(item) for item in value]
+    if isinstance(value, dict):
+        return {key: scrub_marker(item) for key, item in value.items()}
+    return value
+
+
 def publication_body(body: str, appendix: str = '') -> str:
-    if len((body + appendix).encode()) > MAX_BODY_BYTES:
-        body = body.rsplit('\n\n' + STATE_MARKER, 1)[0]
-    body += appendix
-    if len(body.encode()) > MAX_BODY_BYTES:
+    appendix = appendix.replace(STATE_MARKER, '')
+    marker = '\n\n' + STATE_MARKER
+    cut = body.rfind(marker)
+    prose, state = (body[:cut], body[cut:]) if cut != -1 else (body, '')
+    prose = prose.replace(STATE_MARKER, '')
+    combined = prose + appendix
+    if state and len((combined + state).encode()) > MAX_BODY_BYTES:
+        state = ''
+    published = combined + state
+    if len(published.encode()) > MAX_BODY_BYTES:
         raise ValueError('Review body exceeds the publication limit')
-    return body
+    return published
 
 
 def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -492,10 +566,10 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
         '',
         f'Reviewed {manifest["merge_base_sha"]}..{manifest["head_sha"]}.',
         '',
-        data['assessment'],
+        scrub_marker(data['assessment']),
     ]
     if manifest.get('focus'):
-        body += ['', '### Focus', '', data['focus_answer']]
+        body += ['', '### Focus', '', scrub_marker(data['focus_answer'])]
     if checked['status'] == 'incomplete':
         body += ['', 'Coverage incomplete: ' + checked['reason']]
         body += ['- ' + gap for gap in checked['gaps']]
@@ -503,37 +577,36 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
         body += ['', 'Skipped: ' + checked['reason']]
     comments: list[dict[str, Any]] = []
     maintenance: list[str] = []
-    questions = list(data['questions'])
+    questions = [scrub_marker(question) for question in checked['questions']]
     previous = {r['claim']['id']: r for r in manifest.get('previous', {}).get('records', [])}
     records: dict[str, Any] = {
-        key: {**value, 'status': 'unverified'}
-        for key, value in previous.items()
-        if value['status'] not in {'resolved', 'reject'}
+        key: {**value, 'status': 'unverified'} for key, value in previous.items() if key in open_claim_ids(previous)
     }
     published = 0
     for key, original in checked['findings'].items():
         decision = checked['decisions'].get(key)
         if decision is None and original['kind'] != 'maintenance':
             continue
-        claim = original if decision is None else decision['checked']
+        claim = scrub_marker(original if decision is None else decision['checked'])
         verdict = 'keep' if decision is None else decision['decision']
         fingerprint = claim_digest(claim, manifest) if verdict in {'keep', 'narrow'} else ''
         earlier = previous.get(key, {})
         record = {
             'claim': claim,
             'status': verdict,
-            'reason': '' if decision is None else decision['reason'],
+            'reason': '' if decision is None else scrub_marker(decision['reason']),
             'claim_digest': fingerprint,
             'posted': False,
             'ever_posted': bool(earlier.get('ever_posted') or earlier.get('posted')),
         }
-        records[key] = record
+        if claim['kind'] != 'maintenance':
+            records[key] = record
         if verdict == 'question':
-            questions.append({'unknown': decision['unknown'], 'check': decision['check']})
+            questions.append(scrub_marker({'unknown': decision['unknown'], 'check': decision['check']}))
             continue
         if verdict == 'resolved':
             if record['ever_posted']:
-                body += ['', f'Resolved: {claim["title"]}. {decision["reason"]}']
+                body += ['', f'Resolved: {claim["title"]}. {record["reason"]}']
             continue
         if verdict == 'reject':
             continue

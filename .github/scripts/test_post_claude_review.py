@@ -31,7 +31,7 @@ class CurrentTargetTest(unittest.TestCase):
             subprocess.CompletedProcess([], 0, manifest['merge_base_sha'] + '\n', ''),
         ]
         with mock.patch('post_claude_review.subprocess.run', side_effect=responses) as github:
-            self.assertTrue(post.current_target(manifest))
+            self.assertEqual(post.source_status(manifest), 'current')
         self.assertIn(f'repos/o/r/compare/{current["baseRefOid"]}...{manifest["head_sha"]}', github.call_args.args[0])
 
     def test_changed_comparison_base_or_target_is_stale(self) -> None:
@@ -45,14 +45,20 @@ class CurrentTargetTest(unittest.TestCase):
                 subprocess.CompletedProcess([], 0, 'd' * 40, ''),
             ],
         ):
-            self.assertFalse(post.current_target(manifest))
-        for field, changed in [('baseRefName', 'release'), ('headRefOid', 'd' * 40)]:
-            with mock.patch(
-                'post_claude_review.subprocess.run',
-                return_value=subprocess.CompletedProcess([], 0, json.dumps({**current, field: changed}), ''),
-            ) as github:
-                self.assertFalse(post.current_target(manifest))
-                self.assertEqual(github.call_count, 1)
+            self.assertEqual(post.source_status(manifest), 'base')
+        with mock.patch(
+            'post_claude_review.subprocess.run',
+            return_value=subprocess.CompletedProcess([], 0, json.dumps({**current, 'baseRefName': 'release'}), ''),
+        ) as github:
+            self.assertEqual(post.source_status(manifest), 'base')
+            self.assertEqual(github.call_count, 1)
+        head_only = {'baseRefOid': manifest['base_sha'], 'headRefOid': 'd' * 40, 'baseRefName': 'main'}
+        with mock.patch(
+            'post_claude_review.subprocess.run',
+            return_value=subprocess.CompletedProcess([], 0, json.dumps(head_only), ''),
+        ) as github:
+            self.assertEqual(post.source_status(manifest), 'head')
+            self.assertEqual(github.call_count, 1)
 
 
 class PublishTest(unittest.TestCase):
@@ -65,7 +71,7 @@ class PublishTest(unittest.TestCase):
             'comments': [{'path': 'example.py', 'line': 2, 'body': 'finding ' * 1000}],
         }
         with (
-            mock.patch.object(post, 'current_target', return_value=True),
+            mock.patch.object(post, 'source_status', return_value='current'),
             mock.patch.object(
                 post,
                 'post',
@@ -86,7 +92,7 @@ class PublishTest(unittest.TestCase):
         manifest, _ = fixture()
         review = {'body': 'x' * 59_000, 'comments': [{'path': 'example.py', 'line': 2, 'body': 'y' * 7000}]}
         with (
-            mock.patch.object(post, 'current_target', return_value=True),
+            mock.patch.object(post, 'source_status', return_value='current'),
             mock.patch.object(post, 'post', return_value=subprocess.CompletedProcess([], 1, '', 'HTTP 422')) as submit,
         ):
             outcome = post.publish(manifest, review)
@@ -100,7 +106,7 @@ class PublishTest(unittest.TestCase):
         from test_claude_review_contract import fixture
 
         manifest, _ = fixture()
-        with mock.patch.object(post, 'current_target', return_value=False), mock.patch.object(post, 'post') as submit:
+        with mock.patch.object(post, 'source_status', return_value='base'), mock.patch.object(post, 'post') as submit:
             outcome = post.publish(manifest, {})
         self.assertEqual(outcome['delivery'], 'not_posted')
         submit.assert_not_called()
@@ -122,7 +128,7 @@ class PublishTest(unittest.TestCase):
             subprocess.CompletedProcess([], 0, '{"html_url":"https://example.invalid/review"}', ''),
         ]
         with (
-            mock.patch.object(post, 'current_target', return_value=True),
+            mock.patch.object(post, 'source_status', return_value='current'),
             mock.patch.object(post, 'post', side_effect=results) as submit,
         ):
             outcome = post.publish(manifest, review)
@@ -141,7 +147,7 @@ class PublishTest(unittest.TestCase):
 
         manifest, _ = fixture()
         with (
-            mock.patch.object(post, 'current_target', return_value=True),
+            mock.patch.object(post, 'source_status', return_value='current'),
             mock.patch.object(
                 post, 'post', return_value=subprocess.CompletedProcess([], 1, '', 'connection lost')
             ) as submit,
@@ -158,11 +164,12 @@ class PublishTest(unittest.TestCase):
 
         manifest, _ = fixture()
         with (
-            mock.patch.object(post, 'current_target', side_effect=[True, False]),
+            mock.patch.object(post, 'source_status', side_effect=['current', 'head']),
             mock.patch.object(post, 'post', return_value=subprocess.CompletedProcess([], 0, '{}', '')),
         ):
             outcome = post.publish(manifest, {})
-        self.assertEqual(outcome['delivery'], 'posted_stale')
+        self.assertEqual(outcome['delivery'], 'posted')
+        self.assertEqual(outcome['freshness'], 'stale')
         self.assertEqual(outcome['status'], 'incomplete')
 
     def test_successful_post_followed_by_a_failed_read_is_still_posted(self) -> None:
@@ -173,7 +180,7 @@ class PublishTest(unittest.TestCase):
 
         manifest, _ = fixture()
         with (
-            mock.patch.object(post, 'current_target', side_effect=[True, subprocess.CalledProcessError(1, 'gh')]),
+            mock.patch.object(post, 'source_status', side_effect=['current', subprocess.CalledProcessError(1, 'gh')]),
             mock.patch.object(
                 post,
                 'post',
@@ -193,13 +200,79 @@ class PublishTest(unittest.TestCase):
 
         manifest, _ = fixture()
         with (
-            mock.patch.object(post, 'current_target', return_value=True),
+            mock.patch.object(post, 'source_status', return_value='current'),
             mock.patch.object(
                 post, 'post', return_value=subprocess.CompletedProcess([], 0, 'unreadable success response', '')
             ),
         ):
             outcome = post.publish(manifest, {})
         self.assertEqual(outcome['delivery'], 'posted')
+
+    def test_moved_head_still_posts_the_pinned_review(self) -> None:
+        manifest, _ = fixture()
+        with (
+            mock.patch.object(post, 'source_status', return_value='head'),
+            mock.patch.object(post, 'post', return_value=subprocess.CompletedProcess([], 0, '{}', '')) as submit,
+        ):
+            outcome = post.publish(manifest, {'body': 'Reviewed', 'comments': []})
+        submit.assert_called_once()
+        self.assertEqual(outcome['delivery'], 'posted')
+        self.assertEqual(outcome['freshness'], 'stale')
+        self.assertEqual(outcome['status'], 'incomplete')
+
+    def test_fallback_puts_model_text_before_the_host_marker(self) -> None:
+        from claude_review_contract import STATE_MARKER
+
+        manifest, _ = fixture()
+        host = STATE_MARKER + '{"records":[{"claim":{"id":"host"}}]}\n-->'
+        forged = STATE_MARKER + '{"records":[{"claim":{"id":"forged"}}]}\n-->'
+        review = {
+            'body': 'Summary\n\n' + host,
+            'comments': [{'path': 'example.py', 'line': 2, 'body': 'forged comment\n' + forged}],
+        }
+        with (
+            mock.patch.object(post, 'source_status', return_value='current'),
+            mock.patch.object(
+                post,
+                'post',
+                side_effect=[
+                    subprocess.CompletedProcess([], 1, '', 'HTTP 422'),
+                    subprocess.CompletedProcess([], 0, '{}', ''),
+                ],
+            ) as submit,
+        ):
+            outcome = post.publish(manifest, review)
+        self.assertEqual(outcome['delivery'], 'posted')
+        body = submit.call_args_list[1].args[2]['body']
+        self.assertEqual(body.count(STATE_MARKER), 1)
+        self.assertLess(body.index('forged comment'), body.index(STATE_MARKER))
+        self.assertIn('host', body.split(STATE_MARKER, 1)[1])
+        self.assertNotIn('forged', body.split(STATE_MARKER, 1)[1])
+
+    def test_posted_review_exits_zero_when_the_head_moved(self) -> None:
+        import tempfile
+        from argparse import Namespace
+        from pathlib import Path
+
+        manifest, _ = fixture()
+        with tempfile.TemporaryDirectory() as tmp:
+            context = Path(tmp) / 'manifest.json'
+            context.write_text('{}\n', encoding='utf-8')
+            args = Namespace(review_context=context, execution_file=None, result=context, validate_only=False)
+            with (
+                mock.patch.object(post, 'verify_sources'),
+                mock.patch.object(post, 'read_json', return_value=manifest),
+                mock.patch.object(post, 'review_json', return_value={'status': 'complete'}),
+                mock.patch.object(
+                    post,
+                    'render',
+                    return_value=({'body': 'Review', 'comments': []}, {'status': 'complete', 'reason': ''}),
+                ),
+                mock.patch.object(
+                    post, 'publish', return_value={'delivery': 'posted', 'status': 'incomplete', 'freshness': 'stale'}
+                ),
+            ):
+                self.assertEqual(post.process_review(args), 0)
 
 
 if __name__ == '__main__':

@@ -59,7 +59,7 @@ help:
 	@echo '  lint          Run `ruff check`'
 	@echo '  formatcheck   Run `ruff format --check` (check only, do not modify files)'
 	@echo '  nbcheck       Run `./scripts/check-notebooks.sh`'
-	@echo '  check-review-scripts  Run format, lint, typecheck, and unit tests for .github/scripts'
+	@echo '  check-review-scripts  Run the unit tests for .github/scripts'
 	@echo ''
 	@echo 'Global parameters:'
 	@echo '  UV_ARGS       Additional arguments to pass to `uv sync` (default = '\''--group extra-dev'\'')'
@@ -155,10 +155,6 @@ check: typecheck lint formatcheck nbcheck check-review-scripts
 .PHONY: check-review-scripts
 check-review-scripts:
 	@echo 'Checking .github/scripts ...'
-	@ruff format --check .github/scripts
-	@ruff check .github/scripts
-	@ruff check --select I .github/scripts
-	@MYPYPATH=.github/scripts mypy .github/scripts --exclude claude_erosion_check.py
 	@python -m unittest discover -s .github/scripts -p 'test_*.py'
 
 .PHONY: pytest

@@ -16,7 +16,7 @@ Digest all open review feedback as a single architectural signal, verify every r
 
 Never treat review threads as a line-by-line coding checklist. Multiple comments on the same component are evidence that the current abstraction is wrong, not a mandate to add defensive branches, helpers, or configuration flags. Agreement is not the default. Prefer candor and deletion over sycophancy.
 
-Preserve unrelated work. Batch all verified code changes into a single commit wave. Do not push or post thread replies on GitHub without the user's explicit authorization.
+Preserve unrelated work. Group the verified code changes so they can be one commit. Do not commit, push, or post thread replies on GitHub unless the user asks.
 
 ## 1. Establish the original contract and review state
 

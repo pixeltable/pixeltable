@@ -140,6 +140,14 @@ class PrepareTest(unittest.TestCase):
         for entry in result['passes']:
             for check in entry['checks']:
                 check.update(start_line=1, line=1)
+        omitted = contract.render(result, manifest)[1]
+        self.assertEqual(omitted['status'], 'incomplete')
+        self.assertTrue(any('image.png has no review or exclusion' in gap for gap in omitted['gaps']))
+        for entry in result['passes']:
+            if entry['pass'] in {'lines', 'rules'}:
+                entry['exclusions'] = [
+                    {'path': path, 'reason': 'No text lines'} for path in manifest['files'] if path != 'example.py'
+                ]
         self.assertEqual(contract.render(result, manifest)[1]['status'], 'complete')
 
     def test_manifest_size_is_rejected_during_preparation(self) -> None:
