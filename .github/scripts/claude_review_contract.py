@@ -15,9 +15,10 @@ REQUIRED_PASSES = ['abstractions', 'lines', 'design', 'blast-radius', 'rules']
 KINDS = {'defect', 'design', 'rule', 'maintenance'}
 AGENT_FILES = {'CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', '.claude', '.mcp.json'}
 STATE_MARKER = '<!-- pxt-review-state\n'
-# GitHub token prefixes and the origin-URL form the review action writes. Long enough that a
-# mention of the prefix alone stays, and short enough to catch an actions token.
-_CREDENTIAL = re.compile(r'x-access-token:[^\s@\'"]+|github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9_]{16,}')
+# A GitHub token, or the userinfo the review action writes into an origin URL. A bare prefix is
+# shorter than this and stays. The value is only token characters, so a quoted token cannot eat
+# the JSON escape that follows it.
+_CREDENTIAL = re.compile(r'x-access-token:[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}|gh[pousr]_[A-Za-z0-9_]{16,}')
 _CREDENTIAL_NOTE = 'A credential-shaped string was removed before publication.'
 MAX_JSON_BYTES = 2_000_000
 MAX_SOURCES_BYTES = 20_000_000
@@ -32,6 +33,30 @@ def digest(value: Any) -> str:
 def redact_credentials(text: str) -> str:
     """Replace GitHub credential shapes. The review job must not post or log one."""
     return _CREDENTIAL.sub('[redacted credential]', text)
+
+
+def redact_model(value: Any) -> tuple[Any, bool]:
+    """Copy model JSON with credential shapes replaced. Returns whether any were removed."""
+    if isinstance(value, str):
+        redacted = redact_credentials(value)
+        return redacted, redacted != value
+    if isinstance(value, list):
+        changed = False
+        copied: list[Any] = []
+        for item in value:
+            redacted, item_changed = redact_model(item)
+            copied.append(redacted)
+            changed = changed or item_changed
+        return copied, changed
+    if isinstance(value, dict):
+        changed = False
+        copied_map: dict[str, Any] = {}
+        for key, item in value.items():
+            redacted, item_changed = redact_model(item)
+            copied_map[key] = redacted
+            changed = changed or item_changed
+        return copied_map, changed
+    return value, False
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -675,6 +700,7 @@ def public_gap(gap: str) -> str | None:
 
 
 def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    data, credential_removed = redact_model(data)
     checked = validate(data, manifest)
     body = [
         '## Claude review',
@@ -751,6 +777,8 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
     if questions:
         body += ['', '### Questions', '']
         body += [f'- {q["unknown"]} Check: {q["check"]}' for q in questions]
+    if credential_removed:
+        body += ['', _CREDENTIAL_NOTE]
     unfinished = [line for gap in checked['gaps'] if (line := public_gap(gap))]
     if unfinished:
         body += ['', 'Left unfinished:', '']
@@ -794,19 +822,6 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
         'published': published,
         'gaps': checked['gaps'],
     }
-    raw_body = '\n'.join(body)
-    published_body = redact_credentials(raw_body)
-    credential_removed = published_body != raw_body
-    for comment in comments:
-        redacted = redact_credentials(comment['body'])
-        credential_removed = credential_removed or redacted != comment['body']
-        comment['body'] = redacted
-    if credential_removed and _CREDENTIAL_NOTE not in published_body:
-        marker = '\n\n' + STATE_MARKER
-        note = '\n\n' + _CREDENTIAL_NOTE
-        published_body = (
-            published_body.replace(marker, note + marker, 1) if marker in published_body else published_body + note
-        )
     if credential_removed:
         stats['credentials_redacted'] = True
         if stats['status'] == 'complete':
@@ -816,7 +831,7 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
             stats['reason'] = f'{stats["reason"]} {_CREDENTIAL_NOTE}'.strip()
     return {
         'commit_id': manifest['head_sha'],
-        'body': publication_body(published_body),
+        'body': publication_body('\n'.join(body)),
         'event': 'COMMENT',
         'comments': comments,
     }, stats

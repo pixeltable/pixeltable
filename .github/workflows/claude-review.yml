@@ -89,8 +89,8 @@ jobs:
           python3 .github/scripts/prepare_claude_review.py
           "https://github.com/${{ github.repository }}/pull/${{ env.PR_NUMBER }}"
           --output "$RUNNER_TEMP/pxt-review" --focus="$REVIEW_FOCUS"
-      # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB fails without bubblewrap, and the action installs it only when
-      # allowed_non_write_users is set. Ubuntu 24.04 blocks the unprivileged user namespaces bubblewrap needs.
+      # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB fails without bubblewrap. Ubuntu 24.04 blocks the unprivileged
+      # user namespaces it needs, so this step installs it and lifts that restriction.
       # Review execution and posting continue on error. Trusted preparation fails the job if it cannot freeze the
       # source. Outcome artifacts and the final reaction expose review or delivery failures.
       - continue-on-error: true
@@ -104,11 +104,10 @@ jobs:
       - id: claude
         timeout-minutes: 30
         continue-on-error: true
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@925afb53776cf1a2b738c6bdbed37b4d4000ef13 # v1.0.262
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          # Not a GitHub login. It only selects the credential-helper branch in the action.
           allowed_non_write_users: pxt.credential-helper
           settings: '{"permissions": {"additionalDirectories": ["${{ runner.temp }}/pxt-review"], "deny": ["Read(.git/**)", "Bash(git config:*)", "Bash(git remote:*)"]}}'
           prompt: >-
