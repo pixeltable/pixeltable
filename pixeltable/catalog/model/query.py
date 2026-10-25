@@ -135,9 +135,7 @@ class ModelQuery(QueryBase):
                 sim.components[0].copy().substitute(subst),
                 idx_name=sim.idx_name,
                 qcol_id=new_md.qcolid,
-                # the path-context table version owns column-level metadata such as indexes; qcolid.tbl_id
-                # is the column's physical owner, which for an inherited column is the base table
-                table_version_key=catalog.TableVersionKey(new_md.tbl_id, new_md.effective_version),
+                table_version_key=new_md.tbl_version_key,
             )
 
         def rebound(e: exprs.Expr) -> exprs.Expr:

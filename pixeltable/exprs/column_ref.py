@@ -69,8 +69,9 @@ class ColumnRef(Expr):
     def __init__(self, col_md: catalog.ColumnVersionMd, perform_validation: bool = False):
         super().__init__(col_md.col_type)
         self.col_md = col_md
-        key = catalog.TableVersionKey(col_md.qcolid.tbl_id, col_md.col_effective_version)
-        self._col = catalog.ColumnHandle(catalog.TableVersionHandle(key), col_md.qcolid.col_id)
+        self._col = catalog.ColumnHandle(
+            catalog.TableVersionHandle(col_md.physical_tbl_version_key), col_md.qcolid.col_id
+        )
 
         # pos (id=0) is an unstored iterator column, but its value comes from the PK, not the iterator output dict
         self.needs_iterator_evaluation = col_md.is_iterator_col and not col_md.is_stored and col_md.id != 0
@@ -98,8 +99,7 @@ class ColumnRef(Expr):
     def tbl_version(self) -> catalog.TableVersionHandle:
         # the path-context table (e.g. the view a base column is accessed through), where column-level metadata
         # such as indexes lives - as opposed to _col, which is the column's physical owner
-        key = catalog.TableVersionKey(self.col_md.tbl_id, self.col_md.effective_version)
-        return catalog.TableVersionHandle(key)
+        return catalog.TableVersionHandle(self.col_md.tbl_version_key)
 
     def set_iter_arg_ctx(self, iter_arg_ctx: RowBuilder.EvalCtx, iter_outputs: list[ColumnRef]) -> None:
         self.iter_arg_ctx = iter_arg_ctx
@@ -458,9 +458,8 @@ class ColumnRef(Expr):
                     f'{type_str} embedding and does not support {type_str} queries',
                 )
 
-        table_version_key = catalog.TableVersionKey(self.col_md.tbl_id, self.col_md.effective_version)
         return SimilarityExpr(
-            expr, idx_name=idx_md.name, qcol_id=self.col_md.qcolid, table_version_key=table_version_key
+            expr, idx_name=idx_md.name, qcol_id=self.col_md.qcolid, table_version_key=self.col_md.tbl_version_key
         )
 
     def embedding(self, *, idx: str | None = None) -> ColumnRef:

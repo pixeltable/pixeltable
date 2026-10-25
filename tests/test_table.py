@@ -2047,26 +2047,51 @@ class TestTable:
         pxt.drop_table(p('test3'))
 
     @pytest.mark.db_roots('local', reason='asserts on the local media store layout')
-    def test_drop_table_media_refs(self, uses_db: None) -> None:
+    def test_drop_table_media_refs(self, uses_db: None, tmp_path: Path) -> None:
         from pixeltable.utils.local_store import LocalStore
 
         # a owns its computed media physically; streaming-inserting it into b must copy the files:
         # dropping a afterwards must not leave b's cells referencing deleted files
-        a = pxt.create_table('tbl_a', {'img': pxt.Image})
-        a.insert([{'img': f} for f in get_image_files()[:5]])
+        a = pxt.create_table('tbl_a', {'img': pxt.Image, 'n': pxt.Int})
+        a.insert([{'img': f, 'n': 2} for f in get_image_files()[:5]])
         a.add_computed_column(rotated=a.img.rotate(30), stored=True)
         a_urls = set(a.select(url=a.rotated.fileurl).collect()['url'])
 
         b = pxt.create_table('tbl_b', {'img': pxt.Image})
-        b.insert(a.select(img=a.rotated))
+        status = b.insert(a.select(img=a.rotated))
+        assert status.num_excs == 0
         b_urls = b.select(url=b.img.fileurl).collect()['url']
         assert len(b_urls) == 5
         assert set(b_urls).isdisjoint(a_urls)
 
-        pxt.drop_table('tbl_a')
-        res = b.select().collect()
-        assert len(res) == 5
-        for u in b_urls:
+        # media computed in the query itself (not just carried over) is stored with b as well
+        status = b.insert(a.select(img=a.img.rotate(90)))
+        assert status.num_excs == 0
+
+        # a repeated managed URL: the iterator view emits a's rotated for each of its 2 component
+        # rows, so the second row reuses the first row's in-flight copy
+        iv = pxt.create_view('iter_v', a, iterator=DummyIterator(a.n))
+        assert iv.count() == 10
+        status = b.insert(iv.select(img=iv.rotated))
+        assert status.num_excs == 0
+        assert b.count() == 20
+
+        # media under a non-default local destination is copied too: dropping a deletes that directory
+        dest_dir = tmp_path / 'store_a'
+        dest_dir.mkdir()
+        a.add_computed_column(rotated2=a.img.rotate(60), stored=True, destination=str(dest_dir))
+        status = b.insert(a.select(img=a.rotated2))
+        assert status.num_excs == 0
+        assert b.count() == 25
+
+        # a view may keep referencing its base's files, since the base cannot be dropped first
+        v = pxt.create_view('v', a)
+        v.add_computed_column(copied=v.rotated, stored=True)
+        assert set(v.select(url=v.copied.fileurl).collect()['url']) == a_urls
+
+        pxt.drop_table('tbl_a', force=True)
+        assert b.count() == 25
+        for u in b.select(url=b.img.fileurl).collect()['url']:
             p = LocalStore.file_url_to_path(u)
             assert p is not None and p.exists(), p
 

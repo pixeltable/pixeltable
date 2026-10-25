@@ -818,6 +818,9 @@ class Table(SchemaObject):
         ...     )
         ... )
 
+        Media files managed by the source table are copied into this table's store (duplicating their
+        storage), so the inserted cells stay readable if the source table is later dropped.
+
         For inserting just a single row, there is a convenient shorthand key/value syntax:
 
         >>> tbl.insert(col1=1, col2='egg')

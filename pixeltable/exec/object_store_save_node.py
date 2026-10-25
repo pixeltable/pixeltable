@@ -3,10 +3,12 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import logging
+import re
 from collections import defaultdict, deque
 from concurrent import futures
 from pathlib import Path
-from typing import AsyncIterator, Iterator, NamedTuple
+from typing import TYPE_CHECKING, AsyncIterator, Iterator, NamedTuple
+from uuid import UUID
 
 from pixeltable import exprs, telemetry, telemetry_schemas
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectPath, ObjectStoreBase, StorageTarget
@@ -14,6 +16,9 @@ from pixeltable.utils.progress_reporter import ProgressReporter
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
+
+if TYPE_CHECKING:
+    from pixeltable import catalog
 
 _logger = logging.getLogger(__name__)
 
@@ -80,6 +85,11 @@ class ObjectStoreSaveNode(ExecNode):
     input_finished: bool
     row_idx: Iterator[int | None]
 
+    # the table ids along each output column's table path (its table plus bases): files owned by any of
+    # them may stay referenced in place, since a base cannot be dropped while a dependent exists;
+    # files owned by other tables are copied
+    path_tbl_ids: dict['catalog.Column', frozenset[UUID]]
+
     # progress reporting
     progress_reporter: ProgressReporter | None
 
@@ -114,6 +124,7 @@ class ObjectStoreSaveNode(ExecNode):
 
     def _open(self) -> None:
         self._init_exec_state()
+        self.path_tbl_ids = {info.col: frozenset(info.col.get_tbl().path.tbl_ids) for info in self.file_col_info}
         self.progress_reporter = self.ctx.add_progress_reporter('Uploads', 'objects', 'B')
 
     async def get_input_batch(self, input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None:
@@ -220,7 +231,6 @@ class ObjectStoreSaveNode(ExecNode):
 
     def __process_input_row(self, row: exprs.DataRow) -> list[ObjectStoreSaveNode.WorkItem]:
         """Process a batch of input rows, generating a list of work"""
-        from pixeltable.env import Env
         from pixeltable.utils.local_store import LocalStore, TempStore
 
         # Create a list of work to do for media storage in this row
@@ -244,30 +254,38 @@ class ObjectStoreSaveNode(ExecNode):
             assert row.excs[index] is None
             assert col.col_type.is_media_type()
 
-            destination = info.col.destination
-            if destination is not None:
-                soa = ObjectPath.parse_object_storage_addr(destination, False)
-                if soa.storage_target == StorageTarget.LOCAL_STORE and LocalStore(soa).resolve_url(url) is not None:
-                    # A local non-default destination was specified, and the url already points there
-                    continue
-
             src_path = LocalStore.file_url_to_path(url)
             if src_path is None:
                 # The url does not point to a local file, do not attempt to copy/move it
                 continue
 
-            if destination is None and not TempStore.contains_path(src_path):
-                media_dir = Env.get().media_dir
-                owned_by_other_tbl = src_path.is_relative_to(media_dir) and src_path.relative_to(media_dir).parts[
-                    0
-                ] != ObjectPath.table_prefix(col.tbl_handle.id)
-                if not owned_by_other_tbl:
-                    # Do not copy local file URLs to the LocalStore, except managed media owned by
-                    # another table: dropping that table deletes its media directory and would leave
-                    # this row's fileurl dangling
+            destination = info.col.destination
+
+            # A local file is copied only when it is managed media owned by a table that is not in this
+            # column's table path: dropping that table deletes its media and would leave this row's
+            # fileurl dangling. Media owned by a base stays referenced, since a base cannot be dropped
+            # while a dependent exists.
+            match = re.match(ObjectPath.PATTERN, src_path.name)
+            foreign_managed = (
+                match is not None and len(match[1]) == 32 and UUID(hex=match[1]) not in self.path_tbl_ids[col]
+            )
+            if not foreign_managed:
+                if destination is not None:
+                    soa = ObjectPath.parse_object_storage_addr(destination, False)
+                    if soa.storage_target == StorageTarget.LOCAL_STORE and LocalStore(soa).resolve_url(url) is not None:
+                        # A local non-default destination was specified, and the url already points there
+                        continue
+                elif not TempStore.contains_path(src_path):
+                    # keep referencing the file in place
                     continue
 
-            file_size = src_path.stat().st_size
+            try:
+                file_size = src_path.stat().st_size
+            except OSError as e:
+                if not self.ctx.ignore_errors:
+                    raise
+                self.row_builder.set_exc(row, index, e)
+                continue
             work_designator = ObjectStoreSaveNode.WorkDesignator(str(src_path), destination, file_size)
             locations = self.in_flight_work.get(work_designator)
             if locations is not None:
@@ -296,12 +314,16 @@ class ObjectStoreSaveNode(ExecNode):
             else:
                 new_to_do.append(
                     work_item._replace(destination_count=unique_destinations[work_item.src_path] + 1)
-                    # +1 for the TempStore destination
+                    # +1 for the source location itself: a count > 1 makes put_file_resolved() copy
+                    # rather than move, so a source that is still needed (multiple destinations, or a
+                    # file owned by another table) is left in place
                 )
         delete_destinations = [k for k, v in unique_destinations.items() if v > 1 and TempStore.contains_path(k)]
         row_to_do = new_to_do
 
-        if len(row_to_do) > 0:
+        if num_missing > 0:
+            # the row has media references outstanding, possibly only on work already in flight for
+            # earlier rows; it needs a RowState to be completed when that work finishes
             self.in_flight_rows[id(row)] = self.RowState(
                 row, row_idx, num_missing, delete_destinations=delete_destinations
             )

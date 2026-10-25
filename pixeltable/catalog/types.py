@@ -105,6 +105,17 @@ class ColumnVersionMd:
     def stores_cellmd(self) -> bool:
         return self.col_md.stores_cellmd
 
+    @property
+    def tbl_version_key(self) -> TableVersionKey:
+        """Key of the path-context table version, which owns column-level metadata such as indexes."""
+        return TableVersionKey(self.tbl_id, self.effective_version)
+
+    @property
+    def physical_tbl_version_key(self) -> TableVersionKey:
+        """Key of the column's physical-owner table version (the base table for a column inherited
+        through a view)."""
+        return TableVersionKey(self.qcolid.tbl_id, self.col_effective_version)
+
     def with_context(self, tbl_id: UUID, effective_version: int | None) -> ColumnVersionMd:
         """Reset the path-context table."""
         if tbl_id == self.tbl_id and effective_version == self.effective_version:
