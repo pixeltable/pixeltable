@@ -4,7 +4,8 @@
 //! The history of a table only changes at its end (a new version, the status of the current version, `revert()`
 //! dropping the current version), so a commit appends the records from the first one that differs from what is
 //! committed (`changed_records()`); replay (`replay()`) lets a record replace every record of the same or a later
-//! version, and drops the versions after the table's current version (what `revert()` removed).
+//! version (a version record also replaces the schema versions it rules out: those after its own schema version and
+//! not after it), and drops the versions after the table's current version (what `revert()` removed).
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -77,6 +78,9 @@ pub fn replay(h: &mut History, records: Vec<Record>, current_version: i64) {
             Record::Version(v) => {
                 let k = h.versions.partition_point(|x| x.version < v.version);
                 h.versions.truncate(k);
+                // a schema version is numbered by the version that created it: one after this version's schema version
+                // and not after this version belongs to a reverted version that this one replaces
+                h.schema_versions.retain(|x| x.schema_version <= v.schema_version || x.schema_version > v.version);
                 h.versions.push(Arc::new(v));
             }
             Record::Schema(s) => {
@@ -130,5 +134,39 @@ mod tests {
         after.versions.push(version(2, 9));
         log.extend(changed(&current, &after));
         assert_eq!(replayed(&log, 2), vec![(0, 0), (1, 6), (2, 9)]);
+    }
+
+    fn schema(s: i64) -> Arc<SchemaVersionMd> {
+        Arc::new(SchemaVersionMd {
+            schema_version: s,
+            preceding_schema_version: None,
+            columns: Vec::new(),
+            comment: None,
+            custom_metadata: serde_json::Value::Null,
+            media_validation: crate::catalog::table::MediaValidation::OnWrite,
+        })
+    }
+
+    #[test]
+    fn data_version_replaces_reverted_schema_version() {
+        // a schema change at version 2 is reverted, and a data change takes version 2 again (with schema version 1)
+        let v1 = Arc::new(VersionMd::new(1, 0.0, 1, "schema", None));
+        let committed = History { versions: vec![version(0, 0), v1], schema_versions: vec![schema(0), schema(1)] };
+        let mut log = changed(&History::default(), &committed);
+        let mut altered = committed.clone();
+        altered.schema_versions.push(schema(2));
+        let mut v2 = VersionMd::new(2, 0.0, 2, "schema", None);
+        v2.row_count_stats.ins_rows = 0;
+        altered.versions.push(Arc::new(v2));
+        log.extend(changed(&committed, &altered));
+        let mut after = committed.clone();
+        let mut v2 = VersionMd::new(2, 0.0, 1, "data", None);
+        v2.row_count_stats.ins_rows = 3;
+        after.versions.push(Arc::new(v2));
+        log.extend(changed(&altered, &after));
+        let mut h = History::default();
+        replay(&mut h, parse(&serialize(&log).unwrap_or_default()).unwrap_or_default(), 2);
+        assert_eq!(h.schema_versions.iter().map(|s| s.schema_version).collect::<Vec<_>>(), vec![0, 1]);
+        assert_eq!(h.versions.iter().map(|v| (v.version, v.schema_version)).collect::<Vec<_>>(), vec![(0, 0), (1, 1), (2, 1)]);
     }
 }

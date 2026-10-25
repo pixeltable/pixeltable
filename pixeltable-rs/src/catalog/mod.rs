@@ -12,6 +12,7 @@ pub mod path;
 pub mod runtime;
 pub mod table;
 pub mod tables;
+pub mod validate;
 pub mod versions;
 pub mod views;
 
@@ -563,7 +564,7 @@ impl Catalog {
     /// Replaces the row data of a table, without committing (the operation commits once all its tables are staged).
     /// Only the changes (`TableData` tracks them) are written, when the operation finishes.
     pub fn stage_data(&mut self, tbl_id: Uuid, data: TableData) -> Result<()> {
-        self.table(tbl_id)?;
+        self.table_mut(tbl_id)?.data_version += 1;
         self.data.insert(tbl_id, Arc::new(data));
         self.staged.insert(tbl_id);
         Ok(())

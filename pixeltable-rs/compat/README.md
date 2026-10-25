@@ -69,8 +69,9 @@ root) and the `sample_file_server` fixture (which serves `compat/`) all resolve.
   other table fixtures), and once by `init_env`. Upstream also resets the default time zone and current user here.
 - `pixeltable._testing.reload_catalog()`: drop all in-memory catalog state; the next call reloads it from disk. Used by
   `utils.reload_catalog()` and `ReloadTester.run_reload_test()`.
-- Optional: `pixeltable._testing.validate_store()`, called after each such test if present (upstream validates its
-  store there).
+- `pixeltable._testing.validate_store()`, called after each such test if present (upstream validates its store there):
+  pixeltable-rs checks the store's files against the manifests, the catalog reloaded from disk against the one in
+  memory, row version ranges and index consistency.
 
 ## Stubs for internal modules
 
@@ -112,9 +113,10 @@ Same fixture and helper names and behavior, except:
   the only target, so node ids match upstream's local-only runs); a test whose marker excluded `local` would get an
   empty parameter set. No proxy daemon or hosted-database fixtures; `cloud_env_configured()` is always False.
 - `init_env`/`uses_db`/`db_root` use `reset_db()` (upstream: `Env._init_env`, `clean_db()`, `Config`/`Env`/`FileCache`
-  resets, `reload_catalog()`), and the optional `validate_store()` (upstream: `catalog.validate_store()`).
-- Upstream's session teardown asserts that no event loop or HTTP client is left open; here leaks are reported as a
-  warning, so that they do not fail whichever test happened to run last in a worker.
+  resets, `reload_catalog()`), and `validate_store()` (upstream: `catalog.validate_store()`).
+- The session teardown asserts, as upstream's does, that no event loop or HTTP client is left open; upstream first
+  retires its runtime (`reset_runtime()`), the harness calls the `reload_catalog()` hook, which in pixeltable-rs also
+  closes the idle event loop of async UDFs.
 - `test_tbl_exprs` builds `exprs.Literal`/`InlineDict`/`InlineList` as upstream does; without `pixeltable.exprs` it
   fails with the stub error (its three users are outside the target set anyway).
 - `ReloadTester.run_reload_test()` calls `pxt.Query.from_dict(query.as_dict())` directly; upstream wraps it in

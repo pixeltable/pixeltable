@@ -4,11 +4,18 @@ The backend (`exec::dispatch`) decides which calls run and when; this module onl
 persistent event loop on a dedicated daemon thread, to which the backend hands coroutines in groups (`submit()`)
 and which reports each finished task to a backend callback. `run_coroutine()` runs a single coroutine to completion
 for the rare call that is not part of a batch.
+
+Every coroutine runs wrapped in `_guarded()`, which turns its outcome into a value, also when it raises a
+`BaseException` (`KeyboardInterrupt`, `SystemExit`, a `CancelledError` of its own): asyncio would let such an
+exception escape the loop and stop it, and the task's waiter would never hear of it. The loop persists until
+`shutdown()` (at exit, by the test hooks, and in a forked child, which starts a new one); a later call starts a new
+one.
 """
 
 from __future__ import annotations
 
 import asyncio
+import atexit
 import concurrent.futures
 import functools
 import os
@@ -25,29 +32,75 @@ _pid: int | None = None
 _lock = threading.Lock()
 
 
+def _mark_loop_thread() -> None:
+    # nested evaluation from this thread must not wait for the persistent loop (see `exec::dispatch`)
+    from pixeltable import _core
+
+    _core._mark_udf_loop_thread()
+
+
 def _run_loop(loop: asyncio.AbstractEventLoop, ready: threading.Event) -> None:
+    _mark_loop_thread()
     asyncio.set_event_loop(loop)
     loop.call_soon(ready.set)
-    loop.run_forever()
+    while True:
+        try:
+            loop.run_forever()
+        except BaseException:  # noqa: S110
+            # raised by a callback (task outcomes are values, see _guarded()); the loop itself is intact
+            pass
+        with _lock:
+            # stopped by shutdown(), or by user code: keep serving the tasks of other callers unless shut down
+            if _loop is not loop or loop.is_closed():
+                return
 
 
 def get_loop() -> asyncio.AbstractEventLoop:
-    """The loop async UDFs run on (started on first use, and again in a forked child)."""
-    global _loop, _thread, _pid
+    """The loop async UDFs run on (started on first use, again after shutdown(), and in a forked child)."""
     with _lock:
-        if _loop is None or _pid != os.getpid() or _thread is None or not _thread.is_alive():
-            loop = asyncio.new_event_loop()
-            ready = threading.Event()
-            thread = threading.Thread(target=_run_loop, args=(loop, ready), name='pixeltable-async-udfs', daemon=True)
-            thread.start()
-            ready.wait()
-            _loop, _thread, _pid = loop, thread, os.getpid()
-        return _loop
+        return _get_loop_locked()
+
+
+def _get_loop_locked() -> asyncio.AbstractEventLoop:
+    global _loop, _thread, _pid
+    if _loop is None or _pid != os.getpid() or _thread is None or not _thread.is_alive():
+        loop = asyncio.new_event_loop()
+        ready = threading.Event()
+        thread = threading.Thread(target=_run_loop, args=(loop, ready), name='pixeltable-async-udfs', daemon=True)
+        thread.start()
+        ready.wait()
+        _loop, _thread, _pid = loop, thread, os.getpid()
+    return _loop
+
+
+def loop_alive() -> bool:
+    """False if the loop that tasks were submitted to stopped running (its thread ended)."""
+    return _thread is not None and _thread.is_alive() and _pid == os.getpid()
 
 
 def in_loop_thread() -> bool:
     """True when called from the thread that runs the loop (a blocking wait for the loop there would deadlock)."""
     return _thread is not None and threading.current_thread() is _thread
+
+
+async def _guarded(coro: Coroutine[Any, Any, Any]) -> tuple[bool, Any]:
+    """`(True, result)` or `(False, exception)`; a cancellation of the task itself (`cancel()`) propagates."""
+    try:
+        return True, await coro
+    except asyncio.CancelledError as exc:
+        task = asyncio.current_task()
+        if task is not None and task.cancelling() > 0:
+            raise
+        return False, exc
+    except BaseException as exc:
+        return False, exc
+
+
+def _unwrap(outcome: tuple[bool, Any]) -> Any:
+    ok, value = outcome
+    if not ok:
+        raise value
+    return value
 
 
 def new_group() -> set[asyncio.Task]:
@@ -56,14 +109,17 @@ def new_group() -> set[asyncio.Task]:
 
 
 def submit(items: list[tuple[Any, Coroutine[Any, Any, Any]]], done: Callable[[Any, asyncio.Task], None], group: set) -> None:
-    """Starts a task for each (token, coroutine) on the loop; `done(token, task)` is called when a task finishes."""
-    get_loop().call_soon_threadsafe(_start, items, done, group)
+    """Starts a task for each (token, coroutine) on the loop; `done(token, task)` is called when a task finishes, and
+    the task's result is `_guarded()`'s."""
+    with _lock:
+        # under the lock, so that shutdown() sees these tasks
+        _get_loop_locked().call_soon_threadsafe(_start, items, done, group)
 
 
 def _start(items: list[tuple[Any, Coroutine[Any, Any, Any]]], done: Callable[[Any, asyncio.Task], None], group: set) -> None:
     loop = asyncio.get_running_loop()
     for token, coro in items:
-        task = loop.create_task(coro)
+        task = loop.create_task(_guarded(coro))
         group.add(task)
         task.add_done_callback(group.discard)
         task.add_done_callback(functools.partial(done, token))
@@ -71,8 +127,12 @@ def _start(items: list[tuple[Any, Coroutine[Any, Any, Any]]], done: Callable[[An
 
 def cancel(group: set) -> None:
     """Cancels the unfinished tasks of a group."""
-    if _loop is not None and not _loop.is_closed():
-        _loop.call_soon_threadsafe(_cancel, group)
+    loop = _loop
+    if loop is not None and not loop.is_closed():
+        try:
+            loop.call_soon_threadsafe(_cancel, group)
+        except RuntimeError:  # closed meanwhile
+            pass
 
 
 def _cancel(group: set) -> None:
@@ -80,13 +140,72 @@ def _cancel(group: set) -> None:
         task.cancel()
 
 
-def run_coroutine(coro: Coroutine[Any, Any, Any]) -> Any:
-    """Runs `coro` to completion on the loop and returns its result (from the loop's own thread, which must not
-    block on the loop, on a temporary loop in another thread)."""
-    if in_loop_thread():
+def _run_isolated(coro: Coroutine[Any, Any, Any]) -> Any:
+    _mark_loop_thread()
+    return asyncio.run(coro)
+
+
+def run_coroutine(coro: Coroutine[Any, Any, Any], isolated: bool = False) -> Any:
+    """Runs `coro` to completion and returns its result: on the persistent loop, or, when the caller must not wait for
+    that loop (`isolated`: it runs a loop itself, perhaps that one, or holds the catalog lock), on a temporary loop in
+    another thread."""
+    guarded = _guarded(coro)
+    if isolated or in_loop_thread() or asyncio._get_running_loop() is not None:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            return pool.submit(asyncio.run, coro).result()
-    return asyncio.run_coroutine_threadsafe(coro, get_loop()).result()
+            return _unwrap(pool.submit(_run_isolated, guarded).result())
+    return _unwrap(asyncio.run_coroutine_threadsafe(guarded, get_loop()).result())
+
+
+def shutdown(only_if_idle: bool = False) -> bool:
+    """Stops and closes the persistent loop (cancelling its unfinished tasks, unless `only_if_idle`, which leaves a busy
+    loop alone); the next async call starts a new one. Returns False if the loop was left running."""
+    global _loop, _thread
+    with _lock:
+        loop, thread = _loop, _thread
+        if loop is None or thread is None or _pid != os.getpid():
+            _loop = _thread = None
+            return True
+        if thread is threading.current_thread():
+            return False
+        if thread.is_alive() and not loop.is_closed():
+            try:
+                pending = asyncio.run_coroutine_threadsafe(_pending_tasks(), loop).result(timeout=5)
+            except Exception:
+                pending = 0
+            if pending > 0 and only_if_idle:
+                return False
+        _loop = _thread = None
+    if thread.is_alive() and not loop.is_closed():
+        try:
+            asyncio.run_coroutine_threadsafe(_finish(), loop).result(timeout=10)
+        except Exception:
+            pass
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=10)
+    if not thread.is_alive() and not loop.is_closed():
+        loop.close()
+    return True
+
+
+async def _pending_tasks() -> int:
+    me = asyncio.current_task()
+    return sum(1 for t in asyncio.all_tasks() if t is not me and not t.done())
+
+
+async def _finish() -> None:
+    """Cancels the loop's other tasks and waits for them, then shuts down async generators and the default executor."""
+    me = asyncio.current_task()
+    tasks = [t for t in asyncio.all_tasks() if t is not me and not t.done()]
+    for t in tasks:
+        t.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    loop = asyncio.get_running_loop()
+    await loop.shutdown_asyncgens()
+    await loop.shutdown_default_executor()
+
+
+atexit.register(shutdown)
 
 
 # ------------------------------------------------------------------------------------------------ retries

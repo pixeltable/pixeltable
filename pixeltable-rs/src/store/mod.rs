@@ -396,6 +396,27 @@ impl Store {
         Ok(())
     }
 
+    /// The names of the files in `tables/`.
+    pub fn table_file_names(&self) -> Result<Vec<String>> {
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(self.root.join("tables"))? {
+            out.push(entry?.file_name().to_string_lossy().to_string());
+        }
+        Ok(out)
+    }
+
+    /// Temporary files of a commit that did not finish (`Store::gc()` deletes them when a process loads the catalog).
+    pub fn leftover_temp_files(&self) -> Result<Vec<String>> {
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(&self.root)? {
+            let name = entry?.file_name().to_string_lossy().to_string();
+            if name.starts_with("catalog.tmp") {
+                out.push(name);
+            }
+        }
+        Ok(out)
+    }
+
     pub fn delete_media(&self, tbl_id: Uuid) {
         let _ = fs::remove_dir_all(self.media_dir(tbl_id));
     }

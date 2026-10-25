@@ -397,6 +397,11 @@ impl TableData {
             .sum()
     }
 
+    /// Every stored row with its version range `[v_min, v_max)`, in storage order (`Catalog::validate_store()`).
+    pub fn rows_with_versions(&self) -> impl Iterator<Item = (&StoredRow, i64, i64)> {
+        self.segs.iter().flat_map(|s| (0..s.len()).map(move |i| (s.seg.row(i), s.seg.vmin[i], s.vmax[i])))
+    }
+
     /// The live rows (visible at the current version), in storage order.
     pub fn live_rows(&self) -> impl Iterator<Item = &StoredRow> {
         self.visible_at(NOW)

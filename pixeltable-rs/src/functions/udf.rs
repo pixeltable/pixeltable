@@ -670,7 +670,8 @@ pub fn is_coroutine(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
 
 /// Runs a coroutine returned by an async UDF to completion.
 pub fn run_coroutine<'py>(py: Python<'py>, coro: Bound<'py, PyAny>) -> Result<Bound<'py, PyAny>> {
-    Ok(py.import("pixeltable.func._runtime")?.call_method1("run_coroutine", (coro,))?)
+    let isolated = crate::exec::dispatch::isolated();
+    Ok(py.import("pixeltable.func._runtime")?.call_method1("run_coroutine", (coro, isolated))?)
 }
 
 /// Converts the value a UDF returned to a cell value of the call's type.

@@ -1207,15 +1207,13 @@ def open_async_resources() -> list[str]:
     return resources
 
 
-def validate_async_teardown() -> list[str]:
-    """Upstream retires the runtime (reset_runtime()) and asserts that no event loop or HTTP client session is left
-    open. Here the catalog is dropped through the reload hook and the leaks are returned; the conftest reports them
-    as a warning rather than failing whichever test happened to run last."""
-    try:
-        _testing_hooks().reload_catalog()
-    except Exception:
-        pass
-    return open_async_resources()
+def validate_async_teardown() -> None:
+    """Retires this process's runtime and asserts that it left no event loop or HTTP client session open. Upstream
+    retires the runtime with reset_runtime(); here the reload hook drops the in-memory state, which in pixeltable-rs
+    includes closing the idle event loop of async UDFs."""
+    _testing_hooks().reload_catalog()
+    resources = open_async_resources()
+    assert len(resources) == 0, 'async resources left open:\n  ' + '\n  '.join(resources)
 
 
 # id(handle) -> (handle, table id): a dropped table's handle can no longer answer get_metadata()

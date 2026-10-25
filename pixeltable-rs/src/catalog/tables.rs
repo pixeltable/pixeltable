@@ -191,6 +191,7 @@ impl Catalog {
             current_schema_version: 0,
             next_col_id: col_mds.len() as ColId,
             next_rowid: 0,
+            data_version: 0,
             columns: col_mds,
             schema_versions: vec![Arc::new(SchemaVersionMd {
                 schema_version: 0,

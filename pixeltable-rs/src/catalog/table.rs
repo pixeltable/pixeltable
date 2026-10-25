@@ -323,6 +323,10 @@ pub struct TableMd {
     pub storage: crate::store::TableStorage,
     #[serde(default)]
     pub indexes: Indexes,
+    /// advanced by every change of the table's rows (`Catalog::stage_data()`), also in other processes: an operation
+    /// that computed rows from a snapshot commits them only if the data versions it read are still current
+    #[serde(default)]
+    pub data_version: u64,
 }
 
 /// A resolved column of a table at some version.

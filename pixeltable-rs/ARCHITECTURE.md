@@ -49,6 +49,7 @@ src/
   catalog/versions.rs revert(), version history (get_versions() with schema-change descriptions)
   catalog/indexes.rs B-tree and embedding index metadata, default indexes, drop/cascade
   catalog/runtime.rs the process-wide Catalog behind a mutex; reload/reset hooks; reserved column names
+  catalog/validate.rs validate_store(): consistency checks of the store against the catalog (test hook)
   store/mod.rs      files under $PIXELTABLE_HOME: catalog.json, segment and history files, the store lock, without_gil()
   store/rows.rs     StoredRow (cells, cell errors, key), LIVE/DEAD
   store/table_data.rs TableData: a table's rows as immutable segments + current version ranges; lookups by key, key
@@ -67,6 +68,8 @@ src/
                     commit)
   exec/prefetch.rs  batched evaluation, phase A: user-function calls of a batch of rows made before row evaluation
   exec/dispatch.rs  running those calls: UDF worker pool, async event loop, batches, resource pools
+  exec/txn.rs       mutations that compute without the catalog lock: read sets (commit validation), writer locks,
+                    the plan/compute/commit runner with retries
   exec/par.rs       data parallelism (rayon) for pure-Rust evaluation and sorting; is_pure()
   exec/compute_rows.rs Table.compute(): rows a table would hold for some input rows, nothing stored
   exec/index.rs     AddIndexPlan: embeddings of existing rows for a new embedding index
@@ -92,7 +95,7 @@ python/pixeltable/
                     (@pxt.expr_udf, using()), _iterator.py (@pxt.iterator), _udf.py (decorators, registry), ...
   functions/, iterators/, io/   generated stubs; functions/_registry.py resolves names to Rust builtins
   _metadata.py, _update_status.py, _row.py   public data classes copied from upstream
-  _testing.py       reset_db(), reload_catalog()
+  _testing.py       reset_db(), reload_catalog(), validate_store() (test hooks)
   _unimplemented.py helpers for not-yet-implemented API
 tools/gen_function_stubs.py   generates the stub modules from upstream sources (ast only)
 tests_rs/                     pixeltable-rs's own tests
@@ -335,8 +338,19 @@ The contract, which every phase-B caller relies on:
 - an interrupt (a BaseException that is not an Exception, raised by a call or delivered to the main thread while it
   waits) cancels the outstanding work and propagates at once;
 - calls run sequentially in the evaluating thread, in row order, when `udf_threads` is 1, for a function with
-  `max_concurrency=1`, and for nested evaluation (from a worker thread, or while the catalog lock is held), which
-  must not wait for the pool.
+  `max_concurrency=1`, and for nested evaluation (from a worker thread, from a thread that runs an event loop for
+  async UDFs, or while the catalog lock is held), which must not wait for the pool; from an event-loop thread or under
+  the catalog lock, async calls run each on a temporary loop of their own (`dispatch::isolated()`,
+  `_runtime.run_coroutine(coro, isolated)`), since the persistent loop may be busy with the very work that waits.
+
+The event loop (`func/_runtime.py`): every coroutine runs wrapped in `_guarded()`, which delivers its outcome as a value,
+also a `KeyboardInterrupt`, `SystemExit` or a `CancelledError` the UDF raises itself (asyncio would let these escape and
+stop the loop, and the dispatcher would wait forever); the dispatcher re-raises them as interrupts. The loop thread
+restarts `run_forever()` if a callback raises or user code stops it, and the dispatcher checks every 50 ms that the
+loop's thread is alive while tasks are in flight. The loop persists (user code may cache loop-bound clients, as
+upstream's runtime loop allows) until `_runtime.shutdown()`: at exit, and from the test hooks `reset_db()` and
+`reload_catalog()` if idle (upstream's runtime reset closes its loop; the compat harness asserts none is left open).
+Threads that run a loop are marked (`_core._mark_udf_loop_thread()`, `dispatch::in_loop_thread()`).
 
 ## Catalog, storage and versioning
 
@@ -354,9 +368,29 @@ so put every mutation into the commit step (see `AddComputedPlan::commit`, which
 `if_exists='replace'` drop).
 
 Locking rule: never run user Python code (UDFs, generators, pydantic serializers) while holding the catalog lock.
-Operations that may do so are split into plan (lock) -> compute (no lock) -> commit (lock, re-check the schema
-version): see `exec/insert.rs` and `exec/compute.rs`. Queries snapshot `Arc`s of metadata and data
-(`exec::QueryInput::snapshot`) and execute without the lock.
+Operations that may do so are split into plan (lock) -> compute (no lock) -> commit (lock). Queries snapshot `Arc`s
+of metadata and data (`exec::QueryInput::snapshot`) and execute without the lock.
+
+Concurrent writers (`exec/txn.rs`; upstream serializes them with table locks, and the result must be the same):
+- Commit validation: every table's `TableMd::data_version` advances with each change of its rows
+  (`Catalog::stage_data()`), persisted, so also by other processes. A plan records the data and schema versions of the
+  tables it read (`txn::ReadSet`: the path and the live views it updates); its commit calls `ReadSet::check()`, which
+  fails with SERIALIZATION_FAILURE if one changed, and `txn::run()` then plans and computes the operation again against
+  the new state (up to `MAX_RETRIES`, then upstream's "Serialization retry limit exceeded"). This covers update,
+  batch_update, recompute_columns, alter_computed_column, add_computed_column, add_embedding_index and create_view. A
+  plan that runs no user code (`UpdatePlan::runs_user_code()`, `AddComputedPlan::runs_user_code()`, from
+  `txn::runs_user_code()`) is computed and committed in its own lock section (`Step::Done`) and never conflicts.
+- Writer locks: in one process, the operations on one tree of tables (a root base table and its views; `txn::root_of()`)
+  wait for each other (`txn::lock()`): those that rewrite rows or change a schema hold the tree exclusively from plan
+  to commit (`txn::run(.., Mode::Exclusive, ..)`, `txn::write(.., Mode::Exclusive, ..)` for schema operations and
+  revert), inserts and deletes hold it shared; an exclusive waiter blocks new shared holders. So writers of one
+  process neither redo work nor starve one another, and an insert never sees a schema change between its plan and
+  commit. An operation started by user code that an operation runs (a UDF worker, the event-loop thread, a thread that
+  holds another tree's lock) only takes a lock that is free and else runs on validation alone, so nothing waits for
+  user code that waits for it; re-entry by the holding thread is allowed. A redo caused by such nested commits (the
+  operation's own UDF writes its table) is not repeated forever: after three, CONCURRENT_MODIFICATION.
+- Other processes are not excluded by writer locks: their commits are caught by validation. An insert that meets a
+  schema or view change by another process between plan and commit still fails with CONCURRENT_MODIFICATION.
 
 Storage (`store/`), format version 4, under `$PIXELTABLE_HOME/pxtrs/<db>/` (db = `PIXELTABLE_DB`, default
 `pixeltable`). A store of another format (including versions 1 to 3) is refused with STORE_UNAVAILABLE ("... has
@@ -415,8 +449,8 @@ Several processes may share a store. Every `with_catalog` call holds an exclusiv
 at the head of `catalog.json` (`Store::read_stamp()`, a 512-byte read) with the in-memory one; if another process
 committed, the catalog is reloaded before the closure runs (`Catalog::reload()`: a table whose history file only grew
 reads just the new records, and cached rows of a table whose segment list only grew are kept, with the new segments
-read and their patches applied). A plan/compute/commit operation therefore commits against the latest state (its
-commit step re-checks the schema version as usual).
+read and their patches applied). A plan/compute/commit operation therefore commits against the latest state, and its
+commit step validates what it read against it (see "Concurrent writers").
 
 Versioning: a data-versioned table gets a new version per mutation; a schema change also creates a schema version
 equal to the new table version (`Catalog::bump_version`). Rows carry `[v_min, v_max)` and a key `(rowid, pos)`
