@@ -48,8 +48,10 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # Claude gets only GITHUB_TOKEN, passed as github_token below. Without it, the action uses the Claude GitHub App
-    # token, which can push code, and writes it into .git/config, where Claude can read it.
+    # Pass github_token so the action does not fall back to its GitHub App token, which can push.
+    # allowed_non_write_users selects the action's credential helper. The value cannot be a GitHub
+    # login, so the helper keeps this job's token out of .git/config and the write check still applies.
+    # The plan job requires write access on its own.
     permissions:
       contents: read
       pull-requests: write
@@ -73,9 +75,11 @@ jobs:
           REPO: ${{ github.repository }}
           COMMENT_ID: ${{ github.event.comment.id }}
         run: gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=+1 --silent
+      # The job never pushes. Checkout must not leave its token in this working tree.
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
+          persist-credentials: false
       - id: prepare
         timeout-minutes: 5
         env:
@@ -104,7 +108,9 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          settings: '{"permissions": {"additionalDirectories": ["${{ runner.temp }}/pxt-review"]}}'
+          # Not a GitHub login. It only selects the credential-helper branch in the action.
+          allowed_non_write_users: pxt.credential-helper
+          settings: '{"permissions": {"additionalDirectories": ["${{ runner.temp }}/pxt-review"], "deny": ["Read(.git/**)", "Bash(git config:*)", "Bash(git remote:*)"]}}'
           prompt: >-
             /pxt-review https://github.com/${{ github.repository }}/pull/${{ env.PR_NUMBER }}
             --review-context ${{ runner.temp }}/pxt-review/manifest.json
@@ -125,12 +131,36 @@ jobs:
         run: |
           if [ "$OUTCOME" != success ]; then echo "::warning::The Claude review step ended with outcome $OUTCOME."; fi
           if [ -z "$EXECUTION_FILE" ] || [ ! -f "$EXECUTION_FILE" ]; then exit 0; fi
-          jq -r '.[] | select(.type == "result") | .result // empty' "$EXECUTION_FILE"
-          jq -c '.[] | select(.type == "result") | .permission_denials[]? | {tool_name, tool_input}' "$EXECUTION_FILE"
-          jq -r '.[] | select(.type == "result") | (.modelUsage // {}) | to_entries[] | [.key,
-            "$\((.value.costUSD * 100 | round) / 100)", "input \(.value.inputTokens)", "output \(.value.outputTokens)",
-            "cache read \(.value.cacheReadInputTokens)", "cache write \(.value.cacheCreationInputTokens)"]
-            | join(", ")' "$EXECUTION_FILE"
+          python3 - << 'PY'
+          import json
+          import os
+          import sys
+
+          sys.path.insert(0, ".github/scripts")
+          from claude_review_contract import redact_credentials
+
+          execution = json.loads(open(os.environ["EXECUTION_FILE"], encoding="utf-8").read())
+          messages = execution if isinstance(execution, list) else [execution]
+          for message in messages:
+              if not isinstance(message, dict) or message.get("type") != "result":
+                  continue
+              result = message.get("result") or ""
+              if result:
+                  print(redact_credentials(result))
+              for denial in message.get("permission_denials") or []:
+                  print(redact_credentials(json.dumps({
+                      "tool_name": denial.get("tool_name"),
+                      "tool_input": denial.get("tool_input"),
+                  })))
+              for name, value in (message.get("modelUsage") or {}).items():
+                  cost = round(value.get("costUSD", 0) * 100) / 100
+                  print(
+                      f"{name}, ${cost}, input {value.get('inputTokens', 0)}, "
+                      f"output {value.get('outputTokens', 0)}, "
+                      f"cache read {value.get('cacheReadInputTokens', 0)}, "
+                      f"cache write {value.get('cacheCreationInputTokens', 0)}"
+                  )
+          PY
       # Posts the summary and the inline comments as one review.
       - id: post
         timeout-minutes: 3

@@ -15,6 +15,10 @@ REQUIRED_PASSES = ['abstractions', 'lines', 'design', 'blast-radius', 'rules']
 KINDS = {'defect', 'design', 'rule', 'maintenance'}
 AGENT_FILES = {'CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', '.claude', '.mcp.json'}
 STATE_MARKER = '<!-- pxt-review-state\n'
+# GitHub token prefixes and the origin-URL form the review action writes. Long enough that a
+# mention of the prefix alone stays, and short enough to catch an actions token.
+_CREDENTIAL = re.compile(r'x-access-token:[^\s@\'"]+|github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9_]{16,}')
+_CREDENTIAL_NOTE = 'A credential-shaped string was removed before publication.'
 MAX_JSON_BYTES = 2_000_000
 MAX_SOURCES_BYTES = 20_000_000
 MAX_BODY_BYTES = 60_000
@@ -23,6 +27,11 @@ SOURCE_INDEX_KEYS = {'diff_files', 'previous_tree', 'sources', 'tooling_files'}
 
 def digest(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
+
+
+def redact_credentials(text: str) -> str:
+    """Replace GitHub credential shapes. The review job must not post or log one."""
+    return _CREDENTIAL.sub('[redacted credential]', text)
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -677,9 +686,29 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
         'published': published,
         'gaps': checked['gaps'],
     }
+    raw_body = '\n'.join(body)
+    published_body = redact_credentials(raw_body)
+    credential_removed = published_body != raw_body
+    for comment in comments:
+        redacted = redact_credentials(comment['body'])
+        credential_removed = credential_removed or redacted != comment['body']
+        comment['body'] = redacted
+    if credential_removed and _CREDENTIAL_NOTE not in published_body:
+        marker = '\n\n' + STATE_MARKER
+        note = '\n\n' + _CREDENTIAL_NOTE
+        published_body = (
+            published_body.replace(marker, note + marker, 1) if marker in published_body else published_body + note
+        )
+    if credential_removed:
+        stats['credentials_redacted'] = True
+        if stats['status'] == 'complete':
+            stats['status'] = 'incomplete'
+            stats['reason'] = _CREDENTIAL_NOTE
+        elif _CREDENTIAL_NOTE not in stats['reason']:
+            stats['reason'] = f'{stats["reason"]} {_CREDENTIAL_NOTE}'.strip()
     return {
         'commit_id': manifest['head_sha'],
-        'body': publication_body('\n'.join(body)),
+        'body': publication_body(published_body),
         'event': 'COMMENT',
         'comments': comments,
     }, stats

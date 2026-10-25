@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import unittest
+from pathlib import Path
 from typing import Any
 
 import claude_review_contract as contract
@@ -709,6 +710,37 @@ class ContractTest(unittest.TestCase):
         state = json.loads(raw)
         self.assertEqual(state['records'][0]['claim']['id'], claim['id'])
         self.assertNotIn(contract.STATE_MARKER, state['records'][0]['claim']['comment'])
+
+    def test_publication_removes_credential_shapes(self) -> None:
+        token = 'ghs_' + ('A' * 20)
+        self.assertEqual(contract.redact_credentials(f'prefix {token} suffix'), 'prefix [redacted credential] suffix')
+        self.assertEqual(
+            contract.redact_credentials(f'https://x-access-token:{token}@github.com/o/r.git'),
+            'https://[redacted credential]@github.com/o/r.git',
+        )
+        self.assertIn('ghs_', contract.redact_credentials('the prefix ghs_ is not itself a token'))
+        self.assertEqual(contract.redact_credentials('github_pat_' + ('b' * 20)), '[redacted credential]')
+        manifest, result = fixture()
+        result['assessment'] = f'The caller is fine. Token {token} must not be posted.'
+        claim = finding()
+        claim['comment'] = f'The empty path uses {token}.'
+        add_finding(result, claim)
+        review, stats = contract.render(result, manifest)
+        self.assertNotIn(token, review['body'])
+        self.assertNotIn(token, review['comments'][0]['body'])
+        self.assertIn(contract._CREDENTIAL_NOTE, review['body'])
+        self.assertTrue(stats['credentials_redacted'])
+        self.assertEqual(stats['status'], 'incomplete')
+        self.assertIn(contract._CREDENTIAL_NOTE, stats['reason'])
+        raw = review['body'].split(contract.STATE_MARKER)[1].split('\n-->')[0]
+        self.assertNotIn(token, raw)
+
+    def test_review_job_does_not_leave_its_token_in_git_config(self) -> None:
+        workflow = Path(__file__).parents[1].joinpath('workflows', 'claude-review.yml').read_text(encoding='utf-8')
+        self.assertIn('persist-credentials: false', workflow)
+        self.assertIn('allowed_non_write_users: pxt.credential-helper', workflow)
+        self.assertIn('Read(.git/**)', workflow)
+        self.assertIn('redact_credentials', workflow)
 
 
 if __name__ == '__main__':
