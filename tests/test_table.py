@@ -1137,7 +1137,7 @@ class TestTable:
         assert res2['c1'] == [r['c1'] for r in rows]
         assert res2['c2'] == [r['c2'] for r in rows]
 
-    @pytest.mark.db_roots('local', reason='asserts on the local insert error and the resulting catalog state')
+    @pytest.mark.db_roots('local', 'proxy', reason='the hosted-cloud root runs the same proxy client path')
     def test_create_from_rows_insert_error(self, db_root: DatabaseRoot) -> None:
         # a source that fails to load must not leave the created table behind [PXT-636]
         p = db_root.make_catalog_path

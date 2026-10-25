@@ -87,7 +87,7 @@ class TableDataConduit:
             f'Invalid source_format {source_format}'
         )
         if isinstance(source, os.PathLike):
-            source = str(source)
+            source = os.fsdecode(source)
         if isinstance(source, Sequence) and len(source) > 0 and isinstance(source[0], pydantic.BaseModel):
             return PydanticTableDataConduit(source)
 

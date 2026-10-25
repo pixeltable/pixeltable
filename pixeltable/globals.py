@@ -92,7 +92,8 @@ def create_table(
         path: Pixeltable path (qualified name) of the table, such as `'my_table'` or `'my_dir/my_subdir/my_table'`.
         schema: Schema for the new table, mapping column names to Pixeltable types. A bare type such as
             `pxt.Int` declares a non-nullable column; use `pxt.Int | None` to allow nulls.
-        source: A data source (file, URL, Table, Query, or list of rows) to import from.
+        source: A data source (file path or URL as `str` or `os.PathLike`, Table, Query, or list of rows)
+            to import from.
         source_format: Must be used in conjunction with a `source`.
             If specified, then the given format will be used to read the source data. (Otherwise,
             Pixeltable will attempt to infer the format from the source data.)
@@ -139,7 +140,9 @@ def create_table(
             - the path already exists and `if_exists='error'`, or
             - the path already exists and is not a table, or
             - an error occurs while attempting to create the table, or
-            - an error occurs while attempting to import data from the source.
+            - an error occurs while attempting to import data from the source; the newly created table
+                is then dropped (with `if_exists='replace'` or `'replace_force'`, the replaced table is
+                not restored).
 
     Examples:
         Create a table with an int and a string column:
@@ -201,7 +204,10 @@ def create_table(
 
     telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
     data_source: TableDataConduit | None = None
+    fail_on_exception = False
     if source is not None:
+        # an invalid on_error is an argument error; validate it before the table exists
+        fail_on_exception = OnErrorParam.fail_on_exception(on_error)
         data_source = TableDataConduit.create(source, source_format=source_format, extra_fields=extra_args)
         src_schema_overrides: dict[str, ts.ColumnType] = {}
         if schema_overrides is not None:
@@ -275,7 +281,6 @@ def create_table(
     # TODO: combine data loading with table creation into a single transaction
     if was_created and data_source is not None:
         try:
-            fail_on_exception = OnErrorParam.fail_on_exception(on_error)
             if isinstance(tbl, catalog.InsertableTable):
                 if isinstance(data_source, QueryTableDataConduit):
                     query = data_source.pxt_query
@@ -301,7 +306,11 @@ def create_table(
                     **(extra_args or {}),
                 )
         except BaseException:
-            drop_table(tbl, if_not_exists='ignore')
+            try:
+                drop_table(tbl, if_not_exists='ignore')
+            except Exception:
+                # report the load error, not a secondary cleanup failure (e.g. a dead daemon connection)
+                _logger.exception(f'Failed to drop table {tbl._name()!r} after a failed source load')
             raise
 
     return tbl
