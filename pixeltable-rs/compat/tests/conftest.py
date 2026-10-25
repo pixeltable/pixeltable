@@ -255,9 +255,7 @@ def init_env() -> Iterator[None]:
 
     yield
 
-    leaks = validate_async_teardown()
-    if leaks:
-        warnings.warn('async resources left open:\n  ' + '\n  '.join(leaks), stacklevel=1)
+    validate_async_teardown()
 
 
 def _reset_catalog_state() -> None:

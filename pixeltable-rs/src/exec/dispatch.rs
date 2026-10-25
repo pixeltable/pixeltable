@@ -19,8 +19,14 @@
 //! delivered to the main thread while it waits) cancels the outstanding work and is returned at once.
 //!
 //! Calls run sequentially in the dispatching thread when parallel execution is off (`udf_threads` = 1), when the
-//! function declares `max_concurrency=1`, and when the dispatching thread is itself a worker or holds the catalog lock
-//! (nested evaluation from inside a UDF; dispatching to the pool from there could deadlock).
+//! function declares `max_concurrency=1`, and when the dispatching thread is itself a worker, runs an event loop for
+//! async UDFs or holds the catalog lock (nested evaluation from inside a UDF, whose dispatching thread waits for it:
+//! waiting for the pool or the event loop from there could deadlock); async calls then run each on a temporary event
+//! loop (`_runtime.run_coroutine()`).
+//!
+//! A coroutine's outcome reaches the dispatcher as a value (`_runtime._guarded()`), also for a `BaseException` such
+//! as `KeyboardInterrupt`, which would otherwise stop the loop; while it waits, the dispatcher checks that the loop is
+//! still running.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -112,11 +118,31 @@ struct Pool {
 thread_local! {
     /// true on the pool's worker threads
     static IN_WORKER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// true on a thread that runs an event loop for async UDFs (`pixeltable.func._runtime`)
+    static IN_LOOP: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// True on a worker thread of the UDF pool.
 pub fn in_worker() -> bool {
     IN_WORKER.with(|w| w.get())
+}
+
+/// True on a thread that runs an event loop for async UDFs: the persistent loop, or a temporary one that runs a
+/// coroutine for a thread that waits for it.
+pub fn in_loop_thread() -> bool {
+    IN_LOOP.with(|w| w.get())
+}
+
+/// Marks the current thread as running an event loop for async UDFs (called by `pixeltable.func._runtime`).
+pub fn mark_loop_thread() {
+    IN_LOOP.with(|w| w.set(true));
+}
+
+/// True if this thread must not wait for the persistent event loop: it runs an event loop for async UDFs (perhaps
+/// the persistent one, busy with this very work) or holds the catalog lock (which the loop's tasks may wait for).
+/// Coroutines then run on a temporary loop of their own (`_runtime.run_coroutine()`).
+pub fn isolated() -> bool {
+    in_loop_thread() || crate::catalog::runtime::lock_held()
 }
 
 fn pool() -> Arc<Pool> {
@@ -483,9 +509,20 @@ impl AsyncDone {
         }
         let n = &self.nodes[node];
         let (s, e) = n.unit(unit);
-        let outcome = task.call_method0("result").map_err(Error::from);
+        let outcome = task.call_method0("result").map_err(Error::from).and_then(|r| guarded_outcome(py, r));
         let results = n.unit_results(py, outcome, s, e);
         let _ = self.tx.send(Msg::Done { node, unit, results, finished: Instant::now() });
+    }
+}
+
+/// The outcome of a coroutine run by `_runtime._guarded()`: `(True, value)` or `(False, exception)`.
+fn guarded_outcome<'py>(py: Python<'py>, r: Bound<'py, PyAny>) -> Result<Bound<'py, PyAny>> {
+    let (ok, value): (bool, Bound<'py, PyAny>) = r.extract()?;
+    if ok {
+        Ok(value)
+    } else {
+        let _ = py;
+        Err(Error::Python(PyErr::from_value(value)))
     }
 }
 
@@ -635,15 +672,17 @@ pub fn run(work: Vec<NodeCalls>, outcomes: &mut Outcomes, abort_on_error: bool, 
 
 impl<'o> Dispatch<'o> {
     fn new(py: Python<'_>, work: Vec<NodeCalls>, outcomes: &'o mut Outcomes, abort: bool, abort_row: usize) -> Result<Dispatch<'o>> {
+        let _ = py;
         let threads = udf_threads();
-        let nested = in_worker() || crate::catalog::runtime::lock_held();
-        let in_loop = work.iter().any(|w| matches!(&w.call.def.imp, UdfImpl::Callable { is_async, .. } if is_async.iter().any(|a| *a)))
-            && py.import("pixeltable.func._runtime")?.call_method0("in_loop_thread")?.is_truthy()?;
+        // the dispatching thread runs user code for a thread that waits for it: it must not wait for what that thread
+        // may be using (an event loop thread or a catalog lock holder: the loop; a worker: the pool)
+        let isolated = isolated();
+        let nested = in_worker() || isolated;
         let nodes: Vec<Arc<Node>> = work.into_iter().map(|w| Node::new(w).map(Arc::new)).collect::<Result<_>>()?;
         let mut modes = Vec::with_capacity(nodes.len());
         let mut asyncs = Vec::with_capacity(nodes.len());
         for n in &nodes {
-            let mode = if n.is_async && !in_loop {
+            let mode = if n.is_async && !isolated {
                 Mode::Async
             } else if n.is_async || threads <= 1 || nested || n.max_concurrency == Some(1) || n.num_units <= 1 {
                 Mode::Inline
@@ -712,6 +751,7 @@ impl<'o> Dispatch<'o> {
                 self.last_signal_check = Instant::now();
                 // a KeyboardInterrupt delivered to the main thread while it waited
                 py.check_signals()?;
+                self.check_loop(py)?;
             }
         }
         Ok(())
@@ -986,6 +1026,17 @@ impl<'o> Dispatch<'o> {
             }
         }
         self.remaining[ni] -= 1;
+    }
+
+    /// Fails if tasks are in flight on an event loop that no longer runs (they would never report).
+    fn check_loop(&self, py: Python<'_>) -> Result<()> {
+        if self.group.is_none() || !self.asyncs.iter().flatten().any(|st| st.in_flight > 0) {
+            return Ok(());
+        }
+        if py.import("pixeltable.func._runtime")?.call_method0("loop_alive")?.is_truthy()? {
+            return Ok(());
+        }
+        Err(Error::internal("The event loop running async UDFs stopped while calls were in flight"))
     }
 
     fn cancel_async(&self, py: Python<'_>) {

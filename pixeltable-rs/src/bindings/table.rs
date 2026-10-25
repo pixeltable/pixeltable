@@ -16,6 +16,7 @@ use crate::error::{Error, Result, py_repr};
 use crate::exec::compute::AddComputedPlan;
 use crate::exec::compute_rows::ComputeRowsPlan;
 use crate::exec::insert::{self, InputRow, InsertPlan, ReturnCol, UpdateStatus};
+use crate::exec::txn::{self, Mode, Step, WriterGuard};
 use crate::store::rows::StoredRow;
 use crate::types::ColumnType;
 use crate::value::Value;
@@ -213,10 +214,47 @@ pub fn source_input_rows<'py>(
     }
 }
 
-/// Inserts input rows into a table: evaluates computed columns, commits, and returns the status dict (with the
-/// stored rows if `return_rows`).
+/// Plans an insert into table `tbl_id`, first taking its tree's writer lock (shared, see `exec::txn`), which the caller
+/// holds until the insert commits (`insert_rows()`).
+pub fn plan_insert(py: Python<'_>, tbl_id: uuid::Uuid, version: Option<i64>) -> Result<(WriterGuard, InsertPlan)> {
+    let guard = txn::lock_table(py, tbl_id, Mode::Shared)?;
+    let plan = with_catalog(py, |cat| InsertPlan::new(cat, tbl_id, version))?;
+    Ok((guard, plan))
+}
+
+/// Inserts input rows into a table (planned by `plan_insert()`, whose guard is `guard`): evaluates computed columns,
+/// commits, and returns the status and the stored rows.
+pub fn insert_built_rows(
+    py: Python<'_>,
+    guard: &WriterGuard,
+    plan: &InsertPlan,
+    rows: Vec<InputRow>,
+    fail_on_exception: bool,
+) -> Result<(UpdateStatus, Vec<StoredRow>)> {
+    let built = py.detach(|| insert::build_rows(plan, rows, fail_on_exception))?;
+    let stored = built.rows.clone();
+    let status = with_catalog(py, |cat| insert::commit(cat, plan, built))?;
+    guard.committed();
+    Ok((status, stored))
+}
+
+/// Inserts input rows into table `tbl_id` (`plan_insert()`, `insert_built_rows()`).
+pub fn insert_input_rows(
+    py: Python<'_>,
+    tbl_id: uuid::Uuid,
+    version: Option<i64>,
+    rows: Vec<InputRow>,
+    fail_on_exception: bool,
+) -> Result<(UpdateStatus, Vec<StoredRow>)> {
+    let (guard, plan) = plan_insert(py, tbl_id, version)?;
+    insert_built_rows(py, &guard, &plan, rows, fail_on_exception)
+}
+
+/// Inserts input rows into a table (see `insert_built_rows()`) and returns the status dict (with the stored rows if
+/// `return_rows`).
 pub fn insert_rows<'py>(
     py: Python<'py>,
+    guard: &WriterGuard,
     plan: &InsertPlan,
     rows: Vec<InputRow>,
     fail_on_exception: bool,
@@ -230,6 +268,7 @@ pub fn insert_rows<'py>(
         None
     };
     let status = with_catalog(py, |cat| insert::commit(cat, plan, built))?;
+    guard.committed();
     let d = status_dict(py, &status)?;
     if let Some(rows) = returned {
         d.set_item("rows", rows)?;
@@ -262,10 +301,10 @@ pub fn tbl_insert<'py>(
         }
     }
     let fail_on_exception = parse_on_error(on_error)?;
-    let plan = with_catalog(py, |cat| InsertPlan::new(cat, id, version))?;
+    let (guard, plan) = plan_insert(py, id, version)?;
     // conversion and computed columns run Python code (pydantic, generators, PIL, UDFs): no catalog lock here
     let rows = source_input_rows(py, source, kwargs, source_format, overrides, &plan)?;
-    insert_rows(py, &plan, rows, fail_on_exception, return_rows)
+    insert_rows(py, &guard, &plan, rows, fail_on_exception, return_rows)
 }
 
 /// `Table.compute()`: returns (rows as tuples, {name: ColumnType}, per-row error dicts).
@@ -581,23 +620,22 @@ pub fn tbl_add_computed_column<'py>(
     schema.set_item(&folded, spec_dict)?;
     let mut specs = parse_schema(&schema)?;
     let spec = specs.pop().ok_or_else(|| Error::internal("missing column spec"))?;
-    let Some(plan) = with_catalog(py, |cat| AddComputedPlan::new(cat, id, spec, ie))? else {
-        return Ok(status_dict(py, &UpdateStatus::default())?);
-    };
-    let mut stats = RowCountStats::default();
-    let mut cols_with_excs = Vec::new();
-    let mut saved = Vec::new();
-    let values = match py.detach(|| plan.compute(fail_on_exception, &mut stats, &mut cols_with_excs, &mut saved)) {
-        Ok(v) => v,
-        Err(e) => {
-            crate::exec::compute::discard_media(&saved);
-            return Err(e);
-        }
-    };
-    let status = with_catalog(py, |cat| {
-        cat.adopt_media(saved);
-        plan.commit(cat, values, stats, cols_with_excs)
-    })?;
+    // a column whose expression runs no user code is computed in the plan's catalog-lock section
+    let status = txn::run(
+        py,
+        id,
+        Mode::Exclusive,
+        |cat| {
+            let Some(plan) = AddComputedPlan::new(cat, id, spec.clone(), ie)? else { return Ok(Step::Done(UpdateStatus::default())) };
+            if plan.runs_user_code() {
+                return Ok(Step::Compute(plan));
+            }
+            let c = py.detach(|| plan.compute_column(fail_on_exception))?;
+            Ok(Step::Done(plan.commit_column(cat, c)?))
+        },
+        |plan| plan.compute_column(fail_on_exception),
+        |cat, plan, c| plan.commit_column(cat, c),
+    )?;
     Ok(status_dict(py, &status)?)
 }
 
@@ -614,7 +652,7 @@ pub fn tbl_add_columns(py: Python<'_>, tbl_id: &str, schema: &Bound<'_, PyDict>,
         }
     }
     let specs = parse_schema(schema)?;
-    with_catalog(py, |cat| cat.add_columns(id, specs, ie))
+    txn::write(py, id, Mode::Exclusive, |cat| cat.add_columns(id, specs, ie))
 }
 
 /// `Table.drop_column()`; `column` is a name or a column reference.
@@ -652,12 +690,12 @@ pub fn tbl_drop_column(py: Python<'_>, tbl_id: &str, column: &Bound<'_, PyAny>, 
     } else {
         crate::bail!(TypeMismatch, "Invalid column parameter type: {}", column.get_type().str()?);
     };
-    with_catalog(py, |cat| cat.drop_column(id, &name, ine))
+    txn::write(py, id, Mode::Exclusive, |cat| cat.drop_column(id, &name, ine))
 }
 
 #[pyfunction]
 pub fn tbl_rename_column(py: Python<'_>, tbl_id: &str, old_name: NameArg, new_name: NameArg) -> Result<()> {
     let (old_name, new_name) = (&*old_name, &*new_name);
     let id = parse_uuid(tbl_id)?;
-    with_catalog(py, |cat| cat.rename_column(id, old_name, new_name))
+    txn::write(py, id, Mode::Exclusive, |cat| cat.rename_column(id, old_name, new_name))
 }

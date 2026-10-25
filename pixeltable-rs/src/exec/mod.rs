@@ -18,6 +18,7 @@ pub mod propagate;
 pub mod query;
 pub mod sample;
 pub mod scan;
+pub mod txn;
 pub mod update;
 
 use uuid::Uuid;

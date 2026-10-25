@@ -279,12 +279,17 @@ pub fn tbl_add_embedding_index<'py>(
         precision: precision.to_string(),
         embeddings,
     };
-    let plan = with_catalog(py, |cat| AddIndexPlan::new(cat, id, spec, value_expr, &col.name, replace))?;
-    let mut stats = crate::catalog::table::RowCountStats::default();
-    let mut cols_with_excs = Vec::new();
-    let values = py.detach(|| plan.compute(&mut stats, &mut cols_with_excs))?;
-    with_catalog(py, |cat| plan.commit(cat, values, stats, cols_with_excs))?;
-    Ok(())
+    crate::exec::txn::run(
+        py,
+        id,
+        crate::exec::txn::Mode::Exclusive,
+        |cat| {
+            let plan = AddIndexPlan::new(cat, id, spec.clone(), value_expr.clone(), &col.name, replace.clone())?;
+            Ok(crate::exec::txn::Step::<AddIndexPlan, ()>::Compute(plan))
+        },
+        |plan| plan.compute(),
+        |cat, plan, computed| plan.commit(cat, computed).map(|_| ()),
+    )
 }
 
 /// `Table.add_btree_index()`
@@ -297,7 +302,7 @@ pub fn tbl_add_btree_index(py: Python<'_>, tbl_id: &str, column: &Bound<'_, PyAn
         crate::bail!(InvalidArgument, "if_exists must be one of: ['error', 'ignore']; got {}", py_repr(if_exists));
     }
     let col = column_arg(column)?;
-    with_catalog(py, |cat| cat.add_btree_index(id, &col, idx_name, if_exists == "ignore"))
+    crate::exec::txn::write(py, id, crate::exec::txn::Mode::Exclusive, |cat| cat.add_btree_index(id, &col, idx_name, if_exists == "ignore"))
 }
 
 /// `Table.drop_index()` / `Table.drop_embedding_index()`
@@ -318,7 +323,9 @@ pub fn tbl_drop_index(
     }
     let col = column.map(column_arg).transpose()?;
     let ine = IfNotExists::parse(if_not_exists, "if_not_exists")?;
-    with_catalog(py, |cat| cat.drop_index(id, col.as_ref(), idx_name, embedding_only, ine == IfNotExists::Ignore))
+    crate::exec::txn::write(py, id, crate::exec::txn::Mode::Exclusive, |cat| {
+        cat.drop_index(id, col.as_ref(), idx_name, embedding_only, ine == IfNotExists::Ignore)
+    })
 }
 
 /// The `indexes` section of `get_metadata()`.

@@ -16,11 +16,12 @@ use crate::catalog::runtime::with_catalog;
 use crate::catalog::table::{ColId, ResolvedColumn};
 use crate::error::{Error, Result, py_repr};
 use crate::exec::compute::ComputedCol;
-use crate::exec::insert::{self, InputRow, InsertPlan, UpdateStatus};
+use crate::exec::insert::{self, InputRow, UpdateStatus};
 use crate::exec::scan::PathInput;
-use crate::exec::update::{self, QCol, RowSelection, UpdatePlan, dependent_columns, view_update_tree};
+use crate::exec::txn::{self, Mode, ReadSet, Step};
+use crate::exec::update::{self, QCol, RowSelection, UpdateOutput, UpdatePlan, dependent_columns, view_update_tree};
 use crate::expr::{Expr, ExprRef};
-use crate::store::rows::RowKey;
+use crate::store::rows::{RowKey, StoredRow};
 use crate::value::Value;
 use crate::value::py as vpy;
 
@@ -206,6 +207,9 @@ fn build_plan(
     }
     let views = if cascade { view_update_tree(cat, tbl_id, &changed, false, &mut updated_cols)? } else { Vec::new() };
     let path = cat.tbl_path(tbl_id, None)?;
+    let mut read_ids: Vec<Uuid> = path.iter().filter(|e| e.pinned.is_none()).map(|e| e.tbl_id).collect();
+    update::view_tree_ids(&views, &mut read_ids);
+    let read = ReadSet::of(cat, read_ids)?;
     Ok(UpdatePlan {
         tbl_id,
         tbl_name: md.name.clone(),
@@ -226,6 +230,7 @@ fn build_plan(
             dir: cat.store().media_dir(tbl_id),
             version: md.current_version + 1,
         },
+        read,
     })
 }
 
@@ -244,14 +249,58 @@ fn check_where_bound(cat: &Catalog, tbl_id: Uuid, pred: &Expr) -> Result<()> {
     );
 }
 
-/// Computes and commits an update; returns its status dict (with the updated rows if the plan asks for them).
-fn run_update<'py>(py: Python<'py>, plan: UpdatePlan, fail_on_exception: bool) -> Result<Bound<'py, PyDict>> {
-    let out = py.detach(|| plan.compute(fail_on_exception))?;
-    let rows = if plan.return_cols.is_some() { out.own.new_rows.clone() } else { Vec::new() };
-    let status = with_catalog(py, |cat| plan.commit(cat, out))?;
-    let d = status_dict(py, &status)?;
-    if let Some(cols) = &plan.return_cols {
-        d.set_item("rows", returned_rows_to_py(py, cols, &rows.iter().collect::<Vec<_>>())?)?;
+/// A committed update.
+struct Updated<X> {
+    status: UpdateStatus,
+    /// the new rows, if the plan asks for them (`return_rows`)
+    rows: Vec<StoredRow>,
+    return_cols: Option<Vec<insert::ReturnCol>>,
+    /// `batch_update()`: keys that matched no row
+    unmatched: Vec<RowKey>,
+    /// what the plan step returned beside the plan
+    extra: X,
+}
+
+/// Runs an update of table `id` (`exec::txn::run()`): `build` plans it under the catalog lock (None: nothing to do);
+/// it is computed and committed in the same lock section if it runs no user code, else computed without the lock and
+/// committed if what it read is unchanged, or planned again. `check` may refuse the computed changes before the commit.
+fn execute_update<X: Clone + Send + Sync>(
+    py: Python<'_>,
+    id: Uuid,
+    mut build: impl FnMut(&mut Catalog) -> Result<Option<(UpdatePlan, X)>>,
+    fail_on_exception: bool,
+    check: impl Fn(&UpdateOutput, &X) -> Result<()>,
+) -> Result<Option<Updated<X>>> {
+    let finish = |cat: &mut Catalog, plan: &UpdatePlan, out: UpdateOutput, extra: X| -> Result<Updated<X>> {
+        check(&out, &extra)?;
+        let rows = if plan.return_cols.is_some() { out.own.new_rows.clone() } else { Vec::new() };
+        let unmatched = out.unmatched.clone();
+        let status = plan.commit(cat, out)?;
+        Ok(Updated { status, rows, return_cols: plan.return_cols.clone(), unmatched, extra })
+    };
+    txn::run(
+        py,
+        id,
+        Mode::Exclusive,
+        |cat| {
+            let Some((plan, extra)) = build(cat)? else { return Ok(Step::Done(None)) };
+            if plan.runs_user_code() {
+                return Ok(Step::Compute((plan, extra)));
+            }
+            let out = py.detach(|| plan.compute(fail_on_exception))?;
+            Ok(Step::Done(Some(finish(cat, &plan, out, extra)?)))
+        },
+        |(plan, _)| plan.compute(fail_on_exception),
+        |cat, (plan, extra), out| Ok(Some(finish(cat, plan, out, extra.clone())?)),
+    )
+}
+
+/// The status dict of an update (with the updated rows if the plan asked for them).
+fn update_result<'py, X>(py: Python<'py>, updated: Option<Updated<X>>) -> Result<Bound<'py, PyDict>> {
+    let Some(u) = updated else { return Ok(status_dict(py, &UpdateStatus::default())?) };
+    let d = status_dict(py, &u.status)?;
+    if let Some(cols) = &u.return_cols {
+        d.set_item("rows", returned_rows_to_py(py, cols, &u.rows.iter().collect::<Vec<_>>())?)?;
     }
     Ok(d)
 }
@@ -281,7 +330,7 @@ pub fn tbl_update<'py>(
     })?;
     let rules = SpecRules { allow_pk: false, allow_exprs: true, allow_media: true };
     let (targets, _) = validate_spec(py, &cols, id, &folded, rules)?;
-    let plan = with_catalog(py, |cat| {
+    let build = |cat: &mut Catalog| {
         if let Some(p) = &pred {
             check_where_bound(cat, id, p)?;
             update::validate_where(p)?;
@@ -315,9 +364,10 @@ pub fn tbl_update<'py>(
         if return_rows {
             plan.return_cols = Some(insert::return_columns(cat, id)?);
         }
-        Ok(plan)
-    })?;
-    run_update(py, plan, false)
+        Ok(Some((plan, ())))
+    };
+    let updated = execute_update(py, id, build, false, |_, _| Ok(()))?;
+    update_result(py, updated)
 }
 
 /// How a `batch_update()` row identifies the row it updates.
@@ -422,7 +472,7 @@ pub fn tbl_batch_update<'py>(
         updates.push((values, ident, pk_list));
     }
     // resolve the rows (primary key lookups need the table's rows) and plan
-    let (plan, unmatched_idx) = with_catalog(py, |cat| {
+    let build = |cat: &mut Catalog| {
         // the live rows with the given primary keys (by the table's primary-key index)
         let pk_keys: Vec<Vec<Value>> = updates
             .iter()
@@ -472,24 +522,33 @@ pub fn tbl_batch_update<'py>(
             plan.return_cols = Some(insert::return_columns(cat, id)?);
         }
         let unmatched: Vec<usize> = keys_in_order.iter().enumerate().filter(|(_, k)| k.is_none()).map(|(i, _)| i).collect();
-        Ok((plan, unmatched))
-    })?;
-    let out = py.detach(|| plan.compute(false))?;
-    let mut returned = if plan.return_cols.is_some() { out.own.new_rows.clone() } else { Vec::new() };
-    let mut unmatched_idx = unmatched_idx;
-    // rowids that match no live row
-    for (i, (_, ident, _)) in updates.iter().enumerate() {
-        if let RowIdent::Rowid(k) = ident {
-            if out.unmatched.contains(k) {
-                unmatched_idx.push(i);
+        Ok(Some((plan, unmatched)))
+    };
+    // the input rows that match no live row: by primary key (found by the plan), or by rowid (by the computation)
+    let unmatched_rows = |pk_unmatched: &[usize], rowids_unmatched: &[RowKey]| -> Vec<usize> {
+        let mut out = pk_unmatched.to_vec();
+        for (i, (_, ident, _)) in updates.iter().enumerate() {
+            if let RowIdent::Rowid(k) = ident {
+                if rowids_unmatched.contains(k) {
+                    out.push(i);
+                }
             }
         }
-    }
-    unmatched_idx.sort();
-    if !unmatched_idx.is_empty() && if_not_exists == "error" {
-        crate::bail!(RowNotFound, "batch_update(): {} row(s) not found", unmatched_idx.len());
-    }
-    let mut status = with_catalog(py, |cat| plan.commit(cat, out))?;
+        out.sort();
+        out
+    };
+    let check = |out: &UpdateOutput, pk_unmatched: &Vec<usize>| -> Result<()> {
+        let n = unmatched_rows(pk_unmatched, &out.unmatched).len();
+        if n > 0 && if_not_exists == "error" {
+            crate::bail!(RowNotFound, "batch_update(): {n} row(s) not found");
+        }
+        Ok(())
+    };
+    let updated = execute_update(py, id, build, false, check)?.ok_or_else(|| Error::internal("batch_update() planned nothing"))?;
+    let unmatched_idx = unmatched_rows(&updated.extra, &updated.unmatched);
+    let mut returned = updated.rows;
+    let mut status = updated.status;
+    let return_cols = updated.return_cols;
     if if_not_exists == "insert" && !unmatched_idx.is_empty() {
         // upstream inserts the unmatched rows as given (primary key and values), without checking required columns
         let rows: Vec<InputRow> = unmatched_idx
@@ -499,16 +558,14 @@ pub fn tbl_batch_update<'py>(
                 pk.iter().chain(values.iter()).cloned().collect()
             })
             .collect();
-        let ins_plan = with_catalog(py, |cat| InsertPlan::new(cat, id, None))?;
-        let built = py.detach(|| insert::build_rows(&ins_plan, rows, false))?;
-        if plan.return_cols.is_some() {
-            returned.extend(built.rows.iter().cloned());
+        let (ins_status, built_rows) = super::table::insert_input_rows(py, id, None, rows, false)?;
+        if return_cols.is_some() {
+            returned.extend(built_rows);
         }
-        let ins_status = with_catalog(py, |cat| insert::commit(cat, &ins_plan, built))?;
         status = status + ins_status.to_cascade();
     }
     let d = status_dict(py, &status)?;
-    if let Some(cols) = &plan.return_cols {
+    if let Some(cols) = &return_cols {
         d.set_item("rows", returned_rows_to_py(py, cols, &returned.iter().collect::<Vec<_>>())?)?;
     }
     Ok(d)
@@ -528,7 +585,7 @@ pub fn tbl_recompute_columns<'py>(
 ) -> Result<Bound<'py, PyDict>> {
     let id = parse_uuid(tbl_id)?;
     let pred = where_arg(where_)?;
-    let plan = with_catalog(py, |cat| {
+    let build = |cat: &mut Catalog| {
         cat.check_mutable(id, version, "recompute columns of")?;
         if columns.is_empty() {
             crate::bail!(MissingRequired, "At least one column must be specified to recompute");
@@ -594,9 +651,10 @@ pub fn tbl_recompute_columns<'py>(
         if errors_only {
             plan.errors_only = Some(targets[0].md.id);
         }
-        Ok(plan)
-    })?;
-    run_update(py, plan, false)
+        Ok(Some((plan, ())))
+    };
+    let updated = execute_update(py, id, build, false, |_, _| Ok(()))?;
+    update_result(py, updated)
 }
 
 /// Resolves a column parameter (a name or a column reference) of `tbl_id`.
@@ -629,7 +687,7 @@ fn column_param(cat: &Catalog, tbl_id: Uuid, column: &Bound<'_, PyAny>) -> Resul
 pub fn tbl_alter_column(py: Python<'_>, tbl_id: &str, version: Option<i64>, column: &Bound<'_, PyAny>, type_: &Bound<'_, PyAny>) -> Result<()> {
     let id = parse_uuid(tbl_id)?;
     let new_type = super::types::normalize_type(type_, false)?;
-    with_catalog(py, |cat| {
+    txn::write(py, id, Mode::Exclusive, |cat| {
         cat.check_mutable(id, version, "alter columns of")?;
         let col = column_param(cat, id, column)?;
         cat.alter_column(id, &col, &new_type)
@@ -659,7 +717,7 @@ pub fn tbl_alter_computed_column<'py>(
     }
     let (name, spec) = kwargs.iter().next().ok_or_else(|| Error::internal("missing column"))?;
     let col_name: String = name.extract()?;
-    let plan = with_catalog(py, |cat| {
+    let build = |cat: &mut Catalog| {
         cat.check_mutable(id, version, "alter columns of")?;
         let Some(col) = cat.resolve_column_by_name(id, None, &col_name)? else {
             crate::bail!(ColumnNotFound, "Unknown column: {col_name}");
@@ -724,12 +782,10 @@ pub fn tbl_alter_computed_column<'py>(
         }
         plan.schema_change = Some((col.md.id, new_expr));
         plan.writes_rows = recompute;
-        Ok(Some(plan))
-    })?;
-    let Some(plan) = plan else {
-        return Ok(status_dict(py, &UpdateStatus::default())?);
+        Ok(Some((plan, ())))
     };
-    run_update(py, plan, false)
+    let updated = execute_update(py, id, build, false, |_, _| Ok(()))?;
+    update_result(py, updated)
 }
 
 /// Fails if giving column `col_id` of `md` the value expression `new_expr` creates a dependency cycle among the
@@ -786,7 +842,7 @@ pub fn tbl_delete<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>, wher
         Ok(())
     })?;
     let pred = where_arg(where_)?;
-    let status = with_catalog(py, |cat| {
+    let status = txn::write(py, id, Mode::Shared, |cat| {
         if let Some(p) = &pred {
             check_where_bound(cat, id, p)?;
             update::validate_where(p)?;
@@ -801,7 +857,7 @@ pub fn tbl_delete<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>, wher
 #[pyo3(signature = (tbl_id, version))]
 pub fn tbl_revert(py: Python<'_>, tbl_id: &str, version: Option<i64>) -> Result<()> {
     let id = parse_uuid(tbl_id)?;
-    with_catalog(py, |cat| cat.revert(id, version))
+    txn::write(py, id, Mode::Exclusive, |cat| cat.revert(id, version))
 }
 
 /// Versions of a table, newest first (for `get_versions()`): tuples of
