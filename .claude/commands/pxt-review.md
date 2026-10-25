@@ -41,9 +41,17 @@ This command takes precedence where a skill requires execution, file writes, pub
 ## Steps
 
 1. **Context, Sonnet.** Read the manifest, metadata, frozen diff, previous records, and applicable rules. Return the
-   requirement and beneficiary, labeled stated or inferred. Classify changed files as core or peripheral. Identify
-   user-facing changes and the job to walk. When earlier review records exist, note the prior reviewed commit SHA so
-   passes can compare follow-up fixes against the full change. Every file needs review or an explicit exclusion reason.
+   requirement and beneficiary, labeled stated or inferred. Classify changed files as core or peripheral. Set
+   `user_surface` true only when the change alters a workflow a person completes, and name that job. A docs wording
+   tweak, an internal change, or a change with no such workflow is `user_surface: false`. Enumerate every
+   `.github/instructions/*.instructions.md` file that exists and matches a changed path, and give that list to `rules`.
+   When the file is present, use its `applyTo`: `tests.instructions.md` matches `tests/**`,
+   `docs.instructions.md` matches `docs/**,README.md`, and `serving.instructions.md` matches
+   `pixeltable/serving/**`, `pixeltable/service/**`, `pixeltable_cli/**`, `pixeltable/runtime.py`,
+   `pixeltable/utils/cloud_utils.py`, `pixeltable/utils/app_module.py`, and `pixeltable/utils/project.py`.
+   When earlier review records exist, note the
+   prior reviewed commit SHA so passes can compare follow-up fixes against the full change. Every file needs review or
+   an explicit exclusion reason.
    Generated content can be excluded, but inspect dependency pins or generated contracts when their effects matter.
 2. **Passes, in parallel.** Each pass collects candidates, rereads their source, and tries to disprove them. Keep
    source-backed claims with a trigger, impact, attribution, and smallest correction. Return structured pass checks,
@@ -56,8 +64,10 @@ This command takes precedence where a skill requires execution, file writes, pub
      PR has follow-up commits after an earlier review, check whether they patched symptoms onto a flawed mechanism
      introduced by the PR instead of deleting or simplifying it.
    - `blast-radius`, Opus: affected callers, formats, transactions, persisted data, languages, and downstream contracts.
-   - `rules`, Sonnet: changed lines against the applicable trusted rules. Quote each broken rule exactly.
-   - `walk`, Sonnet: walk-the-job's walk and trouble when context identifies a user-facing change.
+   - `rules`, Sonnet: read every instruction file Context listed and check the changed lines against them. Quote each
+     broken rule exactly.
+   - `walk`, Sonnet: required when `user_surface` is true. Run walk-the-job's walk and trouble and include the `walk`
+     result in `passes`. Omit `walk` when `user_surface` is false.
    - `focus`, Opus: the manifest's focus when required. Other passes also prioritize it within their lens.
 3. **Independent cross-check, Opus.** Use a fresh agent named `cross-check`. It did not produce the candidates.
    Apply articulate-the-abstraction step 5. Re-read callers, guards, transactions, schemas, and error paths to refute
@@ -67,7 +77,10 @@ This command takes precedence where a skill requires execution, file writes, pub
    Copy its established ID, producer, subject, and mechanism from `previous.records` (updating only the path prefix on a
    rename). A resolved decision needs the source change that removes a previously posted trigger. An unchanged comment
    file alone never establishes an unchanged claim.
-4. **Assemble the final envelope.** Copy the checked records verbatim into decisions. Order and filter findings without
+4. **Assemble the final envelope.** Put a finding in `findings` when its decision is keep, narrow, question, or
+   resolved, when it is unchecked maintenance, or when it is an open prior claim with a reject decision. Omit any
+   other rejected candidate from both `findings` and `decisions`. Do not relabel an open prior claim as maintenance.
+   Copy the checked records verbatim into decisions. Order and filter findings without
    strengthening them. A material replacement needs another independent check. Missing work or verification makes
    the outcome incomplete. There is no extra critic, wave, or checker allocation in this initial implementation.
 
@@ -148,9 +161,15 @@ Each finding has this shape:
 
 Kinds are `defect`, `design`, `rule`, and `maintenance`. Severity is High, Medium, or Low for defects only and follows
 established impact. Other kinds omit severity. Rule findings also have `rule` with the exact quoted instruction.
-Attribution is `new`, `newly_exposed`, or `existing`. Existing debt is at most a maintenance suggestion. A finding needs
-an ordered source trace that accounts for visible preventing controls. `location` can be null or outside the diff. The
-host keeps only valid locations inline and renders the rest in the body. IDs exclude line numbers, agent, and severity.
+Attribution is `new`, `newly_exposed`, or `existing`. Existing debt is at most a maintenance suggestion. The host
+publishes that record as maintenance, and it does not by itself make the review incomplete. A finding needs
+an ordered source trace that accounts for visible preventing controls. Set `location` to the diff-hunk lines that
+introduce or expose the problem. When that location is outside the hunks, the host attaches the comment to the first
+in-hunk evidence reference, and otherwise to the cited line of a changed file. A file the pull
+request does not change is rendered in the body. Add `suggestion` with the exact replacement only when it completely
+fixes the finding, the location is the right side, and both the range and the replacement are shorter than six lines.
+The host turns that field into a GitHub suggestion on those exact lines and leaves it out when the comment has to
+be anchored to a different line. IDs exclude line numbers, agent, and severity.
 Use `path#symbol-or-contract` for the canonical subject. On a rename, change only its path prefix when the symbol or
 contract is unchanged. ID spelling alone cannot prove two claims equivalent. Match subject, mechanism, and evidence
 before preserving an ID. A different identity needs a new ID and does not replace the prior claim's revalidation.
@@ -184,8 +203,9 @@ Separate questions use `{"unknown":"<exact missing fact>","check":"<smallest che
 ## Writing
 
 Write about the code, problem first, in articulate-the-abstraction's voice. Use concrete active sentences and the code's
-own names. Keep each comment within 80 words before a suggestion. Add a suggestion only when it completely fixes the
-finding and spans fewer than six lines. Do not invent test results, deployment facts, or stronger impact than the trace.
+own names. Keep each comment within 80 words. Put a complete fix of fewer than six lines in `suggestion`, not in the
+comment. Omit `suggestion` when the fix is partial, longer, or not the commented right-side range. Do not invent test
+results, deployment facts, or stronger impact than the trace.
 
 Do not flag formatting or static type errors left to CI, unrelated debt, exempted rules, or style preferences without
 consequences. Preserve substantive design objections, but keep their label distinct from defect severity. Keep optional

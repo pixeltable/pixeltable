@@ -221,7 +221,7 @@ class PrepareTest(unittest.TestCase):
         incomplete = subprocess.run(command, text=True, capture_output=True, check=False)
         self.assertEqual(incomplete.returncode, 0, incomplete.stdout + incomplete.stderr)
         self.assertEqual(contract.read_json(outcome_path)['status'], 'incomplete')
-        self.assertIn('coverage gaps', contract.read_json(outcome_path)['reason'])
+        self.assertIn('unfinished', contract.read_json(outcome_path)['reason'])
         result['snapshot_id'] = 'wrong snapshot'
         result_path.write_text(json.dumps(result), encoding='utf-8')
         rejected = subprocess.run(command, text=True, capture_output=True, check=False)
