@@ -53,3 +53,7 @@ def _console_logger() -> logging.LoggerAdapter:
 
 def info(msg: str) -> None:
     _console_logger().info(msg)
+
+
+def warning(msg: str) -> None:
+    _console_logger().warning(msg)

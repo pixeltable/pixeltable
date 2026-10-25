@@ -174,8 +174,10 @@ def test_blocked_loop_is_reported(tmp_path) -> None:
         """,
         tmp_path,
     )
-    assert r.stdout.strip() == '[0, 1, 2, 3, 4]'
-    assert 'which has not run for' in r.stderr, r.stderr[-2000:]
+    # the warning is a console message (stdout), as upstream's console logger prints warnings
+    lines = r.stdout.strip().splitlines()
+    assert lines[-1] == '[0, 1, 2, 3, 4]'
+    assert any('which has not run for' in line for line in lines[:-1]), r.stdout[-2000:]
 
 
 def test_nested_async_sync_async(tmp_path) -> None:

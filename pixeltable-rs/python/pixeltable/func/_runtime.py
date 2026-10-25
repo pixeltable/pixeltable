@@ -18,7 +18,6 @@ import asyncio
 import atexit
 import concurrent.futures
 import functools
-import logging
 import os
 import re
 import threading
@@ -31,7 +30,6 @@ _loop: asyncio.AbstractEventLoop | None = None
 _thread: threading.Thread | None = None
 _pid: int | None = None
 _lock = threading.Lock()
-_logger = logging.getLogger('pixeltable')
 
 # the loop runs `_beat()` every `_BEAT_INTERVAL` seconds: a beat that is long overdue means a callback (a UDF that
 # blocks instead of awaiting) holds the loop
@@ -100,7 +98,10 @@ def report_stall() -> bool:
     stalled = time.monotonic() - _last_beat - _BEAT_INTERVAL
     if not loop_alive() or stalled <= _STALL_WARNING_S:
         return False
-    _logger.warning(
+    from pixeltable import _console
+
+    # a user-visible warning (upstream's console logger: stdout)
+    _console.warning(
         f'Async UDF calls are waiting for the event loop that runs them, which has not run for {stalled:.0f} s: '
         'an async UDF blocks it (a synchronous call that does not await)'
     )
