@@ -4,14 +4,18 @@ Each class focuses on one cli command. Methods bundle related scenarios so a sin
 table can serve multiple assertions (JSON + text + flag variants) without re-creating it.
 """
 
+import http.client
 import importlib.metadata
+import io
 import json
 import os
 import pathlib
+import shlex
 import subprocess
 import sys
 import urllib.error
 import urllib.request
+from email.message import Message
 from textwrap import dedent
 from typing import Any, Callable
 
@@ -108,6 +112,103 @@ class TestDbRetryDeletion:
         code, _, err = self._run(monkeypatch, receipt, capsys)
         assert code == 1
         assert 'failed: the tenant role is still in use' in err
+        assert f'next: pxt db retry {self._URI}  # tries it again as it is' in err
+
+
+class TestErrorCode:
+    def test_daemon_error(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
+        """A daemon error keeps its error_code: at the end of the text line, and in the --json document."""
+        missing = db_root.make_catalog_path('cli_code_missing/t')
+        r = cli('count', missing, check=False)
+        assert r.returncode == 1
+        assert r.stdout == ''
+        assert r.stderr.rstrip().endswith('[DIRECTORY_NOT_FOUND]'), r.stderr
+
+        r = cli('count', missing, '--json', check=False)
+        assert r.returncode == 1
+        assert r.json['error_code'] == 'DIRECTORY_NOT_FOUND'
+        assert r.json['retryable'] is False
+        assert 'cli_code_missing' in r.json['message']
+
+
+@pytest.mark.db_roots('local', reason='the daemon is faked; no request leaves the process')
+class TestRequestFailures:
+    """A failed request names its cause in error_code, in text and in the --json document."""
+
+    _URL = 'http://127.0.0.1:1/api/ls'
+
+    @pytest.mark.parametrize(
+        ('failure', 'error_code', 'retryable'),
+        [
+            (urllib.error.URLError('Connection refused'), 'DAEMON_UNREACHABLE', True),
+            (
+                urllib.error.HTTPError(_URL, 500, 'Internal Server Error', Message(), io.BytesIO(b'not json')),
+                'INTERNAL_ERROR',
+                True,
+            ),
+            (
+                urllib.error.HTTPError(_URL, 404, 'Not Found', Message(), io.BytesIO(b'{"detail": "not found"}')),
+                'HTTP_404',
+                False,
+            ),
+            (http.client.RemoteDisconnected('closed'), 'INTERNAL_ERROR', True),
+            # the daemon did not start, so resending cannot help
+            (RuntimeError('the daemon did not start'), 'DAEMON_UNREACHABLE', False),
+        ],
+    )
+    def test_error_code(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        failure: Exception,
+        error_code: str,
+        retryable: bool,
+    ) -> None:
+        def fail(*args: Any, **kwargs: Any) -> Any:
+            raise failure
+
+        if isinstance(failure, RuntimeError):
+            monkeypatch.setattr(utils, 'ensure_running', fail)
+        else:
+            monkeypatch.setattr(utils, 'ensure_running', lambda: 'http://127.0.0.1:1')
+            monkeypatch.setattr(urllib.request, 'urlopen', fail)
+        monkeypatch.setattr(utils, 'invocation', ['ls', '--json'])
+        with pytest.raises(SystemExit) as exc:
+            utils.get_request('/api/ls')
+        assert exc.value.code == 1
+        out, err = capsys.readouterr()
+        assert err.rstrip().endswith(f'[{error_code}]'), err
+        doc = json.loads(out)
+        assert (doc['error_code'], doc['retryable']) == (error_code, retryable)
+
+
+@pytest.mark.db_roots('local', reason='prints only; no request is sent')
+class TestNoWait:
+    def test_names_the_status_command_in_any_mode(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--no-wait names `pxt db status` on stderr, with --json too, where stdout holds only the document."""
+        receipt = GenerationReceipt(kind='database', resource_id='db-uuid', generation=4, db='main')
+        accepted = {'receipt': receipt.model_dump(mode='json'), 'report': {'db': 'main'}, 'worker_status': []}
+        monkeypatch.setattr(db_cmd, 'post_request', lambda path, body, **kwargs: accepted)
+        db_cmd.run(['restart', 'pxt://acme:main', '--no-wait', '--json'])
+        out, err = capsys.readouterr()
+        assert json.loads(out) == {'db': 'main'}
+        assert err == 'next: pxt db status pxt://acme:main  # shows its progress\n'
+
+
+@pytest.mark.db_roots('local', reason='parses arguments only; no request is sent')
+class TestDbUsage:
+    @pytest.mark.parametrize(
+        'argv',
+        [['frobnicate'], ['diff', 'my_dir'], ['status', 'pxt://acme'], ['update', 'pxt://acme:main', '--nope'], []],
+    )
+    def test_usage_exits_1(self, argv: list[str], capsys: pytest.CaptureFixture[str]) -> None:
+        """A usage error exits 1, since 2 means changes pending (diff) or a change still under way (the waits)."""
+        with pytest.raises(SystemExit) as exc:
+            db_cmd.run(argv)
+        assert exc.value.code == 1
+        assert 'error' in capsys.readouterr().err
 
 
 @pytest.mark.db_roots('local', reason='the daemon is faked, so no catalog is reached')
@@ -173,7 +274,13 @@ class TestDbDelete:
                 assert result.returncode == 3, result.stderr
                 assert f'delete {uri}? This is irreversible.' in result.stderr
                 assert '--force/-f' in result.stderr
-                assert result.stdout == ''
+                # it names the command that confirms the deletion, which this test leaves unrun
+                assert result.next_commands == [['pxt', 'db', 'delete', *uri_args, *output_args, '-f']]
+                if output_args:
+                    assert result.json['error_code'] == 'CONFIRMATION_REQUIRED'
+                    assert result.json['next'][0]['command'] == shlex.join(result.next_commands[0])
+                else:
+                    assert result.stdout == ''
 
     def test_update_json_prints_pending_plan(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -201,6 +308,34 @@ class TestDbDelete:
         doc = json.loads(capsys.readouterr().out)
         assert doc['resolution'] == 'update_additive'
         assert doc['in_agreement'] is False
+
+    def test_update_destructive_names_allow_destructive(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A destructive plan without --allow-destructive is refused before the prompt, naming the flag it needs."""
+        plan = types.DbPlan.from_ops(
+            'pxt://acme:main',
+            types.DbState.AVAILABLE,
+            [
+                types.DbChangeOp(
+                    target='capacity',
+                    name='workers',
+                    op='alter',
+                    severity='destructive',
+                    description='workers will go from 2 to 1',
+                )
+            ],
+        )
+        monkeypatch.setattr(db_cmd, 'post_request', lambda _path, _body: plan.model_dump(mode='json'))
+        monkeypatch.setattr(utils, 'stdin_is_a_tty', lambda: False)
+        monkeypatch.setattr(utils, 'invocation', ['db', 'update', 'pxt://acme:main'])
+
+        with pytest.raises(SystemExit, match=f'^{utils.EXIT_REFUSED}$'):
+            db_cmd.run(['update', 'pxt://acme:main'])
+
+        err = capsys.readouterr().err
+        assert 'without --allow-destructive' in err
+        assert 'next: pxt db update pxt://acme:main --allow-destructive -f  # applies 1 destructive operation(s)' in err
 
 
 class TestLs:
@@ -753,13 +888,17 @@ class TestGet:
         assert out['pk_columns'] == ['k']
         assert out['row']['v'] == 'two'
 
-        # --json: missing row -> row is None
-        out = cli('get', p('cli_get/t'), '99', '--json').json
-        assert out['row'] is None
+        # --json: missing row -> row is None, and the miss exits 1 as in text
+        r = cli('get', p('cli_get/t'), '99', '--json', check=False)
+        assert r.returncode == 1
+        assert r.json['row'] is None
 
-        # text: found shows the row, missing prints 'no row found'
+        # text: found shows the row; missing prints nothing on stdout and the reason on stderr
         assert 'two' in cli('get', p('cli_get/t'), '2').stdout
-        assert 'no row found' in cli('get', p('cli_get/t'), '99').stdout
+        r = cli('get', p('cli_get/t'), '99', check=False)
+        assert r.returncode == 1
+        assert r.stdout == ''
+        assert "no row found for {k='99'} [ROW_NOT_FOUND]" in r.stderr
 
         # --cols subset: only the named columns returned
         out = cli('get', p('cli_get/t'), '1', '--cols', 'a', '--json').json
@@ -975,15 +1114,22 @@ class TestErrors:
         r = cli('errors', p('cli_errs/ok'))
         assert r.returncode == 0
         assert r.stdout.strip() == ''
+        assert f'no failed cells in {p("cli_errs/ok")}' in r.stderr
+        assert r.next_commands == []
 
         # Computed column that raises for k=0: row 0 shows up in the errors listing
         t = pxt.create_table(p('cli_errs/bad'), {'k': pxt.Int}, primary_key='k', if_exists='replace')
         t.add_computed_column(b=fail_on_zero(t.k), on_error='ignore')
         t.add_computed_column(c=fail_on_zero(t.k), on_error='ignore')
         t.insert([{'k': 0}, {'k': 1}], on_error='ignore')
-        text = cli('errors', p('cli_errs/bad')).stdout
-        assert 'k: 0' in text
-        assert 'b' in text
+        r = cli('errors', p('cli_errs/bad'))
+        assert 'k: 0' in r.stdout
+        assert 'b' in r.stdout
+        # one recompute per failed column, for its failed cells only
+        assert r.next_commands == [
+            ['pxt', 'recompute', p('cli_errs/bad'), 'b', '--errors-only', '-f'],
+            ['pxt', 'recompute', p('cli_errs/bad'), 'c', '--errors-only', '-f'],
+        ]
 
         # --col filters to one stored computed column: an existing column with errors comes back,
         # and asking for the other computed column also returns its errors.
@@ -1017,6 +1163,88 @@ class TestErrors:
         r = cli('errors', p('cli_errs_err/t'), '--col', 'plain', check=False)
         assert r.returncode != 0
         assert 'stored computed column' in r.stderr
+
+
+@pytest.mark.db_roots('local', reason='the udf reads a file on this machine, which a hosted pod cannot see')
+class TestErrorsNext:
+    def test_next_reruns_failed_cells(
+        self, cli: PxtRunner, db_root: DatabaseRoot, session_project: pathlib.Path
+    ) -> None:
+        """The recompute `pxt errors` names clears the errors once their cause is gone."""
+        flag = session_project / 'errors_next.flag'
+        udf_file = session_project / 'errors_next_udfs.py'
+        udf_file.write_text(
+            dedent(
+                f"""
+                import pathlib
+
+                import pixeltable as pxt
+
+
+                @pxt.udf
+                def flaky(k: int) -> int:
+                    # fails while the flag exists, as a model call fails during an outage
+                    if pathlib.Path({str(flag)!r}).exists():
+                        raise ValueError('outage')
+                    return k
+                """
+            ),
+            encoding='utf-8',
+        )
+        flaky = load_app_module(str(udf_file), subject='UDF module').flaky
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('cli_errs_next'), if_exists='ignore')
+        t = pxt.create_table(p('cli_errs_next/t'), {'k': pxt.Int}, primary_key='k', if_exists='replace')
+        # a view's own out, which the base's out added after it shadows
+        shadow = pxt.create_view(
+            p('cli_errs_next/shadow'), t, additional_columns={'out': flaky(t.k + 10)}, if_exists='replace'
+        )
+        t.add_computed_column(out=flaky(t.k), on_error='ignore')
+        flag.touch()
+        try:
+            t.insert([{'k': 1}, {'k': 2}], on_error='ignore')
+        finally:
+            flag.unlink()
+
+        # a view lists the failures of a column it inherits, which is recomputed on the table that defines it,
+        # named absolute so that a working directory leaves it alone
+        pxt.create_view(p('cli_errs_next/v'), t, if_exists='replace')
+        inherited = [['pxt', 'recompute', display_path(p('cli_errs_next/t')), 'out', '--errors-only', '-f']]
+        r = cli('errors', p('cli_errs_next/v'))
+        assert r.next_commands == inherited
+        assert 'which defines it' in r.stderr
+        # a view with its base's name too
+        pxt.create_dir(p('cli_errs_next/views'), if_exists='ignore')
+        pxt.create_view(p('cli_errs_next/views/t'), t, if_exists='replace')
+        assert cli('errors', p('cli_errs_next/views/t')).next_commands == inherited
+        # a snapshot never changes, so its failed cells get no recompute
+        pxt.create_snapshot(p('cli_errs_next/snap'), t, if_exists='replace')
+        r = cli('errors', p('cli_errs_next/snap'))
+        assert 'k: 1' in r.stdout
+        assert r.next_commands == []
+        assert 'take a new snapshot' in r.stderr
+        cli('cd', p('cli_errs_next'))
+        try:
+            assert cli('errors', 'v').next_commands == inherited
+            # the table's own column keeps the path as given, which resolves the same way
+            assert cli('errors', 't').next_commands == [['pxt', 'recompute', 't', 'out', '--errors-only', '-f']]
+        finally:
+            cli('cd')
+
+        r = cli('errors', p('cli_errs_next/t'))
+        assert r.next_commands == [['pxt', 'recompute', p('cli_errs_next/t'), 'out', '--errors-only', '-f']]
+        assert '# reruns 2 failed cells of out' in r.stderr
+        cli(*r.next_commands[0][1:])
+        assert cli('errors', p('cli_errs_next/t'), '--json').json == []
+        assert cli('errors', p('cli_errs_next/v'), '--json').json == []
+        assert t.order_by(t.k).select(t.out).collect()['out'] == [1, 2]
+
+        # the shadowing column is the view's, so it is recomputed there
+        r = cli('errors', p('cli_errs_next/shadow'))
+        assert r.next_commands == [['pxt', 'recompute', p('cli_errs_next/shadow'), 'out', '--errors-only', '-f']]
+        cli(*r.next_commands[0][1:])
+        assert cli('errors', p('cli_errs_next/shadow'), '--json').json == []
+        assert shadow.order_by(shadow.k).select(shadow.out).collect()['out'] == [11, 12]
 
 
 class TestDrop:
@@ -1089,10 +1317,27 @@ class TestDrop:
         pxt.create_dir(p('cli_drop_err'), if_exists='ignore')
         pxt.create_table(p('cli_drop_err/protected'), {'a': pxt.Int | None}, if_exists='replace')
         r = cli('drop', p('cli_drop_err/protected'), check=False)
-        assert r.returncode != 0
+        assert r.returncode == 3
         assert '--force' in r.stderr
         # still exists
         assert pxt.get_table(p('cli_drop_err/protected'), if_not_exists='ignore') is not None
+
+        # --json: the refusal is an error document naming the same command, --json kept
+        r = cli('drop', p('cli_drop_err/protected'), '--json', check=False)
+        assert r.returncode == 3
+        assert r.json['error_code'] == 'CONFIRMATION_REQUIRED'
+        assert r.json['retryable'] is False
+        assert r.json['next'] == [
+            {
+                'command': shlex.join(['pxt', 'drop', p('cli_drop_err/protected'), '--json', '-f']),
+                'effect': f'drop table {p("cli_drop_err/protected")}',
+            }
+        ]
+
+        # the command the refusal names drops the table
+        assert r.next_commands == [['pxt', 'drop', p('cli_drop_err/protected'), '--json', '-f']]
+        assert cli(*r.next_commands[0][1:]).json['dropped'] is True
+        assert pxt.get_table(p('cli_drop_err/protected'), if_not_exists='ignore') is None
 
         # drop on a directory is refused (server-side: drop_table on a dir errors)
         pxt.create_dir(p('cli_drop_err_dir'), if_exists='ignore')
@@ -1356,13 +1601,18 @@ class TestPathValidator:
         assert 'empty components' in r.stderr
 
     @pytest.mark.parametrize(
-        'argv',
-        [('db', 'diff', 'pxt://acme:main/'), ('org', 'status', 'pxt://acme/'), ('secret', 'list', 'pxt://acme:main/')],
+        ('argv', 'exit_code'),
+        [
+            # pxt db exits 1 on a usage error, since 2 means changes pending
+            (('db', 'diff', 'pxt://acme:main/'), 1),
+            (('org', 'status', 'pxt://acme/'), 2),
+            (('secret', 'list', 'pxt://acme:main/'), 2),
+        ],
     )
-    def test_hosted_uri_rejects_trailing_slash(self, cli: PxtRunner, argv: tuple[str, ...]) -> None:
+    def test_hosted_uri_rejects_trailing_slash(self, cli: PxtRunner, argv: tuple[str, ...], exit_code: int) -> None:
         """A database or organization URI has no path, so a trailing '/' is refused before any request."""
         r = cli(*argv, check=False)
-        assert r.returncode == 2
+        assert r.returncode == exit_code
         assert 'URI must be' in r.stderr
 
     def test_path_commands_reject_bad_shape(self, cli: PxtRunner) -> None:
@@ -1452,6 +1702,17 @@ class TestCli:
         r = cli('not_a_command', check=False)
         assert r.returncode == 2
         assert 'unknown command' in r.stderr
+        assert 'did you mean' not in r.stderr
+
+        # a misspelled command, and a verb typed without its command
+        for typed, expected in (('dorp', ['drop']), ('logs', ['db logs', 'service logs'])):
+            r = cli(typed, check=False)
+            assert r.returncode == 2
+            suggested = [line.removeprefix('did you mean: pxt ') for line in r.stderr.splitlines()[1:]]
+            assert suggested == expected
+            # each suggestion is a command pxt has
+            for suggestion in suggested:
+                assert cli(*suggestion.split(), '--help').returncode == 0
 
     def test_subcommand_arg_errors(self, cli: PxtRunner) -> None:
         # rows is missing the required path positional; argparse prints usage + epilog
@@ -1573,13 +1834,14 @@ class TestColdStartBudget:
     """
 
     @pytest.mark.parametrize(
-        'command', ['ls', 'new', 'login', 'logout', 'whoami', 'key', 'org', 'db', 'service', 'skills']
+        'command', ['ls', 'new', 'login', 'logout', 'whoami', 'key', 'org', 'db', 'service', 'skills', 'feedback']
     )
     def test_pixeltable_not_imported_by_client(
         self, cli: PxtRunner, pxt_daemon: int, session_project: pathlib.Path, command: str
     ) -> None:
-        # `ls` runs in full; the others would reach the control plane, so only their parsers run
-        argv = [command] if command == 'ls' else [command, '--help']
+        # `ls` runs in full, and a feedback preview, which sends nothing; the others would reach the control plane,
+        # so only their parsers run
+        argv = {'ls': ['ls'], 'feedback': ['feedback', '--kind', 'gap', 'x']}.get(command, [command, '--help'])
         # Use sys.executable so the subprocess runs under the same interpreter as the test,
         # not whatever python resolves to on PATH.
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
@@ -1597,7 +1859,9 @@ class TestColdStartBudget:
         imported = [line for line in r.stderr.splitlines() if line.startswith('import time:')]
         # Each line of the form 'import time: ...' ends with the dotted module name; we want to catch
         # the top-level package alone, not e.g. a stdlib numbers module sharing a prefix.
-        forbidden = ('pixeltable', 'sqlalchemy', 'pandas', 'numpy')
+        forbidden: tuple[str, ...] = ('pixeltable', 'sqlalchemy', 'pandas', 'numpy')
+        if command == 'feedback':
+            forbidden += ('requests',)  # only --send needs it
         offenders: dict[str, str] = {}
         for line in imported:
             module = line.rsplit(' ', 1)[-1]

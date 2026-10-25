@@ -272,12 +272,13 @@ class TestCloudDb:
 
         not_a_uri = cli('db', 'diff', 'my_dir', cwd=project, check=False)
         assert 'URI must be pxt://org:db' in not_a_uri.stderr, not_a_uri.stderr
+        # a usage error exits 1, since 2 means changes pending
         table_uri = cli('db', 'logs', f'{test_db_uri}/table', cwd=project, check=False)
-        assert table_uri.returncode == 2 and 'URI must be pxt://org:db' in table_uri.stderr, table_uri.stderr
+        assert table_uri.returncode == 1 and 'URI must be pxt://org:db' in table_uri.stderr, table_uri.stderr
         # 'db diff' takes a database URI, 'org status' an org URI
         for bad in ('pxt://pixeltable', 'pxt://pixeltable:pxttest/'):
             r = cli('db', 'diff', bad, cwd=project, check=False)
-            assert r.returncode == 2 and 'URI must be pxt://org:db' in r.stderr, r.stderr
+            assert r.returncode == 1 and 'URI must be pxt://org:db' in r.stderr, r.stderr
         org_with_db = cli('org', 'status', test_db_uri, cwd=project, check=False)
         assert org_with_db.returncode == 2 and 'URI must be pxt://org,' in org_with_db.stderr, org_with_db.stderr
         # the daemon refuses an invalid hosted name itself, before any request to the control plane

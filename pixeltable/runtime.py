@@ -222,7 +222,8 @@ class Runtime:
                 _logger.debug(f'Error closing client: {e}')
 
         for client in self._clients.values():
-            close = getattr(client, 'close', None)
+            # aclose(), when present, releases everything close() does plus the async resources
+            close = getattr(client, 'aclose', None) or getattr(client, 'close', None)
             if close is not None:
                 await try_close(close)
                 continue

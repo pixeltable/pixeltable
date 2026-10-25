@@ -5,6 +5,7 @@ import base64
 import datetime
 import gc
 import json
+import logging
 import math
 import os
 import re
@@ -248,6 +249,13 @@ class TestExprs:
         """
 
         def num_errored_rows() -> int:
+            # pytest's log capture handlers keep the record of each _logger.exception() call in the rate-limits
+            # scheduler, and through its traceback the rows
+            for logger in (logging.getLogger(), logging.getLogger('pixeltable')):
+                for handler in logger.handlers:
+                    records = getattr(handler, 'records', None)
+                    if isinstance(records, list):
+                        records.clear()
             gc.collect()
             return sum(1 for obj in gc.get_objects() if isinstance(obj, exprs.DataRow) and obj.has_exc())
 

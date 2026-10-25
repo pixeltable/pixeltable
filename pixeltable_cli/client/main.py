@@ -1,5 +1,7 @@
+import difflib
 import importlib
 import importlib.metadata
+import re
 import sys
 from typing import Callable
 
@@ -8,6 +10,7 @@ from typing import Callable
 COMMANDS: dict[str, str] = {
     'init': 'write the project configuration here, making this the project root',
     'skills': 'install the Pixeltable skill for coding agents in this directory (install)',
+    'feedback': 'send a report to the Pixeltable team, after showing it to you (preview by default)',
     'health': 'show daemon info',
     'cd': 'set or clear the working directory prepended to relative paths',
     'pwd': 'print the working directory',
@@ -34,9 +37,10 @@ COMMANDS: dict[str, str] = {
     'daemon': 'control the daemon (start/stop/restart/status)',
     'localproxy': 'manage local proxy daemons (create/start/stop/delete)',
     'dashboard': 'print and open the dashboard URL',
-    'db': 'manage hosted databases (diff/update/list/status/logs/start/stop/restart/build-image/delete)',
+    'db': 'manage hosted databases (diff/update/list/status/logs/start/stop/restart/retry/build-image/delete)',
     'service': (
-        'run the services defined in an application file (diff/update/run/prune/stop/restart/list/logs/check/example)'
+        'run the services defined in an application file '
+        '(diff/update/run/prune/stop/restart/retry/list/logs/check/example)'
     ),
     'org': 'manage organizations (create/list/status)',
     'secret': "manage an org's or a database's secrets (list/set/delete)",
@@ -62,10 +66,23 @@ def _print_help() -> None:
     sys.stdout.write("\nUse 'pxt <command> --help' for subcommand options.\n")
 
 
+def _suggestions(cmd: str) -> list[str]:
+    """Commands an unknown command may have meant: each command with a subcommand of that name, or a close name."""
+    # a help line lists its command's subcommands in parentheses, as in 'manage hosted databases (diff/update/...)'
+    verb = re.compile(rf'[(/]{re.escape(cmd)}[/)]')
+    with_verb = [f'{name} {cmd}' for name, help_text in COMMANDS.items() if verb.search(help_text)]
+    return with_verb or difflib.get_close_matches(cmd, COMMANDS, n=3)
+
+
 def dispatch(cmd: str, argv: list[str]) -> None:
     if cmd not in COMMANDS:
         print(f'pxt: unknown command: {cmd}', file=sys.stderr)
+        for suggestion in _suggestions(cmd):
+            print(f'did you mean: pxt {suggestion}', file=sys.stderr)
         sys.exit(2)
+    from pixeltable_cli.client import utils
+
+    utils.invocation = [cmd, *argv]
     _resolve(cmd)(argv)
 
 

@@ -49,10 +49,10 @@ These flags work the same way across the catalog commands that support them and 
 | Flag | Available on | Description |
 |---|---|---|
 | `-h`, `--help` | Every command | Print the command's usage and examples |
-| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs other than `example`, plus `init`, `skills install`, `login`, `whoami`, `db`, `secret`, `org`, `key`, `usage`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), `schema example` and `service example` (which print an example file), or the commands that print plain status lines (`logout`, `daemon start`/`stop`/`restart`). |
+| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs other than `example`, plus `init`, `skills install`, `feedback`, `login`, `whoami`, `db`, `secret`, `org`, `key`, `usage`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), `schema example` and `service example` (which print an example file), or the commands that print plain status lines (`logout`, `daemon start`/`stop`/`restart`). |
 | `--json-schema` | `schema diff`, `service diff`, `db diff`, `db status`, `service list` | Print the JSON Schema of that command's `--json` output, with descriptions of every field and enum value, and exit. |
 | `-n`, `--dry-run` | Every catalog mutation (`drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), plus `schema update`, `schema prune`, `service update` and `service prune` | Print the intended action; don't execute. |
-| `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `recompute`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`, `db update`, `db delete`, `skills install`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
+| `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `recompute`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`, `db update`, `db delete`, `skills install`) | Skip the `[y/N]` prompt. Required in non-interactive contexts: without it the command exits `3` and names the command to run with `-f` on a `next:` line (see [Output and scripting](#output-and-scripting)). `rename` and `mv` don't prompt and don't accept `-f`. |
 
 ### Working directory
 
@@ -285,6 +285,8 @@ pxt get my_dir/my_table 42 abc                # composite PK, in declared order
 pxt get my_dir/my_table 42 --cols id,text     # restrict to listed columns
 ```
 
+When no row has that key, `get` exits `1` and prints `pxt: no row found for {...} [ROW_NOT_FOUND]` on stderr; with `--json`, stdout still gets the response, with `row` set to `null`.
+
 ### `pxt count`
 
 ```bash
@@ -305,9 +307,11 @@ pxt errors my_dir/my_table
 pxt errors my_dir/my_table --col embedding
 ```
 
+For each failed column, a `next:` line names the `pxt recompute ... --errors-only -f` that reruns its failed cells, which is the fix once their cause is gone (a provider outage, a missing secret). On a view, a column it inherits is recomputed on the table that defines it. When nothing failed, stdout stays empty and stderr says `no failed cells in PATH`.
+
 ## Mutation commands
 
-Every mutation accepts the universal `-n`/`--dry-run` and `--json` flags. The destructive ones (`drop`, `drop-dir`, `recompute`, `revert`) also prompt `[y/N]` with a TTY and accept `-f`/`--force` to skip the prompt; in non-interactive contexts they refuse to proceed without `-f`. `rename` and `mv` don't prompt: renaming or moving a catalog entry is reversible and doesn't lose data.
+Every mutation accepts the universal `-n`/`--dry-run` and `--json` flags. The destructive ones (`drop`, `drop-dir`, `recompute`, `revert`) also prompt `[y/N]` with a TTY and accept `-f`/`--force` to skip the prompt; in non-interactive contexts they exit `3` without `-f`. `rename` and `mv` don't prompt: renaming or moving a catalog entry is reversible and doesn't lose data.
 
 ### `pxt drop`
 
@@ -455,6 +459,24 @@ The command downloads the skill from the repository's `main` branch and prints t
 - Claude Code started at the repository root loads a copy written in a subdirectory only once it reads a file there, so install at the root.
 - If Claude Code also has the Pixeltable plugin, both copies load, because plugin skills are namespaced: keep one.
 - Commit both directories to give every collaborator's agent the same copy, and delete them to remove the skill.
+
+### Reporting a gap
+
+When Pixeltable cannot do what a task needs, a coding agent drafts a report for the Pixeltable team with `pxt feedback`:
+
+```bash
+pxt feedback --kind gap 'What the task needed, what was tried, what happened'   # prints what would be sent; sends nothing
+```
+
+`--kind` is `bug`, `gap` or `docs`. The text is one argument of 1 to 4000 characters, in single quotes so the shell runs no `` `command` `` and expands no `$VARIABLE` in it; it may hold newlines and tabs, a carriage return becomes a newline, and any other control character is refused.
+
+Without `--send`, the command prints the destination and every field it would send, and sends nothing. The preview spells out a character a terminal would not show, such as a right-to-left override, as an escape; the report keeps it. With `--send`, it sends these fields and nothing else: the kind, the text, the Pixeltable version, the Python version, the OS, and the coding agent it runs under, when it can tell. Besides the text, which goes as written, it sends no paths, hostnames, organization or file contents. With `DO_NOT_TRACK` set to `1`, `true` or `yes`, `--send` prints the preview (with `--json`, an error document with `error_code` `DO_NOT_TRACK`), sends nothing and exits 3. `PIXELTABLE_SITE_URL`, which also points `pxt new` elsewhere, sends the report to another site; it must use https, except on localhost.
+
+A report that fails exits 1, and with `--json` prints an error document: `RATE_LIMITED`, with `retry_after` in seconds when the site gives one; `FEEDBACK_UNCONFIRMED`, not retryable, after a server error, a read timeout or a dropped connection, when the report may have arrived and a resend may duplicate it; `INVALID_CONFIGURATION` for a `PIXELTABLE_SITE_URL` it refuses, even for a preview; `FEEDBACK_NOT_SENT` otherwise.
+
+The text comes from your project, so an agent should show you the preview and wait for your yes before it adds `--send`.
+
+An unexpected daemon failure prints its traceback, followed by a `next:` line naming `pxt feedback --kind bug`.
 
 ## Schema management
 
@@ -626,7 +648,7 @@ Pruning is irreversible. Run it with `-n` first.
 
 ## Interactive shell
 
-For agentic or scripted workloads that issue many commands in sequence, `pxt shell` amortizes Python startup over the session:
+For scripted workloads that issue many commands in sequence, `pxt shell` amortizes Python startup over the session:
 
 ```text
 $ pxt shell
@@ -655,6 +677,32 @@ pxt count my_dir/my_table --json | jq '.count'
 Without `--json`, output is column-aligned text.
 
 The `schema` commands additionally report drift in their exit status (`0` in sync, `2` pending, `3` refused, `1` error), so a CI gate needs no output parsing.
+
+When another command finishes the job, as after a refusal or a `pxt errors` listing, stderr names it on a `next:` line, followed by what running it does:
+
+```text
+pxt: refusing to proceed without --force/-f (no TTY for confirmation): drop table my_dir/my_table?
+next: pxt drop my_dir/my_table -f  # drop table my_dir/my_table
+```
+
+The command is the one you ran, with `-f` (or `--allow-destructive`) added; every refusal for want of consent exits `3`, including a destructive `schema`, `service` or `db update` without `--allow-destructive`. With `--json`, a command whose output is not a plan prints the refusal on stdout instead:
+
+```json
+{"error_code": "CONFIRMATION_REQUIRED", "message": "...", "retryable": false,
+ "next": [{"command": "pxt drop my_dir/my_table --json -f", "effect": "drop table my_dir/my_table"}]}
+```
+
+A person who answers anything but `y` at the prompt also gets exit `3`, and with `--json` a document with `error_code` `CONFIRMATION_DECLINED` and no `next`. The plan commands (`schema`, `service`, `db update`) keep printing their plan instead; `schema update`, `schema prune` and `service prune` mark the refused operations `refused`. An unknown command exits `2` and suggests the commands it may have meant, such as `pxt db logs` and `pxt service logs` for `pxt logs`.
+
+A request that fails ends its line with the error code, as in `pxt: 404 Directory 'nope' does not exist. [DIRECTORY_NOT_FOUND]`, except a refusal only the user can lift, which prints Cloud's reason alone (see [Plan limits](#plan-limits)); with `--json`, stdout gets `{"error_code": ..., "message": ..., "retryable": ...}`. A daemon that does not start or cannot be reached gives `DAEMON_UNREACHABLE`; an answer without a code gives `HTTP_<status>` for a 4xx and `INTERNAL_ERROR` otherwise. When Pixeltable Cloud says how long to wait, as it does when busy, the `--json` document adds `retry_after` in seconds.
+
+| Exit | Meaning |
+|---|---|
+| `0` | Success, or nothing to do |
+| `1` | Error, including a usage error in `schema`, `service`, `db` and `init` |
+| `2` | A usage error elsewhere; for `diff`, `update -n` and `prune -n`, changes pending; for `db` and `service update`, a change still under way when the three-hour wait ends (`service restart`, `retry` and `stop` wait in the daemon, whose timeout exits `1`) |
+| `3` | Refused for want of consent: no `-f` without a terminal, an answer other than `y`, or a destructive `schema update`, `db update` or `service update` without `--allow-destructive` |
+| `130` | A wait stopped with Ctrl-C; the change continues in Pixeltable Cloud |
 
 ## Serving
 
@@ -875,6 +923,11 @@ calling process, so it is local by definition. Two verbs differ in meaning again
 a stopped service keeps its registration: `stop` stops it and leaves it there to be started again, while
 `prune` forgets it.
 
+Against a hosted database, `update` sends the services it applies in one submission, which Pixeltable Cloud accepts or
+refuses as a whole: a refusal, such as one for the plan's service count, leaves every service as it was. Once accepted,
+each service rolls out on its own, so a failed rollout of one neither stops nor undoes the others; `pxt service list`
+shows where each one is.
+
 `pxt service stop` accepts a service address in several forms. A bare name matches the services of the
 current project, or every local service when the working directory is outside a project. `my_dir/NAME`
 stops the service under `my_dir`, including one in another project, and `/NAME` stops the service at the
@@ -938,6 +991,9 @@ Like the `schema` verbs, `diff` reports drift in its exit status: `0` in agreeme
 `3` refused, `1` error. So a CI gate needs no output parsing.
 
 `pxt service diff --json-schema` prints the JSON Schema of that output.
+
+A dry run (`-n`) of `update` or `prune` leaves each operation's `status` null in `--json`, as `diff` does, where the
+`schema` verbs mark it `skipped`.
 
 ### Flags
 
@@ -1073,6 +1129,8 @@ Manage cloud-hosted Pixeltable databases. A database is a hosted Pixeltable inst
 Database URIs use the form `pxt://org:db`. Valid states: `PROVISIONING`, `STARTING`, `AVAILABLE`, `UPDATING`, `STOPPING`, `STOPPED`, `FAILED`.
 
 The URI argument is optional: when it is omitted, these commands use `db_uri` from the Pixeltable config file (see [Configuration](/platform/configuration)), so a project that sets it can run `pxt db status` and the other `db` commands with no argument.
+
+A usage error, such as an unknown verb or a URI that is not `pxt://org:db`, exits `1`: in `pxt db`, `2` means changes pending (`diff`) or a change still under way when a wait ends. A failed update names `pxt db retry` on a `next:` line, and a wait that stops names `pxt db status`.
 
 #### `pxt db update`
 
@@ -1314,7 +1372,7 @@ With `--json`, each row is an object with `key` and `scope`, plus `"overrides_or
 
 `set` and `delete` print the keys they changed as the same `KEY` and `SCOPE` rows, without `NOTE`; with `--json`, as `key` and `scope` objects. Earlier releases printed bare key names, and `--json` printed an array of strings.
 
-A running database or service uses the values from its startup. Run `pxt db restart` for the database's tables process and `pxt service restart` for each service. A database or service started afterwards reads the current value at startup.
+A running database or service uses the values from its startup. Run `pxt db restart` for the database's tables process and `pxt service restart` for each service. A database or service started afterwards reads the current value at startup. `set` and `delete` name each of these on a `next:` line, for every running database the secret reaches (one for a database secret, all of the organization's for an org secret) and every running service of those databases, including one whose database is stopped and one whose last roll failed, since it may still serve on its previous pods; a stopped one needs no restart.
 
 <Warning>
 A `[[pixeltable.database]]` entry no longer accepts `secrets`. A project config that still has

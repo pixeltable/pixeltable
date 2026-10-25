@@ -842,6 +842,44 @@ class TestRefusalsTheUserLifts:
         assert client_utils.USER_ACTION_CODES == management_client.USER_ACTION_CODES
 
 
+class TestRetryAfter:
+    """An outage's Retry-After reaches the --json document in seconds; a date or a value that is no wait does not."""
+
+    @pytest.mark.parametrize(
+        ('retry_after', 'expected'),
+        [
+            ('5', 5.0),
+            ('Wed, 21 Oct 2026 07:28:00 GMT', None),
+            ('soon', None),
+            ('nan', None),
+            ('inf', None),
+            ('-1', None),
+        ],
+    )
+    def test_retry_after(
+        self, cloud_cli: PxtRunner, control_plane: ControlPlane, retry_after: str, expected: float | None
+    ) -> None:
+        # a 502, so the stub adds no Retry-After of its own; creating a key is not retried
+        answer = control_plane.answers.get('create_key')
+        control_plane.answers['create_key'] = b'Bad Gateway'
+        control_plane.status = 502
+        control_plane.headers = {'Retry-After': retry_after}
+        try:
+            r = cloud_cli('key', 'create', 'app', '--json', check=False)
+        finally:
+            # the stub is module-scoped
+            control_plane.status = 200
+            control_plane.headers = {}
+            if answer is None:
+                del control_plane.answers['create_key']
+            else:
+                control_plane.answers['create_key'] = answer
+
+        assert r.returncode == 1
+        assert r.json['retryable'] is True
+        assert r.json.get('retry_after') == expected
+
+
 # a get_usage answer, as the control plane's contract gives it
 _USAGE: dict[str, Any] = {
     'plan': 'community',
@@ -1561,6 +1599,8 @@ class TestHomeBucket:
         assert isinstance(info.value, excs.ExternalServiceError)
         assert info.value.provider_http_status_code == status
         assert info.value.is_retryable == (status in (429, 503))
+        # the stub sends Retry-After: 1 with a 429 or a 503
+        assert info.value.retry_after == (1.0 if status in (429, 503) else None)
 
 
 class TestControlPlaneErrors:
@@ -1808,7 +1848,7 @@ class TestNew:
         assert r.returncode == 1
         assert r.stderr == (
             f'pxt: 429 No trial databases are available right now; try again later, or sign up at '
-            f'{control_plane.url}/signup.\n'
+            f'{control_plane.url}/signup. [RATE_LIMITED]\n'
         )
         assert 'Not signed in' in cloud_cli('whoami', check=False).stderr
 
