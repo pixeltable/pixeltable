@@ -1154,6 +1154,24 @@ class TestTableModel:
             view_from_query2.order_by(view_from_query2.id, view_from_query2.pos).collect(),
         )
 
+    def test_view_model_with_kwargs_iterator(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Trips(TableModel, name='trips'):
+            id: pxt.Int
+            codes: pxt.Json[[str]] | None
+
+        class TripCodes(TableModel, name='trip_codes', base=Trips, iterator=pxtf.json.list_iterator(code=Trips.codes)):
+            lower_code = code.lower()  # type: ignore[name-defined]
+
+        TableModel.update_all(p(''))
+        Trips.insert([{'id': 1, 'codes': ['A', 'B']}, {'id': 2, 'codes': ['C']}])
+        res = TripCodes.table.order_by(TripCodes.id, TripCodes.pos).collect()
+        assert res['code'] == ['A', 'B', 'C']
+        assert res['lower_code'] == ['a', 'b', 'c']
+        assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(p('')).values())
+
     def test_update_all_creates_queried_table(self, db_root: DatabaseRoot) -> None:
         """The table a @pxt.query reads is created by the same update_all() that adds or alters its calling column."""
         p = db_root.make_catalog_path

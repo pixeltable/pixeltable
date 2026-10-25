@@ -67,7 +67,9 @@ def prepare_model(
         )
         subst_args = [arg.substitute(base_tbl_subst_dict) for arg in iterator.args]
         subst_kwargs = {k: v.substitute(base_tbl_subst_dict) for k, v in iterator.kwargs.items()}
-        subst_bound_args = {k: v.substitute(base_tbl_subst_dict) for k, v in iterator.bound_args.items()}
+        # a **kwargs parameter binds to a dict of Exprs, not to an Expr;
+        # this mirrors GeneratingFunctionCall.from_dict()
+        subst_bound_args = iterator.it.bind_to_signature(subst_args, subst_kwargs)
         iterator = func.GeneratingFunctionCall(
             iterator.it, subst_args, subst_kwargs, subst_bound_args, iterator.outputs, iterator.validation_error
         )
