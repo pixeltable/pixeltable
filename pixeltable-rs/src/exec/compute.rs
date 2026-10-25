@@ -409,7 +409,7 @@ fn cells_expr_pure(e: &ExprRef, unstored: &HashMap<ColId, ExprRef>, calls: &Opti
         Some(x) => depth < 64 && cells_expr_pure(x, unstored, calls, depth + 1),
         None => true,
     };
-    super::par::is_pure(e, &col_pure, &|n| calls.as_ref().is_some_and(|r| r.contains(n)))
+    super::par::is_pure(e, &col_pure, &|n| calls.as_ref().is_some_and(|r| r.complete(n)))
 }
 
 /// The names of the columns with errors in `rows`, in the order in which row-by-row evaluation meets them (row by row,

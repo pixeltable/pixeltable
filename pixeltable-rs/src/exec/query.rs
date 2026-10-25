@@ -122,7 +122,7 @@ impl QueryInput {
                 (ColRead::Path, None) => false,
             }
         };
-        super::par::is_pure(e, &col_pure, &|n| calls.as_ref().is_some_and(|r| r.contains(n)))
+        super::par::is_pure(e, &col_pure, &|n| calls.as_ref().is_some_and(|r| r.complete(n)))
     }
 
     fn col_read(&self, col: &ColumnRef) -> ColRead {
@@ -717,9 +717,9 @@ fn scan_and_join<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
                         let ctx = Ctx { input, row: &jr, pre: &[], slots: &empty, calls: None };
                         let vals = rkeys.iter().map(|e| eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
                         Ok((!vals.iter().any(Value::is_null)).then(|| group_key_of(&vals)))
-                    });
+                    })?;
                     for (j, k) in right_keys.into_iter().enumerate() {
-                        if let Some(k) = k? {
+                        if let Some(k) = k {
                             index.entry(k).or_default().push(j);
                         }
                     }
@@ -1124,8 +1124,7 @@ fn sort_rows_upto<'a>(
             .iter()
             .map(|(e, _)| eval(e, &ctx).map_err(|err| super::compute::eval_error(e, err)))
             .collect::<Result<SmallVec<[Value; 2]>>>()
-    });
-    let keys = keys.into_iter().collect::<Result<Vec<_>>>()?;
+    })?;
     // the order of row indices: by key, ties by position (a stable sort)
     let cmp = |a: &u32, b: &u32| -> std::cmp::Ordering {
         let (ka, kb) = (&keys[*a as usize], &keys[*b as usize]);
@@ -1265,9 +1264,8 @@ pub fn execute(input: &QueryInput, rowid_desc: bool) -> Result<ResultData> {
             vals.push(eval(e, &ctx).map_err(|err| super::compute::eval_error(e, err))?);
         }
         Ok(vals)
-    });
-    let out_rows = projected.into_iter().collect::<Result<Vec<_>>>()?;
-    Ok(ResultData { names, types, rows: out_rows })
+    })?;
+    Ok(ResultData { names, types, rows: projected })
 }
 
 /// `Query.count()`

@@ -73,23 +73,37 @@ pub fn map_rows<T: Send>(n: usize, f: impl Fn(usize) -> T + Sync + Send) -> Vec<
     })
 }
 
-/// `(0..n).map(f)` up to the first error: with `pure`, every row, in parallel for many rows; else in order, stopping
-/// after the first error (evaluation that runs user code makes no call a sequential evaluation would not make). The
-/// caller consumes the results in order and stops at the first error.
-pub fn try_map_rows<T: Send>(n: usize, pure: bool, f: impl Fn(usize) -> crate::error::Result<T> + Sync + Send) -> Vec<crate::error::Result<T>> {
-    if pure {
-        return map_rows(n, f);
+/// `(0..n).map(f).collect()`, or the error of the first row (in row order) that fails. With `pure` (`f` runs no user
+/// code, see `is_pure()`), fixed chunks of rows are evaluated in parallel for many rows, each up to its first failure;
+/// else the rows are evaluated in order in this thread up to the first failure, so that evaluation that runs user code
+/// makes no call a sequential evaluation would not make.
+pub fn try_map_rows<T: Send>(
+    n: usize,
+    pure: bool,
+    f: impl Fn(usize) -> crate::error::Result<T> + Sync + Send,
+) -> crate::error::Result<Vec<T>> {
+    let run = |range: std::ops::Range<usize>| -> (Vec<T>, Option<crate::error::Error>) {
+        let mut out = Vec::with_capacity(range.len());
+        for i in range {
+            match f(i) {
+                Ok(v) => out.push(v),
+                Err(err) => return (out, Some(err)),
+            }
+        }
+        (out, None)
+    };
+    if !pure || !parallel(n) {
+        let (out, failed) = run(0..n);
+        return failed.map_or(Ok(out), Err);
     }
     let mut out = Vec::with_capacity(n);
-    for i in 0..n {
-        let r = f(i);
-        let failed = r.is_err();
-        out.push(r);
-        if failed {
-            break;
+    for (part, failed) in map_chunks(n, run) {
+        if let Some(err) = failed {
+            return Err(err);
         }
+        out.extend(part);
     }
-    out
+    Ok(out)
 }
 
 /// Calls `f(i, &mut items[i])` for every item, in parallel for many items (`f` must be pure), and returns the results
@@ -111,6 +125,12 @@ pub fn map_mut<T: Send, R: Send>(items: &mut [T], f: impl Fn(usize, &mut T) -> R
 /// True if `n` items are worth spreading over threads.
 pub fn worth_parallel(n: usize) -> bool {
     parallel(n)
+}
+
+/// True on a thread of a rayon pool (data-parallel work), where user code must never run: its calls would run
+/// concurrently and out of row order, ignoring `max_concurrency`.
+pub fn on_parallel_thread() -> bool {
+    rayon::current_thread_index().is_some()
 }
 
 /// Rows per chunk of chunked parallel work: fixed, so that results never depend on the number of threads.
@@ -154,8 +174,9 @@ pub fn is_pure(e: &Expr, col_pure: &dyn Fn(&ColumnRef) -> bool, prefetched: &dyn
                 _ => false,
             },
         },
-        // the embedding of the query item is computed once per expression (by the first row)
-        ExprKind::Similarity(sim) => is_pure(&sim.col, col_pure, prefetched),
+        // the embedding of the query item is computed once per expression, before rows are evaluated in parallel
+        // (`exec::query::init_similarities()`); if that failed, rows are evaluated in order, and the first reports it
+        ExprKind::Similarity(sim) => sim.cache.get().is_some() && is_pure(&sim.col, col_pure, prefetched),
         _ => children(e),
     }
 }
