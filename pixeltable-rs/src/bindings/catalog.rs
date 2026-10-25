@@ -537,7 +537,7 @@ pub fn create_table(
                 Conduit::Query(q) => super::table::query_input_rows(py, q, &plan)?,
                 other => super::sources::convert_rows(py, other, &plan, true)?,
             };
-            super::table::insert_rows(py, &guard, &plan, rows, fail_on_exception, false)?;
+            super::table::insert_rows(py, &guard, plan, rows, fail_on_exception, false)?;
         }
     }
     Ok((id.to_string(), "table".to_string(), created))

@@ -222,20 +222,55 @@ pub fn plan_insert(py: Python<'_>, tbl_id: uuid::Uuid, version: Option<i64>) -> 
     Ok((guard, plan))
 }
 
-/// Inserts input rows into a table (planned by `plan_insert()`, whose guard is `guard`): evaluates computed columns,
-/// commits, and returns the status and the stored rows.
+/// Inserts input rows into a table (planned by `plan_insert()`, whose guard is `guard`): evaluates computed columns and
+/// commits; returns the status and, with `keep_rows`, the stored rows (and the plan they were built for). If another
+/// process changed the table's schema or views meanwhile (this process's writers wait for the guard), the insert is
+/// planned again and the same input rows are built again, if they still fit the table (`insert::rebuild_inputs()`).
 pub fn insert_built_rows(
     py: Python<'_>,
     guard: &WriterGuard,
-    plan: &InsertPlan,
+    plan: InsertPlan,
     rows: Vec<InputRow>,
     fail_on_exception: bool,
-) -> Result<(UpdateStatus, Vec<StoredRow>)> {
-    let built = py.detach(|| insert::build_rows(plan, rows, fail_on_exception))?;
-    let stored = built.rows.clone();
-    let status = with_catalog(py, |cat| insert::commit(cat, plan, built))?;
-    guard.committed();
-    Ok((status, stored))
+    keep_rows: bool,
+) -> Result<(UpdateStatus, Vec<StoredRow>, InsertPlan)> {
+    let (mut plan, mut rows, mut carried) = (plan, rows, Vec::new());
+    let mut attempts = txn::Attempts::new(guard);
+    loop {
+        attempts.planned();
+        let mut built = py.detach(|| insert::build_rows(&plan, rows, fail_on_exception))?;
+        built.saved_media.append(&mut carried);
+        let stored = if keep_rows { built.rows.clone() } else { Vec::new() };
+        let mut slot = Some(built);
+        let result = with_catalog(py, |cat| {
+            insert::check_current(cat, &plan)?;
+            insert::commit(cat, &plan, slot.take().ok_or_else(|| Error::internal("insert committed twice"))?)
+        });
+        match (result, slot) {
+            (Ok(status), _) => {
+                guard.committed();
+                return Ok((status, stored, plan));
+            }
+            (Err(e), Some(built)) if txn::is_conflict(&e) => {
+                let new_plan = with_catalog(py, |cat| InsertPlan::new(cat, plan.tbl_id, None))?;
+                let Some((inputs, media)) = insert::rebuild_inputs(&plan, &new_plan, built) else {
+                    crate::bail!(
+                        ConcurrentModification,
+                        "The schema of table {} changed while the insert was being prepared; retry the insert",
+                        py_repr(&plan.tbl_name)
+                    );
+                };
+                attempts.conflict(py, e, &plan.tbl_name)?;
+                (plan, rows, carried) = (new_plan, inputs, media);
+            }
+            (Err(e), built) => {
+                if let Some(b) = built {
+                    crate::exec::compute::discard_media(&b.saved_media);
+                }
+                return Err(e);
+            }
+        }
+    }
 }
 
 /// Inserts input rows into table `tbl_id` (`plan_insert()`, `insert_built_rows()`).
@@ -247,7 +282,8 @@ pub fn insert_input_rows(
     fail_on_exception: bool,
 ) -> Result<(UpdateStatus, Vec<StoredRow>)> {
     let (guard, plan) = plan_insert(py, tbl_id, version)?;
-    insert_built_rows(py, &guard, &plan, rows, fail_on_exception)
+    let (status, stored, _) = insert_built_rows(py, &guard, plan, rows, fail_on_exception, true)?;
+    Ok((status, stored))
 }
 
 /// Inserts input rows into a table (see `insert_built_rows()`) and returns the status dict (with the stored rows if
@@ -255,23 +291,16 @@ pub fn insert_input_rows(
 pub fn insert_rows<'py>(
     py: Python<'py>,
     guard: &WriterGuard,
-    plan: &InsertPlan,
+    plan: InsertPlan,
     rows: Vec<InputRow>,
     fail_on_exception: bool,
     return_rows: bool,
 ) -> Result<Bound<'py, PyDict>> {
-    let built = py.detach(|| insert::build_rows(plan, rows, fail_on_exception))?;
-    let returned = if return_rows {
-        let cols = with_catalog(py, |cat| insert::return_columns(cat, plan.tbl_id))?;
-        Some(returned_rows_to_py(py, &cols, &built.rows.iter().collect::<Vec<_>>())?)
-    } else {
-        None
-    };
-    let status = with_catalog(py, |cat| insert::commit(cat, plan, built))?;
-    guard.committed();
+    let (status, stored, plan) = insert_built_rows(py, guard, plan, rows, fail_on_exception, return_rows)?;
     let d = status_dict(py, &status)?;
-    if let Some(rows) = returned {
-        d.set_item("rows", rows)?;
+    if return_rows {
+        let cols = with_catalog(py, |cat| insert::return_columns(cat, plan.tbl_id))?;
+        d.set_item("rows", returned_rows_to_py(py, &cols, &stored.iter().collect::<Vec<_>>())?)?;
     }
     Ok(d)
 }
@@ -304,7 +333,7 @@ pub fn tbl_insert<'py>(
     let (guard, plan) = plan_insert(py, id, version)?;
     // conversion and computed columns run Python code (pydantic, generators, PIL, UDFs): no catalog lock here
     let rows = source_input_rows(py, source, kwargs, source_format, overrides, &plan)?;
-    insert_rows(py, &guard, &plan, rows, fail_on_exception, return_rows)
+    insert_rows(py, &guard, plan, rows, fail_on_exception, return_rows)
 }
 
 /// `Table.compute()`: returns (rows as tuples, {name: ColumnType}, per-row error dicts).

@@ -397,8 +397,10 @@ Concurrent writers (`exec/txn.rs`; upstream serializes them with table locks, an
   holds another tree's lock) only takes a lock that is free and else runs on validation alone, so nothing waits for
   user code that waits for it; re-entry by the holding thread is allowed. A redo caused by such nested commits (the
   operation's own UDF writes its table) is not repeated forever: after three, CONCURRENT_MODIFICATION.
-- Other processes are not excluded by writer locks: their commits are caught by validation. An insert that meets a
-  schema or view change by another process between plan and commit still fails with CONCURRENT_MODIFICATION.
+- Other processes are not excluded by writer locks: their commits are caught by validation. An insert (a blind append,
+  so only a schema or view change invalidates it: `insert::check_current()`) whose table another process changed is
+  planned again and its input rows built again (`insert::rebuild_inputs()`, `bindings::table::insert_built_rows()`),
+  unless they no longer fit the new schema (CONCURRENT_MODIFICATION).
 
 Storage (`store/`), format version 4, under `$PIXELTABLE_HOME/pxtrs/<db>/` (db = `PIXELTABLE_DB`, default
 `pixeltable`). A store of another format (including versions 1 to 3) is refused with STORE_UNAVAILABLE ("... has

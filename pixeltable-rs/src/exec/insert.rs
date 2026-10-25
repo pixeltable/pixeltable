@@ -2,8 +2,8 @@
 //!
 //! An insert runs in three steps (see `catalog::runtime` for why): `InsertPlan::new()` captures the target schema
 //! under the lock; the bindings convert the Python rows into values and `build_rows()` evaluates computed columns,
-//! both without the lock; `commit()` re-checks the schema version, enforces the primary key, appends the rows at a
-//! new table version and persists them.
+//! both without the lock; `commit()` checks that the rows still fit the table (`check_current()`, else the bindings
+//! plan again, see `exec::txn`), enforces the primary key, appends the rows at a new table version and persists them.
 
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -400,16 +400,58 @@ fn pk_display(row: &StoredRow, plan: &InsertPlan, truncate: bool) -> String {
 }
 
 /// Appends the rows at a new table version and persists them.
+/// Fails with SERIALIZATION_FAILURE (see `exec::txn`) if the rows built for `plan` no longer fit the table: its schema or
+/// its views changed, or a sampled view decided membership by rowids that another insert has taken meanwhile.
+pub fn check_current(cat: &Catalog, plan: &InsertPlan) -> Result<()> {
+    let md = cat.table(plan.tbl_id)?;
+    let rowids_moved = md.next_rowid != plan.first_rowid && plan.views.iter().any(ViewNode::samples);
+    if md.current_schema_version != plan.schema_version || !ViewNode::unchanged(cat, plan.tbl_id, &plan.views)? || rowids_moved {
+        return Err(super::txn::conflict(&format!("the insert into {}", py_repr(&plan.tbl_name))));
+    }
+    Ok(())
+}
+
+/// The input rows of `built` (rows built for `old`), to build again for `new`, the plan of the same insert after the
+/// table changed (`check_current()` failed); None if they no longer fit: an input column is gone, changed its type or
+/// became computed, or a required column is missing. Also returns the media files written for the inputs, which the
+/// new rows keep; the other files of `built` (computed values) are deleted.
+pub fn rebuild_inputs(old: &InsertPlan, new: &InsertPlan, built: BuiltRows) -> Option<(Vec<InputRow>, Vec<std::path::PathBuf>)> {
+    let inputs: Vec<&InsertColumn> = old.columns.iter().filter(|c| !c.is_computed()).collect();
+    let fits = inputs.iter().all(|c| new.columns.iter().any(|n| n.col_id == c.col_id && !n.is_computed() && n.col_type == c.col_type))
+        && new.columns.iter().filter(|n| n.is_required()).all(|n| inputs.iter().any(|c| c.col_id == n.col_id))
+        // an input whose validation failed was replaced by NULL
+        && !built.rows.iter().any(|r| inputs.iter().any(|c| r.error(c.col_id).is_some()));
+    if !fits {
+        discard_media(&built.saved_media);
+        return None;
+    }
+    let rows: Vec<InputRow> = built
+        .rows
+        .into_iter()
+        .map(|mut r| {
+            inputs
+                .iter()
+                .map(|c| (c.col_id, r.cells.get_mut(c.col_id as usize).map(|v| std::mem::replace(v, Value::Null)).unwrap_or(Value::Null)))
+                .collect()
+        })
+        .collect();
+    let kept: std::collections::HashSet<&std::path::Path> = rows
+        .iter()
+        .flatten()
+        .filter_map(|(_, v)| match v {
+            Value::Media(s) => Some(std::path::Path::new(s.as_str())),
+            _ => None,
+        })
+        .collect();
+    let (keep, discard): (Vec<_>, Vec<_>) = built.saved_media.into_iter().partition(|f| kept.contains(f.as_path()));
+    discard_media(&discard);
+    Some((rows, keep))
+}
+
 pub fn commit(cat: &mut Catalog, plan: &InsertPlan, built: BuiltRows) -> Result<UpdateStatus> {
     cat.adopt_media(built.saved_media.clone());
+    check_current(cat, plan)?;
     let md = cat.table(plan.tbl_id)?.clone();
-    if md.current_schema_version != plan.schema_version {
-        crate::bail!(
-            ConcurrentModification,
-            "The schema of table {} changed while the insert was being prepared; retry the insert",
-            py_repr(&plan.tbl_name)
-        );
-    }
     let mut data = cat.data(plan.tbl_id)?.as_ref().clone();
     let pk_cols: Vec<ColId> = plan.columns.iter().filter(|c| c.is_pk).map(|c| c.col_id).collect();
     if !pk_cols.is_empty() {
@@ -439,17 +481,8 @@ pub fn commit(cat: &mut Catalog, plan: &InsertPlan, built: BuiltRows) -> Result<
             seen.entry(h).or_default().push(i);
         }
     }
-    ViewNode::check_unchanged(cat, plan.tbl_id, &plan.views)?;
     let version = if md.is_data_versioned { md.current_version + 1 } else { md.current_version };
     let rowid_offset = md.next_rowid - plan.first_rowid;
-    if rowid_offset != 0 && plan.views.iter().any(ViewNode::samples) {
-        // a sampled view decided membership by the rows' keys
-        crate::bail!(
-            ConcurrentModification,
-            "Table {} changed while the insert was being prepared; retry the insert",
-            py_repr(&plan.tbl_name)
-        );
-    }
     let num_rows = built.rows.len() as i64;
     let rows: Vec<StoredRow> = built
         .rows
