@@ -333,7 +333,9 @@ except KeyboardInterrupt:
 
     def test_one_thread_runs_in_order_in_caller(self) -> None:
         t = int_table('t', 30)
-        prev, _ = pixeltable._testing.configure_udf_dispatch(threads=1)
+        # (configure_udf_dispatch() returns the values in effect after the call)
+        prev, _ = pixeltable._testing.configure_udf_dispatch()
+        pixeltable._testing.configure_udf_dispatch(threads=1)
         try:
             CALLS.clear()
             assert t.select(y=recorded(t.x)).collect()['y'] == list(range(30))
