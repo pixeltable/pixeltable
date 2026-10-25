@@ -207,3 +207,34 @@ def test_query_udf_invalid_after_drop() -> None:
     assert any('The return type stored in the database for a UDF call to `None` no longer' in m for m in msgs), msgs
     with pytest.raises(pxt.Error, match="because the column 'rows_col' is currently invalid"):
         host.insert([{'threshold': 30}])
+
+
+def test_tbl_path() -> None:
+    """`Table._tbl_path` answers for the leaf of the handle's path; a pure snapshot's leaf is the table it pins."""
+    t = pxt.create_table('t', {'a': pxt.Int})
+    t.insert(a=1)
+    v = pxt.create_view('v', t)
+    s = pxt.create_snapshot('s', t)
+    s2 = pxt.create_snapshot('s2', t, additional_columns={'b': pxt.Int | None})
+    p = pxt.get_table('t:1')
+    info = [(h._tbl_path.tbl_name(), h._tbl_path.is_snapshot(), h._tbl_path.is_view()) for h in (t, v, s, s2, p)]
+    assert info == [('t', False, False), ('v', False, True), ('t', True, False), ('s2', True, True), ('t', True, False)]
+
+
+def test_select_list_and_subexprs() -> None:
+    t = pxt.create_table('t', {'a': pxt.Int, 'img': pxt.Image | None})
+    q = t.select(t.a, b=t.a + 1)
+    assert [(str(e), n) for e, n in q.select_list] == [('a', None), ('a + 1', 'b')]
+    assert t.select().select_list is None
+    e = t.img.rotate(90).resize((224, 224))
+    assert [str(x) for x in e.subexprs()] == [
+        'img', '90', 'img.rotate(90)', '[224, 224]', 'img.rotate(90).resize([224, 224])'
+    ]
+    # the outer call matches; its components are not visited
+    assert [str(x) for x in e.subexprs(filter=lambda x: 'rotate' in str(x), traverse_matches=False)] == [
+        'img.rotate(90).resize([224, 224])'
+    ]
+    assert [str(x) for x in e.subexprs(filter=lambda x: 'rotate' in str(x))] == [
+        'img.rotate(90)',
+        'img.rotate(90).resize([224, 224])',
+    ]

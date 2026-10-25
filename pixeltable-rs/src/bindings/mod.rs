@@ -66,6 +66,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(table::tbl_kind, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_name, m)?)?;
+    m.add_function(wrap_pyfunction!(table::tbl_path_leaf, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_path, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_version, m)?)?;
     m.add_function(wrap_pyfunction!(table::tbl_columns, m)?)?;

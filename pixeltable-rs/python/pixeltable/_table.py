@@ -41,6 +41,29 @@ class Dir(SchemaObject):
         return f'Dir({self._id})'
 
 
+class _TablePath:
+    """What upstream's `TablePath` answers about the leaf of a handle's table path (a pure snapshot's leaf is the
+    table it pins)."""
+
+    def __init__(self, tbl_name: str, is_snapshot: bool, is_view: bool, is_component_view: bool):
+        self._tbl_name = tbl_name
+        self._is_snapshot = is_snapshot
+        self._is_view = is_view
+        self._is_component_view = is_component_view
+
+    def tbl_name(self) -> str:
+        return self._tbl_name
+
+    def is_snapshot(self) -> bool:
+        return self._is_snapshot
+
+    def is_view(self) -> bool:
+        return self._is_view
+
+    def is_component_view(self) -> bool:
+        return self._is_component_view
+
+
 class Table(SchemaObject):
     """
     A handle to a table, view, or snapshot: the primary interface for table operations (queries, insertions,
@@ -67,6 +90,11 @@ class Table(SchemaObject):
 
     def _name(self) -> str:
         return _core.tbl_name(str(self._id))
+
+    @property
+    def _tbl_path(self) -> _TablePath:
+        """The table path backing this handle (upstream `Table._tbl_path`)."""
+        return _TablePath(*_core.tbl_path_leaf(str(self._id), self._version))
 
     def _path(self) -> str:
         return _core.tbl_path(str(self._id))

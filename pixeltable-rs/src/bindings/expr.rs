@@ -211,6 +211,50 @@ impl PyExpr {
         as_expr(other).is_some_and(|o| self.e.equals(&o))
     }
 
+    /// Upstream `Expr.subexprs()`: this expression and its sub-expressions, each after its components; `expr_class`
+    /// and `filter` select the ones returned, and with `traverse_matches=False` the components of a selected one are
+    /// skipped.
+    #[pyo3(signature = (expr_class=None, filter=None, traverse_matches=true))]
+    fn subexprs<'py>(
+        &self,
+        py: Python<'py>,
+        expr_class: Option<&Bound<'py, PyAny>>,
+        filter: Option<&Bound<'py, PyAny>>,
+        traverse_matches: bool,
+    ) -> Result<Bound<'py, PyAny>> {
+        fn visit<'py>(
+            py: Python<'py>,
+            e: &ExprRef,
+            expr_class: Option<&Bound<'py, PyAny>>,
+            filter: Option<&Bound<'py, PyAny>>,
+            traverse_matches: bool,
+            out: &Bound<'py, PyList>,
+        ) -> Result<()> {
+            let obj = Bound::new(py, PyExpr::new(e.clone()))?.into_any();
+            let mut is_match = match expr_class {
+                Some(cls) => obj.is_instance(cls)?,
+                None => true,
+            };
+            if is_match {
+                if let Some(f) = filter {
+                    is_match = f.call1((&obj,))?.is_truthy()?;
+                }
+            }
+            if !is_match || traverse_matches {
+                for c in e.kind.children() {
+                    visit(py, c, expr_class, filter, traverse_matches, out)?;
+                }
+            }
+            if is_match {
+                out.append(obj)?;
+            }
+            Ok(())
+        }
+        let out = PyList::empty(py);
+        visit(py, &self.e, expr_class, filter, traverse_matches, &out)?;
+        Ok(out.try_iter()?.into_any())
+    }
+
     fn __hash__(&self) -> u64 {
         let mut h = DefaultHasher::new();
         crate::expr::serde::to_json(&self.e).map(|j| j.to_string()).unwrap_or_default().hash(&mut h);

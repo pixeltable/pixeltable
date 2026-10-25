@@ -54,6 +54,21 @@ pub fn tbl_name(py: Python<'_>, tbl_id: &str) -> Result<String> {
     with_catalog(py, |cat| Ok(cat.table(id)?.name.clone()))
 }
 
+/// The leaf of the table path a handle reads (upstream `Table._tbl_path`): (its table's name, is_snapshot, is_view,
+/// is_component_view). A pure snapshot's leaf is the base it pins.
+#[pyfunction]
+#[pyo3(signature = (tbl_id, version))]
+pub fn tbl_path_leaf(py: Python<'_>, tbl_id: &str, version: Option<i64>) -> Result<(String, bool, bool, bool)> {
+    let id = parse_uuid(tbl_id)?;
+    with_catalog(py, |cat| {
+        let path = cat.tbl_path(id, version)?;
+        let leaf = path.first().ok_or_else(|| Error::internal("empty table path"))?;
+        let md = cat.table(leaf.tbl_id)?;
+        let is_component_view = md.view.as_ref().is_some_and(|v| v.iterator.is_some());
+        Ok((md.name.clone(), leaf.pinned.is_some() || md.is_snapshot(), md.is_view(), is_component_view))
+    })
+}
+
 #[pyfunction]
 pub fn tbl_path(py: Python<'_>, tbl_id: &str) -> Result<String> {
     let id = parse_uuid(tbl_id)?;
