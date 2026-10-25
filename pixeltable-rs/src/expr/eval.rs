@@ -480,9 +480,19 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
             }
         }
         ExprKind::FunctionCall(fc) => {
-            if matches!(fc.func, crate::functions::FuncRef::Udf(_)) {
+            if let crate::functions::FuncRef::Udf(call) = &fc.func {
                 if let Some(r) = ctx.call_result(e) {
                     return r;
+                }
+                // a call not made ahead runs user code (or a query) here: never on a data-parallel thread
+                // (`exec::par::is_pure()` keeps such expressions off them)
+                if !matches!(call.def.imp, crate::functions::udf::UdfImpl::Template { .. })
+                    && crate::exec::par::on_parallel_thread()
+                {
+                    return Err(Error::internal(format!(
+                        "{} would be called on a data-parallel thread",
+                        call.def.display_name
+                    )));
                 }
             }
             crate::functions::eval_call(fc, e, ctx)

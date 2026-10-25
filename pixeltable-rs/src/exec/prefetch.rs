@@ -13,7 +13,8 @@
 //! As upstream evaluates every sub-expression of a row, a call is made even where `&`/`|` would not need it; its
 //! outcome (also an error) is consulted only if evaluation needs it. With `abort_on_error`, arguments and calls for
 //! rows after the first failed row are skipped: the caller stops at the first failing row, and evaluates (calls)
-//! whatever it still needs itself.
+//! whatever it still needs itself, in row order in its own thread: an expression that reads a node whose calls were
+//! skipped is not pure (`CallResults::complete()`), so it is never evaluated on several threads.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -30,15 +31,18 @@ use crate::value::Value;
 /// The outcomes of the prefetched calls of a batch: per call node (by address), one per row (None: not called).
 #[derive(Default)]
 pub struct CallResults {
-    /// (node address, outcomes); a batch has few call nodes, so a linear search is the fastest lookup
-    nodes: Vec<(usize, Vec<Option<Result<Value>>>)>,
+    /// (node address, outcomes, true if every row has its outcome); a batch has few call nodes, so a linear search is
+    /// the fastest lookup
+    nodes: Vec<(usize, Vec<Option<Result<Value>>>, bool)>,
 }
 
 impl CallResults {
-    /// True if the calls of node `e` were made.
-    pub fn contains(&self, e: &Expr) -> bool {
+    /// True if node `e` has an outcome for every row of the batch, so that evaluating it never calls the function
+    /// (with `abort_on_error`, the calls of rows after a failed row are skipped; evaluating those rows would make
+    /// them).
+    pub fn complete(&self, e: &Expr) -> bool {
         let key = node_key(e);
-        self.nodes.iter().any(|(k, _)| *k == key)
+        self.nodes.iter().any(|(k, _, complete)| *k == key && *complete)
     }
 }
 
@@ -53,7 +57,7 @@ impl CallSlot<'_> {
     /// The outcome of call node `e` for this row, if it was made.
     pub fn get(&self, e: &Expr) -> Option<Result<Value>> {
         let key = node_key(e);
-        let (_, outcomes) = self.results.nodes.iter().find(|(k, _)| *k == key)?;
+        let (_, outcomes, _) = self.results.nodes.iter().find(|(k, _, _)| *k == key)?;
         let slot = outcomes.get(self.row)?.as_ref()?;
         Some(match slot {
             Ok(v) => Ok(v.clone()),
@@ -270,7 +274,8 @@ pub fn prefetch(
                     abort_row = abort_row.min(row);
                 }
             }
-            results.nodes.push((key, slots));
+            let complete = slots.iter().all(Option::is_some);
+            results.nodes.push((key, slots, complete));
         }
     }
     Ok(Some(results))
