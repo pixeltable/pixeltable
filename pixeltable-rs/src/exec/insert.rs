@@ -275,8 +275,10 @@ pub fn prepare_media_inputs(
                 return Err(err);
             }
             stats.num_excs += 1;
-            if !cols_with_excs.contains(&c.name) {
-                cols_with_excs.push(c.name.clone());
+            // `<table>.<column>`, as for computed columns
+            let qualified = format!("{}.{}", plan.tbl_name, c.name);
+            if !cols_with_excs.contains(&qualified) {
+                cols_with_excs.push(qualified);
             }
             row.set_cell(c.col_id, Value::Null);
             row.set_error(c.col_id, Some(cell_error(&err)));
@@ -346,7 +348,7 @@ fn build_rows_inner(
         .columns
         .iter()
         .filter(|c| c.media_validation.is_some() && !c.is_computed())
-        .map(|c| (c.col_id, c.name.clone()))
+        .map(|c| (c.col_id, format!("{}.{}", plan.tbl_name, c.name)))
         .collect();
     error_cols.extend(computed.iter().map(|c| (c.col_id, c.name.clone())));
     let cols_with_excs = if cols_with_excs.is_empty() { cols_with_excs } else { errors_in_order(&rows, &error_cols) };

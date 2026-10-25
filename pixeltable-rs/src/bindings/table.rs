@@ -29,7 +29,8 @@ fn stats_dict<'py>(py: Python<'py>, s: &RowCountStats) -> PyResult<Bound<'py, Py
     d.set_item("del_rows", s.del_rows)?;
     d.set_item("upd_rows", s.upd_rows)?;
     d.set_item("num_excs", s.num_excs)?;
-    d.set_item("computed_values", s.computed_values)?;
+    // upstream does not count computed values (its `RowCountStats.computed_values` stays 0)
+    d.set_item("computed_values", 0)?;
     Ok(d)
 }
 
@@ -470,6 +471,21 @@ fn calls_custom_udf(e: &crate::expr::Expr) -> bool {
     custom
 }
 
+/// The table and version whose version metadata a handle reports (upstream reads the table version at the leaf of
+/// the handle's path): a pure snapshot reports the base it pins, at the pinned version.
+pub(crate) fn metadata_source(
+    cat: &crate::catalog::Catalog,
+    id: uuid::Uuid,
+    version: Option<i64>,
+) -> Result<(uuid::Uuid, Option<i64>)> {
+    if version.is_none() && cat.table(id)?.is_pure_snapshot() {
+        if let Some(leaf) = cat.tbl_path(id, None)?.first() {
+            return Ok((leaf.tbl_id, leaf.pinned));
+        }
+    }
+    Ok((id, version))
+}
+
 /// `Table.get_metadata()`
 #[pyfunction]
 #[pyo3(signature = (tbl_id, version=None))]
@@ -531,9 +547,11 @@ pub fn tbl_metadata<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
             columns.set_item(&c.name, cm)?;
         }
         let pk: Vec<String> = cols.iter().filter(|c| c.md.is_pk).map(|c| c.name.clone()).collect();
-        let sv = md.schema_version_md(md.schema_version_at(version)?)?;
-        let tv = version.unwrap_or(md.current_version);
-        let created = md.version_md(tv).map(|v| v.created_at).unwrap_or(md.created_at);
+        let (src_id, src_version) = metadata_source(cat, id, version)?;
+        let src = cat.table(src_id)?.clone();
+        let sv = src.schema_version_md(src.schema_version_at(src_version)?)?;
+        let tv = src_version.unwrap_or(src.current_version);
+        let created = src.version_md(tv).map(|v| v.created_at).unwrap_or(src.created_at);
         let d = PyDict::new(py);
         let uuid_cls = py.import("uuid")?.getattr("UUID")?;
         d.set_item("id", uuid_cls.call1((id.to_string(),))?)?;
@@ -544,10 +562,11 @@ pub fn tbl_metadata<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
         };
         d.set_item("name", name)?;
         d.set_item("path", path_str)?;
-        d.set_item("kind", kind)?;
         d.set_item("columns", columns)?;
-        d.set_item("indexes", super::indexes::indexes_metadata(py, cat, id)?)?;
-        d.set_item("is_data_versioned", md.is_data_versioned)?;
+        // a version-pinned table version (a snapshot) has no indexes (upstream)
+        let indexes = if src_version.is_some() { PyDict::new(py) } else { super::indexes::indexes_metadata(py, cat, src_id)? };
+        d.set_item("indexes", indexes)?;
+        d.set_item("is_data_versioned", src.is_data_versioned)?;
         d.set_item("has_default_idxs", md.has_default_idxs)?;
         d.set_item("is_view", md.is_view() || version.is_some())?;
         d.set_item("is_snapshot", md.is_snapshot() || version.is_some())?;
@@ -560,6 +579,7 @@ pub fn tbl_metadata<'py>(py: Python<'py>, tbl_id: &str, version: Option<i64>) ->
         d.set_item("custom_metadata", vpy::json_to_py(py, &sv.custom_metadata)?)?;
         d.set_item("media_validation", sv.media_validation.name())?;
         d.set_item("primary_key", if pk.is_empty() { None } else { Some(pk) })?;
+        d.set_item("kind", kind)?;
         d.set_item(
             "base",
             match version {

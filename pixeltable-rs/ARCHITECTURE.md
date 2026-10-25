@@ -485,7 +485,9 @@ Table paths and views (`catalog/views.rs`, `exec/scan.rs`): a handle reads a *ta
 live or pinned to a version (`Catalog::tbl_path`): a base table is a path of one; a view adds its bases
 (`ViewMd.bases`, each live or pinned); a version-pinned view reads its bases at the versions recorded for that view
 version (`VersionMd.base_versions`, recorded by every `bump_version` of a view); a pure snapshot (no columns, no
-filter) has no rows and is the pinned path of its bases. A view stores its own rows: one per base row that passes its
+filter) has no rows and is the pinned path of its bases (its `get_metadata()`/`describe()` report the version
+metadata of the table version it pins, `bindings::table::metadata_source()`; version-pinned table versions report no
+indexes, as upstream's; `Table._tbl_path` answers for the path's leaf). A view stores its own rows: one per base row that passes its
 filter, keyed by the base row's key, holding the view's stored columns. A scan (`PathInput::rows`) joins each visible
 leaf row with the base rows of the same key at the versions the path pins; `PathCtx` resolves a column reference by
 its table id (unstored computed columns are evaluated, read-validated media checked). Column references carry the

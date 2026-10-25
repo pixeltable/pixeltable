@@ -545,6 +545,10 @@ impl AddComputedPlan {
     ) -> Result<Vec<KeyedValue>> {
         let mut out = Vec::new();
         if !self.spec.stored.unwrap_or(true) {
+            // nothing to store, but upstream reports the rows the column covers as updated
+            let mut n = 0;
+            self.path.for_each_row(|_| n += 1)?;
+            stats.upd_rows += n;
             return Ok(out);
         }
         let col = ComputedCol {
@@ -644,8 +648,9 @@ impl AddComputedPlan {
         data.set_live_cells(col_id, values);
         record_version_status(cat, self.tbl_id, &UpdateStatus { row_count_stats: stats, ..Default::default() })?;
         cat.write_data(self.tbl_id, data)?;
+        // upstream reports no updated columns for a new column
         Ok(UpdateStatus {
-            updated_cols: vec![format!("{}.{}", self.tbl_name, self.spec.name)],
+            updated_cols: Vec::new(),
             cols_with_excs,
             row_count_stats: stats,
             cascade_row_count_stats: RowCountStats::default(),

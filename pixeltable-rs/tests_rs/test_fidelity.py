@@ -293,3 +293,39 @@ def test_console_messages(capsys: pytest.CaptureFixture[str]) -> None:
         "Created snapshot 'd/s'.",
         "Snapshot 'd/s' already exists.",
     ]
+
+
+def test_media_validation_cols_with_excs(tmp_path: object) -> None:
+    import pathlib
+
+    bad = pathlib.Path(str(tmp_path)) / 'bad.jpg'
+    bad.write_bytes(b'not an image')
+    t = pxt.create_table('t', {'img': pxt.Image | None})
+    status = t.insert([{'img': str(bad)}], on_error='ignore')
+    assert status.num_excs == 1 and status.cols_with_excs == ['t.img']
+
+
+def test_metadata_as_upstream() -> None:
+    t = pxt.create_table('t', {'a': pxt.Int, 's': pxt.String | None}, comment='hello')
+    t.insert([{'a': 1, 's': 'x'}, {'a': 2, 's': 'y'}])
+    t.add_btree_index('s')
+    md = t.get_metadata()
+    keys = list(md.keys())
+    assert keys.index('kind') == keys.index('primary_key') + 1
+    # a pure snapshot reports the table version it pins; pinned versions have no indexes
+    s = pxt.create_snapshot('s', t)
+    smd = s.get_metadata()
+    assert (smd['version'], smd['schema_version'], smd['comment']) == (md['version'], md['schema_version'], 'hello')
+    assert smd['indexes'] == {} and pxt.get_table('t:1').get_metadata()['indexes'] == {}
+    assert 'idx0' in md['indexes']
+    # the version that added the index records the rows whose index values it computed
+    assert t.get_versions()[0]['updates'] == 2
+
+
+def test_add_computed_column_status() -> None:
+    t = pxt.create_table('t', {'a': pxt.Int})
+    t.insert([{'a': 1}, {'a': 2}, {'a': 3}])
+    for stored in (True, False):
+        status = t.add_computed_column(**{f'c{int(stored)}': t.a + 1}, stored=stored)
+        assert (status.num_rows, status.updated_cols, status.num_computed_values) == (3, [], 0)
+    assert t.insert([{'a': 4}]).num_computed_values == 0
