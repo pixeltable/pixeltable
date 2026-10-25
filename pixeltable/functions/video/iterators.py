@@ -192,13 +192,13 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         # FFmpeg reports 0 for an unknown frame duration
         if self.last_decoded_frame.duration > 0:
             return float((self.last_decoded_frame.pts + self.last_decoded_frame.duration) * self.video_time_base)
-        frame_start = float(self.last_decoded_frame.pts * self.video_time_base)
+        last_decoded_frame_start = float(self.last_decoded_frame.pts * self.video_time_base)
         # the header duration can be an estimate that ends before the last frame starts (seen in .mpg files)
-        if self.video_duration is not None and self.video_start_time + self.video_duration > frame_start:
+        if self.video_duration is not None and self.video_start_time + self.video_duration > last_decoded_frame_start:
             return self.video_start_time + self.video_duration
         if self.video_framerate is not None and self.video_framerate > 0:
-            return frame_start + float(1 / self.video_framerate)
-        return frame_start
+            return last_decoded_frame_start + float(1 / self.video_framerate)
+        return last_decoded_frame_start
 
     def __next__(self) -> Frame:
         if self.at_seek_target:
@@ -225,7 +225,8 @@ class frame_iterator(pxt.PxtIterator[Frame]):
                 extraction_time = self.start_extraction_time + self.pos * self.extraction_step
 
                 if next_frame is None:
-                    # current_frame is shown until the end of the video; 1e-6 absorbs rounding in extraction_time
+                    # current_frame is shown until the end of the video; 1e-6 absorbs rounding in extraction_time;
+                    # this only runs when we reach the end of the video, and caching video_end_time isn't worth it
                     if extraction_time >= self.video_end_time() - 1e-6:
                         raise StopIteration
                 else:
