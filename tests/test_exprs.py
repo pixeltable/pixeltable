@@ -202,10 +202,22 @@ class TestExprs:
         rows = t.select(t.c2, a=t.c4 & True, b=True & t.c4, c=t.c4 | False, d=False | t.c4).order_by(t.c2).collect()
         assert all(r['a'] == r['b'] == r['c'] == r['d'] == (r['c2'] % 2 == 1) for r in rows)
 
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError, match='needs to be an expression that returns a boolean'):
             _ = t.c4 & 5
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError, match='needs to be an expression that returns a boolean'):
             _ = t.c4 | 'x'
+
+        # a non-bool column must fail at construction too, in both operand orders (t.c2 is Int)
+        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+            _ = t.c2 & True
+        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+            _ = True & t.c2
+        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+            _ = t.c2 | False
+        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+            _ = False | t.c2
+        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+            _ = t.c2 & t.c4
 
     def test_exception_handling(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
