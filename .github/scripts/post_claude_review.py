@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from claude_review_contract import MAX_JSON_BYTES, publication_body, read_json, render, verify_sources
+from claude_review_contract import MAX_JSON_BYTES, inline_valid, publication_body, read_json, render, verify_sources
 
 
 def final_message(execution_file: str) -> str:
@@ -82,22 +82,59 @@ def source_status(manifest: dict[str, Any]) -> str:
     return 'current'
 
 
+def diff_comments(
+    manifest: dict[str, Any], comments: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    files = manifest.get('diff_files') or {}
+    kept: list[dict[str, Any]] = []
+    outside: list[dict[str, Any]] = []
+    for comment in comments:
+        (kept if inline_valid(comment, files) else outside).append(comment)
+    return kept, outside
+
+
+def unattached_appendix(comments: list[dict[str, Any]]) -> str:
+    if not comments:
+        return ''
+    moved = '\n\n'.join(f'**{c["path"]}:{c["line"]}**\n\n{c["body"]}' for c in comments)
+    return '\n\n### Comments not attached to lines\n\n' + moved
+
+
 def publish(manifest: dict[str, Any], review: dict[str, Any]) -> dict[str, Any]:
     if source_status(manifest) == 'base':
         return {'status': 'incomplete', 'delivery': 'not_posted', 'reason': 'PR target changed during review'}
     fallback_used = False
     result = post(manifest['repo'], str(manifest['pr']), review)
     if result.returncode and 'HTTP 422' in result.stderr:
-        moved = '\n\n'.join(f'**{c["path"]}:{c["line"]}**\n\n{c["body"]}' for c in review['comments'])
-        appendix = '\n\n### Comments not attached to lines\n\n' + moved if moved else ''
-        try:
-            fallback = {'event': 'COMMENT', 'body': publication_body(review['body'], appendix)}
-        except ValueError as e:
-            return {'delivery': 'failed', 'publication_fallback': False, 'reason': str(e)}
-        if source_status(manifest) == 'base':
-            return {'status': 'incomplete', 'delivery': 'not_posted', 'reason': 'PR target changed before retry'}
-        fallback_used = True
-        result = post(manifest['repo'], str(manifest['pr']), fallback)
+        kept, outside = diff_comments(manifest, review.get('comments') or [])
+        if kept and outside:
+            try:
+                narrowed = {
+                    **review,
+                    'comments': kept,
+                    'body': publication_body(review['body'], unattached_appendix(outside)),
+                }
+            except ValueError:
+                pass
+            else:
+                if source_status(manifest) == 'base':
+                    return {
+                        'status': 'incomplete',
+                        'delivery': 'not_posted',
+                        'reason': 'PR target changed before retry',
+                    }
+                result = post(manifest['repo'], str(manifest['pr']), narrowed)
+                fallback_used = result.returncode == 0
+        if result.returncode and 'HTTP 422' in result.stderr:
+            appendix = unattached_appendix(review.get('comments') or [])
+            try:
+                fallback = {'event': 'COMMENT', 'body': publication_body(review['body'], appendix)}
+            except ValueError as e:
+                return {'delivery': 'failed', 'publication_fallback': False, 'reason': str(e)}
+            if source_status(manifest) == 'base':
+                return {'status': 'incomplete', 'delivery': 'not_posted', 'reason': 'PR target changed before retry'}
+            fallback_used = True
+            result = post(manifest['repo'], str(manifest['pr']), fallback)
     if result.returncode:
         rejected = re.search(r'HTTP 4\d\d', result.stderr) is not None
         return {

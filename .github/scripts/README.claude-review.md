@@ -49,16 +49,24 @@ publication request. To publish an already validated result, run the same host c
 
 Every published defect, rule finding, or design objection needs a declared independent decision. The renderer uses the exact
 checked record. Coverage, finding, and decision gaps produce an incomplete result and preserve valid checked
-findings. Invalid snapshots, tampered sources, and malformed pass envelopes still fail validation. A review can skip
-only when preparation supplies a whole-change policy, currently an empty diff. Invalid inline locations move to
-the body individually. A skipped result records its reason in the artifacts and makes no publication request.
+findings. The published review leads with those findings. Unfinished passes, unchecked findings, and decisions
+that match no finding follow them as sentences. A question is listed once, under Questions. Invalid snapshots,
+tampered sources, and malformed pass envelopes still fail validation. A review can skip
+only when preparation supplies a whole-change policy, currently an empty diff. A comment attaches to the finding's
+location when that range is in a diff hunk, otherwise to the first in-hunk evidence reference, and otherwise to the
+cited line of a changed file. A file the pull request does not change
+stays in the body. A suggestion replaces only the right-side lines the comment is attached to, and only
+when that range is shorter than six lines. Existing debt is published as maintenance and does not by itself make the review
+incomplete. A skipped result records its reason in the artifacts and makes no publication request.
 Binary, rename, and mode-only changes retain metadata without requiring nonexistent text lines. Relevant passes
 still inspect their effects or record an exclusion.
 
 Publication removes GitHub token shapes before posting, and the job log redacts the model result the same way. A removed credential leaves the review incomplete.
 Publication stops when the head, comparison merge base, or target branch changes. An unrelated base-branch advance
 can proceed when its merge base stays the same. A source change during submission records a stale result tied to the
-original revision. The inline fallback drops optional history when needed and checks the final body size before retrying.
+original revision. If GitHub rejects a batch that mixes diff lines and unchanged lines, the host retries with the
+diff-line comments and moves the rest into the body. A later rejection drops optional history when needed and checks
+the final body size before retrying.
 
 History contains bounded open claims. Earlier open claims are revalidated even when their comment file did not change. An
 unchanged, reverified claim can avoid duplicate publication. Only a checked fix resolves a prior claim. Missing or
