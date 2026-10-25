@@ -419,23 +419,7 @@ class QueryBase(ABC):
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression: {raw_expr}')
             if expr.col_type.is_invalid_type() and not (isinstance(expr, exprs.Literal) and expr.val is None):
                 raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid type: {raw_expr}')
-            if len(self._from_clause.tbls) == 1 and self._from_clause.is_local:
-                # Select expressions need to be retargeted in order to handle snapshots correctly, as in expressions
-                # such as `snapshot.select(base_tbl.col)`
-                # TODO: For joins involving snapshots, we need a more sophisticated retarget() that can handle
-                #     multiple TableVersionPaths.
-                expr = expr.copy()
-                try:
-                    expr = expr.retarget_path(self._from_clause.tvps[0])
-                except Exception:
-                    # If retarget() fails, then the succeeding is_bound_by() will raise an error.
-                    pass
-            if not expr.is_bound_by(self._from_clause.tbls):
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f"That expression cannot be evaluated in the context of this query's tables "
-                    f'({", ".join(tbl.tbl_name() for tbl in self._from_clause.tbls)}): {expr}',
-                )
+            expr = self._bind_expr(expr)
             select_list.append((expr, name))
 
         # check user provided names do not conflict among themselves or with auto-generated ones
@@ -499,20 +483,7 @@ class QueryBase(ABC):
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'where() expression needs to return `Bool`, but instead returns `{pred.col_type}`',
             )
-        if len(self._from_clause.tbls) == 1 and self._from_clause.is_local:
-            # retarget the predicate, as in select(), to support expressions such as `snapshot.where(base_tbl.col)`
-            pred = pred.copy()
-            try:
-                pred = pred.retarget_path(self._from_clause.tvps[0])
-            except Exception:
-                # If retarget() fails, then the succeeding is_bound_by() will raise an error.
-                pass
-        if not pred.is_bound_by(self._from_clause.tbls):
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f"That expression cannot be evaluated in the context of this query's tables "
-                f'({", ".join(tbl.tbl_name() for tbl in self._from_clause.tbls)}): {pred}',
-            )
+        pred = self._bind_expr(pred)
         return type(self)(
             from_clause=self._from_clause,
             select_list=self.select_list,
@@ -523,6 +494,32 @@ class QueryBase(ABC):
             limit=self.limit_val,
             offset=self.offset_val,
         )
+
+    def _bind_expr(self, expr: exprs.Expr) -> exprs.Expr:
+        """Bind a clause expression to this query's tables.
+
+        In a single-table query, first retarget the expression to the path this query reads, so that column
+        references written against a different version of that table (eg `snapshot.where(base_tbl.col)`)
+        apply to the version the query pins. Then require every column reference to resolve to one of the
+        query's tables.
+
+        TODO: For joins involving snapshots, we need a more sophisticated retarget() that can handle
+            multiple TableVersionPaths.
+        """
+        if len(self._from_clause.tbls) == 1:
+            expr = expr.copy()
+            try:
+                expr = expr.retarget_path(self._from_clause.tbls[0])
+            except Exception:
+                # If retarget() fails, then the succeeding is_bound_by() will raise an error.
+                pass
+        if not expr.is_bound_by(self._from_clause.tbls):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f"That expression cannot be evaluated in the context of this query's tables "
+                f'({", ".join(tbl.tbl_name() for tbl in self._from_clause.tbls)}): {expr}',
+            )
+        return expr
 
     def _create_join_predicate(
         self, other: catalog.TablePath, on: exprs.Expr | Sequence[exprs.ColumnRef]

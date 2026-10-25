@@ -157,16 +157,69 @@ class TestQuery:
         assert 'cannot be evaluated in the context' in str(exc_info.value)
 
         # where clause contains invalid references
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be evaluated in the context'):
             _ = t.where(t.c2 == t2.c1).collect()
-        assert 'cannot be evaluated in the context' in str(exc_info.value)
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be evaluated in the context'):
             _ = t.select(t.c2).where(t2.c1 > 0).collect()
-        assert 'cannot be evaluated in the context' in str(exc_info.value)
 
         with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'where\(\) clause already specified'):
             _ = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
+
+    def test_where_base_column_retarget(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('base'), {'c1': pxt.Int, 'c2': pxt.Int})
+        validate_update_status(t.insert({'c1': i, 'c2': i} for i in range(10)), expected_rows=10)
+        snap = pxt.create_snapshot(p('snap'), t)
+        validate_update_status(t.update({'c2': -1}), expected_rows=10)
+
+        # a predicate written against the live base binds to the versions the snapshot pins
+        res = snap.where(t.c2 > 0).order_by(snap.c1).select(snap.c2).collect()
+        assert res['c2'] == list(range(1, 10))
+
+        # the retargeted predicate is a different expression than the same shape over the live table:
+        # the join's select applies `t.c2 > 0` to live rows while the filter keeps using the pinned ones
+        res = (
+            snap.where(t.c2 > 0)
+            .join(t, on=snap.c1 == t.c1)
+            .order_by(snap.c1)
+            .select(snap_c2=snap.c2, live_ok=t.c2 > 0)
+            .collect()
+        )
+        assert res['snap_c2'] == list(range(1, 10))
+        assert res['live_ok'] == [False] * 9
+
+    @pytest.mark.db_roots('local', reason='builds a metadata path from the local catalog')
+    def test_where_metadata_path_retarget(self, db_root: DatabaseRoot) -> None:
+        # a TableMdPath is what a proxy client binds; where() must retarget live base references
+        # through the path's column metadata, since no local TableVersions exist for it
+        from pixeltable._query import Query
+        from pixeltable.catalog.path import ROOT_PATH
+        from pixeltable.catalog.table_path import TableMdPath
+        from pixeltable.exprs import ColumnRef
+        from pixeltable.query_clauses import FromClause
+        from pixeltable.runtime import get_runtime
+
+        t = pxt.create_table('md_base', {'c1': pxt.Int, 'c2': pxt.Int})
+        t.insert({'c1': i, 'c2': i} for i in range(5))
+        snap = pxt.create_snapshot('md_snap', t)
+        t.update({'c2': -1})
+
+        cat = get_runtime().catalog
+        with cat.begin_xact(for_write=False):
+            md_path = TableMdPath.from_md(cat.read_md_for_export(snap), is_anon_snapshot=False, catalog_uri=ROOT_PATH)
+        assert md_path.is_snapshot()
+
+        # a live-table column reference in a snapshot predicate retargets to the pinned version
+        q = Query(FromClause(tbls=[md_path])).where(t.c2 > 0)
+        colref = next(q.where_clause.subexprs(ColumnRef))
+        pinned = md_path.get_column_md(colref.col_md.qcolid).col_effective_version
+        assert pinned is not None and colref.col_md.col_effective_version == pinned
+
+        # a column outside the path is still rejected
+        other = pxt.create_table('md_other', {'x': pxt.Int})
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be evaluated in the context'):
+            _ = Query(FromClause(tbls=[md_path])).where(other.x > 0)
 
     def test_join(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

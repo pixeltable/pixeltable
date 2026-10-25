@@ -93,10 +93,11 @@ class SimilarityExpr(Expr):
         )
 
     def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> Self:
-        super()._retarget(tbl_versions)
+        # update the key before super() recomputes the id, which reads table_version_key
         tv = tbl_versions.get(self.table_version_key.tbl_id)
         if tv is not None:
             self.table_version_key = tv.key
+        super()._retarget(tbl_versions)
         return self
 
     def default_column_name(self) -> str:

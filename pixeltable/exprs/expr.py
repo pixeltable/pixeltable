@@ -329,20 +329,42 @@ class Expr(abc.ABC):
         """Retarget ColumnRefs in this expr to the given TableVersion instances (keyed by table id)."""
         return self._retarget(tbl_versions)
 
-    def retarget_path(self, tbl: catalog.TableVersionPath) -> Self:
-        """Retarget ColumnRefs in this expr to the specific TableVersions in tbl."""
-        return self.retarget(tbl.tbl_versions())
+    def retarget_path(self, tbl: catalog.TablePath) -> Self:
+        """Retarget ColumnRefs in this expr to the versions that tbl pins for their containing tables."""
+        if isinstance(tbl, catalog.TableVersionPath):
+            return self.retarget(tbl.tbl_versions())
+        # a metadata path (eg a hosted table) has no local TableVersions; rebind through its column metadata
+        return self._retarget_md(tbl)
+
+    def _retarget_md(self, tbl: catalog.TablePath) -> Self:
+        from .column_ref import ColumnRef
+        from .expr_dict import ExprDict
+
+        subst: ExprDict[Expr] = ExprDict(
+            (
+                ref,
+                ColumnRef(
+                    ref.col_md.retarget(tbl.get_column_md(ref.col_md.qcolid).col_effective_version),
+                    ref.perform_validation,
+                ),
+            )
+            for ref in self.subexprs(ColumnRef)
+            if tbl.has_column(ref.col_md.qcolid)
+        )
+        return typing.cast('Self', self.substitute(subst)) if len(subst) > 0 else self
 
     @classmethod
-    def retarget_path_list(cls, expr_list: list[Expr], tbl: catalog.TableVersionPath) -> None:
-        """Retarget ColumnRefs in expr_list to the specific TableVersions in tbl."""
-        tbl_versions = tbl.tbl_versions()
+    def retarget_path_list(cls, expr_list: list[Expr], tbl: catalog.TablePath) -> None:
+        """Retarget ColumnRefs in expr_list to the versions that tbl pins for their containing tables."""
         for i in range(len(expr_list)):
-            expr_list[i] = expr_list[i].retarget(tbl_versions)
+            expr_list[i] = expr_list[i].retarget_path(tbl)
 
     def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> Self:
         for i in range(len(self.components)):
             self.components[i] = self.components[i]._retarget(tbl_versions)
+        # new components mean a new identity: exprs are hashed by id (ExprDict, SqlElementCache), so a copy
+        # that kept the original's id would alias its cached values
+        self.id = self._create_id()
         return self
 
     def __repr__(self) -> str:

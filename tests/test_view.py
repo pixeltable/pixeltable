@@ -967,9 +967,14 @@ class TestView:
             exc_info.value
         )
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
-            v = pxt.create_view(p('test_view'), s.where(t.c2 < 10))
-        assert "View filter cannot be computed in the context of the base table 'test_tbl'" in str(exc_info.value)
+        # a live-base filter retargets to the version the snapshot pins, so the view is legal
+        v = pxt.create_view(p('test_view'), s.where(t.c2 < 10))
+        pxt.drop_table(p('test_view'))
+
+        # a filter over an unrelated table is still rejected
+        t2 = pxt.create_table(p('test_tbl2'), {'c2': pxt.Int})
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be evaluated in the context'):
+            _ = pxt.create_view(p('test_view'), s.where(t2.c2 < 10))
 
         # create view with filter and computed columns
         schema: dict[str, Any] = {'v1': s.c3 * 2.0, 'v2': s.c6.f5}
