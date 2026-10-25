@@ -317,7 +317,7 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
 /// which is located already), and the values of its inputs. Interrupts and unimplemented features stay as they are.
 #[cold]
 #[inline(never)]
-fn locate(e: &Expr, err: Error, ctx: &dyn RowContext) -> Error {
+pub(crate) fn locate(e: &Expr, err: Error, ctx: &dyn RowContext) -> Error {
     if matches!(err, Error::Located(_) | Error::NotImplemented(_)) || crate::functions::udf::is_interrupt(&err) {
         return err;
     }

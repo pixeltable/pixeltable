@@ -11,10 +11,9 @@ use std::borrow::Cow;
 
 use crate::catalog::table::ColId;
 use crate::error::Result;
-use crate::expr::eval::{RowContext, arithmetic, cmp_operand, compare_tri, eval};
+use crate::expr::eval::{RowContext, arithmetic, cmp_operand, compare_tri, eval, locate};
 use crate::expr::{ArithOp, CmpOp, ColumnRef, ExprKind, ExprRef, LogicalOp};
 use crate::store::rows::StoredRow;
-use crate::types::ColumnType;
 use crate::value::{Json, Value, values_equal};
 
 /// A compiled expression (see the module documentation).
@@ -28,10 +27,11 @@ pub enum Fast {
     Not(Box<Fast>),
     IsNull(Box<Fast>),
     InList { lhs: Box<Fast>, values: Vec<Value> },
-    Arith { op: ArithOp, lhs: Box<Fast>, rhs: Box<Fast>, lhs_json: bool, rhs_json: bool, result_type: ColumnType, sql: bool },
+    /// (`node`: the expression, which a failure names, as `expr::eval()` locates it)
+    Arith { node: ExprRef, lhs: Box<Fast>, rhs: Box<Fast>, lhs_json: bool, rhs_json: bool, sql: bool },
     /// a similarity lookup whose query embedding is computed: the stored embedding is the cell of the index's value
     /// column in a slot
-    Similarity { slot: usize, col: ColId, metric: String, query: Value },
+    Similarity { node: ExprRef, slot: usize, col: ColId, metric: String, query: Value },
     /// evaluated by `expr::eval()`
     Other(ExprRef),
 }
@@ -60,19 +60,22 @@ impl Fast {
             ExprKind::Similarity(sim) => {
                 let stored = ColumnRef { tbl_id: sim.idx_tbl_id, col_id: sim.val_col_id, name: String::new(), tbl_version: None };
                 match (slot_of(&stored), sim.cache.get()) {
-                    (Some(slot), Some(query)) => {
-                        Fast::Similarity { slot, col: sim.val_col_id, metric: sim.metric.clone(), query: query.clone() }
-                    }
+                    (Some(slot), Some(query)) => Fast::Similarity {
+                        node: e.clone(),
+                        slot,
+                        col: sim.val_col_id,
+                        metric: sim.metric.clone(),
+                        query: query.clone(),
+                    },
                     _ => Fast::Other(e.clone()),
                 }
             }
-            ExprKind::Arithmetic { op, lhs, rhs } => Fast::Arith {
-                op: *op,
+            ExprKind::Arithmetic { lhs, rhs, .. } => Fast::Arith {
+                node: e.clone(),
                 lhs: sub(lhs),
                 rhs: sub(rhs),
                 lhs_json: lhs.col_type.is_json(),
                 rhs_json: rhs.col_type.is_json(),
-                result_type: e.col_type.clone(),
                 sql: super::query::is_sql_expr(e, &Default::default()),
             },
             _ => Fast::Other(e.clone()),
@@ -97,14 +100,16 @@ impl Fast {
             Fast::Cell { slot, col } => Cow::Borrowed(row[*slot].map_or(&NULL, |r| r.cell(*col))),
             Fast::Lit(v) => Cow::Borrowed(v),
             Fast::Other(e) => Cow::Owned(eval(e, ctx)?),
-            Fast::Similarity { slot, col, metric, query } => {
+            Fast::Similarity { node, slot, col, metric, query } => {
                 if ctx.python_semantics() {
-                    crate::bail!(UnsupportedOperation, "similarity(): cannot be used in a computed column");
+                    let err = crate::pxt_err!(UnsupportedOperation, "similarity(): cannot be used in a computed column");
+                    return Err(locate(node, err, ctx));
                 }
                 let stored = row[*slot].map_or(&NULL, |r| r.cell(*col));
                 Cow::Owned(crate::expr::eval::similarity_score(metric, stored, query))
             }
-            Fast::Arith { op, lhs, rhs, lhs_json, rhs_json, result_type, sql } => {
+            Fast::Arith { node, lhs, rhs, lhs_json, rhs_json, sql } => {
+                let ExprKind::Arithmetic { op, .. } = &node.kind else { unreachable!("an arithmetic node") };
                 let a = lhs.eval(row, ctx)?;
                 let b = rhs.eval(row, ctx)?;
                 // as `expr::eval()`: SQL semantics differ from Python's only for a zero divisor and a `%` of operands
@@ -120,7 +125,10 @@ impl Fast {
                     _ => false,
                 };
                 let sql = sensitive && !ctx.python_semantics() && *sql;
-                Cow::Owned(arithmetic(*op, &a, &b, *lhs_json, *rhs_json, result_type, sql)?)
+                match arithmetic(*op, &a, &b, *lhs_json, *rhs_json, &node.col_type, sql) {
+                    Ok(v) => Cow::Owned(v),
+                    Err(err) => return Err(locate(node, err, ctx)),
+                }
             }
             _ => Cow::Owned(match self.eval_bool(row, ctx)? {
                 Some(b) => Value::Bool(b),
@@ -183,6 +191,7 @@ impl Fast {
 mod tests {
     use super::*;
     use crate::expr::Expr;
+    use crate::types::ColumnType;
 
     struct Cells<'a>(&'a StoredRow);
 
