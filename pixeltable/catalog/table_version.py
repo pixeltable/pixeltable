@@ -1724,6 +1724,7 @@ class TableVersion:
                 # live rather than by v_min; base_versions records that as a None, and zip() drops the skipped
                 # ancestors
                 updated_bases = [b for b, v in zip(view_tv.path.get_bases(), base_versions) if v is not None]
+                assert len(updated_bases) > 0  # otherwise we shouldn't be here
 
                 view_plans: list[exec.ExecNode] = []
                 if needs_iterator_reload or (membership_change and view_tv.is_component_view):
