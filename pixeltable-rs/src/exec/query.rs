@@ -2011,7 +2011,8 @@ fn project_cells(rows: &OutRows<'_>, fasts: &[Fast], pure: bool) -> Option<Vec<V
     if !pure || !rows.pre.is_empty() || cols.is_empty() {
         return None;
     }
-    // the rows of the runs a typed column does not cover: their chunks decoded in parallel first
+    // the typed columns built in parallel, then the rows of the runs they do not cover decoded in parallel
+    super::par::detached(|| data.build_columns_of(addrs, &cols));
     let runs = super::fast::chunk_runs(addrs, 0..addrs.len());
     let untyped: Vec<RowAddr> = runs
         .iter()

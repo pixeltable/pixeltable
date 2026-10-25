@@ -534,6 +534,23 @@ impl TableData {
         }
     }
 
+    /// Builds (in parallel) the typed columns `cols` of the storage chunks that hold the rows at `addrs`, so that
+    /// reading them one after the other does not build them one at a time (see `Segment::column()`).
+    pub fn build_columns_of(&self, addrs: &[RowAddr], cols: &[ColId]) {
+        use super::segment::CHUNK_ROWS;
+        let mut chunks: Vec<(u32, usize)> = addrs.iter().map(|(p, i)| (*p, *i as usize / CHUNK_ROWS)).collect();
+        chunks.dedup();
+        chunks.sort_unstable();
+        chunks.dedup();
+        let work: Vec<(u32, usize, ColId)> = chunks.iter().flat_map(|(p, k)| cols.iter().map(move |c| (*p, *k, *c))).collect();
+        if work.len() > 1 {
+            use rayon::prelude::*;
+            work.par_iter().for_each(|(p, k, c)| {
+                self.segs[*p as usize].seg.column(*k, *c);
+            });
+        }
+    }
+
     /// The row at an address from `scan_order()`.
     pub fn row_by_addr(&self, (p, i): RowAddr) -> &StoredRow {
         self.segs[p as usize].seg.row(i as usize)
