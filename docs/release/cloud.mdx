@@ -39,7 +39,7 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     `pxt org create` provisions your first database, `main`, and switches your `pxt login` session to the new organization.
   </Step>
   <Step title="Prepare the application and Cloud target">
-    In a new directory, run:
+    From the directory that should contain `cloud-app`, run:
 
     ```bash
     mkdir -p cloud-app && cd cloud-app
@@ -47,11 +47,9 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     pxt service example --out app.py
     ```
 
-    Run this from the directory that should contain `cloud-app`, and paste it again from that same directory so it reuses the folder.
-
     In a notebook, `!cd` does not carry over to the next command. Use `%cd cloud-app` instead, so that `pxt init` makes that directory the project root.
 
-    `pxt service example` writes a working `app.py` with a `Docs` table and an `ingest` HTTP service. If you already completed the Quickstart, use that `app.py` instead.
+    `pxt service example` writes a working `app.py` with a `Docs` table and an `ingest` HTTP service, overwriting `app.py` if it already exists. If you already completed the Quickstart, use that `app.py` instead.
 
     Point the project at your `main` database. Replace `org` with your organization name:
 
