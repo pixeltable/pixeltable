@@ -781,6 +781,10 @@ class QueryBase(ABC):
         Note that grouping will be applied to the rows based on the select clause of this Query.
         In the absence of a select clause, by default, all columns are selected in the grouping.
 
+        Each selected expression must be expressible in SQL. A JSON path, including one passed through
+        `astype()`, is not. Executing the query raises `RequestError` rather than returning duplicate rows.
+        Store the value in a computed column of a scalar type and select that column.
+
         Examples:
             Select unique addresses from table `addresses`.
 

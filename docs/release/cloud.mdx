@@ -4,10 +4,6 @@ sidebarTitle: 'Pixeltable Cloud'
 description: 'Run the same application file against a hosted database'
 ---
 
-<Note>
-  Pixeltable Cloud is in Limited Beta. Email [contact@pixeltable.com](mailto:contact@pixeltable.com) if you are interested.
-</Note>
-
 The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same application file creates tables and starts HTTP on a hosted database. A `pxt login` session is enough for the first deployment, or, with no account, a `pxt new` trial ([Trial databases](/platform/cli#trial-databases)). You do not need an API key.
 
 ## First deployment
@@ -43,17 +39,17 @@ The [Quickstart](/overview/quick-start) runs `app.py` locally. Here, the same ap
     `pxt org create` provisions your first database, `main`, and switches your `pxt login` session to the new organization.
   </Step>
   <Step title="Prepare the application and Cloud target">
-    In a new directory, run:
+    From the directory that should contain `cloud-app`, run:
 
     ```bash
-    mkdir cloud-app && cd cloud-app
+    mkdir -p cloud-app && cd cloud-app
     pxt init
     pxt service example --out app.py
     ```
 
     In a notebook, `!cd` does not carry over to the next command. Use `%cd cloud-app` instead, so that `pxt init` makes that directory the project root.
 
-    `pxt service example` writes a working `app.py` with a `Docs` table and an `ingest` HTTP service. If you already completed the Quickstart, use that `app.py` instead.
+    `pxt service example` writes a working `app.py` with a `Docs` table and an `ingest` HTTP service, overwriting `app.py` if it already exists. If you already completed the Quickstart, use that `app.py` instead.
 
     Point the project at your `main` database. Replace `org` with your organization name:
 
@@ -307,8 +303,8 @@ signed = resp.json()  # {"urls": {key: url}, "expires_at": "2026-10-08T21:00:00.
 | Media | local disk | `pxt://org:main/buckets/home` |
 
 <CardGroup cols={2}>
-  <Card title="Request an account" icon="envelope" href="mailto:contact@pixeltable.com">
-    Cloud is in Limited Beta.
+  <Card title="Contact us" icon="envelope" href="mailto:contact@pixeltable.com">
+    Questions about your Cloud account.
   </Card>
   <Card title="Book a demo" icon="calendar" href="https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM">
     Talk through a Cloud deployment.

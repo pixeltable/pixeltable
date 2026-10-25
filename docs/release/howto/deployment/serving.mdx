@@ -10,7 +10,7 @@ Install FastAPI and uvicorn first:
 pip install 'pixeltable[serve]'
 ```
 
-How the process starts is on [Self-hosting](/howto/deployment/overview). This page covers the route API once you have chosen which process serves it. A local service exposes FastAPI's interactive docs at `/docs` and its OpenAPI schema at `/openapi.json`. `pxt service update` assigns a local port; look up the endpoint by catalog path and service name rather than assuming port 8000. For the README's `my_app/ingest` example:
+How the process starts is on [Self-hosting](/howto/deployment/overview). This page covers the route API once you have chosen which process serves it. A local service exposes FastAPI's interactive docs at `/docs` and its OpenAPI schema at `/openapi.json`. `pxt service update` assigns a local port; look up the endpoint by catalog path and service name rather than assuming port 8000. For the [Quickstart](/overview/quick-start)'s `my_app/ingest` example:
 
 ```bash
 SERVICE_URL=$(pxt service list my_app --json | jq -r '.[] | select(.catalog_path == "my_app" and .name == "ingest") | .endpoint')
@@ -36,7 +36,7 @@ Routes with `return_fileresponse=True` advertise a binary response for any media
 
 ## Call from a TypeScript app server
 
-Keep a Cloud API key in your application server's environment, never in browser code. Generated types do not check raw `fetch` calls, so call routes through `openapi-fetch` with the generated `paths`. The same module calls a local service (no key) or a hosted one. Set `PIXELTABLE_SERVICE_URL` to the full service endpoint, as above, run `npm install openapi-fetch server-only`, and put this in `src/lib/pixeltable-client.ts`. With the README's `/titles` compute route:
+Keep a Cloud API key in your application server's environment, never in browser code. Generated types do not check raw `fetch` calls, so call routes through `openapi-fetch` with the generated `paths`. The same module calls a local service (no key) or a hosted one. Set `PIXELTABLE_SERVICE_URL` to the full service endpoint, as above, run `npm install openapi-fetch server-only`, and put this in `src/lib/pixeltable-client.ts`. With the Quickstart's `/titles` compute route:
 
 ```typescript
 import 'server-only';

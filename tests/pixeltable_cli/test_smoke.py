@@ -1834,13 +1834,14 @@ class TestColdStartBudget:
     """
 
     @pytest.mark.parametrize(
-        'command', ['ls', 'new', 'login', 'logout', 'whoami', 'key', 'org', 'db', 'service', 'skills']
+        'command', ['ls', 'new', 'login', 'logout', 'whoami', 'key', 'org', 'db', 'service', 'skills', 'feedback']
     )
     def test_pixeltable_not_imported_by_client(
         self, cli: PxtRunner, pxt_daemon: int, session_project: pathlib.Path, command: str
     ) -> None:
-        # `ls` runs in full; the others would reach the control plane, so only their parsers run
-        argv = [command] if command == 'ls' else [command, '--help']
+        # `ls` runs in full, and a feedback preview, which sends nothing; the others would reach the control plane,
+        # so only their parsers run
+        argv = {'ls': ['ls'], 'feedback': ['feedback', '--kind', 'gap', 'x']}.get(command, [command, '--help'])
         # Use sys.executable so the subprocess runs under the same interpreter as the test,
         # not whatever python resolves to on PATH.
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
@@ -1858,7 +1859,9 @@ class TestColdStartBudget:
         imported = [line for line in r.stderr.splitlines() if line.startswith('import time:')]
         # Each line of the form 'import time: ...' ends with the dotted module name; we want to catch
         # the top-level package alone, not e.g. a stdlib numbers module sharing a prefix.
-        forbidden = ('pixeltable', 'sqlalchemy', 'pandas', 'numpy')
+        forbidden: tuple[str, ...] = ('pixeltable', 'sqlalchemy', 'pandas', 'numpy')
+        if command == 'feedback':
+            forbidden += ('requests',)  # only --send needs it
         offenders: dict[str, str] = {}
         for line in imported:
             module = line.rsplit(' ', 1)[-1]

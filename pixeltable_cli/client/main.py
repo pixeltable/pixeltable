@@ -10,6 +10,7 @@ from typing import Callable
 COMMANDS: dict[str, str] = {
     'init': 'write the project configuration here, making this the project root',
     'skills': 'install the Pixeltable skill for coding agents in this directory (install)',
+    'feedback': 'send a report to the Pixeltable team, after showing it to you (preview by default)',
     'health': 'show daemon info',
     'cd': 'set or clear the working directory prepended to relative paths',
     'pwd': 'print the working directory',
