@@ -50,6 +50,7 @@ pub enum ErrorCode {
     // ServiceUnavailableError
     StoreUnavailable,
     // ConcurrencyError
+    SerializationFailure,
     ConcurrentModification,
 }
 
@@ -87,6 +88,7 @@ impl ErrorCode {
             SchemaMismatch => "SCHEMA_MISMATCH",
             ProviderError => "PROVIDER_ERROR",
             StoreUnavailable => "STORE_UNAVAILABLE",
+            SerializationFailure => "SERIALIZATION_FAILURE",
             ConcurrentModification => "CONCURRENT_MODIFICATION",
         }
     }
@@ -222,7 +224,7 @@ impl Error {
                     }
                     ProviderError => "ExternalServiceError",
                     StoreUnavailable => "ServiceUnavailableError",
-                    ConcurrentModification => "ConcurrencyError",
+                    SerializationFailure | ConcurrentModification => "ConcurrencyError",
                     _ => "RequestError",
                 }
                 .to_string()

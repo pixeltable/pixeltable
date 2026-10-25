@@ -18,6 +18,7 @@ use smallvec::{SmallVec, smallvec};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+use super::fast::Fast;
 use super::prefetch::{CallResults, CallSlot};
 use super::scan::{ElemInfo, PathCtx, PathInput};
 use super::{JoinType, QuerySpec, ResultData, SampleClause};
@@ -28,7 +29,7 @@ use crate::expr::display::display;
 use crate::expr::eval::{RowContext, eval};
 use crate::expr::{ArithOp, CmpOp, ColumnRef, Expr, ExprKind, ExprRef, LogicalOp};
 use crate::functions::agg::{AggPlan, AggState};
-use crate::store::rows::StoredRow;
+use crate::store::rows::{RowAddr, StoredRow, TableData};
 use crate::value::{Value, cmp_values};
 
 /// One from-table of a query: its table path, captured under the catalog lock.
@@ -155,22 +156,121 @@ impl QueryInput {
         self.slot_of.get(tbl_id).map(|(src, _)| *src)
     }
 
-    /// A row with only the slots of source `i` set.
-    fn place<'a>(&self, jr: &mut JRow<'a>, i: usize, rows: &[&'a StoredRow]) {
+    /// Sets the slots of source `i` in `row` (a row of `width` slots).
+    fn place<'a>(&self, row: &mut [Option<&'a StoredRow>], i: usize, rows: &[&'a StoredRow]) {
         let off = self.sources[i].offset;
         for (k, r) in rows.iter().enumerate() {
-            jr[off + k] = Some(*r);
+            row[off + k] = Some(*r);
+        }
+    }
+
+    /// `e` compiled for evaluation over this query's rows (`exec::fast`): column references read their slot's cell
+    /// where the query reads the column that way (`ColRead::Slot`).
+    fn compile(&self, e: &ExprRef) -> Fast {
+        Fast::compile(e, &|c| {
+            match self.reads.get(&(c.tbl_id, c.col_id, c.tbl_version)).copied().unwrap_or_else(|| self.col_read(c)) {
+                ColRead::Slot(slot) => Some(slot),
+                ColRead::Path => None,
+            }
+        })
+    }
+}
+
+/// Rows flowing through a query: `width` slots per row (one per table of each from-table's path, leaf first; None is
+/// the missing side of an outer join), stored flat.
+#[derive(Clone)]
+struct Rows<'a> {
+    width: usize,
+    slots: Vec<Option<&'a StoredRow>>,
+}
+
+impl<'a> Rows<'a> {
+    fn new(width: usize) -> Rows<'a> {
+        Rows { width, slots: Vec::new() }
+    }
+
+    fn with_capacity(width: usize, n: usize) -> Rows<'a> {
+        Rows { width, slots: Vec::with_capacity(width * n) }
+    }
+
+    fn len(&self) -> usize {
+        self.slots.len() / self.width
+    }
+
+    fn row(&self, i: usize) -> &[Option<&'a StoredRow>] {
+        &self.slots[i * self.width..(i + 1) * self.width]
+    }
+
+    fn push(&mut self, row: &[Option<&'a StoredRow>]) {
+        self.slots.extend_from_slice(row);
+    }
+
+    /// The rows `idx`, in that order.
+    fn gather(&self, idx: impl ExactSizeIterator<Item = usize>) -> Rows<'a> {
+        let mut out = Rows::with_capacity(self.width, idx.len());
+        for i in idx {
+            out.push(self.row(i));
+        }
+        out
+    }
+
+    fn reverse(&mut self) {
+        let n = self.len();
+        *self = self.gather((0..n).rev());
+    }
+
+    fn append(&mut self, other: Rows<'a>) {
+        if self.slots.is_empty() {
+            *self = other;
+        } else {
+            self.slots.extend(other.slots);
         }
     }
 }
 
-/// One slot per table of each from-table's path (most queries have one or two).
-type JRow<'a> = SmallVec<[Option<&'a StoredRow>; 2]>;
+/// Output rows: the (representative) input rows, and for each the precomputed aggregate/window values (`pre`, empty if
+/// the query has none).
+struct OutRows<'a> {
+    rows: Rows<'a>,
+    pre: Vec<Vec<Value>>,
+}
 
-/// An output row: the (representative) input row and the precomputed aggregate/window values.
-struct OutRow<'a> {
-    row: JRow<'a>,
-    pre: Vec<Value>,
+impl<'a> OutRows<'a> {
+    fn plain(rows: Rows<'a>) -> OutRows<'a> {
+        OutRows { rows, pre: Vec::new() }
+    }
+
+    fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    fn pre(&self, i: usize) -> &[Value] {
+        self.pre.get(i).map_or(&[], Vec::as_slice)
+    }
+
+    /// The rows `order` (indexes), in that order.
+    fn permute(mut self, order: &[u32]) -> OutRows<'a> {
+        let rows = self.rows.gather(order.iter().map(|i| *i as usize));
+        let pre = if self.pre.is_empty() {
+            Vec::new()
+        } else {
+            order.iter().map(|i| std::mem::take(&mut self.pre[*i as usize])).collect()
+        };
+        OutRows { rows, pre }
+    }
+
+    /// The rows after the first `offset`, at most `limit` of them.
+    fn window(mut self, offset: usize, limit: Option<usize>) -> OutRows<'a> {
+        let n = self.len();
+        let end = limit.map_or(n, |l| offset.saturating_add(l).min(n));
+        if offset == 0 && end == n {
+            return self;
+        }
+        let start = offset.min(end);
+        let rows = self.rows.gather(start..end);
+        let pre = if self.pre.is_empty() { Vec::new() } else { self.pre.drain(start..end).collect() };
+        OutRows { rows, pre }
+    }
 }
 
 /// Row context for query evaluation.
@@ -616,13 +716,76 @@ pub fn keys_of(vals: &[Value]) -> String {
     s
 }
 
-/// The visible rows of source `i` (each joined with its path's base rows), in key order. Without joins, only the
-/// rows the where clause can select when it fixes the table's primary key (`PathInput::rows_where()`).
-fn source_rows<'a>(input: &'a QueryInput, i: usize) -> Result<Vec<Vec<&'a StoredRow>>> {
-    if i == 0 && input.q.joins.is_empty() {
-        return input.sources[0].path.rows_where(input.q.where_.as_ref());
+/// The rows of the first from-table of a query, before the where clause, in key order.
+enum Scan<'a> {
+    /// the visible rows of a base table, by address: fetched (and their storage chunks decoded) on first use
+    Leaf { data: &'a TableData, addrs: Vec<RowAddr> },
+    /// materialized rows: a view's joined path rows, the rows a key index found, joined rows
+    Rows(Rows<'a>),
+}
+
+impl<'a> Scan<'a> {
+    /// The rows of the first from-table of a query without joins: those a key index finds for the where clause
+    /// (`PathInput::index_rowids()`), else all visible rows (of a base table, only the first `prefix` ones).
+    fn new(input: &'a QueryInput, prefix: Option<usize>) -> Result<Scan<'a>> {
+        let path = &input.sources[0].path;
+        if let Some(rowids) = path.index_rowids(input.q.where_.as_ref()) {
+            let mut rows = Rows::new(path.elems.len());
+            for r in path.rows_for_keys(rowids.iter().map(|r| (*r, &[] as &[i64]))) {
+                rows.slots.extend(r.into_iter().map(Some));
+            }
+            return Ok(Scan::Rows(rows));
+        }
+        if let [e] = path.elems.as_slice() {
+            return Ok(Scan::Leaf { data: &e.data, addrs: e.data.scan_order_upto(e.version, prefix.unwrap_or(usize::MAX)) });
+        }
+        let mut rows = Rows::new(path.elems.len());
+        path.for_each_row(|r| rows.slots.extend(r.iter().map(|x| Some(*x))))?;
+        Ok(Scan::Rows(rows))
     }
-    input.sources[i].path.rows()
+
+    fn len(&self) -> usize {
+        match self {
+            Scan::Leaf { addrs, .. } => addrs.len(),
+            Scan::Rows(r) => r.len(),
+        }
+    }
+
+    /// Calls `f` with row `i`.
+    fn with_row<R>(&self, i: usize, f: impl FnOnce(&[Option<&'a StoredRow>]) -> R) -> R {
+        match self {
+            Scan::Leaf { data, addrs } => f(&[Some(data.row_by_addr(addrs[i]))]),
+            Scan::Rows(r) => f(r.row(i)),
+        }
+    }
+
+    fn reverse(&mut self) {
+        match self {
+            Scan::Leaf { addrs, .. } => addrs.reverse(),
+            Scan::Rows(r) => r.reverse(),
+        }
+    }
+
+    /// The rows `idx`, in that order (fetched in parallel when they are many).
+    fn select(&self, idx: &[usize]) -> Rows<'a> {
+        match self {
+            Scan::Leaf { data, addrs } => Rows {
+                width: 1,
+                slots: super::par::map_rows(idx.len(), |k| Some(data.row_by_addr(addrs[idx[k]]))),
+            },
+            Scan::Rows(r) => r.gather(idx.iter().copied()),
+        }
+    }
+
+    /// All rows.
+    fn into_rows(self) -> Rows<'a> {
+        match self {
+            Scan::Leaf { data, addrs } => {
+                Rows { width: 1, slots: super::par::map_rows(addrs.len(), |k| Some(data.row_by_addr(addrs[k]))) }
+            }
+            Scan::Rows(r) => r,
+        }
+    }
 }
 
 /// For a join predicate, the equality conjuncts `lhs == rhs` whose sides reference only the left tables resp. only
@@ -665,58 +828,91 @@ fn equi_keys(pred: &ExprRef, input: &QueryInput, right_src: usize) -> (Vec<ExprR
     (l, r)
 }
 
-/// Scans the from-tables and joins them (in from-clause order).
-fn scan_and_join<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
+/// True if equal hash keys decide a join predicate: every conjunct is one of the equality conjuncts `lkeys[i] ==
+/// rkeys[i]`, each comparing two stored columns of the same scalar type for which equal keys (`KeyPart`) mean SQL
+/// equality (not floats, JSON or media, whose equality is not that of their keys); the predicate then needs no
+/// evaluation for the candidates the keys find.
+fn keys_decide(pred: &ExprRef, lkeys: &[ExprRef], rkeys: &[ExprRef], input: &QueryInput) -> bool {
+    use crate::types::TypeKind;
+    let plain = |e: &ExprRef| {
+        e.as_column_ref().is_some_and(|c| matches!(input.reads.get(&(c.tbl_id, c.col_id, c.tbl_version)), Some(ColRead::Slot(_))))
+    };
+    let exact = |e: &ExprRef| {
+        matches!(e.col_type.kind, TypeKind::Int | TypeKind::String | TypeKind::Bool | TypeKind::Timestamp | TypeKind::Date | TypeKind::Uuid)
+    };
+    conjuncts(pred).len() == lkeys.len()
+        && lkeys.iter().zip(rkeys).all(|(l, r)| plain(l) && plain(r) && exact(l) && l.col_type.kind == r.col_type.kind)
+}
+
+/// Scans the from-tables and joins them (in from-clause order): rows of `input.width` slots.
+fn scan_and_join<'a>(input: &'a QueryInput) -> Result<Rows<'a>> {
     let n = input.width;
     let empty = HashMap::new();
-    // the joined rows of the first from-table, as consecutive runs of `width` rows (leaf first), then one `JRow` each
-    // (built in parallel: most of the cost is writing fresh memory)
     let first = &input.sources[0].path;
-    let width = first.elems.len();
-    let capacity = if input.q.where_.is_none() { first.elems[0].data.num_live() * width } else { 0 };
-    let mut flat: Vec<&'a StoredRow> = Vec::with_capacity(capacity);
-    let mut add = |r: &[&'a StoredRow]| flat.extend_from_slice(r);
-    if input.q.joins.is_empty() {
-        first.for_each_row_where(input.q.where_.as_ref(), &mut add)?;
+    let mut rows = Rows::new(n);
+    if let [e] = first.elems.as_slice() {
+        // a base table: its rows by address, placed in parallel
+        let order = e.data.scan_order(e.version);
+        let off = input.sources[0].offset;
+        let parts = super::par::map_chunks(order.len(), |range| {
+            let mut slots = vec![None; range.len() * n];
+            for (k, i) in range.enumerate() {
+                slots[k * n + off] = Some(e.data.row_by_addr(order[i]));
+            }
+            slots
+        });
+        rows.slots.reserve_exact(order.len() * n);
+        for part in parts {
+            rows.slots.extend(part);
+        }
     } else {
-        first.for_each_row(&mut add)?;
+        rows.slots.reserve(first.elems[0].data.num_live() * n);
+        first.for_each_row(|r| {
+            let start = rows.slots.len();
+            rows.slots.resize(start + n, None);
+            input.place(&mut rows.slots[start..], 0, r);
+        })?;
     }
-    let mut rows: Vec<JRow<'a>> = super::par::map_rows(flat.len() / width, |i| {
-        let mut jr: JRow<'a> = smallvec![None; n];
-        input.place(&mut jr, 0, &flat[i * width..(i + 1) * width]);
-        jr
-    });
-    drop(flat);
+    type Row<'a> = SmallVec<[Option<&'a StoredRow>; 4]>;
     for (k, join) in input.q.joins.iter().enumerate() {
         let slot = k + 1;
-        let right = source_rows(input, slot)?;
-        let mut out: Vec<JRow<'a>> = Vec::new();
+        let right = input.sources[slot].path.rows()?;
+        let mut out = Rows::new(n);
         let mut right_matched = vec![false; right.len()];
-        let combined = |left: &JRow<'a>, r: &[&'a StoredRow]| -> JRow<'a> {
-            let mut jr = left.clone();
-            input.place(&mut jr, slot, r);
-            jr
-        };
         match (&join.on, join.how) {
             (None, _) | (_, JoinType::Cross) => {
-                for l in &rows {
+                let mut jr: Row<'a> = smallvec![None; n];
+                for i in 0..rows.len() {
                     for r in &right {
-                        out.push(combined(l, r));
+                        jr.copy_from_slice(rows.row(i));
+                        input.place(&mut jr, slot, r);
+                        out.push(&jr);
                     }
                 }
             }
             (Some(pred), how) => {
                 let (lkeys, rkeys) = equi_keys(pred, input, slot);
                 let pure = input.expr_pure(pred, &None);
+                let decided = !lkeys.is_empty() && keys_decide(pred, &lkeys, &rkeys, input);
+                let pred_fast = input.compile(pred);
+                let lfast: Vec<Fast> = lkeys.iter().map(|e| input.compile(e)).collect();
+                let rfast: Vec<Fast> = rkeys.iter().map(|e| input.compile(e)).collect();
                 // candidate right rows per left row: by hash on the equality keys, else all
                 let mut index: FxHashMap<GroupKey, Vec<usize>> = FxHashMap::default();
                 if !lkeys.is_empty() {
                     let right_keys = super::par::try_map_rows(right.len(), pure, |j| {
-                        let mut jr: JRow<'a> = smallvec![None; n];
+                        let mut jr: Row<'a> = smallvec![None; n];
                         input.place(&mut jr, slot, &right[j]);
                         let ctx = Ctx { input, row: &jr, pre: &[], slots: &empty, calls: None };
-                        let vals = rkeys.iter().map(|e| eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
-                        Ok((!vals.iter().any(Value::is_null)).then(|| group_key_of(&vals)))
+                        let mut key = GroupKey::new();
+                        for f in &rfast {
+                            let v = f.eval(&jr, &ctx)?;
+                            if v.is_null() {
+                                return Ok(None);
+                            }
+                            key.push(key_part(&v));
+                        }
+                        Ok(Some(key))
                     })?;
                     for (j, k) in right_keys.into_iter().enumerate() {
                         if let Some(k) = k {
@@ -726,35 +922,42 @@ fn scan_and_join<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
                 }
                 let all: Vec<usize> = (0..right.len()).collect();
                 // the joined rows of a run of left rows, and the right rows they matched, up to the first failure
-                let join_rows = |range: std::ops::Range<usize>| -> (Vec<JRow<'a>>, Vec<usize>, Option<Error>) {
-                    let mut out = Vec::new();
+                let join_rows = |range: std::ops::Range<usize>| -> (Rows<'a>, Vec<usize>, Option<Error>) {
+                    let mut out = Rows::with_capacity(n, range.len());
                     let mut matched_right = Vec::new();
+                    let mut jr: Row<'a> = smallvec![None; n];
                     for i in range {
-                        let l = &rows[i];
+                        let l = rows.row(i);
                         let step = (|| -> Result<()> {
                             let candidates: &[usize] = if lkeys.is_empty() {
                                 &all
                             } else {
                                 let ctx = Ctx { input, row: l, pre: &[], slots: &empty, calls: None };
-                                let vals = lkeys.iter().map(|e| eval(e, &ctx)).collect::<Result<SmallVec<[Value; 2]>>>()?;
-                                if vals.iter().any(Value::is_null) {
-                                    &[]
-                                } else {
-                                    index.get(&group_key_of(&vals)).map(Vec::as_slice).unwrap_or(&[])
+                                let mut key = GroupKey::new();
+                                let mut null = false;
+                                for f in &lfast {
+                                    let v = f.eval(l, &ctx)?;
+                                    null |= v.is_null();
+                                    key.push(key_part(&v));
                                 }
+                                if null { &[] } else { index.get(&key).map(Vec::as_slice).unwrap_or(&[]) }
                             };
                             let mut matched = false;
                             for &j in candidates {
-                                let jr = combined(l, &right[j]);
-                                let ctx = Ctx { input, row: &jr, pre: &[], slots: &empty, calls: None };
-                                if matches!(eval(pred, &ctx)?, Value::Bool(true)) {
+                                jr.copy_from_slice(l);
+                                input.place(&mut jr, slot, &right[j]);
+                                let passes = decided || {
+                                    let ctx = Ctx { input, row: &jr, pre: &[], slots: &empty, calls: None };
+                                    pred_fast.eval_bool(&jr, &ctx)? == Some(true)
+                                };
+                                if passes {
                                     matched = true;
                                     matched_right.push(j);
-                                    out.push(jr);
+                                    out.push(&jr);
                                 }
                             }
                             if !matched && matches!(how, JoinType::Left | JoinType::FullOuter) {
-                                out.push(l.clone());
+                                out.push(l);
                             }
                             Ok(())
                         })();
@@ -765,22 +968,23 @@ fn scan_and_join<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
                     (out, matched_right, None)
                 };
                 let parts = if pure { super::par::map_chunks(rows.len(), join_rows) } else { vec![join_rows(0..rows.len())] };
-                out.reserve(parts.iter().map(|(p, _, _)| p.len()).sum());
+                out.slots.reserve(parts.iter().map(|(p, _, _)| p.slots.len()).sum());
                 for (part, matched, failed) in parts {
                     if let Some(err) = failed {
                         return Err(err);
                     }
-                    out.extend(part);
+                    out.append(part);
                     for j in matched {
                         right_matched[j] = true;
                     }
                 }
                 if how == JoinType::FullOuter {
+                    let mut jr: Row<'a> = smallvec![None; n];
                     for (j, r) in right.iter().enumerate() {
                         if !right_matched[j] {
-                            let mut jr: JRow<'a> = smallvec![None; n];
+                            jr.fill(None);
                             input.place(&mut jr, slot, r);
-                            out.push(jr);
+                            out.push(&jr);
                         }
                     }
                 }
@@ -791,20 +995,18 @@ fn scan_and_join<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
     Ok(rows)
 }
 
-/// The rows after joins and the where clause.
-/// Phase A of evaluating `exprs` over `n` rows of a query (`row_of(i)`: the row and its precomputed values): makes
-/// their user-function calls together (see `exec::prefetch`); a query stops at its first error.
+/// Phase A of evaluating `exprs` over `n` rows of a query (`with_row(i, f)` calls `f` with row `i` and its precomputed
+/// values): makes their user-function calls together (see `exec::prefetch`); a query stops at its first error.
 fn prefetch_calls<'a>(
     input: &'a QueryInput,
     exprs: &[&ExprRef],
     n: usize,
-    row_of: &dyn Fn(usize) -> (&'a [Option<&'a StoredRow>], &'a [Value]),
+    with_row: &dyn Fn(usize, &mut dyn FnMut(&[Option<&StoredRow>], &[Value])),
     slots: &'a HashMap<usize, usize>,
 ) -> Result<Option<CallResults>> {
     let derived = |c: &ColumnRef| input.unstored.get(&(c.tbl_id, c.col_id)).cloned();
     super::prefetch::prefetch(exprs, &derived, n, true, &|i, slot, f| {
-        let (row, pre) = row_of(i);
-        f(&Ctx { input, row, pre, slots, calls: Some(slot) })
+        with_row(i, &mut |row, pre| f(&Ctx { input, row, pre, slots, calls: Some(slot) }))
     })
 }
 
@@ -812,43 +1014,91 @@ fn slot_of(calls: &Option<CallResults>, row: usize) -> Option<CallSlot<'_>> {
     calls.as_ref().map(|results| CallSlot { results, row })
 }
 
-fn filtered<'a>(input: &'a QueryInput) -> Result<Vec<JRow<'a>>> {
-    let rows = scan_and_join(input)?;
-    let Some(w) = &input.q.where_ else { return Ok(rows) };
+/// The indexes of the rows `range` of `scan` that pass the filter `w`, in order, up to the first `want` of them; or
+/// the error of the first row that fails before `want` rows passed. The filter's user-function calls are made for the
+/// rows of `range` together, ahead (`exec::prefetch`); a pure filter is evaluated over chunks of rows in parallel.
+fn filter_scan<'a>(input: &'a QueryInput, scan: &Scan<'a>, w: &ExprRef, range: std::ops::Range<usize>, want: usize) -> Result<Vec<usize>> {
+    if want == 0 || range.is_empty() {
+        return Ok(Vec::new());
+    }
     let empty = HashMap::new();
-    let calls = prefetch_calls(input, &[w], rows.len(), &|i| (&rows[i], &[]), &empty)?;
-    // the rows of a run that pass, up to its first failure
-    let filter_rows = |range: std::ops::Range<usize>| -> (Vec<JRow<'a>>, Option<Error>) {
+    let start = range.start;
+    let n = range.len();
+    let calls = prefetch_calls(input, &[w], n, &|i, f| scan.with_row(start + i, |row| f(row, &[])), &empty)?;
+    let fast = input.compile(w);
+    // the rows of a run that pass, up to its first failure (or until `want` of them passed)
+    let run = |r: std::ops::Range<usize>| -> (Vec<usize>, Option<Error>) {
         let mut out = Vec::new();
-        for i in range {
-            let ctx = Ctx { input, row: &rows[i], pre: &[], slots: &empty, calls: slot_of(&calls, i) };
-            match eval(w, &ctx) {
-                Ok(Value::Bool(true)) => out.push(rows[i].clone()),
+        for i in r {
+            let res = scan.with_row(start + i, |row| {
+                let ctx = Ctx { input, row, pre: &[], slots: &empty, calls: slot_of(&calls, i) };
+                fast.eval_bool(row, &ctx)
+            });
+            match res {
+                Ok(Some(true)) => {
+                    out.push(start + i);
+                    if out.len() >= want {
+                        break;
+                    }
+                }
                 Ok(_) => {}
                 Err(err) => return (out, Some(super::compute::eval_error(w, err))),
             }
         }
         (out, None)
     };
-    let parts = if input.expr_pure(w, &calls) {
-        super::par::map_chunks(rows.len(), filter_rows)
-    } else {
-        vec![filter_rows(0..rows.len())]
-    };
-    let mut out = Vec::with_capacity(parts.iter().map(|(p, _)| p.len()).sum());
+    let parts = if input.expr_pure(w, &calls) { super::par::map_chunks(n, run) } else { vec![run(0..n)] };
+    let mut out = Vec::with_capacity(parts.iter().map(|(p, _)| p.len()).sum::<usize>().min(want));
     for (part, failed) in parts {
+        let room = want - out.len();
+        if part.len() >= room {
+            out.extend(part.into_iter().take(room));
+            return Ok(out);
+        }
+        out.extend(part);
         if let Some(err) = failed {
             return Err(err);
         }
-        out.extend(part);
     }
     Ok(out)
+}
+
+/// The rows after joins and the where clause.
+fn filtered<'a>(input: &'a QueryInput) -> Result<Rows<'a>> {
+    let scan = if input.q.joins.is_empty() { Scan::new(input, None)? } else { Scan::Rows(scan_and_join(input)?) };
+    match &input.q.where_ {
+        None => Ok(scan.into_rows()),
+        Some(w) => {
+            let idx = filter_scan(input, &scan, w, 0..scan.len(), usize::MAX)?;
+            Ok(scan.select(&idx))
+        }
+    }
+}
+
+/// The first `need` rows of `scan` that pass the where clause (all rows without one), in order: the filter is
+/// evaluated over batches of rows of growing size until enough rows passed (as SQL's LIMIT stops a scan), so rows after
+/// those are not evaluated and their user-function calls not made.
+fn first_rows<'a>(input: &'a QueryInput, scan: &Scan<'a>, need: usize) -> Result<Rows<'a>> {
+    let n = scan.len();
+    let Some(w) = &input.q.where_ else {
+        let idx: Vec<usize> = (0..need.min(n)).collect();
+        return Ok(scan.select(&idx));
+    };
+    let mut out: Vec<usize> = Vec::new();
+    let (mut start, mut batch) = (0, need.saturating_mul(2).max(1024));
+    while start < n && out.len() < need {
+        let end = start.saturating_add(batch).min(n);
+        out.extend(filter_scan(input, scan, w, start..end, need - out.len())?);
+        start = end;
+        batch = batch.saturating_mul(2).min(1 << 18);
+    }
+    Ok(scan.select(&out))
 }
 
 // ------------------------------------------------------------------------------------------------ sampling
 
 /// The rank of a row in a sample (`sample::key_hash()` of the key of its first table's row).
-fn row_hash(seed: u64, row: &JRow<'_>) -> u64 {
+fn row_hash(seed: u64, row: &[Option<&StoredRow>]) -> u64 {
     match row.first().copied().flatten() {
         Some(r) => super::sample::key_hash(seed, r.rowid, &r.pos),
         None => super::sample::splitmix64(seed),
@@ -910,14 +1160,14 @@ pub fn sample_select(hashes: &[u64], strata: Option<&[String]>, s: &SampleClause
 }
 
 /// Samples the rows of a query (see `sample_select()`).
-fn apply_sample<'a>(input: &'a QueryInput, rows: Vec<JRow<'a>>, s: &SampleClause) -> Result<Vec<JRow<'a>>> {
+fn apply_sample<'a>(input: &'a QueryInput, rows: Rows<'a>, s: &SampleClause) -> Result<Rows<'a>> {
     let seed = sample_seed(s);
-    let hashes: Vec<u64> = rows.iter().map(|r| row_hash(seed, r)).collect();
+    let hashes: Vec<u64> = (0..rows.len()).map(|i| row_hash(seed, rows.row(i))).collect();
     let strata = if s.is_stratified() {
         let empty = HashMap::new();
         let mut keys = Vec::with_capacity(rows.len());
-        for r in &rows {
-            let ctx = Ctx { input, row: r, pre: &[], slots: &empty, calls: None };
+        for i in 0..rows.len() {
+            let ctx = Ctx { input, row: rows.row(i), pre: &[], slots: &empty, calls: None };
             keys.push(keys_of(&s.stratify_by.iter().map(|e| eval(e, &ctx)).collect::<Result<Vec<_>>>()?));
         }
         Some(keys)
@@ -925,8 +1175,7 @@ fn apply_sample<'a>(input: &'a QueryInput, rows: Vec<JRow<'a>>, s: &SampleClause
         None
     };
     let selected = sample_select(&hashes, strata.as_deref(), s);
-    let mut rows: Vec<Option<JRow<'a>>> = rows.into_iter().map(Some).collect();
-    Ok(selected.into_iter().filter_map(|i| rows[i].take()).collect())
+    Ok(rows.gather(selected.into_iter()))
 }
 
 // ------------------------------------------------------------------------------------------------ aggregation
@@ -943,63 +1192,92 @@ fn agg_error(e: &ExprRef, err: Error) -> Error {
 }
 
 /// Groups `rows` by the grouping keys (groups in key order, ASC with NULLs last) and computes the aggregates.
-fn aggregate<'a>(input: &'a QueryInput, plan: &Plan, rows: Vec<JRow<'a>>, grouping: &[ExprRef]) -> Result<Vec<OutRow<'a>>> {
+fn aggregate<'a>(input: &'a QueryInput, plan: &Plan, rows: &Rows<'a>, grouping: &[ExprRef]) -> Result<OutRows<'a>> {
     let empty = HashMap::new();
-    struct Group<'a> {
+    struct Group {
         key: Vec<Value>,
-        rep: JRow<'a>,
+        /// the group's first row
+        rep: usize,
         states: Vec<Box<dyn AggState>>,
     }
     let mut index: FxHashMap<GroupKey, usize> = FxHashMap::default();
-    let mut groups: Vec<Group<'a>> = Vec::new();
+    let mut groups: Vec<Group> = Vec::new();
     let new_states = || -> Result<Vec<Box<dyn AggState>>> {
         plan.aggs.iter().map(|a| a.plan.new_state().map_err(|e| agg_error(&a.expr, e))).collect()
     };
     let mut exprs: Vec<&ExprRef> = grouping.iter().collect();
+    let mut arg_fasts: Vec<(usize, Vec<Fast>)> = Vec::with_capacity(plan.aggs.len());
     for a in &plan.aggs {
-        if let Some(fc) = a.expr.as_function_call() {
-            exprs.extend(fc.args.iter().chain(fc.kwargs.iter().map(|(_, e)| e)));
-        }
+        let fc = a.expr.as_function_call().ok_or_else(|| Error::internal("aggregate call expected"))?;
+        exprs.extend(fc.args.iter().chain(fc.kwargs.iter().map(|(_, e)| e)));
+        let fasts = fc.args.iter().chain(fc.kwargs.iter().map(|(_, e)| e)).map(|e| input.compile(e)).collect();
+        arg_fasts.push((fc.args.len(), fasts));
     }
-    let calls = prefetch_calls(input, &exprs, rows.len(), &|i| (&rows[i], &[]), &empty)?;
+    let key_fasts: Vec<Fast> = grouping.iter().map(|e| input.compile(e)).collect();
+    let calls = prefetch_calls(input, &exprs, rows.len(), &|i, f| f(rows.row(i), &[]), &empty)?;
     let pure = exprs.iter().all(|e| input.expr_pure(e, &calls));
-    let eval_key = |ctx: &Ctx<'_>, r: &JRow<'_>| -> Result<Vec<Value>> {
+    // the key of row `r`: (its hashable form, its values if `values`)
+    let eval_key = |ctx: &Ctx<'_>, r: &[Option<&StoredRow>], values: bool| -> Result<(GroupKey, Vec<Value>)> {
         match plan.group_slot {
             // the key of the base row (rowid, then iterator positions)
-            Some(slot) => Ok(match r[slot] {
-                Some(b) => std::iter::once(b.rowid).chain(b.pos.iter().copied()).map(Value::Int).collect(),
-                None => Vec::new(),
-            }),
-            None => grouping.iter().map(|e| eval(e, ctx).map_err(|err| agg_error(e, err))).collect(),
+            Some(slot) => {
+                let vals: Vec<Value> = match r[slot] {
+                    Some(b) => std::iter::once(b.rowid).chain(b.pos.iter().copied()).map(Value::Int).collect(),
+                    None => Vec::new(),
+                };
+                Ok((group_key_of(&vals), vals))
+            }
+            None => {
+                let mut key = GroupKey::new();
+                let mut vals = Vec::new();
+                for (f, e) in key_fasts.iter().zip(grouping) {
+                    let v = f.eval(r, ctx).map_err(|err| agg_error(e, err))?;
+                    key.push(key_part(&v));
+                    if values {
+                        vals.push(v.into_owned());
+                    }
+                }
+                Ok((key, vals))
+            }
         }
     };
     // The groups of a run of rows: (key, first row, states), in order of first occurrence. Rows are aggregated in
     // order and the run stops at its first failure, which is returned with it.
     type Partial = (FxHashMap<GroupKey, usize>, Vec<(GroupKey, usize, Vec<Box<dyn AggState>>)>);
+    // without grouping keys, every row is in the one group
+    let one_group = grouping.is_empty() && plan.group_slot.is_none();
     let aggregate_rows = |range: std::ops::Range<usize>| -> (Partial, Option<Error>) {
         let mut part: Partial = (FxHashMap::default(), Vec::new());
         let mut args: SmallVec<[Value; 4]> = SmallVec::new();
         for i in range {
-            let r = &rows[i];
+            let r = rows.row(i);
             let ctx = Ctx { input, row: r, pre: &[], slots: &empty, calls: slot_of(&calls, i) };
             let step = (|| -> Result<()> {
-                let k = group_key_of(&eval_key(&ctx, r)?);
-                let gi = match part.0.get(&k) {
-                    Some(gi) => *gi,
-                    None => {
-                        part.1.push((k.clone(), i, new_states()?));
-                        part.0.insert(k, part.1.len() - 1);
-                        part.1.len() - 1
+                let gi = if one_group && !part.1.is_empty() {
+                    0
+                } else {
+                    let (k, _) = eval_key(&ctx, r, false)?;
+                    match part.0.get(&k) {
+                        Some(gi) => *gi,
+                        None => {
+                            part.1.push((k.clone(), i, new_states()?));
+                            part.0.insert(k, part.1.len() - 1);
+                            part.1.len() - 1
+                        }
                     }
                 };
-                for (a, state) in plan.aggs.iter().zip(part.1[gi].2.iter_mut()) {
-                    let fc = a.expr.as_function_call().ok_or_else(|| Error::internal("aggregate call expected"))?;
-                    args.clear();
-                    for e in fc.args.iter().chain(fc.kwargs.iter().map(|(_, e)| e)) {
-                        args.push(eval(e, &ctx).map_err(|err| agg_error(&a.expr, err))?);
+                for ((a, (na, fasts)), state) in plan.aggs.iter().zip(&arg_fasts).zip(part.1[gi].2.iter_mut()) {
+                    if let ([f], 1) = (fasts.as_slice(), *na) {
+                        // one argument: passed without copying it
+                        let v = f.eval(r, &ctx).map_err(|err| agg_error(&a.expr, err))?;
+                        a.plan.update_slices(state.as_mut(), std::slice::from_ref(&*v), &[]).map_err(|err| agg_error(&a.expr, err))?;
+                        continue;
                     }
-                    let na = fc.args.len();
-                    a.plan.update_slices(state.as_mut(), &args[..na], &args[na..]).map_err(|err| agg_error(&a.expr, err))?;
+                    args.clear();
+                    for f in fasts {
+                        args.push(f.eval(r, &ctx).map_err(|err| agg_error(&a.expr, err))?.into_owned());
+                    }
+                    a.plan.update_slices(state.as_mut(), &args[..*na], &args[*na..]).map_err(|err| agg_error(&a.expr, err))?;
                 }
                 Ok(())
             })();
@@ -1021,10 +1299,11 @@ fn aggregate<'a>(input: &'a QueryInput, plan: &Plan, rows: Vec<JRow<'a>>, groupi
                     }
                 }
                 None => {
-                    let r = &rows[first_row];
                     // the key's values (to order the groups), evaluated again for the group's first row
-                    let key = eval_key(&Ctx { input, row: r, pre: &[], slots: &empty, calls: slot_of(&calls, first_row) }, r)?;
-                    groups.push(Group { key, rep: r.clone(), states });
+                    let r = rows.row(first_row);
+                    let ctx = Ctx { input, row: r, pre: &[], slots: &empty, calls: slot_of(&calls, first_row) };
+                    let (_, key) = eval_key(&ctx, r, true)?;
+                    groups.push(Group { key, rep: first_row, states });
                     index.insert(k, groups.len() - 1);
                 }
             }
@@ -1033,9 +1312,16 @@ fn aggregate<'a>(input: &'a QueryInput, plan: &Plan, rows: Vec<JRow<'a>>, groupi
             return Err(err);
         }
     }
+    let mut reps = Rows::with_capacity(rows.width, groups.len().max(1));
     if groups.is_empty() && grouping.is_empty() && plan.group_slot.is_none() {
         // an aggregation without grouping returns one row, also for empty input (SQL semantics)
-        groups.push(Group { key: Vec::new(), rep: smallvec![None; input.width], states: new_states()? });
+        let states = new_states()?;
+        reps.slots.resize(rows.width, None);
+        let mut pre = Vec::with_capacity(plan.aggs.len());
+        for (a, mut st) in plan.aggs.iter().zip(states) {
+            pre.push(st.value().map_err(|err| agg_error(&a.expr, err))?);
+        }
+        return Ok(OutRows { rows: reps, pre: vec![pre] });
     }
     groups.sort_by(|a, b| {
         for (x, y) in a.key.iter().zip(b.key.iter()) {
@@ -1046,127 +1332,123 @@ fn aggregate<'a>(input: &'a QueryInput, plan: &Plan, rows: Vec<JRow<'a>>, groupi
         }
         std::cmp::Ordering::Equal
     });
-    let mut out = Vec::with_capacity(groups.len());
+    let mut pres = Vec::with_capacity(groups.len());
     for mut g in groups {
+        reps.push(rows.row(g.rep));
         let mut pre = Vec::with_capacity(plan.aggs.len());
         for (a, st) in plan.aggs.iter().zip(g.states.iter_mut()) {
             pre.push(st.value().map_err(|err| agg_error(&a.expr, err))?);
         }
-        out.push(OutRow { row: g.rep, pre });
+        pres.push(pre);
     }
-    Ok(out)
+    Ok(OutRows { rows: reps, pre: pres })
 }
 
 /// Sorts `rows` by `ordering` (stable; ASC puts NULLs last, DESC first; a wildcard direction sorts ascending).
-fn sort_rows<'a>(input: &'a QueryInput, plan: &Plan, rows: Vec<OutRow<'a>>, ordering: &[(ExprRef, Option<bool>)]) -> Result<Vec<OutRow<'a>>> {
+fn sort_rows<'a>(input: &'a QueryInput, plan: &Plan, rows: OutRows<'a>, ordering: &[(ExprRef, Option<bool>)]) -> Result<OutRows<'a>> {
     sort_rows_upto(input, plan, rows, ordering, None)
 }
 
-/// `sort_rows()`; with `keep`, only the first `keep` rows of the sorted order are returned (they are selected without
-/// sorting the rest).
+/// Compares sort keys by `ordering` (keys of the same length).
+fn cmp_sort_keys<A: std::borrow::Borrow<Value>, B: std::borrow::Borrow<Value>>(
+    ordering: &[(ExprRef, Option<bool>)],
+    a: &[A],
+    b: &[B],
+) -> std::cmp::Ordering {
+    for (i, (_, asc)) in ordering.iter().enumerate() {
+        let ord = cmp_values(a[i].borrow(), b[i].borrow());
+        let ord = if asc.unwrap_or(true) { ord } else { ord.reverse() };
+        if ord.is_ne() {
+            return ord;
+        }
+    }
+    std::cmp::Ordering::Equal
+}
+
+/// `sort_rows()`; with `keep`, only the first `keep` rows of the sorted order are returned (selected without sorting
+/// the rest: each run of rows keeps its first `keep`, in order, then those are sorted).
 fn sort_rows_upto<'a>(
     input: &'a QueryInput,
     plan: &Plan,
-    rows: Vec<OutRow<'a>>,
+    rows: OutRows<'a>,
     ordering: &[(ExprRef, Option<bool>)],
     keep: Option<usize>,
-) -> Result<Vec<OutRow<'a>>> {
+) -> Result<OutRows<'a>> {
     if ordering.is_empty() {
         return Ok(rows);
     }
+    let n = rows.len();
     let exprs: Vec<&ExprRef> = ordering.iter().map(|(e, _)| e).collect();
-    let calls = prefetch_calls(input, &exprs, rows.len(), &|i| (&rows[i].row, &rows[i].pre), &plan.slots)?;
+    let calls = prefetch_calls(input, &exprs, n, &|i, f| f(rows.rows.row(i), rows.pre(i)), &plan.slots)?;
     let pure = exprs.iter().all(|e| input.expr_pure(e, &calls));
-    let row_keys = |i: usize| -> Result<SmallVec<[Value; 2]>> {
-        let r = &rows[i];
-        let ctx = Ctx { input, row: &r.row, pre: &r.pre, slots: &plan.slots, calls: slot_of(&calls, i) };
-        ordering.iter().map(|(e, _)| eval(e, &ctx).map_err(|err| super::compute::eval_error(e, err))).collect()
+    let fasts: Vec<Fast> = exprs.iter().map(|e| input.compile(e)).collect();
+    let row_keys = |i: usize| -> Result<SmallVec<[std::borrow::Cow<'_, Value>; 2]>> {
+        let row = rows.rows.row(i);
+        let ctx = Ctx { input, row, pre: rows.pre(i), slots: &plan.slots, calls: slot_of(&calls, i) };
+        fasts
+            .iter()
+            .zip(&exprs)
+            .map(|(f, e)| f.eval(row, &ctx).map_err(|err| super::compute::eval_error(e, err)))
+            .collect()
     };
-    // by key, ties by position (a stable sort)
-    let cmp_keyed = |(ka, a): &(SmallVec<[Value; 2]>, u32), (kb, b): &(SmallVec<[Value; 2]>, u32)| -> std::cmp::Ordering {
-        for (i, (_, asc)) in ordering.iter().enumerate() {
-            let ord = cmp_values(&ka[i], &kb[i]);
-            let ord = if asc.unwrap_or(true) { ord } else { ord.reverse() };
-            if ord.is_ne() {
-                return ord;
-            }
+    if let Some(k) = keep.filter(|k| *k < n / 2) {
+        if k == 0 {
+            return Ok(rows.window(0, Some(0)));
         }
-        a.cmp(b)
-    };
-    if let Some(k) = keep.filter(|k| pure && *k < super::par::CHUNK_ROWS / 4 && super::par::worth_parallel(rows.len())) {
-        // the first `k` rows of each chunk, then the first `k` of those
+        // the first `k` rows of a run (by key, ties by position), in order
         let firsts = |range: std::ops::Range<usize>| -> Result<Vec<(SmallVec<[Value; 2]>, u32)>> {
-            let mut keyed = Vec::with_capacity(range.len());
+            let mut best: Vec<(SmallVec<[Value; 2]>, u32)> = Vec::with_capacity(k + 1);
             for i in range {
-                keyed.push((row_keys(i)?, i as u32));
-            }
-            if keyed.len() > k {
-                if k > 0 {
-                    keyed.select_nth_unstable_by(k - 1, &cmp_keyed);
+                let ks = row_keys(i)?;
+                // rows come in order, so a tie with the k-th row does not displace it
+                if best.len() == k && cmp_sort_keys(ordering, &ks, &best[k - 1].0).is_ge() {
+                    continue;
                 }
-                keyed.truncate(k);
+                let at = best.partition_point(|(bk, _)| cmp_sort_keys(ordering, bk, &ks).is_le());
+                best.insert(at, (ks.into_iter().map(std::borrow::Cow::into_owned).collect(), i as u32));
+                best.truncate(k);
             }
-            Ok(keyed)
+            Ok(best)
         };
+        let parts = if pure { super::par::map_chunks(n, firsts) } else { vec![firsts(0..n)] };
         let mut candidates = Vec::new();
-        for part in super::par::map_chunks(rows.len(), firsts) {
+        for part in parts {
             candidates.extend(part?);
         }
-        candidates.sort_unstable_by(&cmp_keyed);
+        candidates.sort_by(|(ka, a), (kb, b)| cmp_sort_keys(ordering, ka, kb).then(a.cmp(b)));
         candidates.truncate(k);
-        let mut rows: Vec<Option<OutRow<'a>>> = rows.into_iter().map(Some).collect();
-        return Ok(candidates.into_iter().filter_map(|(_, i)| rows[i as usize].take()).collect());
+        let order: Vec<u32> = candidates.into_iter().map(|(_, i)| i).collect();
+        return Ok(rows.permute(&order));
     }
-    let keys = super::par::try_map_rows(rows.len(), pure, |i| {
-        let r = &rows[i];
-        let ctx = Ctx { input, row: &r.row, pre: &r.pre, slots: &plan.slots, calls: slot_of(&calls, i) };
-        ordering
-            .iter()
-            .map(|(e, _)| eval(e, &ctx).map_err(|err| super::compute::eval_error(e, err)))
-            .collect::<Result<SmallVec<[Value; 2]>>>()
-    })?;
+    let keys = super::par::try_map_rows(n, pure, row_keys)?;
     // the order of row indices: by key, ties by position (a stable sort)
-    let cmp = |a: &u32, b: &u32| -> std::cmp::Ordering {
-        let (ka, kb) = (&keys[*a as usize], &keys[*b as usize]);
-        for (i, (_, asc)) in ordering.iter().enumerate() {
-            let ord = cmp_values(&ka[i], &kb[i]);
-            let ord = if asc.unwrap_or(true) { ord } else { ord.reverse() };
-            if ord.is_ne() {
-                return ord;
-            }
-        }
-        a.cmp(b)
-    };
-    let mut order: Vec<u32> = (0..rows.len() as u32).collect();
-    match keep {
-        Some(k) if k < order.len() / 2 => {
-            if k > 0 {
-                order.select_nth_unstable_by(k - 1, &cmp);
-            }
-            order.truncate(k);
-            order.sort_unstable_by(&cmp);
-        }
-        _ => super::par::sort_by(&mut order, &cmp),
+    let cmp = |a: &u32, b: &u32| cmp_sort_keys(ordering, &keys[*a as usize], &keys[*b as usize]).then(a.cmp(b));
+    let mut order: Vec<u32> = (0..n as u32).collect();
+    super::par::sort_by(&mut order, &cmp);
+    if let Some(k) = keep {
+        order.truncate(k);
     }
-    let mut rows: Vec<Option<OutRow<'a>>> = rows.into_iter().map(Some).collect();
-    Ok(order.into_iter().filter_map(|i| rows[i as usize].take()).collect())
+    drop(keys);
+    Ok(rows.permute(&order))
 }
 
 /// Evaluates the window function calls row by row in window order (upstream `FunctionCall.eval()` of a window
 /// call): a new aggregator per partition (consecutive rows with equal `group_by` values), updated with each row and
 /// read after each update.
-fn eval_windows<'a>(input: &'a QueryInput, plan: &Plan, rows: &mut [OutRow<'a>]) -> Result<()> {
+fn eval_windows<'a>(input: &'a QueryInput, plan: &Plan, rows: &mut OutRows<'a>) -> Result<()> {
     let empty = HashMap::new();
     let base = plan.aggs.len();
-    for r in rows.iter_mut() {
-        r.pre.resize(base + plan.windows.len(), Value::Null);
+    let n = rows.len();
+    rows.pre.resize_with(n, Vec::new);
+    for pre in rows.pre.iter_mut() {
+        pre.resize(base + plan.windows.len(), Value::Null);
     }
     for (wi, w) in plan.windows.iter().enumerate() {
         let fc = w.expr.as_function_call().ok_or_else(|| Error::internal("window call expected"))?;
         let mut state: Option<Box<dyn AggState>> = None;
         let mut partition: Option<String> = None;
-        for r in rows.iter_mut() {
-            let ctx = Ctx { input, row: &r.row, pre: &[], slots: &empty, calls: None };
+        for i in 0..n {
+            let ctx = Ctx { input, row: rows.rows.row(i), pre: &[], slots: &empty, calls: None };
             let part_vals = fc.group_by.iter().map(|e| eval(e, &ctx)).collect::<Result<Vec<_>>>().map_err(|e| agg_error(&w.expr, e))?;
             let pkey = keys_of(&part_vals);
             if state.is_none() || partition.as_ref() != Some(&pkey) {
@@ -1175,34 +1457,53 @@ fn eval_windows<'a>(input: &'a QueryInput, plan: &Plan, rows: &mut [OutRow<'a>])
             }
             let st = state.as_mut().expect("state");
             let (args, kwargs) = call_args(&w.expr, &ctx).map_err(|e| agg_error(&w.expr, e))?;
-            if w.plan.skips(&args, &kwargs) {
-                r.pre[base + wi] = Value::Null;
-                continue;
-            }
-            w.plan.update(st.as_mut(), args, kwargs).map_err(|e| agg_error(&w.expr, e))?;
-            r.pre[base + wi] = st.value().map_err(|e| agg_error(&w.expr, e))?;
+            let v = if w.plan.skips(&args, &kwargs) {
+                Value::Null
+            } else {
+                w.plan.update(st.as_mut(), args, kwargs).map_err(|e| agg_error(&w.expr, e))?;
+                st.value().map_err(|e| agg_error(&w.expr, e))?
+            };
+            rows.pre[i][base + wi] = v;
         }
     }
     Ok(())
 }
 
-/// Rows before order by / limit: filtered, sampled, aggregated, with window values.
-fn result_rows<'a>(input: &'a QueryInput, plan: &Plan, rowid_desc: bool) -> Result<Vec<OutRow<'a>>> {
-    let mut rows = filtered(input)?;
-    if rowid_desc {
-        rows.reverse();
-    }
-    if let Some(s) = &input.q.sample {
+/// Rows before order by / limit: filtered, sampled, aggregated, with window values. With `need` (a limit and nothing
+/// that needs all rows: no ordering, aggregation, window functions, sample or join), only the first `need` rows.
+fn result_rows<'a>(input: &'a QueryInput, plan: &Plan, rowid_desc: bool, need: Option<usize>) -> Result<OutRows<'a>> {
+    let q = &input.q;
+    let limited = need.filter(|_| {
+        q.order_by.is_empty() && plan.grouping.is_none() && plan.windows.is_empty() && q.sample.is_none() && q.joins.is_empty()
+    });
+    let mut rows = match limited {
+        Some(need) => {
+            // without a filter, only the first `need` rows are read (unless the scan is reversed)
+            let prefix = (q.where_.is_none() && !rowid_desc).then_some(need);
+            let mut scan = Scan::new(input, prefix)?;
+            if rowid_desc {
+                scan.reverse();
+            }
+            first_rows(input, &scan, need)?
+        }
+        None => {
+            let mut rows = filtered(input)?;
+            if rowid_desc {
+                rows.reverse();
+            }
+            rows
+        }
+    };
+    if let Some(s) = &q.sample {
         rows = apply_sample(input, rows, s)?;
     }
     if !plan.agg_order.is_empty() {
         // ordered aggregates see their rows in order (groups keep the input order)
-        let wrapped = rows.into_iter().map(|row| OutRow { row, pre: Vec::new() }).collect();
-        rows = sort_rows(input, plan, wrapped, &plan.agg_order)?.into_iter().map(|r| r.row).collect();
+        rows = sort_rows(input, plan, OutRows::plain(rows), &plan.agg_order)?.rows;
     }
-    let mut out: Vec<OutRow<'a>> = match &plan.grouping {
-        Some(g) => aggregate(input, plan, rows, g)?,
-        None => rows.into_iter().map(|row| OutRow { row, pre: Vec::new() }).collect(),
+    let mut out = match &plan.grouping {
+        Some(g) => aggregate(input, plan, &rows, g)?,
+        None => OutRows::plain(rows),
     };
     if !plan.windows.is_empty() {
         out = sort_rows(input, plan, out, &plan.window_order)?;
@@ -1214,7 +1515,7 @@ fn result_rows<'a>(input: &'a QueryInput, plan: &Plan, rowid_desc: bool) -> Resu
 /// Computes the query embedding of each similarity lookup in the query (once per expression, cached in the node)
 /// before rows are evaluated on several threads; a failure is left to row evaluation to report.
 fn init_similarities(input: &QueryInput) {
-    let row: JRow<'_> = smallvec![None; input.width];
+    let row: Vec<Option<&StoredRow>> = vec![None; input.width];
     let slots = HashMap::new();
     let ctx = Ctx { input, row: &row, pre: &[], slots: &slots, calls: None };
     let exprs = input.q.exprs();
@@ -1241,27 +1542,26 @@ pub fn execute(input: &QueryInput, rowid_desc: bool) -> Result<ResultData> {
     if q.limit == Some(0) {
         return Ok(ResultData { names, types, rows: Vec::new() });
     }
-    let mut rows = result_rows(input, &plan, rowid_desc)?;
+    let offset = q.offset.unwrap_or(0).max(0) as usize;
+    let limit = q.limit.map(|n| n.max(0) as usize);
+    // only the rows up to the limit are needed
+    let need = limit.map(|n| offset.saturating_add(n));
+    let mut rows = result_rows(input, &plan, rowid_desc, need)?;
     if !q.order_by.is_empty() {
         let ordering: Vec<(ExprRef, Option<bool>)> = q.order_by.iter().map(|(e, a)| (e.clone(), Some(*a))).collect();
-        // only the rows up to the limit are needed
-        let keep = q.limit.map(|n| q.offset.unwrap_or(0).max(0) as usize + n.max(0) as usize);
-        rows = sort_rows_upto(input, &plan, rows, &ordering, keep)?;
+        rows = sort_rows_upto(input, &plan, rows, &ordering, need)?;
     }
-    let offset = q.offset.unwrap_or(0).max(0) as usize;
-    let rows: Vec<OutRow<'_>> = match q.limit {
-        Some(n) => rows.into_iter().skip(offset).take(n.max(0) as usize).collect(),
-        None => rows.into_iter().skip(offset).collect(),
-    };
+    let rows = rows.window(offset, limit);
     let exprs: Vec<&ExprRef> = input.select.iter().map(|(e, _)| e).collect();
-    let calls = prefetch_calls(input, &exprs, rows.len(), &|i| (&rows[i].row, &rows[i].pre), &plan.slots)?;
+    let calls = prefetch_calls(input, &exprs, rows.len(), &|i, f| f(rows.rows.row(i), rows.pre(i)), &plan.slots)?;
     let pure = exprs.iter().all(|e| input.expr_pure(e, &calls));
+    let fasts: Vec<Fast> = exprs.iter().map(|e| input.compile(e)).collect();
     let projected = super::par::try_map_rows(rows.len(), pure, |i| {
-        let r = &rows[i];
-        let ctx = Ctx { input, row: &r.row, pre: &r.pre, slots: &plan.slots, calls: slot_of(&calls, i) };
-        let mut vals = Vec::with_capacity(input.select.len());
-        for (e, _) in &input.select {
-            vals.push(eval(e, &ctx).map_err(|err| super::compute::eval_error(e, err))?);
+        let row = rows.rows.row(i);
+        let ctx = Ctx { input, row, pre: rows.pre(i), slots: &plan.slots, calls: slot_of(&calls, i) };
+        let mut vals = Vec::with_capacity(fasts.len());
+        for (f, e) in fasts.iter().zip(&exprs) {
+            vals.push(f.eval(row, &ctx).map_err(|err| super::compute::eval_error(e, err))?.into_owned());
         }
         Ok(vals)
     })?;
@@ -1290,13 +1590,20 @@ pub fn count(input: &QueryInput) -> Result<usize> {
             crate::bail!(UnsupportedOperation, "count() cannot be used: query plan contains a non-SQL node (AggregationNode)");
         }
     }
-    if q.where_.is_none() && q.sample.is_none() && q.group_by.is_none() && q.grouping_tbl.is_none() && q.joins.is_empty() {
-        if let [src] = input.sources.as_slice() {
-            if let [e] = src.path.elems.as_slice() {
-                // the visible rows of one table: counted by the store
-                return Ok(e.data.count_at(e.version));
+    if q.sample.is_none() && q.group_by.is_none() && q.grouping_tbl.is_none() && q.joins.is_empty() {
+        if q.where_.is_none() {
+            if let [src] = input.sources.as_slice() {
+                if let [e] = src.path.elems.as_slice() {
+                    // the visible rows of one table: counted by the store
+                    return Ok(e.data.count_at(e.version));
+                }
             }
         }
+        let scan = Scan::new(input, None)?;
+        return Ok(match &q.where_ {
+            Some(w) => filter_scan(input, &scan, w, 0..scan.len(), usize::MAX)?.len(),
+            None => scan.len(),
+        });
     }
     let mut rows = filtered(input)?;
     if let Some(s) = &q.sample {
@@ -1304,15 +1611,15 @@ pub fn count(input: &QueryInput) -> Result<usize> {
     }
     if let Some(t) = q.grouping_tbl {
         let slot = input.slot(&t).ok_or_else(|| Error::internal("grouping table is not in the table path"))?;
-        let keys: std::collections::HashSet<(i64, &[i64])> = rows.iter().filter_map(|r| r[slot]).map(|b| b.key()).collect();
+        let keys: std::collections::HashSet<(i64, &[i64])> = (0..rows.len()).filter_map(|i| rows.row(i)[slot]).map(|b| b.key()).collect();
         return Ok(keys.len());
     }
     match &q.group_by {
         Some(g) => {
             let empty = HashMap::new();
             let mut keys = std::collections::HashSet::new();
-            for r in &rows {
-                let ctx = Ctx { input, row: r, pre: &[], slots: &empty, calls: None };
+            for i in 0..rows.len() {
+                let ctx = Ctx { input, row: rows.row(i), pre: &[], slots: &empty, calls: None };
                 let vals = g.iter().map(|e| eval(e, &ctx)).collect::<Result<Vec<_>>>()?;
                 keys.insert(keys_of(&vals));
             }

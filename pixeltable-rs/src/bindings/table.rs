@@ -16,6 +16,7 @@ use crate::error::{Error, Result, py_repr};
 use crate::exec::compute::AddComputedPlan;
 use crate::exec::compute_rows::ComputeRowsPlan;
 use crate::exec::insert::{self, InputRow, InsertPlan, ReturnCol, UpdateStatus};
+use crate::exec::txn::{self, Mode, Step, WriterGuard};
 use crate::store::rows::StoredRow;
 use crate::types::ColumnType;
 use crate::value::Value;
@@ -228,26 +229,93 @@ pub fn source_input_rows<'py>(
     }
 }
 
-/// Inserts input rows into a table: evaluates computed columns, commits, and returns the status dict (with the
-/// stored rows if `return_rows`).
+/// Plans an insert into table `tbl_id`, first taking its tree's writer lock (shared, see `exec::txn`), which the caller
+/// holds until the insert commits (`insert_rows()`).
+pub fn plan_insert(py: Python<'_>, tbl_id: uuid::Uuid, version: Option<i64>) -> Result<(WriterGuard, InsertPlan)> {
+    let guard = txn::lock_table(py, tbl_id, Mode::Shared)?;
+    let plan = with_catalog(py, |cat| InsertPlan::new(cat, tbl_id, version))?;
+    Ok((guard, plan))
+}
+
+/// Inserts input rows into a table (planned by `plan_insert()`, whose guard is `guard`): evaluates computed columns and
+/// commits; returns the status and, with `keep_rows`, the stored rows (and the plan they were built for). If another
+/// process changed the table's schema or views meanwhile (this process's writers wait for the guard), the insert is
+/// planned again and the same input rows are built again, if they still fit the table (`insert::rebuild_inputs()`).
+pub fn insert_built_rows(
+    py: Python<'_>,
+    guard: &WriterGuard,
+    plan: InsertPlan,
+    rows: Vec<InputRow>,
+    fail_on_exception: bool,
+    keep_rows: bool,
+) -> Result<(UpdateStatus, Vec<StoredRow>, InsertPlan)> {
+    let (mut plan, mut rows, mut carried) = (plan, rows, Vec::new());
+    let mut attempts = txn::Attempts::new(guard);
+    loop {
+        attempts.planned();
+        let mut built = py.detach(|| insert::build_rows(&plan, rows, fail_on_exception))?;
+        built.saved_media.append(&mut carried);
+        let stored = if keep_rows { built.rows.clone() } else { Vec::new() };
+        let mut slot = Some(built);
+        let result = with_catalog(py, |cat| {
+            insert::check_current(cat, &plan)?;
+            insert::commit(cat, &plan, slot.take().ok_or_else(|| Error::internal("insert committed twice"))?)
+        });
+        match (result, slot) {
+            (Ok(status), _) => {
+                guard.committed();
+                return Ok((status, stored, plan));
+            }
+            (Err(e), Some(built)) if txn::is_conflict(&e) => {
+                let new_plan = with_catalog(py, |cat| InsertPlan::new(cat, plan.tbl_id, None))?;
+                let Some((inputs, media)) = insert::rebuild_inputs(&plan, &new_plan, built) else {
+                    crate::bail!(
+                        ConcurrentModification,
+                        "The schema of table {} changed while the insert was being prepared; retry the insert",
+                        py_repr(&plan.tbl_name)
+                    );
+                };
+                attempts.conflict(py, e, &plan.tbl_name)?;
+                (plan, rows, carried) = (new_plan, inputs, media);
+            }
+            (Err(e), built) => {
+                if let Some(b) = built {
+                    crate::exec::compute::discard_media(&b.saved_media);
+                }
+                return Err(e);
+            }
+        }
+    }
+}
+
+/// Inserts input rows into table `tbl_id` (`plan_insert()`, `insert_built_rows()`).
+pub fn insert_input_rows(
+    py: Python<'_>,
+    tbl_id: uuid::Uuid,
+    version: Option<i64>,
+    rows: Vec<InputRow>,
+    fail_on_exception: bool,
+) -> Result<(UpdateStatus, Vec<StoredRow>)> {
+    let (guard, plan) = plan_insert(py, tbl_id, version)?;
+    let (status, stored, _) = insert_built_rows(py, &guard, plan, rows, fail_on_exception, true)?;
+    Ok((status, stored))
+}
+
+/// Inserts input rows into a table (see `insert_built_rows()`) and returns the status dict (with the stored rows if
+/// `return_rows`).
 pub fn insert_rows<'py>(
     py: Python<'py>,
-    plan: &InsertPlan,
+    guard: &WriterGuard,
+    plan: InsertPlan,
     rows: Vec<InputRow>,
     fail_on_exception: bool,
     return_rows: bool,
 ) -> Result<Bound<'py, PyDict>> {
-    let built = py.detach(|| insert::build_rows(plan, rows, fail_on_exception))?;
-    let returned = if return_rows {
-        let cols = with_catalog(py, |cat| insert::return_columns(cat, plan.tbl_id))?;
-        Some(returned_rows_to_py(py, &cols, &built.rows.iter().collect::<Vec<_>>())?)
-    } else {
-        None
-    };
-    let status = with_catalog(py, |cat| insert::commit(cat, plan, built))?;
+    let (status, stored, plan) = insert_built_rows(py, guard, plan, rows, fail_on_exception, return_rows)?;
     let d = status_dict(py, &status)?;
-    if let Some(rows) = returned {
-        d.set_item("rows", rows)?;
+    if return_rows {
+        let cols = with_catalog(py, |cat| insert::return_columns(cat, plan.tbl_id))?;
+        d.set_item("rows", returned_rows_to_py(py, &cols, &stored.iter().collect::<Vec<_>>())?)?;
     }
     Ok(d)
 }
@@ -277,10 +345,10 @@ pub fn tbl_insert<'py>(
         }
     }
     let fail_on_exception = parse_on_error(on_error)?;
-    let plan = with_catalog(py, |cat| InsertPlan::new(cat, id, version))?;
+    let (guard, plan) = plan_insert(py, id, version)?;
     // conversion and computed columns run Python code (pydantic, generators, PIL, UDFs): no catalog lock here
     let rows = source_input_rows(py, source, kwargs, source_format, overrides, &plan)?;
-    insert_rows(py, &plan, rows, fail_on_exception, return_rows)
+    insert_rows(py, &guard, plan, rows, fail_on_exception, return_rows)
 }
 
 /// `Table.compute()`: returns (rows as tuples, {name: ColumnType}, per-row error dicts).
@@ -596,26 +664,33 @@ pub fn tbl_add_computed_column<'py>(
     schema.set_item(&folded, spec_dict)?;
     let mut specs = parse_schema(&schema)?;
     let spec = specs.pop().ok_or_else(|| Error::internal("missing column spec"))?;
-    let Some(plan) = with_catalog(py, |cat| AddComputedPlan::new(cat, id, spec, ie))? else {
-        // the column exists and `if_exists='ignore'`: nothing was added
-        let d = status_dict(py, &UpdateStatus::default())?;
+    // set when the column exists and `if_exists='ignore'`: nothing is added
+    let mut ignored = false;
+    // a column whose expression runs no user code is computed in the plan's catalog-lock section
+    let status = txn::run(
+        py,
+        id,
+        Mode::Exclusive,
+        |cat| {
+            let Some(plan) = AddComputedPlan::new(cat, id, spec.clone(), ie)? else {
+                ignored = true;
+                return Ok(Step::Done(UpdateStatus::default()));
+            };
+            ignored = false;
+            if plan.runs_user_code() {
+                return Ok(Step::Compute(plan));
+            }
+            let c = py.detach(|| plan.compute_column(fail_on_exception))?;
+            Ok(Step::Done(plan.commit_column(cat, c)?))
+        },
+        |plan| plan.compute_column(fail_on_exception),
+        |cat, plan, c| plan.commit_column(cat, c),
+    )?;
+    if ignored {
+        let d = status_dict(py, &status)?;
         d.set_item("ignored", true)?;
         return Ok(d);
-    };
-    let mut stats = RowCountStats::default();
-    let mut cols_with_excs = Vec::new();
-    let mut saved = Vec::new();
-    let values = match py.detach(|| plan.compute(fail_on_exception, &mut stats, &mut cols_with_excs, &mut saved)) {
-        Ok(v) => v,
-        Err(e) => {
-            crate::exec::compute::discard_media(&saved);
-            return Err(e);
-        }
-    };
-    let status = with_catalog(py, |cat| {
-        cat.adopt_media(saved);
-        plan.commit(cat, values, stats, cols_with_excs)
-    })?;
+    }
     Ok(status_dict(py, &status)?)
 }
 
@@ -632,7 +707,7 @@ pub fn tbl_add_columns(py: Python<'_>, tbl_id: &str, schema: &Bound<'_, PyDict>,
         }
     }
     let specs = parse_schema(schema)?;
-    with_catalog(py, |cat| cat.add_columns(id, specs, ie))
+    txn::write(py, id, Mode::Exclusive, |cat| cat.add_columns(id, specs, ie))
 }
 
 /// `Table.drop_column()`; `column` is a name or a column reference.
@@ -670,12 +745,12 @@ pub fn tbl_drop_column(py: Python<'_>, tbl_id: &str, column: &Bound<'_, PyAny>, 
     } else {
         crate::bail!(TypeMismatch, "Invalid column parameter type: {}", column.get_type().str()?);
     };
-    with_catalog(py, |cat| cat.drop_column(id, &name, ine))
+    txn::write(py, id, Mode::Exclusive, |cat| cat.drop_column(id, &name, ine))
 }
 
 #[pyfunction]
 pub fn tbl_rename_column(py: Python<'_>, tbl_id: &str, old_name: NameArg, new_name: NameArg) -> Result<()> {
     let (old_name, new_name) = (&*old_name, &*new_name);
     let id = parse_uuid(tbl_id)?;
-    with_catalog(py, |cat| cat.rename_column(id, old_name, new_name))
+    txn::write(py, id, Mode::Exclusive, |cat| cat.rename_column(id, old_name, new_name))
 }

@@ -541,3 +541,9 @@ pub fn configure_udf_dispatch(threads: Option<usize>, async_concurrency: Option<
     crate::exec::dispatch::configure(threads, async_concurrency);
     (crate::exec::dispatch::udf_threads(), crate::exec::dispatch::async_concurrency())
 }
+
+/// Marks the calling thread as one that runs an event loop for async UDFs (`pixeltable.func._runtime`).
+#[pyfunction]
+pub fn _mark_udf_loop_thread() {
+    crate::exec::dispatch::mark_loop_thread();
+}

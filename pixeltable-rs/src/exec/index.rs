@@ -1,5 +1,6 @@
 //! Adding an embedding index: evaluates the embeddings of the existing rows (plan under the lock, compute without
-//! it, commit under it, as for computed columns), then records the index and its hidden value column.
+//! it, commit under it if what the plan read is unchanged, as for computed columns, see `exec::txn`), then records
+//! the index and its hidden value column.
 
 use uuid::Uuid;
 
@@ -7,6 +8,7 @@ use super::compute::{ComputedCol, KeyedValue};
 use super::insert::UpdateStatus;
 use super::propagate::record_version_status;
 use super::scan::{PathInput, eval_rows_batch};
+use super::txn::ReadSet;
 use crate::catalog::Catalog;
 use crate::catalog::indexes::IndexSpec;
 use crate::catalog::table::{ColId, RowCountStats};
@@ -30,6 +32,15 @@ pub struct AddIndexPlan {
     pub eval_col_id: ColId,
     /// an existing index to drop at commit (`if_exists='replace'`)
     pub replace: Vec<u32>,
+    /// what the plan read (the table's path), validated by the commit
+    pub read: ReadSet,
+}
+
+/// The result of `AddIndexPlan::compute()`.
+pub struct ComputedIndex {
+    pub values: Vec<KeyedValue>,
+    pub stats: RowCountStats,
+    pub cols_with_excs: Vec<String>,
 }
 
 impl AddIndexPlan {
@@ -44,6 +55,7 @@ impl AddIndexPlan {
         let md = cat.table(tbl_id)?.clone();
         let idx_name = spec.name.clone().unwrap_or_else(|| crate::catalog::indexes::generate_idx_name(&md));
         let path = cat.tbl_path(tbl_id, None)?;
+        let read = ReadSet::of(cat, path.iter().filter(|e| e.pinned.is_none()).map(|e| e.tbl_id))?;
         Ok(AddIndexPlan {
             tbl_id,
             tbl_name: md.name.clone(),
@@ -55,11 +67,18 @@ impl AddIndexPlan {
             path: PathInput::snapshot(cat, &path)?,
             eval_col_id: md.next_col_id,
             replace,
+            read,
         })
     }
 
     /// Evaluates the embedding of every live row (errors are recorded, as upstream never aborts on index errors).
-    pub fn compute(&self, stats: &mut RowCountStats, cols_with_excs: &mut Vec<String>) -> Result<Vec<KeyedValue>> {
+    pub fn compute(&self) -> Result<ComputedIndex> {
+        let mut out = ComputedIndex { values: Vec::new(), stats: RowCountStats::default(), cols_with_excs: Vec::new() };
+        out.values = self.compute_values(&mut out.stats, &mut out.cols_with_excs)?;
+        Ok(out)
+    }
+
+    fn compute_values(&self, stats: &mut RowCountStats, cols_with_excs: &mut Vec<String>) -> Result<Vec<KeyedValue>> {
         let col = ComputedCol { col_id: self.eval_col_id, name: self.val_col_name.clone(), expr: self.expr.clone(), is_media: false };
         let infos = self.path.infos();
         let path_rows = self.path.rows()?;
@@ -77,20 +96,11 @@ impl AddIndexPlan {
             .collect())
     }
 
-    pub fn commit(
-        &self,
-        cat: &mut Catalog,
-        values: Vec<KeyedValue>,
-        stats: RowCountStats,
-        cols_with_excs: Vec<String>,
-    ) -> Result<UpdateStatus> {
-        if cat.table(self.tbl_id)?.current_schema_version != self.schema_version {
-            crate::bail!(
-                ConcurrentModification,
-                "The schema of the table changed while index {} was being built; retry",
-                py_repr(self.spec.name.as_deref().unwrap_or_default())
-            );
-        }
+    /// Records the index and its values, if the rows and schemas the plan read are unchanged (else fails with
+    /// SERIALIZATION_FAILURE, and the operation is planned again, see `exec::txn`).
+    pub fn commit(&self, cat: &mut Catalog, computed: ComputedIndex) -> Result<UpdateStatus> {
+        let ComputedIndex { values, stats, cols_with_excs } = computed;
+        self.read.check(cat, &format!("the creation of index {}", py_repr(self.spec.name.as_deref().unwrap_or_default())))?;
         if !self.replace.is_empty() {
             let v = cat.table(self.tbl_id)?.current_version;
             for id in &self.replace {

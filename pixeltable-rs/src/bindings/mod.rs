@@ -37,6 +37,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(expr::cast, m)?)?;
     m.add_function(wrap_pyfunction!(func::register_function, m)?)?;
     m.add_function(wrap_pyfunction!(func::configure_udf_dispatch, m)?)?;
+    m.add_function(wrap_pyfunction!(func::_mark_udf_loop_thread, m)?)?;
+    m.add_function(wrap_pyfunction!(catalog::validate_store, m)?)?;
     m.add_function(wrap_pyfunction!(func::registered_functions, m)?)?;
     m.add_function(wrap_pyfunction!(func::variable, m)?)?;
     m.add_function(wrap_pyfunction!(func::table_udf, m)?)?;

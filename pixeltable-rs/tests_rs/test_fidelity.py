@@ -52,6 +52,16 @@ def _tbl() -> pxt.Table:
     return t
 
 
+def _int_div_by_zero() -> str:
+    """How this Python words a ZeroDivisionError of `//` (3.14 words it differently from 3.13)."""
+    zero = 0
+    try:
+        _ = 1 // zero
+    except ZeroDivisionError as e:
+        return str(e)
+    raise AssertionError('no ZeroDivisionError')
+
+
 def _msg(f: object) -> str:
     with pytest.raises(pxt.Error) as exc_info:
         f()  # type: ignore[operator]
@@ -87,7 +97,7 @@ def test_aggregate_errors() -> None:
     msg = _msg(lambda: t.select(update_exc(t.a - 1)).collect())
     assert msg.startswith(
         f'In row 0 the update() function of the aggregate {m}.update_exc(a - 1) encountered exception '
-        "ZeroDivisionError:\ninteger division or modulo by zero\nwith 'a - 1' = 0\nStack:\n"
+        f"ZeroDivisionError:\n{_int_div_by_zero()}\nwith 'a - 1' = 0\nStack:\n"
     )
     # value() is evaluated in the group's last row
     msg = _msg(lambda: t.select(value_exc(t.a)).collect())

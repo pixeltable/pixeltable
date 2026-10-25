@@ -234,6 +234,49 @@ def bench_builtin_1m() -> dict[str, float]:
     return out
 
 
+def _median_of(f: Callable[[], Any], n: int = 5) -> float:
+    return sorted(_timed(f) for _ in range(n))[n // 2]
+
+
+def bench_interactive_1m() -> dict[str, float]:
+    """interactive operations on a 1M-row table (median of 5): head/limit, filters without an index, update/delete with
+    a non-indexed predicate, first head after a reload"""
+    import pandas as pd
+
+    from pixeltable import _testing
+
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame(
+        {
+            'a': rng.integers(0, 1_000_000, N_BIG),
+            'b': rng.random(N_BIG),
+            'g': rng.integers(0, 1000, N_BIG),
+            's': [f'str{i % 5000}' for i in range(N_BIG)],
+        }
+    )
+    t = pxt.create_table('big', source=df)
+    out: dict[str, float] = {}
+    res: list[Any] = []
+    out['head10'] = _median_of(lambda: res.append(t.head(10)))
+    assert list(res[-1]['a']) == list(df['a'][:10])
+    out['limit10'] = _median_of(lambda: t.select(t.a, t.s).limit(10).collect())
+    out['where_eq_noindex'] = _median_of(lambda: res.append(t.where(t.a == 12345).collect()))
+    assert len(res[-1]) == int((df['a'] == 12345).sum())
+    out['where_g_collect'] = _median_of(lambda: res.append(t.where(t.g == 5).select(t.s, t.b).collect()))
+    assert len(res[-1]) == int((df['g'] == 5).sum())
+    keys = iter(range(777, 10_000))
+    out['update_1row_noindex'] = _median_of(lambda: t.update({'b': 0.25}, where=t.a == next(keys)))
+    keys = iter(range(20_000, 30_000))
+    out['delete_few_noindex'] = _median_of(lambda: t.delete(where=t.a == next(keys)))
+    if hasattr(_testing, '_initialized'):
+        # the harness's hooks for upstream Pixeltable (compat/upstream_baseline) wipe the database on their first use
+        _testing._initialized = True
+    _testing.reload_catalog()
+    out['reload_first_head'] = _timed(lambda: res.append(pxt.get_table('big').head(10)))
+    assert len(res[-1]) == 10
+    return out
+
+
 def bench_similarity_100k() -> dict[str, float]:
     """similarity over 100k 64-d embeddings (embedding index built by a numpy UDF)"""
     import pandas as pd

@@ -9,7 +9,6 @@ use super::NameArg;
 use super::expr::{as_expr, from_object};
 use super::query::PyQuerySpec;
 use super::sources::Conduit;
-use crate::exec::insert::InsertPlan;
 use super::types::{is_type_form, normalize_type};
 use crate::catalog::dirs::{ContentNode, assemble_contents, extract_paths};
 use crate::catalog::path::{Path, fold_identifier};
@@ -549,12 +548,12 @@ pub fn create_table(
     let mut inserted = None;
     if created {
         if let Some(c) = conduit {
-            let plan = with_catalog(py, |cat| InsertPlan::new(cat, id, None))?;
+            let (guard, plan) = super::table::plan_insert(py, id, None)?;
             let rows = match &c {
                 Conduit::Query(q) => super::table::query_input_rows(py, q, &plan)?,
                 other => super::sources::convert_rows(py, other, &plan, true)?,
             };
-            inserted = Some(super::table::insert_rows(py, &plan, rows, fail_on_exception, false)?.unbind());
+            inserted = Some(super::table::insert_rows(py, &guard, plan, rows, fail_on_exception, false)?.unbind());
         }
     }
     Ok((id.to_string(), "table".to_string(), created, inserted))
@@ -672,46 +671,59 @@ fn validate_view_query(q: &crate::exec::QuerySpec, is_snapshot: bool) -> Result<
     Ok(())
 }
 
+/// A view planned by `create_view_from_def()`.
+struct ViewPlan {
+    md: Box<crate::catalog::table::TableMd>,
+    base_path: Vec<crate::catalog::views::PathElem>,
+    /// the base rows (None for a pure snapshot, which has no rows)
+    input: Option<PathInput>,
+    media_dir: std::path::PathBuf,
+    read: crate::exec::txn::ReadSet,
+}
+
 /// Plans a view (lock), computes its initial rows (no lock: value expressions may run Python code) and commits
-/// it (lock).
+/// it (lock) if the base is unchanged, else plans it again (`exec::txn::run()`).
 fn create_view_from_def(py: Python<'_>, p: &Path, def: &ViewDef, ie: IfExists) -> Result<(Uuid, bool)> {
-    let planned = with_catalog(py, |cat| {
-        Ok(match cat.plan_view(p, def, ie)? {
-            ViewPlanOutcome::Existing(id) => Err(id),
-            ViewPlanOutcome::New(md, base_path) => {
-                let input = if md.is_pure_snapshot() { None } else { Some(PathInput::snapshot(cat, &base_path)?) };
-                Ok((md, base_path, input))
-            }
-        })
-    })?;
-    let (md, base_path, input) = match planned {
-        Err(existing) => return Ok((existing, false)),
-        Ok(x) => x,
-    };
-    let media_dir = with_catalog(py, |cat| Ok(cat.store().media_dir(md.id)))?;
-    let mut saved = Vec::new();
-    let (rows, stats) = match &input {
-        Some(input) => match ViewCompute::of(&md, media_dir)?.populate(input, &mut saved) {
-            Ok((data, status)) => (Some(data), status.row_count_stats),
-            Err(e) => {
-                crate::exec::compute::discard_media(&saved);
-                // upstream creates the view's rows in a table operation that rolls back on failure
-                return Err(match e.unlocated() {
-                    e if crate::functions::udf::is_interrupt(&e) => e,
-                    e @ (Error::Pxt { .. } | Error::Python(_)) => {
-                        crate::pxt_err!(InternalError, "Table operation was aborted with\n{}", e.message())
-                    }
-                    other => other,
-                });
+    use crate::exec::txn::{self, Mode, ReadSet, Step};
+    txn::run(
+        py,
+        def.base_id,
+        Mode::Exclusive,
+        |cat| {
+            Ok(match cat.plan_view(p, def, ie)? {
+                ViewPlanOutcome::Existing(id) => Step::Done((id, false)),
+                ViewPlanOutcome::New(md, base_path) => {
+                    let input = if md.is_pure_snapshot() { None } else { Some(PathInput::snapshot(cat, &base_path)?) };
+                    let read = ReadSet::of(cat, base_path.iter().filter(|e| e.pinned.is_none()).map(|e| e.tbl_id))?;
+                    let media_dir = cat.store().media_dir(md.id);
+                    Step::Compute(ViewPlan { md, base_path, input, media_dir, read })
+                }
+            })
+        },
+        |vp| {
+            let mut saved = Vec::new();
+            let Some(input) = &vp.input else { return Ok((None, RowCountStats::default(), saved)) };
+            match ViewCompute::of(&vp.md, vp.media_dir.clone()).and_then(|vc| vc.populate(input, &mut saved)) {
+                Ok((data, status)) => Ok((Some(data), status.row_count_stats, saved)),
+                Err(e) => {
+                    crate::exec::compute::discard_media(&saved);
+                    // upstream creates the view's rows in a table operation that rolls back on failure
+                    Err(match e.unlocated() {
+                        e if crate::functions::udf::is_interrupt(&e) => e,
+                        e @ (Error::Pxt { .. } | Error::Python(_)) => {
+                            crate::pxt_err!(InternalError, "Table operation was aborted with\n{}", e.message())
+                        }
+                        other => other,
+                    })
+                }
             }
         },
-        None => (None, RowCountStats::default()),
-    };
-    let id = with_catalog(py, |cat| {
-        cat.adopt_media(saved);
-        cat.commit_view(p, *md, &base_path, rows, stats, ie)
-    })?;
-    Ok((id, true))
+        |cat, vp, (rows, stats, saved)| {
+            cat.adopt_media(saved);
+            vp.read.check(cat, &format!("the creation of view {}", py_repr(p.name())))?;
+            Ok((cat.commit_view(p, (*vp.md).clone(), &vp.base_path, rows, stats, ie)?, true))
+        },
+    )
 }
 
 /// Returns (table id, kind, version) or None.
@@ -755,4 +767,10 @@ pub fn drop_table(py: Python<'_>, path: Option<NameArg>, tbl_id: Option<&str>, f
 #[pyfunction]
 pub fn default_time_zone(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
     vpy::default_tz(py).cloned()
+}
+
+/// The test hook `pixeltable._testing.validate_store()`: the problems `Catalog::validate_store()` finds.
+#[pyfunction]
+pub fn validate_store(py: Python<'_>) -> Result<Vec<String>> {
+    with_catalog(py, |cat| cat.validate_store())
 }

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::catalog::table::ColId;
 use crate::value::Value;
 
-pub use super::table_data::TableData;
+pub use super::table_data::{RowAddr, TableData};
 
 /// `v_max` of a row that is visible at the current version.
 pub const LIVE: i64 = i64::MAX;

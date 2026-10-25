@@ -13,7 +13,7 @@ use super::insert::UpdateStatus;
 use super::scan::{ElemInfo, PathCtx, PathInput};
 use crate::catalog::Catalog;
 use crate::catalog::table::{RowCountStats, TableMd};
-use crate::error::{Result, py_repr};
+use crate::error::Result;
 use crate::expr::ExprRef;
 use crate::expr::eval::eval_predicate;
 use crate::store::rows::{StoredRow, TableData};
@@ -331,27 +331,19 @@ impl ViewNode {
     }
 
     /// Fails if the view tree of `tbl_id` changed since it was captured (views added or dropped, schemas changed).
-    pub fn check_unchanged(cat: &Catalog, tbl_id: Uuid, nodes: &[ViewNode]) -> Result<()> {
+    /// True if the live views of `tbl_id` (recursively) are still those of `nodes`, at the same schema versions.
+    pub fn unchanged(cat: &Catalog, tbl_id: Uuid, nodes: &[ViewNode]) -> Result<bool> {
         let current = cat.mutable_view_ids(tbl_id);
         let planned: Vec<Uuid> = nodes.iter().map(|n| n.tbl_id()).collect();
         if current != planned {
-            crate::bail!(
-                ConcurrentModification,
-                "The views of {} changed while the operation was being prepared; retry",
-                py_repr(&cat.table(tbl_id)?.name)
-            );
+            return Ok(false);
         }
         for n in nodes {
-            if cat.table(n.tbl_id())?.current_schema_version != n.schema_version {
-                crate::bail!(
-                    ConcurrentModification,
-                    "The schema of view {} changed while the operation was being prepared; retry",
-                    py_repr(&n.compute.name)
-                );
+            if cat.table(n.tbl_id())?.current_schema_version != n.schema_version || !ViewNode::unchanged(cat, n.tbl_id(), &n.children)? {
+                return Ok(false);
             }
-            ViewNode::check_unchanged(cat, n.tbl_id(), &n.children)?;
         }
-        Ok(())
+        Ok(true)
     }
 }
 

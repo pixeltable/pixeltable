@@ -6,8 +6,9 @@
 //! recomputed. Each live view then revisits the base rows that changed: a view whose filter reads a changed column
 //! (or whose base gained or lost rows) re-decides membership, adding and removing rows; a view with stored columns
 //! that depend on changed columns recomputes them. A view whose rows change gets a new version; its views follow
-//! recursively. Like inserts, an update is planned under the catalog lock, computed without it (value expressions
-//! may run Python code) and committed with it.
+//! recursively. An update whose expressions may run user code is planned under the catalog lock, computed without it
+//! and committed with it if what it read is unchanged (else planned again, see `exec::txn`); one that runs no user
+//! code is computed and committed in the plan's lock section.
 //!
 //! A delete runs no user code (its filter must be expressible without Python), so it runs in one step under the
 //! lock (`delete()`).
@@ -20,6 +21,7 @@ use super::compute::{ComputedCol, MediaTarget, discard_media};
 use super::insert::UpdateStatus;
 use super::propagate::{ViewCompute, record_version_status};
 use super::scan::{ElemInfo, PathCtx, PathInput, eval_rows_into};
+use super::txn::{ReadSet, runs_user_code};
 use crate::catalog::Catalog;
 use crate::catalog::table::{ColId, TableMd};
 use crate::error::{Result, py_repr};
@@ -89,6 +91,8 @@ pub struct UpdatePlan {
     pub writes_rows: bool,
     /// where in-memory media values and results are written
     pub media: MediaTarget,
+    /// what the plan read (the table's path and its views), validated by the commit
+    pub read: ReadSet,
 }
 
 /// The stored computed columns of `md` (current schema) that depend, transitively, on a column in `changed`, in
@@ -350,18 +354,28 @@ impl UpdatePlan {
         // with fail_on_exception: the failure of the first row whose new values could not be computed (rows after it
         // are not updated; a computed column's failure in an earlier row comes first)
         let mut value_error: Option<crate::error::Error> = None;
+        let keep = |r: &StoredRow| self.errors_only.is_none_or(|c| r.error(c).is_some());
+        // with a where clause, the rows that pass it (up to the first row whose evaluation fails)
+        let mut pred_error = None;
         let candidates: Vec<Vec<&StoredRow>> = match &self.selection {
-            RowSelection::Where { pred, .. } => self.path.rows_where(pred.as_ref())?,
-            RowSelection::Keys(rows) => self.path.rows_for_keys(rows.keys().map(|(r, p)| (*r, p.as_slice()))),
-        }
-        .into_iter()
-        .filter(|r| self.errors_only.is_none_or(|c| r[0].error(c).is_some()))
-        .collect();
+            RowSelection::Where { pred, .. } => {
+                let (rows, err) = self.path.rows_passing(pred.as_ref(), &keep)?;
+                pred_error = err;
+                rows
+            }
+            RowSelection::Keys(rows) => self
+                .path
+                .rows_for_keys(rows.keys().map(|(r, p)| (*r, p.as_slice())))
+                .into_iter()
+                .filter(|r| keep(r[0]))
+                .collect(),
+        };
         // the rows to update and their new values
         let updates: Vec<(usize, Vec<(ColId, Value)>)> = match &self.selection {
-            RowSelection::Where { pred, targets } => {
-                let (updates, err) = where_values(&infos, &candidates, pred.as_ref(), targets)?;
-                match err {
+            RowSelection::Where { targets, .. } => {
+                // a failure of the values comes before the predicate's failure (if any): the rows passed it before
+                let (updates, err) = where_values(&infos, &candidates, None, targets)?;
+                match err.or(pred_error) {
                     Some(err) if fail_on_exception => value_error = Some(err),
                     Some(err) => return Err(err),
                     None => {}
@@ -435,19 +449,29 @@ impl UpdatePlan {
         Ok(UpdateOutput { own, views, unmatched, saved_media: Vec::new() })
     }
 
-    /// Fails if the schemas or views involved changed since the update was planned.
+    /// True if computing the update may run user code (so it must run without the catalog lock).
+    pub fn runs_user_code(&self) -> bool {
+        if !self.writes_rows {
+            return false;
+        }
+        let infos = self.path.infos();
+        let mut exprs: Vec<&ExprRef> = self.recompute.iter().map(|c| &c.expr).collect();
+        if let RowSelection::Where { pred, targets } = &self.selection {
+            exprs.extend(pred.iter());
+            exprs.extend(targets.iter().map(|(_, e)| e));
+        }
+        exprs.iter().any(|e| runs_user_code(e, &infos)) || views_run_user_code(&self.views, &infos)
+    }
+
+    /// Fails with SERIALIZATION_FAILURE (the update is then planned again) if the rows, schemas or views it read
+    /// changed since it was planned.
     fn check_unchanged(&self, cat: &Catalog) -> Result<()> {
-        if cat.table(self.tbl_id)?.current_schema_version != self.schema_version {
-            crate::bail!(
-                ConcurrentModification,
-                "The schema of table {} changed while the update was being prepared; retry",
-                py_repr(&self.tbl_name)
-            );
+        let what = format!("the update of {}", py_repr(&self.tbl_name));
+        self.read.check(cat, &what)?;
+        if self.cascade && !views_unchanged(cat, self.tbl_id, &self.views)? {
+            return Err(super::txn::conflict(&what));
         }
-        if !self.cascade {
-            return Ok(());
-        }
-        check_views_unchanged(cat, self.tbl_id, &self.views)
+        Ok(())
     }
 
     /// Writes the changes at a new version of the table (and of each view whose rows change).
@@ -485,27 +509,40 @@ impl UpdatePlan {
     }
 }
 
-fn check_views_unchanged(cat: &Catalog, tbl_id: Uuid, nodes: &[ViewUpdateNode]) -> Result<()> {
+/// True if the live views of `tbl_id` (recursively) are still those of `nodes`, at the same schema versions.
+fn views_unchanged(cat: &Catalog, tbl_id: Uuid, nodes: &[ViewUpdateNode]) -> Result<bool> {
     let current = cat.mutable_view_ids(tbl_id);
     let planned: Vec<Uuid> = nodes.iter().map(|n| n.tbl_id()).collect();
     if current != planned {
-        crate::bail!(
-            ConcurrentModification,
-            "The views of {} changed while the operation was being prepared; retry",
-            py_repr(&cat.table(tbl_id)?.name)
-        );
+        return Ok(false);
     }
     for n in nodes {
-        if cat.table(n.tbl_id())?.current_schema_version != n.schema_version {
-            crate::bail!(
-                ConcurrentModification,
-                "The schema of view {} changed while the operation was being prepared; retry",
-                py_repr(&n.compute.name)
-            );
+        if cat.table(n.tbl_id())?.current_schema_version != n.schema_version || !views_unchanged(cat, n.tbl_id(), &n.children)? {
+            return Ok(false);
         }
-        check_views_unchanged(cat, n.tbl_id(), &n.children)?;
     }
-    Ok(())
+    Ok(true)
+}
+
+/// The tables of a view update tree (recursively).
+pub fn view_tree_ids(nodes: &[ViewUpdateNode], out: &mut Vec<Uuid>) {
+    for n in nodes {
+        out.push(n.tbl_id());
+        view_tree_ids(&n.children, out);
+    }
+}
+
+/// True if updating the views of `nodes` may run user code: their filters, computed columns and iterators (all of
+/// them: which ones an update evaluates depends on its rows).
+fn views_run_user_code(nodes: &[ViewUpdateNode], base_infos: &[&ElemInfo]) -> bool {
+    nodes.iter().any(|n| {
+        let mut infos: Vec<&ElemInfo> = vec![&n.compute.info];
+        infos.extend_from_slice(base_infos);
+        let c = &n.compute;
+        c.info.iterator.as_ref().is_some_and(|it| it.call.def.builtin.is_none())
+            || c.predicate.iter().chain(c.computed.iter().map(|x| &x.expr)).chain(n.recompute.iter().map(|x| &x.expr)).any(|e| runs_user_code(e, &infos))
+            || views_run_user_code(&n.children, &infos)
+    })
 }
 
 /// A row of a view after the update, as its views see it.
@@ -678,16 +715,11 @@ pub fn delete(cat: &mut Catalog, tbl_id: Uuid, pred: Option<&ExprRef>) -> Result
     let md = cat.table(tbl_id)?.clone();
     let path = cat.tbl_path(tbl_id, None)?;
     let input = PathInput::snapshot(cat, &path)?;
-    let infos = input.infos();
-    let mut keys: HashSet<RowKey> = HashSet::new();
-    for r in input.rows_where(pred)? {
-        if let Some(p) = pred {
-            if !eval_predicate(p, &PathCtx::new(&infos, &r))? {
-                continue;
-            }
-        }
-        keys.insert((r[0].rowid, r[0].pos.clone()));
+    let (rows, failed) = input.rows_passing(pred, &|_| true)?;
+    if let Some(err) = failed {
+        return Err(err);
     }
+    let keys: HashSet<RowKey> = rows.iter().map(|r| (r[0].rowid, r[0].pos.clone())).collect();
     let mut status = UpdateStatus::default();
     status.row_count_stats.del_rows = keys.len() as i64;
     let root_version = md.current_version + 1;

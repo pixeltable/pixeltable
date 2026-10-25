@@ -1,7 +1,8 @@
 //! Computed columns: evaluating value expressions for new rows and materializing a newly added column.
 //!
-//! Evaluation runs without the catalog lock (it will call Python UDFs): `AddComputedPlan::new()` snapshots what is
-//! needed under the lock, `compute()` evaluates, and `commit()` re-checks the schema version and writes.
+//! A column whose expression may run user code is evaluated without the catalog lock: `AddComputedPlan::new()`
+//! snapshots what is needed under the lock, `compute()` evaluates, and `commit()` checks that the rows and schemas read
+//! are unchanged (else the operation is planned again, see `exec::txn`) and writes.
 
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
@@ -19,6 +20,7 @@ use super::insert::UpdateStatus;
 use super::propagate::record_version_status;
 use super::prefetch::CallSlot;
 use super::scan::{PathInput, eval_rows_batch};
+use super::txn::ReadSet;
 
 /// A computed column to evaluate.
 #[derive(Debug, Clone)]
@@ -440,10 +442,21 @@ pub struct AddComputedPlan {
     /// an existing column of the same name to drop at commit (`if_exists='replace'`)
     pub replace: Option<ColId>,
     pub media: MediaTarget,
+    /// what the plan read (the table's path), validated by the commit
+    pub read: ReadSet,
 }
 
 /// A computed value for the live row with the given key.
 pub type KeyedValue = (RowKey, Value, Option<CellError>);
+
+/// The result of `AddComputedPlan::compute_column()`.
+pub struct ComputedColumn {
+    pub values: Vec<KeyedValue>,
+    pub stats: RowCountStats,
+    pub cols_with_excs: Vec<String>,
+    /// media files written for the values
+    pub saved: Vec<std::path::PathBuf>,
+}
 
 impl AddComputedPlan {
     /// None: the column exists and `if_exists='ignore'`.
@@ -479,6 +492,7 @@ impl AddComputedPlan {
             );
         }
         let media = MediaTarget { tbl_id, dir: cat.store().media_dir(tbl_id), version: md.current_version + 1 };
+        let read = ReadSet::of(cat, path.iter().filter(|e| e.pinned.is_none()).map(|e| e.tbl_id))?;
         let path = PathInput::snapshot(cat, &path)?;
         Ok(Some(AddComputedPlan {
             tbl_id,
@@ -490,7 +504,34 @@ impl AddComputedPlan {
             path,
             replace,
             media,
+            read,
         }))
+    }
+
+    /// True if computing the column may run user code (so it must run without the catalog lock).
+    pub fn runs_user_code(&self) -> bool {
+        self.spec.stored.unwrap_or(true) && super::txn::runs_user_code(&self.expr, &self.path.infos())
+    }
+
+    /// `compute()`, collecting its results; media files written are deleted again if it fails.
+    pub fn compute_column(&self, fail_on_exception: bool) -> Result<ComputedColumn> {
+        let mut out = ComputedColumn { values: Vec::new(), stats: RowCountStats::default(), cols_with_excs: Vec::new(), saved: Vec::new() };
+        match self.compute(fail_on_exception, &mut out.stats, &mut out.cols_with_excs, &mut out.saved) {
+            Ok(values) => {
+                out.values = values;
+                Ok(out)
+            }
+            Err(e) => {
+                discard_media(&out.saved);
+                Err(e)
+            }
+        }
+    }
+
+    /// `commit()` of the result of `compute_column()`.
+    pub fn commit_column(&self, cat: &mut Catalog, c: ComputedColumn) -> Result<UpdateStatus> {
+        cat.adopt_media(c.saved);
+        self.commit(cat, c.values, c.stats, c.cols_with_excs)
     }
 
     /// Evaluates the column for every live row. In-memory media results are written to the media directory and
@@ -580,13 +621,7 @@ impl AddComputedPlan {
         mut stats: RowCountStats,
         mut cols_with_excs: Vec<String>,
     ) -> Result<UpdateStatus> {
-        if cat.table(self.tbl_id)?.current_schema_version != self.schema_version {
-            crate::bail!(
-                ConcurrentModification,
-                "The schema of the table changed while column {} was being computed; retry",
-                py_repr(&self.spec.name)
-            );
-        }
+        self.read.check(cat, &format!("the computation of column {}", py_repr(&self.spec.name)))?;
         if self.replace.is_some() {
             cat.drop_column(self.tbl_id, &self.spec.name, IfNotExists::Error)?;
         }

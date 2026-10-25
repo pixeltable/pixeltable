@@ -155,6 +155,9 @@ impl std::fmt::Debug for TableData {
 /// Where a row is: (segment position, row index).
 type Addr = (usize, usize);
 
+/// Where a row is, compactly: (segment position, row index); see `TableData::scan_order()`.
+pub type RowAddr = (u32, u32);
+
 impl TableData {
     // ------------------------------------------------------------------------------------------- loading, writing
 
@@ -388,6 +391,141 @@ impl TableData {
             })
     }
 
+    /// The rows visible at `version`, in key order, as addresses (see `row_by_addr()`; valid while this data is not
+    /// changed). Reads no cells, so it decodes nothing: a scan decodes the chunks it reads, on first use, on whatever
+    /// thread reads them.
+    pub fn scan_order(&self, version: i64) -> Vec<RowAddr> {
+        self.scan_order_upto(version, usize::MAX)
+    }
+
+    /// The first `limit` addresses of `scan_order()`. Each segment is a run of rows sorted by key, and a key has at
+    /// most one visible row per version, so the order merges the segments' visible rows: the runs of a largest set of
+    /// runs whose key ranges do not overlap (the segments of successive inserts) follow each other, and the other runs
+    /// (holding new versions of updated rows, spread over the key range) are merged into them by binary search.
+    pub fn scan_order_upto(&self, version: i64, limit: usize) -> Vec<RowAddr> {
+        struct Run<'s> {
+            p: u32,
+            seg: &'s Segment,
+            /// the visible rows (None: all of them)
+            rows: Option<Vec<u32>>,
+            len: usize,
+        }
+        impl Run<'_> {
+            fn idx(&self, k: usize) -> u32 {
+                self.rows.as_ref().map_or(k as u32, |r| r[k])
+            }
+            fn key(&self, k: usize) -> (i64, &[i64]) {
+                self.seg.key(self.idx(k) as usize)
+            }
+            fn first(&self) -> (i64, &[i64]) {
+                self.key(0)
+            }
+            fn last(&self) -> (i64, &[i64]) {
+                self.key(self.len - 1)
+            }
+            fn extend(&self, out: &mut Vec<RowAddr>, range: std::ops::Range<usize>) {
+                match &self.rows {
+                    None => out.extend((range.start as u32..range.end as u32).map(|k| (self.p, k))),
+                    Some(rows) => out.extend(rows[range].iter().map(|k| (self.p, *k))),
+                }
+            }
+        }
+        let mut runs: Vec<Run<'_>> = Vec::new();
+        for (p, s) in self.segs.iter().enumerate() {
+            if s.skip_at(version) {
+                continue;
+            }
+            let all = version >= s.max_vmin && s.dead == 0 && s.live == s.len();
+            let rows = (!all).then(|| (0..s.len()).filter(|i| s.visible(*i, version)).map(|i| i as u32).collect::<Vec<u32>>());
+            let len = rows.as_ref().map_or(s.len(), Vec::len);
+            if len > 0 {
+                runs.push(Run { p: p as u32, seg: &s.seg, rows, len });
+            }
+        }
+        let total: usize = runs.iter().map(|r| r.len).sum();
+        let mut out: Vec<RowAddr> = Vec::with_capacity(total.min(limit));
+        // the backbone: the longest runs whose key ranges do not overlap, in key order
+        let mut by_len: Vec<usize> = (0..runs.len()).collect();
+        by_len.sort_by_key(|i| std::cmp::Reverse(runs[*i].len));
+        let mut backbone: Vec<usize> = Vec::new();
+        let mut rest: Vec<usize> = Vec::new();
+        for i in by_len {
+            let r = &runs[i];
+            if backbone.iter().all(|b| runs[*b].last() < r.first() || r.last() < runs[*b].first()) {
+                backbone.push(i);
+            } else {
+                rest.push(i);
+            }
+        }
+        backbone.sort_by(|a, b| runs[*a].first().cmp(&runs[*b].first()));
+        // the other runs merged into one sorted list (they hold few rows)
+        let mut others: Vec<(u32, usize)> = Vec::with_capacity(rest.iter().map(|i| runs[*i].len).sum());
+        if rest.len() == 1 {
+            others.extend((0..runs[rest[0]].len).map(|k| (rest[0] as u32, k)));
+        } else if !rest.is_empty() {
+            let mut heap: std::collections::BinaryHeap<std::cmp::Reverse<((i64, &[i64]), usize, usize)>> =
+                rest.iter().map(|i| std::cmp::Reverse((runs[*i].first(), *i, 0))).collect();
+            while let Some(std::cmp::Reverse((_, i, k))) = heap.pop() {
+                others.push((i as u32, k));
+                if k + 1 < runs[i].len {
+                    heap.push(std::cmp::Reverse((runs[i].key(k + 1), i, k + 1)));
+                }
+            }
+        }
+        let other_key = |o: &(u32, usize)| runs[o.0 as usize].key(o.1);
+        let push_other = |out: &mut Vec<RowAddr>, o: &(u32, usize)| {
+            let r = &runs[o.0 as usize];
+            out.push((r.p, r.idx(o.1)));
+        };
+        let mut oi = 0;
+        for &b in &backbone {
+            if out.len() >= limit {
+                break;
+            }
+            let r = &runs[b];
+            while oi < others.len() && other_key(&others[oi]) < r.first() {
+                push_other(&mut out, &others[oi]);
+                oi += 1;
+            }
+            let mut k = 0;
+            while oi < others.len() && other_key(&others[oi]) <= r.last() {
+                let key = other_key(&others[oi]);
+                let (mut lo, mut hi) = (k, r.len);
+                while lo < hi {
+                    let mid = lo + (hi - lo) / 2;
+                    if r.key(mid) < key {
+                        lo = mid + 1;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                r.extend(&mut out, k..lo);
+                k = lo;
+                push_other(&mut out, &others[oi]);
+                oi += 1;
+            }
+            r.extend(&mut out, k..r.len);
+        }
+        for o in &others[oi..] {
+            if out.len() >= limit {
+                break;
+            }
+            push_other(&mut out, o);
+        }
+        out.truncate(limit);
+        out
+    }
+
+    /// The row at an address from `scan_order()`.
+    pub fn row_by_addr(&self, (p, i): RowAddr) -> &StoredRow {
+        self.segs[p as usize].seg.row(i as usize)
+    }
+
+    /// The key of the row at an address from `scan_order()` (without decoding the row).
+    pub fn key_by_addr(&self, (p, i): RowAddr) -> (i64, &[i64]) {
+        self.segs[p as usize].seg.key(i as usize)
+    }
+
     /// The number of rows visible at `version`.
     pub fn count_at(&self, version: i64) -> usize {
         self.segs
@@ -395,6 +533,11 @@ impl TableData {
             .filter(|s| !s.skip_at(version))
             .map(|s| if version >= s.max_vmin && s.dead == 0 && s.live == s.len() { s.len() } else { (0..s.len()).filter(|i| s.visible(*i, version)).count() })
             .sum()
+    }
+
+    /// Every stored row with its version range `[v_min, v_max)`, in storage order (`Catalog::validate_store()`).
+    pub fn rows_with_versions(&self) -> impl Iterator<Item = (&StoredRow, i64, i64)> {
+        self.segs.iter().flat_map(|s| (0..s.len()).map(move |i| (s.seg.row(i), s.seg.vmin[i], s.vmax[i])))
     }
 
     /// The live rows (visible at the current version), in storage order.
@@ -1163,6 +1306,43 @@ mod tests {
         let idx = d.indexes.lock();
         let total: usize = idx.iter().map(|i| i.covered.values().sum::<usize>()).sum();
         assert!(total < 3 * d.num_rows(), "{total} indexed rows for {} rows", d.num_rows());
+    }
+
+    #[test]
+    fn scan_order_is_key_order() {
+        let mut d = TableData::default();
+        let check = |d: &TableData, v: i64| {
+            let order: Vec<(i64, i64)> = d
+                .scan_order(v)
+                .into_iter()
+                .map(|a| (d.key_by_addr(a).0, match d.row_by_addr(a).cell(0) {
+                    Value::Int(i) => *i,
+                    _ => -1,
+                }))
+                .collect();
+            assert_eq!(order, visible(d, v), "version {v}");
+            let prefix: Vec<RowAddr> = d.scan_order_upto(v, 7);
+            assert_eq!(prefix, d.scan_order(v).into_iter().take(7).collect::<Vec<_>>());
+        };
+        d.append((0..300).map(|i| row(i, i)).collect(), 1);
+        d.append((300..600).map(|i| row(i, i)).collect(), 2);
+        check(&d, 2);
+        // updates put new versions of old keys in later segments
+        for v in 3..12 {
+            let ks: Vec<i64> = (0..600).filter(|k| k % (v + 2) == 0).collect();
+            d.retire(&ks.iter().map(|k| (*k, Vec::new())).collect(), v, true);
+            d.append(ks.iter().map(|k| row(*k, k + 1000 * v)).collect(), v);
+            if v % 3 == 0 {
+                d.prepare_write();
+                d.mark_written();
+            }
+            for w in 0..=v {
+                check(&d, w);
+            }
+        }
+        d.retire(&keys(&[5, 6, 7]), 12, true);
+        check(&d, 12);
+        check(&d, NOW);
     }
 
     #[test]
