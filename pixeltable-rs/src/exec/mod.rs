@@ -9,6 +9,7 @@
 pub mod compute;
 pub mod compute_rows;
 pub mod dispatch;
+pub mod fast;
 pub mod index;
 pub mod insert;
 pub mod par;

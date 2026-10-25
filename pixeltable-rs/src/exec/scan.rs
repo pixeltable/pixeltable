@@ -208,7 +208,7 @@ impl PathInput {
     }
 
     /// The rowids `rows_where()` reads through a key index, if it uses one.
-    fn index_rowids(&self, pred: Option<&ExprRef>) -> Option<Vec<i64>> {
+    pub fn index_rowids(&self, pred: Option<&ExprRef>) -> Option<Vec<i64>> {
         pred.and_then(|p| self.point_rowids(p)).filter(|r| r.len() <= (self.elems[0].data.num_live() / 8).max(64))
     }
 
@@ -274,6 +274,67 @@ impl PathInput {
         None
     }
 
+    /// The visible joined rows that `keep` accepts (it sees the leaf row) and that pass `pred` (all of them without
+    /// one), in key order, up to the first row whose evaluation of `pred` fails, whose error is returned with them
+    /// (evaluated with SQL semantics, as a filter; an interrupt is returned as the error). A predicate that runs no
+    /// user code (`par::is_pure()`) is evaluated over chunks of rows in parallel, without collecting the rows that
+    /// fail it; else row by row, its user-function calls made ahead (`exec::prefetch`).
+    pub fn rows_passing(
+        &self,
+        pred: Option<&ExprRef>,
+        keep: &(dyn Fn(&StoredRow) -> bool + Sync),
+    ) -> Result<(Vec<Vec<&StoredRow>>, Option<Error>)> {
+        let infos = self.infos();
+        let pure = pred.is_none_or(|p| path_expr_pure(p, &infos, &None, 0));
+        let leaf = &self.elems[0];
+        if !pure || self.elems.len() > 1 || self.index_rowids(pred).is_some() {
+            let candidates: Vec<Vec<&StoredRow>> = self.rows_where(pred)?.into_iter().filter(|r| keep(r[0])).collect();
+            let Some(p) = pred else { return Ok((candidates, None)) };
+            let derived = |c: &ColumnRef| infos.iter().find(|e| e.tbl_id == c.tbl_id).and_then(|e| e.unstored.get(&c.col_id).cloned());
+            let calls = super::prefetch::prefetch(&[p], &derived, candidates.len(), true, &|i, slot, f| {
+                f(&PathCtx { elems: &infos, rows: &candidates[i], python: false, calls: Some(slot) })
+            })?;
+            let mut out = Vec::new();
+            for (i, r) in candidates.iter().enumerate() {
+                let slot = calls.as_ref().map(|results| CallSlot { results, row: i });
+                match crate::expr::eval::eval_predicate(p, &PathCtx { elems: &infos, rows: r, python: false, calls: slot }) {
+                    Ok(true) => out.push(r.clone()),
+                    Ok(false) => {}
+                    Err(err) if crate::functions::udf::is_interrupt(&err) => return Err(err),
+                    Err(err) => return Ok((out, Some(err))),
+                }
+            }
+            return Ok((out, None));
+        }
+        // a base table and a pure predicate: the rows by address, evaluated in parallel
+        let order = leaf.data.scan_order(leaf.version);
+        let run = |range: std::ops::Range<usize>| -> (Vec<usize>, Option<Error>) {
+            let mut out = Vec::new();
+            for i in range {
+                let row = leaf.data.row_by_addr(order[i]);
+                if !keep(row) {
+                    continue;
+                }
+                match pred.map_or(Ok(true), |p| {
+                    crate::expr::eval::eval_predicate(p, &PathCtx { elems: &infos, rows: &[row], python: false, calls: None })
+                }) {
+                    Ok(true) => out.push(i),
+                    Ok(false) => {}
+                    Err(err) => return (out, Some(err)),
+                }
+            }
+            (out, None)
+        };
+        let mut out = Vec::new();
+        for (part, failed) in super::par::map_chunks(order.len(), run) {
+            out.extend(part.into_iter().map(|i| vec![leaf.data.row_by_addr(order[i])]));
+            if failed.is_some() {
+                return Ok((out, failed));
+            }
+        }
+        Ok((out, None))
+    }
+
     /// The visible joined rows, in key order: each entry has one row per table of the path (leaf first).
     pub fn rows(&self) -> Result<Vec<Vec<&StoredRow>>> {
         let mut out = Vec::new();
@@ -284,14 +345,14 @@ impl PathInput {
     /// Calls `f` with each visible joined row (one row per table of the path, leaf first), in key order.
     pub fn for_each_row<'s>(&'s self, mut f: impl FnMut(&[&'s StoredRow])) -> Result<()> {
         let leaf = &self.elems[0];
-        let mut leaf_rows: Vec<&StoredRow> = leaf.data.visible_at(leaf.version).collect();
-        leaf_rows.sort_by(|a, b| a.key().cmp(&b.key()));
+        let order = leaf.data.scan_order(leaf.version);
         if self.elems.len() == 1 {
-            for r in leaf_rows {
-                f(&[r]);
+            for a in order {
+                f(&[leaf.data.row_by_addr(a)]);
             }
             return Ok(());
         }
+        let leaf_rows: Vec<&StoredRow> = order.into_iter().map(|a| leaf.data.row_by_addr(a)).collect();
         // a base's rows by key: a map of all of them, unless looking up the few needed ones costs less
         let indexes: Vec<Option<HashMap<(i64, &[i64]), &StoredRow>>> = self.elems[1..]
             .iter()

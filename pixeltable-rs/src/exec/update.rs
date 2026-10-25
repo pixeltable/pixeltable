@@ -350,18 +350,28 @@ impl UpdatePlan {
         // with fail_on_exception: the failure of the first row whose new values could not be computed (rows after it
         // are not updated; a computed column's failure in an earlier row comes first)
         let mut value_error: Option<crate::error::Error> = None;
+        let keep = |r: &StoredRow| self.errors_only.is_none_or(|c| r.error(c).is_some());
+        // with a where clause, the rows that pass it (up to the first row whose evaluation fails)
+        let mut pred_error = None;
         let candidates: Vec<Vec<&StoredRow>> = match &self.selection {
-            RowSelection::Where { pred, .. } => self.path.rows_where(pred.as_ref())?,
-            RowSelection::Keys(rows) => self.path.rows_for_keys(rows.keys().map(|(r, p)| (*r, p.as_slice()))),
-        }
-        .into_iter()
-        .filter(|r| self.errors_only.is_none_or(|c| r[0].error(c).is_some()))
-        .collect();
+            RowSelection::Where { pred, .. } => {
+                let (rows, err) = self.path.rows_passing(pred.as_ref(), &keep)?;
+                pred_error = err;
+                rows
+            }
+            RowSelection::Keys(rows) => self
+                .path
+                .rows_for_keys(rows.keys().map(|(r, p)| (*r, p.as_slice())))
+                .into_iter()
+                .filter(|r| keep(r[0]))
+                .collect(),
+        };
         // the rows to update and their new values
         let updates: Vec<(usize, Vec<(ColId, Value)>)> = match &self.selection {
-            RowSelection::Where { pred, targets } => {
-                let (updates, err) = where_values(&infos, &candidates, pred.as_ref(), targets)?;
-                match err {
+            RowSelection::Where { targets, .. } => {
+                // a failure of the values comes before the predicate's failure (if any): the rows passed it before
+                let (updates, err) = where_values(&infos, &candidates, None, targets)?;
+                match err.or(pred_error) {
                     Some(err) if fail_on_exception => value_error = Some(err),
                     Some(err) => return Err(err),
                     None => {}
@@ -677,16 +687,11 @@ pub fn delete(cat: &mut Catalog, tbl_id: Uuid, pred: Option<&ExprRef>) -> Result
     let md = cat.table(tbl_id)?.clone();
     let path = cat.tbl_path(tbl_id, None)?;
     let input = PathInput::snapshot(cat, &path)?;
-    let infos = input.infos();
-    let mut keys: HashSet<RowKey> = HashSet::new();
-    for r in input.rows_where(pred)? {
-        if let Some(p) = pred {
-            if !eval_predicate(p, &PathCtx::new(&infos, &r))? {
-                continue;
-            }
-        }
-        keys.insert((r[0].rowid, r[0].pos.clone()));
+    let (rows, failed) = input.rows_passing(pred, &|_| true)?;
+    if let Some(err) = failed {
+        return Err(err);
     }
+    let keys: HashSet<RowKey> = rows.iter().map(|r| (r[0].rowid, r[0].pos.clone())).collect();
     let mut status = UpdateStatus::default();
     status.row_count_stats.del_rows = keys.len() as i64;
     let root_version = md.current_version + 1;

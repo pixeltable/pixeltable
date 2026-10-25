@@ -344,8 +344,8 @@ pub fn eval(e: &Expr, ctx: &dyn RowContext) -> Result<Value> {
             })
         }
         ExprKind::Comparison { op, lhs, rhs } => {
-            let a = eval(lhs, ctx)?.json_scalar();
-            let b = eval(rhs, ctx)?.json_scalar();
+            let a = cmp_operand(eval(lhs, ctx)?);
+            let b = cmp_operand(eval(rhs, ctx)?);
             Ok(compare(*op, &a, &b))
         }
         ExprKind::Compound { op, operands } => match op {
@@ -514,29 +514,40 @@ pub fn eval_predicate(e: &Expr, ctx: &dyn RowContext) -> Result<bool> {
 }
 
 pub fn compare(op: CmpOp, a: &Value, b: &Value) -> Value {
+    match compare_tri(op, a, b) {
+        Some(r) => Value::Bool(r),
+        None => Value::Null,
+    }
+}
+
+/// `compare()` as a three-valued boolean (None: NULL).
+pub fn compare_tri(op: CmpOp, a: &Value, b: &Value) -> Option<bool> {
     if a.is_null() || b.is_null() {
-        return Value::Null;
+        return None;
     }
     // a media cell compared with a string: the string names a file as a media input does (a path or a URL)
     match (a, b) {
         (Value::Media(_), Value::String(s)) => {
-            return compare(op, a, &Value::Media(crate::media::normalize_input(s)));
+            return compare_tri(op, a, &Value::Media(crate::media::normalize_input(s)));
         }
         (Value::String(s), Value::Media(_)) => {
-            return compare(op, &Value::Media(crate::media::normalize_input(s)), b);
+            return compare_tri(op, &Value::Media(crate::media::normalize_input(s)), b);
         }
         _ => {}
     }
-    let ord = cmp_values(a, b);
-    let eq = values_equal(a, b);
-    Value::Bool(match op {
-        CmpOp::Eq => eq,
-        CmpOp::Ne => !eq,
-        CmpOp::Lt => ord == Ordering::Less,
-        CmpOp::Le => ord != Ordering::Greater,
-        CmpOp::Gt => ord == Ordering::Greater,
-        CmpOp::Ge => ord != Ordering::Less,
+    Some(match op {
+        CmpOp::Eq => values_equal(a, b),
+        CmpOp::Ne => !values_equal(a, b),
+        CmpOp::Lt => cmp_values(a, b) == Ordering::Less,
+        CmpOp::Le => cmp_values(a, b) != Ordering::Greater,
+        CmpOp::Gt => cmp_values(a, b) == Ordering::Greater,
+        CmpOp::Ge => cmp_values(a, b) != Ordering::Less,
     })
+}
+
+/// A comparison operand as `compare()` takes it: JSON scalars unwrapped.
+pub fn cmp_operand(v: Value) -> Value {
+    if matches!(v, Value::Json(_)) { v.json_scalar() } else { v }
 }
 
 fn numeric_operand(v: &Value, is_json: bool, side: &str, op: ArithOp) -> Result<Value> {
@@ -656,17 +667,43 @@ pub fn arithmetic(
     })
 }
 
-fn vector(v: &Value) -> Option<Vec<f64>> {
-    use crate::value::ArrayData;
-    let Value::Array(a) = v else { return None };
-    Some(match &a.data {
-        ArrayData::F32(x) => x.iter().map(|f| *f as f64).collect(),
-        ArrayData::F64(x) => x.clone(),
-        ArrayData::F16(bits) => bits.iter().map(|b| half_to_f64(*b)).collect(),
-        ArrayData::I64(x) => x.iter().map(|i| *i as f64).collect(),
-        ArrayData::I32(x) => x.iter().map(|i| *i as f64).collect(),
-        _ => return None,
-    })
+/// An embedding's elements as f64 (as `similarity_score()` computes with them), without copying them.
+trait Elem: Copy {
+    fn f(self) -> f64;
+}
+
+impl Elem for f32 {
+    fn f(self) -> f64 {
+        self as f64
+    }
+}
+
+impl Elem for f64 {
+    fn f(self) -> f64 {
+        self
+    }
+}
+
+impl Elem for i64 {
+    fn f(self) -> f64 {
+        self as f64
+    }
+}
+
+impl Elem for i32 {
+    fn f(self) -> f64 {
+        self as f64
+    }
+}
+
+/// A float16 element, as raw bits.
+#[derive(Clone, Copy)]
+struct Half(u16);
+
+impl Elem for Half {
+    fn f(self) -> f64 {
+        half_to_f64(self.0)
+    }
 }
 
 fn half_to_f64(bits: u16) -> f64 {
@@ -680,23 +717,60 @@ fn half_to_f64(bits: u16) -> f64 {
     }
 }
 
-/// The similarity of two embeddings under an index metric (upstream `EmbeddingIndex.similarity_clause()`): cosine
-/// similarity, inner product, or L2 distance.
-pub fn similarity_score(metric: &str, a: &Value, b: &Value) -> Value {
-    let (Some(x), Some(y)) = (vector(a), vector(b)) else { return Value::Null };
-    if x.len() != y.len() {
-        return Value::Null;
-    }
-    let dot: f64 = x.iter().zip(&y).map(|(p, q)| p * q).sum();
-    Value::Float(match metric {
+fn half_slice(bits: &[u16]) -> &[Half] {
+    // SAFETY: `Half` is a `Copy` newtype of `u16` with the same size and alignment
+    unsafe { std::slice::from_raw_parts(bits.as_ptr().cast::<Half>(), bits.len()) }
+}
+
+/// The score of two embeddings of equal length (each sum is taken in element order, in f64).
+fn score<A: Elem, B: Elem>(metric: &str, x: &[A], y: &[B]) -> f64 {
+    let dot: f64 = x.iter().zip(y).map(|(p, q)| p.f() * q.f()).sum();
+    match metric {
         "ip" => dot,
-        "l2" => x.iter().zip(&y).map(|(p, q)| (p - q) * (p - q)).sum::<f64>().sqrt(),
+        "l2" => x
+            .iter()
+            .zip(y)
+            .map(|(p, q)| {
+                let d = p.f() - q.f();
+                d * d
+            })
+            .sum::<f64>()
+            .sqrt(),
         _ => {
-            let nx = x.iter().map(|p| p * p).sum::<f64>().sqrt();
-            let ny = y.iter().map(|q| q * q).sum::<f64>().sqrt();
+            let nx = x.iter().map(|p| p.f() * p.f()).sum::<f64>().sqrt();
+            let ny = y.iter().map(|q| q.f() * q.f()).sum::<f64>().sqrt();
             if nx == 0.0 || ny == 0.0 { f64::NAN } else { dot / (nx * ny) }
         }
+    }
+}
+
+fn score_with<A: Elem>(metric: &str, x: &[A], b: &crate::value::ArrayData) -> Option<f64> {
+    use crate::value::ArrayData;
+    let n = x.len();
+    Some(match b {
+        ArrayData::F32(y) if y.len() == n => score(metric, x, y),
+        ArrayData::F64(y) if y.len() == n => score(metric, x, y),
+        ArrayData::F16(y) if y.len() == n => score(metric, x, half_slice(y)),
+        ArrayData::I64(y) if y.len() == n => score(metric, x, y),
+        ArrayData::I32(y) if y.len() == n => score(metric, x, y),
+        _ => return None,
     })
+}
+
+/// The similarity of two embeddings under an index metric (upstream `EmbeddingIndex.similarity_clause()`): cosine
+/// similarity, inner product, or L2 distance; NULL unless both are numeric arrays of the same length.
+pub fn similarity_score(metric: &str, a: &Value, b: &Value) -> Value {
+    use crate::value::ArrayData;
+    let (Value::Array(a), Value::Array(b)) = (a, b) else { return Value::Null };
+    let s = match &a.data {
+        ArrayData::F32(x) => score_with(metric, x, &b.data),
+        ArrayData::F64(x) => score_with(metric, x, &b.data),
+        ArrayData::F16(x) => score_with(metric, half_slice(x), &b.data),
+        ArrayData::I64(x) => score_with(metric, x, &b.data),
+        ArrayData::I32(x) => score_with(metric, x, &b.data),
+        _ => None,
+    };
+    s.map_or(Value::Null, Value::Float)
 }
 
 #[cfg(test)]
