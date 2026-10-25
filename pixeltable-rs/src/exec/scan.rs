@@ -551,7 +551,7 @@ fn path_expr_pure(e: &crate::expr::Expr, infos: &[&ElemInfo], calls: &Option<sup
             None => true,
         }
     };
-    super::par::is_pure(e, &col_pure, &|n| calls.as_ref().is_some_and(|r| r.contains(n)))
+    super::par::is_pure(e, &col_pure, &|n| calls.as_ref().is_some_and(|r| r.complete(n)))
 }
 
 /// `eval_into()` for a batch of rows of table `infos[0]` (`rows[i]` belongs to the base path rows `bases[i]`); with
