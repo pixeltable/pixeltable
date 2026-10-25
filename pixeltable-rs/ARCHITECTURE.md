@@ -329,8 +329,10 @@ The contract, which every phase-B caller relies on:
 - outcomes equal sequential evaluation: each row gets its value or its error (a failed batch fails each of its rows);
   `cols_with_excs` lists columns in the order row-by-row evaluation meets them;
 - with `on_error='abort'` (and in queries) the error is that of the first failing row in row order, then column order
-  (`eval_computed_batch()`/`eval_rows_batch()` return it); calls for rows after a failed row are not started, and
-  phase B evaluates (calls) what it still needs itself if a failure was not consulted (`&`/`|`);
+  (`eval_computed_batch()`/`eval_rows_batch()` return it); calls for rows after a failed row are not started, phase
+  B stops at the first failing row, and it evaluates (calls) what it still needs itself, in row order in its own
+  thread, if a failure was not consulted (`&`/`|`): an expression that reads a call node with skipped rows is not pure
+  (`CallResults::complete()`), and `expr::eval` refuses to run user code on a rayon thread;
 - a call is made even where `&`/`|` would not need it (upstream evaluates every sub-expression of a row too);
 - an interrupt (a BaseException that is not an Exception, raised by a call or delivered to the main thread while it
   waits) cancels the outstanding work and propagates at once;
