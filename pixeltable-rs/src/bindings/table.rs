@@ -597,7 +597,10 @@ pub fn tbl_add_computed_column<'py>(
     let mut specs = parse_schema(&schema)?;
     let spec = specs.pop().ok_or_else(|| Error::internal("missing column spec"))?;
     let Some(plan) = with_catalog(py, |cat| AddComputedPlan::new(cat, id, spec, ie))? else {
-        return Ok(status_dict(py, &UpdateStatus::default())?);
+        // the column exists and `if_exists='ignore'`: nothing was added
+        let d = status_dict(py, &UpdateStatus::default())?;
+        d.set_item("ignored", true)?;
+        return Ok(d);
     };
     let mut stats = RowCountStats::default();
     let mut cols_with_excs = Vec::new();

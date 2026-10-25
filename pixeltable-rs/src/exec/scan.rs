@@ -425,6 +425,10 @@ pub struct EvalSink<'a> {
     pub fail_on_exception: bool,
     pub stats: &'a mut RowCountStats,
     pub cols_with_excs: &'a mut Vec<String>,
+    /// evaluate with Python semantics (`Table.compute()`), else with SQL semantics where upstream evaluates in SQL:
+    /// it computes stored values with a query over the rows (only an insert's own computed columns are evaluated in
+    /// Python, see `compute::RowCells`)
+    pub python: bool,
 }
 
 impl EvalSink<'_> {
@@ -480,7 +484,7 @@ pub fn eval_into(
     stats: &mut RowCountStats,
     cols_with_excs: &mut Vec<String>,
 ) -> Result<()> {
-    let mut sink = EvalSink { tbl_name, fail_on_exception, stats, cols_with_excs };
+    let mut sink = EvalSink { tbl_name, fail_on_exception, stats, cols_with_excs, python: false };
     for k in 0..cols.len() {
         eval_col_into(row, cols, k, infos, base, &mut sink, None)?;
     }
@@ -503,7 +507,7 @@ fn eval_col_into(
         let mut rows: Vec<&StoredRow> = Vec::with_capacity(base.len() + 1);
         rows.push(row);
         rows.extend_from_slice(base);
-        let ctx = PathCtx { elems: infos, rows: &rows, python: true, calls };
+        let ctx = PathCtx { elems: infos, rows: &rows, python: sink.python, calls };
         match inherited_error(&ctx, cols, k)? {
             Some(e) => Err(e),
             None => Ok(eval(&c.expr, &ctx)),
@@ -567,8 +571,9 @@ pub fn eval_rows_into(
     fail_on_exception: bool,
     stats: &mut RowCountStats,
     cols_with_excs: &mut Vec<String>,
+    python: bool,
 ) -> Result<()> {
-    match eval_rows_batch(rows, bases, cols, infos, tbl_name, fail_on_exception, stats, cols_with_excs)? {
+    match eval_rows_batch(rows, bases, cols, infos, tbl_name, fail_on_exception, stats, cols_with_excs, python)? {
         Some((_, k, err)) if fail_on_exception => Err(eval_error(&cols[k].expr, err)),
         _ => Ok(()),
     }
@@ -642,10 +647,11 @@ pub fn eval_rows_batch(
     abort: bool,
     stats: &mut RowCountStats,
     cols_with_excs: &mut Vec<String>,
+    python: bool,
 ) -> Result<Option<(usize, usize, Error)>> {
     let known_errors = cols_with_excs.len();
     let derived = |c: &ColumnRef| infos.iter().find(|e| e.tbl_id == c.tbl_id).and_then(|e| e.unstored.get(&c.col_id).cloned());
-    let mut sink = EvalSink { tbl_name, fail_on_exception: false, stats, cols_with_excs };
+    let mut sink = EvalSink { tbl_name, fail_on_exception: false, stats, cols_with_excs, python };
     let mut first: Option<(usize, usize, Error)> = None;
     let mut limit = rows.len();
     let earlier = |first: &Option<(usize, usize, Error)>, r: usize, k: usize| first.as_ref().is_none_or(|(fr, fk, _)| (r, k) < (*fr, *fk));
@@ -658,7 +664,7 @@ pub fn eval_rows_batch(
                 let rows: &[StoredRow] = rows;
                 super::prefetch::prefetch(&exprs, &derived, limit, abort, &|i, slot, f| {
                     let path: Vec<&StoredRow> = std::iter::once(&rows[i]).chain(bases[i].iter().copied()).collect();
-                    f(&PathCtx { elems: infos, rows: &path, python: true, calls: Some(slot) })
+                    f(&PathCtx { elems: infos, rows: &path, python, calls: Some(slot) })
                 })?
             };
             let pure = super::par::worth_parallel(limit)
@@ -670,7 +676,8 @@ pub fn eval_rows_batch(
                 let outcomes = super::par::map_mut(&mut rows[..limit], |i, row| -> Result<(RowCountStats, Option<(usize, Error)>)> {
                     let mut stats = RowCountStats::default();
                     let mut names = Vec::new();
-                    let mut local = EvalSink { tbl_name, fail_on_exception: false, stats: &mut stats, cols_with_excs: &mut names };
+                    let mut local =
+                        EvalSink { tbl_name, fail_on_exception: false, stats: &mut stats, cols_with_excs: &mut names, python };
                     let slot = calls_ref.as_ref().map(|results| CallSlot { results, row: i });
                     let mut first = None;
                     for &k in &plain {
@@ -720,7 +727,7 @@ pub fn eval_rows_batch(
             let results = {
                 let paths: Vec<Vec<&StoredRow>> =
                     rows.iter().zip(bases).map(|(r, b)| std::iter::once(r).chain(b.iter().copied()).collect()).collect();
-                super::query::eval_rows_with_windows(infos, &paths, &c.expr, true)?
+                super::query::eval_rows_with_windows(infos, &paths, &c.expr, python)?
             };
             for (i, (row, result)) in rows.iter_mut().zip(results).enumerate() {
                 if let Some(err) = sink.record(row, c, result)? {

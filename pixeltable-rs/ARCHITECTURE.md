@@ -93,6 +93,8 @@ python/pixeltable/
   functions/, iterators/, io/   generated stubs; functions/_registry.py resolves names to Rust builtins
   _metadata.py, _update_status.py, _row.py   public data classes copied from upstream
   _testing.py       reset_db(), reload_catalog()
+  _console.py       user-visible console messages ("Created table 't'.", "Inserted 2 rows ..."), as upstream's
+                    console logger prints them (logger `pixeltable`, stdout, config `pixeltable.verbosity`)
   _unimplemented.py helpers for not-yet-implemented API
 tools/gen_function_stubs.py   generates the stub modules from upstream sources (ast only)
 tests_rs/                     pixeltable-rs's own tests
@@ -173,8 +175,11 @@ Evaluation (`expr/eval.rs`) is row at a time against a `RowContext` (column valu
 propagates, comparisons with NULL are NULL, a NULL predicate filters the row out, division by zero is NULL, `//` is
 floor division. Integer arithmetic is checked: overflow raises Postgres' "bigint out of range" (as upstream's SQL
 does), never wraps or panics. Arithmetic that upstream would run in SQL (`exec::query::is_sql_expr()`, and not
-`RowContext::python_semantics()`) yields NULL for a zero divisor and truncates an integer `%`; computed columns use
-Python semantics (`ZeroDivisionError`, floored `%`). Aggregate and window function results are computed by the
+`RowContext::python_semantics()`) yields NULL for a zero divisor and truncates an integer `%`; an insert's own
+computed columns and `Table.compute()` use Python semantics (`ZeroDivisionError`, floored `%`), as upstream evaluates
+them in Python. Everything upstream computes with a query over stored rows (adding a computed column, updates and
+recomputation, a view's rows, index values) uses SQL semantics for SQL-expressible nodes (`scan::EvalSink::python`,
+`ViewCompute::python`). Aggregate and window function results are computed by the
 executor and handed to evaluation through `RowContext::precomputed()`.
 
 ## Functions
@@ -498,8 +503,9 @@ creates the table, then inserts. `return_rows` (insert, update, batch_update) re
 rows (media by file URL), index values as `<col>:<idx>` and cell errors as `<col>:md` (`exec::insert::ReturnCol`).
 `Table.compute()` (`exec/compute_rows.rs`) evaluates only the requested outputs and their dependencies (stored and
 unstored computed columns alike) for rows of the root base table, applies view filters, and stores nothing.
-Computed columns are evaluated with Python semantics (`RowContext::python_semantics()`: a division by zero raises
-`ZeroDivisionError`), query expressions with SQL semantics (NULL). `UpdateStatus.cols_with_excs` names columns
+An insert's computed columns are evaluated with Python semantics (`RowContext::python_semantics()`: a division by
+zero raises `ZeroDivisionError`), queries and the other mutations with SQL semantics (NULL, see Expressions).
+`UpdateStatus.cols_with_excs` names columns
 `<table>.<column>` (`<table>.<column>:<index>` for index values).
 
 Indexes (`catalog/indexes.rs`, `TableMd.indexes`): equality filters on a column with a B-tree index use a key index of

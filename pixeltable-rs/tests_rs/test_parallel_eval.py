@@ -15,6 +15,11 @@ N = 20_000  # above exec::par::MIN_PARALLEL_ROWS
 
 
 @pxt.udf
+def inv_mod3(a: int) -> int:
+    return 1 // (a % 3)
+
+
+@pxt.udf
 def embed(s: str) -> pxt.Array[(8,), pxt.Float]:
     v = np.random.default_rng(abs(hash(s)) % (2**32)).random(8, dtype=np.float32)
     return v / np.linalg.norm(v)
@@ -118,8 +123,9 @@ class TestParallelEval:
         status = t.add_computed_column(d=t.a + t.b, on_error='abort')
         assert status.num_excs == 0
         assert t.order_by(t.a).select(t.d).collect()['d'] == [3 * a for a in range(N)]
+        # (a Python function: SQL-expressible arithmetic over existing rows yields NULL for a zero divisor, as upstream)
         with pytest.raises(pxt.Error, match="Error while evaluating computed column 'e'"):
-            t.add_computed_column(e=t.a // (t.a % 3), on_error='abort')
+            t.add_computed_column(e=inv_mod3(t.a), on_error='abort')
         assert 'e' not in t.columns()
         # new columns read what they need of each row: an unstored column (and what it reads), a cell with an error
         t.add_computed_column(u=t.a * 10, stored=False)

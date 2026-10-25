@@ -32,6 +32,8 @@ pub struct ViewCompute {
     pub compute_info: ElemInfo,
     /// true: an evaluation error is an error (`compute(on_error='abort')`), else a cell error
     pub fail_on_exception: bool,
+    /// evaluate with Python semantics (`compute()`), else as upstream's query plans do (see `scan::EvalSink`)
+    pub python: bool,
     /// the view's sample clause (a live view's is fractional and seeded)
     pub sample: Option<super::SampleClause>,
 }
@@ -74,6 +76,7 @@ impl ViewCompute {
             media: Some(media),
             compute_info,
             fail_on_exception: false,
+            python: false,
             sample,
         })
     }
@@ -186,6 +189,7 @@ impl ViewCompute {
             self.fail_on_exception,
             &mut status.row_count_stats,
             &mut status.cols_with_excs,
+            self.python,
         )?;
         if let Some(media) = &self.media {
             for row in rows.iter_mut() {

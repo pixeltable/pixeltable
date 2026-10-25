@@ -403,6 +403,7 @@ impl UpdatePlan {
             fail_on_exception,
             &mut own.status.row_count_stats,
             &mut own.status.cols_with_excs,
+            false,
         )?;
         if let Some(err) = value_error {
             return Err(err);

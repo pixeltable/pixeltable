@@ -238,3 +238,48 @@ def test_select_list_and_subexprs() -> None:
         'img.rotate(90)',
         'img.rotate(90).resize([224, 224])',
     ]
+
+
+def test_sql_semantics_outside_inserts() -> None:
+    """Upstream evaluates SQL-expressible expressions in SQL wherever it computes values with a query over stored rows
+    (adding a computed column, updates, recomputation, view rows); only an insert's own computed columns, and
+    compute(), are evaluated in Python."""
+    t = pxt.create_table('t', {'a': pxt.Int, 'z': pxt.Int | None})
+    t.insert([{'a': 1, 'z': 0}, {'a': 2, 'z': 0}])
+    assert t.add_computed_column(b=t.a // t.z).num_excs == 0
+    assert t.select(t.b, t.b.errortype).collect()['b_errortype'] == [None, None]
+    assert t.update({'a': t.a + 0}).num_excs == 0
+    assert t.recompute_columns('b').num_excs == 0
+    v = pxt.create_view('v', t, additional_columns={'vc': t.a // t.z})
+    status = t.insert([{'a': 3, 'z': 0}], on_error='ignore')
+    assert status.num_excs == 1 and status.cols_with_excs == ['t.b']
+    assert v.select(v.vc.errortype).collect()['vc_errortype'] == [None, None, None]
+    out = v.compute([{'a': 3, 'z': 0}], on_error='ignore')
+    assert out[0].errors['vc']['errortype'] == 'ZeroDivisionError'
+
+
+def test_console_messages(capsys: pytest.CaptureFixture[str]) -> None:
+    """Operations report what they did on stdout, as upstream's console logger does."""
+    import re
+
+    pxt.create_dir('d')
+    pxt.create_dir('d', if_exists='ignore')
+    t = pxt.create_table('d/t', {'a': pxt.Int})
+    pxt.create_table('d/t', {'a': pxt.Int}, if_exists='ignore')
+    t.insert([{'a': 1}, {'a': 2}])
+    t.add_computed_column(b=t.a + 1)
+    t.add_computed_column(b=t.a + 1, if_exists='ignore')
+    pxt.create_view('d/v', t)
+    pxt.create_snapshot('d/s', t, if_exists='ignore')
+    pxt.create_snapshot('d/s', t, if_exists='ignore')
+    out = re.sub(r'in \d+\.\d\d s \([\d.]+ rows/s\)', 'in <t>', capsys.readouterr().out)
+    assert out.splitlines() == [
+        "Created directory 'd'.",
+        "Created table 't'.",
+        "Table 't' already exists.",
+        'Inserted 2 rows with 0 errors in <t>',
+        'Added 2 column values with 0 errors in <t>',
+        "Created view 'd/v'.",
+        "Created snapshot 'd/s'.",
+        "Snapshot 'd/s' already exists.",
+    ]

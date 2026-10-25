@@ -516,7 +516,7 @@ impl AddComputedPlan {
         let path_rows = self.path.rows()?;
         if super::query::has_window_calls(&self.expr) {
             // window functions are evaluated over all visible rows in window order
-            let results = super::query::eval_rows_with_windows(&infos, &path_rows, &self.expr, true)?;
+            let results = super::query::eval_rows_with_windows(&infos, &path_rows, &self.expr, false)?;
             for (r, res) in path_rows.iter().zip(results) {
                 stats.upd_rows += 1;
                 stats.computed_values += 1;
@@ -544,7 +544,7 @@ impl AddComputedPlan {
         let mut rows = super::scan::rows_for_eval(&path_rows, &infos, cols);
         let bases: Vec<&[&StoredRow]> = path_rows.iter().map(|r| &r[1..]).collect();
         stats.upd_rows += rows.len() as i64;
-        eval_rows_batch(&mut rows, &bases, cols, &infos, &self.tbl_name, fail_on_exception, stats, cols_with_excs)?;
+        eval_rows_batch(&mut rows, &bases, cols, &infos, &self.tbl_name, fail_on_exception, stats, cols_with_excs, false)?;
         if fail_on_exception {
             // the error of the first row that failed (also an error it inherits from a cell it reads)
             if let Some(err) = rows.iter().find_map(|r| r.error(col.col_id)) {
