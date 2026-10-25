@@ -502,10 +502,14 @@ pub fn display_call(fc: &FunctionCall) -> String {
     if !fc.group_by.is_empty() {
         args.push(format!("group_by={}", print_list(&fc.group_by)));
     }
+    let name = match &fc.func {
+        FuncRef::Agg(a) => a.display_name(),
+        f => f.name().to_string(),
+    };
     if skip == 1 {
-        format!("{}.{}({})", display(&fc.args[0]), fc.func.name(), args.join(", "))
+        format!("{}.{}({})", display(&fc.args[0]), name, args.join(", "))
     } else {
-        format!("{}({})", fc.func.name(), args.join(", "))
+        format!("{name}({})", args.join(", "))
     }
 }
 
