@@ -273,7 +273,9 @@ class FileCache:
 
     def lookup(self, url: str) -> Path | None:
         """Look up a file in the cache by URL and return its Path, or None if not found.
-        Updates the file's last used time, so it's safe to use for lease_seconds."""
+        Updates the file's last used time, so it's safe to use for lease_seconds.
+        An entry whose file size no longer matches the index is dropped and reported as a miss, so the
+        caller downloads it again."""
         with self._lock:
             self.num_requests += 1
             key = self._url_hash(url)
@@ -298,12 +300,13 @@ class FileCache:
                 return None
 
             if file_info.st_size != entry.size:
-                # the file changed since it was cached (eg, a truncated write): drop it and report a miss,
-                # so the caller downloads it again rather than using a corrupt copy
-                self._try_remove_file(path)
+                # the file's size no longer matches the index: another process replaced it (cache writes go
+                # through os.replace()) or it was modified outside the cache. Drop the index entry and report
+                # a miss, so the caller downloads it again; the next add() replaces it atomically. The file is
+                # not unlinked here: it may be another process's replacement, already handed out there.
                 del self.cache[key]
                 self.total_size -= entry.size
-                _logger.debug(f'file cache: evicted corrupt entry for {redact_url(url)}')
+                _logger.debug(f'file cache: dropped size-mismatched entry for {redact_url(url)}')
                 return None
 
             self.cache.move_to_end(key, last=True)
@@ -313,16 +316,27 @@ class FileCache:
             return path
 
     def remove(self, url: str) -> None:
-        """Drop the cache entry for `url`, if present, and delete its file, so the next lookup() re-downloads it.
-        Recovers an entry that lookup() cannot detect as corrupt (eg, a download that was truncated before it
-        was cached)."""
+        """Drop the cache entry for `url`, if present, so the next lookup() reports a miss and the caller
+        downloads it again. Recovers an entry whose corruption leaves the recorded size unchanged (eg, a
+        download that was truncated before it was cached).
+
+        The file is unlinked only once its lease has expired; a file another process is using stays, and
+        the next add() replaces it atomically."""
         with self._lock:
             key = self._url_hash(url)
             entry = self.cache.pop(key, None)
-            if entry is not None:
-                self._try_remove_file(entry.path)
-                self.total_size -= entry.size
-                _logger.debug(f'file cache: removed entry for {redact_url(url)}')
+            if entry is None:
+                return
+            self.total_size -= entry.size
+            with self._evict_lock.write_lock():
+                # the mtime check and the unlink stay atomic w.r.t. lease renewals, as in ensure_capacity()
+                try:
+                    mtime = os.stat(str(entry.path)).st_mtime
+                except OSError:
+                    mtime = None  # already gone
+                if mtime is None or time.time() - mtime >= self.lease_seconds:
+                    self._try_remove_file(entry.path)
+            _logger.debug(f'file cache: removed entry for {redact_url(url)}')
 
     def add(self, tbl_id: UUID, col_id: int, url: str, path: Path) -> Path:
         """Adds url at 'path' to cache and returns its new path.
@@ -339,24 +353,22 @@ class FileCache:
                         # if the file was removed since we created the self.cache entry.
                         os.utime(str(existing.path))
                         existing_file_info = os.stat(str(existing.path))
-                        existing.last_used = datetime.fromtimestamp(
-                            existing_file_info.st_mtime, tz=timezone.utc
-                        )
+                        existing.last_used = datetime.fromtimestamp(existing_file_info.st_mtime, tz=timezone.utc)
+                except FileNotFoundError:
+                    # stale index entry: the file was evicted by another process; drop it and re-add below
+                    pass
+                else:
                     if existing_file_info.st_size == existing.size:
                         # discard the redundant download and return the existing file
                         self._try_remove_file(path)
                         self.cache.move_to_end(key, last=True)
                         self.keys_retrieved.add(key)
                         return existing.path
-                    # the cached file changed since it was cached (eg, a truncated write): corrupt; drop it
-                    # and keep the fresh download, re-added below
-                    self._try_remove_file(existing.path)
-                    del self.cache[key]
-                    self.total_size -= existing.size
-                except FileNotFoundError:
-                    # stale index entry: the file was evicted by another process; drop it and re-add below
-                    del self.cache[key]
-                    self.total_size -= existing.size
+                    # the file's size no longer matches the index entry (eg, another process replaced it):
+                    # keep the fresh download and re-add below. No unlink: when the paths coincide the
+                    # os.replace() below overwrites it, and another process may hold a lease on it.
+                del self.cache[key]
+                self.total_size -= existing.size
 
             file_info = os.stat(str(path))
             self.ensure_capacity(file_info.st_size)

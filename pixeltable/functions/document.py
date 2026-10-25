@@ -204,7 +204,7 @@ class document_splitter(pxt.PxtIterator):
             this parameter overrides `tiktoken_encoding`. This parameter is ignored unless the `'token_limit'`
             separator is specified.
         image_dpi: DPI to use when extracting images from PDFs. Defaults to 300.
-        image_format: has no effect; page images are stored as JPEG.
+        image_format: currently has no effect; it is accepted for backward compatibility.
 
     Examples:
         All these examples assume an existing table `tbl` with a column `doc` of type `pxt.Document`.
@@ -579,14 +579,15 @@ class document_splitter(pxt.PxtIterator):
         limit = bound_args.get('limit')
         overlap = bound_args.get('overlap')
 
-        if Element.IMAGE in elements and separators != [Separator.PAGE]:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                "Image elements are only supported for the 'page' separator on PDF documents",
-            )
-        image_dpi = bound_args.get('image_dpi')
-        if image_dpi is not None and image_dpi <= 0:
-            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'image_dpi' must be a positive number")
+        if Element.IMAGE in elements:
+            if separators != [Separator.PAGE]:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    "Image elements are only supported for the 'page' separator on PDF documents",
+                )
+            image_dpi = bound_args.get('image_dpi')
+            if image_dpi is not None and image_dpi <= 0:
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'image_dpi' must be a positive integer")
         if limit is not None or overlap is not None:
             if Separator.TOKEN_LIMIT not in separators and Separator.CHAR_LIMIT not in separators:
                 raise excs.RequestError(

@@ -8,6 +8,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.local_store import TempStore
 
 from .conftest import SampleFileServer
 from .utils import get_image_files
@@ -86,10 +87,12 @@ class TestFileCache:
         assert sum(r.category is pxt.PixeltableWarning for r in record) == 1
 
     def test_corrupt_entry(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
-        """A cached file corrupted after caching is evicted on lookup and re-downloaded; remove() evicts
-        an entry that lookup() cannot detect as corrupt."""
+        """A cached file whose size no longer matches the index drops its index entry on lookup() and is
+        re-downloaded; the file itself is never unlinked, since it may be another process's replacement.
+        remove() evicts an entry that lookup() cannot detect as corrupt, unlinking only unleased files."""
         fc = FileCache.get()
         fc.clear()
+        fc.set_lease_seconds(60)  # an earlier test may have set it to 0
 
         image_file = get_image_files()[0]
         url = sample_file_server.url(image_file)
@@ -100,18 +103,43 @@ class TestFileCache:
         assert cached is not None
         assert cached.read_bytes() == pathlib.Path(image_file).read_bytes()
 
-        # a file whose size no longer matches the recorded size is evicted on lookup, not handed out
+        # a file whose size no longer matches the recorded size (eg, truncated in place, or replaced by
+        # another process) reports a miss, not a hit; the index entry is dropped but the file stays: it may
+        # be another process's replacement, already handed out there
         with open(cached, 'r+b') as f:
             f.truncate(1)
         assert fc.lookup(url) is None
+        assert cached.exists()
         _ = t.select(t.image).collect()  # re-downloads the file
         cached = fc.lookup(url)
         assert cached is not None
         assert cached.read_bytes() == pathlib.Path(image_file).read_bytes()
 
-        # remove() evicts an entry whose corruption leaves the size unchanged
+        # add() with a size-mismatched index entry (this process's index predates another process's
+        # replacement) keeps the fresh download; the stale file is overwritten by os.replace(), not unlinked
+        with open(cached, 'r+b') as f:
+            f.truncate(1)
+        entry = fc.cache[fc._url_hash(url)]
+        fresh = TempStore.create_path(extension=entry.ext)
+        fresh.write_bytes(pathlib.Path(image_file).read_bytes())
+        readded = fc.add(entry.tbl_id, entry.col_id, url, fresh)
+        assert readded == cached
+        assert cached.read_bytes() == pathlib.Path(image_file).read_bytes()
+
+        # remove() drops the index entry but leaves a file whose lease is fresh (eg, renewed by another
+        # process); the next add() replaces it atomically
+        _ = fc.lookup(url)  # renew the lease
         fc.remove(url)
         assert fc.lookup(url) is None
+        assert cached.exists()
+
+        # once the lease has expired, remove() unlinks the file
         _ = t.select(t.image).collect()
-        assert fc.lookup(url) is not None
+        cached = fc.lookup(url)
+        assert cached is not None
+        fc.set_lease_seconds(0)
+        fc.remove(url)
+        assert fc.lookup(url) is None
+        assert not cached.exists()
         fc.remove(url)  # a second remove() on an uncached url is a no-op
+        fc.set_lease_seconds(Env.get()._file_cache_lease_s)
