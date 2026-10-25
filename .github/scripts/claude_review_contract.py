@@ -154,6 +154,17 @@ def review_anchor(location: Any, files: dict[str, Any]) -> dict[str, Any] | None
     return anchor
 
 
+def claim_anchor(claim: dict[str, Any], files: dict[str, Any]) -> dict[str, Any] | None:
+    """Prefer a diff hunk. The cited location wins, then the first in-hunk evidence line."""
+    location = claim.get('location')
+    if isinstance(location, dict) and inline_valid(location, files):
+        return review_anchor(location, files)
+    for ref in claim.get('evidence') or []:
+        if isinstance(ref, dict) and inline_valid(ref, files):
+            return review_anchor(ref, files)
+    return review_anchor(location, files)
+
+
 _SUGGESTION_FENCE = re.compile(r'```suggestion\n.*?```', re.DOTALL)
 
 
@@ -382,7 +393,14 @@ def check_decision(
     if not isinstance(decision, dict):
         raise ValueError('Decision must be an object')
     key = text(decision.get('finding_id'), 'finding_id')
-    if key in seen_decisions or (key not in findings and key not in invalid_keys):
+    if key in seen_decisions:
+        raise ValueError('Decision has a duplicate or unknown finding ID')
+    if key not in findings and key not in invalid_keys:
+        # A candidate the model rejected and left out of findings is not a coverage gap.
+        # An open prior claim still has to be revalidated.
+        if decision.get('decision') == 'reject' and key not in open_claim_ids(previous):
+            seen_decisions.add(key)
+            return key, None
         raise ValueError('Decision has a duplicate or unknown finding ID')
     seen_decisions.add(key)
     if key in invalid_keys:
@@ -680,7 +698,7 @@ def render(data: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, An
         ref = claim['evidence'][0]
         link = f'[source]({source_link(ref, manifest)})'
         location = claim.get('location')
-        anchor = None if claim['kind'] == 'maintenance' else review_anchor(location, manifest['diff_files'])
+        anchor = None if claim['kind'] == 'maintenance' else claim_anchor(claim, manifest['diff_files'])
         if claim['kind'] == 'maintenance':
             maintenance.append(f'- **{claim["title"]}** ({link}): {claim["comment"]}')
         elif anchor is not None:

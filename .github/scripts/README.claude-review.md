@@ -50,8 +50,9 @@ publication request. To publish an already validated result, run the same host c
 Every published defect, rule finding, or design objection needs a declared independent decision. The renderer uses the exact
 checked record. Coverage, finding, and decision gaps produce an incomplete result and preserve valid checked
 findings. Invalid snapshots, tampered sources, and malformed pass envelopes still fail validation. A review can skip
-only when preparation supplies a whole-change policy, currently an empty diff. A comment on a line outside the
-diff hunks is still attached when that file is part of the pull request. A file the pull request does not change
+only when preparation supplies a whole-change policy, currently an empty diff. A comment attaches to the finding's
+location when that range is in a diff hunk, otherwise to the first in-hunk evidence reference, and otherwise to the
+cited line of a changed file. A file the pull request does not change
 stays in the body. A suggestion replaces only the right-side lines the comment is attached to, and only
 when that range is shorter than six lines. Existing debt is published as maintenance and does not by itself make the review
 incomplete. A skipped result records its reason in the artifacts and makes no publication request.

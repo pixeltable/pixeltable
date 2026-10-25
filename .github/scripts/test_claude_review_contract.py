@@ -202,12 +202,14 @@ class ContractTest(unittest.TestCase):
         add_finding(result, finding('first'))
         outside = finding('second')
         outside['subject'] = 'example.py#outside'
+        outside['evidence'] = [{'path': 'example.py', 'side': 'RIGHT', 'line': 8}]
         outside['location'] = {'path': 'example.py', 'side': 'RIGHT', 'line': 8}
         add_finding(result, outside)
         spanning = finding('third')
         spanning['subject'] = 'example.py#span'
         spanning['suggestion'] = 'return early\n'
         spanning['comment'] = 'The range is wider than one hunk.\n\n```suggestion\nreturn early\n```'
+        spanning['evidence'] = [{'path': 'example.py', 'side': 'RIGHT', 'start_line': 4, 'line': 10}]
         spanning['location'] = {'path': 'example.py', 'side': 'RIGHT', 'start_line': 4, 'line': 10}
         add_finding(result, spanning)
         absent = finding('fourth')
@@ -243,6 +245,7 @@ class ContractTest(unittest.TestCase):
         outside['subject'] = 'example.py#outside'
         outside['suggestion'] = 'return value\n'
         outside['comment'] = 'Guard the caller.\n\n```suggestion\nreturn value\n```'
+        outside['evidence'] = [{'path': 'example.py', 'side': 'RIGHT', 'line': 8}]
         outside['location'] = {'path': 'example.py', 'side': 'RIGHT', 'line': 8}
         left = finding('left-suggestion')
         left['subject'] = 'example.py#left'
@@ -261,6 +264,53 @@ class ContractTest(unittest.TestCase):
         self.assertNotIn('```suggestion', review['body'].split(contract.STATE_MARKER)[0])
         long_fix = {**fixed, 'suggestion': 'a\n' * 6}
         self.assertEqual(contract.suggestion_fence(long_fix, fixed['location']), '')
+
+    def test_in_hunk_evidence_anchors_the_comment_when_the_location_is_outside(self) -> None:
+        manifest, result = fixture()
+        claim = finding('retarget')
+        claim['location'] = {'path': 'example.py', 'side': 'RIGHT', 'line': 8}
+        claim['evidence'] = [
+            {'path': 'example.py', 'side': 'RIGHT', 'line': 8},
+            {'path': 'example.py', 'side': 'RIGHT', 'start_line': 1, 'line': 2},
+        ]
+        claim['suggestion'] = 'return value\n'
+        claim['comment'] = 'The check misses this caller.\n\n```suggestion\nreturn value\n```'
+        add_finding(result, claim)
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'complete')
+        self.assertEqual(review['comments'][0]['line'], 2)
+        self.assertEqual(review['comments'][0]['start_line'], 1)
+        self.assertNotIn('```suggestion', review['comments'][0]['body'])
+
+    def test_rejected_candidate_omitted_from_findings_stays_complete(self) -> None:
+        manifest, result = fixture()
+        add_finding(result, finding())
+        result['decisions'].append(
+            {
+                'finding_id': 'lines:empty-assertion',
+                'checker': 'cross-check',
+                'decision': 'reject',
+                'reason': 'Disproved.',
+            }
+        )
+        review, stats = contract.render(result, manifest)
+        self.assertEqual(stats['status'], 'complete')
+        self.assertEqual(stats['gaps'], [])
+        self.assertEqual(len(review['comments']), 1)
+        result['decisions'].append(
+            {'finding_id': 'lines:empty-assertion', 'checker': 'cross-check', 'decision': 'reject', 'reason': 'Again.'}
+        )
+        _, duplicate = contract.render(result, manifest)
+        self.assertTrue(any('duplicate or unknown finding ID' in gap for gap in duplicate['gaps']))
+        prior = finding('prior:open')
+        manifest['previous'] = {'records': [{'claim': prior, 'posted': True, 'status': 'keep'}]}
+        result['decisions'] = [
+            {'finding_id': 'prior:open', 'checker': 'cross-check', 'decision': 'reject', 'reason': 'No longer true.'}
+        ]
+        _, unresolved = contract.render(result, manifest)
+        self.assertTrue(
+            any('prior:open: Decision has a duplicate or unknown finding ID' in gap for gap in unresolved['gaps'])
+        )
 
     def test_existing_debt_is_maintenance_and_stays_complete(self) -> None:
         manifest, result = fixture()
@@ -643,6 +693,7 @@ class ContractTest(unittest.TestCase):
             'subject': 'example.py#body-only',
             'title': 'Body-only defect title',
             'comment': 'Body-only defect explanation.',
+            'evidence': [{'path': 'example.py', 'side': 'RIGHT', 'line': 15}],
             'location': None,
         }
         maint_claim = {
@@ -662,7 +713,7 @@ class ContractTest(unittest.TestCase):
         self.assertIn(
             '- **Medium: Body-only defect title** ([source](https://github.com/o/r/blob/'
             + manifest['head_sha']
-            + '/example.py#L2-L2))',
+            + '/example.py#L15-L15))',
             review['body'],
         )
         self.assertIn('  Body-only defect explanation.', review['body'])
