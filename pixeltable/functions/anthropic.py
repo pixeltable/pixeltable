@@ -147,47 +147,78 @@ class AnthropicRateLimitsInfo(env.RateLimitsInfo):
 
 
 class Usage(TypedDict):
+    """The token counts of a message."""
+
     input_tokens: int
     output_tokens: int
     cache_creation_input_tokens: NotRequired[int | None]
     cache_read_input_tokens: NotRequired[int | None]
     cache_creation: NotRequired[dict[str, Any] | None]
+    """The cache creation tokens by TTL."""
     inference_geo: NotRequired[str | None]
+    """The geographic region where inference ran."""
     output_tokens_details: NotRequired[dict[str, Any] | None]
+    """The output tokens by category; `output_tokens` is the billed total."""
     server_tool_use: NotRequired[dict[str, Any] | None]
+    """The number of server tool requests."""
     service_tier: NotRequired[str | None]
+    """The service tier: `'priority'`, `'standard'` or `'batch'`."""
 
 
 class ContentBlock(TypedDict, total=False):
     """The fields of all content block types; a block's `type` determines its fields."""
 
     type: Required[str]
+    """The block type: `'text'`, `'thinking'`, `'redacted_thinking'`, `'tool_use'`, `'server_tool_use'`,
+    `'container_upload'`, or a tool result such as `'web_search_tool_result'`."""
     text: str
+    """The generated text, in a `'text'` block."""
     citations: list[dict[str, Any]] | None
+    """The text's citations, in a `'text'` block."""
     thinking: str
+    """Claude's thinking, in a `'thinking'` block."""
     signature: str
+    """The opaque signature of a `'thinking'` block."""
     data: str
+    """The encrypted contents of a `'redacted_thinking'` block."""
     id: str
+    """The tool use id, in a `'tool_use'` or `'server_tool_use'` block."""
     name: str
+    """The tool name, in a tool use block."""
     input: dict[str, Any]
+    """The tool input, in a tool use block."""
     caller: dict[str, Any] | None
+    """The tool's invoker, in a tool use block or a web search or web fetch result block."""
     toolset_name: str | None
+    """The tool's toolset family, in a `'tool_use'` block."""
     tool_use_id: str
+    """The tool use id, in a tool result block."""
     content: pxt.Json
+    """The result, in a tool result block."""
     file_id: str
+    """The uploaded file's id, in a `'container_upload'` block."""
 
 
 class Message(TypedDict):
+    """A response of the Anthropic messages API."""
+
     id: str
     type: str
+    """Always `'message'`."""
     role: str
+    """Always `'assistant'`."""
     model: str
     content: list[ContentBlock]
     stop_reason: str | None
+    """Why generation stopped: `'end_turn'`, `'max_tokens'`, `'stop_sequence'`, `'tool_use'`, `'pause_turn'`,
+    `'refusal'` or `'model_context_window_exceeded'`."""
     stop_sequence: str | None
+    """The custom stop sequence that ended generation."""
     usage: Usage
     container: NotRequired[dict[str, Any] | None]
+    """The code execution tool's container."""
     stop_details: NotRequired[dict[str, Any] | None]
+    """The details of a refusal."""
 
 
 @pxt.udf(is_deterministic=False)
@@ -224,8 +255,9 @@ async def messages(
         tool_choice: An optional tool choice configuration.
 
     Returns:
-        The Anthropic `Message` object as a dictionary. Its `content` is a list of content blocks, and a text block
-        contains the generated text, as in `response.content[0].text`.
+        The Anthropic `Message` object as a dictionary. The generated text is in its `'text'` content block, as in
+        `response.content.filter(lambda b: b.type == 'text')[0].text`; with thinking enabled, the first block is a
+        `'thinking'` block.
 
     Examples:
         Add a computed column that applies the model `claude-3-5-sonnet-20241022`

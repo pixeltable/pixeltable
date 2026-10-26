@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import inspect
 from functools import reduce
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence, overload
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Iterable, Sequence, overload
 
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
+from pixeltable.types import FunctionKind
 
 from .function import Function
 from .signature import Signature
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
 class QueryTemplateFunction(Function):
     """A parameterized query from which an executable Query is created with a function call."""
 
+    kind: ClassVar[FunctionKind] = 'query'
     template_query: 'QueryBase' | None
     self_name: str | None
     return_scalar: bool

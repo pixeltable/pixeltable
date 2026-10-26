@@ -1110,7 +1110,8 @@ def list_functions(
         >>> pxt.list_functions('video', kind='iterator')
     """
     on_type = None if on is None else ts.ColumnType.normalize_type(on)
-    return func.FunctionList.collect(module, on_type, search, kind)
+    entries = func.FunctionRegistry.get().list_functions(module, on_type, search, kind)
+    return func.FunctionList(fn.info(path) for path, fn in entries)
 
 
 def eval_udf(fn: func.Function, /, *args: Any, **kwargs: Any) -> Any:

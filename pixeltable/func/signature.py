@@ -233,12 +233,7 @@ class Signature:
         return hash((self.return_type, self.parameters))
 
     def params_str(self, with_defaults: bool = False, as_method: bool = False) -> str:
-        """Generates a user friendly string describing this signature's input parameters
-
-        Args:
-            with_defaults: include each parameter's default value
-            as_method: omit the first parameter, the receiver of a method call
-        """
+        """Generates a user friendly string describing this signature's input parameters"""
         param_strs: list[str] = []
         pending_pos_only_marker = False
         needs_kw_only_marker = True
@@ -269,15 +264,13 @@ class Signature:
 
     def return_str(self, pretty_print_json: bool = False) -> str:
         return_type = self.get_return_type()
-        if pretty_print_json and isinstance(return_type, ts.JsonType) and return_type.pretty_print_name is not None:
-            return return_type.pretty_print_name
-        return f'pxt.{return_type}'
+        return return_type.pretty_str() if pretty_print_json else f'pxt.{return_type}'
 
-    def _to_str(self, pretty_print_json: bool = False) -> str:
-        return f'({self.params_str()}) -> {self.return_str(pretty_print_json)}'
+    def to_str(self, pretty_print_json: bool = False, with_defaults: bool = False) -> str:
+        return f'({self.params_str(with_defaults=with_defaults)}) -> {self.return_str(pretty_print_json)}'
 
     def __str__(self) -> str:
-        return self._to_str()
+        return self.to_str()
 
     @classmethod
     def _infer_type(cls, annotation: type | None) -> tuple[ts.ColumnType | None, bool | None]:

@@ -361,6 +361,9 @@ class FunctionCall(Expr):
         # we currently can't translate aggregate functions with grouping and/or ordering to SQL
         if self.has_group_by() or len(self.order_by) > 0:
             return None
+        # CachePrefetchNode fetches files only for media ColumnRefs
+        if self.col_type.is_media_type():
+            return None
 
         # try to construct args and kwargs to call self.fn._to_sql()
         args: list[sql.ColumnElement] = []

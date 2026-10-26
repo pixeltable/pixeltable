@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar, Sequence, overload
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable.types import FunctionKind
 
 from .function import Function
 from .globals import validate_symbol_path
@@ -32,6 +33,7 @@ class AggregateFunction(Function):
     allows_window: if True, the aggregate function can be used with a window
     """
 
+    kind: ClassVar[FunctionKind] = 'aggregate'
     ORDER_BY_PARAM: ClassVar[str] = 'order_by'
     GROUP_BY_PARAM: ClassVar[str] = 'group_by'
     RESERVED_PARAMS: ClassVar[set[str]] = {ORDER_BY_PARAM, GROUP_BY_PARAM}

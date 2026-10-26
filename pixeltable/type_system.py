@@ -190,6 +190,10 @@ class ColumnType:
         """
         return self._type.name[0] + self._type.name[1:].lower()
 
+    def pretty_str(self) -> str:
+        """Format this type for documentation, such as `pxt.String | None`."""
+        return f'pxt.{self}'
+
     def __eq__(self, other: object) -> bool:
         return isinstance(other, ColumnType) and self.matches(other) and self.nullable == other.nullable
 
@@ -1018,6 +1022,9 @@ class JsonType(ColumnType):
         super().__init__(self.Type.JSON, nullable=nullable)
         self.type_schema = type_schema
         self.pretty_print_name = pretty_print_name
+
+    def pretty_str(self) -> str:
+        return super().pretty_str() if self.pretty_print_name is None else self.pretty_print_name
 
     @classmethod
     def from_json_type_arg(cls, json_type_arg: Any) -> JsonType:

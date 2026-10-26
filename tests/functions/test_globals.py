@@ -3,7 +3,7 @@ import numpy as np
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
-from ..utils import DatabaseRoot, assert_type_eq, pxt_raises
+from ..utils import SAMPLE_IMAGE_URL, DatabaseRoot, assert_type_eq, pxt_raises
 
 
 class TestGlobals:
@@ -61,11 +61,24 @@ class TestGlobals:
                 'n': pxt.Int | None,
                 'x': pxt.Float,
                 'img': pxt.Image | None,
+                'thumbnail': pxt.Image | None,
+                'meta': pxt.Json | None,
+                'emb': pxt.Array[(2,), np.float32] | None,
+                'raw': pxt.Binary | None,
             },
         )
         t.insert(
             [
-                {'reviewed': None, 'predicted': 'cat', 'n': None, 'x': 1.5},
+                {
+                    'reviewed': None,
+                    'predicted': 'cat',
+                    'n': None,
+                    'x': 1.5,
+                    'img': SAMPLE_IMAGE_URL,
+                    'meta': {'scores': np.array([0.5, 1.5])},
+                    'emb': np.array([1.0, 2.0], dtype=np.float32),
+                    'raw': b'abc',
+                },
                 {'reviewed': 'dog', 'predicted': 'cat', 'n': 3, 'x': 2.5},
                 {'reviewed': None, 'predicted': None, 'n': None, 'x': 3.5},
             ]
@@ -82,6 +95,21 @@ class TestGlobals:
         assert res['either'] == ['cat', 'dog', None]
         assert res['num'] == [1.5, 3, 3.5]
         assert len(t.where(pxtf.coalesce(t.reviewed, t.predicted) == 'cat').collect()) == 1
+
+        res = (
+            t.order_by(t.x)
+            .select(
+                img=pxtf.coalesce(t.thumbnail, t.img),
+                meta=pxtf.coalesce(t.meta, {}),
+                emb=pxtf.coalesce(t.emb, np.zeros(2, dtype=np.float32)),
+                raw=pxtf.coalesce(t.raw, b''),
+            )
+            .collect()
+        )
+        assert res['img'][0].size == (640, 480) and res['img'][1:] == [None, None]
+        assert np.array_equal(res['meta'][0]['scores'], [0.5, 1.5]) and res['meta'][1:] == [{}, {}]
+        assert np.array_equal(res['emb'][0], [1.0, 2.0]) and all(np.array_equal(e, [0.0, 0.0]) for e in res['emb'][1:])
+        assert res['raw'] == [b'abc', b'', b'']
 
         assert_type_eq(pxtf.coalesce(None, 2).col_type, pxt.Int)
         assert pxt.eval_udf(pxtf.coalesce, None, 2) == 2

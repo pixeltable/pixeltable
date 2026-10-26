@@ -261,10 +261,10 @@ def _(val: sql.ColumnElement) -> sql.ColumnElement | None:
 @func.udf
 def coalesce(*values: Any) -> ts.Json | None:
     """
-    Return the first of the arguments that is not `None`, or `None` if all of them are.
+    Return the first of the arguments that is not `None`, or `None` if all of them are; the result type is the common
+    supertype of the argument types.
 
-    The result type is the common supertype of the argument types, such as `Float` for an `Int` and a `Float`
-    argument. It is nullable only if all arguments are.
+    For an `Int` and a `Float` argument, the result type is `Float`. It is nullable only if all arguments are.
 
     Examples:
         The reviewed label where there is one, else the model's label:
@@ -300,7 +300,16 @@ def _(values: exprs.Expr) -> ts.ColumnType:
     return supertype.copy(nullable=all(t.nullable for t in types))
 
 
-# TODO: add a to_sql for coalesce() via SQL COALESCE, for arguments that have the same SQL type
+@coalesce.to_sql
+def _(*values: sql.ColumnElement) -> sql.ColumnElement | None:
+    sql_type = values[0].type
+    # Postgres converts arguments of different SQL types to a common type, or rejects them
+    if any(type(value.type) is not type(sql_type) for value in values):
+        return None
+    # the stored form of a JSON, array or binary value differs from the value
+    if isinstance(sql_type, (sql.JSON, sql.LargeBinary)):
+        return None
+    return sql.sql.func.coalesce(*values)
 
 
 def _relative_path_root(expr: exprs.Expr) -> exprs.Expr:

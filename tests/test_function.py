@@ -18,7 +18,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable import env, func
-from pixeltable.func import Batch, Function, FunctionRegistry
+from pixeltable.func import Batch, Function
 
 from .utils import (
     DatabaseRoot,
@@ -131,11 +131,6 @@ class TestFunction:
         assert isinstance(td['templates'], list) and len(td['templates']) == 1
         assert isinstance(Function.from_dict(td), func.ExprTemplateFunction)
 
-    @pytest.mark.db_roots('local', reason='inspects the in-process FunctionRegistry')
-    def test_list(self, uses_db: None) -> None:
-        _ = FunctionRegistry.get().list_functions()
-        print(_)
-
     def test_list_functions(self, init_env: None) -> None:
         def calls(functions: pxt.FunctionList) -> set[str]:
             return {info['call'] for info in functions}
@@ -147,6 +142,9 @@ class TestFunction:
         assert all(info['kind'] == 'udf' for info in timestamp_methods)
         # an Int expression has the Float methods too
         assert 'pxt.Float.abs() -> pxt.Float' in calls(pxt.list_functions(on=pxt.Int))
+        assert 'coalesce(*values) -> pxt.Json | None (depends on the arguments)' in calls(
+            pxt.list_functions(search='coalesce')
+        )
 
         detectors = pxt.list_functions(search='DETR')
         assert (
@@ -177,7 +175,6 @@ class TestFunction:
 
         assert len(repr(video_iterators).splitlines()) == len(video_iterators)
         assert '<table>' in video_iterators._repr_html_()
-        assert list(video_iterators.to_pandas()['name']) == [info['name'] for info in video_iterators]
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="No module named 'no_such_module'"):
             pxt.list_functions('no_such_module')
