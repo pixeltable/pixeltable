@@ -464,6 +464,7 @@ class TestOpenai:
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import decisions
 
+        model = 'gpt-6-luna'
         topics = ['shipping', 'quality', 'price']
         questions = [
             {'type': 'predicate', 'name': 'complaint', 'instructions': 'Is the review a complaint?'},
@@ -479,20 +480,39 @@ class TestOpenai:
                 'instructions': 'How positive is the review?',
                 'levels': [{'label': 'negative'}, {'label': 'neutral'}, {'label': 'positive'}],
             },
+            {'type': 'predicate', 'instructions': 'Is the review written in English?'},
         ]
-        t = pxt.create_table('text_tbl', {'review': pxt.String})
-        t.add_computed_column(decision=decisions(t.review, questions=questions))
-        validate_update_status(t.insert(review='The package arrived two weeks late and the box was crushed.'), 1)
-        decision = t.select(t.decision).collect()[0]['decision']
-        assert [answer['name'] for answer in decision['answers']] == ['complaint', 'topic', 'sentiment']
-        complaint, topic, sentiment = decision['answers']
+        t = pxt.create_table('text_tbl', {'review': pxt.String | None})
+        t.add_computed_column(
+            decision=decisions(
+                t.review,
+                questions=questions,
+                model=model,
+                model_kwargs={'prompt_cache_key': 'pxt-test', 'safety_identifier': 'pxt-test'},
+            )
+        )
+        t.add_computed_column(complaint=t.decision.answers[0].probability)
+        assert t.get_metadata()['columns']['complaint']['type_'] == 'Float | None'
+        t.add_computed_column(no_questions=decisions(t.review, questions=[], model=model), on_error='ignore')
+        review = 'The package arrived two weeks late and the box was crushed.'
+        status = t.insert([{'review': review}, {'review': None}], on_error='ignore')
+        assert status.num_rows == 2 and status.num_excs == 1
+
+        rows = t.order_by(t.review).select(t.decision, msg=t.no_questions.errormsg).collect()
+        decision = rows[0]['decision']
+        assert [answer['name'] for answer in decision['answers']] == ['complaint', 'topic', 'sentiment', None]
+        complaint, topic, sentiment, english = decision['answers']
         assert complaint['type'] == 'predicate' and 0.0 <= complaint['probability'] <= 1.0
         assert topic['type'] == 'choice' and topic['choice'] in topics and 0.0 <= topic['confidence'] <= 1.0
         assert sentiment['type'] == 'score' and 0.0 <= sentiment['confidence'] <= 1.0
         assert all(0.0 <= p['probability'] <= 1.0 for p in topic['probabilities'] + sentiment['probabilities'])
-        assert decision['model'].startswith('gpt-6-luna')
+        assert english['type'] == 'predicate' and english['probability'] > 0.5
+        assert decision['model'].startswith(model)
         usage = decision['usage']
         assert usage['total_tokens'] == usage['input_tokens'] + usage['output_tokens'] > 0
+        assert '`questions` must contain at least one question' in rows[0]['msg']
+        # a null review short-circuits both calls
+        assert rows[1] == {'decision': None, 'msg': None}
 
         public_url = (
             'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg'
@@ -508,11 +528,22 @@ class TestOpenai:
                 ],
             }
         ]
-        food = [{'type': 'predicate', 'name': 'food', 'instructions': 'Do both photos show food?'}]
-        image_tbl.add_computed_column(decision=decisions(messages, questions=food))
+        image_questions = [
+            {'type': 'predicate', 'name': 'food', 'instructions': 'Do both photos show food?'},
+            {
+                'type': 'predicate',
+                'name': 'same_meal',
+                'instructions': [
+                    {'type': 'input_text', 'text': 'Do the photos show the same meal as this reference photo?'},
+                    {'type': 'input_image', 'image_url': image_tbl.image},
+                ],
+            },
+        ]
+        image_tbl.add_computed_column(decision=decisions(messages, questions=image_questions, model=model))
         validate_update_status(image_tbl.insert(image=SAMPLE_IMAGE_FILE_PATH), 1)
-        answer = image_tbl.select(a=image_tbl.decision.answers[0]).collect()[0]['a']
-        assert answer['type'] == 'predicate' and answer['probability'] > 0.5
+        answers = image_tbl.select(a=image_tbl.decision.answers).collect()[0]['a']
+        assert [(a['name'], a['type']) for a in answers] == [('food', 'predicate'), ('same_meal', 'predicate')]
+        assert all(a['probability'] > 0.5 for a in answers)
 
     @pytest.mark.expensive
     def test_image_generations_gpt_image(self, uses_db: None) -> None:

@@ -52,7 +52,6 @@ SLIM_TESTS = (
     'tests/test_table_model_2.py',
     'tests/test_types.py',
     'tests/test_view.py',
-    'tests/functions/test_openai_decisions.py',
     'tests/serving/test_fastapi.py',
     'tests/serving/test_fastapi_models.py',
     'tests/serving/test_hosted_openapi.py',

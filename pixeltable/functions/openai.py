@@ -1400,7 +1400,7 @@ class DecisionResponse(TypedDict):
 
 @pxt.udf(is_deterministic=False)
 async def decisions(
-    input: pxt.Json, *, questions: list, model: str = 'gpt-6-luna', model_kwargs: dict[str, Any] | None = None
+    input: pxt.Json, *, questions: list, model: str, model_kwargs: dict[str, Any] | None = None
 ) -> DecisionResponse:
     """
     Answers predicate, choice, and score questions about a shared input.
@@ -1437,7 +1437,7 @@ async def decisions(
 
     Examples:
         Add a computed column that asks whether the text in an existing Pixeltable column `tbl.review` of the
-        table `tbl` is a complaint:
+        table `tbl` is a complaint, then read the answer's probability:
 
         >>> questions = [
         ...     {
@@ -1446,10 +1446,12 @@ async def decisions(
         ...         'instructions': 'Is the review a complaint?',
         ...     }
         ... ]
-        ... tbl.add_computed_column(
-        ...     decision=decisions(tbl.review, questions=questions)
+        >>> tbl.add_computed_column(
+        ...     decision=decisions(
+        ...         tbl.review, questions=questions, model='gpt-6-luna'
+        ...     )
         ... )
-        ... tbl.select(
+        >>> tbl.select(
         ...     tbl.review, complaint=tbl.decision.answers[0].probability
         ... ).collect()
 
@@ -1477,8 +1479,10 @@ async def decisions(
         ...         ],
         ...     },
         ... ]
-        ... tbl.add_computed_column(
-        ...     decision=decisions(tbl.review, questions=questions)
+        >>> tbl.add_computed_column(
+        ...     decision=decisions(
+        ...         tbl.review, questions=questions, model='gpt-6-luna'
+        ...     )
         ... )
 
         Ask a question about an image column `tbl.image`:
@@ -1492,14 +1496,16 @@ async def decisions(
         ...         ],
         ...     }
         ... ]
-        ... questions = [
+        >>> questions = [
         ...     {
         ...         'type': 'predicate',
         ...         'name': 'damaged',
         ...         'instructions': 'Is the product damaged?',
         ...     }
         ... ]
-        ... tbl.add_computed_column(decision=decisions(messages, questions=questions))
+        >>> tbl.add_computed_column(
+        ...     decision=decisions(messages, questions=questions, model='gpt-6-luna')
+        ... )
     """
     env.Env.get().require_package('openai', [3, 32])
 
