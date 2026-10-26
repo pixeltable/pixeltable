@@ -952,15 +952,17 @@ class Planner:
     ) -> exec.ExecNode:
         """Creates a plan to materialize updated rows for a view, given that the base table has been updated.
         The plan:
-        - retrieves rows that are visible at the current version of the table and satisfy the view predicate
+        - retrieves the view rows that were deleted at its current version and satisfy the view predicate
         - materializes all stored columns and the update targets
 
         TODO: unify with create_view_load_plan()
 
+        Args:
+            created_at_current_version: bases restricted to the rows created at their current version; the plan
+                reads every other base at its visible rows
+
         Returns:
-            - root node of the plan
-            - list of qualified column names that are getting updated
-            - list of columns that are being recomputed
+            root node of the plan
         """
         assert isinstance(view, catalog.TableVersionPath)
         assert view.is_view
@@ -1004,8 +1006,8 @@ class Planner:
 
         Args:
             view: the view to populate
-            created_at_current_version: bases restricted to the rows they created at their own current version;
-                a base that created none is matched on its live rows instead, so it must be left out
+            created_at_current_version: bases restricted to the rows created at their current version; the plan
+                reads every other base at its visible rows
             exclude_existing_rows: if True, skip base rows for which the view already has a row that was deleted at
                 the view's current version
 
@@ -1055,7 +1057,7 @@ class Planner:
             analyzer=base_analyzer,
             eval_ctx=base_eval_ctx,
             with_pk=True,
-            created_at_current_version=created_at_current_version or [],
+            created_at_current_version=created_at_current_version,
             exclude_deleted_at_current_version=view.tbl_version if exclude_existing_rows else None,
         )
         exec_ctx = plan.ctx
@@ -1260,7 +1262,6 @@ class Planner:
         Args:
             plan_target: if not None, generate a plan that materializes only expression that can be evaluted
                 in the context of that table version (eg, if 'tbl' is a view, 'plan_target' might be the base)
-        TODO: make created_at_current_version a flag and use the versions from tbl
         """
         if columns is None:
             columns = []

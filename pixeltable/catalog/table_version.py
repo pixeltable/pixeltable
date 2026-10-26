@@ -1665,6 +1665,8 @@ class TableVersion:
 
         plans: insert plans to execute. If plans is not empty, the caller is expected to have already bumped self's
         version. Also if plans is not empty, this will write self's metadata in the end.
+        base_versions: the new version of each base, nearest first, or None for a base without a new version; ends
+            at the table where the update started
         base_membership_change: True if the update may have added rows to this table's base; a row appearing in the
             base is a row this view needs to add, whether or not it has a predicate of its own
         """
@@ -1720,11 +1722,8 @@ class TableVersion:
                     and len(exprs.Expr.get_refd_column_ids(view_tv.predicate.as_dict()) & changed_qids) > 0
                 )
 
-                # a base that produced no plans of its own didn't create a new version, so its rows are matched
-                # live rather than by v_min; base_versions records that as a None, and zip() drops the skipped
-                # ancestors
                 updated_bases = [b for b, v in zip(view_tv.path.get_bases(), base_versions) if v is not None]
-                assert len(updated_bases) > 0  # otherwise we shouldn't be here
+                assert len(updated_bases) > 0  # the table where the update started always has a plan
 
                 view_plans: list[exec.ExecNode] = []
                 if needs_iterator_reload or (membership_change and view_tv.is_component_view):
@@ -1812,7 +1811,7 @@ class TableVersion:
         row_counts = RowCountStats(del_rows=del_rows)  # delete
         result = UpdateStatus(row_count_stats=row_counts)
         if del_rows == 0:
-            # nothing left to do or propagate
+            # self.version belongs to an earlier operation, and the views would match that operation's retired rows
             return result
 
         if self.is_data_versioned:
