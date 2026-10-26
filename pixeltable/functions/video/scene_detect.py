@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Literal, NamedTuple, TypedDict
 
+import av
 import numpy as np
 
 import pixeltable as pxt
@@ -498,17 +499,20 @@ class _SceneDetectFrameInfo(NamedTuple):
 def _scene_detect(video: str, fps: float | None, detector: 'SceneDetector') -> list[SceneInfo]:
     from scenedetect import FrameTimecode  # type: ignore[import-untyped]
 
+    with av.open(video) as container:
+        # scenedetect's FrameTimecode needs a nominal frame rate
+        video_framerate = container.streams.video[0].average_rate
+    if video_framerate is None or video_framerate == 0:
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect: could not determine video frame rate of {video!s}'
+        )
+    video_fps = float(video_framerate)
+
     # fps=0 means all frames; frame_iterator() requires fps > 0
     frame_iter = video_iterators.frame_iterator.decorated_callable(  # type: ignore[attr-defined]
         video=video, fps=None if fps == 0 else fps
     )
     try:
-        if frame_iter.video_framerate is None or frame_iter.video_framerate == 0:
-            raise pxt.RequestError(
-                pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect: could not determine video frame rate of {video!s}'
-            )
-        video_fps = float(frame_iter.video_framerate)
-
         scenes: list[SceneInfo] = []
         frame_idx: int | None = None
 

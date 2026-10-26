@@ -170,11 +170,18 @@ class TestVideo:
         num_frames_50 = pxt.create_view(
             p('num_frames_50'), videos, iterator=frame_iterator(videos.video, num_frames=50)
         )
-        # in 1s.mp4, ten steps of 0.1 s add up to slightly less than the 1 s length of the video
+        # in 1s.mp4, the extraction time for pos 10 (1.0 s) equals the end of the video
         fps_10 = pxt.create_view(p('fps_10'), videos, iterator=frame_iterator(videos.video, fps=10))
         paths = get_test_video_files() + get_video_files(extension='.mpg')
         videos.insert({'video': path, 'name': Path(path).name} for path in paths)
         videos.insert(video=generate_color_video(tmp_path, [('red', 25)]), name='1s.mp4')
+        # vfr.flv records no frame durations, stream duration or average frame rate; its last frame lasts as long as the
+        # interval before it
+        vfr_videos = pxt.create_table(p('vfr_videos'), {'video': pxt.Video | None, 'name': pxt.String})
+        fps_5 = pxt.create_view(p('fps_5'), vfr_videos, iterator=frame_iterator(vfr_videos.video, fps=5))
+        vfr_videos.insert(
+            video=generate_color_video(tmp_path, [('red', 25), ('red', 5)], extension='flv'), name='vfr.flv'
+        )
         for view, expected in (
             (
                 all_frames,
@@ -216,6 +223,7 @@ class TestVideo:
                     '1s.mp4': 10,
                 },
             ),
+            (fps_5, {'vfr.flv': 10}),
         ):
             res = view.group_by(view.name).select(view.name, num_frames=pxtf.count(view.pos)).collect()
             assert {row['name']: row['num_frames'] for row in res} == expected
