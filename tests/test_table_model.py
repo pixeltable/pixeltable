@@ -1408,6 +1408,68 @@ class TestTableModel:
             TableModel3.update_all(p(''))
         assert pxt.get_table(p('notes'), if_not_exists='ignore') is None
 
+    @pytest.mark.skip(reason='join() of two bound models raises AttributeError')
+    def test_bound_model_join(self, db_root: DatabaseRoot) -> None:
+        """join() on a bound model accepts another bound model."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            id: pxt.Int
+            body: pxt.String
+
+        class Tags(TableModel, name='tags'):
+            doc_id: pxt.Int
+            tag: pxt.String
+
+        TableModel.update_all(p(''))
+        Docs.insert(id=1, body='alpha')
+        Tags.insert(doc_id=1, tag='greek')
+        res = Docs.join(Tags, on=Docs.id == Tags.doc_id).select(Docs.body, Tags.tag).collect()  # type: ignore[arg-type]
+        assert list(res) == [{'body': 'alpha', 'tag': 'greek'}]
+
+    @pytest.mark.skip(reason='ModelQuery called in a joined Query is never bound')
+    def test_joined_query_calls_model_query(self, db_root: DatabaseRoot) -> None:
+        """A @pxt.query over joined tables calls a @pxt.query over an unbound model."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            id: pxt.Int
+            body: pxt.String
+
+        class Tags(TableModel, name='tags'):
+            doc_id: pxt.Int
+            tag: pxt.String
+
+        TableModel.update_all(p(''))
+        Docs.insert(id=1, body='alpha')
+        Tags.insert(doc_id=1, tag='greek')
+
+        TableModel2 = pxt.model_base()
+
+        class Docs2(TableModel2, name='docs'):
+            id: pxt.Int
+            body: pxt.String
+
+        @pxt.query
+        def find_body(i: int) -> pxt.Query:
+            return Docs2.where(Docs2.id == i).select(Docs2.body)  # type: ignore[arg-type]
+
+        docs, tags = pxt.get_table(p('docs')), pxt.get_table(p('tags'))
+
+        @pxt.query
+        def tagged_bodies(tag: str) -> pxt.Query:
+            return docs.join(tags, on=docs.id == tags.doc_id).where(tags.tag == tag).select(found=find_body(docs.id))
+
+        class Asks(TableModel2, name='asks'):
+            tag: pxt.String
+            bodies = tagged_bodies(tag)
+
+        TableModel2.update_all(p(''))
+        Asks.insert(tag='greek')
+        assert Asks.table.select(Asks.bodies).collect()['bodies'] == [[{'found': [{'body': 'alpha'}]}]]
+
     def test_diff_all(self, db_root: DatabaseRoot) -> None:
         """diff_all() reports added/dropped columns and an iterator mismatch against already-created tables."""
         skip_test_if_not_installed('imagehash')
