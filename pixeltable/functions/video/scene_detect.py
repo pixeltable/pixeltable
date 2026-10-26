@@ -509,7 +509,7 @@ def _scene_detect(video: str, fps: float | None, detector: 'SceneDetector') -> l
     video_fps = float(video_framerate)
 
     # fps=0 means all frames; frame_iterator() requires fps > 0
-    frame_iter = video_iterators.frame_iterator.decorated_callable(  # type: ignore[attr-defined]
+    frame_iter = video_iterators.frame_iterator.create_iter(  # type: ignore[attr-defined]
         video=video, fps=None if fps == 0 else fps
     )
     try:

@@ -1993,6 +1993,9 @@ class TestVideo:
         )
         _ = v.collect()
 
+        with pytest.raises(pxt.Error, match='`fps` must be a positive number'):
+            _ = t.select(pxtf.video.scene_detect_content(t.video, fps=-1.0)).collect()
+
     def test_scene_detect_cut_at_scene_start(self, init_env: None) -> None:
         skip_test_if_not_installed('scenedetect')
         from scenedetect import FrameTimecode  # type: ignore[import-untyped]

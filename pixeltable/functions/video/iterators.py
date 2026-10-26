@@ -355,7 +355,7 @@ class legacy_frame_iterator(pxt.PxtIterator[LegacyFrame]):
     def __init__(
         self, video: pxt.Video, *, fps: float | None = None, num_frames: int | None = None, keyframes_only: bool = False
     ) -> None:
-        self.underlying = frame_iterator.decorated_callable(  # type: ignore[attr-defined]
+        self.underlying = frame_iterator.create_iter(  # type: ignore[attr-defined]
             video=video, fps=fps, num_frames=num_frames, keyframes_only=keyframes_only
         )
 
