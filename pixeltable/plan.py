@@ -161,7 +161,10 @@ class Analyzer:
         )
         self.window_fn_calls = list(window_fn_calls)
         if len(self.agg_fn_calls) == 0:
-            # nothing to do
+            # distinct() is group_by() over the select list and has no aggregate calls. The grouping
+            # keys still have to be expressible in SQL; otherwise rows are not ordered and every input
+            # row is emitted.
+            self._validate_grouping_exprs()
             return
         # if we're doing grouping aggregation and don't have an explicit Group By clause, we're creating a single group
         if self.group_by_clause is None:
@@ -192,13 +195,25 @@ class Analyzer:
                 excs.ErrorCode.INVALID_EXPRESSION, f'where() cannot contain aggregate functions: {self.filter!s}'
             )
 
-        # check that grouping exprs don't contain aggregates and can be expressed as SQL (we perform sort-based
-        # aggregation and rely on the SqlScanNode returning data in the correct order)
+        # sort-based aggregation relies on the SQL scan returning rows in group order
+        self._validate_grouping_exprs()
+
+    def _validate_grouping_exprs(self) -> None:
+        """Reject grouping keys that the SQL scan cannot order by.
+
+        Aggregation, including ``distinct()`` (which is ``group_by()`` over the select list), emits one
+        row each time the grouping key changes. A key that is not expressible in SQL is never ordered, so
+        the same value is returned once per input row.
+        """
+        if not self.group_by_clause:
+            return
         for e in self.group_by_clause:
             if not self.sql_elements.contains(e):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_EXPRESSION,
-                    f'Invalid grouping expression, needs to be expressible in SQL: {e!s}',
+                    f'Invalid grouping expression, needs to be expressible in SQL: {e!s}. '
+                    'Store the value in a computed column of a scalar type (cast with .astype() if needed) '
+                    'and use that column with distinct() or group_by().',
                 )
             if e.contains_(filter=_is_agg_fn_call):
                 raise excs.RequestError(
@@ -931,19 +946,24 @@ class Planner:
 
     @classmethod
     def create_view_update_plan(
-        cls, view: catalog.TableVersionPath, recompute_targets: list[catalog.Column]
+        cls,
+        view: catalog.TableVersionPath,
+        recompute_targets: list[catalog.Column],
+        created_at_current_version: list[catalog.TableVersionHandle],
     ) -> exec.ExecNode:
         """Creates a plan to materialize updated rows for a view, given that the base table has been updated.
         The plan:
-        - retrieves rows that are visible at the current version of the table and satisfy the view predicate
+        - retrieves the view rows that were deleted at its current version and satisfy the view predicate
         - materializes all stored columns and the update targets
 
         TODO: unify with create_view_load_plan()
 
+        Args:
+            created_at_current_version: bases restricted to the rows created at their current version; the plan
+                reads every other base at its visible rows
+
         Returns:
-            - root node of the plan
-            - list of qualified column names that are getting updated
-            - list of columns that are being recomputed
+            root node of the plan
         """
         assert isinstance(view, catalog.TableVersionPath)
         assert view.is_view
@@ -964,7 +984,7 @@ class Planner:
             select_list,
             where_clause=target.predicate,
             ignore_errors=True,
-            created_at_current_version=view.get_bases(),
+            created_at_current_version=created_at_current_version,
             deleted_at_current_version=[view.tbl_version],
         )
         # Register output columns with the row builder
@@ -978,13 +998,17 @@ class Planner:
 
     @classmethod
     def create_view_load_plan(
-        cls, view: catalog.TableVersionPath, propagates_insert: bool = False, exclude_existing_rows: bool = False
+        cls,
+        view: catalog.TableVersionPath,
+        created_at_current_version: list[catalog.TableVersionHandle] | None = None,
+        exclude_existing_rows: bool = False,
     ) -> exec.ExecNode:
         """Creates a query plan for populating a view.
 
         Args:
             view: the view to populate
-            propagates_insert: if True, we're propagating a base update to this view
+            created_at_current_version: bases restricted to the rows created at their current version; the plan
+                reads every other base at its visible rows
             exclude_existing_rows: if True, skip base rows for which the view already has a row that was deleted at
                 the view's current version
 
@@ -1012,7 +1036,6 @@ class Planner:
         )
         row_builder = exprs.RowBuilder(base_analyzer.all_exprs, stored_cols, [], target, for_view_load=True)
 
-        # if we're propagating an insert, we only want to see those base rows that were created for the current version
         # execution plan:
         # 1. materialize exprs computed from the base that are needed for stored view columns
         # 2. if it's an iterator view, expand the base rows into component rows
@@ -1035,7 +1058,7 @@ class Planner:
             analyzer=base_analyzer,
             eval_ctx=base_eval_ctx,
             with_pk=True,
-            created_at_current_version=view.get_bases() if propagates_insert else [],
+            created_at_current_version=created_at_current_version,
             exclude_deleted_at_current_version=view.tbl_version if exclude_existing_rows else None,
         )
         exec_ctx = plan.ctx
@@ -1154,7 +1177,6 @@ class Planner:
         - materializes cell values of 'columns' (and their cellmd, if applicable) into DataRow.cell_vals/cell_md
 
         Updates 'select_list' in place to make it executable.
-        TODO: make created_at_current_version a flag and use the versions from tbl
         """
         if select_list is None:
             select_list = []
@@ -1241,7 +1263,6 @@ class Planner:
         Args:
             plan_target: if not None, generate a plan that materializes only expression that can be evaluted
                 in the context of that table version (eg, if 'tbl' is a view, 'plan_target' might be the base)
-        TODO: make created_at_current_version a flag and use the versions from tbl
         """
         if columns is None:
             columns = []

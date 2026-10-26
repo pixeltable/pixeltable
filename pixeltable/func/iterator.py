@@ -335,6 +335,17 @@ class GeneratingFunction:
 
         return GeneratingFunctionCall(self, args, kwargs, bound_args, outputs, validation_error=None)
 
+    def create_iter(self, **kwargs: Any) -> PxtIterator[dict]:
+        """Validate kwargs and instantiate the iterator with them."""
+        kwargs_with_defaults = kwargs.copy()
+        for param_name, param in self.py_sig.parameters.items():
+            if param_name not in kwargs and param.default is not inspect.Parameter.empty:
+                kwargs_with_defaults[param_name] = param.default
+        if self._validate is not None:
+            self._validate(kwargs_with_defaults)
+
+        return self.decorated_callable(**kwargs)
+
     @classmethod
     def _retrofit(cls, iterator_cls: type['ComponentIterator']) -> 'GeneratingFunction':
         it = GeneratingFunction.__new__(GeneratingFunction)
@@ -422,7 +433,7 @@ class InvalidGeneratingFunction(GeneratingFunction):
             excs.ErrorCode.INVALID_CONFIGURATION, f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}'
         )
 
-    def eval(self, bound_args: dict[str, Any]) -> PxtIterator[dict]:
+    def create_iter(self, **kwargs: Any) -> PxtIterator[dict]:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION, f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}'
         )
@@ -529,16 +540,7 @@ class GeneratingFunctionCall:
 
     def eval(self, bound_args: dict[str, Any]) -> PxtIterator[dict]:
         assert self.is_valid
-
-        # Run custom iterator validation on fully bound args
-        bound_args_with_defaults = bound_args.copy()
-        for param_name, param in self.it.py_sig.parameters.items():
-            if param_name not in bound_args and param.default is not inspect.Parameter.empty:
-                bound_args_with_defaults[param_name] = param.default
-        if self.it._validate is not None:
-            self.it._validate(bound_args_with_defaults)
-
-        return self.it.decorated_callable(**bound_args)
+        return self.it.create_iter(**bound_args)
 
     def as_dict(self) -> dict[str, Any]:
         return {

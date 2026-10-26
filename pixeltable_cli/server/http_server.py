@@ -147,9 +147,10 @@ class _DaemonHandler(BaseHTTPRequestHandler):
         try:
             result = handler(req)
         except excs.Error as e:
-            self._send_json(
-                {'detail': str(e), 'error_code': _error_code(e), 'retryable': e.is_retryable}, e.http_status
-            )
+            body: dict[str, Any] = {'detail': str(e), 'error_code': _error_code(e), 'retryable': e.is_retryable}
+            if e.retry_after is not None:
+                body['retry_after'] = e.retry_after
+            self._send_json(body, e.http_status)
             return
         except Exception as e:
             # log the full request target (self.path includes the query string) plus the resolved catalog

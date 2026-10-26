@@ -1063,7 +1063,7 @@ class TestOpenaiTypedDictAdherence:
 
     def test_images_response(self) -> None:
         """ImagesResponse mirrors SDK ImagesResponse field-for-field, except data is non-null
-        (we guarantee a populated list in _decode_image_response)."""
+        (we guarantee a populated list in _decode_image_response), and fields that newer SDKs added are optional."""
         skip_test_if_not_installed('openai')
         from openai.types.images_response import ImagesResponse as SdkImagesResponse
 
@@ -1075,7 +1075,12 @@ class TestOpenaiTypedDictAdherence:
         overrides = {'data'}  # we re-type and guarantee non-null
         # openai 3.24 no longer declares size; a missing key reads as null, which size allows
         dropped_by_sdk = {'size'} - set(sdk_fields)
-        assert set(ours_fields) - dropped_by_sdk == set(sdk_fields), (
+        # declared by newer SDKs only, so a response from an older one lacks them
+        added_by_sdk = {'safety_identifier'}  # openai>=3.33
+        # whether this SDK declares them comes from its raw fields, since _pydantic_fields() drops a field whose
+        # annotation it can't convert, and that must fail the comparison below
+        absent_from_sdk = added_by_sdk - set(SdkImagesResponse.model_fields)
+        assert set(ours_fields) - dropped_by_sdk - absent_from_sdk == set(sdk_fields), (
             f'ImagesResponse field set drifted: ours={set(ours_fields)} sdk={set(sdk_fields)}'
         )
         for name, sdk_type in sdk_fields.items():
@@ -1084,5 +1089,5 @@ class TestOpenaiTypedDictAdherence:
             assert self._normalize(ours_fields[name]) == self._normalize(sdk_type), (
                 f'ImagesResponse field {name!r} drifted: ours={ours_fields[name]} sdk={sdk_type}'
             )
-        # all fields always present
-        assert ours_optional == frozenset()
+        # all fields always present, except the ones that older SDKs lack
+        assert ours_optional == added_by_sdk

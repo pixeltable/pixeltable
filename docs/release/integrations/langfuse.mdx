@@ -41,11 +41,16 @@ pip install 'pixeltable[otel]' openai langfuse openinference-instrumentation-ope
 ```bash
 export LANGFUSE_PUBLIC_KEY="pk-lf-..."
 export LANGFUSE_SECRET_KEY="sk-lf-..."
-export LANGFUSE_BASE_URL="https://cloud.langfuse.com"  # EU. US: https://us.cloud.langfuse.com
+# Host for the region that holds this project.
+# EU: https://cloud.langfuse.com
+# US: https://us.cloud.langfuse.com
+# Japan: https://jp.cloud.langfuse.com
+# HIPAA: https://hipaa.cloud.langfuse.com
+export LANGFUSE_BASE_URL="https://us.cloud.langfuse.com"
 export OPENAI_API_KEY="sk-..."
 ```
 
-Keys belong to one Langfuse project and one region. A key from a US project on the EU host returns 401. Set `LANGFUSE_BASE_URL`. `LANGFUSE_HOST` still works and is deprecated.
+Keys belong to one Langfuse project and one region. Set `LANGFUSE_BASE_URL` to that region's host. A key sent to another region's host returns 401. The Langfuse SDK still reads the deprecated `LANGFUSE_HOST`, but the examples on this page read only `LANGFUSE_BASE_URL`.
 
 ## Export spans to Langfuse
 
@@ -61,7 +66,7 @@ import opentelemetry.instrumentation.pixeltable as pxt_otel
 from openinference.instrumentation.openai import OpenAIInstrumentor
 from opentelemetry import trace
 
-base_url = os.environ.get('LANGFUSE_BASE_URL', 'https://cloud.langfuse.com').rstrip('/')
+base_url = os.environ['LANGFUSE_BASE_URL'].rstrip('/')
 token = base64.b64encode(
     f"{os.environ['LANGFUSE_PUBLIC_KEY']}:{os.environ['LANGFUSE_SECRET_KEY']}".encode()
 ).decode()
@@ -77,7 +82,7 @@ OpenAIInstrumentor().instrument()  # generation spans with model, tokens, and co
 ```
 
 <Note>
-A `pxt_otel.init()` argument overrides the config. With the argument left unset, `endpoint` and `protocol` resolve from the database entry (`db_exporter_otlp_endpoint`, `db_exporter_otlp_protocol` in `pixeltable.toml`), then `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL`, then the `[otel]` section of `~/.pixeltable/config.toml`. `headers` resolves from `OTEL_EXPORTER_OTLP_HEADERS`, then `[otel]`. Build the Authorization value from environment variables, as the example does, and never write the keys into code. On a hosted database, run `pxt secret set pxt://<org>:<db> OTEL_EXPORTER_OTLP_HEADERS='Authorization=Basic <token>'`, then `pxt service restart`. [Configuration](/platform/configuration).
+A `pxt_otel.init()` argument overrides the config. With the argument left unset, `endpoint` and `protocol` resolve from the database entry (`db_exporter_otlp_endpoint`, `db_exporter_otlp_protocol` in `pixeltable.toml`), then `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL`, then the `[otel]` section of `~/.pixeltable/config.toml`. `headers` resolves from `OTEL_EXPORTER_OTLP_HEADERS`, then `[otel]`. Build the Authorization value from environment variables, as the example does, and never write the keys into code. On a hosted database, run `pxt secret set pxt://<org>:<db> OTEL_EXPORTER_OTLP_HEADERS='Authorization=Basic <token>'`, then `pxt db restart pxt://<org>:<db>` and `pxt service restart pxt://<org>:<db>/<service>`. [Configuration](/platform/configuration).
 </Note>
 
 Pixeltable spans record which operation, row, column, and UDF ran: `pxt.table`, `pxt.path`, `pxt.column`, `pxt.udf_path`, and, for a resource-pool call, `pxt.resource_pool` and `pxt.retries`. Token usage and cost are on the generation, which the OpenAI instrumentor adds. While an operation span is active, Pixeltable sets the OpenTelemetry context for that UDF call, including across its thread pools and async scheduler, so the generation nests under the UDF span. The span name is `pixeltable.udf.` plus the UDF's display name, so this column is `pixeltable.udf.chat_completions`. `pxt.udf_path` is the full path, `pixeltable.functions.openai.chat_completions`.
@@ -166,6 +171,14 @@ export OTEL_SPAN_LEVEL=debug
 `pxt service run` reads these variables in its own process. `pxt service update` starts the service from the Pixeltable daemon, which reads the environment once, so run `pxt daemon restart` after the exports.
 
 If the database entry in `pixeltable.toml` sets `db_exporter_otlp_endpoint`, it wins over `OTEL_EXPORTER_OTLP_ENDPOINT`, so set the Langfuse endpoint on that entry instead.
+
+`--otel` calls `pxt_otel.init()` and instruments FastAPI. It does not instrument OpenAI, and an `OpenAIInstrumentor().instrument()` in another process does not carry into this one. Put this at module scope in `app.py`. The service loads the file after `init()`, so the instrumentor attaches to that provider:
+
+```python
+from openinference.instrumentation.openai import OpenAIInstrumentor
+
+OpenAIInstrumentor().instrument()
+```
 
 The app file must not call `pxt_otel.init()`: with `--otel`, that second call raises `INVALID_STATE`, and without `--otel` it records Pixeltable spans but not the FastAPI request spans.
 

@@ -1226,14 +1226,13 @@ def _decode_image_response(result: dict) -> dict:
     return result
 
 
-# TypedDict mirrors of the pydantic models in openai.types.images_response. Field names match the SDK so
-# that schema introspection lines up with the OpenAI docs. Defined locally rather than reused from the SDK
-# because openai is an optional dependency and can't be imported at module load time, and because our
-# data field holds decoded PIL images rather than the SDK's Image pydantic model.
+# TypedDict mirrors of the pydantic models in `openai.types.images_response`, with the SDK's field names so that
+# the schema matches the OpenAI docs. They are defined here because openai is an optional dependency that this
+# module can't import at load time, and because `data` holds decoded PIL images, not the SDK's `Image` models.
 #
-# Every output dict has all keys present and nullability per field matches the SDK Pydantic model.
-# Exception: data is non-null here even though the SDK declares it Optional[List[Image]] = None,
-# because _decode_image_response() raises on a missing payload, so callers can rely on a populated list.
+# Each field is nullable exactly when the SDK's is, except `data`, which is never null: `_decode_image_response()`
+# raises on a missing payload. Every output dict has all keys, except the `NotRequired` ones, which only newer SDK
+# versions return.
 
 
 class UsageInputTokensDetails(TypedDict):
@@ -1262,6 +1261,7 @@ class ImagesResponse(TypedDict):
     output_format: str | None
     quality: str | None
     size: str | None
+    safety_identifier: NotRequired[str | None]  # openai>=3.33
 
 
 @pxt.udf(is_deterministic=False)

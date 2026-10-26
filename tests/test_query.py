@@ -1100,6 +1100,76 @@ class TestQuery:
         assert 'c3' in results.schema
         assert 'c4' in results.schema
 
+    def test_distinct_non_sql_groupable(self, db_root: DatabaseRoot) -> None:
+        """distinct() must not silently return duplicates when a select item cannot be grouped in SQL."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_distinct_json'), {'n': pxt.Int, 'info': pxt.Json})
+        validate_update_status(
+            t.insert(
+                [
+                    {'n': i, 'info': {'depot': ['north', 'south'][i % 2], 'stops': [{'stop': ['a', 'b'][i % 2]}]}}
+                    for i in range(6)
+                ]
+            ),
+            expected_rows=6,
+        )
+
+        # Stored scalar columns, including where/order_by/limit, are unchanged.
+        assert len(t.select(t.n).distinct().collect()) == 6
+        assert len(t.select(t.n).where(t.n >= 3).distinct().collect()) == 3
+        first = t.select(t.n).distinct().order_by(t.n).limit(1).collect()
+        assert first[0]['n'] == 0
+        last = t.select(t.n).where(t.n >= 1).distinct().order_by(t.n, asc=False).limit(1).collect()
+        assert last[0]['n'] == 5
+
+        def assert_invalid_grouping(query: pxt.Query, expr_text: str) -> None:
+            with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='needs to be expressible in SQL') as exc_info:
+                _ = query.collect()
+            message = str(exc_info.value)
+            assert expr_text in message
+            assert 'computed column' in message
+
+        # JSON path, cast JSON path, and a stored column mixed with a JSON path.
+        assert_invalid_grouping(t.select(depot=t.info.depot).distinct(), 'info.depot')
+        assert_invalid_grouping(t.select(depot=t.info.depot.astype(pxt.String)).distinct(), 'info.depot')
+        assert_invalid_grouping(t.select(t.n, depot=t.info.depot).distinct(), 'info.depot')
+        # List index, the shape reported as worst_stops[0].stop.
+        assert_invalid_grouping(t.select(stop=t.info.stops[0].stop).distinct(), 'info.stops[0].stop')
+
+        # where / order_by / limit must not bypass the check and return duplicate rows.
+        assert_invalid_grouping(t.select(depot=t.info.depot).where(t.n >= 1).distinct(), 'info.depot')
+        assert_invalid_grouping(t.select(depot=t.info.depot).distinct().order_by(t.n), 'info.depot')
+        assert_invalid_grouping(t.select(depot=t.info.depot).distinct().limit(2), 'info.depot')
+        assert_invalid_grouping(
+            t.select(depot=t.info.depot).where(t.n >= 1).distinct().order_by(t.n).limit(2), 'info.depot'
+        )
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='needs to be expressible in SQL'):
+            _ = t.select(depot=t.info.depot).distinct().count()
+
+        # An explicit group_by of the same expression raises the same error.
+        assert_invalid_grouping(
+            t.group_by(t.info.depot).select(depot=t.info.depot, n=pxt.functions.count(t.n)), 'info.depot'
+        )
+
+        # Workaround: store a scalar computed column, then distinct() deduplicates.
+        validate_update_status(t.add_computed_column(depot=t.info.depot.astype(pxt.String)), expected_rows=6)
+        depots = t.select(t.depot).distinct().order_by(t.depot).collect()
+        assert [row['depot'] for row in depots] == ['north', 'south']
+        filtered = t.select(t.depot).where(t.n >= 1).distinct().order_by(t.depot, asc=False).limit(1).collect()
+        assert filtered[0]['depot'] == 'south'
+        assert len(t.select(parity=t.n % 2, depot=t.depot).distinct().collect()) == 2
+
+    def test_distinct_docstring_states_execution_raises_request_error(self) -> None:
+        """Query.distinct() documents that execution raises RequestError.
+
+        The SQL-groupable check runs in Analyzer._analyze_agg() when the query is planned, so
+        distinct() itself returns a Query. The public docstring must say that, and name RequestError.
+        """
+        doc = pxt.Query.distinct.__doc__
+        assert doc is not None
+        assert 'Executing the query raises `RequestError` rather than returning duplicate rows.' in doc
+        assert 'distinct() raises `Error`' not in doc
+
     def test_to_pydantic(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
 

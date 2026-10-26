@@ -52,7 +52,7 @@ class Articles(TableModel, name='articles'):
   <Card
     title="Azure OpenAI"
     icon="microsoft"
-    href="/howto/providers/working-with-openai"
+    href="/howto/providers/working-with-openai#azure-openai"
   >
     OpenAI models via Azure
   </Card>
@@ -292,6 +292,15 @@ Platforms that host or route many models from a shared catalog.
 <CardGroup cols={2}>
   <Card title="Langfuse" icon="chart-line" href="/integrations/langfuse">
     Trace operations, UDF calls, and LLM generations
+  </Card>
+  <Card title="Arize Phoenix" icon="eye" href="/integrations/phoenix">
+    Trace operations, UDF calls, and LLM spans in Phoenix
+  </Card>
+  <Card title="Pydantic Logfire" icon="fire" href="/integrations/logfire">
+    Trace operations, UDF calls, and OpenAI calls in Logfire
+  </Card>
+  <Card title="SigNoz" icon="chart-area" href="/integrations/signoz">
+    Trace operations, UDF calls, and LLM spans in SigNoz
   </Card>
   <Card title="OpenTelemetry" icon="gauge" href="/platform/observability">
     Export spans and metrics from the OpenTelemetry bridge
