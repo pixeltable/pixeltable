@@ -1433,16 +1433,7 @@ class TableVersion:
                 return_rows=return_rows,
             )
             telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(update_plan.root)))
-        if self.is_data_versioned:
-            timestamp = time.time()
-            self.bump_version(timestamp, bump_schema_version=False)
-            result = self._propagate_update_plan(
-                update_plan, list(update_spec.keys()), timestamp, cascade, return_rows=return_rows
-            )
-        else:
-            result = self._update_rows(update_plan.root, update_plan.set_cols, return_rows=return_rows)
-
-        return result + UpdateStatus(updated_cols=[c.qualified_name for c in update_plan.updated_cols])
+        return self._apply_update_plan(update_plan, list(update_spec.keys()), cascade, return_rows=return_rows)
 
     def batch_update(
         self,
@@ -1469,15 +1460,7 @@ class TableVersion:
                 self.path, batch, rowids, cascade=cascade, return_rows=return_rows
             )
             telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(update_plan.root)))
-        if self.is_data_versioned:
-            timestamp = time.time()
-            self.bump_version(timestamp, bump_schema_version=False)
-            result = self._propagate_update_plan(
-                update_plan, update_plan.updated_cols, timestamp, cascade, return_rows=return_rows
-            )
-        else:
-            result = self._update_rows(update_plan.root, update_plan.set_cols, return_rows=return_rows)
-        result += UpdateStatus(updated_cols=[c.qualified_name for c in update_plan.updated_cols])
+        result = self._apply_update_plan(update_plan, update_plan.updated_cols, cascade, return_rows=return_rows)
 
         assert update_plan.row_update_node is not None
         unmatched_rows = update_plan.row_update_node.unmatched_rows()
@@ -1624,36 +1607,35 @@ class TableVersion:
             )
             telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(update_plan.root)))
 
-        # TODO try to deduplicate this
-        if self.is_data_versioned:
-            timestamp = time.time()
-            if bump_version:
-                self.bump_version(timestamp, bump_schema_version=False)
-            result = self._propagate_update_plan(update_plan, target_columns, timestamp, cascade)
-        else:
-            result = self._update_rows(update_plan.root, update_plan.set_cols, return_rows=False)
-        result += UpdateStatus(updated_cols=[c.qualified_name for c in update_plan.updated_cols])
-        return result
+        return self._apply_update_plan(update_plan, target_columns, cascade, bump_version=bump_version)
 
-    def _propagate_update_plan(
+    def _apply_update_plan(
         self,
         update_plan: UpdatePlan,
         modified_cols: list[Column],
-        timestamp: float,
         cascade: bool,
         return_rows: bool = False,
+        bump_version: bool = True,
     ) -> UpdateStatus:
-        assert update_plan.soft_delete_where_clause is not None
-        return self._propagate_update(
-            [update_plan.root],
-            update_plan.soft_delete_where_clause,
-            update_plan.recomputed_cols,
-            modified_cols=modified_cols,
-            base_versions=[],
-            timestamp=timestamp,
-            cascade=cascade,
-            return_rows=return_rows,
-        )
+        """Executes update_plan"""
+        if self.is_data_versioned:
+            assert update_plan.soft_delete_where_clause is not None
+            timestamp = time.time()
+            if bump_version:
+                self.bump_version(timestamp, bump_schema_version=False)
+            result = self._propagate_update(
+                [update_plan.root],
+                update_plan.soft_delete_where_clause,
+                update_plan.recomputed_cols,
+                modified_cols=modified_cols,
+                base_versions=[],
+                timestamp=timestamp,
+                cascade=cascade,
+                return_rows=return_rows,
+            )
+        else:
+            result = self._update_rows(update_plan.root, update_plan.set_cols, return_rows=return_rows)
+        return result + UpdateStatus(updated_cols=[c.qualified_name for c in update_plan.updated_cols])
 
     def _propagate_update(
         self,
