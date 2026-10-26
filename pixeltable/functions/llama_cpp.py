@@ -60,8 +60,8 @@ def create_chat_completion(
     if tools is not None:
         Env.get().require_package('llama_cpp', min_version=[0, 3, 9])
 
-    if model_kwargs is None:
-        model_kwargs = {}
+    # a UDF must not modify its arguments
+    model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
     if (model_path is None) == (repo_id is None):
         raise excs.RequestError(

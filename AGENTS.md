@@ -48,6 +48,8 @@ of longer guides; Codex and Claude do not automatically apply Copilot's path-spe
   Ordinary Python checks remain valid outside the DSL.
 - UDF annotations determine column types. Non-nullable parameters short-circuit null arguments to null;
   nullable parameters let the UDF handle null. Review schema semantics even if mypy passes.
+- Built-in UDFs, aggregates and iterators (anything under `pixeltable.`) must not modify their arguments: unlike
+  user functions, they receive a constant argument's shared value rather than a copy.
 - Application files declare `TableModel` tables and `FastAPIRouter` routes; indexes belong in `__indexes__`.
   Tests, notebooks and REPLs may use `pxt.create_table()` and incremental schema APIs.
 - Model columns are non-nullable by default (`pxt.String`); nullable columns use `pxt.String | None`.

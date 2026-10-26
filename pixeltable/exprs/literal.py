@@ -6,6 +6,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, Iterator
 
 import numpy as np
+import PIL.Image
 import sqlalchemy as sql
 
 import pixeltable.type_system as ts
@@ -43,6 +44,11 @@ class Literal(Expr):
             val = list(val)
         self.val = val
         self.id = self._create_id()
+
+    @property
+    def has_mutable_val(self) -> bool:
+        """True if val is a dict, list, ndarray or image, which a function can modify in place."""
+        return isinstance(self.val, (dict, list, np.ndarray, PIL.Image.Image))
 
     def default_column_name(self) -> str | None:
         return 'Literal'

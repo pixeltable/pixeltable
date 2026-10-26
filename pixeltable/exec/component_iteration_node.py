@@ -1,3 +1,4 @@
+import copy
 from typing import AsyncIterator, Iterator
 
 from pixeltable import catalog, exceptions as excs, exprs, telemetry
@@ -17,6 +18,7 @@ class ComponentIterationNode(ExecNode):
     iterator_call: GeneratingFunctionCall
     iterator_args_expr: exprs.InlineDict
     iterator_args_ctx: exprs.RowBuilder.EvalCtx
+    copied_arg_names: list[str]  # names of arguments that require a copy
     iterator_output_cols: dict[str, catalog.Column]
     refd_output_slot_idxs: dict[str, int]
 
@@ -49,6 +51,15 @@ class ComponentIterationNode(ExecNode):
             self.row_builder.set_slot_idxs(iterator_args_expr)
             self.iterator_args_expr = iterator_args_expr[0]
         self.iterator_args_ctx = self.row_builder.create_eval_ctx([self.iterator_args_expr])
+        # we defensively create copies of Literal args to user-defined iterators since we cannot guarantee they're
+        # well-behaved
+        self.copied_arg_names = []
+        if not self.iterator_call.it.is_builtin:
+            self.copied_arg_names = [
+                name
+                for name, arg in zip(self.iterator_args_expr.keys, self.iterator_args_expr.components)
+                if arg.contains_(filter=lambda e: isinstance(e, exprs.Literal) and e.has_mutable_val)
+            ]
         self.iterator_output_cols = {name: self.view.get().cols_by_name[name] for name in self.iterator_call.outputs}
 
         self.refd_output_slot_idxs = {e.col.name: e.slot_idx for e in refd_col_refs}
@@ -77,6 +88,11 @@ class ComponentIterationNode(ExecNode):
                     self.row_builder.eval(input_row, self.iterator_args_ctx)
                 iterator_args = input_row[self.iterator_args_expr.slot_idx]
                 assert isinstance(iterator_args, dict)
+                if len(self.copied_arg_names) > 0:
+                    iterator_args = {
+                        name: copy.deepcopy(val) if name in self.copied_arg_names else val
+                        for name, val in iterator_args.items()
+                    }
                 # We need to ensure that all of the required (non-nullable) parameters of the iterator are
                 # specified and are not null. If any of them are null, then we skip this row (i.e., we emit 0
                 # output rows for this input row).

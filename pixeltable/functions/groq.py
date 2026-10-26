@@ -71,8 +71,8 @@ async def chat_completions(
         ...     response=chat_completions(messages, model='openai/gpt-oss-20b')
         ... )
     """
-    if model_kwargs is None:
-        model_kwargs = {}
+    # a UDF must not modify its arguments
+    model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
     Env.get().require_package('groq')
 

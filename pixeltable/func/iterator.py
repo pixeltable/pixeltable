@@ -135,6 +135,10 @@ class GeneratingFunction:
         """The unqualified name, which is the last component of fqn."""
         return self.fqn.rsplit('.', 1)[-1]
 
+    @property
+    def is_builtin(self) -> bool:
+        return self.fqn.startswith('pixeltable.')
+
     def _infer_properties(self) -> None:
         self.py_sig = inspect.signature(self.decorated_callable, eval_str=True)
         output_schema_type: type[dict]

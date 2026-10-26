@@ -10,6 +10,7 @@ from textwrap import dedent
 from typing import Any
 
 import numpy as np
+import PIL.Image
 import pytest
 
 import __main__
@@ -64,6 +65,38 @@ def udf_with_array_constants(
     a: pxt.Array[pxt.Float, (6,)], b: pxt.Array[pxt.Float, (6,)] = _ones_arr
 ) -> pxt.Array[pxt.Float, (6,)]:
     return a + b
+
+
+@pxt.udf
+def pop_max_tokens(prompt: str, model_kwargs: dict) -> str:
+    return f'{prompt}:{model_kwargs.pop("max_tokens", None)}'
+
+
+@pxt.udf(batch_size=2)
+def pop_max_tokens_batched(prompt: Batch[str], model_kwargs: dict) -> Batch[str]:
+    max_tokens = model_kwargs.pop('max_tokens', None)
+    return [f'{p}:{max_tokens}' for p in prompt]
+
+
+@pxt.udf
+def modify_args(opts: dict, items: list, arr: pxt.Array[pxt.Int, (2,)], img: PIL.Image.Image) -> str:
+    result = f'{opts["nested"].pop("n", None)}:{items.pop() if len(items) > 0 else None}:{arr[0]}:{img.width}'
+    arr[0] += 1
+    img.thumbnail((img.width // 2, img.height // 2))
+    return result
+
+
+@pxt.uda(allows_window=True, requires_order_by=False)
+class pop_n(pxt.Aggregator):
+    def __init__(self, opts: dict) -> None:
+        self.init_n = opts.pop('n', None)
+        self.update_n = None
+
+    def update(self, val: int, extra: dict) -> None:
+        self.update_n = extra.pop('n', None)
+
+    def value(self) -> str:
+        return f'{self.init_n}:{self.update_n}'
 
 
 T = typing.TypeVar('T')
@@ -591,6 +624,39 @@ class TestFunction:
             neg.add_computed_column(c=head(neg.n), on_error='abort')
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'offset'"):
             neg.add_computed_column(c=skipped(neg.n), on_error='abort')
+
+    def test_udf_modifies_args(self, db_root: DatabaseRoot) -> None:
+        """A udf or uda that modifies a constant argument doesn't change that argument for other rows or groups."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'prompt': pxt.String, 'grp': pxt.Int})
+        t.add_computed_column(out=pop_max_tokens(t.prompt, model_kwargs={'max_tokens': 5}))
+        t.insert([{'prompt': 'a', 'grp': 0}, {'prompt': 'b', 'grp': 0}, {'prompt': 'c', 'grp': 1}])
+        t.insert([{'prompt': 'd', 'grp': 1}])
+        assert [r['out'] for r in t.order_by(t.prompt).collect()] == ['a:5', 'b:5', 'c:5', 'd:5']
+
+        res = t.order_by(t.prompt).select(out=pop_max_tokens(t.prompt, model_kwargs={'max_tokens': 7})).collect()
+        assert [r['out'] for r in res] == ['a:7', 'b:7', 'c:7', 'd:7']
+
+        res = (
+            t.order_by(t.prompt).select(out=pop_max_tokens_batched(t.prompt, model_kwargs={'max_tokens': 3})).collect()
+        )
+        assert [r['out'] for r in res] == ['a:3', 'b:3', 'c:3', 'd:3']
+
+        # a list, an array, an image, and a dict nested in a dict that isn't constant
+        img = PIL.Image.new('RGB', (64, 64))
+        res = (
+            t.order_by(t.prompt)
+            .select(out=modify_args({'p': t.prompt, 'nested': {'n': 1}}, [2], np.zeros(2, dtype=np.int64), img))
+            .collect()
+        )
+        assert [r['out'] for r in res] == ['1:2:0:64'] * 4
+        assert img.size == (64, 64)
+
+        res = t.group_by(t.grp).order_by(t.grp).select(out=pop_n(t.grp, extra={'n': 2}, opts={'n': 1})).collect()
+        assert [r['out'] for r in res] == ['1:2', '1:2']
+
+        res = t.select(out=pop_n(t.grp, extra={'n': 2}, opts={'n': 1}, group_by=t.grp, order_by=t.prompt)).collect()
+        assert [r['out'] for r in res] == ['1:2', '1:2', '1:2', '1:2']
 
     def test_query_param_in_aggregate(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

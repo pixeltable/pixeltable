@@ -106,8 +106,8 @@ async def chat_completions(
     """
     env.Env.get().require_package('openai')
 
-    if model_kwargs is None:
-        model_kwargs = {}
+    # a UDF must not modify its arguments
+    model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
     if tools is not None:
         model_kwargs['tools'] = [{'type': 'function', 'function': tool} for tool in tools]
@@ -122,9 +122,7 @@ async def chat_completions(
             model_kwargs['tool_choice'] = {'type': 'function', 'function': {'name': tool_choice['tool']}}
 
     if tool_choice is not None and not tool_choice['parallel_tool_calls']:
-        if 'extra_body' not in model_kwargs:
-            model_kwargs['extra_body'] = {}
-        model_kwargs['extra_body']['parallel_tool_calls'] = False
+        model_kwargs['extra_body'] = {**model_kwargs.get('extra_body', {}), 'parallel_tool_calls': False}
 
     # Serialize any images in `messages`
     messages = copy.deepcopy(messages)
