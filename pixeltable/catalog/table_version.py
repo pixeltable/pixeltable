@@ -1264,7 +1264,6 @@ class TableVersion:
         """Replace the value expression of a computed column, optionally recomputing its stored values."""
         assert self.is_mutable
         assert col.is_computed
-        assert not recompute or self.is_data_versioned
         if col.value_expr_dict == new_value_expr.as_dict():
             # no-op: return early and do not create a new schema version
             return UpdateStatus()
@@ -1281,8 +1280,10 @@ class TableVersion:
             f'{new_value_expr}, new version: {self.version}'
         )
 
-        if not recompute:
+        # recompute_columns on a data-versioned table ends with table md write
+        if not (recompute and self.is_data_versioned):
             self._write_md(new_version=True, new_schema_version=True)
+        if not recompute:
             return UpdateStatus()
         return self.recompute_columns([col.name], cascade=cascade, bump_version=False)
 
@@ -1594,7 +1595,6 @@ class TableVersion:
         from pixeltable.plan import Planner
 
         assert self.is_mutable
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         assert all(name in self.cols_by_name for name in col_names)
         assert len(col_names) > 0
         assert len(col_names) == 1 or not errors_only
@@ -1624,10 +1624,14 @@ class TableVersion:
             )
             telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(update_plan.root)))
 
-        timestamp = time.time()
-        if bump_version:
-            self.bump_version(timestamp, bump_schema_version=False)
-        result = self._propagate_update_plan(update_plan, target_columns, timestamp, cascade)
+        # TODO try to deduplicate this
+        if self.is_data_versioned:
+            timestamp = time.time()
+            if bump_version:
+                self.bump_version(timestamp, bump_schema_version=False)
+            result = self._propagate_update_plan(update_plan, target_columns, timestamp, cascade)
+        else:
+            result = self._update_rows(update_plan.root, update_plan.set_cols, return_rows=False)
         result += UpdateStatus(updated_cols=[c.qualified_name for c in update_plan.updated_cols])
         return result
 

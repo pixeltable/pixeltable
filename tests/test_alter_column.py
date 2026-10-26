@@ -205,10 +205,6 @@ class TestAlterColumn:
         validate_update_status(t.insert(n=3), 1)
         assert t.select(t.c).where(t.n == 3).collect()['c'] == [30]
 
-        if not is_data_versioned:
-            # TODO(PXT-1101): an operational table has no recompute path yet
-            return
-
         num_versions = len(t.get_versions())
         t.alter_computed_column(c=t.n * 100)
         reload_catalog(do_reload_catalog)
@@ -216,17 +212,17 @@ class TestAlterColumn:
         # the alteration and the recompute are in the same version
         assert len(t.get_versions()) == num_versions + 1
 
-        # and a single revert undoes both
-        t.revert()
-        reload_catalog(do_reload_catalog)
-        assert t.select(t.c).order_by(t.n).collect()['c'] == [2, 4, 30]
-        validate_update_status(t.insert(n=6), 1)
-        assert t.select(t.c).where(t.n == 6).collect()['c'] == [60]
-
         # altering to the same expression is a no-op, and creates no version
-        num_versions = len(t.get_versions())
-        t.alter_computed_column(c=t.n * 10)
-        assert len(t.get_versions()) == num_versions
+        t.alter_computed_column(c=t.n * 100)
+        assert len(t.get_versions()) == num_versions + 1
+
+        if is_data_versioned:
+            # a single revert undoes both the alteration and the recompute
+            t.revert()
+            reload_catalog(do_reload_catalog)
+            assert t.select(t.c).order_by(t.n).collect()['c'] == [2, 4, 30]
+            validate_update_status(t.insert(n=6), 1)
+            assert t.select(t.c).where(t.n == 6).collect()['c'] == [60]
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_alter_computed_column_dict_literal(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
@@ -241,8 +237,12 @@ class TestAlterColumn:
         assert rows == [{'p': 'a', 'opts': {'k': 1}}, {'p': 'b', 'opts': {'k': 2}}]
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_alter_computed_column_refs(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
-        t = pxt.create_table(db_root.make_catalog_path('test_tbl'), {'n': pxt.Int, 'm': pxt.Int})
+    def test_alter_computed_column_refs(
+        self, db_root: DatabaseRoot, do_reload_catalog: bool, is_data_versioned: bool
+    ) -> None:
+        t = pxt.create_table(
+            db_root.make_catalog_path('test_tbl'), {'n': pxt.Int, 'm': pxt.Int}, _is_data_versioned=is_data_versioned
+        )
         t.add_computed_column(c=t.n + t.m)
         validate_update_status(t.insert(n=1, m=5), 1)
         assert t.select(t.c).collect()['c'] == [6]
@@ -320,8 +320,12 @@ class TestAlterColumn:
         assert t.where(t.c == 2).count() == 0
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_alter_computed_column_unstored(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
-        t = pxt.create_table(db_root.make_catalog_path('test_tbl'), {'n': pxt.Int})
+    def test_alter_computed_column_unstored(
+        self, db_root: DatabaseRoot, do_reload_catalog: bool, is_data_versioned: bool
+    ) -> None:
+        t = pxt.create_table(
+            db_root.make_catalog_path('test_tbl'), {'n': pxt.Int}, _is_data_versioned=is_data_versioned
+        )
         t.add_computed_column(u=t.n * 2, stored=False)
         t.add_computed_column(s=t.u + 1)
         validate_update_status(t.insert(n=1), 1)

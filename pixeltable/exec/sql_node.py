@@ -739,6 +739,7 @@ class SqlSampleNode(SqlNode):
 
     input_cte: sql.CTE | None
     pk_count: int
+    num_rowid_cols: int
     stratify_exprs: list[exprs.Expr] | None
     sample_clause: 'SampleClause'
     _cte_inputs: list[SqlNode]
@@ -760,7 +761,9 @@ class SqlSampleNode(SqlNode):
         assert isinstance(input, SqlNode)
         self.input_cte, input_col_map = input.to_cte(keep_pk=True)
         self.pk_count = input.num_pk_cols
-        assert self.pk_count > 1
+        self.num_rowid_cols = len(input.tbl.tbl_version.get().store_tbl.rowid_columns())
+        assert self.num_rowid_cols > 0, self.num_rowid_cols
+        assert self.num_rowid_cols <= self.pk_count, (self.num_rowid_cols, self.pk_count)
         sql_elements = exprs.SqlElementCache(input_col_map)
         assert sql_elements.contains_all(stratify_exprs)
         cell_md_col_refs = [cell_md_ref.col_ref for cell_md_ref in input.cell_md_refs]
@@ -797,8 +800,9 @@ class SqlSampleNode(SqlNode):
 
     def _create_key_sql(self, cte: sql.CTE) -> sql.ColumnElement:
         """Create an expression for randomly ordering rows with a given seed"""
-        rowid_cols = [*cte.c[-self.pk_count : -1]]  # exclude the version column
-        assert len(rowid_cols) > 0
+        # cte always ends with the rowid columns, then v_min (if data-versioned) and rank (if cte is row_rank_cte)
+        first_rowid_idx = len(self.input_cte.c) - self.pk_count
+        rowid_cols = [*cte.c[first_rowid_idx : first_rowid_idx + self.num_rowid_cols]]
         if self.sample_clause.seed is not None:
             # explicit seed: same value across executes, fine to inline
             seed_expr: sql.ColumnElement = sql.literal_column(str(self.sample_clause.seed))
