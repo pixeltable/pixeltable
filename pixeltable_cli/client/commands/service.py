@@ -503,10 +503,12 @@ def _update(
     )
     db_uri = _hosted_db_uri(applied.target)
     if db_uri is not None:
-        _await_hosted(applied, db_uri, as_json=as_json)
+        _await_hosted(applied, db_uri)
     blocked = [op for d in applied.services for op in d.ops if op.severity == 'blocked']
+    submitted = [d.receipt for d in applied.services if d.receipt is not None and d.status in ('accepted', 'applied')]
     error = None
-    if len(blocked) > 0:
+    # a failed generation exits below with its own next step, which the blocked plan's must not hide
+    if len(blocked) > 0 and not any(r.unsuccessful for r in submitted):
         # the database has to change before these services can serve, and this command does not change it
         error = blocked_document(
             [op.description for op in blocked], [op.details['command'] for op in blocked if 'command' in op.details]
@@ -530,7 +532,7 @@ def _service_uri(db_uri: str, receipt: GenerationReceipt) -> str:
     return '/'.join(part for part in (db_uri, receipt.base_path, receipt.service_name) if part)
 
 
-def _await_hosted(plan: ServicePlan, db_uri: str, *, as_json: bool) -> None:
+def _await_hosted(plan: ServicePlan, db_uri: str) -> None:
     """Wait on the receipts of the plan's hosted services, then until their endpoints answer."""
     accepted = [d.receipt for d in plan.services if d.receipt is not None and d.status == 'accepted']
     if len(accepted) == 0:

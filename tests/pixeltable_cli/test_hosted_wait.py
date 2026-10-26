@@ -2,6 +2,7 @@
 
 import signal
 import sys
+import time
 from typing import Any, Callable
 
 import pytest
@@ -50,17 +51,25 @@ class TestProgressWithoutATerminal:
         ]
         assert all(line.endswith('0:00:00') for line in err.splitlines())
 
-    def test_a_line_each_interval(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-        """An unchanged wait still prints, so its caller can tell it is alive."""
-        monkeypatch.setattr(hosted, '_PLAIN_PROGRESS_INTERVAL', 0.0)
+    def test_a_line_each_interval_while_a_poll_blocks(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A poll that takes longer than the interval does not silence the wait: its caller can tell it is alive."""
+        monkeypatch.setattr(hosted, '_PLAIN_PROGRESS_INTERVAL', 0.05)
         building = _receipt(ResourcePhase.BLOCKED, 'the image build')
         done = _receipt().model_copy(update={'outcome': ReceiptOutcome.OBSERVED})
-        _serve(monkeypatch, [lambda: building, lambda: building, lambda: done])
+
+        def slow() -> GenerationReceipt:
+            time.sleep(0.5)
+            return building
+
+        _serve(monkeypatch, [slow, lambda: done])
 
         hosted.await_receipts(_DB_URI, [_receipt()], status_command=_STATUS)
 
-        # the first label as the wait starts, then one line before each of the three polls
-        assert len(capsys.readouterr().err.splitlines()) == 4
+        lines = capsys.readouterr().err.splitlines()
+        # the first label, and its repeats from the heartbeat during the slow poll
+        assert sum(1 for line in lines if 'PENDING' in line) >= 4
 
 
 @pytest.mark.skipif(sys.platform == 'win32', reason='a tool timeout on Windows ends the process without a signal')

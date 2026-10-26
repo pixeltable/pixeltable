@@ -242,10 +242,8 @@ class TestSchema:
         assert [shlex.split(step['command']) for step in r.json['next']] == r.next_commands
 
         r = cli('schema', 'update', str(schema_file), target, '-n', '--json', check=False)
-        assert 'error_code' not in r.json
-
-        r = cli('schema', 'update', str(schema_file), target, '-n', '--json', check=False)
         assert r.returncode == 2
+        assert 'error_code' not in r.json
         assert [op['status'] for t in r.json['tables'] for op in t['ops']] == ['skipped', 'skipped']
 
         # -n applies nothing, even with the drop permitted and confirmed

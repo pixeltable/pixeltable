@@ -70,7 +70,7 @@ disk_gb, workers). 'diff' compares the entry against the database; 'update' appl
 Secrets are set separately, with 'pxt secret'.
 
 Pixeltable Cloud applies an accepted update, start, stop, restart, retry, image build or delete even if the
-command exits early: Ctrl-C only stops the waiting, and --no-wait returns once the change is accepted.
+command exits early: Ctrl-C or SIGTERM only stops the waiting, and --no-wait returns once the change is accepted.
 Rerunning the same update reports the change already accepted, and retries it if it failed.
 
 Exit status of diff and update: 0 in agreement, 2 changes pending, 3 refused, 1 error.
