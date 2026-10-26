@@ -1993,8 +1993,16 @@ class TestVideo:
         )
         _ = v.collect()
 
-        with pytest.raises(pxt.Error, match='`fps` must be a positive number'):
-            _ = t.select(pxtf.video.scene_detect_content(t.video, fps=-1.0)).collect()
+        for scene_detect in (
+            pxtf.video.scene_detect_adaptive,
+            pxtf.video.scene_detect_content,
+            pxtf.video.scene_detect_threshold,
+            pxtf.video.scene_detect_histogram,
+            pxtf.video.scene_detect_hash,
+        ):
+            for fps in (0.0, -1.0):
+                with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`fps` must be a positive number'):
+                    _ = t.select(scene_detect(t.video, fps=fps)).collect()
 
     def test_scene_detect_cut_at_scene_start(self, init_env: None) -> None:
         skip_test_if_not_installed('scenedetect')

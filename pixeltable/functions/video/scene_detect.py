@@ -49,7 +49,7 @@ def scene_detect_adaptive(
 
     Args:
         video: The video to analyze for scene cuts.
-        fps: Number of frames to extract per second for analysis. If None or 0, analyzes all frames.
+        fps: Number of frames to extract per second for analysis. If None, analyzes all frames.
             Lower values process faster but may miss exact scene cuts.
         adaptive_threshold: Threshold that the score ratio must exceed to trigger a new scene cut.
             Lower values will detect more scenes (more sensitive), higher values will detect fewer scenes.
@@ -125,6 +125,8 @@ def scene_detect_adaptive(
             kernel_size=kernel_size,
         )
         return _scene_detect(video, fps, detector)
+    except pxt.Error:
+        raise
     except Exception as e:
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect_adaptive(): failed to detect scenes: {e}'
@@ -230,6 +232,8 @@ def scene_detect_content(
             filter_mode=filter_mode_enum,
         )
         return _scene_detect(video, fps, detector)
+    except pxt.Error:
+        raise
     except Exception as e:
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect_content(): failed to detect scenes: {e}'
@@ -260,7 +264,7 @@ def scene_detect_threshold(
 
     Args:
         video: The video to analyze for fade transitions.
-        fps: Number of frames to extract per second for analysis. If None or 0, analyzes all frames.
+        fps: Number of frames to extract per second for analysis. If None, analyzes all frames.
             Lower values process faster but may miss exact transition points.
         threshold: 8-bit intensity value that each pixel value (R, G, and B) must be less than or equal to in order
             to trigger a fade in/out.
@@ -325,6 +329,8 @@ def scene_detect_threshold(
             method=method_enum,
         )
         return _scene_detect(video, fps, detector)
+    except pxt.Error:
+        raise
     except Exception as e:
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect_threshold(): failed to detect scenes: {e}'
@@ -349,7 +355,7 @@ def scene_detect_histogram(
 
     Args:
         video: The video to analyze for scene cuts.
-        fps: Number of frames to extract per second for analysis. If None or 0, analyzes all frames.
+        fps: Number of frames to extract per second for analysis. If None, analyzes all frames.
             Lower values process faster but may miss exact scene cuts.
         threshold: Maximum relative difference between 0.0 and 1.0 that the histograms can differ. Histograms are
             calculated on the Y channel after converting the frame to YUV, and normalized based on the number of bins.
@@ -401,6 +407,8 @@ def scene_detect_histogram(
     try:
         detector = HistogramDetector(threshold=threshold, bins=bins, min_scene_len=min_scene_len)
         return _scene_detect(video, fps, detector)
+    except pxt.Error:
+        raise
     except Exception as e:
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect_histogram(): failed to detect scenes: {e}'
@@ -484,6 +492,8 @@ def scene_detect_hash(
     try:
         detector = HashDetector(threshold=threshold, size=size, lowpass=lowpass, min_scene_len=min_scene_len)
         return _scene_detect(video, fps, detector)
+    except pxt.Error:
+        raise
     except Exception as e:
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect_hash(): failed to detect scenes: {e}'
@@ -508,10 +518,7 @@ def _scene_detect(video: str, fps: float | None, detector: 'SceneDetector') -> l
         )
     video_fps = float(video_framerate)
 
-    # fps=0 means all frames; frame_iterator() requires fps > 0
-    frame_iter = video_iterators.frame_iterator.create_iter(  # type: ignore[attr-defined]
-        video=video, fps=None if fps == 0 else fps
-    )
+    frame_iter = video_iterators.frame_iterator.create_iter(video=video, fps=fps)  # type: ignore[attr-defined]
     try:
         scenes: list[SceneInfo] = []
         frame_idx: int | None = None

@@ -63,9 +63,8 @@ class frame_iterator(pxt.PxtIterator[Frame]):
             * `interlaced_frame` (`bool`): `True` if the frame is interlaced
 
     Args:
-        fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5.
-            If omitted, or if greater than the native framerate of the video,
-            then the framerate of the video will be used (all frames will be extracted).
+        fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5, and must be
+            positive. If None, or greater than the video's frame rate, all frames are extracted.
         num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
             `num_frames` is greater than the number of frames in the video, all frames will be extracted.
         keyframes_only: If True, only extract keyframes.
@@ -280,8 +279,8 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         seek_time: float
         if 'pos_msec' in kwargs:
             video_idx = kwargs['pos_frame']
-            # TODO: rows written by legacy_frame_iterator measure pos_msec from the video start and need
-            #     video_start_time added; rows from the old FrameIterator store roughly absolute milliseconds
+            # TODO: add video_start_time to pos_msec/1000 for rows from legacy_frame_iterator and
+            #     video_start_time/1000 for rows from the old FrameIterator; this requires telling the two apart
             seek_time = kwargs['pos_msec'] / 1000.0
         else:
             assert 'frame_attrs' in kwargs
