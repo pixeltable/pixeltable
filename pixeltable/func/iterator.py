@@ -159,7 +159,7 @@ class GeneratingFunction:
             name=self.name,
             kind=self.kind,
             call=f'{call} -> {returns}',
-            signatures=[self.signature.to_str(pretty_print_json=True, with_defaults=True)],
+            signatures=[self.signature._to_str(pretty_print_json=True, with_defaults=True)],
             summary=None if doc is None else ' '.join(doc.split('\n\n', 1)[0].split()),
             doc=doc,
             outputs=outputs,

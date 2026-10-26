@@ -361,7 +361,7 @@ class FunctionCall(Expr):
         # we currently can't translate aggregate functions with grouping and/or ordering to SQL
         if self.has_group_by() or len(self.order_by) > 0:
             return None
-        # CachePrefetchNode fetches files only for media ColumnRefs
+        # CachePrefetchNode downloads files only for media ColumnRefs; a media result from SQL would have no local file
         if self.col_type.is_media_type():
             return None
 

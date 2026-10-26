@@ -266,11 +266,12 @@ class Signature:
         return_type = self.get_return_type()
         return return_type.pretty_str() if pretty_print_json else f'pxt.{return_type}'
 
-    def to_str(self, pretty_print_json: bool = False, with_defaults: bool = False) -> str:
+    # pixeltable-doctools calls _to_str()
+    def _to_str(self, pretty_print_json: bool = False, with_defaults: bool = False) -> str:
         return f'({self.params_str(with_defaults=with_defaults)}) -> {self.return_str(pretty_print_json)}'
 
     def __str__(self) -> str:
-        return self.to_str()
+        return self._to_str()
 
     @classmethod
     def _infer_type(cls, annotation: type | None) -> tuple[ts.ColumnType | None, bool | None]:

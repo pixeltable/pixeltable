@@ -11,6 +11,7 @@ import pandas as pd
 import pydantic
 from typing_extensions import TypeForm
 
+import pixeltable as pxt
 from pixeltable import Query, catalog, exceptions as excs, exprs, func, telemetry, telemetry_schemas, type_system as ts
 from pixeltable.catalog import DirEntry, TablePath
 from pixeltable.catalog.globals import OnErrorParam, fold_identifier
@@ -18,7 +19,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, RowDataTableDataConduit, TableDataConduit
 from pixeltable.runtime import get_runtime
-from pixeltable.types import ColumnSpec, DirContents, DirectoryNode, FunctionKind, TableKind, TableNode, TreeNode
+from pixeltable.types import ColumnSpec, DirContents, DirectoryNode, FunctionList, TableKind, TableNode, TreeNode
 from pixeltable.utils.http import fetch_url
 
 if TYPE_CHECKING:
@@ -1079,8 +1080,8 @@ def list_functions(
     *,
     on: TypeForm | None = None,
     search: str | None = None,
-    kind: FunctionKind | None = None,
-) -> func.FunctionList:
+    kind: pxt.FunctionKind | None = None,
+) -> pxt.FunctionList:
     """List the functions, aggregates and iterators of Pixeltable or of a module, with their signatures.
 
     Printed, the result shows one function per line, with how to call it and the first paragraph of its
@@ -1111,10 +1112,10 @@ def list_functions(
     """
     on_type = None if on is None else ts.ColumnType.normalize_type(on)
     entries = func.FunctionRegistry.get().list_functions(module, on_type, search, kind)
-    return func.FunctionList(fn.info(path) for path, fn in entries)
+    return FunctionList(fn.info(path) for path, fn in entries)
 
 
-def eval_udf(fn: func.Function, /, *args: Any, **kwargs: Any) -> Any:
+def eval_udf(fn: pxt.Function, /, *args: Any, **kwargs: Any) -> Any:
     """Evaluate a UDF on Python values and return its result, without a table.
 
     The arguments and the result are Python values, as a UDF body sees them: an image is a `PIL.Image.Image`, and
@@ -1175,7 +1176,7 @@ def eval_udf(fn: func.Function, /, *args: Any, **kwargs: Any) -> Any:
 
 
 def _local_media_args(
-    fn: func.Function, args: tuple[Any, ...], kwargs: dict[str, Any]
+    fn: pxt.Function, args: tuple[Any, ...], kwargs: dict[str, Any]
 ) -> tuple[tuple[Any, ...], dict[str, Any]]:
     """Replace each file path or URL for a media parameter of fn with a literal of that media type, downloading a URL
     first."""

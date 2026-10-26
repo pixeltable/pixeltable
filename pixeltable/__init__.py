@@ -36,7 +36,6 @@ from .exceptions import (
 from .func import (
     Aggregator,
     Function,
-    FunctionList,
     PxtIterator,
     Tool,
     ToolChoice,
@@ -94,7 +93,7 @@ from .type_system import (
     Timestamp,
     Video,
 )
-from .types import FunctionInfo, FunctionKind
+from .types import FunctionInfo, FunctionKind, FunctionList
 
 # This import must go last to avoid circular imports.
 from . import functions, io, iterators  # isort: skip

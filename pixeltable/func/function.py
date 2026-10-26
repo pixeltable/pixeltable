@@ -147,7 +147,7 @@ class Function(ABC):
             name=self.name,
             kind=self.kind,
             call=f'{self._call_str(path)} -> {returns}',
-            signatures=[sig.to_str(pretty_print_json=True, with_defaults=True) for sig in self.signatures],
+            signatures=[sig._to_str(pretty_print_json=True, with_defaults=True) for sig in self.signatures],
             summary=None if doc is None else ' '.join(doc.split('\n\n', 1)[0].split()),
             doc=doc,
             outputs=None,

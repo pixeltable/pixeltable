@@ -4,7 +4,6 @@ from .aggregate_function import AggregateFunction, Aggregator, uda
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplateFunction
 from .function import Function, InvalidFunction
-from .function_list import FunctionList
 from .function_registry import FunctionRegistry
 from .iterator import GeneratingFunction, GeneratingFunctionCall, PxtIterator, iterator
 from .mcp import mcp_udfs
