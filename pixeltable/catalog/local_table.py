@@ -152,12 +152,7 @@ class LocalTable(Table):
                 continue
             if isinstance(info.idx, index.EmbeddingIndex):
                 indexed_col_md = self._tbl_version_path.get_column_md(QColumnId(info.col.tbl_handle.id, info.col.id))
-                col_ref = ColumnRef(indexed_col_md)
-                if info.col.col_type.is_array_type():
-                    embedding_str = str(col_ref)
-                else:
-                    embedding_fncall = info.idx.embeddings[info.col.col_type._type](col_ref)
-                    embedding_str = str(embedding_fncall)
+                embedding_str = str(info.idx.create_value_expr(indexed_col_md))
                 index_info[info.name] = IndexMetadata(
                     name=info.name,
                     columns=[info.col.name],
@@ -427,11 +422,7 @@ class LocalTable(Table):
         for name, info in self._tbl_version.get().idxs_by_name.items():
             if isinstance(info.idx, index.EmbeddingIndex) and (columns is None or info.col.name in columns):
                 col_md = self._tbl_version_path.get_column_md(QColumnId(info.col.tbl_handle.id, info.col.id))
-                col_ref = ColumnRef(col_md)
-                if info.col.col_type.is_array_type():
-                    embedding_str = str(col_ref)
-                else:
-                    embedding_str = str(info.idx.embeddings[info.col.col_type._type](col_ref))
+                embedding_str = str(info.idx.create_value_expr(col_md))
                 row = {
                     'Index Name': name,
                     'Column': info.col.name,
