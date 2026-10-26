@@ -11,8 +11,8 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
-import socket
 import subprocess
 import sys
 import time
@@ -24,7 +24,7 @@ import pytest
 from pixeltable.config import Config
 from pixeltable_cli.client.utils import is_running
 
-from ..utils import CLOUD_DB_ROOT_URIS, DatabaseRoot, cloud_env_configured, home_bucket_uri, skip_test_if_no_config
+from ..utils import CLOUD_DB_ROOT_URIS, DatabaseRoot, cloud_env_configured, free_port, home_bucket_uri
 
 _REPO_ROOT = pathlib.Path(__file__).parents[2]
 _CORPUS_DIR = pathlib.Path(__file__).parent
@@ -47,21 +47,16 @@ PROJECT_EXTRAS = tuple(_requirements_in())
 EXIT_IN_AGREEMENT = 0
 EXIT_ERROR = 1
 EXIT_CHANGES_PENDING = 2
+EXIT_REFUSED = 3
 
 # a publish that rebuilds the image waits on CodeBuild, far longer than the default cli timeout allows
 APPLY_TIMEOUT = 2400.0
 
 
-def _pick_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('127.0.0.1', 0))
-        return s.getsockname()[1]
-
-
 @pytest.fixture
 def daemon_port(init_env: None) -> Iterator[int]:
     """A free port for a daemon of the test's own, taken down again when the test ends."""
-    port = _pick_port()
+    port = free_port()
     yield port
     subprocess.run(
         ['pxt', 'daemon', 'stop', '-f'],
@@ -84,6 +79,12 @@ class PxtResult:
             # a command that failed wrote its reason to stderr, and parsing '' would discard it
             raise AssertionError(f'pxt produced no output (rc={self.returncode}): {self.stderr.strip()}')
         return json.loads(self.stdout)
+
+    @property
+    def next_commands(self) -> list[list[str]]:
+        """The commands the 'next:' lines on stderr name, as argv, each without its trailing '# ...' comment."""
+        lines = [line.removeprefix('next: ') for line in self.stderr.splitlines() if line.startswith('next: ')]
+        return [shlex.split(line, comments=True) for line in lines]
 
 
 @pytest.fixture(scope='session', autouse=True)
@@ -135,7 +136,7 @@ def project_dir(session_project: pathlib.Path, request: pytest.FixtureRequest) -
 def pxt_daemon(
     init_env: None, tmp_path_factory: pytest.TempPathFactory, session_project: pathlib.Path
 ) -> Iterator[int]:
-    port = _pick_port()
+    port = free_port()
     env = {**os.environ, 'PXT_PORT': str(port)}
     log_path = tmp_path_factory.mktemp('pxt-daemon') / 'daemon.log'
     prior_port = os.environ.get('PXT_PORT')
@@ -210,9 +211,9 @@ _RUN_TIMEOUT_SECS = 300
 _WHEEL_SUBDIR = 'wheels'
 
 
-def db_diff(cli: PxtRunner, project: pathlib.Path, db_uri: str) -> dict[str, Any]:
+def db_diff(cli: PxtRunner, project: pathlib.Path, db_uri: str, *flags: str) -> dict[str, Any]:
     """What `pxt db diff` reports, its exit status under 'returncode'."""
-    r = cli('db', 'diff', db_uri, '--json', cwd=project, check=False)
+    r = cli('db', 'diff', db_uri, '--json', *flags, cwd=project, check=False)
     assert r.returncode in (EXIT_IN_AGREEMENT, EXIT_CHANGES_PENDING), r.stderr
     return {**r.json, 'returncode': r.returncode}
 
@@ -248,8 +249,13 @@ def copy_app_corpus(session_project: pathlib.Path) -> pathlib.Path:
 
 @pytest.fixture(scope='session')  # session scope makes it run before the session-scoped pixeltable_wheel
 def hosted_environment() -> None:
-    """Skip unless a control plane is configured."""
-    skip_test_if_no_config('api_key')
+    """Skip unless the cloud environment is configured, as for the cloud catalog roots.
+
+    An API key in the config file is not enough: these tests build images, and create keys and secrets,
+    wherever that key reaches, so a run opts in through the environment variables.
+    """
+    if not cloud_env_configured():
+        pytest.skip('the cloud environment is unconfigured')
 
 
 @pytest.fixture(scope='session')
@@ -448,7 +454,7 @@ def cli_bg(
     running: list[BackgroundPxt] = []
 
     def _run(*args: str, port: int | None = None) -> BackgroundPxt:
-        bound = _pick_port() if port is None else port
+        bound = free_port() if port is None else port
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon), 'BROWSER': 'true'}
         proc = subprocess.Popen(
             ['pxt', *args, '--port', str(bound)],

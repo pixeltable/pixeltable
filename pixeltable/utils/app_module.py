@@ -366,6 +366,18 @@ def get_module_services(module: ModuleType, file: str) -> tuple[fastapi.FastAPI 
                     f'{file}: the FastAPI application does not include the router {name!r}; '
                     f'include it with include_router(), or move it to a separate file',
                 )
+        # unnamed routers share the name and the path of the route that polls their jobs
+        unnamed = [
+            name
+            for name, router in routers.items()
+            if router.name is None and any(route.background for route in router.service_spec(name).routes)
+        ]
+        if len(unnamed) > 1:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'{file}: the routers {", ".join(map(repr, unnamed))} have background routes but no name; '
+                'assign a name with FastAPIRouter(name=...)',
+            )
 
     return app, routers
 

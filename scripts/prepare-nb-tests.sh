@@ -3,6 +3,7 @@
 # Notebooks that are always skipped
 SKIP_NOTEBOOKS=(
     llm-tool-calling                # Relies on the user separately running an MCP server
+    video-generate-ai               # Its Veo models are shut down; generate_videos() doesn't support Gemini Omni yet
     working-with-bfl                # [PXT-1111] Out of credits
     working-with-fabric             # [PXT-1113] Requires Microsoft Fabric environment
     working-with-fiftyone           # [PXT-1117] Voxel51 is currently omitted from our dev env for security reasons
@@ -26,7 +27,6 @@ VERY_EXPENSIVE_NOTEBOOKS=(
     img-detection-vs-segmentation   # Resource intensive
     img-image-to-image              # Resource intensive
     object-detection-in-videos      # Resource intensive
-    video-generate-ai               # High dollar cost
     working-with-gemini             # High dollar cost
     working-with-fal                # [PXT-1233] fal.ai integration failing on CI
     working-with-together           # Poor reliability
@@ -45,7 +45,6 @@ VERY_EXPENSIVE_NOTEBOOKS=(
 
 # Notebooks that are skipped unless --include-expensive is passed: all notebooks that use HF models.
 EXPENSIVE_NOTEBOOKS=(
-    audio-podcast-chapters
     audio-transcriptions
     computed-columns
     data-import-huggingface
@@ -110,6 +109,9 @@ if [[ $DO_PIP_INSTALL == true ]]; then
     # TODO(PXT-1427): the instrumentation package is available in the source checkout, but is not yet published
     # on PyPI.
     SKIP_NOTEBOOKS+=(observability)
+else
+    # whisperx is not in the dev env; this notebook gets it only from its %pip cell
+    SKIP_NOTEBOOKS+=(audio-podcast-chapters)
 fi
 
 echo "Target path: $TARGET_DIR"

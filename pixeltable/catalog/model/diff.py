@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 from typing import TYPE_CHECKING, Any, Literal
 
-from pixeltable import catalog, exprs
+from pixeltable import catalog, exprs, func
 from pixeltable.types import ColumnSpec
+from pixeltable.utils.object_stores import ObjectPath, warn_if_pxtfs_destination
 from pixeltable_cli.types import Resolution, SchemaChangeIndexRef, SchemaChangeOp, SchemaChangeOpDetails, TableDiff
 
 from ..globals import col_type_from_spec, fold_mapping_keys
 from ..table_metadata import ColumnMetadata, IndexMetadata, TableMetadata
+from .definition import bind_query_templates
+from .resolution import resolve_model_value_expr
 
 if TYPE_CHECKING:
     from .definition import IndexDefinition, TableModelMeta
@@ -39,6 +43,11 @@ def _resolution(exists: bool, ops: list[SchemaChangeOp]) -> Resolution:
     return 'update_additive'
 
 
+def _comparable_destination(dest: str | None) -> str | None:
+    """dest, with a home-bucket address in one spelling: a model that respells its destination changes no schema."""
+    return None if dest is None else ObjectPath.canonical_uri(dest)
+
+
 @dataclasses.dataclass
 class _ColumnProperties:
     """The comparable properties of a column, either from a model or from an existing table."""
@@ -56,8 +65,7 @@ class _ColumnProperties:
     def from_spec(cls, spec: ColumnSpec, default_media_validation: str) -> _ColumnProperties:
         """The comparable properties of a column defined by spec, resolved to match a stored column's metadata.
 
-        A computed column's value expression carries ColumnRefByName placeholders, but those render identically to
-        the ColumnRefs in the stored expression, so the display strings are directly comparable. Defaults mirror
+        `value` is the value expression's display string, used only for reporting. Defaults mirror
         Column.create (stored=True, primary_key=False) and a media column's media_validation falls back to
         the table default, as it does on the stored column.
         """
@@ -65,7 +73,6 @@ class _ColumnProperties:
         value = spec.get('value')
         comment = spec.get('comment')
         dest = spec.get('destination')
-        dest_str = str(dest) if dest is not None else None
         return cls(
             type=repr(col_type),
             value=exprs.Expr.from_object(value).display_str(inline=False) if value is not None else None,
@@ -76,7 +83,7 @@ class _ColumnProperties:
             else None,
             comment=comment if comment else None,
             custom_metadata=spec.get('custom_metadata'),
-            destination=dest_str,
+            destination=_comparable_destination(None if dest is None else str(dest)),
         )
 
     @classmethod
@@ -90,7 +97,7 @@ class _ColumnProperties:
             media_validation=col_md['media_validation'],
             comment=col_md['comment'],
             custom_metadata=col_md['custom_metadata'],
-            destination=col_md['destination'],
+            destination=_comparable_destination(col_md['destination']),
         )
 
 
@@ -149,6 +156,24 @@ def base_query_columns(model: TableModelMeta) -> set[str]:
     # "anonymous" compound expressions are not allowed here, so every unnamed item names a column
     assert all(expr.is_column_ref for expr, name in base.select_list if name is None)
     return {expr.default_column_name() if name is None else name for expr, name in base.select_list}
+
+
+def queried_models(col_spec: ColumnSpec) -> set[TableModelMeta]:
+    """The models a column's value queries through a @pxt.query UDF."""
+    from .query import ModelQuery
+
+    value = col_spec.get('value')
+    if not isinstance(value, exprs.Expr):
+        return set()
+    result: set[TableModelMeta] = set()
+    pending = [value]
+    while len(pending) > 0:
+        for fn_call in pending.pop().subexprs(exprs.FunctionCall):
+            fn = fn_call.fn
+            if isinstance(fn, func.QueryTemplateFunction) and isinstance(fn.template_query, ModelQuery):
+                result.add(fn.template_query.model_cls)
+                pending.extend(fn.template_query._component_exprs())
+    return result
 
 
 def _format_column_spec(spec: ColumnSpec) -> str:
@@ -252,6 +277,40 @@ def _alter_column_change(
     )
 
 
+def _value_expr_dict(
+    value: Any, tbl_path: catalog.TablePath, *, catalog_dir: str, origin: Literal['base_query', 'model_body']
+) -> dict[str, Any]:
+    value_expr = exprs.Expr.from_object(value)
+    value_expr = bind_query_templates(value_expr.copy(), catalog_dir)
+    return resolve_model_value_expr(tbl_path, value_expr, origin).as_dict()
+
+
+def _column_value_changed(
+    spec: ColumnSpec,
+    col_name: str,
+    tbl_path: catalog.TablePath,
+    *,
+    catalog_dir: str,
+    origin: Literal['base_query', 'model_body'],
+) -> bool:
+    model_value = spec.get('value')
+    existing_col_md = tbl_path.get_column_md_by_name(col_name)
+    assert existing_col_md is not None
+    existing_value = existing_col_md.schema_col.value_expr
+    if model_value is None or existing_value is None:
+        return model_value is not existing_value
+
+    # A shortcut: if an expression queries a table that does not yet exist, that expression must have changed. Without
+    # this shortcut, the value expression resolution that follows will fail.
+    if any(model._resolve_tbl(catalog_dir, if_not_exists='ignore') is None for model in queried_models(spec)):
+        return True
+    model_value_dict = _value_expr_dict(model_value, tbl_path, catalog_dir=catalog_dir, origin=origin)
+
+    # Both dicts can contain tuples independently from each other. Running them through JSON serialization and back
+    # normalizes them.
+    return json.loads(json.dumps(model_value_dict)) != json.loads(json.dumps(existing_value))
+
+
 def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: str) -> dict[str, TableDiff]:
     """
     Analyze each registered model against the current catalog state, summarizing the schema changes that creating
@@ -274,6 +333,10 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
         for name, model in registered_models.items():
             user_cols = user_columns(model)
             model_cols = set(user_cols.keys())
+            for col_name, spec in user_cols.items():
+                # every model operation passes here on the caller's side; a hosted catalog creates the column in its
+                # daemon, where none of the caller's code runs
+                warn_if_pxtfs_destination(col_name, spec.get('destination'))
             base = model.__table_spec__['base']
             model_kind: Literal['table', 'view'] = 'table' if base is None else 'view'
             iterator = model.__table_spec__['iterator']
@@ -388,16 +451,21 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
             # Columns that are present in both, but whose properties differ. Some kinds of changes are supported,
             # others are not.
             default_media_validation = model.__table_spec__['media_validation'].name.lower()
+            base_cols = base_query_columns(model)
             for col_name in sorted(model_cols & existing_cols):
                 spec = user_cols[col_name]
                 col_md = existing_md['columns'][col_name]
                 model_props = _ColumnProperties.from_spec(spec, default_media_validation)
                 existing_props = _ColumnProperties.from_metadata(col_md)
-                altered = [
-                    prop
-                    for prop in model_props.__dataclass_fields__
-                    if getattr(model_props, prop) != getattr(existing_props, prop)
-                ]
+                origin: Literal['base_query', 'model_body'] = 'base_query' if col_name in base_cols else 'model_body'
+                value_changed = _column_value_changed(spec, col_name, tbl_path, catalog_dir=catalog_dir, origin=origin)
+                altered: list[str] = []
+                for prop in model_props.__dataclass_fields__:
+                    if prop == 'value':
+                        if value_changed:
+                            altered.append(prop)
+                    elif getattr(model_props, prop) != getattr(existing_props, prop):
+                        altered.append(prop)
                 if len(altered) == 0:
                     continue
                 ops.append(_alter_column_change(col_name, spec, model_props, existing_props, col_md, altered))

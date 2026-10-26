@@ -3,7 +3,9 @@
 
 import base64
 import datetime
+import gc
 import json
+import logging
 import math
 import os
 import re
@@ -222,6 +224,48 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             _ = t.where(t.c2 <= 2).select(self.value_exc(t.c2 - 1)).show()
 
+    @staticmethod
+    @pxt.udf
+    def raise_sync(x: int) -> int:
+        raise ValueError(f'sync {x}')
+
+    @staticmethod
+    @pxt.udf
+    async def raise_async(x: int) -> int:
+        raise ValueError(f'async {x}')
+
+    @staticmethod
+    @pxt.udf(resource_pool='rate-limits:test')
+    async def raise_rate_limited(x: int) -> int:
+        raise ValueError(f'rate-limited {x}')
+
+    @pytest.mark.db_roots('local', reason='inspects in-process DataRows')
+    @pytest.mark.parametrize('udf_name', ['raise_sync', 'raise_async', 'raise_rate_limited'])
+    def test_errored_rows_released(self, uses_db: None, udf_name: str) -> None:
+        """A row whose evaluation raised is garbage-collected after the insert.
+
+        The recorded exception's traceback references the row through the frame that caught it, so the row is part
+        of a reference cycle.
+        """
+
+        def num_errored_rows() -> int:
+            # pytest's log capture handlers keep the record of each _logger.exception() call in the rate-limits
+            # scheduler, and through its traceback the rows
+            for logger in (logging.getLogger(), logging.getLogger('pixeltable')):
+                for handler in logger.handlers:
+                    records = getattr(handler, 'records', None)
+                    if isinstance(records, list):
+                        records.clear()
+            gc.collect()
+            return sum(1 for obj in gc.get_objects() if isinstance(obj, exprs.DataRow) and obj.has_exc())
+
+        baseline = num_errored_rows()
+        t = pxt.create_table('errored_rows', {'x': pxt.Int})
+        t.add_computed_column(y=getattr(self, udf_name)(t.x))
+        status = t.insert([{'x': i} for i in range(10)], on_error='ignore')
+        assert status.num_excs == 10
+        assert num_errored_rows() == baseline
+
     def test_props(self, test_tbl: pxt.Table, img_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         t = test_tbl
         # errortype/-msg for computed column
@@ -243,7 +287,7 @@ class TestExprs:
                 # over the proxy each fileurl is a fetchable daemon media URL, not the local source file
                 assert all(u.startswith(('http://', 'https://')) and '/media/' in u for u in stored_urls), stored_urls
             case 'cloud':
-                assert all(u.startswith('pxtfs://') and '/home/' in u for u in stored_urls), stored_urls
+                assert all(u.startswith('pxt://') and '/buckets/home/' in u for u in stored_urls), stored_urls
 
         # localpath
         res = img_t.select(img_t.img.localpath).collect().to_pandas()
@@ -1695,6 +1739,30 @@ class TestExprs:
         reload_catalog()
         t = pxt.get_table(p('test'))
         assert t.get_metadata()['columns']['y']['computed_with'] == expected
+
+    def test_dict_literal_key_order_after_reload(self, db_root: DatabaseRoot) -> None:
+        """A Literal's dict value is stored as a jsonb object, whose key order Postgres does not preserve."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'x': pxt.Int | None})
+        # the list under 'aaa' has no column references, so it becomes a Literal
+        t.add_computed_column(dumped=pxtf.json.dumps({'zzz': t.x, 'aaa': [{'yy': 1, 'b': {'long_key': 2, 'k': 3}}]}))
+        expected = "dumps({'zzz': x, 'aaa': [{'yy': 1, 'b': {'long_key': 2, 'k': 3}}]})"
+        assert t.get_metadata()['columns']['dumped']['computed_with'] == expected
+        t.insert(x=1)
+
+        reload_catalog()
+        t = pxt.get_table(p('test'))
+        assert t.get_metadata()['columns']['dumped']['computed_with'] == expected
+        t.insert(x=2)
+        assert t.order_by(t.x).collect()['dumped'] == [
+            '{"zzz": 1, "aaa": [{"yy": 1, "b": {"long_key": 2, "k": 3}}]}',
+            '{"zzz": 2, "aaa": [{"yy": 1, "b": {"long_key": 2, "k": 3}}]}',
+        ]
+
+    def test_dict_literal_key_order_in_tuple(self) -> None:
+        """A dict nested in a tuple keeps its key order through as_dict() and from_dict()."""
+        lit = Literal({'zzz': (1, {'yy': 1, 'b': 2}), 'aaa': {'long_key': 1, 'k': 2}})
+        assert json.dumps(Literal.from_dict(lit.as_dict()).val) == json.dumps(lit.val)
 
     @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_print(

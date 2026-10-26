@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import dataclasses
 import http.client
+import math
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 import requests
+from tenacity import Retrying, retry_if_exception_type, retry_if_result, stop_after_attempt, wait_exponential
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
@@ -19,6 +21,8 @@ from pixeltable.service.management_protocol import ManagementOperationType
 from pixeltable.utils.http import SESSION
 
 _DEFAULT_API_URL = 'https://internal-api.pixeltable.com'
+
+GET_USAGE: Final = 'get_usage'  # defined by the control plane alone; `pxt usage` reads its answer as a dict
 
 
 def api_url() -> str:
@@ -33,8 +37,8 @@ _LONG_OPS = frozenset(
     for op in (ManagementOperationType.UPDATE_DB, ManagementOperationType.DELETE_DB, ManagementOperationType.GET_LOGS)
 )
 
-# operations that don't change server state; can be sent multiple times
-_READ_OPS = frozenset(
+# operations that are safe to resend: reads, and submit_update, whose repeat returns the original receipts
+_IDEMPOTENT_OPS = frozenset(
     op.value
     for op in (
         ManagementOperationType.LIST_ALL_SECRETS,
@@ -45,8 +49,15 @@ _READ_OPS = frozenset(
         ManagementOperationType.LIST_SERVICE_INSTANCES,
         ManagementOperationType.GET_SERVICE_INSTANCE,
         ManagementOperationType.GET_LOGS,
+        ManagementOperationType.PREPARE_UPDATE,
+        ManagementOperationType.SUBMIT_UPDATE,
+        ManagementOperationType.GET_RECEIPTS,
     )
-)
+) | {GET_USAGE}
+
+_IDEMPOTENT_ATTEMPTS = 3
+_IDEMPOTENT_BACKOFF = 2.0
+_RETRIED_STATUS_CODES = frozenset((502, 503, 504))
 
 # what a 403 says the credential is not permitted to do
 _PURPOSES = {
@@ -66,6 +77,10 @@ _PURPOSES = {
     ManagementOperationType.STOP_DB.value: 'stop a database',
     ManagementOperationType.RESTART_DB.value: 'restart a database',
     ManagementOperationType.UPDATE_DB.value: 'create or update a database',
+    ManagementOperationType.PREPARE_UPDATE.value: 'read a database',
+    ManagementOperationType.SUBMIT_UPDATE.value: 'create or update a database or its services',
+    ManagementOperationType.GET_RECEIPTS.value: 'read a database',
+    ManagementOperationType.RETRY.value: 'retry a failed update',
     ManagementOperationType.GET_ARCHIVE.value: "download a database's project",
     ManagementOperationType.GET_LOGS.value: 'read logs',
     ManagementOperationType.CREATE_ORG.value: 'create an organization',
@@ -77,6 +92,7 @@ _PURPOSES = {
     ManagementOperationType.LIST_KEYS.value: 'list keys',
     ManagementOperationType.UPDATE_KEY.value: 'update keys',
     ManagementOperationType.DELETE_KEY.value: 'delete keys',
+    GET_USAGE: "read the organization's usage",
 }
 
 
@@ -147,26 +163,63 @@ def _reason(resp: requests.Response) -> str:
     return reason or phrase or f'HTTP {resp.status_code}'
 
 
-def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) -> None:
-    """Raise for a 4xx other than 429; for a 401 or a 403, the error says which credential the request sent.
+# X-Pixeltable-Error-Code values for refusals only the user can lift; their reason is written for the user and ends
+# with the fix. pixeltable_cli/client/utils.py keeps a copy.
+USER_ACTION_CODES = frozenset(('PAYMENT_REQUIRED', 'PLAN_LIMIT', 'STORE_FULL'))
 
-    purpose is the verb phrase that completes "is not permitted to", such as 'list organizations'.
+
+def _written_reason(resp: requests.Response) -> str:
+    """The control plane's reason, after the '<message> : ' its error body starts with."""
+    text = resp.text.strip()
+    _message, sep, reason = text.partition(' : ')
+    return (reason.strip() if sep != '' else text) or _reason(resp)
+
+
+def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) -> None:
+    """Raise for a 4xx other than 429, or for an error status with one of USER_ACTION_CODES.
+
+    For a 401 or a 403, the error says which credential the request sent. purpose is the verb phrase that
+    completes "is not permitted to", such as 'list organizations'.
     """
-    # a 429 throttles the request rather than refusing it, so a retry can succeed
-    if not 400 <= resp.status_code < 500 or resp.status_code == 429:
-        return
-    reason = _reason(resp)
-    if resp.status_code not in (401, 403):
+    code = resp.headers.get('X-Pixeltable-Error-Code')
+    if resp.status_code >= 400 and code in USER_ACTION_CODES:
         raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_BAD_REQUEST,
+            _written_reason(resp),
+            provider='pixeltable_cloud',
+            status_code=resp.status_code,
+            provider_error_code=code,
+        )
+    if is_refusal(resp.status_code):
+        raise refusal(resp.status_code, _reason(resp), sent, purpose)
+
+
+def is_refusal(status_code: int) -> bool:
+    # a 429 throttles the request rather than refusing it, so a retry can succeed
+    return 400 <= status_code < 500 and status_code != 429
+
+
+def refusal(status_code: int, reason: str, sent: Credential, purpose: str) -> excs.Error:
+    """The error for a refusal status (see is_refusal); for a 401 or a 403, it says which credential was sent.
+
+    reason is a sentence without its final period. Shared with the database tunnel, so that a credential
+    refused there reads the same as one the control plane refused.
+    """
+    if status_code == 409:
+        return excs.ConcurrencyError(
+            excs.ErrorCode.CONCURRENT_MODIFICATION, f'Pixeltable Cloud refused this request: {reason}.'
+        )
+    if status_code not in (401, 403):
+        return excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_BAD_REQUEST,
             f'Pixeltable Cloud refused this request: {reason}.',
             provider='pixeltable_cloud',
-            status_code=resp.status_code,
+            status_code=status_code,
         )
-    if resp.status_code == 403:
+    if status_code == 403:
         # the control plane accepted the credential and refused the operation, so signing in again cannot help
         holder = 'Your Pixeltable session' if sent.kind == 'session' else f'The API key from {sent.source}'
-        raise excs.AuthorizationError(
+        return excs.AuthorizationError(
             excs.ErrorCode.INSUFFICIENT_PRIVILEGES, f'{holder} is valid but is not permitted to {purpose}: {reason}.'
         )
     if sent.kind == 'session':
@@ -182,8 +235,8 @@ def raise_if_refused(resp: requests.Response, sent: Credential, purpose: str) ->
     # PROVIDER_AUTH_ERROR, not PROVIDER_ERROR: a refused credential is not retryable, and retrying
     # one only delays the error. A 401 is always the control plane's own decision -- it answers 503,
     # never 401, when WorkOS is the thing that could not be reached.
-    raise excs.ExternalServiceError(
-        excs.ErrorCode.PROVIDER_AUTH_ERROR, message, provider='pixeltable_cloud', status_code=resp.status_code
+    return excs.ExternalServiceError(
+        excs.ErrorCode.PROVIDER_AUTH_ERROR, message, provider='pixeltable_cloud', status_code=status_code
     )
 
 
@@ -199,21 +252,30 @@ def api_call(request: Any, credential: Credential | None = None) -> dict[str, An
     body = request.model_dump_json(by_alias=True)
     sent = resolve('reach Pixeltable Cloud') if credential is None else credential
     headers = {'Content-Type': 'application/json', **sent.header()}
-    try:
-        resp = SESSION.post(api_url(), data=body, headers=headers, timeout=timeout)
-    except requests.exceptions.ConnectionError:
-        # a pooled connection closed by the peer while idle fails the call that next picks it up.
-        # Retrying gets a new connection, but is only safe for operations that a second delivery
-        # cannot change.
-        if op_str not in _READ_OPS:
-            raise
-        resp = SESSION.post(api_url(), data=body, headers=headers, timeout=timeout)
+    retrying = Retrying(
+        retry=retry_if_exception_type((requests.exceptions.ConnectionError, requests.exceptions.Timeout))
+        | retry_if_result(lambda r: r.status_code in _RETRIED_STATUS_CODES),
+        wait=wait_exponential(multiplier=_IDEMPOTENT_BACKOFF),
+        stop=stop_after_attempt(_IDEMPOTENT_ATTEMPTS if op_str in _IDEMPOTENT_OPS else 1),
+        retry_error_callback=lambda state: state.outcome.result(),
+    )
+    resp: requests.Response = retrying(SESSION.post, api_url(), data=body, headers=headers, timeout=timeout)
     raise_if_refused(resp, sent, _PURPOSES.get(op_str, 'do this'))
     if resp.status_code not in (200, 201):
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
             f'Management API error {resp.status_code}: {resp.text}',
+            retry_after=retry_after_seconds(resp),
             provider='pixeltable_cloud',
             status_code=resp.status_code,
         )
     return resp.json()
+
+
+def retry_after_seconds(resp: requests.Response) -> float | None:
+    """Seconds from Retry-After, or None when the header is missing or not a finite number >= 0."""
+    try:
+        seconds = float(resp.headers['Retry-After'])
+    except (KeyError, ValueError):
+        return None
+    return seconds if 0 <= seconds < math.inf else None

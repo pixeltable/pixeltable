@@ -6,6 +6,7 @@ import os
 import pathlib
 import subprocess
 import threading
+import time
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -18,6 +19,9 @@ from .conftest import PxtResult, PxtRunner
 
 _RUN_TIMEOUT_SECS = 180.0
 
+# how long a WorkOS Vault read can trail a write
+_VAULT_LAG_SECS = 30.0
+
 
 @dataclass
 class FakeControlPlane:
@@ -25,21 +29,22 @@ class FakeControlPlane:
 
     url: str
     received_requests: list[dict[str, Any]]
-    # the body of the answer to each operation_type; any other operation is answered with {}
-    responses: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # the answer to each operation_type, a body or a function of the request; any other operation is answered with {}
+    responses: dict[str, Any] = field(default_factory=dict)
 
 
 @pytest.fixture
 def fake_control_plane() -> Iterator[FakeControlPlane]:
     """A control plane on localhost: it remembers every request it was sent, and answers from its responses."""
     received_requests: list[dict[str, Any]] = []
-    responses: dict[str, dict[str, Any]] = {}
+    responses: dict[str, Any] = {}
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             received_requests.append(request)
-            body = json.dumps(responses.get(request['operation_type'], {})).encode()
+            answer = responses.get(request['operation_type'], {})
+            body = json.dumps(answer(request) if callable(answer) else answer).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(body)))
@@ -78,6 +83,10 @@ def _pxt_secret(port: int, cwd: pathlib.Path, control_plane: FakeControlPlane, *
     return PxtResult(r.returncode, r.stdout, r.stderr)
 
 
+# what set and delete ask the control plane to name the restarts
+_LISTINGS = ('get_db', 'list_dbs', 'list_services')
+
+
 class TestSecret:
     def test_set_list_delete(
         self, daemon_port: int, tmp_path: pathlib.Path, fake_control_plane: FakeControlPlane
@@ -87,9 +96,41 @@ class TestSecret:
             return _pxt_secret(daemon_port, tmp_path, fake_control_plane, *args)
 
         def sent() -> list[dict[str, Any]]:
-            requests = list(fake_control_plane.received_requests)
+            # the secret operations; set and delete also list what reads the secrets, which next_commands checks
+            requests = [r for r in fake_control_plane.received_requests if r['operation_type'] not in _LISTINGS]
             fake_control_plane.received_requests.clear()
             return requests
+
+        # main runs ingest, a stopped service and one whose roll failed, which may still serve; dev's tables are
+        # stopped, but its worker service runs
+        instance = {'base_path': '', 'app_module': 'app', 'spec': {'name': 'ingest'}}
+        instances = {
+            'main': [
+                {**instance, 'service_name': 'ingest', 'state': 'AVAILABLE'},
+                {**instance, 'service_name': 'old', 'state': 'STOPPED'},
+                {**instance, 'service_name': 'rolled', 'state': 'FAILED'},
+            ],
+            'dev': [{**instance, 'service_name': 'worker', 'state': 'AVAILABLE'}],
+        }
+        fake_control_plane.responses.update(
+            {
+                'get_db': {'report': {'db': 'main', 'current': {'state': 'AVAILABLE'}}},
+                'list_dbs': {
+                    'reports': [
+                        {'db': 'main', 'current': {'state': 'AVAILABLE'}},
+                        {'db': 'dev', 'current': {'state': 'STOPPED'}},
+                    ]
+                },
+                'list_services': lambda request: {'instances': instances[request['db']]},
+            }
+        )
+        # running pods read secrets only at startup, so set and delete name a restart for each
+        restarts = [
+            ['pxt', 'db', 'restart', 'pxt://acme:main'],
+            ['pxt', 'service', 'restart', 'pxt://acme:main/ingest'],
+            ['pxt', 'service', 'restart', 'pxt://acme:main/rolled'],
+        ]
+        org_restarts = [*restarts, ['pxt', 'service', 'restart', 'pxt://acme:dev/worker']]
 
         # set
         r = pxt_secret('set', 'pxt://acme:main', 'OPENAI_API_KEY=test=value', 'CUSTOM_TOKEN=custom-value', '--json')
@@ -98,6 +139,7 @@ class TestSecret:
             {'key': 'CUSTOM_TOKEN', 'scope': 'pxt://acme:main'},
             {'key': 'OPENAI_API_KEY', 'scope': 'pxt://acme:main'},
         ]
+        assert r.next_commands == restarts
         assert sent() == [
             {
                 'operation_type': 'set_secret',
@@ -117,6 +159,8 @@ class TestSecret:
         r = pxt_secret('set', 'pxt://acme', 'ORG_KEY=org-value')
         assert r.returncode == 0, r.stderr
         assert r.stdout.splitlines() == ['KEY      SCOPE', 'ORG_KEY  pxt://acme']
+        # an org secret reaches every database; dev's stopped tables read it when they start
+        assert r.next_commands == org_restarts
         assert sent() == [
             {'operation_type': 'set_secret', 'org': 'acme', 'db': None, 'key': 'ORG_KEY', 'value': 'org-value'}
         ]
@@ -124,6 +168,7 @@ class TestSecret:
         # delete
         r = pxt_secret('delete', 'pxt://acme', 'OLD_KEY', 'OLD_TOKEN')
         assert r.returncode == 0, r.stderr
+        assert r.next_commands == org_restarts
         assert r.stdout.splitlines() == ['KEY        SCOPE', 'OLD_KEY    pxt://acme', 'OLD_TOKEN  pxt://acme']
         assert sent() == [
             {'operation_type': 'delete_secret', 'org': 'acme', 'db': None, 'key': 'OLD_KEY'},
@@ -221,6 +266,8 @@ class TestSecret:
             assert 'URI must be pxt://org or pxt://org:db' in r.stderr, r.stderr
         assert sent() == []
 
+    # the org's secrets are one vault document, rewritten whole on each change, so tests that change it share a worker
+    @pytest.mark.xdist_group('cloud_secrets')
     @pytest.mark.usefixtures('hosted_environment')
     def test_cloud_list(self, session_cli: PxtRunner) -> None:
         db_uri = CLOUD_DB_ROOT_URIS['cloud-cli']
@@ -246,3 +293,55 @@ class TestSecret:
             session_cli('secret', 'delete', org_uri, shared, org_only, check=False)
             session_cli('secret', 'delete', db_uri, shared, db_only, check=False)
             session_cli('secret', 'delete', other_db_uri, other_db_only, check=False)
+
+    @pytest.mark.xdist_group('cloud_secrets')
+    @pytest.mark.usefixtures('hosted_environment')
+    def test_cloud_overwrite_delete(self, session_cli: PxtRunner) -> None:
+        db_uri = CLOUD_DB_ROOT_URIS['cloud-cli']
+        org_uri = db_uri.rsplit(':', maxsplit=1)[0]
+        run_id = uuid.uuid4().hex[:8].upper()
+        # names of each scope's own, so that no database secret of this run overrides an org one
+        keys = {
+            uri: (f'PXTTEST_{scope}_DOOMED_{run_id}', f'PXTTEST_{scope}_KEPT_{run_id}')
+            for uri, scope in ((org_uri, 'ORG'), (db_uri, 'DB'))
+        }
+        missing = f'PXTTEST_MISSING_{run_id}'
+
+        def wait_for_keys(uri: str, *expected: str) -> None:
+            """Wait until this run's secrets set at exactly uri's scope are the expected ones.
+
+            A WorkOS Vault read can trail a write, so a list can show the secrets as they were before it.
+            """
+            deadline = time.monotonic() + _VAULT_LAG_SECS
+            while True:
+                rows = session_cli('secret', 'list', uri, '--json').json
+                rows = [row for row in rows if run_id in row['key'] and row['scope'] == uri]
+                if rows == [{'key': key, 'scope': uri} for key in expected]:
+                    return
+                assert time.monotonic() < deadline, rows
+                time.sleep(2.0)
+
+        try:
+            for uri, (doomed, kept) in keys.items():
+                session_cli('secret', 'set', uri, f'{doomed}=first-value', f'{kept}=kept-value')
+
+                # an overwrite replaces the secret rather than adding a second one; no output shows the value
+                r = session_cli('secret', 'set', uri, f'{doomed}=second-value', '--json')
+                assert r.json == [{'key': doomed, 'scope': uri}]
+                wait_for_keys(uri, doomed, kept)
+
+                r = session_cli('secret', 'delete', uri, doomed, '--json')
+                assert r.json == [{'key': doomed, 'scope': uri}]
+                wait_for_keys(uri, kept)
+
+                # a name never set, since the delete's own read of the vault may still find the one just deleted
+                r = session_cli('secret', 'delete', uri, missing, check=False)
+                assert r.returncode == 1, r.stderr
+                assert f"pxt: 400 Pixeltable Cloud refused this request: Secret '{missing}' not found." in r.stderr, (
+                    r.stderr
+                )
+        finally:
+            # one key per delete: the first key that is not found ends the command
+            for uri, names in keys.items():
+                for name in names:
+                    session_cli('secret', 'delete', uri, name, check=False)

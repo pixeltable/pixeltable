@@ -5,6 +5,7 @@ first `pip install fal-client` and configure your fal.ai credentials, as describ
 the [Working with fal.ai](https://docs.pixeltable.com/howto/providers/working-with-fal) tutorial.
 """
 
+import inspect
 from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
@@ -20,7 +21,20 @@ if TYPE_CHECKING:
 def _(api_key: str) -> 'fal_client.AsyncClient':
     import fal_client
 
-    return fal_client.AsyncClient(key=api_key)
+    class _ClosableClient(fal_client.AsyncClient):
+        """fal_client.AsyncClient has no close(); Runtime.close_clients() needs one."""
+
+        async def close(self) -> None:
+            # _client is a cached property, so it is in the instance dict only once it has been opened. fal-client>=1.0
+            # caches an awaitable there that resolves to the httpx client, rather than the client itself.
+            http_client = vars(self).get('_client')
+            if http_client is None:
+                return
+            if inspect.isawaitable(http_client):
+                http_client = await http_client
+            await http_client.aclose()
+
+    return _ClosableClient(key=api_key)
 
 
 def _fal_client() -> 'fal_client.AsyncClient':

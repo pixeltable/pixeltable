@@ -16,30 +16,11 @@ from .diff import (
     TableDiff,
     base_query_columns,
     format_diff,
+    queried_models,
     user_columns,
     validate_models,
 )
 from .resolution import TableSchemaChangeSet
-
-
-def _queried_models(col_spec: ColumnSpec) -> set[TableModelMeta]:
-    """The models a column's value queries through a @pxt.query UDF."""
-    from pixeltable import exprs, func
-
-    from .query import ModelQuery
-
-    value = col_spec.get('value')
-    if not isinstance(value, exprs.Expr):
-        return set()
-    result: set[TableModelMeta] = set()
-    pending = [value]
-    while len(pending) > 0:
-        for fn_call in pending.pop().subexprs(exprs.FunctionCall):
-            fn = fn_call.fn
-            if isinstance(fn, func.QueryTemplateFunction) and isinstance(fn.template_query, ModelQuery):
-                result.add(fn.template_query.model_cls)
-                pending.extend(fn.template_query._component_exprs())
-    return result
 
 
 def _referenced_models(model: TableModelMeta) -> set[TableModelMeta]:
@@ -55,7 +36,7 @@ def _referenced_models(model: TableModelMeta) -> set[TableModelMeta]:
     if isinstance(base, ModelQuery):
         result.add(base.model_cls)
     for col_spec in model.__columns__.values():
-        result |= _queried_models(col_spec)
+        result |= queried_models(col_spec)
     return result
 
 
@@ -192,13 +173,14 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 name: {c.name for c in d.ops if c.target == 'column' and c.op == 'add'} for name, d in update_diffs
             }
 
-            # A new column may query a model this same call creates. Binding the column's query needs that
-            # table, so create it, and whatever it references in turn, ahead of the migrations below.
+            # A new or altered column may query a model this same call creates. Binding the column's query needs
+            # that table, so create it, and whatever it references in turn, ahead of the migrations below.
             queried: set[TableModelMeta] = set()
-            for name, added in added_cols.items():
+            for name, d in update_diffs:
+                changed = {c.name for c in d.ops if c.target == 'column' and c.op in ('add', 'alter')}
                 for col_name, col_spec in user_columns(registered_models[name]).items():
-                    if col_name in added:
-                        queried |= _queried_models(col_spec)
+                    if col_name in changed:
+                        queried |= queried_models(col_spec)
             prerequisites: set[TableModelMeta] = set()
             while len(queried) > 0:
                 queried_model = queried.pop()

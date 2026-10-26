@@ -206,8 +206,8 @@ class TableSchemaChangeSet(TypedDict):
 
     path: catalog.Path
 
-    # name -> (spec, origin). A 'base_query' column comes from the view's base query select() list and resolves
-    # against the base table's columns; a 'model_body' column resolves against the view's own visible columns.
+    # name -> (spec, origin). A 'base_query' column comes from the view's base query select() list and refers to
+    # the base table's columns; a 'model_body' column refers to the view's own visible columns.
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
     # name -> (spec, origin), for existing computed columns whose value expression is being replaced
     altered_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
@@ -232,6 +232,43 @@ class ModelUpdates(NamedTuple):
     altered_exprs: dict[str, exprs.Expr]
 
 
+def resolve_model_value_expr(
+    tbl_path: catalog.TablePath, value_expr: exprs.Expr, origin: Literal['base_query', 'model_body']
+) -> exprs.Expr:
+    """Replace model column names with catalog column references visible at the declaration site."""
+    reference_path = tbl_path.base if origin == 'base_query' else tbl_path
+    assert reference_path is not None
+
+    if isinstance(reference_path, catalog.TableVersionPath):
+        subst = exprs.ExprDict[exprs.Expr](
+            (
+                exprs.ColumnRefByName(col.name),
+                exprs.ColumnRef(
+                    col.column_version_md(), perform_validation=col.media_validation == MediaValidation.ON_READ
+                ),
+            )
+            for col in reference_path.columns()
+        )
+        return value_expr.substitute(subst)
+
+    assert isinstance(reference_path, catalog.TableMdPath)
+
+    def column_ref(col_md: catalog.ColumnVersionMd) -> exprs.ColumnRef:
+        owner_path = reference_path
+        while owner_path.tbl_id != col_md.qcolid.tbl_id:
+            assert owner_path.base is not None
+            owner_path = owner_path.base
+        owner_col_md = owner_path.get_column_md(col_md.qcolid)
+        return exprs.ColumnRef(owner_col_md, perform_validation=owner_path.is_validate_on_read(owner_col_md))
+
+    subst = exprs.ExprDict[exprs.Expr](
+        (exprs.ColumnRefByName(col_md.name), column_ref(col_md))
+        for col_md in reference_path.column_md()
+        if col_md.name is not None
+    )
+    return value_expr.substitute(subst)
+
+
 def prepare_model_updates(
     tvp: catalog.TableVersionPath,
     display_name: str,
@@ -249,28 +286,8 @@ def prepare_model_updates(
     """
 
     user_cols: dict[str, catalog.Column] = {}
-    subst_dict: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()  # ColumnRefByName -> ColumnRef
-
-    # Pre-populate the user columns and substitution dict with the existing table's user columns.
-    # This includes iterator columns and base table columns.
     for col in tvp.columns():
         user_cols[col.name] = col
-        subst_dict[exprs.ColumnRefByName(col.name)] = exprs.ColumnRef(
-            col.column_version_md(), perform_validation=(col.media_validation == MediaValidation.ON_READ)
-        )
-
-    # Base-query columns are projections of the base query and resolve against the base table's columns (which,
-    # for a select() view, are not among the view's own visible columns above).
-    has_base_query_cols = any(
-        origin == 'base_query' for _, origin in (*new_columns.values(), *altered_columns.values())
-    )
-    base_subst_dict: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
-    if has_base_query_cols:
-        assert tvp.base is not None
-        for col in tvp.base.columns():
-            base_subst_dict[exprs.ColumnRefByName(col.name)] = exprs.ColumnRef(
-                col.column_version_md(), perform_validation=(col.media_validation == MediaValidation.ON_READ)
-            )
 
     tbl_handle = tvp.tbl_version
 
@@ -287,8 +304,7 @@ def prepare_model_updates(
         spec, origin = new_columns[name]
         resolved_spec = spec.copy()
         if 'value' in resolved_spec:
-            resolve_against = base_subst_dict if origin == 'base_query' else subst_dict
-            resolved_spec['value'] = resolved_spec['value'].substitute(resolve_against)
+            resolved_spec['value'] = resolve_model_value_expr(tvp, resolved_spec['value'], origin)
             # whatever is still a ColumnRefByName has to name a column that precedes this one in resolved_cols:
             # anything else is either outside the model's scope or would be evaluated before it has a value
             unresolved = [
@@ -303,7 +319,7 @@ def prepare_model_updates(
 
         # a new column can only collide with an inherited one: a name already among this table's own columns
         # wouldn't have been diffed as new
-        if exprs.ColumnRefByName(name) in subst_dict:
+        if name in user_cols:
             assert tvp.base is not None
             raise excs.AlreadyExistsError(
                 excs.ErrorCode.COLUMN_ALREADY_EXISTS,
@@ -326,8 +342,7 @@ def prepare_model_updates(
     # changeset adds.
     altered_exprs: dict[str, exprs.Expr] = {}
     for name, (spec, origin) in altered_columns.items():
-        resolve_against = base_subst_dict if origin == 'base_query' else subst_dict
-        resolved = spec['value'].substitute(resolve_against)
+        resolved = resolve_model_value_expr(tvp, spec['value'], origin)
         unresolved_names: list[str] = [
             ref.name for ref in resolved.subexprs(exprs.ColumnRefByName) if ref.name not in new_columns
         ]

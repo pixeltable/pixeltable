@@ -12,7 +12,6 @@ from typing import Any
 
 import pytest
 
-from ..utils import skip_test_if_no_config
 from .conftest import (
     EXIT_CHANGES_PENDING,
     EXIT_IN_AGREEMENT,
@@ -41,9 +40,8 @@ def project(tmp_path: pathlib.Path, pixeltable_wheel: pathlib.Path) -> pathlib.P
 
 
 @pytest.fixture
-def current_db(cli: PxtRunner, project: pathlib.Path, hosted_db: str) -> str:
+def current_db(hosted_environment: None, cli: PxtRunner, project: pathlib.Path, hosted_db: str) -> str:
     """A hosted database holding this project: where most scenarios start."""
-    skip_test_if_no_config('api_key')
     create_project_config(cli, project, hosted_db)
     db_update(cli, project, hosted_db)
     assert_in_agreement(cli, project, hosted_db)

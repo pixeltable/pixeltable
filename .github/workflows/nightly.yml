@@ -10,6 +10,11 @@ on:
         description: 'Enable SSH debugging with tmate'
         required: false
         default: false
+      from_main:
+        type: boolean
+        description: 'Run tests from `main` instead of `release`'
+        required: false
+        default: false
 
 env:
   PXTTEST_IN_CI: 1
@@ -47,12 +52,11 @@ jobs:
         python-version: ["3.11", "3.13"]
         package-configs:
           - ""
-          # TODO(PXT-1452): drop the mcp<2 cap once pixeltable/func/mcp.py targets the MCP 2.x client API
-          - "lancedb pylance 'mcp>=1.27.2,<2' opencv-python scenedetect"
-          - "anthropic fireworks-ai 'google-genai<1.72.0' groq jina mistralai openai replicate together"
+          - "lancedb pylance mcp opencv-python scenedetect"
+          - "anthropic fireworks-ai google-genai groq jina mistralai openai replicate together"
           - "fal-client runwayml twelvelabs voyageai"
           - "huggingface-hub llama-cpp-python openai-whisper"
-          - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
+          - "datasets openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
           - "pixeltable-yolox"
         os: [ubuntu-24.04]
         include:
@@ -90,7 +94,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: release
+          ref: ${{ inputs.from_main && 'main' || 'release' }}
       - name: Set up tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
         uses: mxschmitt/action-tmate@v3
@@ -105,11 +109,8 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache
           df -h
       - name: Install miniforge
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniforge-version: latest
-          activate-environment: pxt
-          conda-remove-defaults: true
+        # Remote ref, not ./: the default checkout is the release tag, which may not contain this action
+        uses: pixeltable/pixeltable/.github/actions/setup-miniforge@main
       - name: Install python
         run: |
           ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=${{ matrix.python-version }} pip
@@ -118,11 +119,19 @@ jobs:
         # cmake is needed for certain CI environments where it is not preinstalled.
         run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
       - name: Delete source tree
-        run: rm -rf pixeltable  # Ensure we use pypi pixeltable package for testing, not local source tree
+        run: rm -rf pixeltable pixeltable_cli  # Ensure we use installed packages for testing, not local source tree
       - name: Install dependencies
         run: |
+          # Pin pixeltable to the checkout: the commit itself for main, else the latest version tag at or before it
+          # (the release tag can sit past its version tag)
+          if [[ '${{ inputs.from_main }}' == 'true' ]]; then
+            PXT="git+https://github.com/pixeltable/pixeltable@$(git rev-parse HEAD)"
+          else
+            PXT="pixeltable==$(git describe --tags --abbrev=0 --match 'v[0-9]*' | sed 's/^v//')"
+          fi
           python -m pip install --upgrade pip
-          python -m pip install pixeltable ${{ matrix.package-configs }}
+          # Retried, since a new release can take a few minutes to reach every PyPI mirror
+          ./scripts/retry.sh 3 60 python -m pip install "$PXT" ${{ matrix.package-configs }}
           python -m pip install filelock pytest pytest-xdist pytest-rerunfailures pytest-benchmark
       - name: Install spaCy model
         if: ${{ contains(matrix.package-configs, 'spacy') }}
@@ -166,7 +175,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: release
+          ref: ${{ inputs.from_main && 'main' || 'release' }}
       - name: Set up tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
         uses: mxschmitt/action-tmate@v3
@@ -180,10 +189,8 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache /opt/az /opt/microsoft
           df -h
       - name: Install miniforge
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniforge-version: latest
-          conda-remove-defaults: true
+        # Remote ref, not ./: the default checkout is the release tag, which may not contain this action
+        uses: pixeltable/pixeltable/.github/actions/setup-miniforge@main
       - name: Install ollama
         run: |
           ./scripts/retry.sh 3 30 ./scripts/install-ollama.sh

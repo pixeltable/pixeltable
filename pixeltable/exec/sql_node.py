@@ -1,4 +1,3 @@
-import datetime
 import logging
 import random
 import warnings
@@ -10,8 +9,7 @@ import numpy as np
 import sqlalchemy as sql
 from pgvector import HalfVector
 
-from pixeltable import catalog, exprs
-from pixeltable.env import Env
+from pixeltable import catalog, exprs, telemetry
 from pixeltable.metadata import schema
 from pixeltable.query_clauses import JoinClause, JoinType
 from pixeltable.runtime import get_runtime
@@ -444,14 +442,13 @@ class SqlNode(ExecNode):
                 self._log_explain(stmt)
 
             conn = get_runtime().conn
-            result_cursor = conn.execute(stmt, self.bound_args)
+            with telemetry.span('pixeltable.sa.select'):
+                result_cursor = conn.execute(stmt, self.bound_args)
             for _ in w:
                 pass
 
         output_batch = DataRowBatch(self.row_builder)
         output_row: exprs.DataRow | None = None
-        is_using_cockroachdb = Env.get().is_using_cockroachdb
-        tzinfo = Env.get().default_time_zone
 
         for sql_row in result_cursor:
             output_row = output_batch.add_row(output_row)
@@ -486,17 +483,6 @@ class SqlNode(ExecNode):
                         output_row[slot_idx] = float(sql_row[i])
                     else:
                         raise RuntimeError(f'Unexpected Decimal value for {e}')
-                elif is_using_cockroachdb and isinstance(sql_row[i], datetime.datetime):
-                    # Ensure that the datetime is timezone-aware and in the session time zone
-                    # cockroachDB returns timestamps in the session time zone, with numeric offset,
-                    # convert to the session time zone with the requested tzinfo for DST handling
-                    if e.col_type.is_timestamp_type():
-                        if isinstance(sql_row[i].tzinfo, datetime.timezone):
-                            output_row[slot_idx] = sql_row[i].astimezone(tz=tzinfo)
-                        else:
-                            output_row[slot_idx] = sql_row[i]
-                    else:
-                        raise RuntimeError(f'Unexpected datetime value for {e}')
                 elif e.col_type.is_array_type() and isinstance(sql_row[i], (list, HalfVector)):
                     # pgvector decodes VECTOR/HALFVEC values to lists of floats (>= 0.5) or HalfVector
                     # objects (< 0.5); all array data needs to be materialized as ndarrays

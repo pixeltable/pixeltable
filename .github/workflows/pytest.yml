@@ -176,11 +176,7 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache
           df -h
       - name: Install miniforge
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniforge-version: latest
-          activate-environment: pxt
-          conda-remove-defaults: true
+        uses: ./.github/actions/setup-miniforge
       - name: Install python
         run: |
           ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=${{ matrix.python-version }} pip
@@ -220,6 +216,8 @@ jobs:
           export VIRTUAL_ENV="$CONDA_PREFIX"
           ./scripts/retry.sh 3 60 uv sync --active ${{ matrix.uv-options }}
       - name: Clean the uv cache
+        # Skipped on Windows: deleting ~70k cached files takes minutes there, and Windows runners don't need the space.
+        if: ${{ !startsWith(matrix.os, 'windows') }}
         run: uv cache clean
       - name: Set up credentials
         run: ./scripts/set-up-ci-credentials.sh
@@ -237,19 +235,20 @@ jobs:
         timeout-minutes: 90
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
-          # Collect coverage for every unit-test configuration in scheduled runs. pytest-cov ensures xdist workers
-          # are measured; other triggers avoid the tracing overhead.
+          # Collect coverage for every unit-test configuration in scheduled and dispatched runs. pytest-cov ensures
+          # xdist workers are measured; other triggers avoid the tracing overhead.
           PYTEST_COVERAGE_OPTS: >-
-            ${{ github.event_name == 'schedule' && '--cov=pixeltable --cov-report=term-missing' || '' }}
+            ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '--cov=pixeltable --cov-report=term-missing' || '' }}
         # Run the tests with the 'expensive' marker only once, on ubuntu-24.04 with Python 3.11. The other tests
         # (including tests with the 'remote_api' marker that are not also marked 'expensive') will run on all matrix
         # configurations.
         # --basetemp pins pytest's temp root dir so that the Archive step below works on all platforms
+        # -n logical: one worker per vCPU (with psutil, -n auto counts physical cores: 2 on windows-2025)
         run: |
           echo 'Running tests with options: ${{ matrix.pytest-options }}'
           echo 'Extra pre-test command    : ${{ matrix.pre-test-cmd }}'
           ${{ matrix.pre-test-cmd }}
-          pytest -v --strict-markers -n auto --dist loadgroup --basetemp="$RUNNER_TEMP/pxt-pytest" ${{ matrix.pytest-options }} $PYTEST_COVERAGE_OPTS
+          pytest -v --strict-markers -n logical --dist loadgroup --basetemp="$RUNNER_TEMP/pxt-pytest" ${{ matrix.pytest-options }} $PYTEST_COVERAGE_OPTS
       - name: Run the OpenTelemetry instrumentation tests
         # The opentelemetry-instrumentation-pixeltable package is a separate distribution; the core suite does not
         # collect its tests (testpaths in pyproject.toml). It is tested here against a minimal install + otel extra.
@@ -272,7 +271,7 @@ jobs:
         run: ./scripts/stress-tests.sh 12 1800
       - name: Run file cache stress test
         if: ${{ matrix.test-category == 'random-ops' }}
-        run: python -u tool/filecache_multiprocess_stress.py --procs 4 --threads 4 --images 50 --rows 10 --rounds 40 --cache-gb 0.0003 --lease-s 0.5 --img-px 64
+        run: python -u tool/filecache_multiprocess_stress.py --procs 4 --threads 4 --images 50 --rows 10 --rounds 40 --cache-gb 0.0003 --lease-s 2.0 --img-px 64
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
         run: |
@@ -300,6 +299,9 @@ jobs:
         run: |
           ruff format --check
           ruff check --select I
+      - name: CI script tests
+        if: ${{ matrix.test-category == 'lint' }}
+        run: python -m unittest discover -s .github/scripts -p 'test_*.py'
       - name: Notebook checks
         if: ${{ matrix.test-category == 'lint' }}
         run: ./scripts/check-notebooks.sh

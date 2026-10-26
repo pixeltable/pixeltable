@@ -76,30 +76,3 @@ class PostgresqlDbms(Dbms):
             postgresql_ops={sa_value_col.name: metric},
         )
         return sql.schema.CreateIndex(sa_idx, if_not_exists=True).compile(dialect=postgresql.dialect())
-
-
-class CockroachDbms(Dbms):
-    """
-    Implements utilities to interact with CockroachDb database.
-    """
-
-    def __init__(self, db_url: sql.URL):
-        super().__init__('cockroachdb', _DEFAULT_ISOLATION_LEVEL, 'btree', db_url)
-
-    def drop_db_stmt(self, database: str) -> str:
-        return f'DROP DATABASE {database} CASCADE'
-
-    def create_db_stmt(self, database: str) -> str:
-        return f"CREATE DATABASE {database} TEMPLATE template0 ENCODING 'utf-8' LC_COLLATE 'C' LC_CTYPE 'C'"
-
-    def default_system_db_url(self) -> str:
-        return self.db_url.set(database='defaultdb').render_as_string(hide_password=False)
-
-    def sa_vector_index(self, store_index_name: str, sa_value_col: sql.schema.Column, metric: str) -> sql.Index | None:
-        return None
-
-    def create_vector_index_stmt(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Compiled:
-        return sql.text(
-            f'CREATE VECTOR INDEX IF NOT EXISTS {store_index_name} ON {sa_value_col.table.name}'
-            f'({sa_value_col.name} {metric})'
-        ).compile()

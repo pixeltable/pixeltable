@@ -14,7 +14,7 @@ import sqlalchemy as sql
 from rich.progress import Progress
 from sqlalchemy import orm
 
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, telemetry
 from pixeltable.env import Env
 from pixeltable.service.management_client import resolve
 from pixeltable.utils import fault_injection
@@ -157,7 +157,7 @@ class Runtime:
                     excs.ErrorCode.SERVICE_NOT_FOUND,
                     f'No local proxy is running for {db!r}. Start it with: pxt localproxy start {db}',
                 )
-            return CatalogProxy(catalog_uri, ProxyClient.local(f'http://127.0.0.1:{info["port"]}'))
+            return CatalogProxy(catalog_uri, ProxyClient.local(f'http://127.0.0.1:{info["port"]}', db=catalog_uri.db))
 
         # Remote database: connect via TLS to the proxy endpoint.
         # Either kind works: the sidecar picks its validation path by the credential's shape. Passed
@@ -165,9 +165,7 @@ class Runtime:
         # would pin a session token that expires long before the process does.
         purpose = f'connect to hosted database {catalog_uri!r}'
         host, port = Env.get().proxy_endpoint(catalog_uri.org, catalog_uri.db)
-        client = ProxyClient.remote(
-            catalog_uri.org, catalog_uri.db, lambda: resolve(purpose).value, host=host, port=port
-        )
+        client = ProxyClient.remote(catalog_uri.org, catalog_uri.db, lambda: resolve(purpose), host=host, port=port)
         return CatalogProxy(catalog_uri, client)
 
     @property
@@ -213,16 +211,28 @@ class Runtime:
         This is the only place that is allowed to remove entries from _clients, so that no client is ever dropped
         without being closed first.
         """
-        for client in self._clients.values():
-            close = getattr(client, 'close', None)
-            if close is None:
-                continue
+
+        async def try_close(fn: Callable[..., Any], *args: Any) -> None:
+            # a failure is logged rather than raised, so that it doesn't keep the other close calls from running
             try:
-                result = close()
+                result = fn(*args)
                 if inspect.isawaitable(result):
                     await result
             except Exception as e:
                 _logger.debug(f'Error closing client: {e}')
+
+        for client in self._clients.values():
+            # aclose(), when present, releases everything close() does plus the async resources
+            close = getattr(client, 'aclose', None) or getattr(client, 'close', None)
+            if close is not None:
+                await try_close(close)
+                continue
+            # some SDK clients (e.g. mistralai.Mistral) have no close() and release their HTTP clients only on
+            # context manager exit: __aexit__() closes the async one, __exit__() the sync one
+            if hasattr(client, '__aexit__'):
+                await try_close(client.__aexit__, None, None, None)
+            if hasattr(client, '__exit__'):
+                await try_close(client.__exit__, None, None, None)
         self._clients.clear()
 
     def close(self) -> None:
@@ -280,9 +290,16 @@ class Runtime:
                 max_workers=_N_RUN_CORO_WORKERS, thread_name_prefix=_RUN_CORO_THREAD_PREFIX
             )
 
+        hooks_ctx = telemetry.capture_context()
+
         def run(coro: Coroutine[Any, Any, _T]) -> _T:
             # this runs in the _run_coro_executor's thread, with its own Runtime instance
-            return get_runtime().event_loop.run_until_complete(coro)
+            hooks_token = telemetry.restore_context(hooks_ctx)
+            try:
+                return get_runtime().event_loop.run_until_complete(coro)
+            finally:
+                # the executor thread is persistent; exiting avoids unbounded context-stack growth
+                telemetry.exit_context(hooks_token)
 
         return self._run_coro_executor.submit(run, coro).result()
 
@@ -301,9 +318,6 @@ class Runtime:
             for_write: unused (TODO use or remove)
             isolation_level: if specified, the isolation level for the new transaction. Can only be set when starting
                 the outermost transaction.
-
-        TODO: repeatable read is not available in Cockroachdb; instead, run queries against a snapshot TVP
-        that avoids tripping over any pending ops
         """
         from pixeltable.env import Env
 

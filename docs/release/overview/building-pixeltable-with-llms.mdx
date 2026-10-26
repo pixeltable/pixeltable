@@ -5,6 +5,8 @@ description: 'Install the Pixeltable skill, then use the same application file l
 
 Hand the agent [get-started.md](https://www.pixeltable.com/get-started.md) to install the CLI, the [skill](https://github.com/pixeltable/pixeltable-skill), and MCP. After that, follow the [Quickstart](/overview/quick-start): generate an example app, create its tables, then start the endpoints.
 
+If the agent's code looks out of date, [AI skills](/resources/ai-skills) shows how to tell the skill is stale and reinstall it.
+
 The skill tells the coding agent not to use LangChain, pandas as a database, per-row model loops, or a separate vector database. An application is a Python file that declares tables as `TableModel` classes. Notebooks can still use `pxt.create_table()`.
 
 ## Set Up Your AI Tool
@@ -12,6 +14,8 @@ The skill tells the coding agent not to use LangChain, pandas as a database, per
 ```bash
 npx skills add pixeltable/pixeltable-skill
 ```
+
+With only Python, `pxt skills install` writes the same skill at the root of your repository ([CLI reference](/platform/cli#coding-agents)).
 
 Works with tools that support [Agent Skills](https://agentskills.io/specification): Cursor, Claude Code, Windsurf, Cline, OpenCode, Codex CLI, and others.
 
@@ -74,10 +78,10 @@ The [Pixeltable plugin](https://github.com/pixeltable/pixeltable-skill) packages
 |---|---|---|
 | [Docs MCP](https://docs.pixeltable.com/mcp) | `https://docs.pixeltable.com/mcp` | Public documentation search. The page menu can install it in Cursor or VS Code. |
 | [Site MCP](https://www.pixeltable.com/mcp) | `https://www.pixeltable.com/mcp` (remote HTTP) | Public documentation search and integration listing. This URL accepts MCP JSON-RPC requests; the site's in-browser WebMCP tools are separate. |
-| [Cloud MCP](https://pixeltable.com/developers/mcp-cloud) | `https://www.pixeltable.com/mcp/cloud` | Read-only access to the Cloud organization selected during WorkOS AuthKit sign-in: databases, services, catalog entries, schemas, and bounded table rows. Connect it as a remote HTTP server in Claude Code, Cursor, or another MCP client. |
+| [Cloud MCP](https://pixeltable.com/developers/mcp-cloud) | `https://www.pixeltable.com/mcp/cloud` | The Cloud organization selected during WorkOS AuthKit sign-in. Reads databases, services, catalog entries, schemas, up to 25 table rows per call, and logs. Starts a database at once. Stops a database, restarts a service, or sets a secret only when called again with `confirm: true` after returning a preview. Add `?read_only=true` for the read tools only, or `?db=<name>` for one database. Connect it as a remote HTTP server in Claude Code, Cursor, or another MCP client. |
 | [Developer MCP](https://github.com/pixeltable/mcp-server-pixeltable-developer) | Local stdio command | Catalog inspection, queries, and REPL tools against a local or Cloud database. Install and run it on your machine; it has broader capabilities than the hosted Cloud MCP. |
 
-For Cloud changes and deployment, use the `pxt` CLI after `pxt login`. The hosted Cloud MCP only reads.
+To deploy or delete, use the `pxt` CLI after `pxt login`: `pxt db update` and `pxt service update` ship code, and the hosted Cloud MCP does neither.
 
 Catalog inspection without importing Python: `pxt ls --json`, `pxt describe --json`, `pxt errors`. The `pxt` CLI (v0.7.4+) exposes `--json` on inspection and query commands. See the [CLI](/platform/cli).
 

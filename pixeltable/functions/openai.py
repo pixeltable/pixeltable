@@ -14,14 +14,14 @@ import logging
 import math
 import pathlib
 import re
-from typing import TYPE_CHECKING, Any, Type, TypedDict, TypeVar, cast
+from typing import TYPE_CHECKING, Any, NotRequired, Type, TypedDict, TypeVar, cast
 
 import numpy as np
 import PIL
 from deprecated import deprecated
 
 import pixeltable as pxt
-from pixeltable import env, exceptions as excs, exprs, type_system as ts
+from pixeltable import env, exceptions as excs, exprs, telemetry_schemas, type_system as ts
 from pixeltable.config import Config
 from pixeltable.func import Batch, Tools
 from pixeltable.runtime import get_runtime
@@ -83,14 +83,7 @@ def _openai_client() -> 'openai.AsyncOpenAI':
 
 # models that share rate limits; see https://platform.openai.com/settings/organization/limits for details
 _shared_rate_limits = {
-    'gpt-4-turbo': [
-        'gpt-4-turbo',
-        'gpt-4-turbo-latest',
-        'gpt-4-turbo-2024-04-09',
-        'gpt-4-turbo-preview',
-        'gpt-4-0125-preview',
-        'gpt-4-1106-preview',
-    ],
+    'gpt-4-turbo': ['gpt-4-turbo', 'gpt-4-turbo-latest', 'gpt-4-turbo-2024-04-09', 'gpt-4-1106-preview'],
     'gpt-4o': [
         'gpt-4o',
         'gpt-4o-latest',
@@ -482,12 +475,8 @@ def _default_max_tokens(model: str) -> int:
         return 8192  # All other gpt-4 models (will not match on gpt-4o models)
     if _is_model_family(model, 'gpt-4o') or _is_model_family(model, 'gpt-4.5-preview'):
         return 16384  # All other gpt-4o / gpt-4.5 models
-    if _is_model_family(model, 'o1-preview'):
-        return 32768
-    if _is_model_family(model, 'o1-mini'):
-        return 65536
-    if _is_model_family(model, 'o1') or _is_model_family(model, 'o3'):
-        return 100000  # All other o1 / o3 models
+    if _is_model_family(model, 'o3'):
+        return 100000  # All o3 models
     return 100000  # global default
 
 
@@ -647,7 +636,11 @@ async def chat_completions(
     is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
     rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
-    return json.loads(result.text)
+    result_dict = json.loads(result.text)
+    telemetry_schemas.record_token_usage(
+        f'{__name__}.chat_completions', model, result_dict.get('usage'), 'prompt_tokens', 'completion_tokens'
+    )
+    return result_dict
 
 
 @chat_completions.resource_estimator
@@ -773,7 +766,11 @@ async def responses(
     is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
     rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
-    return json.loads(result.text)
+    result_dict = json.loads(result.text)
+    telemetry_schemas.record_token_usage(
+        f'{__name__}.responses', model, result_dict.get('usage'), 'input_tokens', 'output_tokens'
+    )
+    return result_dict
 
 
 @responses.resource_estimator
@@ -981,14 +978,13 @@ def _decode_image_response(result: dict) -> dict:
     return result
 
 
-# TypedDict mirrors of the pydantic models in openai.types.images_response. Field names match the SDK so
-# that schema introspection lines up with the OpenAI docs. Defined locally rather than reused from the SDK
-# because openai is an optional dependency and can't be imported at module load time, and because our
-# data field holds decoded PIL images rather than the SDK's Image pydantic model.
+# TypedDict mirrors of the pydantic models in `openai.types.images_response`, with the SDK's field names so that
+# the schema matches the OpenAI docs. They are defined here because openai is an optional dependency that this
+# module can't import at load time, and because `data` holds decoded PIL images, not the SDK's `Image` models.
 #
-# Every output dict has all keys present and nullability per field matches the SDK Pydantic model.
-# Exception: data is non-null here even though the SDK declares it Optional[List[Image]] = None,
-# because _decode_image_response() raises on a missing payload, so callers can rely on a populated list.
+# Each field is nullable exactly when the SDK's is, except `data`, which is never null: `_decode_image_response()`
+# raises on a missing payload. Every output dict has all keys, except the `NotRequired` ones, which only newer SDK
+# versions return.
 
 
 class UsageInputTokensDetails(TypedDict):
@@ -1017,6 +1013,7 @@ class ImagesResponse(TypedDict):
     output_format: str | None
     quality: str | None
     size: str | None
+    safety_identifier: NotRequired[str | None]  # openai>=3.33
 
 
 @pxt.udf(is_deterministic=False)

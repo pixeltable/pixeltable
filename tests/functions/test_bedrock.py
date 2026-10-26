@@ -9,6 +9,7 @@ from pixeltable import ResultSet
 from pixeltable.config import Config
 
 from ..utils import (
+    NETWORK_ERROR_PATTERNS,
     get_audio_files,
     get_image_files,
     get_video_files,
@@ -78,6 +79,36 @@ def _assert_text_similarity(t: pxt.Table) -> None:
     assert 'machine learning' in results['text'][0].lower() or 'intelligence' in results['text'][0].lower()
 
 
+_LUMA_RAY_MODEL_ID = 'luma.ray-v2:0'
+_LUMA_RAY_REGION = 'us-west-2'
+_UNAVAILABLE_VIDEO_MODEL_SNIPPETS = (
+    'end of its life',
+    'end of life',
+    "don't have access to the model",
+    'do not have access to the model',
+    'model access is denied',
+    'use case details have not been submitted',
+    'not subscribed',
+    'aws marketplace',
+    'could not find model',
+    'could not resolve the foundation model',
+    'model identifier is invalid',
+)
+
+
+def _is_unavailable_video_model_error(_errortype: str | None, errormsg: str | None) -> bool:
+    """Return True when the error message shows the video model is missing, retired, or not enabled.
+
+    Error type alone is not a skip signal. A ResourceNotFoundException from a routing or request bug
+    still fails the test unless the message matches a known unavailable-model snippet.
+    """
+    message = (errormsg or '').lower()
+    # Storage failures mention the output bucket; those are configuration errors, not a missing model.
+    if 's3:' in message or 's3://' in message:
+        return False
+    return any(snippet in message for snippet in _UNAVAILABLE_VIDEO_MODEL_SNIPPETS)
+
+
 def _assert_image_similarity(t: pxt.Table, img_paths: list) -> None:
     with PIL.Image.open(img_paths[0]) as sample_img:
         sim = t.image.similarity(image=sample_img)
@@ -120,6 +151,34 @@ def _converse_image_messages(t: pxt.Table) -> list:
             ],
         }
     ]
+
+
+def test_unavailable_video_model_error() -> None:
+    eol = (
+        'An error occurred (ResourceNotFoundException) when calling the StartAsyncInvoke operation: '
+        'This model version has reached the end of its life.'
+    )
+    assert _is_unavailable_video_model_error('ResourceNotFoundException', eol)
+    assert _is_unavailable_video_model_error(
+        'AccessDeniedException', "You don't have access to the model with the specified model ID."
+    )
+    assert not _is_unavailable_video_model_error(
+        'AccessDeniedException', 'is not authorized to perform: s3:PutObject on resource: s3://bucket/key'
+    )
+    assert not _is_unavailable_video_model_error(
+        'ValidationException', 'Invalid input: resolution must be one of 540p, 720p'
+    )
+    unresolved = (
+        'An error occurred (ResourceNotFoundException) when calling the StartAsyncInvoke operation: '
+        'Could not resolve the foundation model from the provided model identifier.'
+    )
+    assert _is_unavailable_video_model_error('ResourceNotFoundException', unresolved)
+    # Type alone must not skip; this message matches none of the unavailable-model snippets.
+    assert not _is_unavailable_video_model_error(
+        'ResourceNotFoundException',
+        'An error occurred (ResourceNotFoundException) when calling the StartAsyncInvoke operation: '
+        'The requested resource was not found.',
+    )
 
 
 @pytest.mark.remote_api
@@ -220,7 +279,7 @@ class TestBedrock:
             response=invoke_model(
                 {
                     'anthropic_version': 'bedrock-2023-05-31',
-                    'max_tokens': 256,
+                    'max_tokens': 1024,
                     'messages': [
                         {
                             'role': 'user',
@@ -234,13 +293,14 @@ class TestBedrock:
                         }
                     ],
                 },
-                model_id='anthropic.claude-3-haiku-20240307-v1:0',
+                model_id='us.anthropic.claude-haiku-5-5',
             )
         )
         image_filepaths = get_image_files()[:1]
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         results = t.select(t.response).collect()
-        assert results[0]['response']['content'][0]['text']
+        # a response can begin with a thinking block
+        assert any(block['type'] == 'text' and block['text'] for block in results[0]['response']['content'])
 
     def test_converse_anthropic(self, uses_db: None) -> None:
         skip_test_if_no_aws_credentials()
@@ -251,15 +311,16 @@ class TestBedrock:
         t.add_computed_column(
             output=converse(
                 messages,
-                model_id='anthropic.claude-3-haiku-20240307-v1:0',
+                model_id='us.anthropic.claude-haiku-5-5',
                 system=[{'text': 'You are a helpful assistant. Keep answers short.'}],
-                inference_config={'temperature': 0.6, 'maxTokens': 256},
-                additional_model_request_fields={'top_k': 40},
+                inference_config={'maxTokens': 1024},
+                additional_model_request_fields={'output_config': {'effort': 'low'}},
             )
         )
-        t.add_computed_column(response=t.output.output.message.content[0].text)
+        # a response can begin with a reasoning block, which has no text
+        t.add_computed_column(response=t.output.output.message.content['*'].text)
         validate_update_status(t.insert(input='What is the capital of France?'), expected_rows=1)
-        assert 'Paris' in t.collect()[0]['response']
+        assert any('Paris' in text for text in t.collect()[0]['response'] if text is not None)
 
     @rerun(reruns=3, reruns_delay=8)
     def test_converse_tool_invocations(self, uses_db: None) -> None:
@@ -270,9 +331,7 @@ class TestBedrock:
             t = pxt.create_table('tbl', {'prompt': pxt.String | None})
             messages = [{'role': 'user', 'content': [{'text': t.prompt}]}]
             t.add_computed_column(
-                response=bedrock.converse(
-                    messages, model_id='anthropic.claude-3-haiku-20240307-v1:0', tool_config=tools
-                )
+                response=bedrock.converse(messages, model_id='us.anthropic.claude-haiku-5-5', tool_config=tools)
             )
             t.add_computed_column(tool_calls=bedrock.invoke_tools(tools, t.response))
             return t
@@ -360,22 +419,29 @@ class TestBedrock:
         validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text']
 
-    def test_invoke_model_nova_reel(self, uses_db: None) -> None:
+    # the account allows one concurrent Luma Ray request, so a run that overlaps another (a second CI run, or a local
+    # one) is throttled until the other's generation finishes, which takes up to a few minutes
+    @rerun(reruns=3, reruns_delay=120, only_rerun=['ThrottlingException', *NETWORK_ERROR_PATTERNS])
+    def test_invoke_model_luma_ray(self, uses_db: None, bedrock_us_west_2: None) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
         t = pxt.create_table('tbl', {'prompt': pxt.String | None})
         t.add_computed_column(
             video=invoke_model(
-                {
-                    'taskType': 'TEXT_VIDEO',
-                    'textToVideoParams': {'text': t.prompt},
-                    'videoGenerationConfig': {'durationSeconds': 6, 'fps': 24, 'dimension': '1280x720'},
-                },
-                model_id='amazon.nova-reel-v1:1',
+                {'prompt': t.prompt, 'aspect_ratio': '16:9', 'duration': '5s', 'resolution': '540p'},
+                model_id=_LUMA_RAY_MODEL_ID,
             )
         )
-        validate_update_status(t.insert(prompt='a dog running on a beach'), expected_rows=1)
+        status = t.insert(prompt='a dog running on a beach', on_error='ignore')
+        if status.num_excs != 0:
+            row = t.select(errortype=t.video.errortype, errormsg=t.video.errormsg).collect()[0]
+            errortype = row['errortype']
+            errormsg = row['errormsg']
+            if _is_unavailable_video_model_error(errortype, errormsg):
+                pytest.skip(f'Bedrock model {_LUMA_RAY_MODEL_ID} is not available in {_LUMA_RAY_REGION}: {errormsg}')
+            raise AssertionError(f'invoke_model({_LUMA_RAY_MODEL_ID}) failed: {errortype}: {errormsg}')
+        validate_update_status(status, expected_rows=1)
         result = t.collect()[0]['video']
         assert result is not None and Path(result).exists()
 

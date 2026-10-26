@@ -129,6 +129,13 @@ class TestPath:
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
             Path.parse('pxt://customer:main:extra/tbl')
 
+    def test_buckets_parses_as_a_catalog_name(self) -> None:
+        # a hosted catalog refuses to create a root entry named 'buckets' (test_dirs.py), but the parser reads the
+        # name like any other, so an entry created before that keeps its path
+        assert Path.parse('pxt://customer:main/Buckets/home').components == ('buckets', 'home')
+        assert Path.parse('buckets').components == ('buckets',)
+        assert Path.parse('buckets.home:3', allow_versioned_path=True).components == ('buckets', 'home')
+
     def test_path_construction_invariants(self) -> None:
         # Invariants enforced at construction, so they hold for from_components() (and direct
         # construction), not only for parse().

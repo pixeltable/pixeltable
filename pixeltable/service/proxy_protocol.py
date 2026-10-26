@@ -21,7 +21,7 @@ import shutil
 import struct
 import tarfile
 from concurrent.futures import FIRST_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, wait
-from typing import IO, TYPE_CHECKING, Any, Callable, Generic, TypedDict, TypeVar
+from typing import IO, TYPE_CHECKING, Any, Callable, Generic, Iterator, TypedDict, TypeVar
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -42,12 +42,37 @@ from pixeltable.query_clauses import SampleClause
 from pixeltable.row import RowBatch
 from pixeltable.utils import parse_local_file_path
 from pixeltable.utils.local_store import TempStore
-from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectStoreBase
+from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectStoreBase, home_bucket_uri
 
 if TYPE_CHECKING:
     from pixeltable._query import Query
 
-PROTOCOL_VERSION = 6
+PROTOCOL_VERSION = 7
+
+
+def protocol_mismatch_message(client_version: int, server_version: int, catalog_uri: Path) -> str:
+    """The error a caller sees when its proxy protocol version does not match the database."""
+    stated = f'Unsupported proxy protocol version: {client_version} (server expects {server_version})'
+    if client_version > server_version:
+        if catalog_uri.org == 'local':
+            db = catalog_uri.db or '<db>'
+            return (
+                f'{stated}. This Pixeltable is newer than the local proxy. Restart it with this Python '
+                f'environment by running: pxt localproxy stop {db}, then pxt localproxy start {db}.'
+            )
+        return (
+            f'{stated}. This Pixeltable is newer than the database. Rebuild its image from the project '
+            f'by running: pxt db build-image {catalog_uri.uri_str}. The image installs the Pixeltable the project '
+            'resolves, so upgrade a lockfile pin first. With no lockfile, that build installs the current '
+            'PyPI release. Running pxt db restart does not change the image.'
+        )
+    if client_version < server_version:
+        return (
+            f'{stated}. This Pixeltable is older than the database. Please update to the latest Pixeltable '
+            'version by running: pip install --upgrade pixeltable'
+        )
+    return stated
+
 
 # Reserved key marking a type-tagged value: {_TAG: <type-name>, 'v': <payload>}.
 _TAG = '$pxt'
@@ -156,9 +181,15 @@ class PxtStorePartSink(PartSink[int | str | ArchiveMember]):
 
     def _get_store(self) -> ObjectStoreBase:
         if self._store is None:
-            # the prefix in the URI scopes the store's temp credentials to this request's uploads
-            self._store = ObjectOps.get_store(f'pxtfs://{self._org}:{self._db}/home/{self._key_prefix}', False)
+            # a client holds these credentials, so limit them to this request's uploads
+            self._store = ObjectOps.get_store(
+                home_bucket_uri(self._org, self._db, self._key_prefix), False, scope_credentials=True
+            )
         return self._store
+
+    def object_uri(self, key: str) -> str:
+        """The address of the object that the part with key is uploaded as."""
+        return home_bucket_uri(self._org, self._db, key)
 
     def add_media_bytes(self, data: bytes, extension: str) -> str | ArchiveMember:
         # stage to a temp file so all uploads go through the file path (boto3's transfer manager); flush()
@@ -188,8 +219,7 @@ class PxtStorePartSink(PartSink[int | str | ArchiveMember]):
 
     def _upload_one(self, store: ObjectStoreBase, path: pathlib.Path, key: str, remove_after_upload: bool) -> None:
         try:
-            url = f'pxtfs://{self._org}:{self._db}/home/{key}'
-            store.copy_local_file(path, FileDestination(url=url, remote_key=key))
+            store.copy_local_file(path, FileDestination(url=self.object_uri(key), remote_key=key))
         finally:
             if remove_after_upload:
                 path.unlink(missing_ok=True)
@@ -952,3 +982,14 @@ def decode_body(body: bytes) -> tuple[bytes, list[bytes]]:
     if offset != len(view):
         raise ValueError('trailing bytes after framed body')
     return head, binary_parts
+
+
+# On macOS a socket write of more than INT_MAX bytes fails, so bodies are written in slices of this size.
+_BODY_CHUNK_SIZE = 16 * 2**20
+
+
+def iter_body_chunks(body: bytes) -> Iterator[memoryview]:
+    """Slice an encoded body, without copying it, for writing to the socket one slice at a time."""
+    view = memoryview(body)
+    for offset in range(0, len(view), _BODY_CHUNK_SIZE):
+        yield view[offset : offset + _BODY_CHUNK_SIZE]

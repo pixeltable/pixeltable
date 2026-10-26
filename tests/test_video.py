@@ -108,7 +108,6 @@ class TestVideo:
     @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
     @rerun_on_network_error()
     def test_query(self, uses_db: None) -> None:
-        skip_test_if_not_installed('boto3')
         video_filepaths = get_video_files()
         base_t, view_t = self.create_tbls()
         # also include an external file, to make sure that prefetching works
@@ -248,6 +247,8 @@ class TestVideo:
         base_t.add_computed_column(metadata=base_t.video.get_metadata())
         validate_update_status(base_t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         result = base_t.where(base_t.metadata.size == 2234371).select(base_t.metadata).collect()['metadata'][0]
+        # av 18 no longer reports the stream's vendor_id; earlier versions do
+        assert result['streams'][0]['metadata'].pop('vendor_id', '[0][0][0][0]') == '[0][0][0][0]'
         assert result == {
             'bit_exact': False,
             'bit_rate': 967260,
@@ -273,7 +274,6 @@ class TestVideo:
                     'metadata': {
                         'language': 'und',
                         'handler_name': 'L-SMASH Video Handler',
-                        'vendor_id': '[0][0][0][0]',
                         'encoder': 'Lavc60.31.102 libx264',
                     },
                     'codec_context': {'name': 'h264', 'codec_tag': 'avc1', 'profile': 'High', 'pix_fmt': 'yuv420p'},
@@ -1873,6 +1873,45 @@ class TestVideo:
             'scenes_view', t, iterator=video_splitter(t.video, segment_times=t.scenes[1:].start_time, mode='accurate')
         )
         _ = v.collect()
+
+    def test_scene_detect_cut_at_scene_start(self, init_env: None) -> None:
+        skip_test_if_not_installed('scenedetect')
+        from scenedetect import FrameTimecode  # type: ignore[import-untyped]
+
+        from pixeltable.functions.video.scene_detect import _scene_detect
+
+        class StubDetector:
+            """Reports cuts at given positions in the sequence of sampled frames."""
+
+            frame_cuts: set[int]  # positions at which process_frame() reports a cut at the current frame
+            final_cuts: list[int]  # positions of the cuts that post_process() reports
+            timecodes: list[FrameTimecode]  # of the frames passed to process_frame()
+
+            def __init__(self, frame_cuts: set[int], final_cuts: list[int]) -> None:
+                self.frame_cuts = frame_cuts
+                self.final_cuts = final_cuts
+                self.timecodes = []
+
+            def process_frame(self, timecode: FrameTimecode, frame_img: Any) -> list[FrameTimecode]:
+                self.timecodes.append(timecode)
+                return [timecode] if len(self.timecodes) - 1 in self.frame_cuts else []
+
+            def post_process(self, timecode: FrameTimecode) -> list[FrameTimecode]:
+                return [self.timecodes[i] for i in self.final_cuts]
+
+        video = get_video_files()[0]
+
+        # scenedetect >= 0.7.2 reports a cut at the first frame of a video that starts faded out: the cut doesn't
+        # produce a zero-duration scene, and without other cuts the whole video is one scene
+        scenes = _scene_detect(video, 2.0, StubDetector(frame_cuts=set(), final_cuts=[0]))
+        assert len(scenes) == 1
+        assert scenes[0]['duration'] > 0.0
+
+        # the cut at the first frame is skipped; the cuts at the next two frames end the scenes that start at the first
+        # and second frame
+        scenes = _scene_detect(video, 2.0, StubDetector(frame_cuts={0, 1, 2}, final_cuts=[]))
+        assert len(scenes) == 2
+        assert all(s['duration'] > 0.0 for s in scenes)
 
     @pytest.mark.db_roots('local', reason='reads Env default video encoder config')
     def test_default_video_codec(self, uses_db: None) -> None:

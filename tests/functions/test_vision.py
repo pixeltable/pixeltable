@@ -1357,8 +1357,8 @@ class TestVision:
         t.add_computed_column(
             segmentation=detr_for_segmentation(t.img, model_id='facebook/detr-resnet-50-panoptic', threshold=0.5)
         )
-        image_files = get_image_files()[:3]
-        t.insert({'img': f} for f in image_files)
+        # one image: DETR panoptic runs its batch in a single forward pass, which needs ~10 GB per image on CPU
+        t.insert(img=get_image_files()[0])
 
         segmentation_map = t.segmentation.segmentation.astype(pxt.Array[(None, None), np.int32] | None)
         _ = t.select(overlay_segmentation(t.img, segmentation_map)).collect()

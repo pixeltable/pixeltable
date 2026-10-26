@@ -23,15 +23,16 @@ import sqlalchemy as sql
 from pixeltable import exceptions as excs
 from pixeltable._query import Query
 from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_loop
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
 from pixeltable.row import RowBatch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.local_store import TempStore
-from pixeltable.utils.object_stores import ObjectOps
+from pixeltable.utils.object_stores import ObjectOps, home_bucket_uri
 
 from . import proxy_protocol
-from .proxy_protocol import PROTOCOL_VERSION, ProxyRequest
+from .proxy_protocol import PROTOCOL_VERSION, ProxyRequest, protocol_mismatch_message
 
 _logger = logging.getLogger(__name__)
 
@@ -50,10 +51,25 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
     t0 = time.monotonic()
     try:
         if request.protocol_version != PROTOCOL_VERSION:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Unsupported proxy protocol version: {request.protocol_version} (server expects {PROTOCOL_VERSION})',
+            config = Config.get()
+            org = config.get_string_value('org', section='pxtcloud')
+            db = config.get_string_value('db', section='pxtcloud')
+            catalog_uri = (
+                Path(org=org, db=db)
+                if org and db
+                else Path(org='local', db=config.get_string_value('db') or 'pixeltable')
             )
+            mismatch = excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                protocol_mismatch_message(request.protocol_version, PROTOCOL_VERSION, catalog_uri),
+            )
+            # The request already carries protocol_version. These two ints are the mismatch, so a client
+            # does not read them out of the sentence. A daemon from before this leaves them off.
+            error_dict = mismatch.to_dict()
+            error_dict['client_protocol_version'] = request.protocol_version
+            error_dict['server_protocol_version'] = PROTOCOL_VERSION
+            _logger.info('%s.%s error (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
+            return proxy_protocol.encode_response({'error': error_dict})
         key = (request.class_name, request.method)
         table_handler = _TABLE_HANDLERS.get(key)
         if table_handler is not None:
@@ -170,7 +186,7 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
         else:
             archives.setdefault(key, []).append(member)
     org, db = Env.get().hosted_db(required=True)
-    store = ObjectOps.get_store(f'pxtfs://{org}:{db}/home/uploads/', False)
+    store = ObjectOps.get_store(home_bucket_uri(org, db, 'uploads/'), False)
 
     # record every destination before downloading so handle() also cleans up a partial download
     for key, member in parts:
