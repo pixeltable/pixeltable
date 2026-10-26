@@ -450,10 +450,10 @@ class _ModelNamespace(dict):
 
 
 def bind_query_templates(e: exprs.Expr, catalog_dir: str | None) -> exprs.Expr:
-    """Rebind QueryTemplateFunction calls of ModelQuery instances to a Query over the bound model's table.
+    """Replace each @pxt.query call in e that queries a model with a call of the same query bound to the model's table.
 
-    Each Query references columns by name. With `catalog_dir=None`, each Query is over its model's defined shape
-    rather than over a table, and references the shape's columns directly.
+    catalog_dir locates the table. The bound query still references columns by name. With `catalog_dir=None`, the
+    query is bound to the model's defined shape instead, with its column references resolved.
     """
     from .query import ModelQuery
 

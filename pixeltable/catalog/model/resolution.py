@@ -293,7 +293,9 @@ def resolve_query_columns(query: pxt.Query) -> pxt.Query:
         for col_md in tbl_path.column_md()
         if col_md.name is not None
     )
-    return pxt.Query._substituted(query, query._from_clause, lambda e: resolve_query_calls(e.copy().substitute(subst)))
+    return pxt.Query._from_query(
+        query, from_clause=query._from_clause, substitution_fn=lambda e: resolve_query_calls(e.copy().substitute(subst))
+    )
 
 
 def _calls_unresolved_query(e: exprs.Expr) -> bool:

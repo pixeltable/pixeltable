@@ -284,16 +284,20 @@ class QueryBase(ABC):
         )
 
     @classmethod
-    def _substituted(
+    def _from_query(
         cls, source: QueryBase, *, from_clause: FromClause, substitution_fn: Callable[[exprs.Expr], exprs.Expr]
     ) -> Self:
         # join predicates belong to from_clause
         assert len(source._from_clause.join_clauses) == 0
         return cls(
             from_clause=from_clause,
-            select_list=None if source.select_list is None else [(substitution_fn(e), n) for e, n in source.select_list],
+            select_list=None
+            if source.select_list is None
+            else [(substitution_fn(e), n) for e, n in source.select_list],
             where_clause=None if source.where_clause is None else substitution_fn(source.where_clause),
-            group_by_clause=None if source.group_by_clause is None else [substitution_fn(e) for e in source.group_by_clause],
+            group_by_clause=None
+            if source.group_by_clause is None
+            else [substitution_fn(e) for e in source.group_by_clause],
             grouping_tbl_key=source.grouping_tbl_key,
             order_by_clause=None
             if source.order_by_clause is None

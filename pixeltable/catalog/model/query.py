@@ -142,7 +142,7 @@ class ModelQuery(QueryBase):
         def rebound(e: exprs.Expr) -> exprs.Expr:
             return bind_query_templates(e.copy().substitute(subst), catalog_dir)
 
-        return pxt.Query._substituted(self, FromClause(tbls=[path]), rebound)
+        return pxt.Query._from_query(self, from_clause=FromClause(tbls=[path]), substitution_fn=rebound)
 
     def join(self, *args: Any, **kwargs: Any) -> Self:
         raise excs.RequestError(
