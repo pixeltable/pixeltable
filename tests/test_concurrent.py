@@ -4,6 +4,7 @@ import time
 import traceback
 from typing import Any, Callable, Sequence
 
+import PIL.Image
 import pytest
 import sqlalchemy as sql
 
@@ -23,6 +24,18 @@ def _make_label(s: str) -> str:
 @pxt.udf
 def _combine(n: int, double: int, s: str) -> str:
     return f'{s}:{n}:{double}'
+
+
+_drop_media_started = threading.Event()
+_drop_media_release = threading.Event()
+
+
+@pxt.udf
+def _drop_media_blocker(x: int) -> int:
+    _drop_media_started.set()
+    if not _drop_media_release.wait(timeout=30):
+        raise TimeoutError('timed out waiting for drop_table to be released')
+    return x
 
 
 class TestConcurrentOps:
@@ -461,8 +474,7 @@ class TestConcurrentOps:
         assert dst.count() == 3
 
     @pytest.mark.db_roots(
-        'local',
-        reason='in-process reader vs drop_table race; polls pg_locks and uses a UDF with thread events',
+        'local', reason='in-process reader vs drop_table race; polls pg_locks and uses a UDF with thread events'
     )
     def test_drop_table_waits_for_readers_before_deleting_media(self, uses_db: None) -> None:
         """drop_table must not delete media files while a concurrent reader still holds its transaction.
@@ -471,23 +483,20 @@ class TestConcurrentOps:
         (ACCESS SHARE); media deletion must happen after that wait, not before.
         """
         t = pxt.create_table('drop_media_race', {'x': pxt.Int, 'img': pxt.Image})
-        img_paths = get_image_files()[:3]
-        validate_update_status(t.insert([{'x': i, 'img': path} for i, path in enumerate(img_paths)]), expected_rows=3)
+        # Insert PIL images so they are persisted under the table media dir (local paths are left in place).
+        rows = []
+        for i, path in enumerate(get_image_files()[:3]):
+            with PIL.Image.open(path) as im:
+                rows.append({'x': i, 'img': im.copy()})
+        validate_update_status(t.insert(rows), expected_rows=3)
 
         tbl_id = t._id
         media_dir = Env.get().media_dir / ObjectPath.table_prefix(tbl_id)
         store_name = StoreBase.storage_name(tbl_id, is_view=False)
         assert media_dir.is_dir()
 
-        started = threading.Event()
-        release = threading.Event()
-
-        @pxt.udf
-        def blocker(x: int) -> int:
-            started.set()
-            if not release.wait(timeout=30):
-                raise TimeoutError('timed out waiting for drop_table to be released')
-            return x
+        _drop_media_started.clear()
+        _drop_media_release.clear()
 
         reader_rows: list[Any] = []
         reader_errors: list[BaseException] = []
@@ -495,7 +504,7 @@ class TestConcurrentOps:
 
         def reader() -> None:
             try:
-                reader_rows.append(t.select(t.img, blocker(t.x)).collect())
+                reader_rows.append(t.select(t.img, _drop_media_blocker(t.x)).collect())
             except BaseException as e:
                 reader_errors.append(e)
 
@@ -520,13 +529,13 @@ class TestConcurrentOps:
         drop_thread = threading.Thread(target=drop)
         reader_thread.start()
         try:
-            assert started.wait(timeout=30), 'reader did not enter blocker UDF'
+            assert _drop_media_started.wait(timeout=30), 'reader did not enter blocker UDF'
             drop_thread.start()
             deadline = time.monotonic() + 10.0
             while time.monotonic() < deadline and drop_thread.is_alive() and not drop_is_waiting():
                 time.sleep(0.05)
         finally:
-            release.set()
+            _drop_media_release.set()
             reader_thread.join(timeout=35)
             if drop_thread.ident is not None:
                 drop_thread.join(timeout=35)
