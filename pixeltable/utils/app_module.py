@@ -14,7 +14,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
-from pixeltable import exceptions as excs, exprs
+from pixeltable import exceptions as excs
 from pixeltable.catalog import ProhibitedWriteError, is_valid_identifier, model
 from pixeltable.catalog.model import diff
 from pixeltable.config import Config
@@ -207,32 +207,15 @@ def validate_models(models: dict[str, model.TableModelMeta], base_path: str) -> 
 def check_report(file: str, bases: list[model.TableModelMeta]) -> CheckReport:
     """What checking a file on its own reports: whether it is valid, and what to fix or to know about."""
     errors = check_udf_references(bases)
-    warnings = [*constant_column_warnings(bases), *shadowed_project_modules()]
+    warnings = [
+        f'{cls.__name__}.{name} references no column, so every row computes it from the same inputs: {value!s}. '
+        'Python code in a model body, such as str(), % or `is None`, runs once, at class definition.'
+        for base in bases
+        for cls in base.defined_models()
+        for name, value in cls.constant_columns().items()
+    ]
+    warnings.extend(shadowed_project_modules())
     return CheckReport(file=file, valid=len(errors) == 0, errors=errors, warnings=warnings)
-
-
-def constant_column_warnings(bases: list[model.TableModelMeta]) -> list[str]:
-    """Returns a warning for each computed column in 'bases' that references no column."""
-    warnings: list[str] = []
-    for base in bases:
-        for cls in base.defined_models():
-            for name, spec in cls.__columns__.items():
-                value = spec.get('value')
-                if value is None or _varies_by_row(value):
-                    continue
-                warnings.append(
-                    f'{cls.__name__}.{name} references no column, so every row computes it from the same inputs: '
-                    f'{value!s}. Python code in a model body, such as str(), % or `is None`, runs once, at class '
-                    'definition.'
-                )
-    return warnings
-
-
-def _varies_by_row(value: exprs.Expr) -> bool:
-    if value.contains_(cls=exprs.ColumnRef) or value.contains_(cls=exprs.ColumnRefByName):
-        return True
-    # a call without arguments, such as uuid4(), is evaluated for each row
-    return value.contains_(cls=exprs.FunctionCall, filter=lambda e: len(e.args) == 0 and len(e.kwargs) == 0)
 
 
 def check_udf_references(bases: list[model.TableModelMeta]) -> list[str]:

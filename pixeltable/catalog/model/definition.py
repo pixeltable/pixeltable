@@ -744,6 +744,19 @@ class TableModelMeta(type):
         """The models defined on this base, in declaration order."""
         return list(cls.__registered_models__.values())
 
+    def constant_columns(cls) -> dict[str, exprs.Expr]:
+        """This model's computed columns that reference no column and call no function without arguments, such as
+        uuid4(), with their value expressions."""
+        constants: dict[str, exprs.Expr] = {}
+        for name, col_spec in cls.__columns__.items():
+            value = col_spec.get('value')
+            if value is None or value.contains_(cls=exprs.ColumnRef) or value.contains_(cls=ColumnRefByName):
+                continue
+            if value.contains_(cls=exprs.FunctionCall, filter=lambda e: len(e.args) == 0 and len(e.kwargs) == 0):
+                continue
+            constants[name] = value
+        return constants
+
     def referenced_functions(cls) -> list[func.Function]:
         """Every function this model references, without duplicates."""
         defined_exprs: list[exprs.Expr] = [
