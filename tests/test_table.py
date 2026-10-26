@@ -4077,7 +4077,7 @@ class TestTable:
         status = t.recompute_columns('i1')
         assert status.num_rows == 100 + view_rows(20)
         # i1 and its index value col (data-versioned only), plus i2 (i2 has no indexes)
-        assert status.num_excs == (3 if is_data_versioned else 2) * 10
+        assert status.num_excs == (30 if is_data_versioned else 20)
         assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2'} | view_cols
         _ = t.select(t.i2.errormsg).where(t.i2.errormsg != None).collect()
         assert t.where(t.i1.errortype != None).count() == 10
