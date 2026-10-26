@@ -135,6 +135,8 @@ pxt service restart pxt://org:main/ingest
 
 The restarts let running table and service processes read the new value. You can also set secrets in the [Cloud dashboard](https://www.pixeltable.com/dashboard). [CLI secret commands](/platform/cli#pxt-secret).
 
+The secret supplies the key, not the package: add `openai` to `requirements.txt` too (with a `uv.lock`, `uv add openai`), and run `pxt db update`, since the image installs only the packages the project lists.
+
 ## What the database runs
 
 A hosted database runs three things that come from your project, and they move independently.
