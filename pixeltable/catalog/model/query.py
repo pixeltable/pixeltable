@@ -84,7 +84,7 @@ class ModelQuery(QueryBase):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
                     f'{model_name}: `base` select() list may contain only direct column references '
-                    f'or named expressions, but contains an anonymous compound expression: {item}\n'
+                    f'or named expressions, but contains an anonymous compound expression: {item!s}\n'
                     f'Use kwargs syntax to give it an explicit name: select(my_name=...)',
                 )
 

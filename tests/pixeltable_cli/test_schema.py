@@ -911,6 +911,34 @@ class TestSchema:
         assert (report['valid'], report['errors'], report['warnings']) == (True, [], [])
         assert report['file'] == apps('basic.py')
 
+        # computed columns that reference no column
+        constants = project_dir / 'constants.py'
+        constants.write_text(
+            dedent(
+                """
+                import pixeltable as pxt
+                import pixeltable.functions as pxtf
+
+                TableModel = pxt.model_base()
+
+
+                class Docs(TableModel, name='docs'):
+                    title: pxt.String
+                    label = str(title)
+                    untitled = title is None
+                    shout = pxtf.string.upper('hi')
+                    key = pxtf.uuid.uuid4()
+                    created_at = pxtf.timestamp.now()
+                    upper = pxtf.string.upper(title)
+                """
+            ),
+            encoding='utf-8',
+        )
+        report = cli('schema', 'check', str(constants), '--json').json
+        assert report['valid'], report
+        flagged = [warning.split(' references no column')[0] for warning in report['warnings']]
+        assert flagged == ['Docs.label', 'Docs.untitled', 'Docs.shout'], report
+
         # a file that modifies the catalog while importing
         ddl = project_dir / 'ddl.py'
         ddl.write_text("import pixeltable as pxt\npxt.create_table('t', {'c': pxt.Int})\n", encoding='utf-8')

@@ -48,8 +48,8 @@ class SimilarityExpr(Expr):
         try:
             col_md = self._tbl_path().get_column_md(self.qcol_id)
         except excs.Error:
-            return f'<invalid>.similarity({self.components[0]}, {idx_str})'
-        return f'{col_md.name}.similarity({self.components[0]}, {idx_str})'
+            return f'<invalid>.similarity({self.components[0]!s}, {idx_str})'
+        return f'{col_md.name}.similarity({self.components[0]!s}, {idx_str})'
 
     def _tbl_path(self) -> catalog.TablePath:
         """The path for the indexed table"""

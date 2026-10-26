@@ -160,7 +160,7 @@ class InlineDict(Expr):
         self._expr_id = self._create_id()
 
     def __repr__(self) -> str:
-        item_strs = [f"'{key}': {expr}" for key, expr in zip(self.keys, self.components)]
+        item_strs = [f"'{key}': {expr!s}" for key, expr in zip(self.keys, self.components)]
         return '{' + ', '.join(item_strs) + '}'
 
     def _equals(self, other: InlineDict) -> bool:

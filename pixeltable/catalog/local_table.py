@@ -657,7 +657,7 @@ class LocalTable(Table):
         if not value_expr.is_bound_by([self._tbl_version_path]):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'The value expression of column {col_name!r} ({value_expr}) is not bound by {self._display_str()}',
+                f'The value expression of column {col_name!r} ({value_expr!s}) is not bound by {self._display_str()}',
             )
 
     @classmethod
@@ -735,7 +735,7 @@ class LocalTable(Table):
 
             if len(dependent_views) > 0:
                 dependent_views_str = '\n'.join(
-                    sorted(f'view: {view._path()}, predicate: {predicate}' for view, predicate in dependent_views)
+                    sorted(f'view: {view._path()}, predicate: {predicate!s}' for view, predicate in dependent_views)
                 )
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -1323,7 +1323,7 @@ class LocalTable(Table):
             if where is not None and not where.is_bound_by([self._tbl_version_path]):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'`where` predicate ({where}) is not bound by {self._display_str()}',
+                    f'`where` predicate ({where!s}) is not bound by {self._display_str()}',
                 )
 
             tv = self._tbl_version.get()

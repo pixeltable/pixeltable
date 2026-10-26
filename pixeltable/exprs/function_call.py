@@ -293,14 +293,14 @@ class FunctionCall(Expr):
             subst = self.fn.instantiate(self.args, self.kwargs)
             return subst.display_str(inline)
         if self.is_method_call:
-            return f'{self.components[0]}.{self.fn.display_name}({self._print_args(1, inline)})'
+            return f'{self.components[0]!s}.{self.fn.display_name}({self._print_args(1, inline)})'
         else:
             fn_name = self.fn.display_name or 'anonymous_fn'
             return f'{fn_name}({self._print_args()})'
 
     def _print_args(self, start_idx: int = 0, inline: bool = True) -> str:
         arg_strs = [str(self.components[idx]) for idx in self.arg_idxs[start_idx:]]
-        arg_strs.extend(f'{name}={self.components[idx]}' for name, idx in self.kwarg_idxs.items())
+        arg_strs.extend(f'{name}={self.components[idx]!s}' for name, idx in self.kwarg_idxs.items())
         if len(self.order_by) > 0:
             assert isinstance(self.fn, func.AggregateFunction)
             if self.fn.requires_order_by:

@@ -70,11 +70,11 @@ class JsonMapper(Expr):
 
     def __repr__(self) -> str:
         if self.op == JsonMapper.Operator.FILTER:
-            return f'{self._src_expr}.filter(lambda R: {self._target_expr})'
+            return f'{self._src_expr!s}.filter(lambda R: {self._target_expr!s})'
         if self.op == JsonMapper.Operator.SORT:
             asc_repr = '' if self.asc else ', asc=False'
-            return f'{self._src_expr}.sort(lambda R: {self._target_expr}{asc_repr})'
-        return f'{self._src_expr}.map(lambda R: {self._target_expr})'
+            return f'{self._src_expr!s}.sort(lambda R: {self._target_expr!s}{asc_repr})'
+        return f'{self._src_expr!s}.map(lambda R: {self._target_expr!s})'
 
     @property
     def _src_expr(self) -> Expr:

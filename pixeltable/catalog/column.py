@@ -523,7 +523,7 @@ class Column:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Column {self.name!r}: `stored={self.stored}` not supported for columns '
-                f'computed with window functions:\n{self.value_expr}',
+                f'computed with window functions:\n{self.value_expr!s}',
             )
 
     def has_window_fn_call(self) -> bool:

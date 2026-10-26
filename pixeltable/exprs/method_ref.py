@@ -62,4 +62,4 @@ class MethodRef(Expr):
         raise AssertionError('MethodRef cannot be evaluated directly')
 
     def __repr__(self) -> str:
-        return f'{self.base_expr}.{self.method_name}'
+        return f'{self.base_expr!s}.{self.method_name}'

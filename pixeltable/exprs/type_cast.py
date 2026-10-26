@@ -29,16 +29,29 @@ class TypeCast(Expr):
     def _op1(self) -> Expr:
         return self.components[0]
 
-    def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
+    @property
+    def _converts_bool(self) -> bool:
+        return self._op1.col_type.is_bool_type() and self.col_type.is_numeric_type()
+
+    def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         """
-        sql_expr() is unimplemented for now, in order to sidestep potentially thorny
-        questions about consistency of doing type conversions in both Python and Postgres.
+        A cast from Bool to a number is exact in Postgres. Other casts are evaluated in Python, in order to sidestep
+        potentially thorny questions about consistency of doing type conversions in both Python and Postgres.
         """
-        return None
+        if not self._converts_bool:
+            return None
+        operand = sql_elements.get(self._op1)
+        if operand is None:
+            return None
+        # Postgres casts a boolean only to integer
+        return sql.cast(sql.cast(operand, sql.Integer), self.col_type.to_sa_type())
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        original_val = data_row[self._op1.slot_idx]
-        data_row[self.slot_idx] = self.col_type.create_literal(original_val)
+        val = data_row[self._op1.slot_idx]
+        if self._converts_bool and val is not None:
+            # IntType rejects a bool
+            val = int(val)
+        data_row[self.slot_idx] = self.col_type.create_literal(val)
 
     def as_literal(self) -> Literal | None:
         op1_lit = self._op1.as_literal()
@@ -66,4 +79,4 @@ class TypeCast(Expr):
         return cls(components[0], ts.ColumnType.from_dict(d['new_type']))
 
     def __repr__(self) -> str:
-        return f'{self._op1}.astype({self.col_type!r})'
+        return f'{self._op1!s}.astype({self.col_type!r})'

@@ -61,7 +61,7 @@ def combine_order_by_clauses(clauses: Iterable[OrderByClause]) -> OrderByClause 
 
 def print_order_by_clause(clause: OrderByClause) -> str:
     return ', '.join(
-        f'({item.expr}{", asc=True" if item.asc is True else ""}{", asc=False" if item.asc is False else ""})'
+        f'({item.expr!s}{", asc=True" if item.asc is True else ""}{", asc=False" if item.asc is False else ""})'
         for item in clause
     )
 
@@ -482,7 +482,7 @@ class SqlNode(ExecNode):
                     elif e.col_type.is_float_type():
                         output_row[slot_idx] = float(sql_row[i])
                     else:
-                        raise RuntimeError(f'Unexpected Decimal value for {e}')
+                        raise RuntimeError(f'Unexpected Decimal value for {e!s}')
                 elif e.col_type.is_array_type() and isinstance(sql_row[i], (list, HalfVector)):
                     # pgvector decodes VECTOR/HALFVEC values to lists of floats (>= 0.5) or HalfVector
                     # objects (< 0.5); all array data needs to be materialized as ndarrays

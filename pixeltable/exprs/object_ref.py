@@ -54,4 +54,4 @@ class ObjectRef(Expr):
         pass
 
     def __repr__(self) -> str:
-        return f'ObjectRef({self.owner}, {self._expr_id}, {self.owner._expr_id})'
+        return f'ObjectRef({self.owner!s}, {self._expr_id}, {self.owner._expr_id})'

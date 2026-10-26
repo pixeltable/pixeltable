@@ -152,7 +152,7 @@ class ColumnRef(Expr):
             if not is_valid:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'{name} only valid for a stored computed or media column: {self}',
+                    f'{name} only valid for a stored computed or media column: {self!s}',
                 )
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
 
@@ -163,11 +163,11 @@ class ColumnRef(Expr):
             if not col_md.col_type.is_media_type():
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'{name} only valid for image/video/audio/document columns: {self}',
+                    f'{name} only valid for image/video/audio/document columns: {self!s}',
                 )
             if col_md.is_computed and not col_md.is_stored:
                 raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'{name} not valid for computed unstored columns: {self}'
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'{name} not valid for computed unstored columns: {self!s}'
                 )
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
 

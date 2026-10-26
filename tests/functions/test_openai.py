@@ -4,6 +4,7 @@ import random
 import time
 
 import PIL.Image
+import pydantic
 import pytest
 
 import pixeltable as pxt
@@ -14,6 +15,7 @@ from pixeltable.config import Config
 from ..conftest import SampleFileServer
 from ..utils import (
     SAMPLE_IMAGE_FILE_PATH,
+    assert_type_eq,
     pxt_raises,
     rerun,
     rerun_on_network_error,
@@ -155,6 +157,10 @@ class TestOpenai:
         assert len(result['chat_output_2'][0]['choices'][0]['message']['content']) > 0
         assert len(result['chat_output_3'][0]['choices'][0]['message']['content']) > 0
         assert len(result['chat_output_4'][0]['choices'][0]['message']['content']) > 0
+        t.add_computed_column(chat_text=t.chat_output.choices[0].message.content)
+        assert t.select(t.chat_text).collect()['chat_text'] == [
+            result['chat_output'][0]['choices'][0]['message']['content']
+        ]
 
         # When OpenAI gets a request with `response_format` equal to `json_object`, but the prompt does not
         # contain the string "json", it refuses the request.
@@ -191,6 +197,8 @@ class TestOpenai:
         result = t.collect()
         assert 'proton' in result['resp_output'][0]['output'][0]['content'][0]['text'].lower()
         assert 'proton' in result['resp_output_2'][0]['output'][0]['content'][0]['text'].lower()
+        t.add_computed_column(resp_text=t.resp_output.output_text)
+        assert 'proton' in t.select(t.resp_text).collect()['resp_text'][0].lower()
 
     @rerun(reruns=6, reruns_delay=8)
     def test_responses_tool_invocations(self, uses_db: None) -> None:
@@ -822,10 +830,8 @@ class TestOpenaiTypedDictAdherence:
         return jt.type_schema.type_spec, jt.type_schema.optional_keys
 
     def _pydantic_fields(self, model: type) -> dict[str, ts.ColumnType]:
-        """Per-field JsonType conversion of a Pydantic model. Fields whose annotation can't be converted to
-        a Pixeltable type are omitted (callers must declare them in overrides)."""
-        import pydantic
-
+        """Per-field JsonType conversion of a Pydantic model, keyed by JSON key. Fields whose annotation can't be
+        converted to a Pixeltable type are omitted (callers must declare them in overrides)."""
         assert issubclass(model, pydantic.BaseModel)
         out: dict[str, ts.ColumnType] = {}
         for name, info in model.model_fields.items():
@@ -833,8 +839,125 @@ class TestOpenaiTypedDictAdherence:
                 ct = ts.ColumnType.normalize_type(info.annotation)
             except Exception:
                 continue
-            out[name] = ct
+            out[info.alias or name] = ct
         return out
+
+    def _assert_mirrors(
+        self, pairs: list[tuple[type, list[type[pydantic.BaseModel]]]], synth: frozenset[str] = frozenset()
+    ) -> None:
+        """Each TypedDict has the keys of its SDK models combined, plus synth, and each of its typed keys accepts
+        the key's type in every SDK model that has the key."""
+        for ours, sdk_models in pairs:
+            ours_fields, _ = self._td_fields(ours)
+            sdk_keys = {info.alias or name for model in sdk_models for name, info in model.model_fields.items()}
+            assert set(ours_fields) - synth == sdk_keys, (
+                f'{ours.__name__} keys drifted: missing {sdk_keys - set(ours_fields)}, '
+                f'extra {set(ours_fields) - synth - sdk_keys}'
+            )
+            for model in sdk_models:
+                for key, sdk_type in self._pydantic_fields(model).items():
+                    ours_type = ours_fields[key]
+                    assert ours_type.is_supertype_of(sdk_type), (
+                        f'{ours.__name__}.{key} drifted from {model.__name__}: ours={ours_type} sdk={sdk_type}'
+                    )
+
+    def test_typed_paths(self, uses_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        from pixeltable.functions.openai import chat_completions, responses
+
+        # on an empty table, adding the columns calls no API
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        msgs = [{'role': 'user', 'content': t.input}]
+        t.add_computed_column(chat=chat_completions(msgs, model='gpt-4o-mini'))
+        t.add_computed_column(resp=responses(msgs, model='gpt-4o-mini'))
+        t.add_computed_column(chat_text=t.chat.choices[0].message.content)
+        t.add_computed_column(tool_name=t.chat.choices[0].message.tool_calls[0].function.name)
+        t.add_computed_column(resp_text=t.resp.output_text)
+        t.add_computed_column(item_text=t.resp.output.filter(lambda item: item.type == 'message')[0].content[0].text)
+        for col in (t.chat_text, t.tool_name, t.resp_text, t.item_text):
+            assert_type_eq(col.col_type, pxt.String | None)
+
+    def test_chat_completion(self) -> None:
+        skip_test_if_not_installed('openai')
+        from openai.types import completion_usage
+        from openai.types.chat import (
+            chat_completion,
+            chat_completion_audio,
+            chat_completion_message,
+            chat_completion_message_custom_tool_call,
+            chat_completion_message_function_tool_call,
+            chat_completion_token_logprob,
+        )
+
+        from pixeltable.functions import openai as pxt_openai
+
+        function_tool_call = chat_completion_message_function_tool_call
+        custom_tool_call = chat_completion_message_custom_tool_call
+        self._assert_mirrors(
+            [
+                (pxt_openai.ChatCompletion, [chat_completion.ChatCompletion]),
+                (pxt_openai.ChatCompletionChoice, [chat_completion.Choice]),
+                (pxt_openai.ChatCompletionChoiceLogprobs, [chat_completion.ChoiceLogprobs]),
+                (pxt_openai.ChatCompletionMessage, [chat_completion_message.ChatCompletionMessage]),
+                (pxt_openai.ChatCompletionAnnotation, [chat_completion_message.Annotation]),
+                (pxt_openai.ChatCompletionURLCitation, [chat_completion_message.AnnotationURLCitation]),
+                (pxt_openai.ChatCompletionAudio, [chat_completion_audio.ChatCompletionAudio]),
+                (
+                    pxt_openai.ChatCompletionFunctionCall,
+                    [chat_completion_message.FunctionCall, function_tool_call.Function],
+                ),
+                (pxt_openai.ChatCompletionCustomToolCall, [custom_tool_call.Custom]),
+                (
+                    pxt_openai.ChatCompletionToolCall,
+                    [
+                        function_tool_call.ChatCompletionMessageFunctionToolCall,
+                        custom_tool_call.ChatCompletionMessageCustomToolCall,
+                    ],
+                ),
+                (pxt_openai.ChatCompletionTokenLogprob, [chat_completion_token_logprob.ChatCompletionTokenLogprob]),
+                (pxt_openai.ChatCompletionTopLogprob, [chat_completion_token_logprob.TopLogprob]),
+                (pxt_openai.CompletionUsage, [completion_usage.CompletionUsage]),
+                (pxt_openai.CompletionTokensDetails, [completion_usage.CompletionTokensDetails]),
+                (pxt_openai.PromptTokensDetails, [completion_usage.PromptTokensDetails]),
+            ]
+        )
+
+    def test_response(self) -> None:
+        skip_test_if_not_installed('openai')
+        import typing
+
+        from openai.types.responses import (
+            response,
+            response_output_item,
+            response_output_refusal,
+            response_output_text,
+            response_reasoning_item,
+            response_usage,
+        )
+
+        from pixeltable.functions import openai as pxt_openai
+
+        # ResponseOutputItem is an Annotated union
+        output_items = list(typing.get_args(typing.get_args(response_output_item.ResponseOutputItem)[0]))
+        self._assert_mirrors(
+            [
+                (pxt_openai.Response, [response.Response]),
+                (pxt_openai.ResponseOutputItem, output_items),
+                (
+                    pxt_openai.ResponseOutputContent,
+                    [
+                        response_output_text.ResponseOutputText,
+                        response_output_refusal.ResponseOutputRefusal,
+                        response_reasoning_item.Content,
+                    ],
+                ),
+                (pxt_openai.ResponseSummary, [response_reasoning_item.Summary]),
+                (pxt_openai.ResponseUsage, [response_usage.ResponseUsage]),
+                (pxt_openai.ResponseInputTokensDetails, [response_usage.InputTokensDetails]),
+                (pxt_openai.ResponseOutputTokensDetails, [response_usage.OutputTokensDetails]),
+            ],
+            synth=frozenset({'output_text'}),
+        )
 
     def test_exact_mirror_types(self) -> None:
         """JsonType equality for TypedDicts that are exact mirrors of an SDK Pydantic model."""

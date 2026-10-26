@@ -138,7 +138,7 @@ class Expr(abc.ABC):
         return '\n'.join(buf)
 
     def _expr_tree_r(self, indent: int, buf: list[str]) -> None:
-        buf.append(f'{" " * indent}{type(self).__name__}: {self}'.replace('\n', '\\n'))
+        buf.append(f'{" " * indent}{type(self).__name__}: {self!s}'.replace('\n', '\\n'))
         for c in self.components:
             c._expr_tree_r(indent + 2, buf)
 
@@ -700,7 +700,14 @@ class Expr(abc.ABC):
         Return a new expression that casts this expression to a different type.
 
         This represents a type _cast_, not a type _coercion_, so it will not mutate the underlying data; it simply
-        changes the static type given by the expression.
+        changes the static type given by the expression. Some casts convert the value:
+
+        - Bool to Int or Float: `False` and `True` become 0 and 1.
+        - Int to Float.
+        - String to Timestamp or Date: an ISO 8601 string is parsed, and a timestamp without a time zone is in the
+          default time zone. For other formats, use [`timestamp.strptime()`][pixeltable.functions.timestamp.strptime]
+          or [`date.strptime()`][pixeltable.functions.date.strptime].
+        - String to Image: the string is a file path or URL.
 
         Args:
             new_type: The type to cast to.
@@ -712,7 +719,8 @@ class Expr(abc.ABC):
 
             This will assume that all values in `t.json_col` are _actually_ strings, and it will result in an error
             at runtime if there are values in `t.json_col` that are not strings. It will _not_ convert those values to
-            a string representation. (For that, use the [`dumps()`][pixeltable.functions.json.dumps] UDF instead.)
+            a string representation. (For that, use the [`dumps()`][pixeltable.functions.json.dumps] UDF instead, and
+            [`loads()`][pixeltable.functions.json.loads] to parse a JSON string.)
         """
         from pixeltable.exprs import TypeCast
 
@@ -793,20 +801,28 @@ class Expr(abc.ABC):
             f'Pixeltable expressions cannot be used in conjunction with Python boolean operators (and/or/not)\n{self!r}'
         )
 
+    def __format__(self, format_spec: str) -> NoReturn:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            'An f-string or str.format() on a Pixeltable expression produces one constant string, not a value per '
+            "row. Build the string with + ('Hello ' + t.name) or pxtf.string.format() "
+            f"(pxtf.string.format('Hello {{0}}', t.name)): {self!s}",
+        )
+
     def __iter__(self) -> NoReturn:
         # without this, iteration falls back to __getitem__(0), __getitem__(1), ..., which never terminates for
         # json/array columns (every index yields another expression)
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             'Pixeltable expressions are not iterable. Iteration over data is expressed as a query '
-            f'(e.g. t.select(...).collect()) or a view with an iterator: {self}',
+            f'(e.g. t.select(...).collect()) or a view with an iterator: {self!s}',
         )
 
     def __len__(self) -> NoReturn:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'len() of a Pixeltable expression is undefined; string and json columns support .len(), '
-            f'row counts are t.count(): {self}',
+            f'row counts are t.count(): {self!s}',
         )
 
     def __lt__(self, other: object) -> 'exprs.Comparison':

@@ -39,7 +39,7 @@ class Parameter:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Default value for parameter {self.name!r} has type `{self.default.col_type}`, '
-                    f'which is not of type `{self.col_type!r}`: {self.default}',
+                    f'which is not of type `{self.col_type!r}`: {self.default!s}',
                 )
 
     def has_default(self) -> bool:
@@ -255,7 +255,7 @@ class Signature:
             elif p.kind == inspect.Parameter.VAR_KEYWORD:
                 param_strs.append(f'**{p.name}')
             elif with_defaults and p.has_default():
-                param_strs.append(f'{p.name}: pxt.{p.col_type} = {p.default}')
+                param_strs.append(f'{p.name}: pxt.{p.col_type} = {p.default!s}')
             else:
                 param_strs.append(f'{p.name}: pxt.{p.col_type}')
         if pending_pos_only_marker:

@@ -13,6 +13,22 @@ pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 class TestJson:
+    def test_loads(self, uses_db: None) -> None:
+        t = pxt.create_table('test_tbl', {'n': pxt.Int, 's': pxt.String | None})
+        rows = [
+            {'n': 0, 's': '{"a": [1, 2], "b": null}'},
+            {'n': 1, 's': 'null'},
+            {'n': 2, 's': '{'},
+            {'n': 3, 's': None},
+        ]
+        t.insert(rows)
+        status = t.add_computed_column(parsed=pxtf.json.loads(t.s), on_error='ignore')
+        assert status.num_excs == 1
+        res = t.select(t.parsed, err=t.parsed.errormsg).order_by(t.n).collect()
+        assert res['parsed'] == [{'a': [1, 2], 'b': None}, None, None, None]
+        assert 'Expecting property name' in res['err'][2]
+        assert t.select(a=t.parsed.a[1]).order_by(t.n).collect()['a'] == [2, None, None, None]
+
     def test_list_iterator(self, uses_db: None) -> None:
         schema = {
             'id': pxt.Int | None,

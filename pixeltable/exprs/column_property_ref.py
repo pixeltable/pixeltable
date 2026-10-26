@@ -54,7 +54,7 @@ class ColumnPropertyRef(Expr):
         # Render from the component directly (not `self.col_ref`, which requires a real `ColumnRef`): a pre-
         # substitution model value expression may carry a placeholder ColumnRefByName here, which renders as its
         # bare column name, identically to the `ColumnRef` it stands in for.
-        return f'{self.components[0]}.{self.prop.name.lower()}'
+        return f'{self.components[0]!s}.{self.prop.name.lower()}'
 
     def is_cellmd_prop(self) -> bool:
         return self.prop in (self.Property.ERRORTYPE, self.Property.ERRORMSG, self.Property.CELLMD)

@@ -32,8 +32,8 @@ class CompoundPredicate(Expr):
 
     def __repr__(self) -> str:
         if self.operator == LogicalOperator.NOT:
-            return f'~({self.components[0]})'
-        return f' {self.operator} '.join([f'({e})' for e in self.components])
+            return f'~({self.components[0]!s})'
+        return f' {self.operator} '.join([f'({e!s})' for e in self.components])
 
     @classmethod
     def make_conjunction(cls, operands: list[Expr | None]) -> Expr | None:

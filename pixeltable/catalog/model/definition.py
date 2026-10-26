@@ -195,7 +195,7 @@ class EmbeddingIndex:
             )
             if fn is not None
         ]
-        parts = [f'column={self.column}', *embeds]
+        parts = [f'column={self.column!s}', *embeds]
         # Only surface metric/precision when they deviate from their defaults.
         if self.metric != 'cosine':
             parts.append(f'metric={self.metric!r}')
@@ -213,7 +213,7 @@ class BtreeIndex:
     column: Any
 
     def __repr__(self) -> str:
-        return f'BtreeIndex(column={self.column})'
+        return f'BtreeIndex(column={self.column!s})'
 
 
 # An index specification defined as a class attribute in a TableModel or ViewModel definition.
@@ -353,7 +353,7 @@ class _ModelNamespace(dict):
             if _contains_aggregate(expr):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
-                    f'Column {name!r} aggregates over the table: {expr}\nA computed column is evaluated one '
+                    f'Column {name!r} aggregates over the table: {expr!s}\nA computed column is evaluated one '
                     'row at a time, so it cannot aggregate.',
                 )
             spec = {'value': expr}

@@ -385,7 +385,9 @@ class ExprEvalNode(ExecNode):
             first_row = rows[0]
             input_vals = [first_row[idx] for idx in dependency_idxs]
             e = exec_ctx.row_builder.unique_exprs[slot_with_exc]
-            self.error = excs.ExprEvalError(e, f'expression {e}', first_row.get_exc(e.slot_idx), exc_tb, input_vals, 0)
+            self.error = excs.ExprEvalError(
+                e, f'expression {e!s}', first_row.get_exc(e.slot_idx), exc_tb, input_vals, 0
+            )
             self.exc_event.set()
             return
 

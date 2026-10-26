@@ -14,7 +14,7 @@ import logging
 import math
 import pathlib
 import re
-from typing import TYPE_CHECKING, Any, Type, TypedDict, TypeVar, cast
+from typing import TYPE_CHECKING, Any, NotRequired, Required, Type, TypedDict, TypeVar, cast
 
 import numpy as np
 import PIL
@@ -530,6 +530,120 @@ def _messages_resource_estimate(
     return {'requests': 1, 'tokens': int(num_tokens) + max_completion_tokens}
 
 
+# Mirrors of the Pydantic models in openai.types.chat, for the response JSON of the chat/completions API. A field
+# that the SDK declares Optional can be absent from the JSON.
+
+
+class ChatCompletionTopLogprob(TypedDict):
+    token: str
+    bytes: NotRequired[list[int] | None]
+    logprob: float
+
+
+class ChatCompletionTokenLogprob(TypedDict):
+    token: str
+    bytes: NotRequired[list[int] | None]
+    logprob: float
+    top_logprobs: list[ChatCompletionTopLogprob]
+
+
+class ChatCompletionChoiceLogprobs(TypedDict):
+    content: NotRequired[list[ChatCompletionTokenLogprob] | None]
+    refusal: NotRequired[list[ChatCompletionTokenLogprob] | None]
+
+
+class ChatCompletionURLCitation(TypedDict):
+    end_index: int
+    start_index: int
+    title: str
+    url: str
+
+
+class ChatCompletionAnnotation(TypedDict):
+    type: str
+    url_citation: ChatCompletionURLCitation
+
+
+class ChatCompletionAudio(TypedDict):
+    id: str
+    data: str
+    expires_at: int
+    transcript: str
+
+
+class ChatCompletionFunctionCall(TypedDict):
+    arguments: str
+    name: str
+
+
+class ChatCompletionCustomToolCall(TypedDict):
+    input: str
+    name: str
+
+
+class ChatCompletionToolCall(TypedDict, total=False):
+    id: Required[str]
+    type: Required[str]
+    """`'function'`, with the `function` field, or `'custom'`, with the `custom` field."""
+    function: ChatCompletionFunctionCall
+    custom: ChatCompletionCustomToolCall
+
+
+class ChatCompletionMessage(TypedDict):
+    content: NotRequired[str | None]
+    refusal: NotRequired[str | None]
+    role: str
+    annotations: NotRequired[list[ChatCompletionAnnotation] | None]
+    audio: NotRequired[ChatCompletionAudio | None]
+    function_call: NotRequired[ChatCompletionFunctionCall | None]
+    tool_calls: NotRequired[list[ChatCompletionToolCall] | None]
+
+
+class ChatCompletionChoice(TypedDict):
+    finish_reason: str
+    """`'stop'`, `'length'`, `'tool_calls'`, `'content_filter'` or `'function_call'`."""
+    index: int
+    logprobs: NotRequired[ChatCompletionChoiceLogprobs | None]
+    message: ChatCompletionMessage
+
+
+class CompletionTokensDetails(TypedDict):
+    accepted_prediction_tokens: NotRequired[int | None]
+    audio_tokens: NotRequired[int | None]
+    reasoning_tokens: NotRequired[int | None]
+    rejected_prediction_tokens: NotRequired[int | None]
+    text_tokens: NotRequired[int | None]
+
+
+class PromptTokensDetails(TypedDict):
+    audio_tokens: NotRequired[int | None]
+    cache_write_tokens: NotRequired[int | None]
+    cached_tokens: NotRequired[int | None]
+    image_tokens: NotRequired[int | None]
+    text_tokens: NotRequired[int | None]
+
+
+class CompletionUsage(TypedDict):
+    completion_tokens: int
+    prompt_tokens: int
+    total_tokens: int
+    completion_tokens_details: NotRequired[CompletionTokensDetails | None]
+    prompt_tokens_details: NotRequired[PromptTokensDetails | None]
+
+
+class ChatCompletion(TypedDict):
+    id: str
+    choices: list[ChatCompletionChoice]
+    created: int
+    model: str
+    object: str
+    metadata: NotRequired[dict[str, Any] | None]
+    moderation: NotRequired[dict[str, Any] | None]
+    service_tier: NotRequired[str | None]
+    system_fingerprint: NotRequired[str | None]
+    usage: NotRequired[CompletionUsage | None]
+
+
 @pxt.udf(is_deterministic=False)
 async def chat_completions(
     messages: list,
@@ -539,7 +653,7 @@ async def chat_completions(
     tools: list[dict[str, Any]] | None = None,
     tool_choice: dict[str, Any] | None = None,
     _runtime_ctx: env.RuntimeCtx | None = None,
-) -> dict:
+) -> ChatCompletion:
     """
     Creates a model response for the given chat conversation.
 
@@ -561,7 +675,8 @@ async def chat_completions(
             parameters, see: <https://platform.openai.com/docs/api-reference/chat/create>
 
     Returns:
-        A dictionary containing the response and other metadata.
+        The OpenAI `ChatCompletion` object as a dictionary. The generated text is in
+        `response.choices[0].message.content`.
 
     Examples:
         Add a computed column that applies the model `gpt-4o-mini` to an existing Pixeltable column `tbl.prompt`
@@ -660,6 +775,131 @@ def _(messages: list, model: str, model_kwargs: dict[str, Any] | None = None) ->
     )
 
 
+# Mirrors of the Pydantic models in openai.types.responses, for the response JSON of the responses API. A field
+# that the SDK declares Optional can be absent from the JSON. A field whose type depends on the item kind, a tool
+# or a request option is Json.
+
+
+class ResponseOutputContent(TypedDict, total=False):
+    type: Required[str]
+    """`'output_text'` or `'refusal'` in a `'message'` item; `'reasoning_text'` in a `'reasoning'` item."""
+    text: str
+    annotations: list[dict[str, Any]]
+    logprobs: list[dict[str, Any]] | None
+    refusal: str
+
+
+class ResponseSummary(TypedDict):
+    text: str
+    type: str
+
+
+# An item of Response.output: its type decides which fields are present. A 'message' has role and content, a
+# 'reasoning' item has summary and content, and a tool call has fields such as call_id, name and arguments. The
+# functional syntax allows the key 'async'.
+ResponseOutputItem = TypedDict(
+    'ResponseOutputItem',
+    {
+        'type': Required[str],
+        'id': str | None,
+        'status': str | None,
+        'role': str,
+        'phase': str | None,
+        'content': list[ResponseOutputContent] | None,
+        'summary': list[ResponseSummary],
+        'encrypted_content': str | None,
+        'call_id': str | None,
+        'name': str | None,
+        'namespace': str | None,
+        'arguments': pxt.Json,
+        'async': bool | None,
+        'caller': pxt.Json | None,
+        'created_by': str | None,
+        'input': str,
+        'output': pxt.Json | None,
+        'outputs': pxt.Json | None,
+        'error': pxt.Json | None,
+        'action': pxt.Json | None,
+        'actions': pxt.Json | None,
+        'pending_safety_checks': list[dict[str, Any]],
+        'acknowledged_safety_checks': list[dict[str, Any]] | None,
+        'queries': list[str],
+        'results': list[dict[str, Any]] | None,
+        'code': str | None,
+        'container_id': str,
+        'fingerprint': str,
+        'result': str | None,
+        'execution': str,
+        'environment': pxt.Json | None,
+        'operation': pxt.Json,
+        'max_output_length': int | None,
+        'server_label': str,
+        'approval_request_id': str | None,
+        'approve': bool,
+        'reason': str | None,
+        'tools': list[dict[str, Any]],
+    },
+    total=False,
+)
+
+
+class ResponseInputTokensDetails(TypedDict):
+    cache_write_tokens: int
+    cached_tokens: int
+
+
+class ResponseOutputTokensDetails(TypedDict):
+    reasoning_tokens: int
+
+
+class ResponseUsage(TypedDict):
+    input_tokens: int
+    input_tokens_details: ResponseInputTokensDetails
+    output_tokens: int
+    output_tokens_details: ResponseOutputTokensDetails
+    total_tokens: int
+
+
+class Response(TypedDict):
+    id: str
+    created_at: float
+    error: NotRequired[dict[str, Any] | None]
+    incomplete_details: NotRequired[dict[str, Any] | None]
+    instructions: NotRequired[pxt.Json | None]
+    metadata: NotRequired[dict[str, Any] | None]
+    model: str
+    object: str
+    output: list[ResponseOutputItem]
+    output_text: str
+    """The text of the `'output_text'` parts of the `'message'` items, as the SDK's `Response.output_text`
+    computes it."""
+    parallel_tool_calls: bool
+    temperature: NotRequired[float | None]
+    tool_choice: pxt.Json
+    tools: list[dict[str, Any]]
+    top_p: NotRequired[float | None]
+    background: NotRequired[bool | None]
+    completed_at: NotRequired[float | None]
+    conversation: NotRequired[dict[str, Any] | None]
+    max_output_tokens: NotRequired[int | None]
+    max_tool_calls: NotRequired[int | None]
+    moderation: NotRequired[dict[str, Any] | None]
+    previous_response_id: NotRequired[str | None]
+    prompt: NotRequired[dict[str, Any] | None]
+    prompt_cache_key: NotRequired[str | None]
+    prompt_cache_options: NotRequired[dict[str, Any] | None]
+    prompt_cache_retention: NotRequired[str | None]
+    reasoning: NotRequired[dict[str, Any] | None]
+    safety_identifier: NotRequired[str | None]
+    service_tier: NotRequired[str | None]
+    status: NotRequired[str | None]
+    text: NotRequired[dict[str, Any] | None]
+    top_logprobs: NotRequired[int | None]
+    truncation: NotRequired[str | None]
+    usage: NotRequired[ResponseUsage | None]
+    user: NotRequired[str | None]
+
+
 @pxt.udf(is_deterministic=False)
 async def responses(
     input: list,
@@ -669,7 +909,7 @@ async def responses(
     tools: list[dict[str, Any]] | None = None,
     tool_choice: dict[str, Any] | None = None,
     _runtime_ctx: env.RuntimeCtx | None = None,
-) -> dict:
+) -> Response:
     """
     Creates a model response for the given input.
 
@@ -693,8 +933,8 @@ async def responses(
             (for structured outputs), `previous_response_id` (for multi-turn), and `store`.
 
     Returns:
-        A dictionary containing the response and other metadata. The response text is accessible via
-        the `output_text` field for simple cases, or through the `output` list for structured access.
+        The OpenAI `Response` object as a dictionary. The generated text is in `response.output_text`; the
+        `output` list has every item, such as `'message'`, `'reasoning'` and tool calls.
 
     Examples:
         Add a computed column that applies the model `gpt-4o-mini` to an existing Pixeltable column `tbl.prompt`
@@ -767,6 +1007,14 @@ async def responses(
     rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
     result_dict = json.loads(result.text)
+    # the SDK computes Response.output_text as a property; the JSON has no such field
+    result_dict['output_text'] = ''.join(
+        content['text']
+        for item in result_dict['output']
+        if item['type'] == 'message'
+        for content in item['content']
+        if content['type'] == 'output_text'
+    )
     telemetry_schemas.record_token_usage(
         f'{__name__}.responses', model, result_dict.get('usage'), 'input_tokens', 'output_tokens'
     )

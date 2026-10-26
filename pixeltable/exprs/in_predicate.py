@@ -29,7 +29,8 @@ class InPredicate(Expr):
             if not value_set_expr.col_type.is_json_type():
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
-                    f'isin(): argument must have a JSON type, but {value_set_expr} has type {value_set_expr.col_type}',
+                    f'isin(): argument must have a JSON type, but {value_set_expr!s} '
+                    f'has type {value_set_expr.col_type}',
                 )
             self.components = [lhs.copy(), value_set_expr.copy()]
         else:
@@ -70,8 +71,8 @@ class InPredicate(Expr):
 
     def __repr__(self) -> str:
         if self.value_list is not None:
-            return f'{self.components[0]}.isin({self.value_list})'
-        return f'{self.components[0]}.isin({self.components[1]})'
+            return f'{self.components[0]!s}.isin({self.value_list})'
+        return f'{self.components[0]!s}.isin({self.components[1]!s})'
 
     def _equals(self, other: InPredicate) -> bool:
         return self.value_list == other.value_list

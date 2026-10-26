@@ -133,7 +133,7 @@ class Analyzer:
         if self.filter is not None:
             if sample_clause is not None:
                 raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter {self.filter} not expressible in SQL'
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter {self.filter!s} not expressible in SQL'
                 )
             self.all_exprs.append(self.filter)
 
@@ -173,7 +173,8 @@ class Analyzer:
         if is_agg_output.count(False) > 0:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_EXPRESSION,
-                f'Invalid non-aggregate expression in aggregate query: {self.select_list[is_agg_output.index(False)]}',
+                'Invalid non-aggregate expression in aggregate query: '
+                f'{self.select_list[is_agg_output.index(False)]!s}',
             )
 
         # check that Where clause and filter doesn't contain aggregates
@@ -182,13 +183,13 @@ class Analyzer:
         ):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_EXPRESSION,
-                f'where() cannot contain aggregate functions: {self.sql_where_clause}',
+                f'where() cannot contain aggregate functions: {self.sql_where_clause!s}',
             )
         if self.filter is not None and any(
             _is_agg_fn_call(e) for e in self.filter.subexprs(expr_class=exprs.FunctionCall)
         ):
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_EXPRESSION, f'where() cannot contain aggregate functions: {self.filter}'
+                excs.ErrorCode.INVALID_EXPRESSION, f'where() cannot contain aggregate functions: {self.filter!s}'
             )
 
         # check that grouping exprs don't contain aggregates and can be expressed as SQL (we perform sort-based
@@ -197,11 +198,11 @@ class Analyzer:
             if not self.sql_elements.contains(e):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_EXPRESSION,
-                    f'Invalid grouping expression, needs to be expressible in SQL: {e}',
+                    f'Invalid grouping expression, needs to be expressible in SQL: {e!s}',
                 )
             if e.contains_(filter=_is_agg_fn_call):
                 raise excs.RequestError(
-                    excs.ErrorCode.INVALID_EXPRESSION, f'Grouping expression contains aggregate function: {e}'
+                    excs.ErrorCode.INVALID_EXPRESSION, f'Grouping expression contains aggregate function: {e!s}'
                 )
 
     def _determine_agg_status(self, e: exprs.Expr, grouping_expr_ids: set[int]) -> tuple[bool, bool]:
@@ -215,7 +216,7 @@ class Analyzer:
             for c in e.components:
                 _, is_input = self._determine_agg_status(c, grouping_expr_ids)
                 if not is_input:
-                    raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid nested aggregates: {e}')
+                    raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid nested aggregates: {e!s}')
             return True, False
         elif isinstance(e, (exprs.Literal, exprs.Variable)):
             return True, True
@@ -230,7 +231,7 @@ class Analyzer:
             is_input = all(inp for _, inp in statuses)
             if not is_output and not is_input:
                 raise excs.RequestError(
-                    excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression, mixes aggregate with non-aggregate: {e}'
+                    excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression, mixes aggregate with non-aggregate: {e!s}'
                 )
             return is_output, is_input
 
@@ -1060,7 +1061,7 @@ class Planner:
             if join_clause.join_predicate is not None and analyzer.sql_elements.get(join_clause.join_predicate) is None:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Join predicate {join_clause.join_predicate} not expressible in SQL',
+                    f'Join predicate {join_clause.join_predicate!s} not expressible in SQL',
                 )
 
     @classmethod

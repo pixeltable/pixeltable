@@ -33,7 +33,7 @@ class ArraySlice(Expr):
                 index_strs.append(str(el))
             if isinstance(el, slice):
                 index_strs.append(print_slice(el))
-        return f'{self._array}[{", ".join(index_strs)}]'
+        return f'{self._array!s}[{", ".join(index_strs)}]'
 
     @property
     def _array(self) -> Expr:

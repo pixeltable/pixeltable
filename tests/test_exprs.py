@@ -1399,6 +1399,51 @@ class TestExprs:
         assert len(errormsgs) == t.count() // 2
         assert all('Expected non-None value' in msg for msg in errormsgs), errormsgs
 
+    def test_astype_bool(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        assert t.c4.astype(pxt.Int).col_type == ts.IntType(nullable=False)
+
+        # a column and a predicate convert in SQL, a udf result in Python
+        res = (
+            t.select(
+                col=t.c4.astype(pxt.Int),
+                pred=(t.c2 % 2 == 1).astype(pxt.Int),
+                udf=_is_odd(t.c2).astype(pxt.Int),
+                as_float=t.c4.astype(pxt.Float),
+            )
+            .order_by(t.c2)
+            .collect()
+        )
+        expected = [i % 2 for i in range(t.count())]
+        assert res['col'] == res['pred'] == res['udf'] == expected
+        assert all(type(val) is int for val in res['col'] + res['pred'] + res['udf'])
+        assert res['as_float'] == [float(val) for val in expected]
+
+        assert t.select(n=pxtf.sum(t.c4.astype(pxt.Int))).collect()['n'] == [50]
+        assert t.where(t.c4.astype(pxt.Int) == 1).count() == 50
+
+        validate_update_status(t.add_column(c4n=pxt.Bool | None))
+        t.where(t.c2 < 10).update({'c4n': t.c4})
+        validate_update_status(t.add_computed_column(c4n_as_int=t.c4n.astype(pxt.Int | None)))
+        assert t.c4n_as_int.col_type == ts.IntType(nullable=True)
+        res = t.select(t.c4n_as_int).order_by(t.c2).limit(12).collect()
+        assert res['c4n_as_int'] == [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, None, None]
+
+    def test_format_expr(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        match = r'An f-string or str\.format\(\) on a Pixeltable expression produces one constant string'
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+            _ = f'Hello {t.c1}'
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+            _ = 'Hello {}'.format(t.c1)
+        assert str(t.c2 + 1) == 'c2 + 1'
+
+        # the forms the error message suggests
+        res = (
+            t.select(plus='Hello ' + t.c1, fmt=pxtf.string.format('Hello {0}', t.c1)).order_by(t.c2).limit(2).collect()
+        )
+        assert res['plus'] == res['fmt'] == ['Hello test string 0', 'Hello test string 1']
+
     @pytest.mark.db_roots('local', reason='resolves images from client-local filesystem paths the daemon cannot see')
     def test_astype_str_to_img(self, uses_db: None) -> None:
         img_files = get_image_files()
@@ -2287,6 +2332,11 @@ def _add_one(x: int) -> int:
 @pxt.udf
 def _add_two(x: int, y: int) -> int:
     return x + y
+
+
+@pxt.udf
+def _is_odd(x: int) -> bool:
+    return x % 2 == 1
 
 
 @pytest.mark.db_roots('local', reason='exercises expr-eval slot GC internals')

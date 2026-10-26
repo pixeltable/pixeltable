@@ -1274,8 +1274,8 @@ class TableVersion:
         get_runtime().catalog.record_column_dependencies(self)
         self.path.clear_cached_md()
         _logger.info(
-            f'Altered value expression of column {col.name!r} in table {self.name} from {old_value_expr} to '
-            f'{new_value_expr}, new version: {self.version}'
+            f'Altered value expression of column {col.name!r} in table {self.name} from {old_value_expr!s} to '
+            f'{new_value_expr!s}, new version: {self.version}'
         )
 
         if not recompute:
@@ -1414,7 +1414,7 @@ class TableVersion:
             # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
             if analysis_info.filter is not None:
                 raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter}'
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter!s}'
                 )
 
         with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
@@ -1786,7 +1786,7 @@ class TableVersion:
         # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
         if analysis_info.filter is not None:
             raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter}'
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter!s}'
             )
 
     def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:

@@ -179,6 +179,8 @@
           <outline text="udf|pixeltable.functions.date.month" />
           <outline text="udf|pixeltable.functions.date.day" />
           <outline text="udf|pixeltable.functions.date.make_date" />
+          <outline text="udf|pixeltable.functions.date.today" />
+          <outline text="udf|pixeltable.functions.date.strptime" />
           <outline text="udf|pixeltable.functions.date.weekday" />
           <outline text="udf|pixeltable.functions.date.isoweekday" />
           <outline text="udf|pixeltable.functions.date.isocalendar" />
@@ -226,6 +228,7 @@
         <outline text="module|pixeltable.functions.json">
           <outline text="iter|pixeltable.functions.json.list_iterator" />
           <outline text="udf|pixeltable.functions.json.dumps" />
+          <outline text="udf|pixeltable.functions.json.loads" />
           <outline text="udf|pixeltable.functions.json.len" />
           <outline text="udf|pixeltable.functions.json.is_empty" />
           <outline text="udf|pixeltable.functions.json.contains" />
@@ -328,6 +331,8 @@
           <outline text="udf|pixeltable.functions.timestamp.isoformat" />
           <outline text="udf|pixeltable.functions.timestamp.strftime" />
           <outline text="udf|pixeltable.functions.timestamp.make_timestamp" />
+          <outline text="udf|pixeltable.functions.timestamp.now" />
+          <outline text="udf|pixeltable.functions.timestamp.strptime" />
           <outline text="udf|pixeltable.functions.timestamp.replace" />
           <outline text="udf|pixeltable.functions.timestamp.strip_timezone" />
           <outline text="udf|pixeltable.functions.timestamp.toordinal" />
