@@ -326,10 +326,12 @@ class TableVersion:
         if self.is_view and self.is_mutable and self.path.base.is_mutable():
             mutable_base_tbl_id = str(self.path.base.tbl_id)
         id_str = str(self.id)
+        # DROP TABLE takes ACCESS EXCLUSIVE and waits for in-flight readers (ACCESS SHARE) that may still open
+        # media files. Deleting media first races with those readers.
         ops = (
             TableOpsBuilder(id_str, tbl_version=self._tbl_md.current_version)
-            .add(DeleteTableMediaFilesOp)
             .add(DropStoreTableOp, is_view=self.is_view)
+            .add(DeleteTableMediaFilesOp)
             .add(DeleteTableMdOp, mutable_base_tbl_id=mutable_base_tbl_id)
             .build()
         )

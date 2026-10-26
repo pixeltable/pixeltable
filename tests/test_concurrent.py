@@ -2,13 +2,17 @@ import sys
 import threading
 import time
 import traceback
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 
 import pytest
+import sqlalchemy as sql
 
 import pixeltable as pxt
+from pixeltable.env import Env
+from pixeltable.store import StoreBase
+from pixeltable.utils.object_stores import ObjectPath
 
-from .utils import DatabaseRoot, DummyIterator, pxt_raises, run_workers, validate_update_status
+from .utils import DatabaseRoot, DummyIterator, get_image_files, pxt_raises, run_workers, validate_update_status
 
 
 @pxt.udf
@@ -455,3 +459,84 @@ class TestConcurrentOps:
         errors = run_workers(lambda _tid: validate_update_status(dst.insert(source), expected_rows=3), n_threads=1)
         self._assert_no_errors(errors)
         assert dst.count() == 3
+
+    @pytest.mark.db_roots(
+        'local',
+        reason='in-process reader vs drop_table race; polls pg_locks and uses a UDF with thread events',
+    )
+    def test_drop_table_waits_for_readers_before_deleting_media(self, uses_db: None) -> None:
+        """drop_table must not delete media files while a concurrent reader still holds its transaction.
+
+        Queries take no Pixeltable table lock. DROP TABLE (ACCESS EXCLUSIVE) waits for those readers
+        (ACCESS SHARE); media deletion must happen after that wait, not before.
+        """
+        t = pxt.create_table('drop_media_race', {'x': pxt.Int, 'img': pxt.Image})
+        img_paths = get_image_files()[:3]
+        validate_update_status(t.insert([{'x': i, 'img': path} for i, path in enumerate(img_paths)]), expected_rows=3)
+
+        tbl_id = t._id
+        media_dir = Env.get().media_dir / ObjectPath.table_prefix(tbl_id)
+        store_name = StoreBase.storage_name(tbl_id, is_view=False)
+        assert media_dir.is_dir()
+
+        started = threading.Event()
+        release = threading.Event()
+
+        @pxt.udf
+        def blocker(x: int) -> int:
+            started.set()
+            if not release.wait(timeout=30):
+                raise TimeoutError('timed out waiting for drop_table to be released')
+            return x
+
+        reader_rows: list[Any] = []
+        reader_errors: list[BaseException] = []
+        drop_errors: list[BaseException] = []
+
+        def reader() -> None:
+            try:
+                reader_rows.append(t.select(t.img, blocker(t.x)).collect())
+            except BaseException as e:
+                reader_errors.append(e)
+
+        def drop() -> None:
+            try:
+                pxt.drop_table(t)
+            except BaseException as e:
+                drop_errors.append(e)
+
+        def drop_is_waiting() -> bool:
+            with Env.get().engine.connect() as conn:
+                row = conn.execute(
+                    sql.text(
+                        'SELECT 1 FROM pg_locks l JOIN pg_class c ON c.oid = l.relation '
+                        "WHERE NOT l.granted AND l.mode = 'AccessExclusiveLock' AND c.relname = :relname"
+                    ),
+                    {'relname': store_name},
+                ).first()
+                return row is not None
+
+        reader_thread = threading.Thread(target=reader)
+        drop_thread = threading.Thread(target=drop)
+        reader_thread.start()
+        try:
+            assert started.wait(timeout=30), 'reader did not enter blocker UDF'
+            drop_thread.start()
+            deadline = time.monotonic() + 10.0
+            while time.monotonic() < deadline and drop_thread.is_alive() and not drop_is_waiting():
+                time.sleep(0.05)
+        finally:
+            release.set()
+            reader_thread.join(timeout=35)
+            if drop_thread.ident is not None:
+                drop_thread.join(timeout=35)
+
+        self._assert_no_errors(reader_errors)
+        assert not reader_thread.is_alive()
+        assert len(reader_rows) == 1
+        rows = reader_rows[0]
+        assert len(rows) == 3
+        assert all(row['img'] is not None for row in rows)
+        self._assert_no_errors(drop_errors)
+        assert not drop_thread.is_alive()
+        assert not media_dir.exists()
