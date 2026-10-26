@@ -407,10 +407,10 @@ class TestSample:
         v_rows = v.count()
         print(f'total rows: {v_rows}')
 
-    def test_count(self, db_root: DatabaseRoot) -> None:
+    def test_count(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Test that count() correctly returns the number of sampled rows."""
         p = db_root.make_catalog_path
-        t = create_test_tbl(p('test_tbl'))
+        t = create_test_tbl(p('test_tbl'), is_data_versioned=is_data_versioned)
         # Add duplicate c1 values for stratified sampling tests
         existing_c1_values = [row['c1'] for row in t.select(t.c1).distinct().collect()]
 

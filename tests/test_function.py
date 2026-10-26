@@ -675,11 +675,11 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'offset'"):
             neg.add_computed_column(c=skipped(neg.n), on_error='abort')
 
-    def test_query_param_in_aggregate(self, db_root: DatabaseRoot) -> None:
+    def test_query_param_in_aggregate(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('test'), {'x': pxt.Int})
+        t = pxt.create_table(p('test'), {'x': pxt.Int}, _is_data_versioned=is_data_versioned)
         t.insert({'x': i} for i in range(4))
-        params = pxt.create_table(p('params'), {'k': pxt.Int})
+        params = pxt.create_table(p('params'), {'k': pxt.Int}, _is_data_versioned=is_data_versioned)
         params.insert([{'k': 1}, {'k': 2}])
 
         @pxt.query

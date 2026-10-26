@@ -497,7 +497,7 @@ class TestQuery:
         def value(self) -> int:
             return 0
 
-    def test_limit_0(self, test_tbl: pxt.Table) -> None:
+    def test_limit_0(self, test_tbl: pxt.Table, is_data_versioned: bool) -> None:
         t = test_tbl
 
         def check(query: pxt.Query, expected_cols: list[str]) -> None:
@@ -1012,7 +1012,7 @@ class TestQuery:
             _ = t.select(t.annotations[0]).to_coco_dataset()
         assert 'missing key "image"' in str(exc_info.value).lower()
 
-    def test_distinct(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+    def test_distinct(self, db_root: DatabaseRoot, reload_tester: ReloadTester, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         schema: dict[str, Any] = {
             'c1': pxt.String | None,
@@ -1021,7 +1021,7 @@ class TestQuery:
             'c4': pxt.Timestamp | None,
             'c5': pxt.Json | None,
         }
-        t = pxt.create_table(p('test_distinct'), schema)
+        t = pxt.create_table(p('test_distinct'), schema, _is_data_versioned=is_data_versioned)
         results = t.distinct().collect()
         assert len(results) == 0
         rows = [
@@ -1112,10 +1112,12 @@ class TestQuery:
         assert 'c3' in results.schema
         assert 'c4' in results.schema
 
-    def test_distinct_non_sql_groupable(self, db_root: DatabaseRoot) -> None:
+    def test_distinct_non_sql_groupable(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """distinct() must not silently return duplicates when a select item cannot be grouped in SQL."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('test_distinct_json'), {'n': pxt.Int, 'info': pxt.Json})
+        t = pxt.create_table(
+            p('test_distinct_json'), {'n': pxt.Int, 'info': pxt.Json}, _is_data_versioned=is_data_versioned
+        )
         validate_update_status(
             t.insert(
                 [

@@ -1105,7 +1105,7 @@ class TestTable:
         )
         assert_resultset_eq(on_read_res_1, on_read_res_2)
 
-    def test_create_from_query(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+    def test_create_from_query(self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         t = test_tbl
         query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
@@ -1189,11 +1189,11 @@ class TestTable:
         t2.insert(t)
         assert len(t2.collect()) == 2 * len(t.collect())
 
-    def test_join_query_as_source(self, db_root: DatabaseRoot) -> None:
+    def test_join_query_as_source(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t1 = pxt.create_table(p('ints'), {'id': pxt.Int, 'n': pxt.Int})
+        t1 = pxt.create_table(p('ints'), {'id': pxt.Int, 'n': pxt.Int}, _is_data_versioned=is_data_versioned)
         t1.insert({'id': i, 'n': i * 10} for i in range(3))
-        t2 = pxt.create_table(p('strs'), {'id': pxt.Int, 's': pxt.String})
+        t2 = pxt.create_table(p('strs'), {'id': pxt.Int, 's': pxt.String}, _is_data_versioned=is_data_versioned)
         t2.insert({'id': i, 's': f'str_{i}'} for i in range(3))
         src_query = t1.join(t2, on=t1.id == t2.id).select(t1.n, t2.s)
 
@@ -4829,10 +4829,15 @@ class TestTable:
                 {'c': {'type': pxt.Int | None, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
 
-    def test_case_insensitive_columns(self, db_root: DatabaseRoot) -> None:
+    def test_case_insensitive_columns(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Column names are matched case-insensitively, and the folded spelling is what gets stored."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('T'), {'MyCol': pxt.Int | None, 'Other': pxt.String}, primary_key=['OTHER'])
+        t = pxt.create_table(
+            p('T'),
+            {'MyCol': pxt.Int | None, 'Other': pxt.String},
+            primary_key=['OTHER'],
+            _is_data_versioned=is_data_versioned,
+        )
 
         # stored and displayed folded
         assert t.columns() == ['mycol', 'other']
@@ -4869,7 +4874,7 @@ class TestTable:
         assert pxt.get_table(p('t')) == pxt.get_table(p('T'))
 
         # alter_column resolves its column in any casing
-        t2 = pxt.create_table(p('t2'), {'Num': pxt.Int})
+        t2 = pxt.create_table(p('t2'), {'Num': pxt.Int}, _is_data_versioned=is_data_versioned)
         t2.alter_column('NUM', type_=pxt.Int | None)
         validate_update_status(t2.insert([{'num': None}]), 1)
 
