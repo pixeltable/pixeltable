@@ -645,7 +645,7 @@ def print_json(document: dict[str, Any], error: dict[str, Any] | None) -> None:
 
 def blocked_document(descriptions: list[str], commands: list[str]) -> dict[str, Any]:
     """The failure of a plan that operations block until the database changes; next runs each command they name."""
-    steps = [{'command': c, 'effect': 'makes the change the plan waits on'} for c in dict.fromkeys(commands)]
+    steps = [{'command': c, 'effect': 'clears what blocks the plan'} for c in dict.fromkeys(commands)]
     return error_document('PLAN_BLOCKED', '; '.join(descriptions), retryable=False, next_steps=steps)
 
 

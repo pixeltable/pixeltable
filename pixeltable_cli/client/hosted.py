@@ -31,10 +31,8 @@ from .utils import (
 RECEIPT_POLL_INTERVAL = 5.0
 RECEIPT_WAIT_TIMEOUT = 3 * 3600.0
 EXIT_INTERRUPTED = 130
-# a coding agent's tool call that times out sends SIGTERM, which exits 128 + 15 by the shell's convention
-EXIT_TERMINATED = 143
-# without a terminal, a wait prints a line at each change and at least this often, so its caller can tell it lives
-_PLAIN_PROGRESS_INTERVAL = 60.0
+EXIT_TERMINATED = 143  # 128 + SIGTERM's 15
+_PLAIN_PROGRESS_INTERVAL = 60.0  # without a terminal, a wait prints a line at least this often; in seconds
 
 _ENDPOINT_TIMEOUT = 60.0
 _ENDPOINT_PROBE_TIMEOUT = 10.0
@@ -249,9 +247,9 @@ def _stderr_is_a_terminal() -> bool:
 
 @contextlib.contextmanager
 def _wait_progress(label: str) -> Iterator[Callable[[str], None]]:
-    """The progress of a wait that can run for minutes, on stderr: the spinner on a terminal; otherwise, as for a
-    coding agent or a CI log, a line at each change of label and every _PLAIN_PROGRESS_INTERVAL seconds, from a thread
-    of its own, so that a poll that blocks does not silence it. Yields a function that replaces the label.
+    """The progress of a wait that can run for minutes, on stderr: the spinner on a terminal; otherwise a line at each
+    change of label and every _PLAIN_PROGRESS_INTERVAL seconds, from a thread of its own, so that a poll that blocks
+    does not silence it. Yields a function that replaces the label.
     """
     if _stderr_is_a_terminal():
         with spinner(label) as set_spinner_label:
@@ -296,8 +294,8 @@ class _Terminated(BaseException):
 
 @contextlib.contextmanager
 def _stopped_by_user(status_command: str) -> Iterator[None]:
-    """Ctrl-C or SIGTERM, which a coding agent's tool timeout sends, during the block stops only the waiting: it says
-    the change continues and names status_command, and exits 130 or 143."""
+    """Ctrl-C or SIGTERM during the block stops only the waiting: it says the change continues and names
+    status_command, and exits 130 or 143."""
 
     def raise_terminated(signum: int, frame: Any) -> None:
         raise _Terminated

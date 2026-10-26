@@ -883,7 +883,8 @@ class TestService:
         assert r.returncode == 2
         assert [s['resolution'] for s in r.json['services']] == ['blocked']
         blocked = [op for s in r.json['services'] for op in s['ops'] if op['severity'] == 'blocked']
-        assert [op['details']['command'] for op in blocked] == [f'pxt schema update {app} {target}']
+        # shell-quoted, since it is run as given; a Windows path's backslashes are quoted too
+        assert [op['details']['command'] for op in blocked] == [shlex.join(['pxt', 'schema', 'update', app, target])]
         assert "'notes'" in blocked[0]['description'], blocked[0]['description']
 
         r = cli('service', 'update', app, target, '-f', '--json', check=False)

@@ -881,6 +881,11 @@ class TestSchema:
             r = cli('schema', 'update', str(app_file), target, check=False)
             assert r.returncode == 1
             assert f'refused   {target}/docs' in r.stdout
+            assert r.next_commands == [['pxt', 'db', 'update', db_root.base_uri]]
+            r = cli('schema', 'update', str(app_file), target, '--json', check=False)
+            assert r.returncode == 1
+            assert r.json['error_code'] == 'PLAN_BLOCKED'
+            assert [step['command'] for step in r.json['next']] == [f'pxt db update {db_root.base_uri}']
             # nothing was created, so the table is still pending
             r = cli('schema', 'diff', str(app_file), target, '--json', check=False)
             assert [t['resolution'] for t in r.json['tables']] == ['create']
