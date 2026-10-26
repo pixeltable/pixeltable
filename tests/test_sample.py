@@ -1,4 +1,5 @@
 import datetime
+import math
 from typing import Callable
 
 import pytest
@@ -146,7 +147,7 @@ class TestSample:
 
     @classmethod
     def _check_sample_count(cls, expected: int | float, actual: int) -> None:
-        assert abs(expected - actual) / actual < 0.25
+        assert abs(expected - actual) <= 5 * math.sqrt(expected)
 
     @classmethod
     def _check_sample(cls, query: pxt.Query, expected: int | float) -> None:
