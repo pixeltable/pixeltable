@@ -83,17 +83,6 @@ class QueryTemplateFunction(Function):
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
         pass  # only one signature supported for QueryTemplateFunction
 
-    def with_bound_query(self, query: Query) -> QueryTemplateFunction:
-        """Return this function over query, its template query bound to a table."""
-        return QueryTemplateFunction(
-            query,
-            list(self.signature.parameters.values()),
-            return_scalar=self.return_scalar,
-            path=self.self_path,
-            name=self.self_name,
-            comment=self.comment(),
-        )
-
     @property
     def is_storable(self) -> bool:
         # the query is serialized inline by value, so it is storable only if every function embedded in its
@@ -175,6 +164,34 @@ class QueryTemplateFunction(Function):
         return cls(
             template_query, list(sig.parameters.values()), return_scalar=d.get('return_scalar', False), name=d['name']
         )
+
+
+def substitute_template_queries(e: exprs.Expr, substitution_fn: Callable[[QueryBase], Query | None]) -> exprs.Expr:
+    """Replace the template query of each QueryTemplateFunction call in e with substitution_fn(template query).
+
+    A call stays unchanged where substitution_fn returns None.
+    """
+    subst = exprs.ExprDict[exprs.Expr]()
+    for fn_call in e.subexprs(exprs.FunctionCall):
+        fn = fn_call.fn
+        if not isinstance(fn, QueryTemplateFunction):
+            continue
+        assert fn.template_query is not None
+        template_query = substitution_fn(fn.template_query)
+        if template_query is None:
+            continue
+        assert fn_call.group_by_start_idx == fn_call.group_by_stop_idx  # a query udf doesn't allow window fns
+        new_fn = QueryTemplateFunction(
+            template_query,
+            list(fn.signature.parameters.values()),
+            return_scalar=fn.return_scalar,
+            path=fn.self_path,
+            name=fn.self_name,
+            comment=fn.comment(),
+        )
+        # we need to substitute the FunctionCall itself, not just the Function instance
+        subst[fn_call] = new_fn(*fn_call.args, **fn_call.kwargs)
+    return e.substitute(subst)
 
 
 @overload

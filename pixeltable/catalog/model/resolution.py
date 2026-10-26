@@ -13,6 +13,8 @@ from ..globals import MediaValidation, fold_mapping_keys
 from ..table_version_handle import TableVersionHandle
 
 if TYPE_CHECKING:
+    from pixeltable._query_base import QueryBase
+
     from .definition import IndexDefinition
 
 
@@ -238,7 +240,7 @@ def resolve_model_value_expr(
 ) -> exprs.Expr:
     """Replace model column names with catalog column references visible at the declaration site.
 
-    The column names in the query of a @pxt.query call are replaced with the queried table's columns.
+    A ColumnRefByName in the template query of a QueryTemplateFunction call becomes a ColumnRef to that query's table.
     """
     reference_path = tbl_path.base if origin == 'base_query' else tbl_path
     assert reference_path is not None
@@ -274,20 +276,22 @@ def resolve_model_value_expr(
 
 
 def resolve_query_calls(value_expr: exprs.Expr) -> exprs.Expr:
-    """Resolve the column names in the queries of value_expr's @pxt.query calls."""
-    subst = exprs.ExprDict[exprs.Expr]()
-    for fn_call in value_expr.subexprs(exprs.FunctionCall, filter=_calls_unresolved_query):
-        fn = fn_call.fn
-        assert isinstance(fn, func.QueryTemplateFunction) and isinstance(fn.template_query, pxt.Query)
-        subst[fn_call] = fn.with_bound_query(resolve_query_columns(fn.template_query))(*fn_call.args, **fn_call.kwargs)
-    return value_expr.substitute(subst)
+    """Apply resolve_query_columns() to the template queries of value_expr's QueryTemplateFunction calls."""
+
+    def resolved_query(template_query: QueryBase) -> pxt.Query | None:
+        if not isinstance(template_query, pxt.Query) or not _is_unresolved(template_query):
+            return None
+        return resolve_query_columns(template_query)
+
+    return func.substitute_template_queries(value_expr, resolved_query)
 
 
 def resolve_query_columns(query: pxt.Query) -> pxt.Query:
-    """Replace the column names in query's clauses with the queried table's columns."""
+    """Replace each ColumnRefByName in query's clauses with a ColumnRef to the column of that name in query's table."""
     tbl_path = query._from_clause._first_tbl
-    # the table may have gained columns since tbl_path cached its metadata
-    tbl_path.clear_cached_md()
+    if query._from_clause.is_local:
+        # the TableVersionPath's cached ColumnVersionMds don't include columns added to its TableVersion after caching
+        query._first_tbl.clear_cached_md()
     subst = exprs.ExprDict[exprs.Expr](
         (exprs.ColumnRefByName(col_md.name), exprs.ColumnRef(col_md, tbl_path.is_validate_on_read(col_md)))
         for col_md in tbl_path.column_md()
@@ -298,23 +302,26 @@ def resolve_query_columns(query: pxt.Query) -> pxt.Query:
     )
 
 
-def _calls_unresolved_query(e: exprs.Expr) -> bool:
-    if not isinstance(e, exprs.FunctionCall):
-        return False
-    fn = e.fn
-    if not isinstance(fn, func.QueryTemplateFunction) or not isinstance(fn.template_query, pxt.Query):
-        return False
+def _is_unresolved(query: pxt.Query) -> bool:
+    """Returns True if it contains ColumRefByName instances."""
     return exprs.Expr.list_contains(
-        fn.template_query._component_exprs(),
-        filter=lambda c: isinstance(c, exprs.ColumnRefByName) or _calls_unresolved_query(c),
+        query._component_exprs(),
+        filter=lambda e: isinstance(e, exprs.ColumnRefByName)
+        or (
+            isinstance(e, exprs.FunctionCall)
+            and isinstance(e.fn, func.QueryTemplateFunction)
+            and isinstance(e.fn.template_query, pxt.Query)
+            and _is_unresolved(e.fn.template_query)
+        ),
     )
 
 
 def _check_query_columns(value_expr: exprs.Expr, col_name: str, display_name: str) -> None:
-    """Raise an error if a query called in value_expr references a column missing from its table."""
-    for fn_call in value_expr.subexprs(exprs.FunctionCall, filter=_calls_unresolved_query):
+    """Raise an error for a ColumnRefByName left in a template query of value_expr's QueryTemplateFunction calls."""
+    for fn_call in value_expr.subexprs(exprs.FunctionCall):
         fn = fn_call.fn
-        assert isinstance(fn, func.QueryTemplateFunction) and isinstance(fn.template_query, pxt.Query)
+        if not isinstance(fn, func.QueryTemplateFunction) or not isinstance(fn.template_query, pxt.Query):
+            continue
         query = fn.template_query
         names = sorted({ref.name for e in query._component_exprs() for ref in e.subexprs(exprs.ColumnRefByName)})
         if len(names) > 0:

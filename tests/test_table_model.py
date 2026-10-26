@@ -998,8 +998,14 @@ class TestTableModel:
 
         # the index is declared by the model, so a similarity query over it can be written before the table
         # that carries it exists
-        model_sim = ExampleViewModel.text.similarity(string='one')
-        model_search = ExampleViewModel.order_by(model_sim, asc=False).select(ExampleViewModel.text)
+        @pxt.query
+        def search(q: str) -> pxt.Query:
+            sim = ExampleViewModel.text.similarity(string=q)
+            return ExampleViewModel.order_by(sim, asc=False).select(ExampleViewModel.text)
+
+        class Searches(TableModel, name='searches'):
+            q: pxt.String
+            hits = search(q)
 
         TableModel.create_all(p(''))
         # 'one'/'zero' make dummy_embedding deterministic, so the order these rank in is fixed
@@ -1012,9 +1018,9 @@ class TestTableModel:
         sim = view.text.similarity(string='one')
         assert [r['text'] for r in view.order_by(sim, asc=False).collect()] == ['one sentence.', 'zero sentence.']
         # the query written against the model ranks them the same way, once it is bound to that table
-        assert [r['text'] for r in model_search.bind(p('')).collect()] == [  # type: ignore[attr-defined]
-            'one sentence.',
-            'zero sentence.',
+        Searches.insert(q='one')
+        assert Searches.table.select(Searches.hits).collect()['hits'] == [
+            [{'text': 'one sentence.'}, {'text': 'zero sentence.'}]
         ]
 
     def test_view_model_iterator_column_shadows_base(self, db_root: DatabaseRoot) -> None:

@@ -11,7 +11,6 @@ from pixeltable.exprs import ColumnRefByName
 from pixeltable.query_clauses import FromClause
 
 from .definition import MODEL_BY_DEFINED_TBL_ID, TableModelMeta, bind_query_templates
-from .resolution import resolve_query_columns
 
 
 class ModelQuery(QueryBase):
@@ -102,11 +101,7 @@ class ModelQuery(QueryBase):
         return self._substituted(defined_path, subst, None)
 
     def bind(self, catalog_dir: str) -> pxt.Query:
-        """The equivalent query over the table this query's model resolves to under catalog_dir."""
-        return resolve_query_columns(self.bind_unresolved(catalog_dir))
-
-    def bind_unresolved(self, catalog_dir: str) -> pxt.Query:
-        """The query over the table of this query's model under catalog_dir, referencing columns by name."""
+        """The Query over the table of this query's model under catalog_dir, with each ColumnRefByName left in place."""
         # _resolve_tbl() rather than _bind(): binding the model here would fix its columns to the schema the
         # table has now, and update_all() may still be about to migrate it.
         tbl = self.model_cls._resolve_tbl(catalog.Path.dir_prefix(catalog_dir), if_not_exists='error')
