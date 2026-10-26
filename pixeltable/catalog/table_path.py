@@ -178,6 +178,10 @@ class TablePath(abc.ABC):
     def column_md(self) -> list[ColumnVersionMd]: ...
 
     @abc.abstractmethod
+    def clear_cached_md(self) -> None:
+        """Drop this path's cached metadata."""
+
+    @abc.abstractmethod
     def has_column(self, qcolid: QColumnId) -> bool:
         """Return True if this table path contains the given column."""
 
@@ -582,6 +586,9 @@ class TableMdPath(TablePath):
 
     def __deepcopy__(self, memo: dict[int, object]) -> TableMdPath:
         return self
+
+    def clear_cached_md(self) -> None:
+        pass  # md is this path's own copy, not a cache
 
     @property
     def tbl_id(self) -> UUID:

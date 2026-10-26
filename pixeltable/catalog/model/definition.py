@@ -450,9 +450,10 @@ class _ModelNamespace(dict):
 
 
 def bind_query_templates(e: exprs.Expr, catalog_dir: str | None) -> exprs.Expr:
-    """Rebind QueryTemplateFunction calls of ModelQuery instances to the equivalent Query of the bound model.
+    """Rebind QueryTemplateFunction calls of ModelQuery instances to a Query over the bound model's table.
 
-    With `catalog_dir=None`, each Query is over its model's defined shape rather than over a table.
+    Each Query references columns by name. With `catalog_dir=None`, each Query is over its model's defined shape
+    rather than over a table, and references the shape's columns directly.
     """
     from .query import ModelQuery
 
@@ -461,14 +462,11 @@ def bind_query_templates(e: exprs.Expr, catalog_dir: str | None) -> exprs.Expr:
         fn = fn_call.fn
         if not isinstance(fn, func.QueryTemplateFunction) or not isinstance(fn.template_query, ModelQuery):
             continue
-        assert fn_call.group_by_start_idx == fn_call.group_by_stop_idx  # a query udf takes no window clause
-        rebound = func.QueryTemplateFunction(
-            fn.template_query.to_defined_query() if catalog_dir is None else fn.template_query.bind(catalog_dir),
-            list(fn.signature.parameters.values()),
-            return_scalar=fn.return_scalar,
-            path=fn.self_path,
-            name=fn.self_name,
-            comment=fn.comment(),
+        assert fn_call.group_by_start_idx == fn_call.group_by_stop_idx  # a query udf doesn't allow window fns
+        rebound = fn.with_bound_query(
+            fn.template_query.to_defined_query()
+            if catalog_dir is None
+            else fn.template_query.bind_unresolved(catalog_dir)
         )
         # we need to substitute the FunctionCall itself, not just the Function instance
         subst[fn_call] = rebound(*fn_call.args, **fn_call.kwargs)

@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import builtins
 import copy
+import dataclasses
 import itertools
 from abc import ABC
-from typing import Any, Self, Sequence, cast, overload
+from typing import Any, Callable, Self, Sequence, cast, overload
 from uuid import UUID
 
 import pandas as pd
@@ -280,6 +281,30 @@ class QueryBase(ABC):
             limit=copy.deepcopy(self.limit_val),
             offset=copy.deepcopy(self.offset_val),
             sample_clause=copy.deepcopy(self.sample_clause),
+        )
+
+    @classmethod
+    def _substituted(
+        cls, source: QueryBase, *, from_clause: FromClause, substitution_fn: Callable[[exprs.Expr], exprs.Expr]
+    ) -> Self:
+        # join predicates belong to from_clause
+        assert len(source._from_clause.join_clauses) == 0
+        return cls(
+            from_clause=from_clause,
+            select_list=None if source.select_list is None else [(substitution_fn(e), n) for e, n in source.select_list],
+            where_clause=None if source.where_clause is None else substitution_fn(source.where_clause),
+            group_by_clause=None if source.group_by_clause is None else [substitution_fn(e) for e in source.group_by_clause],
+            grouping_tbl_key=source.grouping_tbl_key,
+            order_by_clause=None
+            if source.order_by_clause is None
+            else [(substitution_fn(e), asc) for e, asc in source.order_by_clause],
+            limit=None if source.limit_val is None else substitution_fn(source.limit_val),
+            offset=None if source.offset_val is None else substitution_fn(source.offset_val),
+            sample_clause=None
+            if source.sample_clause is None
+            else dataclasses.replace(
+                source.sample_clause, stratify_exprs=[substitution_fn(e) for e in source.sample_clause.stratify_exprs]
+            ),
         )
 
     def referenced_tbl_ids(self) -> set[UUID]:

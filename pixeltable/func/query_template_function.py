@@ -10,6 +10,7 @@ from .function import Function
 from .signature import Signature
 
 if TYPE_CHECKING:
+    from pixeltable._query import Query
     from pixeltable._query_base import QueryBase
 
 
@@ -81,6 +82,17 @@ class QueryTemplateFunction(Function):
 
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
         pass  # only one signature supported for QueryTemplateFunction
+
+    def with_bound_query(self, query: Query) -> QueryTemplateFunction:
+        """Return this function over query, its template query bound to a table."""
+        return QueryTemplateFunction(
+            query,
+            list(self.signature.parameters.values()),
+            return_scalar=self.return_scalar,
+            path=self.self_path,
+            name=self.self_name,
+            comment=self.comment(),
+        )
 
     @property
     def is_storable(self) -> bool:

@@ -1897,7 +1897,8 @@ class Catalog(CatalogBase):
         If the table does not exist, raises NotFoundError. If the model is incompatible with the existing table,
         raises RequestError.
 
-        Requires that change_sets is ordered topologically, ie, base tables precede their views.
+        Requires that change_sets is ordered topologically: base tables precede their views, and a queried table
+        precedes the tables that query it.
 
         The change sets are applied in three passes:
 
@@ -1943,7 +1944,7 @@ class Catalog(CatalogBase):
 
             # Record the metadata per table in forward order (base tables first), so a view's new column can
             # reference a base's new column: the view's resolution sees the base's already-mutated columns through
-            # tvp.columns().
+            # tvp.columns(). A query in a new column can likewise reference a queried table's new column.
             updated_tbl_ids = {tvp.tbl_id for tvp, _, _ in tbl_info}
             applied_tbl_ids: set[UUID] = set()
             # TableVersions that need to be validated: the changed tables and their mutable views. Schema changes are

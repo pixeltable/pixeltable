@@ -1273,6 +1273,135 @@ class TestTableModel:
         Asks2.insert(question='alpha')
         assert Asks2.table.select(Asks2.hits).collect()['hits'] == [[{'body': 'alpha'}]]
 
+    def test_update_all_query_reads_added_column(self, db_root: DatabaseRoot) -> None:
+        """A @pxt.query reads a column that the same update_all() adds to the queried table."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            body: pxt.String
+
+        @pxt.query
+        def find(q: str) -> pxt.Query:
+            return Docs.where(Docs.body == q).select(body=Docs.body)  # type: ignore[arg-type]
+
+        class Asks(TableModel, name='asks'):
+            question: pxt.String
+            hits = find(question)
+
+        TableModel.update_all(p(''))
+        Docs.insert(body='alpha')
+        Asks.insert(question='alpha')
+
+        TableModel2 = pxt.model_base()
+
+        class Docs2(TableModel2, name='docs'):
+            body: pxt.String
+            title = body.upper()
+
+        @pxt.query
+        def find_by_title(q: str) -> pxt.Query:
+            return Docs2.where(Docs2.title == q).select(body=Docs2.body)  # type: ignore[arg-type]
+
+        @pxt.query
+        def find_title(q: str) -> pxt.Query:
+            return Docs2.where(Docs2.body == q).select(title=Docs2.title)  # type: ignore[arg-type]
+
+        @pxt.query
+        def find_titles_of(q: str) -> pxt.Query:
+            return Docs2.where(Docs2.body == q).select(found=find_title(Docs2.body))  # type: ignore[arg-type]
+
+        class Asks2(TableModel2, name='asks'):
+            question: pxt.String
+            hits = find_by_title(question)  # altered
+            titles = find_title(question)  # added, and backfilled
+            nested_titles = find_titles_of(question)  # added, and backfilled
+
+        TableModel2.update_all(p(''))
+        res = Asks2.table.select(Asks2.titles, Asks2.nested_titles).collect()
+        assert res['titles'] == [[{'title': 'ALPHA'}]]
+        assert res['nested_titles'] == [[{'found': [{'title': 'ALPHA'}]}]]
+        Asks2.insert(question='ALPHA')
+        res = {row['question']: (row['hits'], row['titles'], row['nested_titles']) for row in Asks2.table.collect()}
+        assert res == {
+            'alpha': ([{'body': 'alpha'}], [{'title': 'ALPHA'}], [{'found': [{'title': 'ALPHA'}]}]),
+            'ALPHA': ([{'body': 'alpha'}], [], []),
+        }
+
+    def test_query_reads_missing_column(self, db_root: DatabaseRoot) -> None:
+        """A @pxt.query reads a column missing from the queried table."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            body: pxt.String
+
+        class Asks(TableModel, name='asks'):
+            question: pxt.String
+
+        TableModel.update_all(p(''))
+
+        # declares title for 'docs', but no update_all() applies it
+        OtherModel = pxt.model_base()
+
+        class OtherDocs(OtherModel, name='docs'):
+            body: pxt.String
+            title: pxt.String | None
+
+        @pxt.query
+        def find_title(q: str) -> pxt.Query:
+            return OtherDocs.where(OtherDocs.body == q).select(title=OtherDocs.title)  # type: ignore[arg-type]
+
+        # added to an existing table
+        TableModel2 = pxt.model_base()
+
+        class Asks2(TableModel2, name='asks'):
+            question: pxt.String
+            titles = find_title(question)
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA,
+            match=r"Column 'titles' in Table 'asks' calls `find_title\(\)`, whose query references columns that are "
+            r"not in table 'docs': \['title'\]",
+        ):
+            TableModel2.update_all(p(''))
+
+        # called from another query, whose own columns all exist
+        TableModel4 = pxt.model_base()
+
+        class Docs4(TableModel4, name='docs'):
+            body: pxt.String
+
+        @pxt.query
+        def find_titles_of(q: str) -> pxt.Query:
+            return Docs4.where(Docs4.body == q).select(found=find_title(Docs4.body))  # type: ignore[arg-type]
+
+        class Asks4(TableModel4, name='asks'):
+            question: pxt.String
+            nested_titles = find_titles_of(question)
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA,
+            match=r"Column 'nested_titles' in Table 'asks' calls `find_title\(\)`, whose query references columns "
+            r"that are not in table 'docs': \['title'\]",
+        ):
+            TableModel4.update_all(p(''))
+
+        # created with a new table
+        TableModel3 = pxt.model_base()
+
+        class Notes(TableModel3, name='notes'):
+            question: pxt.String
+            titles = find_title(question)
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA,
+            match=r"Column 'titles' in model `Notes` calls `find_title\(\)`, whose query references columns that are "
+            r"not in table 'docs': \['title'\]",
+        ):
+            TableModel3.update_all(p(''))
+        assert pxt.get_table(p('notes'), if_not_exists='ignore') is None
+
     def test_diff_all(self, db_root: DatabaseRoot) -> None:
         """diff_all() reports added/dropped columns and an iterator mismatch against already-created tables."""
         skip_test_if_not_installed('imagehash')

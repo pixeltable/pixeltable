@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 from typing import Any, Self
 
 import pixeltable as pxt
@@ -12,6 +11,7 @@ from pixeltable.exprs import ColumnRefByName
 from pixeltable.query_clauses import FromClause
 
 from .definition import MODEL_BY_DEFINED_TBL_ID, TableModelMeta, bind_query_templates
+from .resolution import resolve_query_columns
 
 
 class ModelQuery(QueryBase):
@@ -103,14 +103,15 @@ class ModelQuery(QueryBase):
 
     def bind(self, catalog_dir: str) -> pxt.Query:
         """The equivalent query over the table this query's model resolves to under catalog_dir."""
+        return resolve_query_columns(self.bind_unresolved(catalog_dir))
+
+    def bind_unresolved(self, catalog_dir: str) -> pxt.Query:
+        """The query over the table of this query's model under catalog_dir, referencing columns by name."""
         # _resolve_tbl() rather than _bind(): binding the model here would fix its columns to the schema the
         # table has now, and update_all() may still be about to migrate it.
         tbl = self.model_cls._resolve_tbl(catalog.Path.dir_prefix(catalog_dir), if_not_exists='error')
         assert tbl is not None
-        subst: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
-        for col_name in tbl.columns():
-            subst[ColumnRefByName(col_name)] = getattr(tbl, col_name)
-        return self._substituted(tbl._tbl_path, subst, catalog_dir)
+        return self._substituted(tbl._tbl_path, exprs.ExprDict(), catalog_dir)
 
     def _substituted(
         self, path: catalog.TablePath, subst: exprs.ExprDict[exprs.Expr], catalog_dir: str | None
@@ -141,23 +142,7 @@ class ModelQuery(QueryBase):
         def rebound(e: exprs.Expr) -> exprs.Expr:
             return bind_query_templates(e.copy().substitute(subst), catalog_dir)
 
-        return pxt.Query(
-            from_clause=FromClause(tbls=[path]),
-            select_list=None if self.select_list is None else [(rebound(e), n) for e, n in self.select_list],
-            where_clause=None if self.where_clause is None else rebound(self.where_clause),
-            group_by_clause=None if self.group_by_clause is None else [rebound(e) for e in self.group_by_clause],
-            grouping_tbl_key=self.grouping_tbl_key,
-            order_by_clause=None
-            if self.order_by_clause is None
-            else [(rebound(e), asc) for e, asc in self.order_by_clause],
-            limit=None if self.limit_val is None else rebound(self.limit_val),
-            offset=None if self.offset_val is None else rebound(self.offset_val),
-            sample_clause=None
-            if self.sample_clause is None
-            else dataclasses.replace(
-                self.sample_clause, stratify_exprs=[rebound(e) for e in self.sample_clause.stratify_exprs]
-            ),
-        )
+        return pxt.Query._substituted(self, FromClause(tbls=[path]), rebound)
 
     def join(self, *args: Any, **kwargs: Any) -> Self:
         raise excs.RequestError(
