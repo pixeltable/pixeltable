@@ -15,6 +15,7 @@ import pixeltable
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config, DatabaseConfig
+from pixeltable.env import Env
 from pixeltable.service.db import db_update
 from pixeltable.service.management_protocol import (
     DatabaseReport,
@@ -148,12 +149,20 @@ class TestProjectArchive:
         assert tarfile.is_tarfile(archive_path)
         assert archive_path.suffix == '.bz2'
 
-    def test_no_lockfile(self, init_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: Any) -> None:
-        """A project with no lockfile draws a warning and is packaged anyway; a conda environment is not a lockfile."""
+    def test_no_lockfile(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: Any) -> None:
+        """A project with no lockfile draws a warning and is packaged anyway; a conda environment is not a lockfile.
+
+        Packaging for a hosted database never touches Env, whose initialization starts the local database.
+        """
         monkeypatch.chdir(tmp_path)
         Config.init(reinit=True)
         (tmp_path / 'udfs.py').write_text('import pixeltable as pxt\n')
         monkeypatch.setenv('CONDA_PREFIX', str(tmp_path / 'envs' / 'pxt'))
+
+        def no_env() -> None:
+            raise AssertionError('packaging called Env.get()')
+
+        monkeypatch.setattr(Env, 'get', no_env)
 
         # the console logger writes to the stream it was built with, which no capture fixture owns
         monkeypatch.setattr(logging.getLogger('pixeltable'), 'propagate', True)

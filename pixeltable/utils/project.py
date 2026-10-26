@@ -28,9 +28,11 @@ from tqdm import tqdm
 import pixeltable
 from pixeltable import exceptions as excs
 from pixeltable.config import PROJECT_CONFIG_FILE, PYPROJECT_FILE, ConfigSections, DatabaseConfig
-from pixeltable.env import Env
+from pixeltable.utils.console_output import ConsoleLogger
 
 _logger = logging.getLogger('pixeltable')
+# not Env.get().console_logger: Env.get() starts the local database, which packaging for a hosted one never needs
+_console_logger = ConsoleLogger(_logger)
 
 # how an image build installs the project's packages
 DepsType = Literal['uv', 'pip', 'none']
@@ -296,7 +298,7 @@ def package_project_archive(
     )
 
     if not has_lockfile:
-        Env.get().console_logger.warning(
+        _console_logger.warning(
             'No dependency lockfile (uv.lock, requirements.txt) was found in '
             f'{project_dir}.\nThe image will hold Pixeltable and nothing else, so it may not have the '
             'Python dependencies the project needs. An active conda environment is not a substitute: '
