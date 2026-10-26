@@ -498,10 +498,6 @@ class FunctionCall(Expr):
 
         return args, kwargs
 
-    @property
-    def has_mutable_literal_args(self) -> bool:
-        return any(self._contains_mutable_literal(idx) for idx in [*self.arg_idxs, *self.kwarg_idxs.values()])
-
     def copy_mutable_literal_args(self, args: list[Any], kwargs: dict[str, Any]) -> None:
         """Replace each argument in args and kwargs from make_args() with a deep copy if it contains a mutable value.
 

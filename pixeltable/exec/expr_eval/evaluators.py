@@ -76,7 +76,9 @@ class FnCallEvaluator(Evaluator):
         super().__init__(dispatcher, exec_ctx)
         self.fn_call = fn_call
         self.fn = cast(func.CallableFunction, fn_call.fn)
-        self.copies_mutable_literal_args = not self.fn.is_builtin and fn_call.has_mutable_literal_args
+        self.copies_mutable_literal_args = not self.fn.is_builtin and fn_call.contains_(
+            filter=lambda e: isinstance(e, exprs.Literal) and e.has_mutable_val
+        )
         if fn_call.resource_pool is not None and not self.fn.is_async:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,

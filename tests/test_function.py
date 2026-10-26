@@ -86,6 +86,11 @@ def modify_args(opts: dict, items: list, arr: pxt.Array[pxt.Int, (2,)], img: PIL
     return result
 
 
+@pxt.udf
+def count_rows(path: str) -> int:
+    return pxt.get_table(path).count()
+
+
 @pxt.uda(allows_window=True, requires_order_by=False)
 class pop_n(pxt.Aggregator):
     def __init__(self, opts: dict) -> None:
@@ -657,6 +662,20 @@ class TestFunction:
 
         res = t.select(out=pop_n(t.grp, extra={'n': 2}, opts={'n': 1}, group_by=t.grp, order_by=t.prompt)).collect()
         assert [r['out'] for r in res] == ['1:2', '1:2', '1:2', '1:2']
+
+    @pytest.mark.db_roots('local', reason="the udf runs on the proxy daemon, where the client's path doesn't resolve")
+    def test_udf_calls_get_table(self, db_root: DatabaseRoot) -> None:
+        """A udf that calls pxt.get_table() fails with an error that points to @pxt.query."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'x': pxt.Int})
+        t.insert([{'x': 1}])
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Use a @pxt\.query UDF'):
+            t.select(count_rows(p('tbl'))).collect()
+
+        u = pxt.create_table(p('tbl2'), {'x': pxt.Int})
+        u.add_computed_column(n=count_rows(p('tbl')))
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Use a @pxt\.query UDF'):
+            u.insert([{'x': 1}])
 
     def test_query_param_in_aggregate(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

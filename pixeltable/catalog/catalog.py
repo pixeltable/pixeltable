@@ -140,7 +140,12 @@ def retry_loop(
                 try:
                     # in order for retry to work, we need to make sure that there aren't any prior db updates
                     # that are part of an ongoing transaction
-                    assert not get_runtime().in_xact
+                    if get_runtime().in_xact:
+                        raise excs.RequestError(
+                            excs.ErrorCode.UNSUPPORTED_OPERATION,
+                            'Catalog functions such as pxt.get_table() cannot run while a query or update executes, '
+                            'for example inside a UDF. Use a @pxt.query UDF to query another table.',
+                        )
                     with (
                         cat._allow_tbl_md_read(),
                         cat.begin_xact(
