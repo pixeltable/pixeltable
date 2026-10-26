@@ -298,13 +298,16 @@ class TableVersion:
 
         return TableVersionHandle(self.key)
 
-    @telemetry.spanned('pixeltable.media.delete', level=telemetry.DEBUG)
-    def delete_media(self, tbl_version: int | None = None) -> None:
-        # Assemble a set of column destinations and delete objects from all of them
+    def _media_destinations(self) -> set[str | None]:
         # None is a valid column destination which refers to the default object location
         destinations = {col.destination for col in self.cols_by_id.values() if col.is_stored}
         # the files that CellMaterializationNode wrote for this table's array, binary and json cells
         destinations.add(Env.get().cell_materialization_dest)
+        return destinations
+
+    @telemetry.spanned('pixeltable.media.delete', level=telemetry.DEBUG)
+    def delete_media(self, tbl_version: int | None = None) -> None:
+        destinations = self._media_destinations()
         counts = [ObjectOps.delete(dest, self.id, tbl_version=tbl_version) for dest in destinations]
         reported_counts = [c for c in counts if c is not None]
         telemetry.add_attrs(
@@ -326,12 +329,12 @@ class TableVersion:
         if self.is_view and self.is_mutable and self.path.base.is_mutable():
             mutable_base_tbl_id = str(self.path.base.tbl_id)
         id_str = str(self.id)
-        # DROP TABLE takes ACCESS EXCLUSIVE and waits for in-flight readers (ACCESS SHARE) that may still open
-        # media files. Deleting media first races with those readers.
+        # DROP TABLE waits for in-flight readers (ACCESS SHARE) that may still open media files.
+        # Record destinations on the op: a view cannot rebuild TableVersion after its store table and base are dropped.
         ops = (
             TableOpsBuilder(id_str, tbl_version=self._tbl_md.current_version)
             .add(DropStoreTableOp, is_view=self.is_view)
-            .add(DeleteTableMediaFilesOp)
+            .add(DeleteTableMediaFilesOp, destinations=list(self._media_destinations()))
             .add(DeleteTableMdOp, mutable_base_tbl_id=mutable_base_tbl_id)
             .build()
         )

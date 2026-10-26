@@ -143,6 +143,26 @@ class TestCatalog:
         assert op.needs_xact  # now a ClassVar
         assert 'needs_xact' not in op.to_dict()
 
+    def test_delete_table_media_files_op_from_dict_without_destinations(self) -> None:
+        """Pending ops written before destinations were stored on DeleteTableMediaFilesOp still deserialize."""
+        from pixeltable.catalog.tbl_ops import DeleteTableMediaFilesOp, TableOp
+
+        op = TableOp.from_dict(
+            {
+                'op_sn': 1,
+                'status': 0,
+                'tbl_id': 'b8037eea-404d-47c9-97fc-b4976bbb5466',
+                'num_ops': 3,
+                '_classname': 'DeleteTableMediaFilesOp',
+            }
+        )
+        assert isinstance(op, DeleteTableMediaFilesOp)
+        assert not op.needs_tv
+        assert op.destinations is None
+        round_trip = TableOp.from_dict(op.to_dict())
+        assert isinstance(round_trip, DeleteTableMediaFilesOp)
+        assert round_trip.destinations is None
+
     @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_finalize_pending_ops_retriable_error(self, uses_db: None, fault_injection: None) -> None:
         t = pxt.create_table('test', {'a': pxt.Int | None})

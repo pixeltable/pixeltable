@@ -257,14 +257,25 @@ class CreateStoreColumnsOp(TableOp):
 
 @dataclasses.dataclass
 class DeleteTableMediaFilesOp(TableOp):
-    needs_tv: ClassVar[bool] = True
+    needs_tv: ClassVar[bool] = False
     needs_xact: ClassVar[bool] = False
 
-    def exec(self, tv: TableVersion | None) -> None:
-        from pixeltable.utils.filecache import FileCache
+    # Recorded by TableVersion.drop_ops() so exec() does not rebuild TableVersion after DROP TABLE.
+    # None: pending op written before this field existed.
+    destinations: list[str | None] | None = None
 
-        tv.delete_media()
-        FileCache.get().clear(tbl_id=tv.id)
+    def exec(self, tv: TableVersion | None) -> None:
+        from pixeltable.env import Env
+        from pixeltable.utils.filecache import FileCache
+        from pixeltable.utils.object_stores import ObjectOps
+
+        tbl_id = uuid.UUID(self.tbl_id)
+        destinations = self.destinations
+        if destinations is None:
+            destinations = [None, Env.get().cell_materialization_dest]
+        for dest in destinations:
+            ObjectOps.delete(dest, tbl_id)
+        FileCache.get().clear(tbl_id=tbl_id)
 
     def undo(self, tv: TableVersion | None) -> None:
         raise AssertionError()

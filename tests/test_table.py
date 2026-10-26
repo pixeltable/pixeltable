@@ -15,6 +15,7 @@ import pandas as pd
 import PIL.Image
 import pydantic
 import pytest
+import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
@@ -22,7 +23,10 @@ from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
 from pixeltable.functions.video import legacy_frame_iterator
+from pixeltable.metadata import schema
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.object_stores import ObjectPath
 
 from .conftest import SampleFileServer
 from .utils import (
@@ -2112,6 +2116,37 @@ class TestTable:
         assert p('v4') not in pxt.list_tables(p(''))
         pxt.drop_table(t, force=True)  # Drops everything else
         assert len(pxt.list_tables(p(''))) == 0
+
+    @pytest.mark.db_roots(
+        'local', reason='inspects catalog Table rows and local media dirs after force-drop of a view hierarchy'
+    )
+    def test_drop_table_force_deletes_view_media(self, uses_db: None) -> None:
+        """force=True on t -> v1 -> v2 deletes each table's media and catalog row."""
+        t = pxt.create_table('base', {'x': pxt.Int, 'img': pxt.Image})
+        rows = []
+        for i, path in enumerate(get_image_files()[:3]):
+            with PIL.Image.open(path) as im:
+                rows.append({'x': i, 'img': im.copy()})
+        validate_update_status(t.insert(rows), expected_rows=3)
+        v1 = pxt.create_view('v1', t, additional_columns={'thumb': t.img.resize((32, 32))})
+        v2 = pxt.create_view('v2', v1, additional_columns={'tiny': v1.thumb.resize((16, 16))})
+
+        ids = [t._id, v1._id, v2._id]
+        media_dirs = [Env.get().media_dir / ObjectPath.table_prefix(tid) for tid in ids]
+        assert all(d.is_dir() for d in media_dirs)
+
+        pxt.drop_table(t, force=True)
+        assert pxt.list_tables() == []
+        for media_dir in media_dirs:
+            assert not media_dir.exists()
+
+        with get_runtime().begin_xact(for_write=False) as conn:
+            leftover = conn.execute(sql.select(schema.Table.id).where(schema.Table.id.in_(ids))).all()
+            pending = conn.execute(
+                sql.select(schema.PendingTableOp.tbl_id).where(schema.PendingTableOp.tbl_id.in_(ids))
+            ).all()
+        assert leftover == []
+        assert pending == []
 
     def test_drop_table_if_not_exists(self, db_root: DatabaseRoot) -> None:
         """Test the if_not_exists parameter of drop_table API"""

@@ -531,9 +531,14 @@ class TestConcurrentOps:
         try:
             assert _drop_media_started.wait(timeout=30), 'reader did not enter blocker UDF'
             drop_thread.start()
+            waited = False
             deadline = time.monotonic() + 10.0
-            while time.monotonic() < deadline and drop_thread.is_alive() and not drop_is_waiting():
+            while time.monotonic() < deadline and drop_thread.is_alive():
+                waited = drop_is_waiting()
+                if waited:
+                    break
                 time.sleep(0.05)
+            assert waited, 'drop_table did not wait on the reader'
         finally:
             _drop_media_release.set()
             reader_thread.join(timeout=35)
