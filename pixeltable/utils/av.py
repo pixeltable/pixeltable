@@ -365,8 +365,9 @@ def ffmpeg_segment_cmd(
 
     cmd.extend(
         [
-            '-break_non_keyframes',
-            '1',  # Allow splitting at non-keyframe boundaries for accurate duration
+            # the segment muxer rounds cut times to the nearest microsecond and can skip a keyframe exactly at the cut
+            '-segment_time_delta',
+            '0.001',
             '-reset_timestamps',
             '1',  # Reset timestamps for each segment
             '-loglevel',

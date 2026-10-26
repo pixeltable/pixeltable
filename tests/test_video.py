@@ -558,9 +558,13 @@ class TestVideo:
     # TODO: Not working with VFR sample video or .mpg samples (PXT-986, PXT-987)
     @pytest.mark.db_roots('local', reason='pure UDF test')
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
-    def test_segment_video_duration(self, mode: Literal['fast', 'accurate'], uses_db: None) -> None:
+    def test_segment_video_duration(self, mode: Literal['fast', 'accurate'], uses_db: None, tmp_path: Path) -> None:
         t = pxt.create_table('test_segments', {'video': pxt.Video | None})
-        t.insert({'video': f} for f in get_video_files(include_vfr=False, include_mpgs=False))
+        video_files = [
+            *get_video_files(include_vfr=False, include_mpgs=False),
+            generate_test_video(tmp_path, duration=12.0, fps=30),
+        ]
+        t.insert({'video': f} for f in video_files)
 
         duration = t.video.get_metadata().streams[0].duration_seconds
         result = (
@@ -590,9 +594,12 @@ class TestVideo:
     # TODO: Not working with .mpg samples (PXT-987)
     @pytest.mark.db_roots('local', reason='pure UDF test')
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
-    def test_segment_video_segment_times(self, mode: Literal['fast', 'accurate'], uses_db: None) -> None:
+    def test_segment_video_segment_times(
+        self, mode: Literal['fast', 'accurate'], uses_db: None, tmp_path: Path
+    ) -> None:
         t = pxt.create_table('test_segments', {'video': pxt.Video | None})
-        t.insert([{'video': f} for f in get_video_files(include_mpgs=False)])
+        video_files = [*get_video_files(include_mpgs=False), generate_test_video(tmp_path, duration=12.0, fps=30)]
+        t.insert([{'video': f} for f in video_files])
 
         duration = t.video.get_metadata().streams[0].duration_seconds
         segment_times = [6.0, 11.0, 16.0]
@@ -861,9 +868,9 @@ class TestVideo:
     )
     @pytest.mark.db_roots('local', reason='TODO: convert; video-splitter view')
     def test_video_splitter_duration(
-        self, segment_duration: float, mode: Literal['fast', 'accurate'], uses_db: None
+        self, segment_duration: float, mode: Literal['fast', 'accurate'], uses_db: None, tmp_path: Path
     ) -> None:
-        video_filepaths = get_video_files(include_mpgs=False)
+        video_filepaths = [*get_video_files(include_mpgs=False), generate_test_video(tmp_path, duration=12.0, fps=30)]
         overlaps = [0.0, 1.0, 4.0] if mode == 'fast' else [None]
         eps = 0.1 if mode == 'fast' else 0.0
         for min_segment_duration in [None, 0.0, segment_duration]:
@@ -888,10 +895,10 @@ class TestVideo:
     @pytest.mark.db_roots('local', reason='TODO: convert; video-splitter view')
     @pytest.mark.parametrize('segment_times,mode', [([6.0, 11.0, 16.0], 'fast'), ([6.0, 11.0, 16.0], 'accurate')])
     def test_video_splitter_segment_times(
-        self, segment_times: list[float], mode: Literal['fast', 'accurate'], uses_db: None
+        self, segment_times: list[float], mode: Literal['fast', 'accurate'], uses_db: None, tmp_path: Path
     ) -> None:
         eps = 0.1 if mode == 'fast' else 0.0
-        video_filepaths = get_video_files(include_mpgs=False)
+        video_filepaths = [*get_video_files(include_mpgs=False), generate_test_video(tmp_path, duration=12.0, fps=30)]
         t = pxt.create_table('videos', {'video': pxt.Video | None})
         t.insert({'video': p} for p in video_filepaths)
         s = pxt.create_view('segments', t, iterator=video_splitter(t.video, segment_times=segment_times, mode=mode))
