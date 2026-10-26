@@ -1,5 +1,6 @@
 import datetime
 import random
+import re
 import string
 import sys
 from typing import Any, Callable, Literal
@@ -1671,19 +1672,19 @@ class TestIndex:
         assert idx_md['parameters']['embedding_functions'] == []
         assert idx_md['parameters']['metric'] == 'cosine'
 
-        desc = t._index_descriptor()
-        assert len(desc) == 1
-        assert desc.iloc[0]['Index Name'] == 'vec_idx'
-        assert desc.iloc[0]['Column'] == 'vec'
-        assert desc.iloc[0]['Embedding'] == 'vec'
+        assert re.search(r'^\s*vec_idx\s+vec\s+cosine\s+vec\s*$', repr(t), re.MULTILINE)
 
         table_model = pxt.model_base()
 
         class ArrayModel(table_model, name='array_model'):
             id: pxt.Int
             vec: pxt.Array[(10,), pxt.Float]
-            __indexes__ = [pxt.EmbeddingIndex(vec, name='vec_idx', metric='cosine')]  # noqa: F821, RUF012
+            vec2: pxt.Array[(10,), pxt.Float]
+            __indexes__ = [  # noqa: RUF012
+                pxt.EmbeddingIndex(vec, name='vec_idx', metric='cosine'),  # noqa: F821
+                pxt.EmbeddingIndex(vec2, metric='l2'),  # noqa: F821
+            ]
 
-        idx_def = ArrayModel.__indexes__[0]
-        assert str(idx_def.as_fn_call()) == 'vec'
-        assert idx_def.resolved_embedding_fns() == []
+        root = p('')
+        table_model.create_all(root)
+        assert table_model.get_model_diff(root)['array_model'].resolution == 'up_to_date'
