@@ -381,8 +381,7 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
     so the per-test db_root fixture only reloads the daemon's catalog rather than restarting the process.
     """
     # the proxy daemon serves over HTTP via fastapi/uvicorn (the serve extra); a minimal install omits them
-    pytest.importorskip('fastapi')
-    pytest.importorskip('uvicorn')
+    skip_test_if_not_installed('fastapi', 'uvicorn')
 
     db = _worker_db_name(worker_id)
     proxy_daemon.start(db, test_mode=True)

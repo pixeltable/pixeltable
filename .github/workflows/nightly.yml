@@ -109,11 +109,8 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache
           df -h
       - name: Install miniforge
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniforge-version: latest
-          activate-environment: pxt
-          conda-remove-defaults: true
+        # Remote ref, not ./: the default checkout is the release tag, which may not contain this action
+        uses: pixeltable/pixeltable/.github/actions/setup-miniforge@main
       - name: Install python
         run: |
           ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=${{ matrix.python-version }} pip
@@ -192,10 +189,8 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache /opt/az /opt/microsoft
           df -h
       - name: Install miniforge
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniforge-version: latest
-          conda-remove-defaults: true
+        # Remote ref, not ./: the default checkout is the release tag, which may not contain this action
+        uses: pixeltable/pixeltable/.github/actions/setup-miniforge@main
       - name: Install ollama
         run: |
           ./scripts/retry.sh 3 30 ./scripts/install-ollama.sh
