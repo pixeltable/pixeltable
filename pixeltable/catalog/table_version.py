@@ -1386,7 +1386,7 @@ class TableVersion:
             result += status.to_cascade()
 
         if not self.is_data_versioned and propagate:
-            result += self._propagate_update([], [], has_updates=False, has_inserts=True).to_cascade()
+            result += self._propagate_update([], None, [], [], has_updates=False, has_inserts=True).to_cascade()
 
         # Use the net status after all propagations
         if self.is_data_versioned:
@@ -1450,7 +1450,7 @@ class TableVersion:
             result = self._update_rows(update_plan.root, update_plan.set_cols, return_rows=return_rows)
             if cascade:
                 result += self._propagate_update(
-                    update_plan.recomputed_cols, list(update_spec), has_updates=True, has_inserts=False
+                    [], None, update_plan.recomputed_cols, list(update_spec), has_updates=True, has_inserts=False
                 ).to_cascade()
 
         return result + UpdateStatus(updated_cols=[c.qualified_name for c in update_plan.updated_cols])
@@ -1509,6 +1509,8 @@ class TableVersion:
                 result += insert_status.to_cascade()
         if not self.is_data_versioned:
             result += self._propagate_update(
+                [],
+                None,
                 update_plan.recomputed_cols if cascade else [],
                 update_plan.updated_cols if cascade else [],
                 has_updates=cascade,
@@ -1661,67 +1663,197 @@ class TableVersion:
         return_rows: bool = False,
     ) -> UpdateStatus:
         assert update_plan.soft_delete_where_clause is not None
-        result = self._apply_versioned_update(
-            [update_plan.root], update_plan.soft_delete_where_clause, updated_bases=[], return_rows=return_rows
+        return self._propagate_update(
+            [update_plan.root],
+            update_plan.soft_delete_where_clause,
+            update_plan.recomputed_cols,
+            modified_cols=modified_cols,
+            base_versions=[],
+            timestamp=timestamp,
+            cascade=cascade,
+            return_rows=return_rows,
         )
-        if cascade:
-            result += self._propagate_update(
-                update_plan.recomputed_cols, modified_cols, timestamp=timestamp
-            ).to_cascade()
-        self.set_version_update_status(result)
-        self._write_md(new_version=True, new_schema_version=self.version == self.schema_version)
-        return result
 
-    def _apply_versioned_update(
+    def _propagate_update(
         self,
         plans: list[exec.ExecNode],
         where_clause: sql.ColumnElement | None,
-        updated_bases: list[TableVersionHandle],
+        recomputed_view_cols: list[Column],
+        modified_cols: list[Column],
+        base_versions: list[int | None] | None = None,
+        timestamp: float | None = None,
+        cascade: bool = True,
+        base_membership_change: bool = False,
         return_rows: bool = False,
+        *,
+        changed_bases: list[TableVersionHandle] | None = None,
+        has_updates: bool = True,
+        has_inserts: bool = False,
     ) -> UpdateStatus:
-        """Replace affected live row versions with the plans' output at the already-bumped version."""
-        assert self.is_data_versioned
-        get_runtime().catalog.mark_modified_tv(self.handle)
-        base_versions: list[int | None] = []
-        if len(updated_bases) > 0:
-            updated_ids = {b.id for b in updated_bases}
-            for base in self.path.get_bases():
-                base_versions.append(base.get().version if base.id in updated_ids else None)
-                if base.id == updated_bases[-1].id:
-                    break
+        """Records the plans' output as the current version, and propagates the change to this table's views.
 
-        # Retire old rows before inserting their replacements, preserving values in index undo columns.
-        self.store_tbl.soft_delete_rows(
-            self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
-        )
-        if self.base is not None and self.base.get().is_view:
-            # A view base may retire rows without replacing them, such as rejected rows or removed components.
+        plans: insert plans to execute. If plans is not empty, the caller is expected to have already bumped self's
+            version. Also if plans is not empty, this will write self's metadata in the end. Operational writes
+            have already been applied before this call and pass an empty list.
+        base_versions: the new version of each base, nearest first, or None for a base without a new version; ends
+            at the table where the update started
+        base_membership_change: True if the update may have added rows to this table's base; a row appearing in the
+            base is a row this view needs to add, whether or not it has a predicate of its own
+        changed_bases: operational ancestors marked by the current transaction, nearest first, ending at the
+            table where the write started; unchanged intermediate views do not restrict affected-row scans
+        has_updates: propagate operational updates; False still propagates new inserts for cascade=False upserts
+        has_inserts: the operational write also inserted rows; initialize their view rows in the same traversal
+        """
+        from pixeltable.plan import Planner
+
+        if not has_updates and not has_inserts:
+            return UpdateStatus()
+        if base_versions is None:
+            base_versions = []
+        if changed_bases is None:
+            changed_bases = [self.handle]
+        get_runtime().catalog.mark_modified_tv(self.handle)
+        result = UpdateStatus()
+        if self.is_data_versioned and len(plans) > 0:
+            # soft delete must be done before insert, otherwise we would have duplicate primary key values
+            # upon insert since the rows would be duplicated until the soft delete occurs
             self.store_tbl.soft_delete_rows(
-                self.version, base_versions=base_versions, match_on_vmin=False, where_clause=where_clause
+                self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
             )
 
-        result = UpdateStatus()
-        for plan in plans:
-            cols_with_excs, row_counts, rows = self.store_tbl.insert_rows(plan, return_rows=return_rows)
+            if self.base is not None and self.base.get().is_view:
+                # a view base can retire a row without replacing it:
+                # - a component view's iterator can yield fewer rows
+                # - a row can stop satisfying a filter
+                # Our rows under such a base row join to a base row created at
+                # an earlier version, so the match above doesn't reach them; match on the retired base rows instead.
+                # An insertable-table base always replaces the rows it retires, so nothing is left behind there.
+                self.store_tbl.soft_delete_rows(
+                    self.version, base_versions=base_versions, match_on_vmin=False, where_clause=where_clause
+                )
+
+        for p in plans:
+            cols_with_excs, row_counts, rows = self.store_tbl.insert_rows(p, return_rows=return_rows)
             result += UpdateStatus(
                 row_count_stats=row_counts.insert_to_update(),
                 cols_with_excs=self._cols_with_excs_names(cols_with_excs),
                 rows=rows,
             )
+
+        if cascade:
+            if self.is_data_versioned:
+                base_versions = [None if len(plans) == 0 else self.version, *base_versions]  # don't update in place
+            changed_qids = {c.qid for c in modified_cols} | {c.qid for c in recomputed_view_cols}
+
+            # propagate to views
+            for view in self.mutable_views:
+                view_tv = view.get()
+                recomputed_cols = [col for col in recomputed_view_cols if col.get_tbl().id == view.id]
+                # any and all are equivalent since all iterator columns share the same input columns meaning
+                # if one is recomputed they all are. However any is more efficient since it can short circuit.
+                needs_iterator_reload = view_tv.is_component_view and any(
+                    view_tv.is_iterator_column(col) for col in recomputed_cols
+                )
+
+                predicate_change = (
+                    # an update can move a row in or out of a filtered view, but only if it changed one of the columns
+                    # the filter is evaluated over; a view without a predicate still gains the rows its base gained
+                    view_tv.predicate is not None
+                    and len(exprs.Expr.get_refd_column_ids(view_tv.predicate.as_dict()) & changed_qids) > 0
+                )
+
+                membership_change = base_membership_change or predicate_change
+                view_changed = needs_iterator_reload or membership_change or len(recomputed_cols) > 0
+                updated_bases = (
+                    [b for b, v in zip(view_tv.path.get_bases(), base_versions) if v is not None]
+                    if self.is_data_versioned
+                    else changed_bases
+                )
+                assert len(updated_bases) > 0  # the table where the write started always changed
+
+                if self.is_data_versioned and view_changed:
+                    # Sampling compiles the target version into its input CTE during planning.
+                    view_tv.bump_version(timestamp, bump_schema_version=False)
+
+                view_plans: list[exec.ExecNode] = []
+                if needs_iterator_reload:
+                    if self.is_data_versioned:
+                        view_plans.append(
+                            Planner.create_view_load_plan(view_tv.path, created_at_current_version=updated_bases)
+                        )
+                elif membership_change:
+                    # Rows that remain in the view keep stored columns whose inputs did not change.
+                    if has_updates:
+                        view_plans.append(
+                            Planner.create_view_update_plan(
+                                view_tv.path,
+                                recompute_targets=recomputed_cols,
+                                created_at_current_version=updated_bases,
+                            )
+                        )
+                    # rows that satisfy the predicate now and weren't in the view; nothing to carry over
+                    if self.is_data_versioned:
+                        view_plans.append(
+                            Planner.create_view_load_plan(
+                                view_tv.path, created_at_current_version=updated_bases, exclude_existing_rows=True
+                            )
+                        )
+                elif len(recomputed_cols) > 0 or (has_updates and has_inserts):
+                    view_plans.append(
+                        Planner.create_view_update_plan(
+                            view_tv.path, recompute_targets=recomputed_cols, created_at_current_version=updated_bases
+                        )
+                    )
+
+                status = UpdateStatus()
+                if not self.is_data_versioned and (view_changed or has_inserts):
+                    status = view_tv._apply_op_view_update(
+                        view_plans[0] if len(view_plans) > 0 else None,
+                        updated_bases,
+                        reload_iterator=needs_iterator_reload,
+                        membership_change=membership_change,
+                        predicate_change=predicate_change,
+                        count_updates=view_changed,
+                        has_updates=has_updates,
+                        has_inserts=has_inserts,
+                    )
+                status += view_tv._propagate_update(
+                    view_plans if self.is_data_versioned else [],
+                    None,
+                    recomputed_view_cols,
+                    modified_cols,
+                    base_versions=base_versions,
+                    timestamp=timestamp,
+                    cascade=True,
+                    base_membership_change=membership_change or needs_iterator_reload,
+                    changed_bases=([view, *updated_bases] if view_changed or has_inserts else updated_bases)
+                    if not self.is_data_versioned
+                    else None,
+                    has_updates=has_updates,
+                    has_inserts=has_inserts,
+                )
+                result += status.to_cascade()
+
+        if self.is_data_versioned and len(plans) > 0:
+            self.set_version_update_status(result)
+            self._write_md(new_version=True, new_schema_version=self.version == self.schema_version)
         return result
 
     def _apply_op_view_update(
         self,
         update_plan: exec.ExecNode | None,
-        load_plans: list[tuple[exec.ExecNode, bool]],
         updated_bases: list[TableVersionHandle],
         *,
         reload_iterator: bool,
         membership_change: bool,
+        predicate_change: bool,
         count_updates: bool,
+        has_updates: bool,
+        has_inserts: bool,
     ) -> UpdateStatus:
         """Apply view plans in place, preserving stored values whose inputs did not change."""
         assert not self.is_data_versioned
+        get_runtime().catalog.mark_modified_tv(self.handle)
         affected = sql.and_(*[base.get().store_tbl.changed_rows_clause() for base in updated_bases])
         result = UpdateStatus()
         if reload_iterator:
@@ -1735,126 +1867,34 @@ class TableVersion:
                 # The update marks exactly the survivors, including Python/nullable predicates.
                 self.store_tbl.delete_rows(sql.and_(affected, ~self.store_tbl.changed_rows_clause()))
 
-        for plan, inserted in load_plans:
-            with telemetry.span(
-                'pixeltable.view_load', set_current=telemetry.current_span() is not None, view=self.name
-            ):
-                cols_with_excs, row_counts, _ = self.store_tbl.insert_rows(plan)
-            result += UpdateStatus(
-                row_count_stats=row_counts if inserted else row_counts.insert_to_update(),
-                cols_with_excs=self._cols_with_excs_names(cols_with_excs),
-            )
-        return result
+        if reload_iterator or membership_change or has_inserts:
+            from pixeltable.plan import Planner
 
-    def _propagate_update(
-        self,
-        recomputed_view_cols: list[Column],
-        modified_cols: list[Column],
-        *,
-        updated_bases: list[TableVersionHandle] | None = None,
-        timestamp: float | None = None,
-        has_updates: bool = True,
-        has_inserts: bool = False,
-        base_membership_change: bool = False,
-    ) -> UpdateStatus:
-        """Propagate completed base writes through the mutable view tree.
-
-        updated_bases: changed ancestors, nearest first, ending at the table where the write started. Plans
-            select their current row versions on data-versioned tables or their transaction markers on operational
-            tables. Unchanged intermediate views remain in the path without restricting the affected rows.
-        has_inserts: operational writes may combine updates and inserts before this traversal. Newly inserted
-            parents must be distinguished from existing parents whose iterators produced no rows.
-        base_membership_change: the base may have gained rows even if this view's own predicate did not change.
-        """
-        from pixeltable.plan import Planner
-
-        if not has_updates and not has_inserts:
-            return UpdateStatus()
-        if updated_bases is None:
-            updated_bases = [self.handle]
-        changed_qids = {c.qid for c in modified_cols} | {c.qid for c in recomputed_view_cols}
-        result = UpdateStatus()
-        for view in self.mutable_views:
-            view_tv = view.get()
-            recomputed_cols = [col for col in recomputed_view_cols if col.get_tbl().id == view.id]
-            # All iterator outputs share the same input dependencies.
-            needs_iterator_reload = view_tv.is_component_view and any(
-                view_tv.is_iterator_column(col) for col in recomputed_cols
-            )
-            predicate_change = (
-                view_tv.predicate is not None
-                and len(exprs.Expr.get_refd_column_ids(view_tv.predicate.as_dict()) & changed_qids) > 0
-            )
-            membership_change = base_membership_change or predicate_change
-            changed = needs_iterator_reload or membership_change or len(recomputed_cols) > 0
-            materialize = changed or has_inserts
-            status = UpdateStatus()
-            if materialize:
-                get_runtime().catalog.mark_modified_tv(view)
-                if self.is_data_versioned:
-                    assert timestamp is not None
-                    # Sampling compiles its input CTE during planning, including the target version.
-                    view_tv.bump_version(timestamp, bump_schema_version=False)
-
-                update_plan = None
-                if has_updates and not needs_iterator_reload:
-                    update_plan = Planner.create_view_update_plan(
-                        view_tv.path, recompute_targets=recomputed_cols, created_at_current_version=updated_bases
+            root_store = updated_bases[-1].get().store_tbl
+            load_filter: sql.ColumnElement = sql.true()
+            if self.is_component_view and not reload_iterator and not predicate_change:
+                load_filter = updated_bases[0].get().store_tbl.is_insert_col
+            elif not membership_change and not reload_iterator:
+                load_filter = root_store.is_insert_col
+            if not has_updates:
+                load_filter = sql.and_(load_filter, root_store.is_insert_col)
+            for inserted in (False, True):
+                if (inserted and not has_inserts) or (not inserted and not has_updates):
+                    continue
+                with telemetry.span(
+                    'pixeltable.view_load', set_current=telemetry.current_span() is not None, view=self.name
+                ):
+                    plan = Planner.create_view_load_plan(
+                        self.path,
+                        created_at_current_version=updated_bases,
+                        exclude_existing_rows=True,
+                        sql_where_clause=sql.and_(load_filter, root_store.is_insert_col == inserted),
                     )
-
-                load_plans: list[tuple[exec.ExecNode, bool]] = []
-                if needs_iterator_reload or membership_change or has_inserts:
-                    load_filter: sql.ColumnElement = sql.true()
-                    if not self.is_data_versioned:
-                        root_store = updated_bases[-1].get().store_tbl
-                        if view_tv.is_component_view and not needs_iterator_reload and not predicate_change:
-                            load_filter = updated_bases[0].get().store_tbl.is_insert_col
-                        elif not membership_change and not needs_iterator_reload:
-                            load_filter = root_store.is_insert_col
-                        # cascade=False still initializes views for new base rows.
-                        if not has_updates:
-                            load_filter = sql.and_(load_filter, root_store.is_insert_col)
-                    for inserted in (False, True):
-                        if (inserted and not has_inserts) or (not inserted and not has_updates):
-                            continue
-                        plan = Planner.create_view_load_plan(
-                            view_tv.path,
-                            created_at_current_version=updated_bases,
-                            exclude_existing_rows=not needs_iterator_reload or not self.is_data_versioned,
-                            sql_where_clause=(
-                                sql.and_(load_filter, root_store.is_insert_col == inserted)
-                                if not self.is_data_versioned
-                                else None
-                            ),
-                        )
-                        load_plans.append((plan, inserted))
-
-                if self.is_data_versioned:
-                    plans = ([update_plan] if update_plan is not None else []) + [p for p, _ in load_plans]
-                    status = view_tv._apply_versioned_update(plans, None, updated_bases)
-                else:
-                    status = view_tv._apply_op_view_update(
-                        update_plan,
-                        load_plans,
-                        updated_bases,
-                        reload_iterator=needs_iterator_reload,
-                        membership_change=membership_change,
-                        count_updates=changed,
-                    )
-
-            status += view_tv._propagate_update(
-                recomputed_view_cols,
-                modified_cols,
-                updated_bases=[view, *updated_bases] if materialize else updated_bases,
-                timestamp=timestamp,
-                has_updates=has_updates,
-                has_inserts=has_inserts,
-                base_membership_change=membership_change or needs_iterator_reload,
-            ).to_cascade()
-            if self.is_data_versioned and materialize:
-                view_tv.set_version_update_status(status)
-                view_tv._write_md(new_version=True, new_schema_version=view_tv.version == view_tv.schema_version)
-            result += status.to_cascade()
+                    cols_with_excs, row_counts, _ = self.store_tbl.insert_rows(plan)
+                result += UpdateStatus(
+                    row_count_stats=row_counts if inserted else row_counts.insert_to_update(),
+                    cols_with_excs=self._cols_with_excs_names(cols_with_excs),
+                )
         return result
 
     def _validate_where_clause(self, pred: exprs.Expr, error_prefix: str) -> None:

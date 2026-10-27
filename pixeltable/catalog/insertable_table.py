@@ -189,7 +189,7 @@ class InsertableTable(LocalTable):
                             propagate=tv.is_data_versioned,
                         )
                 if not tv.is_data_versioned:
-                    status += tv._propagate_update([], [], has_updates=False, has_inserts=True).to_cascade()
+                    status += tv._propagate_update([], None, [], [], has_updates=False, has_inserts=True).to_cascade()
             except excs.ExprEvalError as e:
                 excs.raise_from_expr_eval_err(e)
 
