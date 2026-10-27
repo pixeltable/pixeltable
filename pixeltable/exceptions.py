@@ -253,18 +253,6 @@ class ConcurrencyError(Error):
     """Serialization failure, deadlock, or concurrent modification conflict."""
 
 
-class StoredError(Exception):
-    """The error stored in a cell, set as the exception of the cells computed from that cell."""
-
-    errortype: str
-    errormsg: str
-
-    def __init__(self, errortype: str, errormsg: str) -> None:
-        super().__init__(errormsg)
-        self.errortype = errortype
-        self.errormsg = errormsg
-
-
 class ExprEvalError(Exception):
     """
     Used during query execution to signal expr evaluation failures.

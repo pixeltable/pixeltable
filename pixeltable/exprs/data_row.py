@@ -83,6 +83,18 @@ class CellMd:
         return x
 
 
+class StoredError(Exception):
+    """The error stored in a cell, packaged as an exception for propagation to dependent cells."""
+
+    errortype: str
+    errormsg: str
+
+    def __init__(self, errortype: str, errormsg: str) -> None:
+        super().__init__(errormsg)
+        self.errortype = errortype
+        self.errormsg = errormsg
+
+
 class DataRow:
     """
     Encapsulates all data and execution state needed by RowBuilder and DataRowBatch:

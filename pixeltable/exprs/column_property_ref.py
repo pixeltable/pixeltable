@@ -6,12 +6,12 @@ from typing import Any
 import sqlalchemy as sql
 
 import pixeltable.type_system as ts
-from pixeltable import catalog, exceptions as excs
+from pixeltable import catalog
 from pixeltable.row import CellError
 
 from .column_ref import ColumnRef
 from .column_ref_by_name import ColumnRefByName
-from .data_row import DataRow
+from .data_row import DataRow, StoredError
 from .expr import Expr
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
@@ -88,7 +88,7 @@ class ColumnPropertyRef(Expr):
     @classmethod
     def create_cellmd_exc(cls, exc: Exception) -> CellError:
         """Create a cellmd value from an exception."""
-        if isinstance(exc, excs.StoredError):
+        if isinstance(exc, StoredError):
             return {'errortype': exc.errortype, 'errormsg': exc.errormsg}
         return {'errortype': type(exc).__name__, 'errormsg': str(exc)}
 

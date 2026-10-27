@@ -9,7 +9,7 @@ import numpy as np
 import sqlalchemy as sql
 from pgvector import HalfVector
 
-from pixeltable import catalog, exceptions as excs, exprs, telemetry
+from pixeltable import catalog, exprs, telemetry
 from pixeltable.metadata import schema
 from pixeltable.query_clauses import JoinClause, JoinType
 from pixeltable.runtime import get_runtime
@@ -98,7 +98,7 @@ class SqlNode(ExecNode):
     cellmd_item_idxs: exprs.ExprDict[int]  # cellmd expr -> idx in sql select list
     column_item_idxs: dict[catalog.Column, int]  # column -> idx in sql select list
     column_cellmd_item_idxs: dict[catalog.Column, int]  # column -> idx in sql select list
-    copied_col_refs: list[tuple[exprs.ColumnRef, int]]  # select list ColumnRefs of copied columns, with their col ids
+    copied_col_refs: list[tuple[exprs.ColumnRef, int]]  # select_list ColumnRefs of columns, with their col ids
     result_cursor: sql.engine.CursorResult | None
 
     # where_clause/-_element: allow subclass to set one or the other (but not both)
@@ -219,6 +219,7 @@ class SqlNode(ExecNode):
         self.column_cellmd_item_idxs = {
             cellmd_ref.col_ref.col: self.sql_select_list_exprs.add(cellmd_ref) for cellmd_ref in column_cellmd_refs
         }
+        # the output rows carry columns over unchanged, with their cellmd
         self.copied_col_refs = [
             (e, e.col.id)
             for e in self.select_list
@@ -497,13 +498,13 @@ class SqlNode(ExecNode):
                 else:
                     output_row[slot_idx] = sql_row[i]
 
-            # a copied column's stored error becomes the exception of the cells computed from it, as on insert
+            # an expr computed from a copied column with a stored error gets that error, not a value computed from NULL
             for col_ref, col_id in self.copied_col_refs:
                 cell_md = output_row.cell_md[col_id]
                 if cell_md is not None and cell_md.errortype is not None:
                     errormsg = '' if cell_md.errormsg is None else cell_md.errormsg
                     self.row_builder.set_exc(
-                        output_row, col_ref.slot_idx, excs.StoredError(cell_md.errortype, errormsg)
+                        output_row, col_ref.slot_idx, exprs.StoredError(cell_md.errortype, errormsg)
                     )
 
             output_row = None

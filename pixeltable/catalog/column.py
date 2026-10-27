@@ -240,16 +240,13 @@ class Column:
         elif isinstance(spec, dict):
             stored = spec.get('stored', True)
             cls._validate_column_spec(name, spec)
-            value_expr = spec.get('value')
-            if value_expr is not None and isinstance(value_expr, exprs.Expr):
+            if spec.get('value') is not None:
+                value_expr = exprs.Expr.from_object(spec['value'])
+                assert value_expr is not None, type(spec['value'])
                 # create copy so we can modify it
                 value_expr = value_expr.copy()
                 value_expr.bind_rel_paths()
                 sa_col_type = value_expr.col_type.to_sa_type() if stored else None
-            elif value_expr is not None and stored:
-                expr = exprs.Expr.from_object(value_expr)
-                assert expr is not None, type(value_expr)
-                sa_col_type = expr.col_type.to_sa_type()
             if 'type' in spec:
                 col_type = ts.ColumnType.normalize_type(spec['type'], allow_builtin_types=False)
                 sa_col_type = col_type.to_sa_type() if stored else None
@@ -266,9 +263,8 @@ class Column:
         else:
             raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, f'Invalid spec for column {name!r}: {type(spec)}')
 
-        method_ref = (
-            next(value_expr.subexprs(expr_class=exprs.MethodRef), None) if isinstance(value_expr, exprs.Expr) else None
-        )
+        method_ref = next(value_expr.subexprs(expr_class=exprs.MethodRef), None) if value_expr is not None else None
+        # a leftover MethodRef (that didn't get transformed into a FunctionCall of a method) is an error
         if method_ref is not None:
             json_hint = (
                 f', or use {method_ref.base_expr}[{method_ref.method_name!r}] for the JSON field'
