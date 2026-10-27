@@ -31,7 +31,7 @@ from pixeltable.config import PROJECT_CONFIG_FILE, PYPROJECT_FILE, ConfigSection
 from pixeltable.utils.console_output import ConsoleLogger
 
 _logger = logging.getLogger('pixeltable')
-# not Env.get().console_logger: Env.get() starts the local database, which packaging for a hosted one never needs
+# this module must not call Env.get(), which starts the local database; hosted updates package projects too
 _console_logger = ConsoleLogger(_logger)
 
 # how an image build installs the project's packages

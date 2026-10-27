@@ -150,21 +150,13 @@ class TestProjectArchive:
         assert archive_path.suffix == '.bz2'
 
     def test_no_lockfile(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: Any) -> None:
-        """A project with no lockfile draws a warning and is packaged anyway; a conda environment is not a lockfile.
-
-        Packaging for a hosted database never touches Env, whose initialization starts the local database.
-        """
+        """A project with no lockfile draws a warning and is packaged anyway; a conda environment is not a lockfile."""
         monkeypatch.chdir(tmp_path)
         Config.init(reinit=True)
         (tmp_path / 'udfs.py').write_text('import pixeltable as pxt\n')
         monkeypatch.setenv('CONDA_PREFIX', str(tmp_path / 'envs' / 'pxt'))
 
-        def no_env() -> None:
-            raise AssertionError('packaging called Env.get()')
-
-        monkeypatch.setattr(Env, 'get', no_env)
-
-        # the console logger writes to the stream it was built with, which no capture fixture owns
+        # if an earlier test initialized Env, its console handler stops propagation to the capture fixture
         monkeypatch.setattr(logging.getLogger('pixeltable'), 'propagate', True)
         with caplog.at_level(logging.WARNING, logger='pixeltable'):
             archive_path = create_project_archive(tmp_path)
@@ -472,6 +464,39 @@ class TestProjectArchive:
         monkeypatch.setattr('pixeltable.service.db.management_client.api_call', api_call)
 
         with pxt_raises(excs.ErrorCode.INVALID_STATE, match='requirements.txt'):
+            db_update('pxt://acme:main')
+
+    def test_hosted_update_skips_local_database(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A hosted update, up to the upload, never calls Env.get(), which starts the local database."""
+        monkeypatch.setattr(pixeltable, '__version__', '0.7.15')
+        (tmp_path / 'pixeltable.toml').write_text(
+            '[[pixeltable.database]]\nname = "pxt://acme:main"\n', encoding='utf-8'
+        )
+        # no lockfile, so the missing-lockfile warning runs
+        (tmp_path / 'app.py').write_text('x = 1\n')
+        Config.init(reinit=True, project_root=tmp_path)
+
+        class UploadReachedError(Exception):
+            pass
+
+        plan = DbPlan(db_uri='pxt://acme:main', exists=True, state='AVAILABLE', resolution='update_additive')
+
+        def api_call(request: Any) -> dict[str, Any]:
+            assert isinstance(request, PrepareUpdateRequest)
+            if request.blob is not None:
+                raise UploadReachedError
+            return PrepareUpdateResponse(
+                generations=ExpectedGenerations(database=1), report=DatabaseReport(), plan=plan
+            ).model_dump(mode='json')
+
+        monkeypatch.setattr('pixeltable.service.db.management_client.api_call', api_call)
+
+        def no_env() -> None:
+            raise AssertionError('a hosted update called Env.get()')
+
+        # scoped to the call: CI's test teardown calls Env.get()
+        with monkeypatch.context() as m, pytest.raises(UploadReachedError):
+            m.setattr(Env, 'get', no_env)
             db_update('pxt://acme:main')
 
 
