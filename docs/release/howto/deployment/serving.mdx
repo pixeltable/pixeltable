@@ -239,6 +239,11 @@ def search_images(text: str) -> pxt.Query:
     return Images.where(Images.tag == text).select(Images.thumbnail)
 
 
+@pxt.query
+def first_image(text: str) -> pxt.Query:
+    return Images.where(Images.tag == text).select(Images.thumbnail).limit(1)
+
+
 images = FastAPIRouter(name='image-processing')
 
 images.add_insert_route(
@@ -267,8 +272,7 @@ images.add_query_route(path='/search', query=search_images)
 
 images.add_query_route(
     path='/thumbnail',
-    query=search_images,
-    one_row=True,
+    query=first_image,
     method='get',
     return_fileresponse=True,
 )

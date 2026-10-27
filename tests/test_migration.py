@@ -343,6 +343,10 @@ class TestMigration:
             t.where(t.c2 == 21).select(t.base_table_inline_list_mixed).head(1)['base_table_inline_list_mixed'][0]
         )
         assert inline_list_mixed == [1, 'a', 'test string 21', [1, 'a', 'test string 21'], 1, 'a']
+        # q2 selects one unnamed item, but a q2 stored at version 56 or earlier returns dicts rather than values
+        sim_output = t.where(t.c2 == 21).select(t.base_table_sim_output).head(1)['base_table_sim_output'][0]
+        row_type = dict if version <= 56 else str
+        assert len(sim_output) > 0 and all(isinstance(row, row_type) for row in sim_output), sim_output
 
     @staticmethod
     def __substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
@@ -436,14 +440,12 @@ class TestMigration:
         assert 'base_table_query_scalar_output' in col_names, (
             f'base_table_query_scalar_output column not found; columns: {col_names}'
         )
-        # return_scalar=True: values should be lists of scalars, not lists of dicts
+        # q3 selects one unnamed item: values should be lists of scalars, not lists of dicts
         rows = t.select(t.base_table_query_scalar_output).limit(3).collect()
         for row in rows:
             val = row['base_table_query_scalar_output']
             if val is not None and len(val) > 0:
-                assert not isinstance(val[0], dict), (
-                    f'return_scalar query should produce scalar values, got dict: {val[0]}'
-                )
+                assert not isinstance(val[0], dict), f'q3 should produce scalar values, got dict: {val[0]}'
 
     @classmethod
     def _verify_v49(cls) -> None:

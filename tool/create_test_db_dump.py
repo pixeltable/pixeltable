@@ -420,8 +420,8 @@ class Dumper:
 
         add_computed_column('sim_output', q2(t.c1))
 
-        # query() with return_scalar=True
-        @pxt.query(return_scalar=True)
+        # query() over one unnamed item: it returns values rather than dicts
+        @pxt.query
         def q3(i: int) -> pxt.Query:
             return t.where(t.c2 < i).select(t.c1).limit(3)
 
