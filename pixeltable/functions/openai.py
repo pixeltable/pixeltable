@@ -505,6 +505,19 @@ def _token_count_for_image(image: PIL.Image.Image) -> int:
     )
 
 
+def _image_data_url(img: PIL.Image.Image) -> str:
+    return f'data:image/png;base64,{to_base64(img, format="png")}'
+
+
+def _encode_image_url(image_url: Any) -> Any:
+    """Replace PIL images in a chat `image_url` value with PNG data URLs."""
+    if isinstance(image_url, PIL.Image.Image):
+        return {'url': _image_data_url(image_url)}
+    if isinstance(image_url, dict) and isinstance(image_url.get('url'), PIL.Image.Image):
+        return {**image_url, 'url': _image_data_url(image_url['url'])}
+    return image_url
+
+
 def _messages_resource_estimate(
     messages: list, max_completion_tokens: int, text_type: str, image_type: str
 ) -> dict[str, int]:
@@ -517,12 +530,15 @@ def _messages_resource_estimate(
             elif isinstance(value, list):
                 for part in value:
                     if isinstance(part, dict):
-                        if part.get('type') == text_type:
-                            assert isinstance(part.get('text'), str)
+                        if part.get('type') == text_type and isinstance(part.get('text'), str):
                             num_tokens += len(part['text']) / 4
                         elif part.get('type') == image_type:
-                            assert isinstance(part.get('image_url'), PIL.Image.Image)
-                            num_tokens += _token_count_for_image(part['image_url'])
+                            image = part.get('image_url')
+                            if isinstance(image, dict):
+                                image = image.get('url')
+                            # an image URL counts 0 tokens: the image size is unknown without fetching it
+                            if isinstance(image, PIL.Image.Image):
+                                num_tokens += _token_count_for_image(image)
             if key == 'name':  # if there's a name, the role is omitted
                 num_tokens -= 1  # role is always required and always 1 token
 
@@ -590,6 +606,9 @@ async def chat_completions(
         ... tbl.add_computed_column(
         ...     response=chat_completions(messages, model='gpt-4o-mini')
         ... )
+
+        The `'image_url'` field also accepts the API's `{'url': ...}` form. Its `'url'` can be an image or a URL
+        string, such as `tbl.image.fileurl`; OpenAI fetches a URL itself, so it has to be publicly accessible.
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -615,13 +634,8 @@ async def chat_completions(
         content = message.get('content')
         if isinstance(content, list):
             for part in content:
-                if (
-                    isinstance(part, dict)
-                    and part.get('type') == 'image_url'
-                    and isinstance(part.get('image_url'), PIL.Image.Image)
-                ):
-                    b64_encoded_image = to_base64(part['image_url'], format='png')
-                    part['image_url'] = {'url': f'data:image/png;base64,{b64_encoded_image}'}
+                if isinstance(part, dict) and part.get('type') == 'image_url' and 'image_url' in part:
+                    part['image_url'] = _encode_image_url(part['image_url'])
 
     # make sure the pool info exists prior to making the request
     resource_pool = _rate_limits_pool(model)
@@ -722,6 +736,9 @@ async def responses(
         ...     }
         ... ]
         ... tbl.add_computed_column(response=responses(messages, model='gpt-4o-mini'))
+
+        The `image_url` field also accepts a URL string, such as `tbl.image.fileurl`; OpenAI fetches it itself, so it
+        has to be publicly accessible.
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -753,8 +770,7 @@ async def responses(
                     and part.get('type') == 'input_image'
                     and isinstance(part.get('image_url'), PIL.Image.Image)
                 ):
-                    b64_encoded_image = to_base64(part['image_url'], format='png')
-                    part['image_url'] = f'data:image/png;base64,{b64_encoded_image}'
+                    part['image_url'] = _image_data_url(part['image_url'])
 
     resource_pool = _rate_limits_pool(model)
     rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool, OpenAIRateLimitsInfo)

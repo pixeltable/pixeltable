@@ -11,7 +11,6 @@ import json
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import PIL.Image
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
@@ -19,7 +18,8 @@ from pixeltable import env, exceptions as excs
 from pixeltable.func import Batch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
-from pixeltable.utils.image import to_base64
+
+from .openai import _encode_image_url
 
 if TYPE_CHECKING:
     import openai
@@ -103,6 +103,8 @@ async def chat_completions(
         >>> tbl.add_computed_column(
         ...     response=chat_completions(messages, model='openbmb/MiniCPM-V-4_5')
         ... )
+
+        The `'image_url'` field also accepts the API's `{'url': ...}` form, such as `{'url': tbl.image}`.
     """
     env.Env.get().require_package('openai')
 
@@ -132,13 +134,8 @@ async def chat_completions(
         content = message.get('content')
         if isinstance(content, list):
             for part in content:
-                if (
-                    isinstance(part, dict)
-                    and part.get('type') == 'image_url'
-                    and isinstance(part.get('image_url'), PIL.Image.Image)
-                ):
-                    b64_encoded_image = to_base64(part['image_url'], format='png')
-                    part['image_url'] = {'url': f'data:image/png;base64,{b64_encoded_image}'}
+                if isinstance(part, dict) and part.get('type') == 'image_url' and 'image_url' in part:
+                    part['image_url'] = _encode_image_url(part['image_url'])
 
     result = await _nebius_client().chat.completions.with_raw_response.create(
         messages=messages, model=model, **model_kwargs

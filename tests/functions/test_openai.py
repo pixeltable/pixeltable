@@ -377,10 +377,10 @@ class TestOpenai:
         assert res[0]['tool_calls'] == {'get_customer_info': [[{'customer_id': 'Q371A', 'name': 'Aaron Siegel'}]]}
 
     @pytest.mark.expensive
-    def test_gpt_vision(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
+    def test_gpt_vision(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
-        from pixeltable.functions.openai import chat_completions, vision
+        from pixeltable.functions.openai import chat_completions, responses, vision
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String | None, 'img': pxt.Image | None})
         t.add_computed_column(response=vision(prompt="What's in this image?", image=t.img, model='gpt-4o-mini'))
@@ -389,16 +389,46 @@ class TestOpenai:
             {'role': 'user', 'content': [{'type': 'text', 'text': t.prompt}, {'type': 'image_url', 'image_url': t.img}]}
         ]
         t.add_computed_column(response_2=chat_completions(msgs, model='gpt-4o-mini', model_kwargs={'max_tokens': 300}))
+        # the API's {'url': ...} form, with the image and with its URL
+        nested_msgs = [
+            {
+                'role': 'user',
+                'content': [{'type': 'text', 'text': t.prompt}, {'type': 'image_url', 'image_url': {'url': t.img}}],
+            }
+        ]
+        t.add_computed_column(response_3=chat_completions(nested_msgs, model='gpt-4o-mini'))
+        url_msgs = [
+            {
+                'role': 'user',
+                'content': [
+                    {'type': 'text', 'text': t.prompt},
+                    {'type': 'image_url', 'image_url': {'url': t.img.fileurl}},
+                ],
+            }
+        ]
+        t.add_computed_column(response_4=chat_completions(url_msgs, model='gpt-4o-mini'))
+        input_msgs = [
+            {
+                'role': 'user',
+                'content': [
+                    {'type': 'input_text', 'text': t.prompt},
+                    {'type': 'input_image', 'image_url': t.img.fileurl},
+                ],
+            }
+        ]
+        t.add_computed_column(response_5=responses(input_msgs, model='gpt-4o-mini'))
+
+        img_url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg'
         with pytest.warns(
             pxt.exceptions.PixeltableDeprecationWarning,
             match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) or responses\(\) instead',
         ):
-            validate_update_status(
-                t.insert(prompt="What's in this image?", img=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH)), 1
-            )
-        result = t.collect()
-        assert 'broccoli' in result['response'][0].lower()
-        assert 'broccoli' in result['response_2'][0]['choices'][0]['message']['content'].lower()
+            validate_update_status(t.insert([{'prompt': "What's in this image?", 'img': img_url}] * 2), 2)
+        for row in t.collect():
+            assert 'broccoli' in row['response'].lower()
+            for col_name in ('response_2', 'response_3', 'response_4'):
+                assert 'broccoli' in row[col_name]['choices'][0]['message']['content'].lower()
+            assert 'broccoli' in row['response_5']['output'][0]['content'][0]['text'].lower()
 
     def test_embeddings(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
