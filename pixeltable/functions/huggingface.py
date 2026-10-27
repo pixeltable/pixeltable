@@ -773,7 +773,7 @@ class sam3_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
         env.Env.get().require_package('transformers')
         from pixeltable.functions.video import frame_iterator
 
-        self.frames = frame_iterator.decorated_callable(video=video, fps=fps)  # type: ignore[attr-defined]
+        self.frames = frame_iterator.create_iter(video=video, fps=fps)  # type: ignore[attr-defined]
         self.text = text
         self.model_id = model_id
         self.max_frame_num_to_track = max_frame_num_to_track

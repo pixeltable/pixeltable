@@ -565,11 +565,11 @@ class TestFunction:
         img_paths = get_image_files()[:5]
         img_tbl.insert([{'id': i, 'img': p} for i, p in enumerate(img_paths)])
 
-        @pxt.query(return_scalar=True)
+        @pxt.query
         def rotated(id: int, angle: int) -> pxt.Query:
-            return img_tbl.where(img_tbl.id == id).select(r=img_tbl.img.rotate(angle)).limit(1)
+            return img_tbl.where(img_tbl.id == id).select(img_tbl.img.rotate(angle)).limit(1)
 
-        result1 = img_tbl.select(r=rotated(img_tbl.id, 90)[0]).order_by(img_tbl.id).collect()
+        result1 = img_tbl.select(r=rotated(img_tbl.id, 90)).order_by(img_tbl.id).collect()
         result2 = img_tbl.select(r=img_tbl.img.rotate(90)).order_by(img_tbl.id).collect()
         assert_resultset_eq(result1, result2, compare_col_types=False)
 
@@ -579,18 +579,99 @@ class TestFunction:
         t = pxt.get_table(name)
         validate_update_status(t.insert(rows))
 
+    def test_query_result_shape(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
+        t.insert([{'c1': i, 'c2': i + 0.5} for i in range(10)])
+
+        @pxt.query
+        def total_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).select(pxtf.sum(t.c2))
+
+        @pxt.query
+        def single_group_total_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).group_by().select(pxtf.sum(t.c2))
+
+        @pxt.query
+        def values_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).select(t.c2)
+
+        @pxt.query
+        def named_values_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).select(v=t.c2)
+
+        @pxt.query
+        def counts_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).group_by(t.c1).select(pxtf.count(t.c1))
+
+        @pxt.query
+        def value_at(x: int) -> pxt.Query:
+            return t.where(t.c1 == x).select(t.c2).limit(1)
+
+        @pxt.query
+        def row_at(x: int) -> pxt.Query:
+            return t.where(t.c1 == x).select(t.c1, t.c2).limit(1)
+
+        @pxt.query
+        def first_values(n: int) -> pxt.Query:
+            return t.order_by(t.c1).select(t.c2).limit(n)
+
+        @pxt.query
+        def running_totals_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).select(pxtf.sum(t.c2, order_by=t.c1))
+
+        assert_type_eq(total_below.signature.return_type, pxt.Float | None)
+        assert_type_eq(single_group_total_below.signature.return_type, pxt.Float | None)
+        assert_type_eq(values_below.signature.return_type, pxt.Json[[pxt.Float]])
+        assert_type_eq(named_values_below.signature.return_type, pxt.Json[[{'v': pxt.Float}]])
+        assert_type_eq(counts_below.signature.return_type, pxt.Json[[pxt.Int]])
+        assert_type_eq(value_at.signature.return_type, pxt.Float | None)
+        assert_type_eq(row_at.signature.return_type, pxt.Json[{'c1': pxt.Int, 'c2': pxt.Float}] | None)
+        assert_type_eq(first_values.signature.return_type, pxt.Json[[pxt.Float]])
+        # a window function returns a value per row, rather than aggregating the rows into one
+        assert_type_eq(running_totals_below.signature.return_type, pxt.Json[[pxt.Float | None]])
+
+        t.add_computed_column(total=total_below(t.c1))
+        t.add_computed_column(values=values_below(t.c1))
+        t.add_computed_column(named_values=named_values_below(t.c1))
+        t.add_computed_column(next_value=value_at(t.c1 + 1))
+        t.add_computed_column(next_row=row_at(t.c1 + 1))
+        assert_type_eq(t.total.col_type, pxt.Float | None)
+        assert_type_eq(t.next_row.col_type, pxt.Json[{'c1': pxt.Int, 'c2': pxt.Float}] | None)
+        res = reload_tester.run_query(
+            t.select(t.c1, t.total, t.values, t.named_values, t.next_value, t.next_row).order_by(t.c1)
+        )
+        # sum() over no rows is None
+        assert res['total'] == [None, *[sum(j + 0.5 for j in range(i)) for i in range(1, 10)]]
+        assert res['values'][3] == [0.5, 1.5, 2.5]
+        assert res['named_values'][2] == [{'v': 0.5}, {'v': 1.5}]
+        # a single-row query without a row returns None
+        assert res['next_value'] == [*[i + 1.5 for i in range(9)], None]
+        assert res['next_row'] == [*[{'c1': i + 1, 'c2': i + 1.5} for i in range(9)], None]
+        assert t.select(n=counts_below(t.c1)).order_by(t.c1).collect()['n'][3] == [1, 1, 1]
+        assert t.select(s=single_group_total_below(3)).limit(1).collect()['s'] == [4.5]
+        assert t.select(v=first_values(2)).limit(1).collect()['v'] == [[0.5, 1.5]]
+        assert sorted(t.select(r=running_totals_below(3)).limit(1).collect()['r'][0]) == [0.5, 2.0, 4.5]
+
+        reload_tester.run_reload_test()
+        t = pxt.get_table(p('test'))
+        assert_type_eq(t.total.col_type, pxt.Float | None)
+        t.insert([{'c1': 10, 'c2': 10.5}])
+        res = t.where(t.c1 == 10).select(t.total, t.next_value, t.next_row).collect()
+        assert res[0] == {'total': sum(j + 0.5 for j in range(10)), 'next_value': None, 'next_row': None}
+
     def test_query_bound_limit_offset(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int | None})
         t.insert([{'c1': i} for i in range(10)])
 
-        @pxt.query(return_scalar=True)
+        @pxt.query
         def head(n: int) -> pxt.Query:
-            return t.select(r=t.c1).limit(n)
+            return t.select(t.c1).limit(n)
 
-        @pxt.query(return_scalar=True)
+        @pxt.query
         def skipped(off: int) -> pxt.Query:
-            return t.select(r=t.c1).limit(1, offset=off)
+            return t.select(t.c1).limit(1, offset=off)
 
         # bound limit < 0 raises RequestError
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'limit'"):
@@ -721,26 +802,26 @@ class TestFunction:
         params = pxt.create_table(p('params'), {'k': pxt.Int})
         params.insert([{'k': 1}, {'k': 2}])
 
-        @pxt.query(return_scalar=True)
+        @pxt.query
         def shifted_sum(k: int) -> pxt.Query:
-            return t.select(s=pxtf.sum(t.x + k))
+            return t.select(pxtf.sum(t.x + k))
 
         res = params.order_by(params.k).select(r=shifted_sum(params.k)).collect()
-        assert res['r'] == [[10], [14]]
+        assert res['r'] == [10, 14]
 
         @pxt.query
         def sum_with_param(k: int) -> pxt.Query:
             return t.select(s=pxtf.sum(t.x), k=k)
 
         res = params.order_by(params.k).select(r=sum_with_param(params.k)).collect()
-        assert res['r'] == [[{'s': 6, 'k': 1}], [{'s': 6, 'k': 2}]]
+        assert res['r'] == [{'s': 6, 'k': 1}, {'s': 6, 'k': 2}]
 
         @pxt.query
         def sum_with_param_expr(k: int) -> pxt.Query:
             return t.select(s=pxtf.sum(t.x), adjusted=k + 1)
 
         res = params.order_by(params.k).select(r=sum_with_param_expr(params.k)).collect()
-        assert res['r'] == [[{'s': 6, 'adjusted': 2}], [{'s': 6, 'adjusted': 3}]]
+        assert res['r'] == [{'s': 6, 'adjusted': 2}, {'s': 6, 'adjusted': 3}]
 
         @pxt.query
         def grouped_sum_with_param_expr(k: int) -> pxt.Query:
@@ -780,12 +861,12 @@ class TestFunction:
         @pxt.query
         def retrieval(s: str, n: int) -> pxt.Query:
             """simply returns 2 passages from the table"""
-            return chunks.select(chunks.text).limit(2)
+            return chunks.select(text=chunks.text).limit(2)
 
         assert_type_eq(retrieval.signature.return_type, pxt.Json[[{'text': pxt.String | None}]])
 
         res = queries.select(queries.i, out=retrieval(queries.query_text, queries.i)).collect()
-        # Default (return_scalar=False): each row is a dict, not a bare string.
+        # a named select-list item: each row is a dict, not a bare string
         assert all(len(out) == 2 and all(isinstance(x, dict) for x in out) for out in res['out'])
         validate_update_status(queries.add_computed_column(chunks=retrieval(queries.query_text, queries.i)))
         assert queries.chunks.col_type == retrieval.signature.return_type.copy(nullable=True)
@@ -800,8 +881,8 @@ class TestFunction:
         res = queries.select(queries.chunks).collect()
         assert all(len(c) == 2 and all(isinstance(x, dict) for x in c) for c in res['chunks'])
 
-        # return_scalar=True: each row is a bare string value.
-        @pxt.query(return_scalar=True)
+        # an unnamed select-list item: each row is a bare string value
+        @pxt.query
         def retrieval_scalar(s: str, n: int) -> pxt.Query:
             return chunks.select(chunks.text).limit(2)
 
@@ -828,7 +909,7 @@ class TestFunction:
         def retrieve() -> pxt.Query:
             return v.select(v.text).limit(20)
 
-        assert_type_eq(retrieve.signature.return_type, pxt.Json[[{'text': pxt.String | None}]])
+        assert_type_eq(retrieve.signature.return_type, pxt.Json[[pxt.String | None]])
 
         retrieval = pxt.create_table(p('test/retrieval'), {'n': pxt.Int | None})
         retrieval.add_computed_column(result=retrieve())
@@ -849,18 +930,18 @@ class TestFunction:
         """@pxt.query bodies that use limit() with differently-shaped limit arguments."""
         t = test_tbl
 
-        # limit(n) where n is a plain int parameter, return_scalar=True
-        @pxt.query(return_scalar=True)
+        # limit(n) where n is a plain int parameter
+        @pxt.query
         def q1(n: int) -> pxt.Query:
             return t.select(t.c4).limit(n)
 
         res = t.select(t.c4, result=q1(2)).collect()
         assert res[0]['result'] == [False, True]
 
-        # return_scalar=True returning array-valued rows
-        @pxt.query(return_scalar=True)
+        # array-valued rows
+        @pxt.query
         def q4(n: int) -> pxt.Query:
-            return t.select(foo=[2, 3, n]).limit(2)
+            return t.select([2, 3, n]).limit(2)
 
         res = t.select(t.c4, result=q4(4)).limit(2).collect()
         assert res[0]['result'][0] == [2, 3, 4]
@@ -988,7 +1069,7 @@ class TestFunction:
         host_view = pxt.create_view(p('host_view'), host)
         host_view.add_computed_column(rows_view=q_tbl(host_view.threshold))
 
-        expected_rows_col = [{'extra': 2}, {'extra': 3}, {'extra': 4}]
+        expected_rows_col = [2, 3, 4]
         expected_rows_tbl = [{'id': 2, 'val': 20}, {'id': 3, 'val': 30}, {'id': 4, 'val': 40}]
         expected_rows_star = [{'id': i, 'val': i * 10, 'extra': i} for i in range(5)]
         expected_host_row = {
@@ -1888,8 +1969,18 @@ class TestFunction:
         assert fn3.name == 'my_customers'
         assert list(fn3.signature.parameters.keys()) == ['customer_id']
         assert [p.col_type for p in fn3.signature.parameters.values()] == [ts.StringType()]
-        assert_type_eq(fn3.signature.return_type, expected_return_type)
+        # limit=1: the one matching row, or None
+        assert_type_eq(
+            fn3.signature.return_type,
+            pxt.Json[{'customer_id': pxt.String, 'name': pxt.String, 'sales': pxt.Int | None, 'ref_id': pxt.String}]
+            | None,
+        )
         assert fn3.comment() == "I'm a tool that LLMs can use to do stuff."
+        res = t.select(found=fn3(customer_id='Q371A'), missing=fn3(customer_id='X')).collect()
+        assert res[0] == {
+            'found': {'customer_id': 'Q371A', 'name': 'Aaron Siegel', 'ref_id': 'PXT-Q371A', 'sales': None},
+            'missing': None,
+        }
 
         # use the retrieval UDF to define a computed column, and verify its type
         lookup = pxt.create_table('lookup', {'lookup_id': pxt.String})

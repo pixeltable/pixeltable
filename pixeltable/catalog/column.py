@@ -530,6 +530,11 @@ class Column:
                     f'Use of a reference to the {e.prop.name.lower()!r} property of another column '
                     f'is not allowed in a computed column.',
                 )
+        if self._value_expr.contains_(filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_std_agg_fn_call):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_EXPRESSION,
+                f'Column {self.name!r}: aggregate functions are not supported in computed columns:\n{self.value_expr}',
+            )
         if not self.stored and self.is_computed and self.has_window_fn_call():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,

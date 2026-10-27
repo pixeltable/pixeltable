@@ -24,6 +24,7 @@ from .utils import (
     DatabaseRoot,
     assert_resultset_eq,
     assert_table_metadata_eq,
+    assert_type_eq,
     btree_idxs,
     capture_console_output,
     dummy_embedding,
@@ -1019,9 +1020,7 @@ class TestTableModel:
         assert [r['text'] for r in view.order_by(sim, asc=False).collect()] == ['one sentence.', 'zero sentence.']
         # the query written against the model ranks them the same way, once it is bound to that table
         Searches.insert(q='one')
-        assert Searches.table.select(Searches.hits).collect()['hits'] == [
-            [{'text': 'one sentence.'}, {'text': 'zero sentence.'}]
-        ]
+        assert Searches.table.select(Searches.hits).collect()['hits'] == [['one sentence.', 'zero sentence.']]
 
     def test_view_model_iterator_column_shadows_base(self, db_root: DatabaseRoot) -> None:
         """An iterator output shadows a base column of the same name, so the model's text is the chunk text
@@ -1468,7 +1467,7 @@ class TestTableModel:
 
         TableModel2.update_all(p(''))
         Asks.insert(tag='greek')
-        assert Asks.table.select(Asks.bodies).collect()['bodies'] == [[{'found': [{'body': 'alpha'}]}]]
+        assert Asks.table.select(Asks.bodies).collect()['bodies'] == [[{'found': ['alpha']}]]
 
     def test_diff_all(self, db_root: DatabaseRoot) -> None:
         """diff_all() reports added/dropped columns and an iterator mismatch against already-created tables."""
@@ -2866,7 +2865,7 @@ class TestTableModel:
         probe = pxt.get_table(f'{target}/probe')
         probe.insert([{'cutoff': 0}, {'cutoff': 1}])
         rows = probe.order_by(probe.cutoff).select(probe.matches).collect()['matches']
-        assert rows == [[{'title': 'alpha'}, {'title': 'beta'}], [{'title': 'beta'}]]
+        assert rows == [['alpha', 'beta'], ['beta']]
 
     def test_query_udf_column_shapes(self, db_root: DatabaseRoot) -> None:
         """Several columns over one query udf, and one that wraps its result, each hold their own value."""
@@ -2898,11 +2897,8 @@ class TestTableModel:
         probe = pxt.get_table(f'{target}/probe')
         probe.insert([{'cutoff': 0}, {'cutoff': 2}])
         rows = probe.order_by(probe.cutoff).select(probe.matches, probe.from_two, probe.match_count).collect()
-        assert [r['matches'] for r in rows] == [
-            [{'title': 'alpha'}, {'title': 'beta'}, {'title': 'gamma'}],
-            [{'title': 'gamma'}],
-        ]
-        assert [r['from_two'] for r in rows] == [[{'title': 'gamma'}], [{'title': 'gamma'}]]
+        assert [r['matches'] for r in rows] == [['alpha', 'beta', 'gamma'], ['gamma']]
+        assert [r['from_two'] for r in rows] == [['gamma'], ['gamma']]
         assert [r['match_count'] for r in rows] == [3, 1]
 
     def test_update_all_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
@@ -2949,11 +2945,11 @@ class TestTableModel:
         reload_catalog()
         probe = pxt.get_table(f'{target}/probe')
         rows = probe.order_by(probe.cutoff).select(probe.from_zero).collect()
-        assert [r['from_zero'] for r in rows] == [[{'title': 'alpha'}, {'title': 'beta'}]] * 2
+        assert [r['from_zero'] for r in rows] == [['alpha', 'beta']] * 2
 
         probe.recompute_columns('matches')
         rows = probe.order_by(probe.cutoff).select(probe.matches).collect()
-        assert [r['matches'] for r in rows] == [[{'title': 'beta'}], [{'title': 'beta'}]]
+        assert [r['matches'] for r in rows] == [['beta'], ['beta']]
 
     def test_view_over_query_udf_model(self, db_root: DatabaseRoot) -> None:
         """A view model can be based on a model whose computed columns call a query udf over another model."""
@@ -2989,9 +2985,7 @@ class TestTableModel:
 
         view = pxt.get_table(f'{target}/probe_view')
         rows = view.select(view.matches, view.tool_matches, view.match_count).collect()
-        assert list(rows) == [
-            {'matches': [{'title': 'beta'}], 'tool_matches': {'titles_after': [[{'title': 'beta'}]]}, 'match_count': 1}
-        ]
+        assert list(rows) == [{'matches': ['beta'], 'tool_matches': {'titles_after': [['beta']]}, 'match_count': 1}]
 
     def test_nested_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
         """A query udf over a model can select a query udf over another model."""
@@ -3031,7 +3025,7 @@ class TestTableModel:
 
         view = pxt.get_table(f'{target}/probe_view')
         assert view.select(view.matches).collect()['matches'] == [
-            [{'topic': 'cats', 'titles': [{'title': 'a'}, {'title': 'b'}]}, {'topic': 'cows', 'titles': []}]
+            [{'topic': 'cats', 'titles': ['a', 'b']}, {'topic': 'cows', 'titles': []}]
         ]
 
     def test_update_all_nested_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
@@ -3073,7 +3067,7 @@ class TestTableModel:
         pxt.get_table(f'{target}/topics').insert([{'topic': 'cats'}])
         probe = pxt.get_table(f'{target}/probe')
         probe.recompute_columns('matches')
-        assert probe.select(probe.matches).collect()['matches'] == [[{'titles': [{'title': 'a'}]}]]
+        assert probe.select(probe.matches).collect()['matches'] == [[{'titles': ['a']}]]
 
     def test_table_model_validation_errors(self, db_root: DatabaseRoot) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""
@@ -3503,7 +3497,7 @@ class TestTableModel:
         pxt.get_table(f'{query_root}/docs').insert([{'doc_id': 1, 'title': 'alpha'}, {'doc_id': 5, 'title': 'beta'}])
         probe = pxt.get_table(f'{query_root}/probe')
         probe.insert([{'cutoff': 0}])
-        assert probe.select(probe.matches).collect()['matches'] == [[{'title': 'alpha'}, {'title': 'beta'}]]
+        assert probe.select(probe.matches).collect()['matches'] == [['alpha', 'beta']]
 
         reload_catalog()
         AlteredQueryModel = pxt.model_base()
@@ -3621,6 +3615,36 @@ class TestTableModel:
         t = pxt.get_table(p('test_table'))
         assert t.select(t.derived, t.derived2).collect()[0] == {'derived': 2, 'derived2': True}
         assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(root).values())
+
+    def test_update_all_aggregate_query_column(self, db_root: DatabaseRoot) -> None:
+        """A column of one model that aggregates over another model's rows, via an ungrouped `@pxt.query`."""
+        p = db_root.make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        class Orders(TableModel, name='orders'):
+            order_id = Column(type=pxt.Int, primary_key=True)
+            customer: pxt.String
+            amount: pxt.Float
+
+        @pxt.query
+        def customer_total(customer: str) -> pxt.Query:
+            return Orders.where(Orders.customer == customer).select(pxtf.sum(Orders.amount))  # type: ignore[arg-type]
+
+        class Customers(TableModel, name='customers'):
+            customer = Column(type=pxt.String, primary_key=True)
+            total = customer_total(customer)
+
+        TableModel.create_all(root)
+        orders = pxt.get_table(p('orders'))
+        customers = pxt.get_table(p('customers'))
+        orders.insert(
+            [{'order_id': 1, 'customer': 'a', 'amount': 2.5}, {'order_id': 2, 'customer': 'a', 'amount': 1.0}]
+        )
+        customers.insert([{'customer': 'a'}, {'customer': 'b'}])
+        assert_type_eq(customers.total.col_type, pxt.Float | None)
+        assert customers.order_by(customers.customer).select(customers.total).collect()['total'] == [3.5, None]
 
     def test_update_all_altered_columns_reversed_dependency(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
