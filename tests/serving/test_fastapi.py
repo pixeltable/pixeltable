@@ -22,6 +22,7 @@ import pytest
 import sqlalchemy as sql
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 import pixeltable.functions.json as pxt_json
 from pixeltable.env import Env
 from pixeltable.functions.video import frame_iterator
@@ -1549,8 +1550,8 @@ class TestFastAPI:
         assert 'min_len' not in default_schema.get('required', [])
 
     def test_add_query_route_single_column(self, db_root: DatabaseRoot) -> None:
-        """Single-column queries: return_scalar=False produces dict-per-row in a wrapper,
-        return_scalar=True produces a plain list of scalar values."""
+        """Single-column queries: a named item produces dict-per-row in a wrapper, an unnamed item a plain list of
+        values."""
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
@@ -1561,50 +1562,71 @@ class TestFastAPI:
 
         @pxt.query
         def all_texts() -> pxt.Query:
-            return t.select(t.text).order_by(t.id)
+            return t.select(text=t.text).order_by(t.id)
 
-        @pxt.query(return_scalar=True)
+        @pxt.query
         def all_texts_scalar() -> pxt.Query:
             return t.select(t.text).order_by(t.id)
+
+        @pxt.query
+        def id_total(min_id: int) -> pxt.Query:
+            return t.where(t.id >= min_id).select(pxtf.sum(t.id))
 
         router = FastAPIRouter()
         router.add_query_route(path='/texts', query=all_texts)
         router.add_query_route(path='/texts-scalar', query=all_texts_scalar)
+        router.add_query_route(path='/id-total', query=id_total)
         client = make_test_client(router)
 
-        # return_scalar=False (default): dict-per-row wrapped in {'rows': [...]}
+        # a named item: dict-per-row wrapped in {'rows': [...]}
         resp = client.post('/texts', json={})
         assert resp.status_code == 200, resp.text
         assert resp.json() == {'rows': [{'text': 't0'}, {'text': 't1'}, {'text': 't2'}]}
 
-        # return_scalar=True: plain JSON array of scalar values
+        # an unnamed item: plain JSON array of values
         resp = client.post('/texts-scalar', json={})
         assert resp.status_code == 200, resp.text
         assert resp.json() == ['t0', 't1', 't2']
 
-    def test_add_query_route_one_row(self, db_root: DatabaseRoot) -> None:
-        """one_row=True returns a flat JSON object (or bare scalar with return_scalar=True).
-        0 rows -> 404; >1 rows -> 409."""
+        # an aggregation without group_by(): the value itself, null over no rows
+        resp = client.post('/id-total', json={'min_id': 1})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == 3
+        resp = client.post('/id-total', json={'min_id': 10})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() is None
+        response = client.get('/openapi.json').json()['paths']['/id-total']['post']['responses']['200']
+        assert response['content']['application/json']['schema']['anyOf'] == [{'type': 'integer'}, {'type': 'null'}]
+
+    def test_add_query_route_single_row(self, db_root: DatabaseRoot) -> None:
+        """A query with limit(1) returns a flat JSON object, or a bare value for an unnamed item; no row -> 404.
+        An aggregation without group_by() returns a flat JSON object as well. A background job's result has the same
+        shape."""
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(p('test_serve/docs'), {'id': pxt.Int | None, 'text': pxt.String | None})
-        # id=0 appears twice on purpose, to exercise the >1-row branch
+        # id=0 appears twice on purpose: limit(1) returns the first of them
         t.insert([{'id': 0, 'text': 'dup-a'}, {'id': 0, 'text': 'dup-b'}, {'id': 1, 'text': 't1'}])
 
         @pxt.query
         def by_id(id: int) -> pxt.Query:
-            return t.where(t.id == id).select(t.id, t.text).order_by(t.text)
+            return t.where(t.id == id).select(t.id, t.text).order_by(t.text).limit(1)
 
-        @pxt.query(return_scalar=True)
+        @pxt.query
         def text_by_id(id: int) -> pxt.Query:
-            return t.where(t.id == id).select(t.text).order_by(t.text)
+            return t.where(t.id == id).select(t.text).order_by(t.text).limit(1)
+
+        @pxt.query
+        def id_stats(min_id: int) -> pxt.Query:
+            return t.where(t.id >= min_id).select(n=pxtf.count(t.id), total=pxtf.sum(t.id))
 
         router = FastAPIRouter()
-        router.add_query_route(path='/by-id', query=by_id, one_row=True)
-        router.add_query_route(path='/text-by-id', query=text_by_id, one_row=True)
+        router.add_query_route(path='/by-id', query=by_id)
+        router.add_query_route(path='/text-by-id', query=text_by_id)
+        router.add_query_route(path='/id-stats', query=id_stats)
 
         # a query route declares a function rather than a table, so it has nothing to bind; entering the
         # client's context runs the startup handlers, which must not refuse a router of query routes alone
@@ -1626,12 +1648,15 @@ class TestFastAPI:
 
         client = make_test_client(router)
 
-        # non-scalar one_row: flat JSON object, NOT wrapped in {'rows': [...]}
+        # flat JSON object, NOT wrapped in {'rows': [...]}
         resp = client.post('/by-id', json={'id': 1})
         assert resp.status_code == 200, resp.text
         assert resp.json() == {'id': 1, 'text': 't1'}
+        resp = client.post('/by-id', json={'id': 0})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'id': 0, 'text': 'dup-a'}
 
-        # scalar one_row: bare value, NOT a list
+        # unnamed item: bare value, NOT a list
         resp = client.post('/text-by-id', json={'id': 1})
         assert resp.status_code == 200, resp.text
         assert resp.json() == 't1'
@@ -1642,26 +1667,52 @@ class TestFastAPI:
         resp = client.post('/text-by-id', json={'id': 999})
         assert resp.status_code == 404, resp.text
 
-        # >1 rows -> 409 with 'expected exactly 1' in the detail
-        resp = client.post('/by-id', json={'id': 0})
-        assert resp.status_code == 409, resp.text
-        assert 'expected exactly 1' in resp.json()['detail']
-        resp = client.post('/text-by-id', json={'id': 0})
-        assert resp.status_code == 409, resp.text
+        # an aggregation without group_by(): flat JSON object, also over no rows
+        resp = client.post('/id-stats', json={'min_id': 0})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'n': 3, 'total': 1}
+        resp = client.post('/id-stats', json={'min_id': 10})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'n': 0, 'total': None}
 
-        # OpenAPI: non-scalar one_row advertises the row model, not the wrapper
+        # a background job's result: the row, or the value
+        bg_router = FastAPIRouter()
+        bg_router.add_query_route(path='/by-id', query=by_id, background=True)
+        bg_router.add_query_route(path='/text-by-id', query=text_by_id, background=True)
+        bg_client = make_test_client(bg_router)
+        job = bg_client.post('/by-id', json={'id': 1}).json()
+        assert await_background_job(bg_client, job, require_pending=False)['result'] == {'id': 1, 'text': 't1'}
+        job = bg_client.post('/text-by-id', json={'id': 1}).json()
+        assert await_background_job(bg_client, job, require_pending=False)['result'] == 't1'
+        # no row: the job fails with the detail of the synchronous 404
+        job = bg_client.post('/by-id', json={'id': 999}).json()
+        deadline = time.time() + 30.0
+        while (status := bg_client.get(job['job_url']).json())['status'] == 'pending':
+            assert time.time() < deadline, status
+            time.sleep(0.05)
+        assert status['status'] == 'error', status
+        assert status['error_detail'] == client.post('/by-id', json={'id': 999}).json()['detail']
+
+        # OpenAPI: a single row advertises the row model, not the wrapper
         openapi = client.get('/openapi.json').json()
         by_id_200 = openapi['paths']['/by-id']['post']['responses']['200']['content']['application/json']['schema']
         # should reference the row-shaped model (has 'id' and 'text' properties), not a wrapper with 'rows'
         assert '$ref' in by_id_200
         row_schema = openapi['components']['schemas'][by_id_200['$ref'].split('/')[-1]]
         assert set(row_schema['properties'].keys()) == {'id', 'text'}
-        # scalar one_row schema has no 'rows' wrapper and is not an array
+        # a single value has no 'rows' wrapper and is not an array
         scalar_schema = openapi['paths']['/text-by-id']['post']['responses']['200']['content']['application/json'][
             'schema'
         ]
         assert scalar_schema.get('type') != 'array'
         assert 'rows' not in str(scalar_schema)
+        # an aggregation advertises the row model as well
+        stats_schema = openapi['paths']['/id-stats']['post']['responses']['200']['content']['application/json'][
+            'schema'
+        ]
+        assert '$ref' in stats_schema
+        stats_row_schema = openapi['components']['schemas'][stats_schema['$ref'].split('/')[-1]]
+        assert set(stats_row_schema['properties'].keys()) == {'n', 'total'}
 
     def test_add_query_route_image(self, db_root: DatabaseRoot) -> None:
         """Image query route: JSON response, return_fileresponse (happy/404/500), and background."""
@@ -1681,7 +1732,7 @@ class TestFastAPI:
 
         @pxt.query
         def one_image(img_id: int) -> pxt.Query:
-            return t.where(t.id == img_id).select(t.resized)
+            return t.where(t.id == img_id).select(t.resized).limit(1)
 
         @pxt.query
         def one_image_delayed(img_id: int) -> pxt.Query:
@@ -1692,25 +1743,25 @@ class TestFastAPI:
             return t.select(t.resized).order_by(t.id)
 
         router = FastAPIRouter()
-        # JSON variant: list of {'image': <media url>}
+        # JSON variant: list of media urls
         router.add_query_route(path='/all-json', query=all_images)
         # FileResponse variant: exactly one row
         router.add_query_route(path='/one-file', query=one_image, return_fileresponse=True)
-        # FileResponse variant with >1 row -> 409
-        router.add_query_route(path='/all-file', query=all_images, return_fileresponse=True)
+        # FileResponse variant over a query that returns a list
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='return_fileresponse requires a query that returns one'):
+            router.add_query_route(path='/all-file', query=all_images, return_fileresponse=True)
         # Background variant
         router.add_query_route(path='/one-bg', query=one_image_delayed, background=True)
         client = make_test_client(router)
 
-        # JSON variant: wrapper with rows containing objects with 'resized' fields rewritten as media URLs
+        # JSON variant: values rewritten as media URLs
         resp = client.post('/all-json', json={})
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        assert 'rows' in body
-        assert len(body['rows']) == 2
-        for item in body['rows']:
-            assert_correct_result_url(item['resized'], db_root, True)
-            media_resp = get_media(client, item['resized'])
+        assert len(body) == 2
+        for url in body:
+            assert_correct_result_url(url, db_root, True)
+            media_resp = get_media(client, url)
             assert media_resp.status_code == 200
 
         # FileResponse: exactly one matching row -> image bytes
@@ -1726,11 +1777,6 @@ class TestFastAPI:
         # FileResponse: 0 matching rows -> 404
         resp = client.post('/one-file', json={'img_id': 999})
         assert resp.status_code == 404, resp.text
-
-        # FileResponse: >1 row -> 409
-        resp = client.post('/all-file', json={})
-        assert resp.status_code == 409, resp.text
-        assert 'expected exactly 1' in resp.json()['detail']
 
         # Background variant: poll /_pxt/jobs/{id} until done
         resp = client.post('/one-bg', json={'img_id': 1})
@@ -1761,10 +1807,10 @@ class TestFastAPI:
 
         @pxt.query
         def thumb_by_id(img_id: int) -> pxt.Query:
-            return t.where(t.id == img_id).select(thumb=t.image.resize([16, 16]))
+            return t.where(t.id == img_id).select(thumb=t.image.resize([16, 16])).limit(1)
 
         router = FastAPIRouter()
-        router.add_query_route(path='/transform-json', query=thumb_by_id, one_row=True)
+        router.add_query_route(path='/transform-json', query=thumb_by_id)
         router.add_query_route(path='/transform-file', query=thumb_by_id, return_fileresponse=True)
         client = make_test_client(router)
 
@@ -1893,11 +1939,11 @@ class TestFastAPI:
 
         @pxt.query
         def get_mirrored(vid: int) -> pxt.Query:
-            return t.where(t.id == vid).select(mirrored=t.mirrored)
+            return t.where(t.id == vid).select(mirrored=t.mirrored).limit(1)
 
         router = FastAPIRouter()
         router.add_insert_route(t, path='/ingest', uploadfile_inputs=['v'])
-        router.add_query_route(path='/mirrored', query=get_mirrored, one_row=True)
+        router.add_query_route(path='/mirrored', query=get_mirrored)
         client = make_test_client(router)
 
         # ingest a local video
@@ -1988,12 +2034,24 @@ class TestFastAPI:
             return t.where(t.id >= min_id).select(t.id, t.text)
 
         @pxt.query
+        def lookup_one(min_id: int) -> pxt.Query:
+            return t.where(t.id >= min_id).select(t.id, t.text).limit(1)
+
+        @pxt.query
         def with_default(min_id: int = 0) -> pxt.Query:
             return t.select(t.id)
 
         @pxt.query
         def by_text(needle: str) -> pxt.Query:
-            return t.where(t.text == needle).select(t.image)
+            return t.where(t.text == needle).select(t.image).limit(1)
+
+        @pxt.query
+        def all_images() -> pxt.Query:
+            return t.select(t.image)
+
+        @pxt.query
+        def running_ids() -> pxt.Query:
+            return t.select(pxtf.sum(t.id, order_by=t.id))
 
         @pxt.query
         def by_image(img: pxt.Image) -> pxt.Query:
@@ -2016,8 +2074,19 @@ class TestFastAPI:
         ):
             router.add_query_route(path='/e', query=by_text, return_fileresponse=True, background=True)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='exactly one media-typed output column'):
-            # by_text returns a single media column; lookup returns (id, text) which is not media-typed
-            router.add_query_route(path='/e', query=lookup, return_fileresponse=True)
+            # by_text returns a single media column; lookup_one returns (id, text) which is not media-typed
+            router.add_query_route(path='/e', query=lookup_one, return_fileresponse=True)
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match="return_fileresponse requires a query that returns one row.*'all_images'",
+        ):
+            router.add_query_route(path='/e', query=all_images, return_fileresponse=True)
+        # a window function returns a value per row, so the query returns a list
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match="return_fileresponse requires a query that returns one row.*'running_ids'",
+        ):
+            router.add_query_route(path='/e', query=running_ids, return_fileresponse=True)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='GET endpoints cannot have uploadfile_inputs'):
             router.add_query_route(path='/e', query=by_image, uploadfile_inputs=['img'], method='get')
 

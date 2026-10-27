@@ -521,10 +521,7 @@ class TestSchema:
         pxt.get_table(f'{target}/docs').insert([{'doc_id': 1, 'title': 'alpha'}, {'doc_id': 5, 'title': 'beta'}])
         probe = pxt.get_table(f'{target}/probe')
         probe.insert([{'cutoff': 0}, {'cutoff': 1}])
-        assert probe.order_by(probe.cutoff).select(probe.matches).collect()['matches'] == [
-            [{'title': 'alpha'}, {'title': 'beta'}],
-            [{'title': 'beta'}],
-        ]
+        assert probe.order_by(probe.cutoff).select(probe.matches).collect()['matches'] == [['alpha', 'beta'], ['beta']]
         assert_in_agreement(cli, apps('retrieval.py'), target)
 
     @pytest.mark.db_roots('local', reason='TODO: re-enable for hosted once cloud PR 199 is in')

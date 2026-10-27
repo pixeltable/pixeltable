@@ -1011,10 +1011,10 @@ class TestService:
         sentences = {text.strip() for text in chunks.select(chunks.text).collect()['text']}
         rows = _post(endpoint, '/similar', needle='volcano', limit=2).json()['rows']
         assert len(rows) == 2 and {row['text'].strip() for row in rows} <= sentences, rows
-        # one_row=True refuses a query that returns more, so the limit is part of the request
-        resp = httpx.get(f'{endpoint}/similar-one', params={'needle': 'volcano', 'limit': 1}, timeout=_REQUEST_TIMEOUT)
+        # a query with limit(1) over one unnamed item returns the value itself
+        resp = httpx.get(f'{endpoint}/similar-one', params={'needle': 'volcano'}, timeout=_REQUEST_TIMEOUT)
         assert resp.status_code == 200, resp.text
-        assert resp.json()['text'].strip() in sentences, resp.json()
+        assert resp.json().strip() in sentences, resp.json()
 
     def test_custom_app(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A file supplying its own application: the router it includes is part of it, not a second service."""
