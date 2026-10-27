@@ -85,7 +85,7 @@ class SqlNode(ExecNode):
 
     tbl: catalog.TableVersionPath | None
     select_list: exprs.ExprSet
-    columns: list[catalog.Column]  # for which columns to populate DataRow.cell_vals/cell_md
+    columns: list[catalog.Column]  # columns copied unchanged into the output rows, via DataRow.cell_vals/cell_md
     cell_md_refs: list[exprs.ColumnPropertyRef]  # of ColumnRefs which also need DataRow.slot_cellmd for evaluation
     set_pk: bool
     num_pk_cols: int
@@ -98,7 +98,7 @@ class SqlNode(ExecNode):
     cellmd_item_idxs: exprs.ExprDict[int]  # cellmd expr -> idx in sql select list
     column_item_idxs: dict[catalog.Column, int]  # column -> idx in sql select list
     column_cellmd_item_idxs: dict[catalog.Column, int]  # column -> idx in sql select list
-    copied_col_readers: list[tuple[exprs.Expr, list[int]]]  # select_list exprs, with the ids of their copied input cols
+    copied_input_col_ids: dict[int, list[int]]  # select_list slot idx -> ids of its copied input columns
     result_cursor: sql.engine.CursorResult | None
 
     # where_clause/-_element: allow subclass to set one or the other (but not both)
@@ -206,6 +206,16 @@ class SqlNode(ExecNode):
         return []
 
     def _create_select_list_state(self) -> None:
+        """Assemble the SQL select list and record each item's position in it.
+
+        The SQL select list contains:
+        - select_list, whose values go into the output row's slots
+        - the cellmd of cell_md_refs, for DataRow.slot_md
+        - the value and cellmd of each copied column, for DataRow.cell_vals/cell_md; these items aren't slots
+
+        copied_input_col_ids records, for each select_list item, its copied input columns with cellmd (the keys of
+        column_cellmd_item_idxs): only those can hold a stored error.
+        """
         assert self.sql_elements.contains_all(self.select_list)
         self.sql_select_list_exprs = exprs.ExprSet(self.select_list)
         self.cellmd_item_idxs = exprs.ExprDict((ref, self.sql_select_list_exprs.add(ref)) for ref in self.cell_md_refs)
@@ -219,12 +229,11 @@ class SqlNode(ExecNode):
         self.column_cellmd_item_idxs = {
             cellmd_ref.col_ref.col: self.sql_select_list_exprs.add(cellmd_ref) for cellmd_ref in column_cellmd_refs
         }
-        # the output rows carry columns over unchanged, with their cellmd
-        self.copied_col_readers = []
+        self.copied_input_col_ids = {}
         for e in self.select_list:
             col_ids = [ref.col.id for ref in e.subexprs(exprs.ColumnRef) if ref.col in self.column_cellmd_item_idxs]
             if len(col_ids) > 0:
-                self.copied_col_readers.append((e, col_ids))
+                self.copied_input_col_ids[e.slot_idx] = col_ids
 
     def _create_stmt(self) -> sql.Select:
         """Create Select from local state"""
@@ -498,13 +507,14 @@ class SqlNode(ExecNode):
                 else:
                     output_row[slot_idx] = sql_row[i]
 
-            # an expr computed from a copied column with a stored error gets that error, not a value computed from NULL
-            for e, col_ids in self.copied_col_readers:
+            # an errored cell stores NULL, with its error in the cellmd; an expr that reads a copied column's errored
+            # cell needs to get that error, as during an insert
+            for slot_idx, col_ids in self.copied_input_col_ids.items():
                 for col_id in col_ids:
                     cell_md = output_row.cell_md[col_id]
                     if cell_md is not None and cell_md.errortype is not None:
                         errormsg = '' if cell_md.errormsg is None else cell_md.errormsg
-                        self.row_builder.set_exc(output_row, e.slot_idx, exprs.StoredError(cell_md.errortype, errormsg))
+                        self.row_builder.set_exc(output_row, slot_idx, exprs.StoredError(cell_md.errortype, errormsg))
                         break
 
             output_row = None
