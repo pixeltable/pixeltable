@@ -7,7 +7,6 @@ import logging
 import math
 import sys
 import time
-import warnings
 from typing import Any, Collection
 
 from pixeltable import env, exceptions as excs, func, telemetry, telemetry_schemas

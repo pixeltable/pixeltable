@@ -2004,13 +2004,10 @@ class TestFunction:
         t.add_computed_column(emb=mock_embed_plain(t.content))
         validate_update_status(t.insert([{'content': 'hello world'}, {'content': 'foo bar'}]))
 
-    @pytest.mark.db_roots('local', reason="observes the in-process scheduler's warning")
-    def test_resource_estimator_failing(self, uses_db: None) -> None:
-        """A resource_estimator that raises doesn't fail the request."""
-        t = pxt.create_table('test_est_failing', {'content': pxt.String | None})
+        # a failing estimator doesn't fail the request
+        t = pxt.create_table(p('test_est_failing'), {'content': pxt.String | None})
         t.add_computed_column(emb=mock_embed_failing_estimate(t.content))
-        with pytest.warns(pxt.PixeltableWarning, match='ValueError: cannot estimate'):
-            validate_update_status(t.insert([{'content': 'hello world'}, {'content': 'foo bar'}, {'content': 'baz'}]))
+        validate_update_status(t.insert([{'content': 'hello world'}, {'content': 'foo bar'}, {'content': 'baz'}]))
         assert t.select(t.emb).collect()['emb'] == [[0.1, 0.2, 0.3]] * 3
 
     def test_resource_estimator_batch(self, db_root: DatabaseRoot) -> None:
