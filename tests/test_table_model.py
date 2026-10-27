@@ -2633,13 +2633,23 @@ class TestTableModel:
             doc_id: pxt.Int
             title: pxt.String
 
+        class IndexedDocs(TableModel, name='indexed_docs', base=Docs):
+            __indexes__ = [EmbeddingIndex(Docs.title, string_embed=local_embedding, name='title_idx')]
+
         @pxt.query
         def titles_after(cutoff: int) -> pxt.Query:
             return Docs.where(Docs.doc_id > cutoff).select(Docs.title)  # type: ignore[arg-type]
 
+        @pxt.query
+        def closest_title(phrase: str) -> pxt.Query:
+            sim = IndexedDocs.title.similarity(string=phrase)
+            return IndexedDocs.order_by(sim, asc=False).select(IndexedDocs.title).limit(1)
+
         class Probe(TableModel, name='probe'):
             cutoff: pxt.Int
+            phrase: pxt.String
             matches = titles_after(cutoff)
+            closest = closest_title(phrase)
 
         target = db_root.make_catalog_path('qudf')
         pxt.create_dir(target, parents=True)
@@ -2649,9 +2659,10 @@ class TestTableModel:
         # the stored column holds a query over the table Docs was created as, so it reads that table's rows
         reload_catalog()
         probe = pxt.get_table(f'{target}/probe')
-        probe.insert([{'cutoff': 0}, {'cutoff': 1}])
-        rows = probe.order_by(probe.cutoff).select(probe.matches).collect()['matches']
-        assert rows == [[{'title': 'alpha'}, {'title': 'beta'}], [{'title': 'beta'}]]
+        probe.insert([{'cutoff': 0, 'phrase': 'beta'}, {'cutoff': 1, 'phrase': 'alpha'}])
+        rows = probe.order_by(probe.cutoff).select(probe.matches, probe.closest).collect()
+        assert rows['matches'] == [[{'title': 'alpha'}, {'title': 'beta'}], [{'title': 'beta'}]]
+        assert rows['closest'] == [[{'title': 'beta'}], [{'title': 'alpha'}]]
 
     def test_query_udf_column_shapes(self, db_root: DatabaseRoot) -> None:
         """Several columns over one query udf, and one that wraps its result, each hold their own value."""

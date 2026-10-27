@@ -691,12 +691,16 @@ class TestFunction:
     # to a circular initialization failure.
     # It is currently broken, because it depends on the order in which tables are being dropped, which in turn
     # depends on the order in which table ids are being returned by the query that identifies which tables to drop.
-    # If 'tbl' is dropped before 'retrieval', we get an error when trying to drop 'retrieval' (it tries to load
-    # the required TableVersion, which requires deserializing the value expr for the 'result' column, which
-    # references 'view', which no longer exists).
-    # TODO: find a general solution
-    @pytest.mark.filterwarnings("ignore:The computed column 'result' in table 'retrieval' is no longer valid")
-    def test_query_over_view(self, db_root: DatabaseRoot) -> None:
+    # If 'tbl' is dropped before 'retrieval' or 'src', we get an error when trying to drop 'retrieval' or 'src_view'
+    # (it tries to load the required TableVersion, which requires deserializing the value expr for the 'result'
+    # column, which references 'view', which no longer exists).
+    # TODO: find a general solution (PXT-1706)
+    @pytest.mark.filterwarnings(
+        "ignore:The computed column 'result' in table '(retrieval|src_view)' is no longer valid"
+    )
+    # 'text' is the view's own column, 'a' is inherited from tbl
+    @pytest.mark.parametrize('col_name', ['text', 'a'])
+    def test_query_over_view(self, db_root: DatabaseRoot, col_name: str) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('test'))
         t = pxt.create_table(p('test/tbl'), {'a': pxt.String | None})
@@ -704,21 +708,41 @@ class TestFunction:
 
         @pxt.query
         def retrieve() -> pxt.Query:
-            return v.select(v.text).limit(20)
+            return v.select(v[col_name]).limit(20)
 
-        assert_type_eq(retrieve.signature.return_type, pxt.Json[[{'text': pxt.String | None}]])
+        assert_type_eq(retrieve.signature.return_type, pxt.Json[[{col_name: pxt.String | None}]])
 
         retrieval = pxt.create_table(p('test/retrieval'), {'n': pxt.Int | None})
         retrieval.add_computed_column(result=retrieve())
         assert retrieval.result.col_type == retrieve.signature.return_type
 
+        @pxt.query
+        def retrieve_n(n: int) -> pxt.Query:
+            return v.select(v[col_name]).limit(n)
+
+        src = pxt.create_table(p('test/src'), {'n': pxt.Int | None})
+        src_view = pxt.create_view(p('test/src_view'), src)
+        src_view.add_computed_column(result=retrieve_n(src_view.n))
+
         # Populate t (and hence v) with more rows than the limit, then verify that limit(20)
         # inside the query UDF is enforced when it runs as a view-column computation.
         t.insert([{'a': f's_{i}'} for i in range(30)])
+        # reload before each write below, so the write is the first to load v
+        reload_catalog()
+        retrieval = pxt.get_table(p('test/retrieval'))
         retrieval.insert(n=1)
         res = retrieval.select(retrieval.result).collect()
         assert len(res) == 1
         assert len(res[0]['result']) == 20
+
+        reload_catalog()
+        validate_update_status(pxt.get_table(p('test/src')).insert(n=5))
+        src_view = pxt.get_table(p('test/src_view'))
+        assert len(src_view.select(src_view.result).collect()[0]['result']) == 5
+        reload_catalog()
+        validate_update_status(pxt.get_table(p('test/src')).update({'n': 10}))
+        src_view = pxt.get_table(p('test/src_view'))
+        assert len(src_view.select(src_view.result).collect()[0]['result']) == 10
 
         reload_catalog()
         pxt.drop_dir(p('test'), force=True)

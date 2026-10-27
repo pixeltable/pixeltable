@@ -135,7 +135,8 @@ class ModelQuery(QueryBase):
                 sim.components[0].copy().substitute(subst),
                 idx_name=sim.idx_name,
                 qcol_id=new_md.qcolid,
-                table_version_key=catalog.TableVersionKey(new_md.qcolid.tbl_id, new_md.col_effective_version),
+                # SimilarityExpr._resolve_idx() looks up the index in the path's table, not the column's owner
+                table_version_key=new_md.tbl_version_key,
             )
 
         def rebound(e: exprs.Expr) -> exprs.Expr:
