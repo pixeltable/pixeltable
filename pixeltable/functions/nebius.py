@@ -6,7 +6,6 @@ them, you must first `pip install openai` and configure your Nebius Token Factor
 setting the `NEBIUS_API_KEY` environment variable or `nebius.api_key` in the Pixeltable config file.
 """
 
-import copy
 import json
 from typing import TYPE_CHECKING, Any
 
@@ -19,7 +18,7 @@ from pixeltable.func import Batch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
-from .openai import _encode_image_url
+from .openai import _encode_chat_images
 
 if TYPE_CHECKING:
     import openai
@@ -128,14 +127,7 @@ async def chat_completions(
             model_kwargs['extra_body'] = {}
         model_kwargs['extra_body']['parallel_tool_calls'] = False
 
-    # Serialize any images in `messages`
-    messages = copy.deepcopy(messages)
-    for message in messages:
-        content = message.get('content') if isinstance(message, dict) else None
-        if isinstance(content, list):
-            for part in content:
-                if isinstance(part, dict) and part.get('type') == 'image_url' and 'image_url' in part:
-                    part['image_url'] = _encode_image_url(part['image_url'])
+    messages = _encode_chat_images(messages)
 
     result = await _nebius_client().chat.completions.with_raw_response.create(
         messages=messages, model=model, **model_kwargs

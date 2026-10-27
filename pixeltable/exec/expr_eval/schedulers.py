@@ -159,10 +159,10 @@ class RateLimitsScheduler(Scheduler):
             result = estimator(**kwargs)
         except Exception:
             _logger.warning(
-                f'resource estimator for {fn.display_name} failed; scheduling the request without a cost estimate',
+                f'resource estimator for {fn.display_name} failed; estimating 1 request and no other resources',
                 exc_info=True,
             )
-            return {}
+            result = {'requests': 1}
         # Filter to resources known to the pool to avoid KeyError in _resource_delay(), this is done
         # because some providers do not report resources so rate limiting can only be done off of config
         known = self._resources

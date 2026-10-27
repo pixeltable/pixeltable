@@ -9,6 +9,7 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exprs
 from pixeltable._query_base import QueryBase
 from pixeltable.exprs import ColumnRefByName
+from pixeltable.index import EmbeddingIndex
 from pixeltable.query_clauses import FromClause
 
 from .definition import MODEL_BY_DEFINED_TBL_ID, TableModelMeta, bind_query_templates
@@ -131,12 +132,13 @@ class ModelQuery(QueryBase):
                     excs.ErrorCode.COLUMN_NOT_FOUND,
                     f'Table {path.tbl_name()!r} has no column {col_name!r}, which a similarity() call references.',
                 )
+            # SimilarityExpr._resolve_idx() looks for the index only in table_version_key's table
+            idx_tbl_version = path.find_idx_tbl_version(new_md.qcolid, sim.idx_name, EmbeddingIndex)
             subst[sim] = exprs.SimilarityExpr(
                 sim.components[0].copy().substitute(subst),
                 idx_name=sim.idx_name,
                 qcol_id=new_md.qcolid,
-                # SimilarityExpr._resolve_idx() looks up the index in the path's table, not the column's owner
-                table_version_key=new_md.tbl_version_key,
+                table_version_key=new_md.tbl_version_key if idx_tbl_version is None else idx_tbl_version,
             )
 
         def rebound(e: exprs.Expr) -> exprs.Expr:

@@ -509,13 +509,21 @@ def _image_data_url(img: PIL.Image.Image) -> str:
     return f'data:image/png;base64,{to_base64(img, format="png")}'
 
 
-def _encode_image_url(image_url: Any) -> Any:
-    """Replace PIL images in a chat `image_url` value with PNG data URLs."""
-    if isinstance(image_url, PIL.Image.Image):
-        return {'url': _image_data_url(image_url)}
-    if isinstance(image_url, dict) and isinstance(image_url.get('url'), PIL.Image.Image):
-        return {**image_url, 'url': _image_data_url(image_url['url'])}
-    return image_url
+def _encode_chat_images(messages: list) -> list:
+    messages = copy.deepcopy(messages)
+    for message in messages:
+        content = message.get('content') if isinstance(message, dict) else None
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict) or part.get('type') != 'image_url':
+                continue
+            image_url = part.get('image_url')
+            if isinstance(image_url, PIL.Image.Image):
+                part['image_url'] = {'url': _image_data_url(image_url)}
+            elif isinstance(image_url, dict) and isinstance(image_url.get('url'), PIL.Image.Image):
+                image_url['url'] = _image_data_url(image_url['url'])
+    return messages
 
 
 def _messages_resource_estimate(
@@ -631,14 +639,7 @@ async def chat_completions(
     if tool_choice is not None and not tool_choice['parallel_tool_calls']:
         model_kwargs['parallel_tool_calls'] = False
 
-    # Serialize any images in `messages`
-    messages = copy.deepcopy(messages)
-    for message in messages:
-        content = message.get('content') if isinstance(message, dict) else None
-        if isinstance(content, list):
-            for part in content:
-                if isinstance(part, dict) and part.get('type') == 'image_url' and 'image_url' in part:
-                    part['image_url'] = _encode_image_url(part['image_url'])
+    messages = _encode_chat_images(messages)
 
     # make sure the pool info exists prior to making the request
     resource_pool = _rate_limits_pool(model)

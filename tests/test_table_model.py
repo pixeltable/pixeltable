@@ -2637,6 +2637,9 @@ class TestTableModel:
         class IndexedDocs(TableModel, name='indexed_docs', base=Docs):
             __indexes__ = [EmbeddingIndex(Docs.title, string_embed=local_embedding, name='title_idx')]
 
+        class DocsView(TableModel, name='docs_view', base=IndexedDocs):
+            pass
+
         @pxt.query
         def titles_after(cutoff: int) -> pxt.Query:
             return Docs.where(Docs.doc_id > cutoff).select(Docs.title)  # type: ignore[arg-type]
@@ -2646,11 +2649,17 @@ class TestTableModel:
             sim = IndexedDocs.title.similarity(string=phrase)
             return IndexedDocs.order_by(sim, asc=False).select(IndexedDocs.title).limit(1)
 
+        @pxt.query
+        def closest_view_title(phrase: str) -> pxt.Query:
+            sim = DocsView.title.similarity(string=phrase)
+            return DocsView.order_by(sim, asc=False).select(DocsView.title).limit(1)
+
         class Probe(TableModel, name='probe'):
             cutoff: pxt.Int
             phrase: pxt.String
             matches = titles_after(cutoff)
             closest = closest_title(phrase)
+            closest_in_view = closest_view_title(phrase)
 
         target = db_root.make_catalog_path('qudf')
         pxt.create_dir(target, parents=True)
@@ -2661,9 +2670,10 @@ class TestTableModel:
         reload_catalog()
         probe = pxt.get_table(f'{target}/probe')
         probe.insert([{'cutoff': 0, 'phrase': 'beta'}, {'cutoff': 1, 'phrase': 'alpha'}])
-        rows = probe.order_by(probe.cutoff).select(probe.matches, probe.closest).collect()
+        rows = probe.order_by(probe.cutoff).select(probe.matches, probe.closest, probe.closest_in_view).collect()
         assert rows['matches'] == [['alpha', 'beta'], ['beta']]
         assert rows['closest'] == ['beta', 'alpha']
+        assert rows['closest_in_view'] == ['beta', 'alpha']
 
     def test_query_udf_column_shapes(self, db_root: DatabaseRoot) -> None:
         """Several columns over one query udf, and one that wraps its result, each hold their own value."""
