@@ -296,7 +296,7 @@ class TestIndex:
         for q, r in zip(query_texts, res['r'], strict=True):
             sim = chunks.text.similarity(string=q)
             expected = chunks.select(mean=pxtf.mean(sim), mean_sq=pxtf.mean(sim * sim), n=pxtf.count(sim)).collect()
-            assert r == [expected[0]]
+            assert r == expected[0]
 
     def test_search_fn(self, small_img_tbl: pxt.Table, local_embed: pxt.Function) -> None:
         t = small_img_tbl

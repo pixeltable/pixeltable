@@ -351,6 +351,10 @@ class FunctionCall(Expr):
     def is_agg_fn_call(self) -> bool:
         return isinstance(self.fn, func.AggregateFunction)
 
+    @property
+    def is_std_agg_fn_call(self) -> bool:
+        return self.is_agg_fn_call and not self.is_window_fn_call
+
     def get_agg_order_by(self) -> list[Expr]:
         assert self.is_agg_fn_call
         return self.order_by
@@ -526,7 +530,7 @@ class FunctionCall(Expr):
             fn_expr = self.components[self.fn_expr_idx]
             data_row[self.slot_idx] = data_row[fn_expr.slot_idx]
             return
-        elif self.is_agg_fn_call and not self.is_window_fn_call:
+        elif self.is_std_agg_fn_call:
             if self.aggregator is None:
                 pass
             data_row[self.slot_idx] = self.aggregator.value()

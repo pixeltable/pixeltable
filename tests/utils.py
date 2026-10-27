@@ -37,6 +37,7 @@ import pandas as pd
 import PIL.Image
 import pytest
 import sqlalchemy as sql
+from typing_extensions import TypeForm
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
@@ -696,7 +697,7 @@ def get_sentences(n: int = 100) -> list[str]:
     return [q['question'].replace("'", '') for q in questions_list[:n]]
 
 
-def assert_type_eq(col_type: ts.ColumnType, pxt_type: type[ts._PxtType]) -> None:
+def assert_type_eq(col_type: ts.ColumnType, pxt_type: TypeForm) -> None:
     assert col_type == ts.ColumnType.normalize_type(pxt_type)
 
 

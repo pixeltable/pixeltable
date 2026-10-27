@@ -18,8 +18,8 @@ if TYPE_CHECKING:
     from pixeltable.io.data_sources import SqlDataSource
 
 
-def _is_agg_fn_call(e: exprs.Expr) -> bool:
-    return isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call and not e.is_window_fn_call
+def _is_std_agg_fn_call(e: exprs.Expr) -> bool:
+    return isinstance(e, exprs.FunctionCall) and e.is_std_agg_fn_call
 
 
 def _get_combined_ordering(
@@ -148,9 +148,7 @@ class Analyzer:
         candidates = self.select_list
         agg_fn_calls = exprs.ExprSet(
             exprs.Expr.list_subexprs(
-                candidates,
-                expr_class=exprs.FunctionCall,
-                filter=lambda e: bool(e.is_agg_fn_call and not e.is_window_fn_call),
+                candidates, expr_class=exprs.FunctionCall, filter=lambda e: bool(e.is_std_agg_fn_call)
             )
         )
         self.agg_fn_calls = list(agg_fn_calls)
@@ -181,14 +179,14 @@ class Analyzer:
 
         # check that Where clause and filter doesn't contain aggregates
         if self.sql_where_clause is not None and any(
-            _is_agg_fn_call(e) for e in self.sql_where_clause.subexprs(expr_class=exprs.FunctionCall)
+            _is_std_agg_fn_call(e) for e in self.sql_where_clause.subexprs(expr_class=exprs.FunctionCall)
         ):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_EXPRESSION,
                 f'where() cannot contain aggregate functions: {self.sql_where_clause}',
             )
         if self.filter is not None and any(
-            _is_agg_fn_call(e) for e in self.filter.subexprs(expr_class=exprs.FunctionCall)
+            _is_std_agg_fn_call(e) for e in self.filter.subexprs(expr_class=exprs.FunctionCall)
         ):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_EXPRESSION, f'where() cannot contain aggregate functions: {self.filter}'
@@ -214,7 +212,7 @@ class Analyzer:
                     'Store the value in a computed column of a scalar type (cast with .astype() if needed) '
                     'and use that column with distinct() or group_by().',
                 )
-            if e.contains_(filter=_is_agg_fn_call):
+            if e.contains_(filter=_is_std_agg_fn_call):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_EXPRESSION, f'Grouping expression contains aggregate function: {e}'
                 )
@@ -226,7 +224,7 @@ class Analyzer:
         """
         if e.id in grouping_expr_ids:
             return True, True
-        elif _is_agg_fn_call(e):
+        elif _is_std_agg_fn_call(e):
             for c in e.components:
                 _, is_input = self._determine_agg_status(c, grouping_expr_ids)
                 if not is_input:
