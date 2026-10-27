@@ -131,7 +131,7 @@ async def chat_completions(
     # Serialize any images in `messages`
     messages = copy.deepcopy(messages)
     for message in messages:
-        content = message.get('content')
+        content = message.get('content') if isinstance(message, dict) else None
         if isinstance(content, list):
             for part in content:
                 if isinstance(part, dict) and part.get('type') == 'image_url' and 'image_url' in part:

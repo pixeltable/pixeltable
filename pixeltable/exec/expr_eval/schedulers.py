@@ -7,7 +7,8 @@ import logging
 import math
 import sys
 import time
-from typing import Collection
+import warnings
+from typing import Any, Collection
 
 from pixeltable import env, exceptions as excs, func, telemetry, telemetry_schemas
 from pixeltable.config import Config
@@ -128,16 +129,15 @@ class RateLimitsScheduler(Scheduler):
             return list(self.pool_info.resource_limits.keys())
 
     def _get_request_resources(self, request: FnCallArgs) -> dict[str, int]:
-        estimator = request.fn_call.fn._resource_estimator
+        fn = request.fn_call.fn
+        estimator = fn._resource_estimator
         param_names = [
             p.name for p in inspect.signature(estimator, eval_str=True).parameters.values() if p.name != '_param_types'
         ]
-        if len(param_names) == 0:
-            result = estimator()
-        else:
-            extra = set(param_names) - set(request.fn_call.fn.signature.parameters.keys())
+        kwargs: dict[str, Any] = {}
+        if len(param_names) > 0:
+            extra = set(param_names) - set(fn.signature.parameters.keys())
             if extra:
-                fn = request.fn_call.fn
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,
                     f'resource_estimator for {fn.self_path or fn} has parameters '
@@ -149,17 +149,21 @@ class RateLimitsScheduler(Scheduler):
             # distinguish overloads that share the same Python types (e.g., str for Document vs Video).
             has_param_types = '_param_types' in inspect.signature(estimator, eval_str=True).parameters
             if not request.is_batched:
-                if has_param_types:
-                    param_types = {name: p.col_type for name, p in request.fn_call.fn.signature.parameters.items()}
-                    per_row_kwargs[0]['_param_types'] = param_types
-                result = estimator(**per_row_kwargs[0])
+                kwargs = per_row_kwargs[0]
             else:
                 columnar_kwargs = {k: [d[k] for d in per_row_kwargs] for k in per_row_kwargs[0]}
                 constant_kwargs, batched_kwargs = request.pxt_fn.create_batch_kwargs(columnar_kwargs)
-                if has_param_types:
-                    param_types = {name: p.col_type for name, p in request.fn_call.fn.signature.parameters.items()}
-                    constant_kwargs['_param_types'] = param_types
-                result = estimator(**constant_kwargs, **batched_kwargs)
+                kwargs = {**constant_kwargs, **batched_kwargs}
+            if has_param_types:
+                kwargs['_param_types'] = {name: p.col_type for name, p in fn.signature.parameters.items()}
+        try:
+            result = estimator(**kwargs)
+        except Exception:
+            _logger.warning(
+                f'resource estimator for {fn.display_name} failed; scheduling the request without a cost estimate',
+                exc_info=True,
+            )
+            return {}
         # Filter to resources known to the pool to avoid KeyError in _resource_delay(), this is done
         # because some providers do not report resources so rate limiting can only be done off of config
         known = self._resources

@@ -2004,6 +2004,15 @@ class TestFunction:
         t.add_computed_column(emb=mock_embed_plain(t.content))
         validate_update_status(t.insert([{'content': 'hello world'}, {'content': 'foo bar'}]))
 
+    @pytest.mark.db_roots('local', reason="observes the in-process scheduler's warning")
+    def test_resource_estimator_failing(self, uses_db: None) -> None:
+        """A resource_estimator that raises doesn't fail the request."""
+        t = pxt.create_table('test_est_failing', {'content': pxt.String | None})
+        t.add_computed_column(emb=mock_embed_failing_estimate(t.content))
+        with pytest.warns(pxt.PixeltableWarning, match='ValueError: cannot estimate'):
+            validate_update_status(t.insert([{'content': 'hello world'}, {'content': 'foo bar'}, {'content': 'baz'}]))
+        assert t.select(t.emb).collect()['emb'] == [[0.1, 0.2, 0.3]] * 3
+
     def test_resource_estimator_batch(self, db_root: DatabaseRoot) -> None:
         """resource_estimator works for a batched UDF."""
         p = db_root.make_catalog_path
@@ -2091,6 +2100,17 @@ async def mock_embed_plain(content: str, model: str = 'default') -> list[float]:
 def _(content: str) -> dict[str, int]:
     assert isinstance(content, str), f'expected str, got {type(content)}'
     return {'requests': 1, 'tokens': len(content) // 4}
+
+
+@pxt.udf(is_deterministic=False, resource_pool='rate-limits:test-embed-failing-estimate')
+async def mock_embed_failing_estimate(content: str) -> list[float]:
+    init_test_pool('rate-limits:test-embed-failing-estimate')
+    return [0.1, 0.2, 0.3]
+
+
+@mock_embed_failing_estimate.resource_estimator
+def _(content: str) -> dict[str, int]:
+    raise ValueError(f'cannot estimate {content!r}')
 
 
 # Batch UDF with resource estimator

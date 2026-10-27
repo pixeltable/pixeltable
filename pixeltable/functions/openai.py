@@ -524,23 +524,26 @@ def _messages_resource_estimate(
     num_tokens = 0.0
     for message in messages:
         num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
-        for key, value in message.items():
-            if isinstance(value, str):
-                num_tokens += len(value) / 4
-            elif isinstance(value, list):
-                for part in value:
-                    if isinstance(part, dict):
-                        if part.get('type') == text_type and isinstance(part.get('text'), str):
-                            num_tokens += len(part['text']) / 4
-                        elif part.get('type') == image_type:
-                            image = part.get('image_url')
-                            if isinstance(image, dict):
-                                image = image.get('url')
-                            # an image URL counts 0 tokens: the image size is unknown without fetching it
-                            if isinstance(image, PIL.Image.Image):
-                                num_tokens += _token_count_for_image(image)
-            if key == 'name':  # if there's a name, the role is omitted
-                num_tokens -= 1  # role is always required and always 1 token
+        try:
+            for key, value in message.items():
+                if isinstance(value, str):
+                    num_tokens += len(value) / 4
+                elif isinstance(value, list):
+                    for part in value:
+                        if isinstance(part, dict):
+                            if part.get('type') == text_type and isinstance(part.get('text'), str):
+                                num_tokens += len(part['text']) / 4
+                            elif part.get('type') == image_type:
+                                image = part.get('image_url')
+                                if isinstance(image, dict):
+                                    image = image.get('url')
+                                # an image URL counts 0 tokens: the image size is unknown without fetching it
+                                if isinstance(image, PIL.Image.Image):
+                                    num_tokens += _token_count_for_image(image)
+                if key == 'name':  # if there's a name, the role is omitted
+                    num_tokens -= 1  # role is always required and always 1 token
+        except Exception:
+            pass  # best effort: skip what can't be read
 
     num_tokens += 2  # every reply is primed with <im_start>assistant
     return {'requests': 1, 'tokens': int(num_tokens) + max_completion_tokens}
@@ -631,7 +634,7 @@ async def chat_completions(
     # Serialize any images in `messages`
     messages = copy.deepcopy(messages)
     for message in messages:
-        content = message.get('content')
+        content = message.get('content') if isinstance(message, dict) else None
         if isinstance(content, list):
             for part in content:
                 if isinstance(part, dict) and part.get('type') == 'image_url' and 'image_url' in part:

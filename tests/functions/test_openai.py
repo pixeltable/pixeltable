@@ -163,6 +163,19 @@ class TestOpenai:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'messages' must contain the word 'json'"):
             t.insert(input='Say something interesting.')
 
+        # a message that isn't a dict reaches the API, which rejects it
+        t = pxt.create_table('test_tbl_2', {'id': pxt.Int, 'messages': pxt.Json})
+        t.add_computed_column(output=chat_completions(model='gpt-4o-mini', messages=t.messages))
+        rows = [
+            {'id': 0, 'messages': [{'role': 'user', 'content': 'Say hello.'}]},
+            {'id': 1, 'messages': ['Say hello.']},
+        ]
+        status = t.insert(rows, on_error='ignore')
+        assert status.num_excs == 1
+        res = t.order_by(t.id).select(t.output, t.output.errormsg).collect()
+        assert len(res['output'][0]['choices'][0]['message']['content']) > 0
+        assert "Invalid type for 'messages[0]': expected an object" in res['output_errormsg'][1]
+
     def test_responses(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
