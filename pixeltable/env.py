@@ -158,6 +158,9 @@ class Env:
     _resource_pool_info: dict[str, Any]
     _resource_pool_lock: threading.Lock
     _dbms: Dbms | None
+    _db_lock: threading.RLock  # guards _connect()
+    _db_connected: bool
+    _db_connecting: bool
 
     @classmethod
     def get(cls) -> Env:
@@ -167,11 +170,12 @@ class Env:
         # hit the assertion in _init_env())
         with cls._init_lock:
             if cls._instance is None:
-                cls._init_env()
+                # the database starts on first use: a process that only works with hosted databases never needs it
+                cls._init_env(connect=False)
         return cls._instance
 
     @classmethod
-    def _init_env(cls, reinit_db: bool = False) -> None:
+    def _init_env(cls, reinit_db: bool = False, *, connect: bool = True) -> None:
         assert not cls.__initializing, 'Circular env initialization detected.'
         cls.__initializing = True
         if cls._instance is not None:
@@ -179,8 +183,9 @@ class Env:
         cls._instance = None
         env = Env()
         try:
-            env._set_up(reinit_db=reinit_db)
-            env._upgrade_metadata()
+            env._set_up()
+            if connect or reinit_db:
+                env._connect(reinit_db=reinit_db)
             cls._instance = env
         finally:
             # Reset the initializing flag, even if setup fails.
@@ -218,6 +223,9 @@ class Env:
         self._resource_pool_info = {}
         self._resource_pool_lock = threading.Lock()
         self._dbms = None
+        self._db_lock = threading.RLock()
+        self._db_connected = False
+        self._db_connecting = False
 
         # Maps a table's id to the catalog uri it belongs to ('' for the in-process catalog). Populated whenever
         # a table is materialized, so a ColumnRef can resolve its table against the right catalog. Lives here
@@ -228,6 +236,7 @@ class Env:
 
     @property
     def db_url(self) -> str:
+        self._connect()
         assert self._db_url is not None
         return self._db_url
 
@@ -276,6 +285,7 @@ class Env:
 
     @property
     def default_time_zone(self) -> ZoneInfo | None:
+        self._connect()
         return self._default_time_zone
 
     @default_time_zone.setter
@@ -309,12 +319,13 @@ class Env:
 
     @property
     def dbms(self) -> Dbms:
+        self._connect()
         assert self._dbms is not None
         return self._dbms
 
     @property
     def is_local(self) -> bool:
-        assert self._db_url is not None  # is_local should be called only after db initialization
+        self._connect()
         return self._db_server is not None
 
     def is_notebook(self) -> bool:
@@ -353,7 +364,8 @@ class Env:
             tz_name = tzlocal.get_localzone_name()
         return tz_name
 
-    def _set_up(self, echo: bool = False, reinit_db: bool = False) -> None:
+    def _set_up(self) -> None:
+        """Set up everything but the database, which _connect() starts."""
         if self._initialized:
             return
 
@@ -492,9 +504,26 @@ class Env:
         self._managed_logging_handlers.append((uvicorn_logger, fh))
 
         self.clear_tmp_dir()
-        tz_name = self._get_tz_name()
+        self._set_up_runtime()
 
-        # configure pixeltable database
+    def _connect(self, echo: bool = False, reinit_db: bool = False) -> None:
+        """Start or connect to the database, create its metadata and upgrade it. Idempotent."""
+        if self._db_connected:
+            return
+        with self._db_lock:
+            # the steps below read the db properties, which call back in here on this thread
+            if self._db_connected or self._db_connecting:
+                return
+            self._db_connecting = True
+            try:
+                self._connect_db(echo, reinit_db)
+                self._db_connected = True
+            finally:
+                self._db_connecting = False
+
+    def _connect_db(self, echo: bool, reinit_db: bool) -> None:
+        config = Config.get()
+        tz_name = self._get_tz_name()
         self._init_db(config)
 
         if reinit_db and not self.is_local:
@@ -524,10 +553,9 @@ class Env:
         # Create catalog tables and system metadata
         self._init_metadata()
 
-        self.console_logger.info(f'Connected to Pixeltable database at: {self.redacted_db_url}')
+        self._upgrade_metadata()
 
-        # we now have a home directory and db; start other services
-        self._set_up_runtime()
+        self.console_logger.info(f'Connected to Pixeltable database at: {self.redacted_db_url}')
 
     def _init_db(self, config: Config) -> None:
         """
@@ -1013,6 +1041,7 @@ class Env:
     @property
     def pgdata_dir(self) -> Path | None:
         """Data directory of the embedded Postgres server; None when Pixeltable uses an external database."""
+        self._connect()
         return self._pgdata_dir
 
     @property
@@ -1055,6 +1084,7 @@ class Env:
 
     @property
     def engine(self) -> sql.engine.base.Engine:
+        self._connect()
         assert self._sa_engine is not None
         return self._sa_engine
 

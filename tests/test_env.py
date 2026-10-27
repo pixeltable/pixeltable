@@ -176,6 +176,28 @@ class TestEnvReset:
         assert result[0]['amount_doubled'] == 300.0
 
 
+class TestLazyDb:
+    def test_get_starts_no_database(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Env.get() leaves the database alone; the first use of it connects, once."""
+        reset_runtime()
+        Env.get()._clean_up()
+        monkeypatch.setattr(Env, '_instance', None)
+        connects: list[Env] = []
+        connect_db = Env._connect_db
+
+        def counting_connect_db(self: Env, echo: bool, reinit_db: bool) -> None:
+            connects.append(self)
+            connect_db(self, echo, reinit_db)
+
+        monkeypatch.setattr(Env, '_connect_db', counting_connect_db)
+        env = Env.get()
+        assert env.media_dir.is_dir()
+        assert connects == []
+        assert pxt.list_tables() is not None
+        _ = env.engine
+        assert connects == [env]
+
+
 class TestTmpDir:
     def test_shared_home(self, uses_db: None) -> None:
         """A process that starts on a shared home removes only the tmp files of processes that have exited."""

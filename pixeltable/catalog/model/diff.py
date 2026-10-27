@@ -316,17 +316,17 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
     Analyze each registered model against the current catalog state, summarizing the schema changes that creating
     the models would entail, along with any incompatibilities with an already-existing table of the same name.
     This is purely informational: it neither modifies the catalog nor raises on incompatibilities.
-    All metadata reads happen in a single transaction, and each diff's tbl_id and schema_versions record the catalog
-    state it was computed against.
+    In a local catalog, all metadata reads happen in a single transaction. Each diff's tbl_id and schema_versions
+    record the catalog state it was computed against.
     """
     import pixeltable as pxt
 
     from ..catalog import retry_loop
     from .definition import BtreeIndex
 
+    is_local = catalog.Path.parse(catalog_dir.rstrip('/'), allow_empty_path=True).is_local
     catalog_dir = catalog.Path.dir_prefix(catalog_dir)
 
-    @retry_loop(for_write=False)
     def op() -> dict[str, TableDiff]:
         results: dict[str, TableDiff] = {}
 
@@ -573,7 +573,9 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
 
         return results
 
-    return op()
+    # a hosted catalog answers each read in its own daemon, so a local transaction around them would only start the
+    # local database
+    return retry_loop(for_write=False)(op)() if is_local else op()
 
 
 def _drop_index_change(idx_md: IndexMetadata, action: str) -> SchemaChangeOp:
