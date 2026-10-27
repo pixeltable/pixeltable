@@ -3,7 +3,14 @@ import pytest
 import pixeltable as pxt
 from tests.functions.tool_utils import run_tool_invocations_test
 
-from ..utils import rerun_on_network_error, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..conftest import SampleFileServer
+from ..utils import (
+    SAMPLE_IMAGE_FILE_PATH,
+    rerun_on_network_error,
+    skip_test_if_no_client,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
@@ -30,6 +37,27 @@ class TestOpenLLM:
         result = t.collect()
         assert 'paris' in result['chat_output'][0]['choices'][0]['message']['content'].lower()
         assert 'paris' in result['chat_output_2'][0]['choices'][0]['message']['content'].lower()
+
+    def test_vision(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openllm')
+        from pixeltable.functions.openllm import chat_completions
+
+        t = pxt.create_table('test_tbl', {'image': pxt.Image | None})
+        msgs = [
+            {
+                'role': 'user',
+                'content': [
+                    {'type': 'text', 'text': "What's in this image?"},
+                    {'type': 'image_url', 'image_url': t.image},
+                ],
+            }
+        ]
+        t.add_computed_column(response=chat_completions(msgs, model='plus'))
+
+        validate_update_status(t.insert(image=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH)), 1)
+        result = t.collect()
+        assert 'broccoli' in result['response'][0]['choices'][0]['message']['content'].lower()
 
     def test_tool_invocations(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')

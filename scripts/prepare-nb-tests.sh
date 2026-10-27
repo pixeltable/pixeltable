@@ -3,6 +3,7 @@
 # Notebooks that are always skipped
 SKIP_NOTEBOOKS=(
     llm-tool-calling                # Relies on the user separately running an MCP server
+    working-with-openllm            # Relies on the user separately running an OpenLLM daemon
     video-generate-ai               # Its Veo models are shut down; generate_videos() doesn't support Gemini Omni yet
     working-with-bfl                # [PXT-1111] Out of credits
     working-with-fabric             # [PXT-1113] Requires Microsoft Fabric environment
@@ -39,7 +40,6 @@ VERY_EXPENSIVE_NOTEBOOKS=(
     working-with-jina
     working-with-mistralai
     working-with-nebius
-    working-with-openllm
     working-with-openrouter
     working-with-voyageai
 )
