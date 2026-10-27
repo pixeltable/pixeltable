@@ -19,7 +19,7 @@ class QueryTemplateFunction(Function):
     template_query: 'QueryBase' | None
     self_name: str | None
     return_scalar: bool
-    single_row: bool
+    single_row: bool  # if False, the return type is a list
     _comment: str | None
 
     @classmethod
@@ -191,8 +191,8 @@ def query(*args: Any, **kwargs: Any) -> Any:
     `pxt.tools()` and as an HTTP endpoint through `FastAPIRouter.add_query_route()`.
 
     The result of a call depends on the shape of the query. A query returns at most one row if it aggregates without
-    `group_by()` or has `limit(1)` (note: `limit(n)` always returns a list);
-    otherwise it returns multiple rows.
+    `group_by()` or has `limit(1)`; otherwise it returns multiple rows.
+    Only a literal `limit(1)` counts: `limit(n)` with a parameter returns multiple rows, even when `n` is 1.
 
     - Multiple rows, selecting a single unnamed expression, as in `select(t.text)`: a list of values.
     - Multiple rows, with any other select list: a list of dicts, one per row, with the selected column names as keys.
