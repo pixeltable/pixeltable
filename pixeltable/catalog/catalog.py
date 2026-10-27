@@ -1872,7 +1872,6 @@ class Catalog(CatalogBase):
             )
 
         else:
-            assert is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
             return self._create_view(
                 path=path,
                 base=base._first_tbl,

@@ -484,12 +484,11 @@ class Query(QueryBase):
         tvps = self._from_clause.tvps
         has_operational_tbl = any(not tbl.tbl_version.get().is_data_versioned for tbl in tvps)
         if has_operational_tbl:
-            # For now, we only support queries of the simplest form on operational tables
+            # Only single-table queries without grouping are supported for now.
             assert len(self._from_clause.tbls) == 1, 'TODO: implement for operational tables [PXT-1101]'
             assert len(self._from_clause.join_clauses) == 0, 'TODO: implement for operational tables [PXT-1101]'
             assert self.grouping_tbl_key is None, 'TODO: implement for operational tables [PXT-1101]'
             assert self.group_by_clause is None, 'TODO: implement for operational tables [PXT-1101]'
-            assert self.sample_clause is None, 'TODO: implement for operational tables [PXT-1101]'
 
         # construct a group-by clause if we're grouping by a table
         group_by_clause = self.group_by_clause

@@ -40,6 +40,8 @@ class StoreBase:
     * v_min (data-versioned tables only): the table version at which the row was inserted
     * v_max (data-versioned tables only): the table version at which the row was deleted. A row is live at version V
       when v_min <= V < v_max.
+    * xact_id (operational tables only): transaction marker used to propagate writes to views
+    * is_insert (operational tables only): distinguishes inserted rows from updated rows within xact_id
     * col_0, ..., col_N: user columns, i.e. all stored catalog columns, including cellmd columns, index value and undo
       columns.
 
@@ -55,7 +57,7 @@ class StoreBase:
     * system columns:
 
       * data-versioned tables: rowid, pos_0, ..., pos_N, v_min, v_max
-      * operational tables: rowid, pos_0, ..., pos_N
+      * operational tables: rowid, pos_0, ..., pos_N, xact_id, is_insert
     """
 
     tbl_version: catalog.TableVersionHandle
@@ -65,10 +67,8 @@ class StoreBase:
     # v_min_col and v_max_col exist only on data-versioned tables
     v_min_col: sql.Column | None
     v_max_col: sql.Column | None
-
-    # We need to declare a `base` variable here, even though it's only defined for instances of `StoreView`,
-    # since it's referenced by various methods of `StoreBase`
-    _base: StoreBase | None
+    xact_id_col: sql.Column | None
+    is_insert_col: sql.Column | None
 
     # In my cursory experiments this was the optimal batch size: it was an improvement over 5_000 and there was no real
     # benefit to going higher.
@@ -81,19 +81,14 @@ class StoreBase:
         self.sa_tbl = None
         self._pk_cols = []
 
-        # we initialize _base lazily, because the base may not exist anymore at this point
-        # (but we might still need sa_table to access our store table); do this before create_sa_tbl()
-        self._base = None
-
         # we're passing in tbl_version to avoid a circular call to TableVersionHandle.get()
         self.create_sa_tbl(tbl_version)
 
     @property
     def base(self) -> StoreBase | None:
-        if self._base is None:
-            tv = self.tbl_version.get()
-            self._base = tv.base.get().store_tbl if tv.base is not None else None
-        return self._base
+        # Resolve lazily: a base may have been dropped, or reloaded after a failed transaction.
+        tv = self.tbl_version.get()
+        return tv.base.get().store_tbl if tv.base is not None else None
 
     @classmethod
     def storage_name(cls, tbl_id: UUID, is_view: bool) -> str:
@@ -102,7 +97,7 @@ class StoreBase:
     def system_columns(self) -> list[sql.Column]:
         if self.tbl_version.get().is_data_versioned:
             return [*self._pk_cols, self.v_max_col]
-        return self._pk_cols
+        return [*self._pk_cols, self.xact_id_col, self.is_insert_col]
 
     def pk_columns(self) -> list[sql.Column]:
         return self._pk_cols
@@ -134,7 +129,7 @@ class StoreBase:
                     'ORDER BY ordinal_position'
                 )
                 # System columns on a data-versioned table: rowid, [pos_0, pos_1, ...], v_min, v_max
-                # System columns on an operational table: rowid, [pos_0, pos_1, ...]
+                # System columns on an operational table: rowid, [pos_0, pos_1, ...], xact_id, is_insert
                 # System columns are always followed by at least one user column
                 col_names = [row[0] for row in conn.execute(sql.text(q)).fetchall()]
                 if len(col_names) == 0:
@@ -159,6 +154,7 @@ class StoreBase:
             rowid_cols = self._create_rowid_columns()
 
         if self.tbl_version.get().is_data_versioned:
+            self.xact_id_col = self.is_insert_col = None
             self.v_min_col = sql.Column('v_min', sql.BigInteger, nullable=False)
             self.v_max_col = sql.Column(
                 'v_max', sql.BigInteger, nullable=False, server_default=str(schema.Table.MAX_VERSION)
@@ -166,8 +162,19 @@ class StoreBase:
             self._pk_cols = [*rowid_cols, self.v_min_col]
             return [*self._pk_cols, self.v_max_col]
         else:
+            self.v_min_col = self.v_max_col = None
             self._pk_cols = rowid_cols
-            return rowid_cols
+            # txid_current() is the BIGINT form of pg_current_xact_id().
+            self.xact_id_col = sql.Column(
+                'xact_id', sql.BigInteger, nullable=False, server_default=sql.text('txid_current()')
+            )
+            self.is_insert_col = sql.Column('is_insert', sql.Boolean, nullable=False, server_default=sql.true())
+            return [*rowid_cols, self.xact_id_col, self.is_insert_col]
+
+    def changed_rows_clause(self) -> sql.ColumnElement[bool]:
+        """Rows written by the current transaction (operational tables only)."""
+        assert not self.tbl_version.get().is_data_versioned
+        return self.xact_id_col == sql.func.txid_current()
 
     def pk_constraint_name(self, tbl_version: catalog.TableVersion) -> str:
         """Name of the Postgres object enforcing the Pixeltable primary key."""
@@ -210,7 +217,7 @@ class StoreBase:
         # - speeds up ORDER BY rowid DESC
         # - allows filtering for a particular table version in index scan
         idx_name = f'sys_cols_idx_{tbl_version.id.hex}'
-        idxs.append(sql.Index(idx_name, *system_cols))
+        idxs.append(sql.Index(idx_name, *(system_cols if tbl_version.is_data_versioned else self._pk_cols)))
 
         if tbl_version.is_data_versioned:
             # v_min/v_max indices: speeds up base table scans needed to propagate a base table insert or delete
@@ -218,6 +225,8 @@ class StoreBase:
             idxs.append(sql.Index(idx_name, self.v_min_col, postgresql_using=Env.get().dbms.version_index_type))
             idx_name = f'vmax_idx_{tbl_version.id.hex}'
             idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
+        else:
+            idxs.append(sql.Index(f'xact_id_idx_{tbl_version.id.hex}', self.xact_id_col))
 
         extra_constraints: list[sql.Constraint] = []
         primary_index = [col for col in tbl_version.cols_by_id.values() if col.is_pk]
@@ -330,6 +339,15 @@ class StoreBase:
         if not self._store_tbl_exists():
             # run Create Table If Not Exists; we always need If Not Exists to avoid race conditions between concurrent
             # Pixeltable processes
+            if not self.tbl_version.get().is_data_versioned and self.base is not None:
+                # Resolve the base only when creating: reloading a dropped view must work after its base is gone.
+                self.sa_tbl.append_constraint(
+                    sql.ForeignKeyConstraint(
+                        [c.name for c in self.rowid_columns()[: len(self.base.rowid_columns())]],
+                        self.base.rowid_columns(),
+                        ondelete='CASCADE',
+                    )
+                )
             create_stmt = sql.schema.CreateTable(self.sa_tbl, if_not_exists=True).compile(dialect=postgres_dialect)
             self._exec_if_not_exists(str(create_stmt), wait_for_table=False)
         else:
@@ -592,7 +610,7 @@ class StoreBase:
                             rowid = (next(rowids),) if rowids is not None else row.pk[:-1]
                             pk = (*rowid, v_min)
                         else:
-                            pk = (uuid7(),)
+                            pk = row.pk if tbl_version.is_view else (uuid7(),)
                         assert len(pk) == len(self._pk_cols)
                         table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, pk)
                         num_excs += num_row_exc
@@ -684,7 +702,12 @@ class StoreBase:
 
     def _create_update_stmt(self, set_col_names: list[str]) -> sql.Update:
         pk_clause = sql.and_(*[c == self._bind_param(c) for c in self._pk_cols])
-        set_clause = {name: self._bind_param(self.sa_tbl.c[name]) for name in set_col_names}
+        set_clause: dict[str, sql.ColumnElement] = {
+            name: self._bind_param(self.sa_tbl.c[name]) for name in set_col_names
+        }
+        # An inserted row can be updated again before the combined propagation starts.
+        set_clause['is_insert'] = sql.case((self.changed_rows_clause(), self.is_insert_col), else_=sql.false())
+        set_clause['xact_id'] = sql.func.txid_current()
         return sql.update(self.sa_tbl).where(pk_clause).values(set_clause)
 
     def update_rows(
@@ -716,13 +739,8 @@ class StoreBase:
         assert len(set_col_idxs) == len(set_col_names), (store_col_names, set_col_names)
         param_idxs = [*range(num_pk_cols), *set_col_idxs]
         bind_param_names = [self._update_bind_name(store_col_names[i]) for i in param_idxs]
-        # stmt can be None if the plan does not actually update anything in the store.
-        # But we still want to execute it:
-        # - exec_plan records which rows matched for `if_not_exists`
-        # - for row counts
-        # - for returned rows
-        # This is a legitimate use case that is supported by data-versioned tables.
-        stmt = self._create_update_stmt([store_col_names[i] for i in set_col_idxs]) if len(set_col_idxs) > 0 else None
+        # Even a view with no recomputed columns must mark surviving rows during membership changes.
+        stmt = self._create_update_stmt([store_col_names[i] for i in set_col_idxs])
 
         table_rows: list[list[Any]] = []
         bind_params: list[dict[str, Any]] = []
@@ -730,8 +748,7 @@ class StoreBase:
 
         def flush() -> None:
             nonlocal table_rows, bind_params
-            if stmt is not None:
-                self._sql_update(stmt, bind_params)
+            self._sql_update(stmt, bind_params)
             if return_rows:
                 updated_rows.extend(row_builder.create_output_rows(table_rows=table_rows, has_pk=True))
             if progress_reporter is not None:
@@ -819,8 +836,9 @@ class StoreBase:
         assert not self.tbl_version.get().is_data_versioned
         where_clause = sql.true() if where_clause is None else where_clause
         rowid_join_clause = self._rowid_join_predicate()
-        assert rowid_join_clause.compare(sql.true()), 'TODO: implement for operational tables [PXT-1101]'
         conn = get_runtime().conn
+        if self.base is not None:
+            where_clause = sql.exists(sql.select(1).where(where_clause).where(rowid_join_clause).correlate(self.sa_tbl))
         stmt = sql.delete(self.sa_tbl).where(where_clause)
         log_explain(_logger, stmt, conn)
         return conn.execute(stmt).rowcount

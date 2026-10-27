@@ -308,12 +308,12 @@ class SqlNode(ExecNode):
             stmt: stmt to add From clause to
             materialized_exprs: list of exprs that reference tables in the join chain; if empty, include only the root
             created_at_current_version: set of table ids for which we only want to see rows created at the current
-              version
+              version (data-versioned) or written by the current transaction (operational)
             deleted_at_current_version: set of table ids for which we only want to see rows deleted (expired) at the
               current version
             exclude_deleted_at_current_version: a table that is not part of tbl's join chain and contributes no
               columns; rows of tbl's table that have a corresponding row (identified by rowid) in it deleted at its
-              current version are excluded
+              current version are excluded; for an operational view, exclude its currently existing rows
         Returns:
             augmented stmt
         """
@@ -328,16 +328,14 @@ class SqlNode(ExecNode):
         assert len(candidates) > 0
         is_data_versioned = candidates[0].get().is_data_versioned
         if not is_data_versioned:
-            assert len(created_at_current_version) == 0
             assert len(deleted_at_current_version) == 0
-            assert exclude_deleted_at_current_version is None
         joined_tbls: list[catalog.TableVersionHandle] = [candidates[0]]
         for t in candidates[1:]:
             # the tables in the path must either all be data-versioned or not
             assert t.get().is_data_versioned == is_data_versioned
             # a data-versioned table has to be joined even if nothing references its columns, in order to apply the
             # version predicate (= select only visible rows)
-            if is_data_versioned or t.id in refd_tbl_ids:
+            if is_data_versioned or t.id in refd_tbl_ids or t.id in created_at_current_version:
                 joined_tbls.append(t)
 
         first = True
@@ -359,7 +357,9 @@ class SqlNode(ExecNode):
             if t.id in deleted_at_current_version:
                 stmt = stmt.where(tv.store_tbl.v_max_col == tv.version)
             elif t.id in created_at_current_version:
-                stmt = stmt.where(tv.store_tbl.v_min_col == tv.version)
+                stmt = stmt.where(
+                    tv.store_tbl.v_min_col == tv.version if is_data_versioned else tv.store_tbl.changed_rows_clause()
+                )
             elif is_data_versioned:
                 stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_min <= tv.version)
 
@@ -374,13 +374,14 @@ class SqlNode(ExecNode):
             # the exclusion is implemented as (exclude_deleted_at_current_version is always a view):
             #   LEFT OUTER JOIN view ON view.rowid = tbl.rowid AND view.v_max = :v_max_1
             #   WHERE ... AND view.rowid IS NULL
+            # An operational view uses the same anti-join without the version predicate.
             excluded_tv = exclude_deleted_at_current_version.get()
             excluded_rowid_cols = excluded_tv.store_tbl.rowid_columns()
             path_rowid_cols = tbl.tbl_version.get().store_tbl.rowid_columns()
-            assert len(excluded_rowid_cols) == len(path_rowid_cols)
+            assert len(excluded_rowid_cols) >= len(path_rowid_cols)
             on_clause = sql.and_(
                 *[c1 == c2 for c1, c2 in zip(excluded_rowid_cols, path_rowid_cols)],
-                excluded_tv.store_tbl.v_max_col == excluded_tv.version,
+                excluded_tv.store_tbl.v_max_col == excluded_tv.version if is_data_versioned else sql.true(),
             )
             stmt = stmt.join(excluded_tv.store_tbl.sa_tbl, onclause=on_clause, isouter=True).where(
                 excluded_rowid_cols[0].is_(None)
@@ -538,6 +539,7 @@ class SqlScanNode(SqlNode):
         created_at_current_version: list[catalog.TableVersionHandle] | None = None,
         deleted_at_current_version: list[catalog.TableVersionHandle] | None = None,
         exclude_deleted_at_current_version: catalog.TableVersionHandle | None = None,
+        additional_where_clause: sql.ColumnElement | None = None,
     ):
         sql_elements = exprs.SqlElementCache()
         super().__init__(
@@ -558,9 +560,12 @@ class SqlScanNode(SqlNode):
         self.created_at_current_version = created_at_current_version
         self.deleted_at_current_version = deleted_at_current_version
         self.exclude_deleted_at_current_version = exclude_deleted_at_current_version
+        self.additional_where_clause = additional_where_clause
 
     def _create_stmt(self) -> sql.Select:
         stmt = super()._create_stmt()
+        if self.additional_where_clause is not None:
+            stmt = stmt.where(self.additional_where_clause)
         where_clause_tbl_ids = self.where_clause.tbl_ids() if self.where_clause is not None else set()
         refd_tbl_ids = exprs.Expr.list_tbl_ids(self.select_list) | where_clause_tbl_ids | self._ordering_tbl_ids()
         stmt = self.create_from_clause(
@@ -760,7 +765,9 @@ class SqlSampleNode(SqlNode):
         assert isinstance(input, SqlNode)
         self.input_cte, input_col_map = input.to_cte(keep_pk=True)
         self.pk_count = input.num_pk_cols
-        assert self.pk_count > 1
+        assert input.tbl is not None
+        self.rowid_count = len(input.tbl.tbl_version.get().store_tbl.rowid_columns())
+        assert self.rowid_count > 0
         sql_elements = exprs.SqlElementCache(input_col_map)
         assert sql_elements.contains_all(stratify_exprs)
         cell_md_col_refs = [cell_md_ref.col_ref for cell_md_ref in input.cell_md_refs]
@@ -797,7 +804,8 @@ class SqlSampleNode(SqlNode):
 
     def _create_key_sql(self, cte: sql.CTE) -> sql.ColumnElement:
         """Create an expression for randomly ordering rows with a given seed"""
-        rowid_cols = [*cte.c[-self.pk_count : -1]]  # exclude the version column
+        input_rowid_cols = list(self.input_cte.c)[-self.pk_count :][: self.rowid_count]
+        rowid_cols = [cte.c[c.key] for c in input_rowid_cols]
         assert len(rowid_cols) > 0
         if self.sample_clause.seed is not None:
             # explicit seed: same value across executes, fine to inline
@@ -827,7 +835,8 @@ class SqlSampleNode(SqlNode):
                 # Construct a suitable where clause
                 fraction_md5 = SampleClause.fraction_to_md5_hex(self.sample_clause.fraction)
                 order_by = self._create_key_sql(self.input_cte)
-                return sql.select(*self.input_cte.c).where(s_key < fraction_md5).order_by(order_by)
+                stmt = sql.select(*self.input_cte.c).where(s_key < fraction_md5)
+                return stmt if self.row_builder.for_view_load else stmt.order_by(order_by)
 
             return self._create_stmt_stratified_fraction(self.sample_clause.fraction)
         else:

@@ -1,5 +1,6 @@
 import datetime
 import logging
+import pathlib
 import re
 from typing import Any, Callable
 
@@ -46,6 +47,11 @@ def tracked(x: int) -> int:
     return x * 10
 
 
+@pxt.udf
+def positive_or_null(x: int | None) -> bool | None:
+    return None if x is None else x > 0
+
+
 class TestView:
     """
     TODO:
@@ -54,9 +60,9 @@ class TestView:
 
     """
 
-    def create_tbl(self, p: Callable[[str], str] = lambda name: name) -> pxt.Table:
+    def create_tbl(self, p: Callable[[str], str] = lambda name: name, is_data_versioned: bool = True) -> pxt.Table:
         """Create table with computed columns"""
-        t = create_test_tbl(p('test_tbl'))
+        t = create_test_tbl(p('test_tbl'), is_data_versioned=is_data_versioned)
         t.add_computed_column(d1=t.c3 - 1)
         # add column that can be updated
         t.add_column(c10=pxt.Float | None)
@@ -141,14 +147,14 @@ class TestView:
         assert v1b.list_views() == []
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
-    def test_basic(self, do_reload_catalog: bool, db_root: DatabaseRoot) -> None:
+    def test_basic(self, do_reload_catalog: bool, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
 
         def loc(path: str) -> str:
             """Localized version of p(path), without the pxt://org:db/ prefix"""
             return pxt.catalog.Path.localize(p(path))
 
-        t = self.create_tbl(p)
+        t = self.create_tbl(p, is_data_versioned=is_data_versioned)
 
         # create view with filter and computed columns
         schema: dict[str, Any] = {'v1': t.c3 * 2.0, 'v2': t.c6.f5}
@@ -240,10 +246,12 @@ class TestView:
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="Invalid spec for column 'v1'"):
             _ = pxt.create_view(p('lambda_view'), t, additional_columns={'v1': lambda c3: c3 * 2.0})  # type: ignore[dict-item]
 
-    def test_create_if_exists(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+    def test_create_if_exists(
+        self, db_root: DatabaseRoot, reload_tester: ReloadTester, is_data_versioned: bool
+    ) -> None:
         """Test if_exists parameter of create_view API"""
         p = db_root.make_catalog_path
-        t = self.create_tbl(p)
+        t = self.create_tbl(p, is_data_versioned=is_data_versioned)
         v = pxt.create_view(p('test_view'), t)
         id_before = v._id
 
@@ -295,7 +303,7 @@ class TestView:
         assert p('test_view_on_view') not in pxt.list_tables(p(''))
 
         # scenario 3: path exists but is not a view
-        _ = pxt.create_table(p('not_view'), {'c1': pxt.String | None})
+        _ = pxt.create_table(p('not_view'), {'c1': pxt.String | None}, _is_data_versioned=is_data_versioned)
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='is an existing table'):
             pxt.create_view(p('not_view'), t)
         # if_exists='ignore' should fail because existing object is not a view
@@ -308,11 +316,11 @@ class TestView:
             assert p('not_view') in pxt.list_tables(p(''))
             # setup for next iteration: drop view and recreate table
             pxt.drop_table(p('not_view'))
-            _ = pxt.create_table(p('not_view'), {'c1': pxt.String | None})
+            _ = pxt.create_table(p('not_view'), {'c1': pxt.String | None}, _is_data_versioned=is_data_versioned)
 
         # scenario 4: view exists but with a different base table
         pxt.drop_table(p('not_view'))
-        other_base = pxt.create_table(p('other_base'), {'c1': pxt.String | None})
+        other_base = pxt.create_table(p('other_base'), {'c1': pxt.String | None}, _is_data_versioned=is_data_versioned)
         _ = pxt.create_view(p('view_with_base'), t)
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
             _ = pxt.create_view(p('view_with_base'), other_base, if_exists='ignore')
@@ -322,7 +330,9 @@ class TestView:
         _ = reload_tester.run_query(v3.select().order_by(v3.c2))
         reload_tester.run_reload_test()
 
-    def test_add_column_to_view(self, test_tbl: pxt.Table, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+    def test_add_column_to_view(
+        self, test_tbl: pxt.Table, db_root: DatabaseRoot, reload_tester: ReloadTester, is_data_versioned: bool
+    ) -> None:
         """Test add_column* methods for views"""
         p = db_root.make_catalog_path
         t = test_tbl
@@ -440,7 +450,9 @@ class TestView:
             with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=expected_err):
                 v.add_computed_column(**{col_name: 'bbb'}, if_exists='replace')
 
-    def test_case_insensitive_view_columns(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+    def test_case_insensitive_view_columns(
+        self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool
+    ) -> None:
         """A view's own column names fold, and shadowing of a base column is decided on the folded name."""
         p = db_root.make_catalog_path
         t = test_tbl
@@ -460,10 +472,10 @@ class TestView:
         row = v.order_by(v.C1).select(v.C1, v.DERIVED).collect()[0]
         assert row['derived'] == row['c1'] + '!'
 
-    def test_parallel_views(self, db_root: DatabaseRoot) -> None:
+    def test_parallel_views(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Two views over the same base table, with non-overlapping filters"""
         p = db_root.make_catalog_path
-        t = self.create_tbl(p)
+        t = self.create_tbl(p, is_data_versioned=is_data_versioned)
 
         # create view with filter and computed columns
         v1 = pxt.create_view(p('v1'), t.where(t.c2 < 10), additional_columns={'v1': t.c3 * 2})
@@ -766,9 +778,9 @@ class TestView:
         logger.debug('******************* POST UPDATE INT2')
         check_views()
 
-    def test_selected_cols(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+    def test_selected_cols(self, db_root: DatabaseRoot, reload_tester: ReloadTester, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t = self.create_tbl(p)
+        t = self.create_tbl(p, is_data_versioned=is_data_versioned)
 
         # Note that v1.c3 overrides t.c3, but both are accessible
         schema: dict[str, Any] = {'v1': {'value': t.c2, 'stored': True}}
@@ -804,8 +816,9 @@ class TestView:
         assert res._col_names == ['foo2']
 
         # Test a snapshot over views with selected columns
-        snap = pxt.create_snapshot(p('test_snap'), v3)
-        reload_tester.run_query(snap.order_by(v2.c2).limit(5))
+        if is_data_versioned:
+            snap = pxt.create_snapshot(p('test_snap'), v3)
+            reload_tester.run_query(snap.order_by(v2.c2).limit(5))
 
         res = reload_tester.run_query(v1.select().order_by(v1.c2).limit(5))
         assert res._col_names == ['c2', 'col_1', 'foo', 'bar', 'c3', 'v1', 'bar2']
@@ -820,12 +833,14 @@ class TestView:
         with pytest.raises(AttributeError, match='Unknown column: c1'):
             _ = v1.select(v1.c1).head(5)
 
-    def test_query_base_col(self, db_root: DatabaseRoot) -> None:
+    def test_query_base_col(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         # A view's own column and an inherited base column can share the same internal column id (each table
         # numbers its columns from 0). Selecting both through the view must keep them distinct rather than
         # collapsing them into a single result column.
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('base_t'), {'c0': pxt.Int | None, 'c1': pxt.Int | None})
+        t = pxt.create_table(
+            p('base_t'), {'c0': pxt.Int | None, 'c1': pxt.Int | None}, _is_data_versioned=is_data_versioned
+        )
         t.insert([{'c0': i, 'c1': i * 10} for i in range(5)])
         v = pxt.create_view(p('v'), t, additional_columns={'v0': t.c0 + 100})
 
@@ -834,9 +849,9 @@ class TestView:
         assert all(row['v0'] == row['c0'] + 100 for row in res)
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
-    def test_computed_cols(self, do_reload_catalog: bool, db_root: DatabaseRoot) -> None:
+    def test_computed_cols(self, do_reload_catalog: bool, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t = self.create_tbl(p)
+        t = self.create_tbl(p, is_data_versioned=is_data_versioned)
 
         # create view with computed columns
         schema: dict[str, Any] = {'v1': t.c3 * 2.0, 'v2': t.c6.f5}
@@ -870,9 +885,9 @@ class TestView:
         assert_resultset_eq(v.select(v.v1).order_by(v.c2).collect(), t.select(t.c3 * 2.0).order_by(t.c2).collect())
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
-    def test_filter(self, do_reload_catalog: bool, db_root: DatabaseRoot) -> None:
+    def test_filter(self, do_reload_catalog: bool, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t = create_test_tbl(p('test_tbl'))
+        t = create_test_tbl(p('test_tbl'), is_data_versioned=is_data_versioned)
 
         # create view with filter
         v = pxt.create_view(p('test_view'), t.where(t.c2 < 10))
@@ -1364,14 +1379,16 @@ class TestView:
             specific_version_1 = pxt.get_table(p(f'dir/test_view_{i}:1'))
             assert_resultset_eq(specific_version_1.order_by(specific_version_1.c1).collect(), updated_rs)
 
-    def test_column_defaults(self, db_root: DatabaseRoot) -> None:
+    def test_column_defaults(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """
         Test that during insert() manually-supplied columns are materialized with their defaults and can be referenced
         in computed columns.
         """
         p = db_root.make_catalog_path
         # TODO: use non-None default values once we have them
-        t = pxt.create_table(p('table_1'), {'id': pxt.Int | None, 'json_0': pxt.Json | None})
+        t = pxt.create_table(
+            p('table_1'), {'id': pxt.Int | None, 'json_0': pxt.Json | None}, _is_data_versioned=is_data_versioned
+        )
         # computed column depends on nullable non-computed column json_0
         t.add_computed_column(computed_0=t.json_0.a)
         validate_update_status(t.insert(id=0, json_0={'a': 'b'}), expected_rows=1)
@@ -1391,9 +1408,9 @@ class TestView:
         # computed view column for new row is null
         assert v.where(v.computed_1 == None).count() == 1
 
-    def test_drop_base_column(self, db_root: DatabaseRoot) -> None:
+    def test_drop_base_column(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t = self.create_tbl(p)
+        t = self.create_tbl(p, is_data_versioned=is_data_versioned)
         # create view with computed columns
         schema: dict[str, Any] = {'v1': t.c3 * 2.0, 'v2': t.c6.f5}
         v1 = pxt.create_view(p('test_view1'), t, additional_columns=schema)
@@ -1410,9 +1427,9 @@ class TestView:
         # drop view's own column - allowed
         v1.drop_column(v1.v2)
 
-    def test_rename_base_column(self, db_root: DatabaseRoot) -> None:
+    def test_rename_base_column(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t = self.create_tbl(p)
+        t = self.create_tbl(p, is_data_versioned=is_data_versioned)
         schema: dict[str, Any] = {'v1': t.c3 * 2.0, 'v2': t.c6.f5}
         v1 = pxt.create_view(p('test_view1'), t, additional_columns=schema)
         v2 = pxt.create_view(p('test_view2'), v1)
@@ -1426,9 +1443,9 @@ class TestView:
         # should work
         v1.rename_column('v1', 'new_v1')
 
-    def test_update_base_column(self, db_root: DatabaseRoot) -> None:
+    def test_update_base_column(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t = self.create_tbl(p)
+        t = self.create_tbl(p, is_data_versioned=is_data_versioned)
         v1 = pxt.create_view(p('test_view1'), t, additional_columns={'v1': pxt.Int | None})
         v2 = pxt.create_view(p('test_view2'), v1, additional_columns={'v2': pxt.Int | None})
 
@@ -1447,10 +1464,12 @@ class TestView:
         v2.update({'v2': 102})
 
     @pytest.mark.parametrize('with_computed_col', [False, True], ids=['plain', 'computed'])
-    def test_update_changes_view_membership(self, with_computed_col: bool, db_root: DatabaseRoot) -> None:
+    def test_update_changes_view_membership(
+        self, with_computed_col: bool, db_root: DatabaseRoot, is_data_versioned: bool
+    ) -> None:
         """A base update that changes whether a row satisfies a view's filter adds it to / removes it from the view."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int | None}, _is_data_versioned=is_data_versioned)
         t.insert([{'n': 1}, {'n': 2}, {'n': 3}])
         if with_computed_col:
             v = pxt.create_view(p('view'), t.where(t.n > 1), additional_columns={'doubled': t.n * 2})
@@ -1468,11 +1487,13 @@ class TestView:
         if with_computed_col:
             assert sorted(r['doubled'] for r in v.collect()) == [4, 18]
 
-    def test_update_preserves_unaffected_view_columns(self, db_root: DatabaseRoot) -> None:
+    def test_update_preserves_unaffected_view_columns(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """A row that stays in a filtered view keeps the stored columns whose inputs didn't change, without
         recomputing them."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('tbl'), {'n': pxt.Int | None, 'other': pxt.Int | None})
+        t = pxt.create_table(
+            p('tbl'), {'n': pxt.Int | None, 'other': pxt.Int | None}, _is_data_versioned=is_data_versioned
+        )
         t.insert([{'n': 2, 'other': 1}, {'n': 3, 'other': 2}])
         v = pxt.create_view(p('view'), t.where(t.n > 1), additional_columns={'exp': tracked(t.other)})
         assert sorted(r['exp'] for r in v.collect()) == [10, 20]
@@ -1483,11 +1504,96 @@ class TestView:
         assert len(tracked_calls) == 0
         assert sorted(r['exp'] for r in v.collect()) == [10, 20]
 
-    def test_update_changes_view_membership_cascades(self, db_root: DatabaseRoot) -> None:
+    @pytest.mark.parametrize('python_predicate', [False, True])
+    def test_nullable_membership_and_manual_values(
+        self, db_root: DatabaseRoot, is_data_versioned: bool, python_predicate: bool
+    ) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int | None}, _is_data_versioned=is_data_versioned)
+        t.insert([{'n': 2}, {'n': None}])
+        predicate = positive_or_null(t.n) if python_predicate else t.n > 0
+        v = pxt.create_view(p('v'), t.where(predicate), additional_columns={'note': pxt.String | None})
+        child = pxt.create_view(p('child'), v, additional_columns={'derived': v.n * 10})
+        v.update({'note': 'keep'})
+        t.update({'n': 3}, where=t.n == 2)
+        assert list(v.select(v.n, v.note).collect()) == [{'n': 3, 'note': 'keep'}]
+        assert child.select(child.derived).collect()['derived'] == [30]
+        t.update({'n': None}, where=t.n == 3)
+        assert v.count() == child.count() == 0
+        t.update({'n': 4}, where=t.n == None)
+        assert v.select(v.note).collect()['note'] == [None, None]
+        assert child.select(child.derived).collect()['derived'] == [40, 40]
+
+    def test_batch_upsert_propagation(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('tbl'), {'id': pxt.Int, 'n': pxt.Int}, primary_key='id', _is_data_versioned=is_data_versioned
+        )
+        t.insert([{'id': 1, 'n': 2}])
+        v = pxt.create_view(p('v'), t, additional_columns={'computed': tracked(t.n), 'note': pxt.String | None})
+        v.update({'note': 'keep'})
+        child = pxt.create_view(p('child'), v, additional_columns={'derived': v.computed + 1})
+        tracked_calls.clear()
+        status = t.batch_update([{'id': 1, 'n': 3}, {'id': 2, 'n': 4}], if_not_exists='insert', return_rows=True)
+        assert status.num_rows == 6
+        assert sorted(status.rows, key=lambda row: row['id']) == [{'id': 1, 'n': 3}, {'id': 2, 'n': 4}]
+        assert list(v.select(v.id, v.computed, v.note).order_by(v.id).collect()) == [
+            {'id': 1, 'computed': 30, 'note': 'keep'},
+            {'id': 2, 'computed': 40, 'note': None},
+        ]
+        assert child.select(child.derived).order_by(child.id).collect()['derived'] == [31, 41]
+        if db_root.id == 'local':
+            assert sorted(tracked_calls) == [3, 4]
+
+    def test_batch_upsert_cascade(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('tbl'), {'id': pxt.Int, 'n': pxt.Int}, primary_key='id', _is_data_versioned=is_data_versioned
+        )
+        t.insert(id=1, n=2)
+        v = pxt.create_view(p('v'), t, additional_columns={'doubled': t.n * 2})
+        intermediate = pxt.create_view(p('intermediate'), v)
+        child = pxt.create_view(p('child'), intermediate, iterator=simple_iterator(intermediate.doubled))
+        t.batch_update([{'id': 1, 'n': 3}, {'id': 2, 'n': 4}], if_not_exists='insert', cascade=False)
+        assert v.select(v.doubled).order_by(v.id).collect()['doubled'] == [4, 8]
+        assert child.where(child.id == 1).count() == 4
+        assert child.where(child.id == 2).count() == 8
+        t.batch_update([{'id': 1, 'n': 5}, {'id': 3, 'n': 6}], if_not_exists='insert')
+        assert child.where(child.id == 1).count() == 10
+        assert child.where(child.id == 3).count() == 12
+
+    def test_multibatch_insert_propagation(
+        self, db_root: DatabaseRoot, is_data_versioned: bool, tmp_path: pathlib.Path
+    ) -> None:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int}, _is_data_versioned=is_data_versioned)
+        v = pxt.create_view(p('v'), t, additional_columns={'doubled': t.n * 2})
+        iterator = pxt.create_view(p('iterator'), v, iterator=simple_iterator(v.n))
+        source = tmp_path / 'rows.parquet'
+        pq.write_table(pa.table({'n': [1, 2, 3]}), source, row_group_size=1)
+        status = t.insert(str(source), return_rows=True)
+        assert status.row_count_stats.ins_rows == 3
+        assert status.cascade_row_count_stats.ins_rows == 9
+        assert status.rows == [{'n': 1}, {'n': 2}, {'n': 3}]
+        assert v.select(v.doubled).order_by(v.n).collect()['doubled'] == [2, 4, 6]
+        assert iterator.count() == 6
+
+    def test_operational_view_restrictions(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int}, _is_data_versioned=False)
+        v = pxt.create_view(p('v'), t)
+        for base in (t, v):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='snapshot of an operational table'):
+                pxt.create_snapshot(p('snapshot'), base)
+
+    def test_update_changes_view_membership_cascades(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """A row entering or leaving a filtered view reaches the views on top of it, which have no filter of
         their own to detect the change."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int | None}, _is_data_versioned=is_data_versioned)
         t.insert([{'n': 1}, {'n': 2}, {'n': 3}])
         v1 = pxt.create_view(p('view1'), t.where(t.n > 1))
         v2 = pxt.create_view(p('view2'), v1, additional_columns={'own': v1.n * 10})
@@ -1503,7 +1609,7 @@ class TestView:
         assert sorted(r['own'] for r in v2.select(v2.own).collect()) == [20, 50]
 
         # multi-level cascade
-        t = pxt.create_table(p('tbl2'), {'n': pxt.Int | None})
+        t = pxt.create_table(p('tbl2'), {'n': pxt.Int | None}, _is_data_versioned=is_data_versioned)
         t.insert([{'n': 1}, {'n': 9}])
         v1 = pxt.create_view(p('view3'), t.where(t.n > 2))
         v2 = pxt.create_view(p('view4'), v1, additional_columns={'own': v1.n * 10})
@@ -1646,10 +1752,10 @@ class TestView:
                 additional_columns={'v1': {'type': pxt.Int | None, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
 
-    def test_noop_delete_of_base(self, db_root: DatabaseRoot) -> None:
+    def test_noop_delete_of_base(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """A base delete that matches no rows leaves the views on top of it alone."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('tbl'), {'n': pxt.Int})
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int}, _is_data_versioned=is_data_versioned)
         t.insert([{'n': 1}])
         # no columns and no filter of its own: an update of t leaves v untouched, so it stays at its old version
         v = pxt.create_view(p('v'), t)
@@ -1662,11 +1768,11 @@ class TestView:
         t.delete(where=t.n == 2)
         assert v.select(v.n).collect()['n'] == []
 
-    def test_base_update_propagation(self, db_root: DatabaseRoot) -> None:
+    def test_base_update_propagation(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Updating a base column reaches every view two levels below it, even when the view in between is
         unchanged."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('tbl'), {'n': pxt.Int, 'm': pxt.Int, 'k': pxt.Int})
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int, 'm': pxt.Int, 'k': pxt.Int}, _is_data_versioned=is_data_versioned)
         t.insert([{'n': 1, 'm': 1, 'k': 1}, {'n': 2, 'm': 2, 'k': 2}, {'n': 3, 'm': 3, 'k': 3}])
         # an update of m leaves v1 untouched
         v1 = pxt.create_view(p('v1'), t, additional_columns={'k2': t.k * 2})
@@ -1691,10 +1797,10 @@ class TestView:
         t.update({'m': 0}, where=t.n == 3)
         assert len(fv.collect()) == 0
 
-    def test_view_update_propagation(self, db_root: DatabaseRoot) -> None:
+    def test_view_update_propagation(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """An update of a view's own column reaches the views on top of it."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('tbl'), {'n': pxt.Int})
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int}, _is_data_versioned=is_data_versioned)
         t.insert([{'n': i} for i in (1, 2, 3)])
         # rows 1-3 predate t's current version
         t.insert([{'n': 4}])

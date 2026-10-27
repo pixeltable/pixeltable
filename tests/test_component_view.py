@@ -59,6 +59,20 @@ class constant_img_iterator(pxt.PxtIterator):
         self.next_frame_idx = pos
 
 
+iterator_calls: list[int] = []
+
+
+class TrackedRow(TypedDict):
+    value: int
+
+
+@pxt.iterator()
+def tracked_iterator(n: int) -> Iterator[TrackedRow]:
+    iterator_calls.append(n)
+    for i in range(n):
+        yield TrackedRow(value=i)
+
+
 class FloatRow(TypedDict):
     f: float
 
@@ -67,7 +81,7 @@ class FloatRow(TypedDict):
 def error_iterator(n: int, error_idx: int) -> Iterator[FloatRow]:
     for i in range(n):
         if i == error_idx:
-            raise ValueError('Intentional error in iterator')
+            raise pxt.UserError(pxt.ErrorCode.GENERIC_USER_ERROR, 'Intentional error in iterator')
         yield {'f': float(i)}
 
 
@@ -130,6 +144,30 @@ class PosHolder(TypedDict):
     Pos: int
 
 
+class UnstoredRow(TypedDict):
+    value: int
+
+
+@pxt.iterator(unstored_cols=['value'])
+class unstored_iterator(pxt.PxtIterator[UnstoredRow]):
+    def __init__(self, n: int) -> None:
+        self.n = n
+        self.i = 0
+
+    def __next__(self) -> UnstoredRow:
+        if self.i >= self.n:
+            raise StopIteration
+        row: UnstoredRow = {'value': self.i}
+        self.i += 1
+        return row
+
+    def close(self) -> None:
+        pass
+
+    def seek(self, pos: int, **kwargs: Any) -> None:
+        self.i = pos
+
+
 class CollidingRow(TypedDict):
     Foo: int
     foo: int
@@ -150,6 +188,26 @@ class colliding_iterator(pxt.PxtIterator):
 
 
 class TestComponentView:
+    def test_upsert_unchanged_empty_iterator(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('t'), {'id': pxt.Int, 'other': pxt.Int}, primary_key='id', _is_data_versioned=is_data_versioned
+        )
+        t.add_computed_column(n=t.id)
+        t.insert([{'id': 0, 'other': 1}, {'id': 2, 'other': 2}])
+        intermediate = pxt.create_view(p('intermediate'), t)
+        v = pxt.create_view(p('v'), intermediate, iterator=tracked_iterator(intermediate.n))
+        iterator_calls.clear()
+        t.batch_update([{'id': 0, 'other': 3}, {'id': 2, 'other': 4}, {'id': 3, 'other': 5}], if_not_exists='insert')
+        assert v.count() == 5
+        if db_root.id == 'local':
+            assert iterator_calls == [3]
+        iterator_calls.clear()
+        t.batch_update([{'id': 0, 'other': 6}, {'id': 2, 'other': 7}, {'id': 4, 'other': 8}], if_not_exists='insert')
+        assert v.count() == 9
+        if db_root.id == 'local':
+            assert iterator_calls == [4]
+
     @pytest.mark.skip(reason='surfaces a bug (DuplicateAlias)')
     def test_same_base_join(self, db_root: DatabaseRoot) -> None:
         # Two distinct component views over the same base, one live and one snapshotted, joined with both unstored
@@ -173,11 +231,11 @@ class TestComponentView:
         assert res['live'] == [90, 91, 92]
         assert res['pinned'] == [50, 51, 52]
 
-    def test_basic(self, db_root: DatabaseRoot) -> None:
+    def test_basic(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         # create video table
         p = db_root.make_catalog_path
         schema: dict[str, Any] = {'video': pxt.Video | None, 'angle': pxt.Int | None, 'other_angle': pxt.Int | None}
-        video_t = pxt.create_table(p('video_tbl'), schema)
+        video_t = pxt.create_table(p('video_tbl'), schema, _is_data_versioned=is_data_versioned)
         video_filepaths = get_test_video_files()
 
         # bad parameter type
@@ -222,10 +280,10 @@ class TestComponentView:
             assert len(result) > 0
             assert np.all(result['frame_idx'] == pd.Series(range(len(result))))
 
-    def test_add_column(self, db_root: DatabaseRoot) -> None:
+    def test_add_column(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         # create video table
         p = db_root.make_catalog_path
-        video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video | None})
+        video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video | None}, _is_data_versioned=is_data_versioned)
         video_filepaths = get_test_video_files()
         # create frame view
         view_t = pxt.create_view(p('test_view'), video_t, iterator=frame_iterator(video_t.video, fps=1))
@@ -242,10 +300,10 @@ class TestComponentView:
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: annotation'):
             view_t.add_column(annotation=pxt.Json)
 
-    def test_nondeterministic(self, db_root: DatabaseRoot) -> None:
+    def test_nondeterministic(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Test that a nondeterministic expr in a view column is recomputed for each row"""
         p = db_root.make_catalog_path
-        video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video | None})
+        video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video | None}, _is_data_versioned=is_data_versioned)
         video_filepaths = get_test_video_files()
         # Scenario 1: additional_columns
         view_t = pxt.create_view(
@@ -407,12 +465,12 @@ class TestComponentView:
         pxt.drop_table(view_path)
         pxt.drop_table(base_path)
 
-    def test_chained_views(self, db_root: DatabaseRoot) -> None:
+    def test_chained_views(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Component view followed by a standard view"""
         # create video table
         p = db_root.make_catalog_path
         schema: dict[str, Any] = {'video': pxt.Video | None, 'int1': pxt.Int | None, 'int2': pxt.Int | None}
-        video_t = pxt.create_table(p('video_tbl'), schema)
+        video_t = pxt.create_table(p('video_tbl'), schema, _is_data_versioned=is_data_versioned)
         video_filepaths = get_test_video_files()
 
         # create first view
@@ -540,10 +598,10 @@ class TestComponentView:
         # the second attempt succeeds
         _ = pxt.create_view(p('view'), t, iterator=error_iterator(t.i, 100))
 
-    def test_update_iterator_param(self, db_root: DatabaseRoot) -> None:
+    def test_update_iterator_param(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Updating a base table column used as an iterator parameter re-evaluates the iterator."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int | None}, _is_data_versioned=is_data_versioned)
         v = pxt.create_view(p('view'), t, iterator=simple_iterator(t.n, str_text='t'))
         t.insert([{'n': 5}])
 
@@ -558,10 +616,10 @@ class TestComponentView:
         scol_values = [row['scol'] for row in rows]
         assert scol_values == ['t 0', 't 1', 't 2', 't 3', 't 4', 't 5']
 
-    def test_update_changes_view_membership(self, db_root: DatabaseRoot) -> None:
+    def test_update_changes_view_membership(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """A base update that changes whether a row satisfies a component view's filter updates its component rows."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int | None}, _is_data_versioned=is_data_versioned)
         t.insert([{'n': 2}, {'n': 3}])
         v = pxt.create_view(p('view'), t.where(t.n > 2), iterator=simple_iterator(t.n))
         # only n=3 satisfies the filter, and it yields 3 component rows
@@ -575,10 +633,10 @@ class TestComponentView:
         t.update({'n': 1}, where=t.n == 3)
         assert len(v.collect()) == 4
 
-    def test_update_iterator_param_with_dependent_view(self, db_root: DatabaseRoot) -> None:
+    def test_update_iterator_param_with_dependent_view(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """A view on an iterator view also updates when the base iterator param changes."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int | None}, _is_data_versioned=is_data_versioned)
         v = pxt.create_view(p('iter_view'), t, iterator=simple_iterator(t.n, str_text='t'))
         # non-iterator child view: additional column references the parent iterator's scol output
         v2 = pxt.create_view(p('child_view'), v, additional_columns={'derived': v.scol + '_suffix'})
@@ -620,10 +678,67 @@ class TestComponentView:
         assert [r['scol'] for r in v3_rows] == ['s 0']
         assert [r['derived'] for r in v3_rows] == ['t 1_suffix']
 
-    def test_case_insensitive_iterator_outputs(self, db_root: DatabaseRoot) -> None:
+    @pytest.mark.parametrize('filter_on_parent', [False, True])
+    def test_membership_preserves_components(
+        self, db_root: DatabaseRoot, is_data_versioned: bool, filter_on_parent: bool
+    ) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('t'), {'id': pxt.Int, 'n': pxt.Int, 'active': pxt.Bool}, _is_data_versioned=is_data_versioned
+        )
+        t.insert([{'id': 1, 'n': 2, 'active': True}, {'id': 2, 'n': 3, 'active': False}])
+        parent = pxt.create_view(p('parent'), t.where(t.active) if filter_on_parent else t)
+        v = pxt.create_view(
+            p('v'),
+            parent if filter_on_parent else parent.where(parent.active),
+            iterator=tracked_iterator(parent.n),
+            additional_columns={'note': pxt.String | None},
+        )
+        child = pxt.create_view(p('child'), v)
+        v.update({'note': 'keep'})
+        iterator_calls.clear()
+        t.update({'active': True})
+        assert v.where(v.id == 1).collect()['note'] == ['keep', 'keep']
+        assert v.where(v.id == 2).collect()['note'] == [None] * 3
+        assert child.count() == 5
+        if db_root.id == 'local':
+            assert iterator_calls == [3]
+        t.update({'active': False}, where=t.id == 1)
+        assert v.count() == child.count() == 3
+
+    def test_propagation_rollback(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int}, _is_data_versioned=is_data_versioned)
+        t.insert([{'n': 1}])
+        v = pxt.create_view(p('v'), t, iterator=error_iterator(t.n, 2))
+        child = pxt.create_view(p('child'), v, additional_columns={'derived': v.f + 1})
+        before = [list(table.collect()) for table in (t, v, child)]
+        for operation in (lambda: t.update({'n': 4}), lambda: t.insert([{'n': 4}])):
+            with pxt_raises(pxt.ErrorCode.GENERIC_USER_ERROR, match='Intentional error in iterator'):
+                operation()
+            assert [list(table.collect()) for table in (t, v, child)] == before
+        t.update({'n': 2})
+        assert v.count() == child.count() == 2
+
+    def test_update_unstored_iterator(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('tbl'), {'id': pxt.Int, 'n': pxt.Int | None}, primary_key='id', _is_data_versioned=is_data_versioned
+        )
+        t.insert([{'id': 1, 'n': 1}])
+        v = pxt.create_view(p('v'), t, iterator=unstored_iterator(t.n))
+        child = pxt.create_view(p('child'), v, additional_columns={'derived': v.pos + 1})
+        for n in (3, 0, None, 2):
+            t.update({'n': n})
+            assert v.count() == child.count() == (n or 0)
+            assert child.select(child.derived).order_by(child.pos).collect()['derived'] == list(range(1, (n or 0) + 1))
+        t.batch_update([{'id': 1, 'n': 4}])
+        assert v.count() == child.count() == 4
+
+    def test_case_insensitive_iterator_outputs(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Iterator output names become view columns and fold."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('base'), {'n': pxt.Int})
+        t = pxt.create_table(p('base'), {'n': pxt.Int}, _is_data_versioned=is_data_versioned)
         t.insert([{'n': 3}])
         v = pxt.create_view(p('v'), t, iterator=mixed_case_iterator(n=t.n))
 

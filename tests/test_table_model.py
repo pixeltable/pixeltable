@@ -846,13 +846,15 @@ class TestTableModel:
         assert_resultset_eq(tbl.collect(), tbl2.collect())
 
     @pytest.mark.parametrize('root', ['', 'dir/subdir'])
-    def test_view_model(self, root: str, db_root: DatabaseRoot) -> None:
+    def test_view_model(self, root: str, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         skip_test_if_not_installed('imagehash')
 
         p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
-        class ExampleTableModel(TableModel, name='test_table', has_default_idxs=True):
+        class ExampleTableModel(
+            TableModel, name='test_table', has_default_idxs=True, _is_data_versioned=is_data_versioned
+        ):
             id: pxt.Int
             name: pxt.String | None
             value: pxt.Float | None
@@ -929,6 +931,7 @@ class TestTableModel:
             p(f'{prefix}test_table_2'),
             {'id': pxt.Int, 'name': pxt.String | None, 'value': pxt.Float | None, 'img': pxt.Image | None},
             has_default_idxs=True,
+            _is_data_versioned=is_data_versioned,
         )
         tbl2.add_computed_column(incr=tbl2.value + 1)
         tbl2.add_computed_column(descr=pxtf.string.format('Name: {name}', name=tbl2.name))
@@ -1031,14 +1034,14 @@ class TestTableModel:
             'zero sentence.',
         ]
 
-    def test_view_model_iterator_column_shadows_base(self, db_root: DatabaseRoot) -> None:
+    def test_view_model_iterator_column_shadows_base(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """An iterator output shadows a base column of the same name, so the model's text is the chunk text
         throughout: the column, the index declared on it, and queries against it."""
         skip_test_if_not_installed('spacy')
         p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
-        class ExampleTableModel(TableModel, name='test_table'):
+        class ExampleTableModel(TableModel, name='test_table', _is_data_versioned=is_data_versioned):
             id: pxt.Int
             text: pxt.String | None  # the document text; shadowed in the view by the iterator's text output
 
@@ -1094,13 +1097,13 @@ class TestTableModel:
                 additional_columns={'text': pxt.String | None},
             )
 
-    def test_view_model_with_iterator(self, db_root: DatabaseRoot) -> None:
+    def test_view_model_with_iterator(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         skip_test_if_not_installed('imagehash')
 
         p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
-        class ExampleTableModel(TableModel, name='test_table'):
+        class ExampleTableModel(TableModel, name='test_table', _is_data_versioned=is_data_versioned):
             id: pxt.Int
             name: pxt.String | None
             value: pxt.Float | None
@@ -1136,6 +1139,7 @@ class TestTableModel:
         tbl2 = pxt.create_table(
             p('test_table_2'),
             {'id': pxt.Int, 'name': pxt.String | None, 'value': pxt.Float | None, 'image': pxt.Image | None},
+            _is_data_versioned=is_data_versioned,
         )
 
         view2 = pxt.create_view(p('test_view_2'), tbl2, iterator=pxtf.image.tile_iterator(tbl2.image, (256, 256)))

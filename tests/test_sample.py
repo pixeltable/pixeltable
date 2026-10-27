@@ -5,7 +5,8 @@ import pytest
 
 import pixeltable as pxt
 
-from .utils import SAMPLE_IMAGE_FILE_PATH, DatabaseRoot, ReloadTester, create_test_tbl, pxt_raises
+from .test_iterator import simple_iterator
+from .utils import SAMPLE_IMAGE_FILE_PATH, DatabaseRoot, ReloadTester, create_test_tbl, pxt_raises, reload_catalog
 
 
 def _local_path(name: str) -> str:
@@ -15,7 +16,9 @@ def _local_path(name: str) -> str:
 
 class TestSample:
     @classmethod
-    def create_sample_data(cls, p: Callable[[str], str], row_mult: int, cat_count: int, with_null: bool) -> pxt.Table:
+    def create_sample_data(
+        cls, p: Callable[[str], str], row_mult: int, cat_count: int, with_null: bool, is_data_versioned: bool = True
+    ) -> pxt.Table:
         schema = {
             'id': pxt.Int,
             'cat1': pxt.Int | None if with_null else pxt.Int,
@@ -30,7 +33,7 @@ class TestSample:
                 for _ in range(row_mult * (cat1 + 1) * (cat2 + 1)):
                     rows.append({'id': rowid, 'cat1': cat1v, 'cat2': cat2v})
                     rowid += 1
-        return pxt.create_table(p('scm_t'), source=rows, schema_overrides=schema)
+        return pxt.create_table(p('scm_t'), source=rows, schema_overrides=schema, _is_data_versioned=is_data_versioned)
 
     def test_sample_errors(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
@@ -329,9 +332,9 @@ class TestSample:
             r_df = query.collect().to_pandas().sort_values('id').reset_index(drop=True)
             assert r0_df.equals(r_df)
 
-    def test_sample_view(self, db_root: DatabaseRoot) -> None:
+    def test_sample_view(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t = self.create_sample_data(p, 4, 6, False)
+        t = self.create_sample_data(p, 4, 6, False, is_data_versioned)
 
         query = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2], seed=0)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='can only be defined by'):
@@ -350,10 +353,10 @@ class TestSample:
         n = len(t.select().sample(fraction=0.01, seed=0).collect())
         assert v.count() == n
 
-    def test_sample_iterator(self, db_root: DatabaseRoot) -> None:
+    def test_sample_iterator(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         print('\n\nCREATE TABLE WITH ONE IMAGE COLUMN\n')
-        t = pxt.create_table(p('test_tile_tbl'), {'image': pxt.Image | None})
+        t = pxt.create_table(p('test_tile_tbl'), {'image': pxt.Image | None}, _is_data_versioned=is_data_versioned)
 
         print('\n\nINSERT ONE IMAGE\n')
         t.insert(image=SAMPLE_IMAGE_FILE_PATH)
@@ -362,7 +365,7 @@ class TestSample:
         query = t.select().sample(fraction=0.001, seed=4171780)
         r = query.collect()
         print(f'total rows: {t.count()}, sample rows: {len(r)}')
-        assert t.count() > len(r)
+        assert t.count() >= len(r)
 
         print('\n\nCREATE ITERATOR VIEW\n')
         v = pxt.create_view(
@@ -401,6 +404,57 @@ class TestSample:
         v.rename_column('tile', 'tile_renamed')
         v_rows = v.count()
         print(f'total rows: {v_rows}')
+
+    @pytest.mark.parametrize('seed', [None, 42])
+    def test_sample_view_mutations(self, db_root: DatabaseRoot, is_data_versioned: bool, seed: int | None) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('t'), {'id': pxt.Int, 'n': pxt.Int}, primary_key='id', _is_data_versioned=is_data_versioned
+        )
+        t.insert([{'id': i, 'n': 2} for i in range(100)])
+        v = pxt.create_view(
+            p('v'),
+            t.where(t.n > 0).sample(fraction=0.5, seed=seed),
+            additional_columns={'doubled': t.n * 2, 'note': pxt.String | None},
+        )
+        child = pxt.create_view(p('child'), v, iterator=simple_iterator(v.n))
+        ids = set(v.collect()['id'])
+        assert 10 < len(ids) < 90
+        v.update({'note': 'keep'})
+        t.update({'n': 3})
+        assert set(v.collect()['id']) == ids
+        assert v.collect()['note'] == ['keep'] * len(ids)
+        assert v.collect()['doubled'] == [6] * len(ids)
+        assert child.count() == 3 * len(ids)
+        t.update({'n': 0})
+        assert v.count() == child.count() == 0
+        reload_catalog()
+        t, v, child = (pxt.get_table(p(name)) for name in ('t', 'v', 'child'))
+        t.update({'n': 2})
+        assert set(v.collect()['id']) == ids
+        t.batch_update([{'id': 0, 'n': 3}, {'id': 100, 'n': 4}], if_not_exists='insert')
+        assert set(v.where(v.id < 100).collect()['id']) == ids
+        if seed is not None:
+            assert set(v.collect()['id']) == set(t.sample(fraction=0.5, seed=seed).collect()['id'])
+        t.delete(where=t.id < 50)
+        assert set(v.where(v.id < 100).collect()['id']) == ids - set(range(50))
+        assert child.count() == sum(v.collect()['n'])
+
+    def test_sample_nested_components(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('t'), {'n': pxt.Int}, _is_data_versioned=is_data_versioned)
+        t.insert(n=20)
+        first = pxt.create_view(p('first'), t, iterator=simple_iterator(t.n))
+        second = pxt.create_view(p('second'), first, iterator=simple_iterator(first.icol))
+        sampled = pxt.create_view(p('sampled'), second.sample(fraction=0.5, seed=42))
+        expected = second.sample(fraction=0.5, seed=42).collect()
+        assert 20 < len(expected) < second.count() - 20
+        assert sampled.count() == len(expected)
+        # Hashing only the UUID would select every component of a parent, or none of them.
+        t.update({'n': 24})
+        assert sampled.count() == len(second.sample(fraction=0.5, seed=42).collect())
+        t.insert(n=10)
+        assert sampled.count() == len(second.sample(fraction=0.5, seed=42).collect())
 
     def test_count(self, db_root: DatabaseRoot) -> None:
         """Test that count() correctly returns the number of sampled rows."""

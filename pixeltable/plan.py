@@ -55,7 +55,7 @@ class UpdatePlan(NamedTuple):
     soft_delete_where_clause: sql.ColumnElement[bool] | None
     # columns that are getting updated, including the recomputed ones
     updated_cols: list[Column]
-    # user-visible columns that are being recomputed
+    # columns that are being recomputed, including index value columns in descendant views
     recomputed_cols: list[Column]
     # columns the plan produces new values for
     set_cols: list[Column]
@@ -563,7 +563,7 @@ class Planner:
         recomputed_cols |= modified_val_cols
 
         # Building exclude lists for non-identity cols
-        unmodified_val_cols = target.idx_val_cols - modified_val_cols
+        unmodified_val_cols = target.idx_val_cols - modified_val_cols - recomputed_cols
 
         # we only need to recompute stored columns (unstored ones are substituted away)
         recomputed_cols -= {c for c in recomputed_cols if not c.is_stored}
@@ -636,6 +636,9 @@ class Planner:
         if cascade:
             recomputed_cols |= target.get_dependent_columns(updated_cols | recomputed_cols)
 
+        # Iterator membership can change even when all of its output columns are unstored.
+        recomputed_iterator_cols = {col for col in recomputed_cols if col.is_iterator_col}
+
         eval_cols, eval_exprs, identity_cols = cls._build_update_columns(
             target, updated_cols, recomputed_cols, return_rows
         )
@@ -683,7 +686,7 @@ class Planner:
             root=plan,
             soft_delete_where_clause=soft_delete_where_clause,
             updated_cols=list(update_targets.keys()) + recomputed_user_cols,
-            recomputed_cols=recomputed_user_cols,
+            recomputed_cols=list(recomputed_cols | recomputed_iterator_cols),
             set_cols=evaluated_cols,
             row_update_node=None,
         )
@@ -863,6 +866,7 @@ class Planner:
         # retrieve all stored cols and all target exprs
         updated_cols = batch[0].keys() - target.primary_key_columns()
         recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
+        recomputed_iterator_cols = {col for col in recomputed_cols if col.is_iterator_col}
 
         eval_cols, eval_exprs, identity_cols = cls._build_update_columns(
             target, updated_cols, recomputed_cols, return_rows
@@ -936,7 +940,7 @@ class Planner:
             root=plan,
             soft_delete_where_clause=sql_lookup_node.where_clause_element if target.is_data_versioned else None,
             updated_cols=updated_cols_list + recomputed_user_cols,
-            recomputed_cols=recomputed_user_cols,
+            recomputed_cols=list(recomputed_cols | recomputed_iterator_cols),
             set_cols=evaluated_cols,
             row_update_node=row_update_node,
         )
@@ -950,14 +954,15 @@ class Planner:
     ) -> exec.ExecNode:
         """Creates a plan to materialize updated rows for a view, given that the base table has been updated.
         The plan:
-        - retrieves the view rows that were deleted at its current version and satisfy the view predicate
+        - retrieves the affected view rows that satisfy the view predicate: just-expired rows for a data-versioned
+          view, existing rows for an operational view
         - materializes all stored columns and the update targets
 
         TODO: unify with create_view_load_plan()
 
         Args:
-            created_at_current_version: bases restricted to the rows created at their current version; the plan
-                reads every other base at its visible rows
+            created_at_current_version: bases restricted to rows created at their current version (data-versioned)
+                or written by the current transaction (operational); the plan reads every other base at its visible rows
 
         Returns:
             root node of the plan
@@ -975,14 +980,14 @@ class Planner:
         evaluated_cols: list[Column] = identity_cols + eval_cols
         select_list: list[exprs.Expr] = [exprs.ColumnRef(c.column_version_md()) for c in identity_cols] + eval_exprs
 
-        # Read the just-expired rows (v_max == current_version) to copy stored column values
+        # A data-versioned view copies stored values from just-expired rows; an operational view updates live rows.
         plan = cls.create_query_plan(
             FromClause(tbls=[view]),
             select_list,
             where_clause=target.predicate,
             ignore_errors=True,
             created_at_current_version=created_at_current_version,
-            deleted_at_current_version=[view.tbl_version],
+            deleted_at_current_version=[view.tbl_version] if target.is_data_versioned else None,
         )
         # Register output columns with the row builder
         plan.row_builder.set_table_output(
@@ -999,15 +1004,17 @@ class Planner:
         view: catalog.TableVersionPath,
         created_at_current_version: list[catalog.TableVersionHandle] | None = None,
         exclude_existing_rows: bool = False,
+        sql_where_clause: sql.ColumnElement | None = None,
     ) -> exec.ExecNode:
         """Creates a query plan for populating a view.
 
         Args:
             view: the view to populate
-            created_at_current_version: bases restricted to the rows created at their current version; the plan
-                reads every other base at its visible rows
-            exclude_existing_rows: if True, skip base rows for which the view already has a row that was deleted at
-                the view's current version
+            created_at_current_version: bases restricted to rows created at their current version (data-versioned)
+                or written by the current transaction (operational); the plan reads every other base at its visible rows
+            exclude_existing_rows: skip base rows with a view row deleted at the current version (data-versioned)
+                or a currently existing view row (operational)
+            sql_where_clause: additional scan predicate over the view base and marked ancestors
 
         Returns:
             - root node of the plan
@@ -1056,6 +1063,7 @@ class Planner:
             eval_ctx=base_eval_ctx,
             with_pk=True,
             created_at_current_version=created_at_current_version,
+            sql_where_clause=sql_where_clause,
             exclude_deleted_at_current_version=view.tbl_version if exclude_existing_rows else None,
         )
         exec_ctx = plan.ctx
@@ -1253,6 +1261,7 @@ class Planner:
         created_at_current_version: list[catalog.TableVersionHandle] | None = None,
         deleted_at_current_version: list[catalog.TableVersionHandle] | None = None,
         exclude_deleted_at_current_version: catalog.TableVersionHandle | None = None,
+        sql_where_clause: sql.ColumnElement | None = None,
     ) -> exec.ExecNode:
         """
         Create plan to materialize eval_ctx.
@@ -1261,6 +1270,7 @@ class Planner:
             plan_target: if not None, generate a plan that materializes only expression that can be evaluted
                 in the context of that table version (eg, if 'tbl' is a view, 'plan_target' might be the base)
         """
+        assert sql_where_clause is None or len(analyzer.from_clause.tvps) == 1
         if columns is None:
             columns = []
         if created_at_current_version is None:
@@ -1344,6 +1354,7 @@ class Planner:
                 created_at_current_version=created_at_current_version,
                 deleted_at_current_version=deleted_at_current_version,
                 exclude_deleted_at_current_version=exclude_deleted_at_current_version,
+                additional_where_clause=sql_where_clause,
             )
             tbl_scan_plans.append(plan)
 

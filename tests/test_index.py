@@ -835,10 +835,14 @@ class TestIndex:
 
         _ = reload_tester.run_query(img_t.select())
 
-    def test_view_indices(self, db_root: DatabaseRoot, local_embed: pxt.Function, reload_tester: ReloadTester) -> None:
+    def test_view_indices(
+        self, db_root: DatabaseRoot, local_embed: pxt.Function, reload_tester: ReloadTester, is_data_versioned: bool
+    ) -> None:
         p = db_root.make_catalog_path
         # Create a base table
-        t = pxt.create_table(p('t1'), {'n': pxt.Int | None, 's': pxt.String | None})
+        t = pxt.create_table(
+            p('t1'), {'n': pxt.Int | None, 's': pxt.String | None}, _is_data_versioned=is_data_versioned
+        )
         sentences = get_sentences(20)
         status = t.insert({'n': i, 's': s} for i, s in enumerate(sentences))
         validate_update_status(status, 20)
@@ -866,6 +870,11 @@ class TestIndex:
         assert_resultset_eq(res2, res4)
 
         reload_tester.run_reload_test()
+
+        t.update({'s': sentences[1]}, where=t.n == 0)
+        assert_resultset_eq(query3.collect(), query2.collect())
+        t.update({'n': 2}, where=t.n == 1)
+        assert_resultset_eq(query3.collect(), query2.collect())
 
     def test_embedding_errors(self, small_img_tbl: pxt.Table, test_tbl: pxt.Table, local_embed: pxt.Function) -> None:
         img_t = small_img_tbl
@@ -1274,9 +1283,11 @@ class TestIndex:
                 t2.drop_index(**drop_kwargs)  # type: ignore[arg-type]
         assert set(btree_idxs(t2).values()) == {'id', 'b', 'c'}
 
-    def test_btree_index_on_view(self, db_root: DatabaseRoot) -> None:
+    def test_btree_index_on_view(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('view_base'), {'id': pxt.Int | None, 'name': pxt.String | None})
+        t = pxt.create_table(
+            p('view_base'), {'id': pxt.Int | None, 'name': pxt.String | None}, _is_data_versioned=is_data_versioned
+        )
         t.insert([{'id': i, 'name': f'n{i}'} for i in range(10)])
 
         v = pxt.create_view(p('view_v'), t)
@@ -1290,6 +1301,9 @@ class TestIndex:
         # view's index is maintained as base table changes
         t.insert([{'id': 10, 'name': 'n10'}])
         assert v.where(v.id2 == 20).collect()['id'] == [10]
+        t.update({'id': 11}, where=t.id == 10)
+        assert v.where(v.id2 == 22).collect()['id'] == [11]
+        assert v.where(v.id2 == 20).count() == 0
 
         for ie in ('error', 'ignore'):
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='belongs to a base table'):

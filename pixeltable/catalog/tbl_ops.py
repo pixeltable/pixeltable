@@ -282,7 +282,8 @@ class DropStoreTableOp(TableOp):
 
         assert not get_runtime().in_xact
         with get_runtime().begin_xact() as conn:
-            drop_stmt = f'DROP TABLE IF EXISTS {StoreBase.storage_name(uuid.UUID(self.tbl_id), self.is_view)}'
+            # Dependent views are already marked dropped, but their pending store drops can run in any order.
+            drop_stmt = f'DROP TABLE IF EXISTS {StoreBase.storage_name(uuid.UUID(self.tbl_id), self.is_view)} CASCADE'
             conn.execute(sql.text(drop_stmt))
 
     def undo(self, tv: TableVersion | None) -> None:

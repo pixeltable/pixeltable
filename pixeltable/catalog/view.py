@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import random
 from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import UUID
 
@@ -210,6 +211,8 @@ class View(LocalTable):
                 stratify_expr.validate_storable("A view's sample clause")
             # create a copy that we can modify and store
             sample_clause = dataclasses.replace(sample_clause, stratify_exprs=copy.copy(sample_clause.stratify_exprs))
+            if not is_snapshot and sample_clause.seed is None:
+                sample_clause.seed = random.getrandbits(63)
 
         # verify that computed column expressions can be evaluated in the context of the base
         # We also include additional columns that are antecedent in the given column

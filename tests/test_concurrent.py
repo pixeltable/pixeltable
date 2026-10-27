@@ -81,6 +81,28 @@ class TestConcurrentOps:
     NUM_THREADS = 4
     ITERATIONS = 20
 
+    def test_concurrent_view_writes(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('tbl'), {'worker': pxt.Int, 'row_idx': pxt.Int, 'n': pxt.Int}, _is_data_versioned=is_data_versioned
+        )
+        v = pxt.create_view(p('view'), t.where(t.n > 0), additional_columns={'doubled': t.n * 2})
+        iterator = pxt.create_view(p('iterator'), v, iterator=DummyIterator(v.n))
+
+        def worker(tid: int) -> None:
+            for i in range(3):
+                validate_update_status(t.insert([{'worker': tid, 'row_idx': i, 'n': 2}]), expected_rows=4)
+                where = (t.worker == tid) & (t.row_idx == i)
+                t.update({'n': 3}, where=where)
+                assert iterator.where(where).count() == 3
+                if i % 2 == 0:
+                    validate_update_status(t.delete(where=where), expected_rows=5)
+
+        self._assert_no_errors(run_workers(worker, n_threads=self.NUM_THREADS))
+        assert t.count() == v.count() == self.NUM_THREADS
+        assert v.select(v.doubled).collect()['doubled'] == [6] * self.NUM_THREADS
+        assert iterator.count() == self.NUM_THREADS * 3
+
     def test_shared_query(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('t1'), {'a': pxt.Int, 'b': pxt.Int})

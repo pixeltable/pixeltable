@@ -1304,9 +1304,12 @@ class TableVersion:
         print_stats: bool = False,
         fail_on_exception: bool = True,
         return_rows: bool = False,
+        propagate: bool = True,
     ) -> UpdateStatus:
         """
         Insert rows into this table from an explicit list of dicts, a Query, or a SqlDataSource.
+
+        Operational writes can defer propagation until all base mutations in the transaction are complete.
         """
         from pixeltable.plan import Planner
 
@@ -1341,6 +1344,7 @@ class TableVersion:
                 rowids=rowid_gen,
                 abort_on_exc=fail_on_exception,
                 return_rows=return_rows,
+                propagate=propagate,
             )
             return result
 
@@ -1353,6 +1357,7 @@ class TableVersion:
         print_stats: bool = False,
         abort_on_exc: bool = False,
         return_rows: bool = False,
+        propagate: bool = True,
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
         if self.is_data_versioned:
@@ -1367,7 +1372,7 @@ class TableVersion:
         )
 
         # update views
-        for view in self.mutable_views:
+        for view in self.mutable_views if self.is_data_versioned else []:
             from pixeltable.plan import Planner
 
             # Make this span current only when it is nested under an operation span.
@@ -1379,6 +1384,9 @@ class TableVersion:
                 )
                 status = view.get()._insert(view_plan, timestamp, print_stats=print_stats)
             result += status.to_cascade()
+
+        if not self.is_data_versioned and propagate:
+            result += self.propagate_op_changes([], [], has_updates=False, has_inserts=True).to_cascade()
 
         # Use the net status after all propagations
         if self.is_data_versioned:
@@ -1440,6 +1448,10 @@ class TableVersion:
             )
         else:
             result = self._update_rows(update_plan.root, update_plan.set_cols, return_rows=return_rows)
+            if cascade:
+                result += self.propagate_op_changes(
+                    update_plan.recomputed_cols, list(update_spec), has_updates=True, has_inserts=False
+                ).to_cascade()
 
         return result + UpdateStatus(updated_cols=[c.qualified_name for c in update_plan.updated_cols])
 
@@ -1487,20 +1499,123 @@ class TableVersion:
                 )
             if insert_if_not_exists:
                 insert_status = self.insert(
-                    unmatched_rows, None, print_stats=False, fail_on_exception=False, return_rows=return_rows
+                    unmatched_rows,
+                    None,
+                    print_stats=False,
+                    fail_on_exception=False,
+                    return_rows=return_rows,
+                    propagate=self.is_data_versioned,
                 )
                 result += insert_status.to_cascade()
+        if not self.is_data_versioned:
+            result += self.propagate_op_changes(
+                update_plan.recomputed_cols if cascade else [],
+                update_plan.updated_cols if cascade else [],
+                has_updates=cascade,
+                has_inserts=insert_if_not_exists and len(unmatched_rows) > 0,
+            ).to_cascade()
         return result
 
     def _update_rows(self, plan: 'exec.ExecNode', set_cols: list[Column], return_rows: bool) -> UpdateStatus:
         assert not self.is_data_versioned
-        assert len(self.mutable_views) == 0, 'TODO: implement view propagation for operational tables [PXT-1101]'
         get_runtime().catalog.mark_modified_tv(self.handle)
         plan.ctx.title = self.display_str()
         cols_with_excs, row_counts, rows = self.store_tbl.update_rows(plan, set_cols, return_rows=return_rows)
         return UpdateStatus(
             row_count_stats=row_counts, cols_with_excs=self._cols_with_excs_names(cols_with_excs), rows=rows
         )
+
+    def propagate_op_changes(
+        self,
+        recomputed_view_cols: list[Column],
+        modified_cols: list[Column],
+        *,
+        has_updates: bool,
+        has_inserts: bool,
+        changed_bases: list[TableVersionHandle] | None = None,
+        base_membership_change: bool = False,
+    ) -> UpdateStatus:
+        """Propagate all base mutations together, visiting each descendant once.
+
+        Transaction markers select affected rows. The insert flag distinguishes new parents from existing
+        parents with no iterator output. Updates preserve stored values whose inputs did not change; loads
+        initialize only new rows. Marked intermediate views restrict subsequent scans to their surviving rows.
+        """
+        from pixeltable.plan import Planner
+
+        assert not self.is_data_versioned
+        if not has_updates and not has_inserts:
+            return UpdateStatus()
+        if changed_bases is None:
+            changed_bases = [self.handle]
+        root_store = changed_bases[-1].get().store_tbl
+        changed_qids = {c.qid for c in modified_cols} | {c.qid for c in recomputed_view_cols}
+        result = UpdateStatus()
+        for view in self.mutable_views:
+            tv = view.get()
+            recomputed_cols = [col for col in recomputed_view_cols if col.get_tbl().id == view.id]
+            reload_iterator = tv.is_component_view and any(tv.is_iterator_column(col) for col in recomputed_cols)
+            predicate_change = (
+                tv.predicate is not None
+                and len(exprs.Expr.get_refd_column_ids(tv.predicate.as_dict()) & changed_qids) > 0
+            )
+            membership_change = base_membership_change or predicate_change
+            changed = reload_iterator or membership_change or len(recomputed_cols) > 0
+            processed = changed or has_inserts
+            status = UpdateStatus()
+            if processed:
+                get_runtime().catalog.mark_modified_tv(view)
+                affected = sql.and_(*[base.get().store_tbl.changed_rows_clause() for base in changed_bases])
+                if reload_iterator:
+                    # Foreign keys also retire descendants of replaced iterator components.
+                    tv.store_tbl.delete_rows(affected)
+                elif has_updates:
+                    plan = Planner.create_view_update_plan(
+                        tv.path, recompute_targets=recomputed_cols, created_at_current_version=changed_bases
+                    )
+                    update_status = tv._update_rows(plan, list(plan.row_builder.table_columns), return_rows=False)
+                    if changed:
+                        status += update_status
+                    if membership_change:
+                        # The update marks exactly the survivors, including Python/nullable predicates.
+                        tv.store_tbl.delete_rows(sql.and_(affected, ~tv.store_tbl.changed_rows_clause()))
+
+                if has_inserts or membership_change or reload_iterator:
+                    load_filter: sql.ColumnElement = sql.true()
+                    if tv.is_component_view and not reload_iterator and not predicate_change:
+                        load_filter = changed_bases[0].get().store_tbl.is_insert_col
+                    elif not membership_change and not reload_iterator:
+                        load_filter = root_store.is_insert_col
+                    # cascade=False still initializes views for new base rows.
+                    if not has_updates:
+                        load_filter = sql.and_(load_filter, root_store.is_insert_col)
+                    for inserted in (False, True):
+                        if (inserted and not has_inserts) or (not inserted and not has_updates):
+                            continue
+                        with telemetry.span(
+                            'pixeltable.view_load', set_current=telemetry.current_span() is not None, view=tv.name
+                        ):
+                            plan = Planner.create_view_load_plan(
+                                tv.path,
+                                created_at_current_version=changed_bases,
+                                exclude_existing_rows=True,
+                                sql_where_clause=sql.and_(load_filter, root_store.is_insert_col == inserted),
+                            )
+                            cols_with_excs, row_counts, _ = tv.store_tbl.insert_rows(plan)
+                        status += UpdateStatus(
+                            row_count_stats=row_counts if inserted else row_counts.insert_to_update(),
+                            cols_with_excs=tv._cols_with_excs_names(cols_with_excs),
+                        )
+            status += tv.propagate_op_changes(
+                recomputed_view_cols,
+                modified_cols,
+                has_updates=has_updates,
+                has_inserts=has_inserts,
+                changed_bases=[view, *changed_bases] if processed else changed_bases,
+                base_membership_change=membership_change or reload_iterator,
+            ).to_cascade()
+            result += status.to_cascade()
+        return result
 
     def _validate_update_spec(
         self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool, allow_media: bool
@@ -1672,7 +1787,7 @@ class TableVersion:
         """
         from pixeltable.plan import Planner
 
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
+        assert self.is_data_versioned
         get_runtime().catalog.mark_modified_tv(self.handle)
         result = UpdateStatus()
         if len(plans) > 0:
@@ -1725,8 +1840,12 @@ class TableVersion:
                 updated_bases = [b for b, v in zip(view_tv.path.get_bases(), base_versions) if v is not None]
                 assert len(updated_bases) > 0  # the table where the update started always has a plan
 
+                if needs_iterator_reload or membership_change or len(recomputed_cols) > 0:
+                    # Sampling compiles its input CTE while the plan is built, including the target version.
+                    view_tv.bump_version(timestamp, bump_schema_version=False)
+
                 view_plans: list[exec.ExecNode] = []
-                if needs_iterator_reload or (membership_change and view_tv.is_component_view):
+                if needs_iterator_reload:
                     view_plans.append(
                         Planner.create_view_load_plan(view_tv.path, created_at_current_version=updated_bases)
                     )
@@ -1751,8 +1870,6 @@ class TableVersion:
                         )
                     )
 
-                if len(view_plans) > 0:
-                    view_tv.bump_version(timestamp, bump_schema_version=False)
                 status = view_tv._propagate_update(
                     view_plans,
                     None,
@@ -1761,7 +1878,7 @@ class TableVersion:
                     base_versions=base_versions,
                     timestamp=timestamp,
                     cascade=True,
-                    base_membership_change=membership_change,
+                    base_membership_change=membership_change or needs_iterator_reload,
                 )
                 result += status.to_cascade()
 
@@ -1792,39 +1909,55 @@ class TableVersion:
         assert self.is_insertable
         if where is not None:
             self._validate_where_clause(where, error_prefix='`where` argument')
+        if not self.is_data_versioned:
+            sql_where = where.sql_expr(exprs.SqlElementCache()) if where is not None else sql.true()
+            status = self._count_op_deletes(sql_where)
+            self.store_tbl.delete_rows(sql_where)
+            return status
         status = self.propagate_delete(where, base_versions=[], timestamp=time.time())
         return status
+
+    def _count_op_deletes(self, where_clause: sql.ColumnElement[bool]) -> UpdateStatus:
+        """Count the affected subtree before ON DELETE CASCADE removes its rows."""
+        get_runtime().catalog.mark_modified_tv(self.handle)
+        store = self.store_tbl
+        stmt = (
+            sql.select(sql.func.count())
+            .select_from(store.sa_tbl)
+            .where(store._rowid_join_predicate())
+            .where(where_clause)
+        )
+        count = get_runtime().conn.execute(stmt).scalar_one()
+        result = UpdateStatus(row_count_stats=RowCountStats(del_rows=count))
+        for view in self.mutable_views:
+            result += view.get()._count_op_deletes(where_clause).to_cascade()
+        return result
 
     def propagate_delete(
         self, where: exprs.Expr | None, base_versions: list[int | None], timestamp: float
     ) -> UpdateStatus:
-        """Delete rows in this table and propagate to views"""
+        """Soft-delete data-versioned rows and propagate to views."""
+        assert self.is_data_versioned
         get_runtime().catalog.mark_modified_tv(self.handle)
 
         sql_where_clause = where.sql_expr(exprs.SqlElementCache()) if where is not None else None
-        if self.is_data_versioned:
-            del_rows = self.store_tbl.soft_delete_rows(
-                self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause
-            )
-        else:
-            del_rows = self.store_tbl.delete_rows(where_clause=sql_where_clause)
+        del_rows = self.store_tbl.soft_delete_rows(
+            self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause
+        )
         row_counts = RowCountStats(del_rows=del_rows)  # delete
         result = UpdateStatus(row_count_stats=row_counts)
         if del_rows == 0:
             # self.version belongs to an earlier operation, and the views would match that operation's retired rows
             return result
 
-        if self.is_data_versioned:
-            # we're creating a new version
-            self.bump_version(timestamp, bump_schema_version=False)
+        self.bump_version(timestamp, bump_schema_version=False)
         for view in self.mutable_views:
             status = view.get().propagate_delete(
                 where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
             )
             result += status.to_cascade()
-        if self.is_data_versioned:
-            self.set_version_update_status(result)
-            self._write_md(new_version=True, new_schema_version=False)
+        self.set_version_update_status(result)
+        self._write_md(new_version=True, new_schema_version=False)
 
         return result
 
@@ -2222,9 +2355,9 @@ class TableVersion:
 
     def num_rowid_columns(self) -> int:
         """Return the number of columns of the rowids, without accessing store_tbl"""
-        if self.is_component_view:
-            return 1 + self.base.get().num_rowid_columns()
-        return 1
+        if self.base is None:
+            return 1
+        return self.base.get().num_rowid_columns() + int(self.is_component_view)
 
     def as_dict(self) -> dict:
         return self.key.as_dict()

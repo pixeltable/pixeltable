@@ -168,20 +168,28 @@ class InsertableTable(LocalTable):
             data_source.prepare_for_insert_into_table()
             # in on_error='abort' mode the exec raises the internal ExprEvalError on the first failing cell;
             # convert it to a user-facing Error (on_error='ignore' records per-cell errors and never raises)
+            tv = self._tbl_version.get()
             try:
                 if query is not None:
-                    status += self._tbl_version.get().insert(
-                        source=None, query=query, print_stats=print_stats, fail_on_exception=fail_on_exception
+                    status += tv.insert(
+                        source=None,
+                        query=query,
+                        print_stats=print_stats,
+                        fail_on_exception=fail_on_exception,
+                        propagate=tv.is_data_versioned,
                     )
                 else:
                     for row_batch in data_source.valid_row_batch():
-                        status += self._tbl_version.get().insert(
+                        status += tv.insert(
                             source=row_batch,
                             query=None,
                             print_stats=print_stats,
                             fail_on_exception=fail_on_exception,
                             return_rows=return_rows,
+                            propagate=tv.is_data_versioned,
                         )
+                if not tv.is_data_versioned:
+                    status += tv.propagate_op_changes([], [], has_updates=False, has_inserts=True).to_cascade()
             except excs.ExprEvalError as e:
                 excs.raise_from_expr_eval_err(e)
 

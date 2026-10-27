@@ -402,7 +402,10 @@ def create_view(
             raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, '`base` must be an instance of `Table` or `Query`')
         assert isinstance(base, (catalog.Table, Query))
 
-        assert tbl_path.is_data_versioned(), 'TODO: implement for operational tables [PXT-1101]'
+        if is_snapshot and not tbl_path.is_data_versioned():
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot create a snapshot of an operational table'
+            )
 
         path_obj = catalog.Path.parse(path)
         telemetry.add_attrs(op_span, **telemetry_schemas.OpAttrs(path=str(path_obj)))
