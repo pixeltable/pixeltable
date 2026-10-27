@@ -87,6 +87,8 @@ _RETRIABLE_ERROR_INDICATORS = re.compile(
             '(?:quota|rate) exceed',
             'throttled',
             'timed out',
+            # `\b` matches a word boundary. It avoids false positives on 429 inside longer numbers, such as the AWS
+            # account id in 'User: arn:aws:sts::842915429301:assumed-role/ci is not authorized to perform: ...'
             r'\b429\b',
         )
     )
