@@ -160,10 +160,10 @@ class TestSample:
         t = self.create_sample_data(p, 4, 6, False, is_data_versioned)
 
         query = t.select().sample(n=20)
-        self._check_sample(query, 20)
+        assert len(query.collect()) == 20
 
         query = t.select().where(t.id < 200).sample(n=20)
-        self._check_sample(query, 20)
+        assert len(query.collect()) == 20
 
     def test_sample_basic_f(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
