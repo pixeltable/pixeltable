@@ -1,6 +1,7 @@
 import difflib
 import itertools
 import json
+import math
 import os
 import re
 from typing import Any
@@ -122,6 +123,17 @@ class TestDocument:
 
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='limit'):
             _ = pxt.create_view('chunks', t, iterator=document_splitter(document=t.doc, separators='token_limit'))
+
+        for sep in ('char_limit', 'token_limit'):
+            for overlap in (50, 51):
+                with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'overlap' must be smaller than 'limit'"):
+                    _ = pxt.create_view(
+                        'chunks', t, iterator=document_splitter(t.doc, separators=sep, limit=50, overlap=overlap)
+                    )
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'overlap' must be a non-negative integer"):
+                _ = pxt.create_view(
+                    'chunks', t, iterator=document_splitter(t.doc, separators=sep, limit=50, overlap=-1)
+                )
 
         # test invalid metadata
         invalid_metadata = [
@@ -386,6 +398,34 @@ class TestDocument:
             assert r['doc'].endswith('pxtbrief.txt')
 
         pxt.drop_table('chunks')
+
+    @pytest.mark.parametrize(
+        ('separator', 'limit', 'overlap'),
+        [('char_limit', 500, 0), ('char_limit', 500, 200), ('token_limit', 100, 0), ('token_limit', 100, 20)],
+    )
+    def test_doc_splitter_overlap(self, separator: str, limit: int, overlap: int, uses_db: None) -> None:
+        skip_test_if_not_installed('tiktoken')
+        import tiktoken
+
+        file_path = next(p for p in self.valid_doc_paths() if p.endswith('pxtbrief.txt'))
+        doc_t = pxt.create_table('docs', {'doc': pxt.Document | None})
+        doc_t.insert(doc=file_path)
+        full_t = pxt.create_view('full', doc_t, iterator=document_splitter(doc_t.doc, separators=''))
+        text = full_t.select(full_t.text).collect()[0]['text']
+
+        chunks_t = pxt.create_view(
+            'chunks', doc_t, iterator=document_splitter(doc_t.doc, separators=separator, limit=limit, overlap=overlap)
+        )
+        chunks = [r['text'] for r in chunks_t.order_by(chunks_t.pos).select(chunks_t.text).collect()]
+
+        encoding = tiktoken.get_encoding('cl100k_base')
+        units: list = list(text) if separator == 'char_limit' else encoding.encode(text)
+        assert len(units) > limit
+        step = limit - overlap
+        num_chunks = math.ceil((len(units) - overlap) / step)
+        windows = [units[i * step : i * step + limit] for i in range(num_chunks)]
+        expected = [''.join(w) if separator == 'char_limit' else encoding.decode(w) for w in windows]
+        assert chunks == expected
 
     def test_doc_splitter_images(self, uses_db: None) -> None:
         file_paths = [p for p in get_documents() if p.endswith('.pdf')]

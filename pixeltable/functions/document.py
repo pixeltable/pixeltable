@@ -192,6 +192,8 @@ class document_splitter(pxt.PxtIterator):
             for the `'page'` separator on PDF documents.
         limit: the maximum number of tokens or characters in each chunk, if `'token_limit'`
              or `'char_limit'` is specified.
+        overlap: the number of tokens or characters shared by consecutive chunks. Can only be specified
+             together with `limit`, and must be smaller than it. Defaults to 0.
         metadata: additional metadata fields to include in the output. Options are:
              `'title'`, `'heading'` (HTML and Markdown), `'sourceline'` (HTML), `'page'` (PDF), `'bounding_box'`
              (PDF). The input may be a comma-separated string, e.g., `'title,heading,sourceline'`.
@@ -525,7 +527,8 @@ class document_splitter(pxt.PxtIterator):
             encoding = tiktoken.encoding_for_model(self._tiktoken_target_model)
         else:
             encoding = tiktoken.get_encoding(self._tiktoken_encoding)
-        assert self._limit > 0 and self._overlap >= 0
+        assert self._overlap >= 0, self._overlap
+        assert self._overlap < self._limit, (self._overlap, self._limit)
 
         for section in input:
             if section.text is None:
@@ -554,9 +557,12 @@ class document_splitter(pxt.PxtIterator):
                 assert end_idx > start_idx
                 assert text is not None
                 yield DocumentSection(text=text, metadata=section.metadata)
+                if end_idx == len(tokens):
+                    break
                 start_idx = max(start_idx + 1, end_idx - self._overlap)  # ensure we make progress
 
     def _char_chunks(self, input: Iterable[DocumentSection]) -> Iterator[DocumentSection]:
+        assert 0 <= self._overlap < self._limit
         for section in input:
             if section.text is None:
                 continue
@@ -565,6 +571,8 @@ class document_splitter(pxt.PxtIterator):
                 end_idx = min(start_idx + self._limit, len(section.text))
                 text = section.text[start_idx:end_idx]
                 yield DocumentSection(text=text, metadata=section.metadata)
+                if end_idx == len(section.text):
+                    break
                 start_idx += self._limit - self._overlap
 
     @classmethod
@@ -583,27 +591,28 @@ class document_splitter(pxt.PxtIterator):
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 "Image elements are only supported for the 'page' separator on PDF documents",
             )
-        if limit is not None or overlap is not None:
-            if Separator.TOKEN_LIMIT not in separators and Separator.CHAR_LIMIT not in separators:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    "limit/overlap requires the 'token_limit' or 'char_limit' separator",
-                )
-            if limit is not None and limit <= 0:
-                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'limit' must be a positive integer")
-            if overlap is not None and overlap < 0:
-                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'overlap' must be a non-negative integer")
         if Separator.TOKEN_LIMIT in separators or Separator.CHAR_LIMIT in separators:
             if Separator.TOKEN_LIMIT in separators and Separator.CHAR_LIMIT in separators:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     "Cannot specify both 'token_limit' and 'char_limit' separators",
                 )
-            if bound_args.get('limit') is None:
+            if limit is None:
                 raise excs.RequestError(
                     excs.ErrorCode.MISSING_REQUIRED,
                     "'limit' must be specified with 'token_limit' and 'char_limit' separators",
                 )
+            if limit <= 0:
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'limit' must be a positive integer")
+            if overlap is not None and overlap < 0:
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'overlap' must be a non-negative integer")
+            if overlap is not None and overlap >= limit:
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'overlap' must be smaller than 'limit'")
+        elif limit is not None or overlap is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                "limit/overlap requires the 'token_limit' or 'char_limit' separator",
+            )
 
         if Separator.SENTENCE in separators:
             # Validate spaCy model
