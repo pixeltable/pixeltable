@@ -1,6 +1,7 @@
 # ruff: noqa: RUF029
 import builtins
 import os
+import pathlib
 import re
 import subprocess
 import typing
@@ -19,6 +20,7 @@ import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable import env, func
 from pixeltable.func import Batch, Function, FunctionRegistry
+from pixeltable.utils.app_module import load_app_module
 
 from .utils import (
     DatabaseRoot,
@@ -676,6 +678,41 @@ class TestFunction:
         u.add_computed_column(n=count_rows(p('tbl')))
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Use a @pxt\.query UDF'):
             u.insert([{'x': 1}])
+
+    @pytest.mark.db_roots('local', reason='loads an application file in process')
+    def test_table_loads_after_failed_import_is_fixed(self, uses_db: None, project_env: pathlib.Path) -> None:
+        """A table that uses a udf loads again once a module that failed to import partway is fixed."""
+        source = dedent(
+            """
+            import pixeltable as pxt
+
+
+            @pxt.udf
+            def double(x: int) -> int:
+                return 2 * x
+            """
+        )
+        app_file = project_env / 'double_app.py'
+        app_file.write_text(source, encoding='utf-8')
+        module = load_app_module(str(app_file), subject='application file')
+        t = pxt.create_table('nums', {'x': pxt.Int})
+        t.add_computed_column(y=module.double(t.x))
+
+        # the module raises after defining the udf
+        app_file.write_text(source + 'undefined_name\n', encoding='utf-8')
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='NameError'):
+            load_app_module(str(app_file), subject='application file')
+        # loading the table imports the module again
+        reload_catalog()
+        with pytest.raises(NameError, match='undefined_name'):
+            pxt.get_table('nums')
+
+        app_file.write_text(source, encoding='utf-8')
+        load_app_module(str(app_file), subject='application file')
+        reload_catalog()
+        t = pxt.get_table('nums')
+        t.insert([{'x': 2}])
+        assert t.select(t.y).collect()['y'] == [4]
 
     def test_query_param_in_aggregate(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

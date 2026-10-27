@@ -3921,6 +3921,22 @@ class TestTable:
             raise RuntimeError(f'Error in recompute_udf for value {i}')
         return str(i + TestTable.recompute_udf_increment)
 
+    def test_recompute_keeps_input_error(self, db_root: DatabaseRoot) -> None:
+        """A recompute passes on an input cell's stored error to the cells computed from it, as the insert did."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'img': pxt.Image})
+        t.add_computed_column(w=t.img.width)
+        t.insert([{'img': get_image_files(include_bad_image=True)[0]}], on_error='ignore')
+        errors = t.select(t.img.errortype, t.img.errormsg, t.w.errortype, t.w.errormsg)
+        inserted = errors.collect()[0]
+        assert inserted['w_errortype'] == inserted['img_errortype'] != None
+        assert inserted['w_errormsg'] == inserted['img_errormsg']
+
+        for errors_only in (False, True):
+            status = t.recompute_columns('w', errors_only=errors_only)
+            assert (status.num_excs, status.cols_with_excs) == (1, ['tbl.w'])
+            assert errors.collect()[0] == inserted
+
     # TODO: cannot be converted because the UDF reads client-process-local class attributes the daemon cannot see
     @pytest.mark.db_roots('local', reason='UDF reads client-process-local class attributes the daemon cannot see')
     def test_recompute_column(self, uses_db: None) -> None:

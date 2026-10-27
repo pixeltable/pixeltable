@@ -410,7 +410,6 @@ def recompute(req: Request) -> models.RecomputeResponse:
         path=path,
         columns=status.updated_cols,
         num_rows=status.num_rows,
-        num_computed_values=status.num_computed_values,
         num_excs=status.num_excs,
         cols_with_excs=status.cols_with_excs,
     )

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import importlib
 from collections.abc import Collection
+from types import ModuleType
 
 from pixeltable import exceptions as excs, type_system as ts
 
@@ -43,6 +45,17 @@ class FunctionRegistry:
                     excs.ErrorCode.FUNCTION_ALREADY_EXISTS, f'Duplicate method name for type {base_type}: {fn.name}'
                 )
             self.type_methods[base_type][fn.name] = fn
+
+    def import_module(self, name: str) -> ModuleType:
+        """Import the module name, and drop the functions it registered if the import raises."""
+        registered = set(self.module_fns)
+        try:
+            return importlib.import_module(name)
+        except BaseException:
+            # a module that raises partway through leaves the functions it already defined registered, and Python
+            # drops it from sys.modules
+            self.deregister_functions(set(self.module_fns) - registered)
+            raise
 
     def deregister_module(self, module_name: str) -> None:
         """Drop every function registered for module_name."""

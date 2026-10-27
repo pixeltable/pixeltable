@@ -776,6 +776,28 @@ class TestExprs:
             res['item_of_vartype_list'][i] == [res['c2'][i], res['c1'][i], res['c3'][i]] for i in range(len(res))
         )
 
+    def test_ambiguous_json_key(self, db_root: DatabaseRoot) -> None:
+        """j.mean refers to the Json method mean(), which a computed column can't use as a value; j['mean'] works."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'j': pxt.Json})
+        msg = r"j\.mean is the method mean\(\); call it to get a value, or use j\['mean'\] for the JSON field"
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.add_computed_column(m=t.j.mean)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.add_computed_column(m=t.j.mean.astype(pxt.Float))
+        t.add_computed_column(m=t.j['mean'])
+        t.insert([{'j': {'mean': 1.5}}])
+        assert t.select(t.m).collect()['m'] == [1.5]
+
+        TableModel = pxt.model_base()  # noqa: N806
+
+        class Stats(TableModel, name='stats'):
+            j: pxt.Json
+            mean = j.mean.astype(pxt.Float)  # noqa: F821
+
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            TableModel.update_all(p(''))
+
     def test_json_path_projection(self, db_root: DatabaseRoot) -> None:
         # a projection ('*' or a slice) yields one positionally-aligned result per source element: a missing field,
         # a null element, or a non-list element under a further projection becomes null, never dropped. So parallel

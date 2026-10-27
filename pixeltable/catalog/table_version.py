@@ -807,7 +807,7 @@ class TableVersion:
             plan.ctx.profile.print(num_rows=row_count)
 
         # TODO: what to do about system columns with exceptions?
-        row_counts = RowCountStats(upd_rows=row_count, num_excs=num_excs, computed_values=0)  # add_columns
+        row_counts = RowCountStats(upd_rows=row_count, num_excs=num_excs)  # add_columns
         return UpdateStatus(cols_with_excs=self._cols_with_excs_names(cols_with_excs), row_count_stats=row_counts)
 
     def _own_col_refs(self, value_expr_dict: dict[str, Any] | None) -> set[int]:
