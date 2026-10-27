@@ -1549,11 +1549,12 @@ class TableVersion:
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col_name!r} is a media column and cannot be updated'
                 )
 
-            # make sure that the value is compatible with the column type
+            # make sure that the value is compatible with the column type, whose dict schemas are closed on update
+            closed_type = col.col_type.closed()
             value_expr: exprs.Expr
             try:
                 # check if this is a literal
-                value_expr = exprs.Literal(val, col_type=col.col_type)
+                value_expr = exprs.Literal(val, col_type=closed_type)
             except TypeError as exc:
                 if not allow_exprs:
                     raise excs.RequestError(
@@ -1568,7 +1569,8 @@ class TableVersion:
                         excs.ErrorCode.UNSUPPORTED_OPERATION,
                         f'Column {col_name!r}: value is not a recognized literal or expression: {val!r}',
                     ) from exc
-                if not col.col_type.is_supertype_of(value_expr.col_type, ignore_nullable=True):
+                # an expression's values aren't validated, so its type may declare no keys that the column's doesn't
+                if not closed_type.is_supertype_of(value_expr.col_type.closed(), ignore_nullable=True):
                     raise excs.RequestError(
                         excs.ErrorCode.TYPE_MISMATCH,
                         f'The literal value {val!r} is not compatible with the type '

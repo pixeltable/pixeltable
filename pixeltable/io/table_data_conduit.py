@@ -252,11 +252,13 @@ class RowDataTableDataConduit(TableDataConduit):
         # are errors in the incoming row format
         if self.source_column_map is None:
             self.source_column_map = {}
-        self.valid_rows = [self._translate_row(row) for row in self.raw_rows]
+        # inserted values may not have keys that a dict schema doesn't declare
+        closed_types = {name: col_type.closed() for name, col_type in self.pxt_schema.items()}
+        self.valid_rows = [self._translate_row(row, closed_types) for row in self.raw_rows]
 
         self.batch_count = 1 if self.raw_rows is not None else 0
 
-    def _translate_row(self, row: dict[str, Any]) -> dict[str, Any]:
+    def _translate_row(self, row: dict[str, Any], closed_types: dict[str, ts.ColumnType]) -> dict[str, Any]:
         if not isinstance(row, dict):
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'row {row} is not a dictionary')
 
@@ -278,7 +280,7 @@ class RowDataTableDataConduit(TableDataConduit):
                 )
             # basic sanity checks here
             try:
-                checked_val = self.pxt_schema[col_name].create_literal(val)
+                checked_val = closed_types[col_name].create_literal(val)
             except TypeError as e:
                 msg = str(e)
                 raise excs.RequestError(
@@ -797,6 +799,9 @@ class PydanticTableDataConduit(TableDataConduit):
         assert len(self.pxt_rows) == 0, 'prepare_for_insert_into_table should only be called once'
         self._validate_pydantic_model(type(cast(Sequence[pydantic.BaseModel], self.source)[0]))
         sorted_reqd_cols = sorted(self.reqd_col_names)
+        # as in RowDataTableDataConduit, inserted values may not have keys that a dict schema doesn't declare
+        assert self.pxt_schema is not None
+        closed_types = {name: col_type.closed() for name, col_type in self.pxt_schema.items()}
         # convert rows one-by-one in order to be able to print meaningful error messages
         for i, raw_row in enumerate(self.dumped_rows):
             # explicitly check that all required columns are present and non-None in the rows,
@@ -809,10 +814,9 @@ class PydanticTableDataConduit(TableDataConduit):
             # Coerce each cell to its column's stored representation, exactly as the dict path does
             # (RowDataTableDataConduit._translate_row). This is what makes a pydantic model behave like the
             # equivalent dict: timestamps localized, enums accepted only when their members are int/str values, etc.
-            assert self.pxt_schema is not None
             pxt_row: dict[str, Any] = {}
             for col_name, val in raw_row.items():
-                col_type = self.pxt_schema.get(col_name)
+                col_type = closed_types.get(col_name)
                 if col_type is None:
                     # not a table column; leave it for downstream validation to report
                     pxt_row[col_name] = val
@@ -889,7 +893,8 @@ class PydanticTableDataConduit(TableDataConduit):
                         f'`{model_type.__name__}`',
                     )
             else:
-                if not pxt_col_type.is_supertype_of(inferred_pxt_type, ignore_nullable=True):
+                # dict schemas are closed on insert, and the field's values have only the keys its type declares
+                if not pxt_col_type.closed().is_supertype_of(inferred_pxt_type.closed(), ignore_nullable=True):
                     raise excs.RequestError(
                         excs.ErrorCode.TYPE_MISMATCH,
                         f'Pydantic model `{model.__name__}` has incompatible type `{model_type.__name__}` '

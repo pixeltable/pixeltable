@@ -113,6 +113,13 @@ class ColumnType:
 
     def opened(self) -> ColumnType:
         """Returns this type with every dict schema in it open."""
+        return self._with_dicts_closed(False)
+
+    def closed(self) -> ColumnType:
+        """Returns this type with every dict schema in it closed."""
+        return self._with_dicts_closed(True)
+
+    def _with_dicts_closed(self, closed: bool) -> ColumnType:
         return self
 
     @classmethod
@@ -1174,16 +1181,17 @@ class JsonType(ColumnType):
 
         return JsonType(type_schema, nullable)
 
-    def opened(self) -> JsonType:
+    def _with_dicts_closed(self, closed: bool) -> JsonType:
         if self.type_schema is None:
             return self
         schema = self.type_schema
         if isinstance(schema.type_spec, dict):
-            type_spec = {k: t.opened() for k, t in schema.type_spec.items()}
-            schema = JsonType.TypeSchema(type_spec, optional_keys=schema.optional_keys)
+            type_spec = {k: t._with_dicts_closed(closed) for k, t in schema.type_spec.items()}
+            schema = JsonType.TypeSchema(type_spec, optional_keys=schema.optional_keys, closed=closed)
         else:
-            variadic_type = None if schema.variadic_type is None else schema.variadic_type.opened()
-            schema = JsonType.TypeSchema([t.opened() for t in schema.type_spec], variadic_type=variadic_type)
+            variadic_type = None if schema.variadic_type is None else schema.variadic_type._with_dicts_closed(closed)
+            items = [t._with_dicts_closed(closed) for t in schema.type_spec]
+            schema = JsonType.TypeSchema(items, variadic_type=variadic_type)
         return JsonType(schema, nullable=self.nullable, pretty_print_name=self.pretty_print_name)
 
     @staticmethod

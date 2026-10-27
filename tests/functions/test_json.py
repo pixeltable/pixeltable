@@ -325,26 +325,21 @@ class TestJson:
         assert rs.schema['o'] == 'Json | None'  # items() never carries key/value type information
         assert {r['id']: r['o'] for r in rs} == {1: [['a', 1], ['b', 2]], 2: [], 3: None}
 
-        # values() over a typed object schema: the result isn't typed by the declared value types, since an object
-        # may also have keys that its schema doesn't declare (the second row)
+        # values() over a typed object schema: the result isn't typed by the declared value types, since a value of an
+        # open schema may also have keys that the schema doesn't declare. An insert rejects them, but a cast doesn't.
         tv = pxt.create_table(
             'json_values_typed',
             {
-                'id': pxt.Int,
                 'homog': pxt.Json[{'a': pxt.Int, 'b': pxt.Int}] | None,
                 'hetero': pxt.Json[{'a': pxt.Int, 'b': pxt.String}] | None,
+                'raw': pxt.Json | None,
             },
         )
-        tv.insert(
-            [
-                {'id': 1, 'homog': {'a': 1, 'b': 2}, 'hetero': {'a': 1, 'b': 'x'}},
-                {'id': 2, 'homog': {'a': 1, 'b': 2, 'c': 'z'}, 'hetero': None},
-            ]
-        )
-        rs = tv.select(homog=tv.homog.values(), hetero=tv.hetero.values()).order_by(tv.id).collect()
-        assert rs.schema == {'homog': 'Json | None', 'hetero': 'Json | None'}
-        assert rs['homog'] == [[1, 2], [1, 2, 'z']]
-        assert rs['hetero'] == [[1, 'x'], None]
+        tv.insert([{'homog': {'a': 1, 'b': 2}, 'hetero': {'a': 1, 'b': 'x'}, 'raw': {'a': 1, 'b': 2, 'c': 'z'}}])
+        as_homog = tv.raw.astype(pxt.Json[{'a': pxt.Int, 'b': pxt.Int}] | None)
+        rs = tv.select(homog=tv.homog.values(), hetero=tv.hetero.values(), cast=as_homog.values()).collect()
+        assert rs.schema == {'homog': 'Json | None', 'hetero': 'Json | None', 'cast': 'Json | None'}
+        assert rs[0] == {'homog': [1, 2], 'hetero': [1, 'x'], 'cast': [1, 2, 'z']}
 
         # keys(), values() and items() are only defined for an object
         te = pxt.create_table('json_obj_err', {'j': pxt.Json | None})
@@ -491,14 +486,23 @@ class TestJson:
 
         # Either operand may have keys its schema doesn't declare, and the right operand wins, so the result declares
         # a key that the right operand makes optional only if the left operand declares it too ('a' but not 'b'),
-        # and leaves undeclared a key that only the left operand declares ('c')
+        # and leaves undeclared a key that only the left operand declares ('c'). An insert rejects undeclared keys,
+        # but a cast doesn't (the second row).
         class Overrides(TypedDict, total=False):
             a: int
             b: str
 
-        to = pxt.create_table('json_merge_opt', {'da': pxt.Json[{'a': pxt.Int, 'c': pxt.Int}] | None, 'db': Overrides})
-        to.insert([{'da': {'a': 1, 'c': 3}, 'db': {'b': 'y'}}, {'da': {'a': 1, 'c': 3}, 'db': {'a': 2, 'c': 'x'}}])
-        res = to.select(m=to.da.merge(to.db)).collect()
+        to = pxt.create_table(
+            'json_merge_opt',
+            {'id': pxt.Int, 'da': pxt.Json[{'a': pxt.Int, 'c': pxt.Int}] | None, 'db': pxt.Json | None},
+        )
+        to.insert(
+            [
+                {'id': 1, 'da': {'a': 1, 'c': 3}, 'db': {'b': 'y'}},
+                {'id': 2, 'da': {'a': 1, 'c': 3}, 'db': {'a': 2, 'c': 'x'}},
+            ]
+        )
+        res = to.select(m=to.da.merge(to.db.astype(Overrides))).order_by(to.id).collect()
         assert res.schema['m'] == "Json[{'a': Int}] | None"
         assert res['m'] == [{'a': 1, 'b': 'y', 'c': 3}, {'a': 2, 'c': 'x'}]
 
