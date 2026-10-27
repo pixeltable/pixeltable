@@ -562,7 +562,8 @@ class document_splitter(pxt.PxtIterator):
                 start_idx = max(start_idx + 1, end_idx - self._overlap)  # ensure we make progress
 
     def _char_chunks(self, input: Iterable[DocumentSection]) -> Iterator[DocumentSection]:
-        assert 0 <= self._overlap < self._limit
+        assert self._overlap >= 0, self._overlap
+        assert self._overlap < self._limit, (self._overlap, self._limit)
         for section in input:
             if section.text is None:
                 continue
