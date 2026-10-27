@@ -126,6 +126,9 @@ def create_table_version_md(
         col.tbl_handle = tbl_handle
         col.id = next(column_ids)
         col.schema_version_add = 0
+        # do this before column_version_md()
+        if col.is_computed:
+            col.check_value_expr()
 
     # resolve ColumnRefByName's to ColumnRefs in computed columns
     subst = exprs.ExprDict[exprs.Expr](
@@ -147,8 +150,6 @@ def create_table_version_md(
         value_expr = col.value_expr
         if value_expr is not None:
             col.set_value_expr(value_expr.substitute(subst))
-        if col.is_computed:
-            col.check_value_expr()
         col_md, col_schema_md = col.to_md(pos)
         column_md[col.id] = col_md
         schema_col_md[col.id] = col_schema_md

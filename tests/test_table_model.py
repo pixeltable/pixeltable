@@ -999,6 +999,9 @@ class TestTableModel:
 
         # the index is declared by the model, so a similarity query over it can be written before the table
         # that carries it exists
+        model_sim = ExampleViewModel.text.similarity(string='one')
+        model_search = ExampleViewModel.order_by(model_sim, asc=False).select(ExampleViewModel.text)
+
         @pxt.query
         def search(q: str) -> pxt.Query:
             sim = ExampleViewModel.text.similarity(string=q)
@@ -1019,6 +1022,10 @@ class TestTableModel:
         sim = view.text.similarity(string='one')
         assert [r['text'] for r in view.order_by(sim, asc=False).collect()] == ['one sentence.', 'zero sentence.']
         # the query written against the model ranks them the same way, once it is bound to that table
+        assert [r['text'] for r in model_search.bind(p('')).collect()] == [  # type: ignore[attr-defined]
+            'one sentence.',
+            'zero sentence.',
+        ]
         Searches.insert(q='one')
         assert Searches.table.select(Searches.hits).collect()['hits'] == [['one sentence.', 'zero sentence.']]
 
@@ -1407,7 +1414,7 @@ class TestTableModel:
             TableModel3.update_all(p(''))
         assert pxt.get_table(p('notes'), if_not_exists='ignore') is None
 
-    @pytest.mark.skip(reason='join() of two bound models raises AttributeError')
+    @pytest.mark.skip(reason='PXT-1709: join() of two bound models raises AttributeError')
     def test_bound_model_join(self, db_root: DatabaseRoot) -> None:
         """join() on a bound model accepts another bound model."""
         p = db_root.make_catalog_path
@@ -1427,7 +1434,7 @@ class TestTableModel:
         res = Docs.join(Tags, on=Docs.id == Tags.doc_id).select(Docs.body, Tags.tag).collect()  # type: ignore[arg-type]
         assert list(res) == [{'body': 'alpha', 'tag': 'greek'}]
 
-    @pytest.mark.skip(reason='ModelQuery called in a joined Query is never bound')
+    @pytest.mark.skip(reason='PXT-1710: ModelQuery called in a joined Query is never bound')
     def test_joined_query_calls_model_query(self, db_root: DatabaseRoot) -> None:
         """A @pxt.query over joined tables calls a @pxt.query over an unbound model."""
         p = db_root.make_catalog_path

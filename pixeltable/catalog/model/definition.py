@@ -44,7 +44,7 @@ from ..table import Table
 from ..table_version_handle import TableVersionHandle
 from ..types import TableVersionMd
 from ..utils import create_table_version_md
-from .resolution import prepare_model, resolve_query_columns
+from .resolution import prepare_model
 
 if TYPE_CHECKING:
     from pixeltable._query_base import QueryBase
@@ -454,7 +454,7 @@ class _ModelNamespace(dict):
 
 
 def bind_query_templates(e: exprs.Expr, catalog_dir: str | None) -> exprs.Expr:
-    """Replace each ModelQuery template in e's QueryTemplateFunction calls with ModelQuery.bind(catalog_dir).
+    """Replace each ModelQuery template in e's QueryTemplateFunction calls with ModelQuery.bind_by_name(catalog_dir).
 
     With `catalog_dir=None`, the replacement is ModelQuery.to_defined_query().
     """
@@ -463,7 +463,7 @@ def bind_query_templates(e: exprs.Expr, catalog_dir: str | None) -> exprs.Expr:
     def bound_query(template_query: QueryBase) -> pxt.Query | None:
         if not isinstance(template_query, ModelQuery):
             return None
-        return template_query.to_defined_query() if catalog_dir is None else template_query.bind(catalog_dir)
+        return template_query.to_defined_query() if catalog_dir is None else template_query.bind_by_name(catalog_dir)
 
     result = func.substitute_template_queries(e, bound_query)
     # substitute() returns a replacement without descending into it, so a call nested in another one is missed
@@ -804,7 +804,7 @@ class TableModelMeta(type):
         # catalog owns the table being created.
         base: pxt.Query | None = None
         if table_spec['base'] is not None:
-            base = resolve_query_columns(table_spec['base'].bind(catalog_dir))
+            base = table_spec['base'].bind(catalog_dir)
 
         # The model's own column specs, with type annotations resolved to ColumnTypes (so they're serializable
         # for a proxied catalog). Computed value expressions still carry ColumnRefByNames referencing

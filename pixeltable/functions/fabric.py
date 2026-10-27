@@ -135,7 +135,6 @@ async def chat_completions(
         ...     )
         ... )
     """
-    # a UDF must not modify its arguments
     model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
     # Get Fabric config and auth

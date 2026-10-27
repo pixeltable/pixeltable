@@ -76,8 +76,8 @@ class FnCallEvaluator(Evaluator):
         super().__init__(dispatcher, exec_ctx)
         self.fn_call = fn_call
         self.fn = cast(func.CallableFunction, fn_call.fn)
-        self.copies_mutable_literal_args = not self.fn.is_builtin and fn_call.contains_(
-            filter=lambda e: isinstance(e, exprs.Literal) and e.has_mutable_val
+        self.copies_mutable_literal_args = not self.fn.is_builtin and any(
+            arg.shares_mutable_val() for arg in [*fn_call.args, *fn_call.kwargs.values()]
         )
         if fn_call.resource_pool is not None and not self.fn.is_async:
             raise excs.RequestError(

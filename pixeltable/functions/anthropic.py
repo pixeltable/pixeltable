@@ -188,7 +188,6 @@ async def messages(
         ...     response=messages(msgs, model='claude-3-5-sonnet-20241022')
         ... )
     """
-    # a UDF must not modify its arguments
     model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
     if tools is not None:

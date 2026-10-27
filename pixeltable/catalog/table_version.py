@@ -1017,6 +1017,9 @@ class TableVersion:
                 )
             col.tbl_handle = self.handle
             col.id = self.next_col_id()
+            # do this before _col_ref_substitutions()
+            if col.is_computed:
+                col.check_value_expr()
 
         # the ids exist now, so a placeholder can be resolved to the actual column
         subst = self._col_ref_substitutions(new_cols)
@@ -1024,8 +1027,6 @@ class TableVersion:
             value_expr = col.value_expr
             if value_expr is not None:
                 col.set_value_expr(value_expr.substitute(subst))
-            if col.is_computed:
-                col.check_value_expr()
 
         default_idxs: list[tuple[Column, index.BtreeIndex, Column | None, Column | None]] = []
         all_cols: list[Column] = []

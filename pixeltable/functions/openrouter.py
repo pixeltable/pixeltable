@@ -104,7 +104,6 @@ async def chat_completions(
         ...     )
         ... )
     """
-    # a UDF must not modify its arguments
     model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
     Env.get().require_package('openai')

@@ -45,9 +45,7 @@ class Literal(Expr):
         self.val = val
         self.id = self._create_id()
 
-    @property
-    def has_mutable_val(self) -> bool:
-        """True if val is a dict, list, ndarray or image, which a function can modify in place."""
+    def shares_mutable_val(self) -> bool:
         return isinstance(self.val, (dict, list, np.ndarray, PIL.Image.Image))
 
     def default_column_name(self) -> str | None:

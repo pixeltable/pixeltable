@@ -58,7 +58,7 @@ class ComponentIterationNode(ExecNode):
             self.copied_arg_names = [
                 name
                 for name, arg in zip(self.iterator_args_expr.keys, self.iterator_args_expr.components)
-                if arg.contains_(filter=lambda e: isinstance(e, exprs.Literal) and e.has_mutable_val)
+                if arg.shares_mutable_val()
             ]
         self.iterator_output_cols = {name: self.view.get().cols_by_name[name] for name in self.iterator_call.outputs}
 

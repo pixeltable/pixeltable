@@ -89,6 +89,11 @@ def modify_args(opts: dict, items: list, arr: pxt.Array[pxt.Int, (2,)], img: PIL
 
 
 @pxt.udf
+def pop_embedding(text: str, opts: dict) -> pxt.Array[pxt.Float, (2,)]:
+    return np.array([opts.pop('n', 0), 1.0], dtype=np.float32)
+
+
+@pxt.udf
 def count_rows(path: str) -> int:
     return pxt.get_table(path).count()
 
@@ -745,6 +750,11 @@ class TestFunction:
 
         res = t.select(out=pop_n(t.grp, extra={'n': 2}, opts={'n': 1}, group_by=t.grp, order_by=t.prompt)).collect()
         assert [r['out'] for r in res] == ['1:2', '1:2', '1:2', '1:2']
+
+        # an embedding udf with an argument bound by using()
+        t.add_embedding_index('prompt', embedding=pop_embedding.using(opts={'n': 3}))
+        sims = [t.select(sim=t.prompt.similarity(string='a')).collect()['sim'][0] for _ in range(2)]
+        assert sims == pytest.approx([1.0, 1.0])
 
     @pytest.mark.db_roots('local', reason="the udf runs on the proxy daemon, where the client's path doesn't resolve")
     def test_udf_calls_get_table(self, db_root: DatabaseRoot) -> None:

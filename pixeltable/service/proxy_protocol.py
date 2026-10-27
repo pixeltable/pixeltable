@@ -725,7 +725,8 @@ def _deserialize(
             d = dict(v)
             d['rows'] = _deserialize(d['rows'], binary_parts)
             for field in ('row_count_stats', 'cascade_row_count_stats'):
-                d[field] = RowCountStats(**d[field])
+                # md_from_dict() ignores the unknown fields of a RowCountStats from an older server
+                d[field] = schema.md_from_dict(RowCountStats, d[field])
             return UpdateStatus(**d)
         if tag == 'RowBatch':
             return RowBatch(

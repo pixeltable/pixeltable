@@ -3934,16 +3934,23 @@ class TestTable:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'img': pxt.Image})
         t.add_computed_column(w=t.img.width)
+        t.add_computed_column(w1=t.w + 1)  # computed in SQL
+        t.add_computed_column(mode=t.img.mode)
+        t.add_computed_column(upper_mode=t.mode.upper())  # computed in SQL
+        t.add_computed_column(md=t.img.get_metadata())  # a Json column
         t.insert([{'img': get_image_files(include_bad_image=True)[0]}], on_error='ignore')
-        errors = t.select(t.img.errortype, t.img.errormsg, t.w.errortype, t.w.errormsg)
+        col_names = ['img', 'w', 'w1', 'mode', 'upper_mode', 'md']
+        errors = t.select(*(t[name].errortype for name in col_names), *(t[name].errormsg for name in col_names))
         inserted = errors.collect()[0]
-        assert inserted['w_errortype'] == inserted['img_errortype'] != None
-        assert inserted['w_errormsg'] == inserted['img_errormsg']
+        assert inserted['img_errortype'] is not None
+        assert all(inserted[f'{name}_errortype'] == inserted['img_errortype'] for name in col_names)
+        assert all(inserted[f'{name}_errormsg'] == inserted['img_errormsg'] for name in col_names)
 
-        for errors_only in (False, True):
-            status = t.recompute_columns('w', errors_only=errors_only)
-            assert (status.num_excs, status.cols_with_excs) == (1, ['tbl.w'])
-            assert errors.collect()[0] == inserted
+        for name in col_names[1:]:
+            for errors_only in (False, True):
+                status = t.recompute_columns(name, errors_only=errors_only, cascade=False)
+                assert (status.num_excs, status.cols_with_excs) == (1, [f'tbl.{name}'])
+                assert errors.collect()[0] == inserted
 
     # TODO: cannot be converted because the UDF reads client-process-local class attributes the daemon cannot see
     @pytest.mark.db_roots('local', reason='UDF reads client-process-local class attributes the daemon cannot see')

@@ -81,7 +81,6 @@ async def chat_completions(
         ...     response=chat_completions(messages, model='deepseek-v4-flash')
         ... )
     """
-    # a UDF must not modify its arguments
     model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
     if tools is not None:

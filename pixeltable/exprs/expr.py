@@ -443,6 +443,10 @@ class Expr(abc.ABC):
         except StopIteration:
             return False
 
+    def shares_mutable_val(self) -> bool:
+        """Returns True if this expr's value contains a mutable object that is the same for every row."""
+        return any(c.shares_mutable_val() for c in self.components)
+
     def validate_storable(self, context: str) -> None:
         """Raise if this expr references a Function that cannot be persisted."""
         from pixeltable import func

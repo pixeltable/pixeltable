@@ -591,7 +591,6 @@ async def chat_completions(
         ...     response=chat_completions(messages, model='gpt-4o-mini')
         ... )
     """
-    # a UDF must not modify its arguments
     model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
     if tools is not None:
@@ -723,7 +722,6 @@ async def responses(
         ... ]
         ... tbl.add_computed_column(response=responses(messages, model='gpt-4o-mini'))
     """
-    # a UDF must not modify its arguments
     model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
     # In Responses API, functions use internally-tagged polymorphism (flat structure)

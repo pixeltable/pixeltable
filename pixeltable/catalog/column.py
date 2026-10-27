@@ -263,20 +263,6 @@ class Column:
         else:
             raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, f'Invalid spec for column {name!r}: {type(spec)}')
 
-        method_ref = next(value_expr.subexprs(expr_class=exprs.MethodRef), None) if value_expr is not None else None
-        # a leftover MethodRef (that didn't get transformed into a FunctionCall of a method) is an error
-        if method_ref is not None:
-            json_hint = (
-                f', or use {method_ref.base_expr}[{method_ref.method_name!r}] for the JSON field'
-                if method_ref.base_expr.col_type.is_json_type()
-                else ''
-            )
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_EXPRESSION,
-                f'Column {name!r}: {method_ref} is the method {method_ref.method_name}(); call it to get a value'
-                f'{json_hint}.',
-            )
-
         stores_cellmd = cls.should_store_cellmd(col_type=col_type, is_stored=stored, is_computed=value_expr is not None)
         column = cls(
             name,
@@ -522,6 +508,19 @@ class Column:
 
     def check_value_expr(self) -> None:
         assert self._value_expr is not None
+        method_ref = next(self._value_expr.subexprs(expr_class=exprs.MethodRef), None)
+        # a leftover MethodRef (that didn't get transformed into a FunctionCall of a method) is an error
+        if method_ref is not None:
+            json_hint = (
+                f', or use {method_ref.base_expr}[{method_ref.method_name!r}] for the JSON field'
+                if method_ref.base_expr.col_type.is_json_type()
+                else ''
+            )
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_EXPRESSION,
+                f'Column {self.name!r}: {method_ref} is the method {method_ref.method_name}(); call it to get a value'
+                f'{json_hint}.',
+            )
         self._value_expr.validate_storable(f'Computed column {self.name!r}')
         for e in self._value_expr.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
             if e.is_cellmd_prop():

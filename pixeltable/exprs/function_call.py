@@ -503,20 +503,20 @@ class FunctionCall(Expr):
         return args, kwargs
 
     def copy_mutable_literal_args(self, args: list[Any], kwargs: dict[str, Any]) -> None:
-        """Replace each argument in args and kwargs from make_args() with a deep copy if it contains a mutable value.
+        """Replace each argument from make_args() with a deep copy if it contains a mutable object shared by all rows.
 
-        A Literal's value is shared by all rows; a function that modifies an argument would change that value for later
-        rows.
+        A function that modifies an argument would otherwise change it for later rows.
         """
         for i, idx in enumerate(self.arg_idxs):
-            if self._contains_mutable_literal(idx):
+            if self.components[idx].shares_mutable_val():
                 args[i] = copy.deepcopy(args[i])
         for name, idx in self.kwarg_idxs.items():
-            if name in kwargs and self._contains_mutable_literal(idx):
+            if name in kwargs and self.components[idx].shares_mutable_val():
                 kwargs[name] = copy.deepcopy(kwargs[name])
 
-    def _contains_mutable_literal(self, component_idx: int) -> bool:
-        return self.components[component_idx].contains_(filter=lambda e: isinstance(e, Literal) and e.has_mutable_val)
+    def shares_mutable_val(self) -> bool:
+        # the function computes its result for each row
+        return False
 
     def get_param_values(self, param_names: Sequence[str], data_rows: list[DataRow]) -> list[dict[str, Any]]:
         """
@@ -567,11 +567,11 @@ class FunctionCall(Expr):
             data_row[self.slot_idx] = None
             return
         args, kwargs = args_kwargs
+        if not self.fn.is_builtin:
+            self.copy_mutable_literal_args(args, kwargs)
 
         if self.is_window_fn_call:
             assert isinstance(self.fn, func.AggregateFunction)
-            if not self.fn.is_builtin:
-                self.copy_mutable_literal_args(args, kwargs)
             if self.has_group_by():
                 if self.current_partition_vals is None:
                     self.current_partition_vals = [None] * len(self.group_by)

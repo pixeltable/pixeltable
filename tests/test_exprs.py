@@ -785,7 +785,9 @@ class TestExprs:
             t.add_computed_column(m=t.j.mean)
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
             t.add_computed_column(m=t.j.mean.astype(pxt.Float))
-        t.add_computed_column(m=t.j['mean'])
+        t.add_computed_column(m=t.j['mean'].astype(pxt.Float))
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.alter_computed_column(m=t.j.mean.astype(pxt.Float))
         t.insert([{'j': {'mean': 1.5}}])
         assert t.select(t.m).collect()['m'] == [1.5]
 
@@ -797,6 +799,23 @@ class TestExprs:
 
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
             TableModel.update_all(p(''))
+
+        TableModel2 = pxt.model_base()  # noqa: N806
+
+        class Stats2(TableModel2, name='stats'):
+            j: pxt.Json
+            mean = j['mean'].astype(pxt.Float)  # noqa: F821
+
+        TableModel2.update_all(p(''))
+
+        TableModel3 = pxt.model_base()  # noqa: N806
+
+        class Stats3(TableModel3, name='stats'):
+            j: pxt.Json
+            mean = j.mean.astype(pxt.Float)  # noqa: F821
+
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            TableModel3.update_all(p(''))
 
     def test_json_path_projection(self, db_root: DatabaseRoot) -> None:
         # a projection ('*' or a slice) yields one positionally-aligned result per source element: a missing field,

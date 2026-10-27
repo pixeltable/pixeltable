@@ -48,7 +48,6 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog import fold_identifier, model
 from pixeltable.catalog.model.query import ModelQuery
-from pixeltable.catalog.model.resolution import resolve_query_columns
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.exec.globals import INLINED_OBJECT_MD_KEY
@@ -735,7 +734,7 @@ class FastAPIRouter(fastapi.APIRouter):
             assert route.model_cls is not None
             if route.spec.route_type == 'query':
                 self._query_bindings[route.route_id] = self._media_rewritten(
-                    resolve_query_columns(self._unbound_queries[route.route_id].bind(base_path)),
+                    self._unbound_queries[route.route_id].bind(base_path),
                     return_fileresponse=route.spec.return_fileresponse,
                 )
             else:

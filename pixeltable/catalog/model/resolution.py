@@ -303,7 +303,7 @@ def resolve_query_columns(query: pxt.Query) -> pxt.Query:
 
 
 def _is_unresolved(query: pxt.Query) -> bool:
-    """Returns True if it contains ColumRefByName instances."""
+    """Returns True if it contains ColumnRefByName instances."""
     return exprs.Expr.list_contains(
         query._component_exprs(),
         filter=lambda e: isinstance(e, exprs.ColumnRefByName)
