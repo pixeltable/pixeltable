@@ -211,6 +211,8 @@ class TestAlterColumn:
         assert t.select(t.c).order_by(t.n).collect()['c'] == [100, 200, 300]
         # the alteration and the recompute are in the same version
         assert len(t.get_versions()) == num_versions + 1
+        version = t.get_versions()[0]
+        assert (version['inserts'], version['updates'], version['errors']) == (0, 3, 0)
 
         # altering to the same expression is a no-op, and creates no version
         t.alter_computed_column(c=t.n * 100)

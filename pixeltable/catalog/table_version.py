@@ -1280,12 +1280,15 @@ class TableVersion:
             f'{new_value_expr}, new version: {self.version}'
         )
 
-        # recompute_columns on a data-versioned table ends with table md write
-        if not (recompute and self.is_data_versioned):
-            self._write_md(new_version=True, new_schema_version=True)
         if not recompute:
+            self._write_md(new_version=True, new_schema_version=True)
             return UpdateStatus()
-        return self.recompute_columns([col.name], cascade=cascade, bump_version=False)
+        status = self.recompute_columns([col.name], cascade=cascade, bump_version=False)
+        # recompute_columns on a data-versioned table ends with table md write
+        if not self.is_data_versioned:
+            self.set_version_update_status(status)
+            self._write_md(new_version=True, new_schema_version=True)
+        return status
 
     def set_comment(self, new_comment: str | None) -> None:
         _logger.info(f'[{self.name}] Updating comment: {new_comment}')
