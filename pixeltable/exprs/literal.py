@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import datetime
 import uuid
 from typing import TYPE_CHECKING, Any, Iterator
@@ -45,7 +46,9 @@ class Literal(Expr):
         self.val = val
         self.id = self._create_id()
 
-    def shares_mutable_val(self) -> bool:
+    @property
+    def has_mutable_val(self) -> bool:
+        """True if val is a dict, list, ndarray or image, which a function can modify in place."""
         return isinstance(self.val, (dict, list, np.ndarray, PIL.Image.Image))
 
     def default_column_name(self) -> str | None:
@@ -84,7 +87,8 @@ class Literal(Expr):
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         # this will be called, even though sql_expr() does not return None
-        data_row[self.slot_idx] = self.val
+        # each row gets its own copy of a mutable val
+        data_row[self.slot_idx] = copy.deepcopy(self.val) if self.has_mutable_val else self.val
 
     def _as_dict(self) -> dict:
         if self.col_type.is_timestamp_type():

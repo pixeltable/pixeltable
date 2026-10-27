@@ -66,7 +66,6 @@ class FnCallEvaluator(Evaluator):
     fn_call: exprs.FunctionCall
     fn: func.CallableFunction
     scalar_py_fn: Callable | None  # only set for non-batching CallableFunctions
-    copies_mutable_literal_args: bool
 
     # only set if fn.is_batched
     call_args_queue: asyncio.Queue[FnCallArgs] | None  # FnCallArgs waiting for execution
@@ -76,9 +75,6 @@ class FnCallEvaluator(Evaluator):
         super().__init__(dispatcher, exec_ctx)
         self.fn_call = fn_call
         self.fn = cast(func.CallableFunction, fn_call.fn)
-        self.copies_mutable_literal_args = not self.fn.is_builtin and any(
-            arg.shares_mutable_val() for arg in [*fn_call.args, *fn_call.kwargs.values()]
-        )
         if fn_call.resource_pool is not None and not self.fn.is_async:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
@@ -138,8 +134,6 @@ class FnCallEvaluator(Evaluator):
                 skip_rows.append(row)
             else:
                 args, kwargs = args_kwargs
-                if self.copies_mutable_literal_args:
-                    self.fn_call.copy_mutable_literal_args(args, kwargs)
                 rows_call_args.append(FnCallArgs(self.fn_call, [row], args=args, kwargs=kwargs))
 
         if len(skip_rows) > 0:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import copy
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Iterable, Protocol
@@ -161,6 +162,7 @@ class ExprEvalCtx:
     gc_targets: np.ndarray  # bool per slot; True if this is an intermediate expr (ie, not part of our output)
     eval_ctx: np.ndarray  # bool per slot; EvalCtx.slot_idxs as a mask
     literals: dict[int, Any]  # key: slot idx; value: literal value for this slot; used to pre-populate rows
+    copied_literals: dict[int, Any]  # like literals, but each row gets a deep copy of the value
     all_exprs: list[exprs.Expr]  # all evaluated exprs; needed for cleanup
 
     def __init__(
@@ -175,12 +177,22 @@ class ExprEvalCtx:
 
         output_ctx = self.row_builder.create_eval_ctx(output_exprs, exclude=input_exprs)
         self.all_exprs = output_ctx.exprs
-        self.literals = {e.slot_idx: e.val for e in output_ctx.exprs if isinstance(e, exprs.Literal)}
+        literals = [e for e in output_ctx.exprs if isinstance(e, exprs.Literal)]
+        # a non-builtin function might modify its argument; we need to create copies of mutable literals in init_rows()
+        self.copied_literals = {
+            e.slot_idx: e.val for e in literals if e.has_mutable_val and not self._has_only_builtin_dependents(e)
+        }
+        self.literals = {e.slot_idx: e.val for e in literals if e.slot_idx not in self.copied_literals}
         self.eval_ctx = np.zeros(self.row_builder.num_materialized, dtype=bool)
         non_literal_slot_idxs = [e.slot_idx for e in output_ctx.exprs if not isinstance(e, exprs.Literal)]
         self.eval_ctx[non_literal_slot_idxs] = True
         self._init_slot_evaluators(dispatcher, non_literal_slot_idxs)
         self.set_gc(True)
+
+    def _has_only_builtin_dependents(self, literal: exprs.Literal) -> bool:
+        dependent_idxs = np.nonzero(self.row_builder.dependents[literal.slot_idx])[0].tolist()
+        dependents = [self.row_builder.unique_exprs[i] for i in dependent_idxs]
+        return all(isinstance(e, exprs.FunctionCall) and e.fn.is_builtin for e in dependents)
 
     def set_gc(self, gc: bool) -> None:
         if gc:
@@ -228,6 +240,8 @@ class ExprEvalCtx:
         for row in rows:
             for slot_idx, val in self.literals.items():
                 row[slot_idx] = val
+            for slot_idx, val in self.copied_literals.items():
+                row[slot_idx] = copy.deepcopy(val)
 
         # Stack has_val for vectorized computation
         # Shape: (num_rows, num_slots)

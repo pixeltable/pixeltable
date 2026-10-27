@@ -464,8 +464,6 @@ class FunctionCall(Expr):
             # One or more of the required arguments for this aggregator func is None, skip this row
             return
         args, kwargs = args_for_row
-        if not self.fn.is_builtin:
-            self.copy_mutable_literal_args(args, kwargs)
         self.aggregator.update(*args, **kwargs)
 
     def make_args(self, data_row: DataRow) -> tuple[list[Any], dict[str, Any]] | None:
@@ -501,22 +499,6 @@ class FunctionCall(Expr):
             kwargs[param_name] = val
 
         return args, kwargs
-
-    def copy_mutable_literal_args(self, args: list[Any], kwargs: dict[str, Any]) -> None:
-        """Replace each argument from make_args() with a deep copy if it contains a mutable object shared by all rows.
-
-        A function that modifies an argument would otherwise change it for later rows.
-        """
-        for i, idx in enumerate(self.arg_idxs):
-            if self.components[idx].shares_mutable_val():
-                args[i] = copy.deepcopy(args[i])
-        for name, idx in self.kwarg_idxs.items():
-            if name in kwargs and self.components[idx].shares_mutable_val():
-                kwargs[name] = copy.deepcopy(kwargs[name])
-
-    def shares_mutable_val(self) -> bool:
-        # the function computes its result for each row
-        return False
 
     def get_param_values(self, param_names: Sequence[str], data_rows: list[DataRow]) -> list[dict[str, Any]]:
         """
@@ -567,8 +549,6 @@ class FunctionCall(Expr):
             data_row[self.slot_idx] = None
             return
         args, kwargs = args_kwargs
-        if not self.fn.is_builtin:
-            self.copy_mutable_literal_args(args, kwargs)
 
         if self.is_window_fn_call:
             assert isinstance(self.fn, func.AggregateFunction)
