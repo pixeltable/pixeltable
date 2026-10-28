@@ -882,8 +882,8 @@ already know. With grants it belongs to the organization instead, and reaches on
 granted, so a service you deploy has no more authority than its job needs.
 
 <Note>
-Keys with grants are a preview. Until they are enabled for your organization, Pixeltable Cloud
-refuses `pxt key create --grant` with "Keys with grants are not available yet".
+Until they are enabled for your organization, Pixeltable Cloud refuses `pxt key create --grant`
+with "Keys with grants are not available yet".
 </Note>
 
 A grant is a verb on a resource, never a bare resource: a service on its own does not say whether
@@ -1290,7 +1290,7 @@ Show the organization's name, ID, and default database.
 
 ```bash
 pxt key create NAME                       # a key that acts as you
-pxt key create NAME --grant VERB:URI      # a scoped key that belongs to the org (preview); repeatable
+pxt key create NAME --grant VERB:URI      # a scoped key that belongs to the org; repeatable
 pxt key list                              # every key in the org, and who created it
 pxt key update NAME --grant VERB:URI      # add a grant
 pxt key update NAME --revoke VERB:URI     # remove one
