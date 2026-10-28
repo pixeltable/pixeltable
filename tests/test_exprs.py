@@ -1657,7 +1657,9 @@ class TestExprs:
         query = t.select(t.img, t.img.rotate(60))
         _ = query.show(n=100)._repr_html_()
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_EXPRESSION, match=r'img\.rotate is the method rotate\(\); call it to get a value'
+        ):
             _ = t.select(t.img.rotate)
 
     def test_img_members(self, img_tbl: pxt.Table) -> None:
