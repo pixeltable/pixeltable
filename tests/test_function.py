@@ -886,6 +886,90 @@ class TestFunction:
         validate_update_status(t.insert(n=3), expected_rows=1)
         assert t.count() == 2
 
+    def test_query_over_dropped_column(self, db_root: DatabaseRoot) -> None:
+        """A query over a dropped unstored column fails only when it's evaluated."""
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('test'))
+        src = pxt.create_table(p('test/src'), {'a': pxt.String | None})
+        src.add_computed_column(upper=src.a.upper(), stored=False)
+        src.insert(a='x')
+
+        @pxt.query
+        def retrieve() -> pxt.Query:
+            return src.select(src.upper)
+
+        t = pxt.create_table(p('test/tbl'), {'n': pxt.Int | None})
+        t.add_computed_column(result=retrieve())
+        t.insert([{'n': 1}, {'n': 2}])
+        src.drop_column('upper')
+
+        validate_update_status(t.delete(t.n == 1), expected_rows=1)
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Column was dropped'):
+            t.insert(n=3)
+
+    def test_query_source_shapes(self, db_root: DatabaseRoot) -> None:
+        """
+        Inserts and reads evaluate queries that reach a view through a snapshot, an unstored column, a nested query,
+        a function call or a query without a select list.
+        """
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('test'))
+        src = pxt.create_table(p('test/src'), {'a': pxt.String | None})
+        src.insert(a='x')
+        v1, v2, v3, v4, v5, v6 = (pxt.create_view(p(f'test/view_{i}'), src) for i in range(1, 7))
+        snap = pxt.create_snapshot(p('test/snap'), v1)
+
+        def select_a(tbl: pxt.Table) -> func.QueryTemplateFunction:
+            @pxt.query
+            def retrieve() -> pxt.Query:
+                return tbl.select(tbl.a)
+
+            return retrieve
+
+        other = pxt.create_table(p('test/other'), {'b': pxt.String | None})
+        other.add_computed_column(r2=select_a(v2)(), stored=False)
+        other.add_computed_column(r5=select_a(v5)(), stored=False)
+        other.add_computed_column(r6=select_a(v6)(), stored=False)
+        other.insert(b='o')
+
+        @pxt.query
+        def select_r2() -> pxt.Query:
+            return other.select(other.r2)
+
+        @pxt.query
+        def select_r6() -> pxt.Query:
+            return other.select(other.r6)
+
+        @pxt.query
+        def select_nested() -> pxt.Query:
+            return src.select(select_a(v3)())
+
+        @pxt.query
+        def select_all() -> pxt.Query:
+            return other.limit(5)
+
+        t = pxt.create_table(p('test/tbl'), {'n': pxt.Int | None})
+        t.add_computed_column(snap_result=select_a(snap)())
+        t.add_computed_column(unstored_result=select_r2())
+        t.add_computed_column(nested_result=select_nested())
+        t.add_computed_column(wrapped_result=pxtf.json.len(select_a(v4)()))
+        t.add_computed_column(select_all_result=select_all())
+        t.add_computed_column(read_result=select_r6(), stored=False)
+
+        reload_catalog()
+        validate_update_status(pxt.get_table(p('test/tbl')).insert(n=1), expected_rows=1)
+        reload_catalog()
+        t = pxt.get_table(p('test/tbl'))
+        assert t.collect()[0] == {
+            'n': 1,
+            'snap_result': ['x'],
+            'unstored_result': [['x']],
+            'nested_result': [['x']],
+            'wrapped_result': 1,
+            'select_all_result': [{'b': 'o', 'r2': ['x'], 'r5': ['x'], 'r6': ['x']}],
+            'read_result': [['x']],
+        }
+
     def test_query_with_limit(self, test_tbl: pxt.Table) -> None:
         """@pxt.query bodies that use limit() with differently-shaped limit arguments."""
         t = test_tbl

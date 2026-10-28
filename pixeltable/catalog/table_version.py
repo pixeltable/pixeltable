@@ -2134,13 +2134,6 @@ class TableVersion:
         """Returns True if col is produced by an iterator (including the pos column)"""
         return col.is_iterator_col
 
-    def referenced_tbl_ids(self, unstored_only: bool = False) -> set[UUID]:
-        return exprs.Expr.list_tbl_ids(
-            col.value_expr
-            for col in self.cols_by_id.values()
-            if col.value_expr is not None and not (unstored_only and col.stored)
-        )
-
     def stored_column_version_md(self, col_id: int) -> ColumnVersionMd | None:
         """Return the column's metadata, or None if this version's schema doesn't have the column.
 

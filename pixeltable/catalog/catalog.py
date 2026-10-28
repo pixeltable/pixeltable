@@ -9,7 +9,7 @@ import time
 import warnings
 from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Collection, Iterator, Literal, Mapping, Sequence, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Collection, Iterable, Iterator, Literal, Mapping, Sequence, TypeVar
 from uuid import UUID, uuid4
 
 import psycopg
@@ -584,8 +584,8 @@ class Catalog(CatalogBase):
         Acquires locks on the specified write targets (including their mutable tree, if lock_mutable_tree is True), and
         updates self._x_locked_tbl_ids accordingly.
 
-        Refreshes the metadata cache for the read targets plus, if finalize_pending_ops is True, metadata for all tables
-        referenced by the write targets' columns and the read targets' unstored columns.
+        Refreshes the metadata cache for the read targets and, if finalize_pending_ops is True, for the tables queried
+        by the write targets' computed columns and the read targets' unstored columns.
 
         The order matters: TVPs are processed before tbl_ids in both groups so that ancestor-first validation
         (write_tvps -> write_tbl_ids -> read_tvps -> read_tbl_ids) is established before any unordered ID pass runs.
@@ -614,23 +614,69 @@ class Catalog(CatalogBase):
 
         # _acquire_write_lock() loads the locked tables only if finalize_pending_ops is True
         if finalize_pending_ops:
-            # load metadata for all tables referenced by the write targets and the read targets' unstored columns
-            ref_ids: set[UUID] = set()
+            visited: set[QColumnId] = set()
             for tbl_id in x_locked_ids:
-                ref_ids |= self._tbl_versions[TableVersionKey(tbl_id, None)].referenced_tbl_ids()
+                tv = self._tbl_versions[TableVersionKey(tbl_id, None)]
+                self._load_col_queried_tbl_versions(tv.cols_by_id.values(), visited)
             for tvp in read_tvps:
                 for tvh in tvp.get_tbl_versions():
-                    ref_ids |= self._tbl_versions[tvh.key].referenced_tbl_ids(unstored_only=True)
-            for ref_id in ref_ids:
-                if TableVersionKey(ref_id, None) not in self._tbl_versions:
-                    try:
-                        self._refresh_tbl_cache(tbl_id=ref_id)
-                    except excs.NotFoundError as e:
-                        # a column that references a dropped table fails when it's evaluated, not here
-                        if e.error_code != excs.ErrorCode.TABLE_NOT_FOUND:
-                            raise
+                    tv = self._tbl_versions[tvh.key]
+                    self._load_col_queried_tbl_versions(
+                        [col for col in tv.cols_by_id.values() if not col.is_stored], visited
+                    )
 
         self._x_locked_tbl_ids = x_locked_ids
+
+    def _load_queried_tbl_versions(self, value_exprs: Iterable[exprs.Expr], visited: set[QColumnId]) -> None:
+        """
+        Load and validate the table versions queried by value_exprs, recursing into nested queries and referenced
+        unstored columns.
+        """
+        for e in exprs.Expr.list_subexprs(value_exprs):
+            if isinstance(e, exprs.ColumnRef):
+                col_md = e.col_md
+                if col_md.is_computed and not col_md.is_stored:
+                    tv = self._referenced_tbl_version(
+                        TableVersionKey(col_md.qcolid.tbl_id, col_md.col_effective_version)
+                    )
+                    # queries in other tables don't block drop_column()
+                    if tv is not None and col_md.qcolid.col_id in tv.cols_by_id:
+                        self._load_col_queried_tbl_versions([tv.cols_by_id[col_md.qcolid.col_id]], visited)
+            elif (
+                isinstance(e, exprs.FunctionCall)
+                and isinstance(e.fn, func.QueryTemplateFunction)
+                and e.fn.queries_tables
+            ):
+                query = e.fn.template_query
+                assert query is not None
+                # ancestors first, as in _acquire_path_locks()
+                tvs = [self._referenced_tbl_version(key) for key in reversed(query.from_clause_tbl_version_keys())]
+                if not query.has_select_list:
+                    # the query selects all columns of its from-clause tables
+                    self._load_col_queried_tbl_versions(
+                        [col for tv in tvs if tv is not None for col in tv.cols_by_id.values() if not col.is_stored],
+                        visited,
+                    )
+                self._load_queried_tbl_versions(query._component_exprs(), visited)
+
+    def _load_col_queried_tbl_versions(self, cols: Iterable[Column], visited: set[QColumnId]) -> None:
+        """Load and validate the table versions queried by the value_exprs of cols."""
+        value_exprs: list[exprs.Expr] = []
+        for col in cols:
+            if col.value_expr is not None and col.qid not in visited:
+                visited.add(col.qid)
+                value_exprs.append(col.value_expr)
+        self._load_queried_tbl_versions(value_exprs, visited)
+
+    def _referenced_tbl_version(self, key: TableVersionKey) -> TableVersion | None:
+        """Return the validated TableVersion for key, or None if the table was dropped."""
+        try:
+            return self._get_tbl_version(key)
+        except excs.NotFoundError as e:
+            # a query over a dropped table fails when it's evaluated, not here
+            if e.error_code != excs.ErrorCode.TABLE_NOT_FOUND:
+                raise
+            return None
 
     def _evict_caches(self) -> None:
         # Evict LRU _tbls entries
