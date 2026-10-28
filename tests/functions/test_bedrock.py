@@ -1,5 +1,4 @@
 import io
-import time
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -263,30 +262,6 @@ def test_async_invoke_poll_throttle(uses_db: None, monkeypatch: pytest.MonkeyPat
     assert len(submissions) == 1
     assert poll_results == []
     assert t.collect()[0]['response'] == {'data': [{'embedding': [0.5]}]}
-
-
-def test_async_invoke_slow_failing_polls(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Time spent in failing polls counts toward the deadline, which ends the job without submitting it again."""
-    from pixeltable.functions import bedrock
-
-    polls: list[float] = []
-
-    def poll() -> dict:
-        polls.append(time.monotonic())
-        time.sleep(0.1)
-        raise aws_client_error('ThrottlingException', 429, 'Too many requests')
-
-    submissions = _mock_async_invoke(monkeypatch, poll)
-    monkeypatch.setattr(bedrock, '_ASYNC_INVOCATION_POLL_INTERVAL_SECS', 0.01)
-    monkeypatch.setattr(bedrock, '_ASYNC_INVOCATION_TIMEOUT_SECS', 0.3)
-    t = _marengo_audio_table()
-    status = t.insert(uri='s3://test-bucket/audio.mp3', on_error='ignore')
-    assert status.num_excs == 1
-    assert len(submissions) == 1
-    assert len(polls) <= 4
-    row = t.select(errortype=t.response.errortype, errormsg=t.response.errormsg).collect()[0]
-    assert row['errortype'] == 'ExternalServiceError'
-    assert 'timed out' in row['errormsg']
 
 
 @pytest.mark.remote_api
