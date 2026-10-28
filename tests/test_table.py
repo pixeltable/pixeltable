@@ -3932,7 +3932,7 @@ class TestTable:
     def test_recompute_keeps_input_error(self, db_root: DatabaseRoot) -> None:
         """A recompute passes on an input cell's stored error to the cells computed from it, as the insert did."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('tbl'), {'img': pxt.Image})
+        t = pxt.create_table(p('tbl'), {'img': pxt.Image, 'b': pxt.Int | None, 'note': pxt.String | None})
         t.add_computed_column(w=t.img.width)
         t.add_computed_column(w1=t.w + 1)  # computed in SQL
         t.add_computed_column(mode=t.img.mode)
@@ -3951,6 +3951,11 @@ class TestTable:
                 status = t.recompute_columns(name, errors_only=errors_only, cascade=False)
                 assert (status.num_excs, status.cols_with_excs) == (1, [f'tbl.{name}'])
                 assert errors.collect()[0] == inserted
+
+        # an update passes it on as well; errormsg is a value, not the error
+        status = t.update({'b': t.w + 1, 'note': t.img.errormsg})
+        assert (status.num_excs, status.cols_with_excs) == (1, ['tbl.b'])
+        assert t.select(t.b, t.note).collect()[0] == {'b': None, 'note': inserted['img_errormsg']}
 
     # TODO: cannot be converted because the UDF reads client-process-local class attributes the daemon cannot see
     @pytest.mark.db_roots('local', reason='UDF reads client-process-local class attributes the daemon cannot see')

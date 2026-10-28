@@ -212,9 +212,6 @@ class SqlNode(ExecNode):
         - select_list, whose values go into the output row's slots
         - the cellmd of cell_md_refs, for DataRow.slot_md
         - the value and cellmd of each copied column, for DataRow.cell_vals/cell_md; these items aren't slots
-
-        copied_input_col_ids records, for each select_list item, its copied input columns with cellmd (the keys of
-        column_cellmd_item_idxs): only those can hold a stored error.
         """
         assert self.sql_elements.contains_all(self.select_list)
         self.sql_select_list_exprs = exprs.ExprSet(self.select_list)
@@ -231,7 +228,19 @@ class SqlNode(ExecNode):
         }
         self.copied_input_col_ids = {}
         for e in self.select_list:
-            col_ids = [ref.col.id for ref in e.subexprs(exprs.ColumnRef) if ref.col in self.column_cellmd_item_idxs]
+            # an error property such as errormsg is a value, not its column's error (as in RowBuilder), so the
+            # traversal stops there
+            refs = e.subexprs(
+                filter=lambda x: isinstance(x, exprs.ColumnRef)
+                or (isinstance(x, exprs.ColumnPropertyRef) and x.is_cellmd_prop()),
+                traverse_matches=False,
+            )
+            # the output rows have the cellmd of copied columns only (column_cellmd_item_idxs)
+            col_ids = [
+                ref.col.id
+                for ref in refs
+                if isinstance(ref, exprs.ColumnRef) and ref.col in self.column_cellmd_item_idxs
+            ]
             if len(col_ids) > 0:
                 self.copied_input_col_ids[e.slot_idx] = col_ids
 

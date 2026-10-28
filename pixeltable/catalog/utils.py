@@ -126,7 +126,7 @@ def create_table_version_md(
         col.tbl_handle = tbl_handle
         col.id = next(column_ids)
         col.schema_version_add = 0
-        # do this before column_version_md()
+        # do this before column_version_md(), which requires a valid value expression
         if col.is_computed:
             col.check_value_expr()
 

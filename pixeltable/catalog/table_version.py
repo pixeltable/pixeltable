@@ -1017,7 +1017,7 @@ class TableVersion:
                 )
             col.tbl_handle = self.handle
             col.id = self.next_col_id()
-            # do this before _col_ref_substitutions()
+            # do this before _col_ref_substitutions(), which requires a valid value expression
             if col.is_computed:
                 col.check_value_expr()
 

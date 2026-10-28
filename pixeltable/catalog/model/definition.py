@@ -465,13 +465,7 @@ def bind_query_templates(e: exprs.Expr, catalog_dir: str | None) -> exprs.Expr:
             return None
         return template_query.to_defined_query() if catalog_dir is None else template_query.bind_by_name(catalog_dir)
 
-    result = func.substitute_template_queries(e, bound_query)
-    # substitute() returns a replacement without descending into it, so a call nested in another one is missed
-    assert not any(
-        isinstance(c.fn, func.QueryTemplateFunction) and isinstance(c.fn.template_query, ModelQuery)
-        for c in result.subexprs(exprs.FunctionCall)
-    )
-    return result
+    return func.substitute_template_queries(e, bound_query)
 
 
 class TableModelMeta(type):

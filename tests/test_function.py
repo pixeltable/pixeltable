@@ -805,6 +805,77 @@ class TestFunction:
         t.insert([{'x': 2}])
         assert t.select(t.y).collect()['y'] == [4]
 
+    @pytest.mark.db_roots('local', reason='loads application files in process')
+    def test_import_rollback(self, uses_db: None, project_env: pathlib.Path) -> None:
+        """Loading a table keeps the udfs of each module that imported successfully, also when another import fails."""
+        shout_source = dedent(
+            """
+            import pixeltable as pxt
+
+
+            @pxt.udf(is_method=True)
+            def shout(s: str) -> str:
+                return s.upper()
+            """
+        )
+        # a udf nested in a class, next to a method udf
+        (project_env / 'nested_app.py').write_text(
+            shout_source
+            + dedent(
+                """
+
+                class Ops:
+                    @pxt.udf
+                    def double(x: int) -> int:
+                        return 2 * x
+                """
+            ),
+            encoding='utf-8',
+        )
+        # a module that imports a method udf from a helper module
+        (project_env / 'helper_udfs.py').write_text(shout_source.replace('shout', 'whisper'), encoding='utf-8')
+        app_source = dedent(
+            """
+            import pixeltable as pxt
+            import helper_udfs
+
+
+            @pxt.udf
+            def triple(x: int) -> int:
+                return 3 * x
+            """
+        )
+        app_file = project_env / 'helper_app.py'
+        app_file.write_text(app_source, encoding='utf-8')
+        other_file = project_env / 'other_app.py'
+        other_file.write_text('import pixeltable as pxt\n', encoding='utf-8')
+
+        nested = load_app_module(str(project_env / 'nested_app.py'), subject='application file')
+        t = pxt.create_table('nums', {'x': pxt.Int, 's': pxt.String})
+        t.add_computed_column(y=nested.Ops.double(t.x))
+        app = load_app_module(str(app_file), subject='application file')
+        u = pxt.create_table('more_nums', {'x': pxt.Int, 's': pxt.String})
+        u.add_computed_column(y=app.triple(u.x))
+
+        # loading other_app unloads the other project modules, so the next table load imports them again
+        load_app_module(str(other_file), subject='application file')
+        reload_catalog()
+        t = pxt.get_table('nums')
+        t.insert([{'x': 2, 's': 'a'}])
+        assert list(t.select(t.y, t.s.shout()).collect()) == [{'y': 4, 'shout': 'A'}]
+
+        # helper_app raises after importing helper_udfs, which stays imported
+        app_file.write_text(app_source + 'undefined_name\n', encoding='utf-8')
+        load_app_module(str(other_file), subject='application file')
+        reload_catalog()
+        with pytest.raises(NameError, match='undefined_name'):
+            pxt.get_table('more_nums')
+        app_file.write_text(app_source, encoding='utf-8')
+        reload_catalog()
+        u = pxt.get_table('more_nums')
+        u.insert([{'x': 2, 's': 'B'}])
+        assert list(u.select(u.y, u.s.whisper()).collect()) == [{'y': 6, 'whisper': 'B'}]
+
     def test_query_param_in_aggregate(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'x': pxt.Int})

@@ -1323,16 +1323,22 @@ class TestTableModel:
         def find_titles_of(q: str) -> pxt.Query:
             return Docs2.where(Docs2.body == q).select(found=find_title(Docs2.body))  # type: ignore[arg-type]
 
+        @pxt.query
+        def first_title(q: str) -> pxt.Query:
+            return Docs2.where(Docs2.body == q).select(Docs2.title).limit(1)  # type: ignore[arg-type]
+
         class Asks2(TableModel2, name='asks'):
             question: pxt.String
             hits = find_by_title(question)  # altered
             titles = find_title(question)  # added, and backfilled
             nested_titles = find_titles_of(question)  # added, and backfilled
+            hits_by_title = find_by_title(first_title(question))  # a query call as the argument of another
 
         TableModel2.update_all(p(''))
-        res = Asks2.table.select(Asks2.titles, Asks2.nested_titles).collect()
+        res = Asks2.table.select(Asks2.titles, Asks2.nested_titles, Asks2.hits_by_title).collect()
         assert res['titles'] == [[{'title': 'ALPHA'}]]
         assert res['nested_titles'] == [[{'found': [{'title': 'ALPHA'}]}]]
+        assert res['hits_by_title'] == [[{'body': 'alpha'}]]
         Asks2.insert(question='ALPHA')
         res = {row['question']: (row['hits'], row['titles'], row['nested_titles']) for row in Asks2.table.collect()}
         assert res == {

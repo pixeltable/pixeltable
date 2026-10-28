@@ -194,8 +194,11 @@ def substitute_template_queries(e: exprs.Expr, substitution_fn: Callable[[QueryB
             name=fn.self_name,
             comment=fn.comment(),
         )
-        # we need to substitute the FunctionCall itself, not just the Function instance
-        subst[fn_call] = new_fn(*fn_call.args, **fn_call.kwargs)
+        # we need to substitute the FunctionCall itself, not just the Function instance; substitute() won't descend
+        # into that replacement, so its args get the replacements of their nested calls (subexprs() yields those first)
+        args = [arg.copy().substitute(subst) for arg in fn_call.args]
+        kwargs = {name: arg.copy().substitute(subst) for name, arg in fn_call.kwargs.items()}
+        subst[fn_call] = new_fn(*args, **kwargs)
     return e.substitute(subst)
 
 
