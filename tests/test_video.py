@@ -1,3 +1,4 @@
+import asyncio
 import math
 import os
 import platform
@@ -366,6 +367,23 @@ class TestVideo:
             close_calls = 0
             for _row in frames.select(frames.frame).cursor():
                 break
+            assert close_calls >= 1
+            _assert_videos_closed(paths)
+
+            close_calls = 0
+            for _row in frames.where(frames.frame.width > 0).select(frames.frame).cursor():
+                break
+            assert close_calls >= 1
+            _assert_videos_closed(paths)
+
+            close_calls = 0
+
+            async def _cursor_break_with_loop() -> None:
+                await asyncio.sleep(0)
+                for _row in frames.select(frames.frame).cursor():
+                    break
+
+            asyncio.run(_cursor_break_with_loop())
             assert close_calls >= 1
             _assert_videos_closed(paths)
 

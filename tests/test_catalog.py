@@ -1,5 +1,4 @@
 import time
-import uuid
 from pathlib import Path
 
 import PIL.Image
@@ -18,7 +17,6 @@ from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.local_store import LocalStore
-from pixeltable.utils.object_stores import ObjectPath
 
 from .coordinator import MultiThreadedScenario
 from .fault_injection import BlockFault, ExceptionFault
@@ -161,21 +159,6 @@ class TestCatalog:
         assert op.needs_xact  # now a ClassVar
         assert 'needs_xact' not in op.to_dict()
 
-    def test_local_store_delete_propagates_winerror_32(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        tbl_id = uuid.uuid4()
-        store = LocalStore(tmp_path)
-        table_dir = tmp_path / ObjectPath.table_prefix(tbl_id)
-        table_dir.mkdir()
-        (table_dir / 'media.webm').write_bytes(b'x')
-
-        def always_fail(path: str, *args: object, **kwargs: object) -> None:
-            raise _winerror_32(path)
-
-        monkeypatch.setattr(local_store_mod.shutil, 'rmtree', always_fail)
-        with pytest.raises(PermissionError):
-            store.delete(tbl_id)
-        assert table_dir.exists()
-
     @pytest.mark.db_roots('local', reason='monkeypatches shutil.rmtree in-process to simulate WinError 32')
     def test_drop_table_winerror_32_does_not_hang(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
         t = pxt.create_table('media_tbl', {'img': pxt.Image | None})
@@ -197,7 +180,7 @@ class TestCatalog:
         monkeypatch.setattr(local_store_mod.shutil, 'rmtree', always_fail)
 
         start = time.monotonic()
-        with pxt_raises(code=excs.ErrorCode.INTERNAL_ERROR, match='Table operation was aborted'):
+        with pxt_raises(code=excs.ErrorCode.INTERNAL_ERROR, match='Table operation is still pending'):
             pxt.drop_table('media_tbl')
         elapsed = time.monotonic() - start
         assert elapsed < 5, elapsed

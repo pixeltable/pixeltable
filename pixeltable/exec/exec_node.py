@@ -4,8 +4,8 @@ import abc
 import asyncio
 import queue
 import threading
-from collections.abc import AsyncGenerator
-from types import TracebackType
+from contextlib import asynccontextmanager
+from types import AsyncGeneratorType, TracebackType
 from typing import Any, AsyncIterator, Iterable, Iterator, Self, TypeVar
 
 import pixeltable.exceptions as excs
@@ -15,6 +15,12 @@ from pixeltable.runtime import get_runtime
 
 from .data_row_batch import DataRowBatch
 from .exec_context import ExecContext
+
+
+async def aclose_agen(agen: AsyncIterator[Any]) -> None:
+    # KeyboardInterrupt inside __anext__() leaves ag_running set; aclose() would replace it with RuntimeError.
+    if isinstance(agen, AsyncGeneratorType) and not agen.ag_running:
+        await agen.aclose()
 
 
 class ExecNode(abc.ABC):
@@ -111,6 +117,15 @@ class ExecNode(abc.ABC):
     @abc.abstractmethod
     def __aiter__(self) -> AsyncIterator[DataRowBatch]: ...
 
+    @asynccontextmanager
+    async def input_aiter(self) -> AsyncIterator[AsyncIterator[DataRowBatch]]:
+        assert self.input is not None
+        agen = aiter(self.input)
+        try:
+            yield agen
+        finally:
+            await aclose_agen(agen)
+
     def __iter__(self) -> Iterator[DataRowBatch]:
         try:
             running = asyncio.get_running_loop()
@@ -124,14 +139,12 @@ class ExecNode(abc.ABC):
             aiter = self.__aiter__()
             try:
                 while True:
-                    batch: DataRowBatch = loop.run_until_complete(aiter.__anext__())
+                    batch: DataRowBatch = loop.run_until_complete(anext(aiter))
                     yield batch
             except StopAsyncIteration:
                 pass
             finally:
-                # aclose() runs the async generator finally when the consumer stops early.
-                assert isinstance(aiter, AsyncGenerator)
-                loop.run_until_complete(aiter.aclose())
+                loop.run_until_complete(aclose_agen(aiter))
         else:
             yield from self._thread_iter()
 
@@ -149,6 +162,14 @@ class ExecNode(abc.ABC):
         hooks_ctx = telemetry.capture_context()
         stop = threading.Event()
 
+        def _put(item: object) -> None:
+            while not stop.is_set():
+                try:
+                    result_queue.put(item, timeout=0.05)
+                    return
+                except queue.Full:
+                    continue
+
         def run() -> None:
             thread_runtime = get_runtime()
             # the execution needs to happen in the same db context as the caller, but on a new event loop
@@ -156,26 +177,25 @@ class ExecNode(abc.ABC):
             hooks_token = telemetry.restore_context(hooks_ctx)
 
             async def produce() -> None:
-                async for batch in aiter(self):
-                    # Timed put so stop.set() can unblock a full queue.
-                    while not stop.is_set():
-                        try:
-                            result_queue.put(batch, timeout=0.05)
-                            break
-                        except queue.Full:
-                            continue
-                    if stop.is_set():
-                        return
+                agen = aiter(self)
+                try:
+                    while True:
+                        batch = await anext(agen)
+                        _put(batch)
+                        if stop.is_set():
+                            return
+                except StopAsyncIteration:
+                    pass
+                finally:
+                    await aclose_agen(agen)
 
             # asyncio.Runner gives this thread the same loop teardown that asyncio.run() performs
             with asyncio.Runner() as runner:
                 try:
                     runner.run(produce())
-                    if not stop.is_set():
-                        result_queue.put(ExecNode._THREAD_QUEUE_SENTINEL)
+                    _put(ExecNode._THREAD_QUEUE_SENTINEL)
                 except BaseException as e:
-                    if not stop.is_set():
-                        result_queue.put(e)
+                    _put(e)
                 finally:
                     # the clients are bound to this loop, so they have to be closed while it is open
                     runner.run(thread_runtime.close_clients())

@@ -45,21 +45,22 @@ class FilterNode(ExecNode):
         num_passed = 0  # rows that passed the predicate (before offset/limit)
         limit_reached = False
 
-        async for batch in self.input:
-            if limit_reached:
-                break
-            output_batch = DataRowBatch(self.row_builder)
-            for row in batch:
-                # a predicate whose evaluation failed (recorded under ignore_errors) counts as not passing
-                # TODO: should we record this somewhere else so the user can query for failed rows?
-                if row.has_exc(self.predicate_slot_idx) or not row[self.predicate_slot_idx]:
-                    continue
-                num_passed += 1
-                if offset is not None and num_passed <= offset:
-                    continue
-                output_batch.add_row(row)
-                if limit is not None and num_passed - (offset or 0) >= limit:
-                    limit_reached = True
+        async with self.input_aiter() as src:
+            async for batch in src:
+                if limit_reached:
                     break
-            if len(output_batch) > 0:
-                yield output_batch
+                output_batch = DataRowBatch(self.row_builder)
+                for row in batch:
+                    # a predicate whose evaluation failed (recorded under ignore_errors) counts as not passing
+                    # TODO: should we record this somewhere else so the user can query for failed rows?
+                    if row.has_exc(self.predicate_slot_idx) or not row[self.predicate_slot_idx]:
+                        continue
+                    num_passed += 1
+                    if offset is not None and num_passed <= offset:
+                        continue
+                    output_batch.add_row(row)
+                    if limit is not None and num_passed - (offset or 0) >= limit:
+                        limit_reached = True
+                        break
+                if len(output_batch) > 0:
+                    yield output_batch

@@ -233,46 +233,51 @@ class CellReconstructionNode(ExecNode):
         self._init_exec_state()
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        async for batch in self.input:
-            urls = self._chunk_urls(batch)
-            self.reader.release(keep=urls)
-            await self.reader.prefetch(urls)
-            for row in batch:
-                for col_ref in self.json_refs:
-                    val = row[col_ref.slot_idx]
-                    if val is None:
-                        continue
-                    cell_md = row.slot_md.get(col_ref.slot_idx)
-                    if cell_md is None or cell_md.file_urls is None or not json_has_inlined_objs(row[col_ref.slot_idx]):
-                        continue
-                    row[col_ref.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.reader)
+        async with self.input_aiter() as src:
+            async for batch in src:
+                urls = self._chunk_urls(batch)
+                self.reader.release(keep=urls)
+                await self.reader.prefetch(urls)
+                for row in batch:
+                    for col_ref in self.json_refs:
+                        val = row[col_ref.slot_idx]
+                        if val is None:
+                            continue
+                        cell_md = row.slot_md.get(col_ref.slot_idx)
+                        if (
+                            cell_md is None
+                            or cell_md.file_urls is None
+                            or not json_has_inlined_objs(row[col_ref.slot_idx])
+                        ):
+                            continue
+                        row[col_ref.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.reader)
 
-                for col_ref in self.json_path_anchors:
-                    val = row[col_ref.slot_idx]
-                    if val is None:
-                        continue
-                    cell_md = row.slot_md.get(col_ref.slot_idx)
-                    if cell_md is None or cell_md.file_urls is None or not json_has_inlined_objs(val):
-                        continue
-                    row[col_ref.slot_idx] = load_remote_objects(val, cell_md.file_urls, self.reader)
+                    for col_ref in self.json_path_anchors:
+                        val = row[col_ref.slot_idx]
+                        if val is None:
+                            continue
+                        cell_md = row.slot_md.get(col_ref.slot_idx)
+                        if cell_md is None or cell_md.file_urls is None or not json_has_inlined_objs(val):
+                            continue
+                        row[col_ref.slot_idx] = load_remote_objects(val, cell_md.file_urls, self.reader)
 
-                for col_ref in self.array_refs:
-                    cell_md = row.slot_md.get(col_ref.slot_idx)
-                    if cell_md is not None and cell_md.array_md is not None:
-                        assert row[col_ref.slot_idx] is None
-                        row[col_ref.slot_idx] = self._reconstruct_array(cell_md)
-                    else:
-                        assert isinstance(row[col_ref.slot_idx], (NoneType, np.ndarray))
+                    for col_ref in self.array_refs:
+                        cell_md = row.slot_md.get(col_ref.slot_idx)
+                        if cell_md is not None and cell_md.array_md is not None:
+                            assert row[col_ref.slot_idx] is None
+                            row[col_ref.slot_idx] = self._reconstruct_array(cell_md)
+                        else:
+                            assert isinstance(row[col_ref.slot_idx], (NoneType, np.ndarray))
 
-                for col_ref in self.binary_refs:
-                    cell_md = row.slot_md.get(col_ref.slot_idx)
-                    if cell_md is not None and cell_md.binary_md is not None:
-                        assert row[col_ref.slot_idx] is None
-                        row[col_ref.slot_idx] = self._reconstruct_binary(cell_md)
-                    else:
-                        assert isinstance(row[col_ref.slot_idx], (NoneType, bytes))
+                    for col_ref in self.binary_refs:
+                        cell_md = row.slot_md.get(col_ref.slot_idx)
+                        if cell_md is not None and cell_md.binary_md is not None:
+                            assert row[col_ref.slot_idx] is None
+                            row[col_ref.slot_idx] = self._reconstruct_binary(cell_md)
+                        else:
+                            assert isinstance(row[col_ref.slot_idx], (NoneType, bytes))
 
-            yield batch
+                yield batch
 
     def _close(self) -> None:
         self.reader.close()

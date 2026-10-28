@@ -13,7 +13,7 @@ from pixeltable import exprs, telemetry, telemetry_schemas
 from pixeltable.utils.progress_reporter import ProgressReporter
 
 from ..data_row_batch import DataRowBatch
-from ..exec_node import ExecNode
+from ..exec_node import ExecNode, aclose_agen
 from .evaluators import FnCallEvaluator, NestedRowList
 from .globals import ExprEvalCtx, Scheduler
 from .row_buffer import RowBuffer
@@ -361,6 +361,7 @@ class ExprEvalNode(ExecNode):
 
             # expr cleanup
             exprs.Expr.release_list(self.eval_ctx.all_exprs)
+            await aclose_agen(self.input_iter)
 
     def dispatch_exc(
         self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType, exec_ctx: ExprEvalCtx

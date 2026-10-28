@@ -91,13 +91,8 @@ _MAX_RETRIES = -1
 # Max internal cache size
 _MAX_TBL_CACHE_SIZE = 1024
 
-# Consecutive non-DB failures in _finalize_pending_ops() before the exception is returned to the caller.
+# Consecutive non-DB failures in _finalize_pending_ops() before the exception is raised.
 _MAX_NON_DB_FINALIZE_ATTEMPTS = 8
-
-
-def _raise_if_finalize_failed(exc: Exception | None) -> None:
-    if exc is not None:
-        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'Table operation was aborted with\n{exc!s}') from exc
 
 
 T = TypeVar('T')
@@ -167,7 +162,7 @@ def retry_loop(
                         return op(*args, **kwargs)
                 except PendingTableOpsError as e:
                     Env.get().console_logger.debug(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
-                    _raise_if_finalize_failed(cat._finalize_pending_ops(e.tbl_id))
+                    cat._finalize_pending_ops(e.tbl_id)
                 except sql_exc.DBAPIError as e:
                     if _is_retryable_exc(e):
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
@@ -447,7 +442,7 @@ class Catalog(CatalogBase):
         while True:
             if pending_ops_tbl_id is not None:
                 Env.get().console_logger.debug(f'begin_xact(): finalizing pending ops for {pending_ops_tbl_id}')
-                _raise_if_finalize_failed(self._finalize_pending_ops(pending_ops_tbl_id))
+                self._finalize_pending_ops(pending_ops_tbl_id)
                 pending_ops_tbl_id = None
 
             # one span per acquisition attempt; retries show up as sibling spans
@@ -889,7 +884,11 @@ class Catalog(CatalogBase):
     def _roll_forward(self) -> None:
         """Finalize pending ops for all tables in self._roll_forward_ids."""
         for tbl_id in self._roll_forward_ids:
-            _raise_if_finalize_failed(self._finalize_pending_ops(tbl_id))
+            exc = self._finalize_pending_ops(tbl_id)
+            if exc is not None:
+                raise excs.InternalError(
+                    excs.ErrorCode.INTERNAL_ERROR, f'Table operation was aborted with\n{exc!s}'
+                ) from exc
 
     def _finalize_pending_ops(self, tbl_id: UUID) -> Exception | None:
         """
@@ -907,8 +906,9 @@ class Catalog(CatalogBase):
         - this process starts with the first pending op, because it could have been partially executed
         - when done, deletes all table ops and resets tbl_state to LIVE
 
-        If an exception occurred during finalization, that exception is returned. PendingOpsErrors encountered during
-        finalization are dealt with recursively.
+        If an abortable statement is rolled back, that exception is returned. Persistent non-DB failures in the
+        rollforward-continue branch are retried up to `_MAX_NON_DB_FINALIZE_ATTEMPTS` times, then raised; the pending
+        ops remain. PendingOpsErrors encountered during finalization are dealt with recursively.
         """
         num_retries = 0
         num_non_db_retries = 0
@@ -1012,6 +1012,8 @@ class Catalog(CatalogBase):
                         _logger.debug(f'Finalize pending ops({tbl_id}): op {op!s} done, updating status')
                         if self._set_pending_op_status(tbl_id, op, new_op_status, is_final_op=is_final_op):
                             return exc
+                        num_retries = 0
+                        num_non_db_retries = 0
                         continue
 
                 # this op runs outside of a transaction
@@ -1107,7 +1109,10 @@ class Catalog(CatalogBase):
                         _logger.error(
                             f'Finalize pending ops({tbl_id}): giving up after {num_non_db_retries} non-DB errors'
                         )
-                        return e
+                        raise excs.InternalError(
+                            excs.ErrorCode.INTERNAL_ERROR,
+                            f'Table operation is still pending after {num_non_db_retries} non-DB errors:\n{e!s}',
+                        ) from e
                     time.sleep(random.uniform(0.1, 0.5))
                     continue
             finally:

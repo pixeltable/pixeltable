@@ -11,7 +11,7 @@ from pixeltable import exprs
 
 from .data_row_batch import DataRowBatch
 from .exec_context import ExecContext
-from .exec_node import ExecNode
+from .exec_node import ExecNode, aclose_agen
 
 
 class ExecPlan:
@@ -179,6 +179,10 @@ class ExecPlan:
                 self._is_executing = False
                 raise
             with self:
-                async for batch in self.exec_root:
-                    for row in batch:
-                        yield row
+                agen = aiter(self.exec_root)
+                try:
+                    async for batch in agen:
+                        for row in batch:
+                            yield row
+                finally:
+                    await aclose_agen(agen)

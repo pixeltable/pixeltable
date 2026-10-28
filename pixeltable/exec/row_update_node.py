@@ -57,21 +57,22 @@ class RowUpdateNode(ExecNode):
         self._init_exec_state()
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        async for batch in self.input:
-            for row in batch:
-                key_vals = (
-                    row.pk[: self.num_rowid_cols]
-                    if self.is_rowid_key
-                    else tuple(row.cell_vals[col.id] for col in self.pk_columns)
-                )
-                if key_vals not in self.updates:
-                    continue
-                self.matched_key_vals.add(key_vals)
-                col_vals = self.updates[key_vals]
-                for col, val in col_vals.items():
-                    slot_idx = self.col_slot_idxs[col]
-                    row[slot_idx] = val
-            yield batch
+        async with self.input_aiter() as src:
+            async for batch in src:
+                for row in batch:
+                    key_vals = (
+                        row.pk[: self.num_rowid_cols]
+                        if self.is_rowid_key
+                        else tuple(row.cell_vals[col.id] for col in self.pk_columns)
+                    )
+                    if key_vals not in self.updates:
+                        continue
+                    self.matched_key_vals.add(key_vals)
+                    col_vals = self.updates[key_vals]
+                    for col, val in col_vals.items():
+                        slot_idx = self.col_slot_idxs[col]
+                        row[slot_idx] = val
+                yield batch
 
     def unmatched_rows(self) -> list[dict[str, Any]]:
         """Return rows that didn't get used in the updates as a list of dicts compatible with TableVersion.insert()."""
