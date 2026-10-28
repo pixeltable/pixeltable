@@ -12,6 +12,7 @@ from pixeltable.config import Config
 
 from ..utils import (
     NETWORK_ERROR_PATTERNS,
+    aws_client_error,
     get_audio_files,
     get_image_files,
     get_video_files,
@@ -183,24 +184,6 @@ def test_unavailable_video_model_error() -> None:
     )
 
 
-def _throttle_error() -> Exception:
-    from botocore.exceptions import ClientError
-
-    return ClientError(
-        {
-            'Error': {'Code': 'ThrottlingException', 'Message': 'Too many requests'},
-            'ResponseMetadata': {
-                'RequestId': 'request-id',
-                'HostId': 'host-id',
-                'HTTPStatusCode': 429,
-                'HTTPHeaders': {},
-                'RetryAttempts': 0,
-            },
-        },
-        'GetAsyncInvoke',
-    )
-
-
 def _mock_async_invoke(monkeypatch: pytest.MonkeyPatch, poll: Callable[[], dict]) -> list[dict]:
     """Route a Bedrock async invocation to fakes; `poll` answers each get_async_invoke. Returns the submissions."""
     from pixeltable.functions import bedrock
@@ -261,7 +244,11 @@ def test_async_invoke_poll_throttle(uses_db: None, monkeypatch: pytest.MonkeyPat
     """A throttled status poll keeps polling the accepted job instead of submitting a new one."""
     from pixeltable.functions import bedrock
 
-    poll_results: list[Exception | dict] = [_throttle_error(), {'status': 'InProgress'}, {'status': 'Completed'}]
+    poll_results: list[Exception | dict] = [
+        aws_client_error('ThrottlingException', 429, 'Too many requests'),
+        {'status': 'InProgress'},
+        {'status': 'Completed'},
+    ]
 
     def poll() -> dict:
         result = poll_results.pop(0)
@@ -287,7 +274,7 @@ def test_async_invoke_slow_failing_polls(uses_db: None, monkeypatch: pytest.Monk
     def poll() -> dict:
         polls.append(time.monotonic())
         time.sleep(0.1)
-        raise _throttle_error()
+        raise aws_client_error('ThrottlingException', 429, 'Too many requests')
 
     submissions = _mock_async_invoke(monkeypatch, poll)
     monkeypatch.setattr(bedrock, '_ASYNC_INVOCATION_POLL_INTERVAL_SECS', 0.01)

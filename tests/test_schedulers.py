@@ -9,7 +9,7 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils import fault_injection
 from pixeltable.utils.fault_injection import FaultLocation
 from tests.fault_injection import ExceptionFault
-from tests.utils import pxt_raises
+from tests.utils import aws_client_error, pxt_raises
 
 pytestmark = pytest.mark.db_roots('local', reason='fault-injection test of the rate-limit scheduler internals')
 
@@ -34,16 +34,6 @@ def _(model_id: str) -> str:
     return f'request-rate:test:{model_id}'
 
 
-def _aws_throttle_exception() -> Exception:
-    from botocore.exceptions import ClientError
-
-    response = {
-        'Error': {'Code': 'ThrottlingException', 'Message': 'Please slow down'},
-        'ResponseMetadata': {'HTTPStatusCode': 429, 'HTTPHeaders': {}},
-    }
-    return ClientError(response, 'InvokeModel')
-
-
 class TestSchedulers:
     def test_rate_limits_scheduler_exception_before_pool(self, uses_db: None, fault_injection: None) -> None:
         """
@@ -65,7 +55,7 @@ class TestSchedulers:
     @pytest.mark.parametrize(
         ('error', 'is_retried'),
         [
-            (_aws_throttle_exception, True),
+            (lambda: aws_client_error('ThrottlingException', 429, 'Please slow down'), True),
             (lambda: pxt.ExternalServiceError(pxt.ErrorCode.PROVIDER_ERROR, 'Server processing failed'), True),
             (lambda: pxt.ExternalServiceError(pxt.ErrorCode.RATE_LIMITED, 'Slow down', retry_after=1), True),
             (lambda: pxt.ExternalServiceError(pxt.ErrorCode.PROVIDER_TIMEOUT, 'Job timed out after 600s'), False),

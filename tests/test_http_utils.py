@@ -13,6 +13,8 @@ from pixeltable.utils.http import fetch_url, is_retryable_error, new_session, pa
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
+from .utils import aws_client_error
+
 
 class DummyError(Exception):
     pass
@@ -120,30 +122,24 @@ class TestHttpUtils:
         assert is_retryable_error(exc) == (True, 11382)
 
     def test_aws_client_error(self) -> None:
-        from botocore.exceptions import ClientError
-
-        def client_error(code: str, status: int, msg: str, headers: dict | None = None) -> ClientError:
-            response = {
-                'Error': {'Code': code, 'Message': msg},
-                'ResponseMetadata': {'HTTPStatusCode': status, 'HTTPHeaders': headers or {}},
-            }
-            return ClientError(response, 'StartAsyncInvoke')
-
-        assert is_retryable_error(client_error('ThrottlingException', 429, 'Please slow down')) == (True, None)
-        assert is_retryable_error(client_error('Throttling', 400, 'Please slow down')) == (True, None)
-        assert is_retryable_error(client_error('ServiceUnavailableException', 503, 'Unavailable')) == (True, None)
-        assert is_retryable_error(client_error('ThrottlingException', 429, 'Slow down', {'retry-after': '7'})) == (
+        assert is_retryable_error(aws_client_error('ThrottlingException', 429, 'Please slow down')) == (True, None)
+        assert is_retryable_error(aws_client_error('Throttling', 400, 'Please slow down')) == (True, None)
+        assert is_retryable_error(aws_client_error('ServiceUnavailableException', 503, 'Unavailable')) == (True, None)
+        assert is_retryable_error(aws_client_error('ThrottlingException', 429, 'Slow down', {'retry-after': '7'})) == (
             True,
             7,
         )
-        assert not is_retryable_error(client_error('ValidationException', 400, 'Invalid input'))[0]
-        assert not is_retryable_error(client_error('AccessDeniedException', 403, 'Access denied'))[0]
+        assert not is_retryable_error(aws_client_error('ValidationException', 400, 'Invalid input'))[0]
+        assert not is_retryable_error(aws_client_error('AccessDeniedException', 403, 'Access denied'))[0]
         assert is_retryable_error(
-            client_error('ValidationException', 400, 'Too many requests in one batch: 120 (the maximum is 100)')
+            aws_client_error('ValidationException', 400, 'Too many requests in one batch: 120 (the maximum is 100)')
         ) == (False, None)
-        assert is_retryable_error(client_error('ResourceNotFoundException', 404, 'Job job1 timed out')) == (False, None)
+        assert is_retryable_error(aws_client_error('ResourceNotFoundException', 404, 'Job job1 timed out')) == (
+            False,
+            None,
+        )
         assert is_retryable_error(
-            client_error(
+            aws_client_error(
                 'AccessDeniedException',
                 403,
                 'User: arn:aws:sts::123442901234:assumed-role/ci is not authorized to perform: bedrock:GetAsyncInvoke',
