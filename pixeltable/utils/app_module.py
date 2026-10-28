@@ -15,8 +15,7 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 from pixeltable import exceptions as excs
-from pixeltable.catalog import ProhibitedWriteError, is_valid_identifier, model
-from pixeltable.catalog.catalog import Catalog
+from pixeltable.catalog import Catalog, ProhibitedWriteError, is_valid_identifier, model
 from pixeltable.catalog.model import diff
 from pixeltable.config import Config
 from pixeltable.env import Env

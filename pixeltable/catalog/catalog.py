@@ -388,6 +388,9 @@ class Catalog(CatalogBase):
         finally:
             _frozen.reset(token)
 
+    def run_read(self, op: Callable[[], T]) -> T:
+        return retry_loop(for_write=False)(op)()
+
     @contextmanager
     def begin_xact(
         self,

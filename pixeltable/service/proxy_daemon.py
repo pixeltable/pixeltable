@@ -149,6 +149,7 @@ def start(db: str, test_mode: bool = False) -> str:
         'PIXELTABLE_DB': db,  # own database
         'PIXELTABLE_PROXY_DAEMON': '1',  # mark this process as a proxy daemon instance
     }
+    Env.get().connect()
     pgdata_dir = Env.get().pgdata_dir
     if pgdata_dir is not None:
         env['PIXELTABLE_PGDATA'] = str(pgdata_dir)  # shared postmaster
@@ -259,9 +260,10 @@ def _reinitialize() -> None:
 
 def _drop_database(db_name: str) -> None:
     env = Env.get()
-    if not env.is_local:
+    env.connect()
+    if env._db_server is None:
         return  # not running against the embedded postmaster (e.g. external DB); nothing to drop
-    engine = sql.create_engine(env.dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
+    engine = sql.create_engine(env._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
     preparer = engine.dialect.identifier_preparer
     try:
         with engine.begin() as conn:
@@ -272,7 +274,7 @@ def _drop_database(db_name: str) -> None:
                     target_db_name = db_name
                 else:
                     return
-            conn.execute(sql.text(env.dbms.drop_db_stmt(preparer.quote(target_db_name))))
+            conn.execute(sql.text(env._dbms.drop_db_stmt(preparer.quote(target_db_name))))
     finally:
         engine.dispose()
 

@@ -158,9 +158,8 @@ class Env:
     _resource_pool_info: dict[str, Any]
     _resource_pool_lock: threading.Lock
     _dbms: Dbms | None
-    _db_lock: threading.RLock  # guards _connect()
+    _db_lock: threading.Lock  # protects _db_connected and the db fields
     _db_connected: bool
-    _db_connecting: bool
 
     @classmethod
     def get(cls) -> Env:
@@ -183,8 +182,8 @@ class Env:
         env = Env()
         try:
             env._set_up()
-            if connect or reinit_db:
-                env._connect(reinit_db=reinit_db)
+            if connect:
+                env.connect(reinit_db=reinit_db)
             cls._instance = env
         finally:
             # Reset the initializing flag, even if setup fails.
@@ -222,9 +221,8 @@ class Env:
         self._resource_pool_info = {}
         self._resource_pool_lock = threading.Lock()
         self._dbms = None
-        self._db_lock = threading.RLock()
+        self._db_lock = threading.Lock()
         self._db_connected = False
-        self._db_connecting = False
 
         # Maps a table's id to the catalog uri it belongs to ('' for the in-process catalog). Populated whenever
         # a table is materialized, so a ColumnRef can resolve its table against the right catalog. Lives here
@@ -235,7 +233,6 @@ class Env:
 
     @property
     def db_url(self) -> str:
-        self._connect()
         assert self._db_url is not None
         return self._db_url
 
@@ -291,13 +288,9 @@ class Env:
         """
         This is not a publicly visible setter; it is only for testing purposes.
         """
-        if tz is None:
-            tz_name = self._get_tz_name()
-        else:
-            assert isinstance(tz, ZoneInfo)
-            tz_name = tz.key
+        self._default_time_zone = ZoneInfo(self._get_tz_name()) if tz is None else tz
         self.engine.dispose()
-        self._create_engine(time_zone_name=tz_name)
+        self._create_engine()
 
     def record_tbl_catalog_uri(self, tbl_id: UUID, catalog_uri: CatalogPath) -> None:
         """Record which catalog a table belongs to. The mapping is immutable per table id."""
@@ -317,13 +310,12 @@ class Env:
 
     @property
     def dbms(self) -> Dbms:
-        self._connect()
         assert self._dbms is not None
         return self._dbms
 
     @property
     def is_local(self) -> bool:
-        self._connect()
+        assert self._db_url is not None  # is_local should be called only after db initialization
         return self._db_server is not None
 
     def is_notebook(self) -> bool:
@@ -347,17 +339,19 @@ class Env:
 
         Returns:
             str: The time zone name.
+
+        Raises:
+            RequestError: INVALID_CONFIGURATION if the configured time zone is not a known zone.
         """
         tz_name = Config.get().get_string_value('time_zone')
         if tz_name is not None:
             # Validate tzname
-            if not isinstance(tz_name, str):
-                _logger.error('Invalid time zone specified in configuration.')
-            else:
-                try:
-                    _ = ZoneInfo(tz_name)
-                except ZoneInfoNotFoundError:
-                    _logger.error(f'Invalid time zone specified in configuration: {tz_name}')
+            try:
+                _ = ZoneInfo(tz_name)
+            except (ZoneInfoNotFoundError, ValueError) as e:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid time zone in configuration: {tz_name!r}'
+                ) from e
         else:
             tz_name = tzlocal.get_localzone_name()
         return tz_name
@@ -371,7 +365,6 @@ class Env:
         config = Config.get()
 
         self._initialized = True
-        # _create_engine() sets the database session to the same zone
         self._default_time_zone = ZoneInfo(self._get_tz_name())
 
         self._media_dir = Config.get().home / 'media'
@@ -505,24 +498,17 @@ class Env:
         self.clear_tmp_dir()
         self._set_up_runtime()
 
-    def _connect(self, reinit_db: bool = False) -> None:
+    def connect(self, reinit_db: bool = False) -> None:
         """Start or connect to the database, create its metadata and upgrade it. Idempotent."""
         if self._db_connected:
             return
         with self._db_lock:
-            # the steps below read the db properties, which call back in here on this thread
-            if self._db_connected or self._db_connecting:
-                return
-            self._db_connecting = True
-            try:
-                self._connect_db(reinit_db)
+            if not self._db_connected:
+                self._set_up_db(reinit_db)
                 self._db_connected = True
-            finally:
-                self._db_connecting = False
 
-    def _connect_db(self, reinit_db: bool) -> None:
+    def _set_up_db(self, reinit_db: bool) -> None:
         config = Config.get()
-        tz_name = self._get_tz_name()
         self._init_db(config)
 
         if reinit_db and not self.is_local:
@@ -546,15 +532,13 @@ class Env:
             # External DB: pre-provisioned; no local setup needed.
             _logger.info(f'Using external database at: {self.redacted_db_url}')
 
-        # Create the SQLAlchemy engine. This will also set the default time zone.
-        self._create_engine(time_zone_name=tz_name)
+        self._create_engine()
 
         # Create catalog tables and system metadata
         self._init_metadata()
 
-        self._upgrade_metadata()
-
         self.console_logger.info(f'Connected to Pixeltable database at: {self.redacted_db_url}')
+        self._upgrade_metadata()
 
     def _init_db(self, config: Config) -> None:
         """
@@ -632,9 +616,10 @@ class Env:
         metadata.schema.base_metadata.create_all(self._sa_engine, checkfirst=True)
         metadata.create_system_info(self._sa_engine)
 
-    def _create_engine(self, time_zone_name: str, echo: bool = False) -> None:
+    def _create_engine(self) -> None:
         # Add timezone and application_name options to connection string
-        updated_url = add_option_to_db_url(self.db_url, f'-c timezone={time_zone_name}')
+        assert self._default_time_zone is not None
+        updated_url = add_option_to_db_url(self.db_url, f'-c timezone={self._default_time_zone.key}')
         updated_url = add_option_to_db_url(updated_url, f'-c application_name={store_app_name()}')
 
         config = Config.get()
@@ -647,7 +632,6 @@ class Env:
 
         self._sa_engine = sql.create_engine(
             updated_url,
-            echo=echo,
             isolation_level=self._dbms.transaction_isolation_level,
             pool_size=pool_size,
             max_overflow=pool_max_overflow,
@@ -658,12 +642,6 @@ class Env:
         _logger.info(f'Engine dialect: {self._sa_engine.dialect.name}')
         _logger.info(f'Engine driver : {self._sa_engine.dialect.driver}')
         _logger.info(f'Engine connection pool: {pool_size} + {pool_max_overflow}')
-
-        with self.engine.begin() as conn:
-            tz_name = conn.execute(sql.text('SHOW TIME ZONE')).scalar()
-            assert isinstance(tz_name, str)
-            _logger.info(f'Database time zone is now: {tz_name}')
-            self._default_time_zone = ZoneInfo(tz_name)
 
     def _set_local_db(self, db_name: str) -> None:
         """Point this Env at `db_name` on the embedded server."""
@@ -1040,7 +1018,6 @@ class Env:
     @property
     def pgdata_dir(self) -> Path | None:
         """Data directory of the embedded Postgres server; None when Pixeltable uses an external database."""
-        self._connect()
         return self._pgdata_dir
 
     @property
@@ -1083,7 +1060,6 @@ class Env:
 
     @property
     def engine(self) -> sql.engine.base.Engine:
-        self._connect()
         assert self._sa_engine is not None
         return self._sa_engine
 

@@ -4,7 +4,6 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
-from textwrap import dedent
 from typing import Iterator
 
 import numpy as np
@@ -14,13 +13,11 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import env, exceptions as excs
-from pixeltable.catalog.model import schema as schema_verbs
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
-from pixeltable_cli.utils import PxtPath
 
 from .utils import aux_db_name, pxt_raises, skip_test_if_not_local
 
@@ -179,44 +176,6 @@ class TestEnvReset:
         assert result[0]['amount_doubled'] == 300.0
 
 
-class TestLazyDb:
-    def test_hosted_path_starts_no_database(
-        self, proxy_daemon_db: str, project_env: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """With the local database unusable, a hosted schema diff succeeds and only local use fails."""
-        app_file = project_env / 'lazy_app.py'
-        app_file.write_text(
-            dedent(
-                """
-                import datetime
-
-                import pixeltable as pxt
-
-                TableModel = pxt.model_base()
-
-
-                class Events(TableModel, name='events'):
-                    at: pxt.Timestamp
-                    recent = at > datetime.datetime(2024, 1, 1)
-                """
-            ),
-            encoding='utf-8',
-        )
-
-        def unusable_db(self: Env, reinit_db: bool) -> None:
-            raise RuntimeError('local database unusable')
-
-        reset_runtime()
-        Env.get()._clean_up()
-        Env._instance = None  # restore_env() replaces this Env with a working one
-        monkeypatch.setattr(Env, '_connect_db', unusable_db)
-
-        plan = schema_verbs.schema_diff(str(app_file), PxtPath(f'pxt://local:{proxy_daemon_db}'))
-        assert [tbl.model_cls for tbl in plan.tables] == ['Events']
-        with pytest.raises(RuntimeError, match='local database unusable'):
-            _ = Env.get().engine
-
-
 class TestTmpDir:
     def test_shared_home(self, uses_db: None) -> None:
         """A process that starts on a shared home removes only the tmp files of processes that have exited."""
@@ -340,6 +299,17 @@ class TestDbConnectStr:
         reset_runtime()
         Config.init(reinit=True)
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='Unsupported DBMS cockroachdb'):
+            Env._init_env(reinit_db=False)
+        monkeypatch.undo()
+        _reset_env(reinit=False, db_name=None)
+
+
+class TestTimeZone:
+    def test_unknown_zone_rejected(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv('PIXELTABLE_TIME_ZONE', 'Mars/Olympus_Mons')
+        reset_runtime()
+        Config.init(reinit=True)
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match="'Mars/Olympus_Mons'"):
             Env._init_env(reinit_db=False)
         monkeypatch.undo()
         _reset_env(reinit=False, db_name=None)

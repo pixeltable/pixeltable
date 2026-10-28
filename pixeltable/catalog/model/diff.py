@@ -7,6 +7,7 @@ import json
 from typing import TYPE_CHECKING, Any, Literal
 
 from pixeltable import catalog, exprs, func
+from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.object_stores import ObjectPath, warn_if_pxtfs_destination
 from pixeltable_cli.types import Resolution, SchemaChangeIndexRef, SchemaChangeOp, SchemaChangeOpDetails, TableDiff
@@ -317,15 +318,14 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
     the models would entail, along with any incompatibilities with an already-existing table of the same name.
     This is purely informational: it neither modifies the catalog nor raises on incompatibilities.
     In a local catalog, all metadata reads happen in a single transaction. Each diff's tbl_id and schema_versions
-    record the catalog state it was computed against.
+    record the catalog state at the time of the diff.
     """
     import pixeltable as pxt
 
-    from ..catalog import retry_loop
     from .definition import BtreeIndex
 
-    is_local = catalog.Path.parse(catalog_dir.rstrip('/'), allow_empty_path=True).is_local
-    catalog_dir = catalog.Path.dir_prefix(catalog_dir)
+    dir_path = catalog.Path.parse(catalog_dir.rstrip('/'), allow_empty_path=True)
+    catalog_dir = dir_path.prefix
 
     def op() -> dict[str, TableDiff]:
         results: dict[str, TableDiff] = {}
@@ -573,8 +573,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
 
         return results
 
-    # retry_loop() opens a local transaction, and a hosted catalog does not use it
-    return retry_loop(for_write=False)(op)() if is_local else op()
+    return get_runtime().get_catalog(dir_path).run_read(op)
 
 
 def _drop_index_change(idx_md: IndexMetadata, action: str) -> SchemaChangeOp:

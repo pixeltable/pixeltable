@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import abc
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Mapping, TypeVar
 
 from .model import TableSchemaChangeSet
 
@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from .path import Path
     from .table import Table
     from .table_path import TablePath
+
+T = TypeVar('T')
 
 
 class CatalogBase(abc.ABC):
@@ -100,3 +102,7 @@ class CatalogBase(abc.ABC):
 
     @abc.abstractmethod
     def drop_dir(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None: ...
+
+    @abc.abstractmethod
+    def run_read(self, op: Callable[[], T]) -> T:
+        """Run op, which only reads this catalog, in one transaction if the catalog has them."""
