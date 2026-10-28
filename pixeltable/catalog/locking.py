@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import enum
+import itertools
 from collections import defaultdict
 from typing import TYPE_CHECKING, Collection, Iterable
 from uuid import UUID
@@ -211,7 +212,7 @@ class LockRequest:
 
     def tbl_keys(self) -> list[TableVersionKey]:
         """Return the keys of all tables in the request, including the bases on its paths."""
-        keys = [key for tvp in (*self.read_tvps, *self.write_tvps) for key in tvp.tbl_keys]
+        keys = [key for tvp in itertools.chain(self.read_tvps, self.write_tvps) for key in tvp.tbl_keys]
         keys.extend(self.read_tbl_keys)
         keys.extend(TableVersionKey(tbl_id, None) for tbl_id in self.write_tbl_ids)
         return keys
