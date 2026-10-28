@@ -59,6 +59,9 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
+# bind parameters per key lookup statement; Postgres allows at most 65535, and the from clause binds some as well
+_KEY_LOOKUP_BIND_PARAMS = 10_000
+
 
 def _plan_node_names(plan: 'exec.ExecNode') -> list[str]:
     """Node class names in plan-chain order (consumer first), for PlanAttrs.nodes."""
@@ -1499,8 +1502,8 @@ class TableVersion:
         pk_cols = self.primary_key_columns()
         key_vals = [tuple(row[col].val for col in pk_cols) for row in batch]
         sa_key_cols = [col.sa_col for col in pk_cols]
-        # Postgres allows at most 64K bind parameters per statement, and the lookup binds one per key column per key
-        keys_per_lookup = 10_000 // len(pk_cols)
+        # the lookup binds one parameter per key column per key
+        keys_per_lookup = _KEY_LOOKUP_BIND_PARAMS // len(pk_cols)
         existing: set[tuple] = set()
         for start in range(0, len(key_vals), keys_per_lookup):
             stmt = sql.select(*sa_key_cols).where(
@@ -1513,7 +1516,7 @@ class TableVersion:
         for key, row in zip(key_vals, batch):
             if key in existing:
                 continue
-            # a repeated key exists after its first row, so its later rows are ignored
+            # keep only the first row of a repeated key
             existing.add(key)
             new_rows.append({col.name: val_expr.val for col, val_expr in row.items()})
         if len(new_rows) == 0:

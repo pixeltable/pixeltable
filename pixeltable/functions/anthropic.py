@@ -255,8 +255,7 @@ async def messages(
         tool_choice: An optional tool choice configuration.
 
     Returns:
-        The Anthropic `Message` object as a dictionary. The generated text is in its `'text'` content block, as in
-        `response.content.filter(lambda b: b.type == 'text')[0].text`; with thinking enabled, the first block is a
+        The Anthropic `Message` object as a dictionary. With thinking enabled, the first content block is a
         `'thinking'` block.
 
     Examples:
@@ -266,6 +265,12 @@ async def messages(
         >>> msgs = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(
         ...     response=messages(msgs, model='claude-3-5-sonnet-20241022')
+        ... )
+
+        Add a computed column with the generated text, from the `'text'` content block:
+
+        >>> tbl.add_computed_column(
+        ...     text=tbl.response.content.filter(lambda b: b.type == 'text')[0].text
         ... )
     """
     if model_kwargs is None:

@@ -1,6 +1,7 @@
 # ruff: noqa: RUF029
 import builtins
 import os
+import pathlib
 import re
 import subprocess
 import typing
@@ -21,6 +22,7 @@ from pixeltable import env, func
 from pixeltable.func import Batch, Function
 
 from .utils import (
+    SAMPLE_IMAGE_URL,
     DatabaseRoot,
     ReloadTester,
     assert_resultset_eq,
@@ -99,6 +101,11 @@ def _(image: PIL.Image.Image) -> str:
     return f'image {image.width}x{image.height}'
 
 
+@pxt.udf
+async def shout(text: str) -> str:
+    return text.upper()
+
+
 T = typing.TypeVar('T')
 
 
@@ -153,7 +160,7 @@ class TestFunction:
         assert isinstance(td['templates'], list) and len(td['templates']) == 1
         assert isinstance(Function.from_dict(td), func.ExprTemplateFunction)
 
-    def test_list_functions(self, init_env: None) -> None:
+    def test_list_functions(self, init_env: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         def calls(functions: pxt.FunctionList) -> set[str]:
             return {info['call'] for info in functions}
 
@@ -189,17 +196,49 @@ class TestFunction:
         assert f'[{len(count["signatures"])} signatures]' in repr(aggregates)
 
         module_functions = pxt.list_functions('tests.test_function')
-        assert all(info['path'].startswith('tests.test_function.') for info in module_functions)
         assert (
             "tests.test_function.mock_embed(content: pxt.String, model: pxt.String = 'default') "
             '-> pxt.Json[(Float, ...)]'
         ) in calls(module_functions)
+
+        # the listing of an application module includes its query, but not an imported UDF
+        (tmp_path / 'list_functions_app.py').write_text(
+            dedent(
+                """
+                import pixeltable as pxt
+                from pixeltable.functions.string import upper
+
+                TableModel = pxt.model_base()
+
+
+                class Notes(TableModel, name='notes'):
+                    id = pxt.Column(type=pxt.Int, primary_key=True)
+                    label: pxt.String
+                    shouted = upper(label)
+
+
+                @pxt.query
+                def labels_after(id: int) -> pxt.Query:
+                    '''The labels of the notes after id.'''
+                    return Notes.where(Notes.id > id).select(Notes.label)
+                """
+            )
+        )
+        monkeypatch.syspath_prepend(tmp_path)
+        app_functions = pxt.list_functions('list_functions_app')
+        assert [info['path'] for info in app_functions] == ['list_functions_app.labels_after']
+        assert app_functions[0]['kind'] == 'query'
+        assert app_functions[0]['call'] == 'list_functions_app.labels_after(id: pxt.Int) -> pxt.Json[(String, ...)]'
+        assert app_functions[0]['summary'] == 'The labels of the notes after id.'
+        assert pxt.list_functions('list_functions_app', kind='udf') == []
 
         assert len(repr(video_iterators).splitlines()) == len(video_iterators)
         assert '<table>' in video_iterators._repr_html_()
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="No module named 'no_such_module'"):
             pxt.list_functions('no_such_module')
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="No module named 'no_such_module.sub'"):
+            pxt.list_functions('no_such_module.sub')
 
     def test_eval_udf(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
@@ -209,12 +248,14 @@ class TestFunction:
         assert pxt.eval_udf(pxtf.image.resize, PIL.Image.new('RGB', (10, 20)), (4, 6)).size == (4, 6)
         image_path = get_image_files()[0]
         assert pxt.eval_udf(pxtf.image.width, image_path) == PIL.Image.open(image_path).width
+        assert pxt.eval_udf(pxtf.image.width, SAMPLE_IMAGE_URL) == 640
         assert pxt.eval_udf(pxtf.video.get_duration, video=get_video_files()[0]) > 0
         # a path for a parameter that is a string in one signature and an image in another stays a string
         assert pxt.eval_udf(describe, image_path) == f'text {image_path}'
         width, height = PIL.Image.open(image_path).size
         assert pxt.eval_udf(describe, image=image_path) == f'image {width}x{height}'
         assert pxt.eval_udf(doubled, 21) == 42
+        assert pxt.eval_udf(shout, 'abc') == 'ABC'
         assert pxt.eval_udf(pxtf.image.resize.using(size=(3, 4)), PIL.Image.new('RGB', (10, 20))).size == (3, 4)
         with pytest.raises(ValueError, match='bad value: 1'):
             pxt.eval_udf(failing_udf, 1)
@@ -232,6 +273,8 @@ class TestFunction:
             pxt.eval_udf(pxtf.string.upper, t.name)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='aggregate function'):
             pxt.eval_udf(pxtf.sum, 1)  # type: ignore[arg-type]
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'frame_iterator\(\) is an iterator'):
+            pxt.eval_udf(pxtf.video.frame_iterator, get_video_files()[0])  # type: ignore[arg-type]
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='expected a UDF'):
             pxt.eval_udf(len, 'abc')  # type: ignore[arg-type]
 

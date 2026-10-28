@@ -209,7 +209,8 @@ def check_report(file: str, bases: list[model.TableModelMeta]) -> CheckReport:
     errors = check_udf_references(bases)
     warnings = [
         f'{cls.__name__}.{name} references no column, so every row computes it from the same inputs: {value!s}. '
-        'Python code in a model body, such as str(), % or `is None`, runs once, at class definition.'
+        'Python code in a model body, such as str(), % or `is None`, runs once, at class definition. '
+        'Use == None instead of `is None`, and + or pxtf.string.format() instead of str() or %.'
         for base in bases
         for cls in base.defined_models()
         for name, value in cls.constant_columns().items()

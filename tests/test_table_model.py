@@ -6,14 +6,14 @@ import os
 import pathlib
 import re
 import textwrap
-from typing import Any, TypedDict
+from typing import Any
 
 import numpy as np
 import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable import exceptions as excs, func
+from pixeltable import exceptions as excs
 from pixeltable.catalog.model import BtreeIndex, Column, EmbeddingIndex
 from pixeltable.catalog.model.diff import format_diff
 from pixeltable.config import Config
@@ -38,35 +38,6 @@ from .utils import (
     validate_repr,
     validate_update_status,
 )
-
-
-class ChatBlock(TypedDict):
-    type: str
-    text: str
-
-
-class ChatResponse(TypedDict):
-    content: list[ChatBlock]
-
-
-@pxt.udf
-def chat_response(prompt: str) -> dict:
-    return {'content': [{'type': 'text', 'text': prompt}]}
-
-
-@pxt.udf
-def typed_chat_response(prompt: str) -> ChatResponse:
-    return {'content': [{'type': 'text', 'text': prompt}]}
-
-
-@pxt.udf
-def word_count(text: str) -> int:
-    return len(text.split())
-
-
-@pxt.udf
-def word_count_as_str(text: str) -> str:
-    return str(len(text.split()))
 
 
 def as_dict(diff: TableDiff) -> dict[str, Any]:
@@ -3586,84 +3557,6 @@ class TestTableModel:
         TableModel.create_all(root)
         pxt.get_table(p('notes')).insert([{'id': 1, 'label': 'a'}, {'id': 2, 'label': 'b'}, {'id': 3, 'label': 'c'}])
         assert pxt.eval_udf(labels_after, 1) == ['b', 'c']
-
-    @pytest.mark.db_roots('local', reason='monkeypatches a UDF in-process')
-    def test_update_all_narrowed_udf_return_type(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
-        """After a UDF's return type narrows, the columns computed with it stay up to date and keep their types."""
-        p = db_root.make_catalog_path
-        root = p('')
-
-        TableModel = pxt.model_base()
-
-        class Chats(TableModel, name='chats'):
-            id = Column(type=pxt.Int, primary_key=True)
-            prompt: pxt.String
-            response = chat_response(prompt)
-            text = response.content[0].text
-            # a JSON literal can have a return_type key too
-            extra = response.get('extra', {'return_type': {'kind': 'none'}})
-
-        TableModel.create_all(root)
-        pxt.get_table(p('chats')).insert([{'id': 1, 'prompt': 'a'}])
-
-        # a new version of chat_response() declares its return type
-        monkeypatch.setattr(
-            'tests.test_table_model.chat_response',
-            func.CallableFunction(
-                typed_chat_response.signatures, typed_chat_response.py_fns, 'tests.test_table_model.chat_response'
-            ),
-        )
-        reload_catalog()
-        TypedModel = pxt.model_base()
-
-        class TypedChats(TypedModel, name='chats'):
-            id = Column(type=pxt.Int, primary_key=True)
-            prompt: pxt.String
-            response = chat_response(prompt)
-            text = response.content[0].text
-            extra = response.get('extra', {'return_type': {'kind': 'none'}})
-
-        assert TypedModel.get_model_diff(root)['chats'].resolution == 'up_to_date'
-        t = pxt.get_table(p('chats'))
-        t.insert([{'id': 2, 'prompt': 'b'}])
-        assert_type_eq(t.response.col_type, pxt.Json)
-        assert_type_eq(t.text.col_type, pxt.Json | None)
-        assert t.order_by(t.id).select(t.text).collect()['text'] == ['a', 'b']
-
-    @pytest.mark.db_roots('local', reason='monkeypatches a UDF in-process')
-    def test_diff_incompatible_udf_return_type(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
-        """After a UDF's return type changes incompatibly, a column that calls it no longer matches its model, even
-        where the column's own type stays the same."""
-        p = db_root.make_catalog_path
-        root = p('')
-
-        TableModel = pxt.model_base()
-
-        class Docs(TableModel, name='docs'):
-            id = Column(type=pxt.Int, primary_key=True)
-            body: pxt.String
-            words = pxtf.json.dumps(word_count(body))
-
-        TableModel.create_all(root)
-
-        # a new version of word_count() returns a String
-        monkeypatch.setattr(
-            'tests.test_table_model.word_count',
-            func.CallableFunction(
-                word_count_as_str.signatures, word_count_as_str.py_fns, 'tests.test_table_model.word_count'
-            ),
-        )
-        reload_catalog()
-        NewModel = pxt.model_base()
-
-        class NewDocs(NewModel, name='docs'):
-            id = Column(type=pxt.Int, primary_key=True)
-            body: pxt.String
-            words = pxtf.json.dumps(word_count(body))
-
-        with pytest.warns(pxt.PixeltableWarning, match="computed column 'words' in table 'docs' is no longer valid"):
-            diff = NewModel.get_model_diff(root)['docs']
-        assert [(op.op, op.name) for op in diff.ops] == [('alter', 'words')]
 
     def test_update_all_altered_columns_reversed_dependency(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

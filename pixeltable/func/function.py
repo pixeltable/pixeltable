@@ -138,19 +138,11 @@ class Function(ABC):
 
     def info(self, path: str) -> FunctionInfo:
         """Describe this function, with path as its import path."""
-        doc = self.comment()
         returns = self.signatures[0].return_str(pretty_print_json=True)
         if self._conditional_return_type is not None:
             returns += ' (depends on the arguments)'
-        return FunctionInfo(
-            path=path,
-            name=self.name,
-            kind=self.kind,
-            call=f'{self._call_str(path)} -> {returns}',
-            signatures=[sig._to_str(pretty_print_json=True, with_defaults=True) for sig in self.signatures],
-            summary=None if doc is None else ' '.join(doc.split('\n\n', 1)[0].split()),
-            doc=doc,
-            outputs=None,
+        return function_info(
+            path, self.name, self.kind, f'{self._call_str(path)} -> {returns}', self.signatures, self.comment()
         )
 
     def _call_str(self, path: str) -> str:
@@ -160,11 +152,11 @@ class Function(ABC):
             receiver_type = sig.parameters_by_pos[0].col_type
             assert receiver_type is not None
             # as Python's docs write str.upper()
-            receiver = f'pxt.{str(receiver_type.copy(nullable=False)).split("[", 1)[0]}'
+            receiver = f'pxt.{receiver_type.type_name()}'
             if self.is_property:
                 return f'{receiver}.{self.name}'
             return f'{receiver}.{self.name}({sig.params_str(with_defaults=True, as_method=True)})'
-        return f'{path.removeprefix("pixeltable.functions.")}({sig.params_str(with_defaults=True)})'
+        return f'{path}({sig.params_str(with_defaults=True)})'
 
     @property
     def _resolved_fns(self) -> list[Self]:
@@ -635,3 +627,25 @@ class InvalidFunction(Function):
     @property
     def is_async(self) -> bool:
         return False
+
+
+def function_info(
+    path: str,
+    name: str,
+    kind: FunctionKind,
+    call: str,
+    signatures: Sequence[Signature],
+    doc: str | None,
+    outputs: dict[str, str] | None = None,
+) -> FunctionInfo:
+    """Return the FunctionInfo of a function or iterator, with the `pixeltable.functions.` prefix removed from call."""
+    return FunctionInfo(
+        path=path,
+        name=name,
+        kind=kind,
+        call=call.removeprefix('pixeltable.functions.'),
+        signatures=[sig._to_str(pretty_print_json=True, with_defaults=True) for sig in signatures],
+        summary=None if doc is None else ' '.join(doc.split('\n\n', 1)[0].split()),
+        doc=doc,
+        outputs=outputs,
+    )

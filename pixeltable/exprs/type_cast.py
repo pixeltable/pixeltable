@@ -30,7 +30,7 @@ class TypeCast(Expr):
         return self.components[0]
 
     @property
-    def _converts_bool(self) -> bool:
+    def _casts_bool_to_number(self) -> bool:
         return self._op1.col_type.is_bool_type() and self.col_type.is_numeric_type()
 
     def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
@@ -38,7 +38,7 @@ class TypeCast(Expr):
         A cast from Bool to a number is exact in Postgres. Other casts are evaluated in Python, in order to sidestep
         potentially thorny questions about consistency of doing type conversions in both Python and Postgres.
         """
-        if not self._converts_bool:
+        if not self._casts_bool_to_number:
             return None
         operand = sql_elements.get(self._op1)
         if operand is None:
@@ -48,7 +48,7 @@ class TypeCast(Expr):
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         val = data_row[self._op1.slot_idx]
-        if self._converts_bool and val is not None:
+        if self._casts_bool_to_number and val is not None:
             # IntType rejects a bool
             val = int(val)
         data_row[self.slot_idx] = self.col_type.create_literal(val)

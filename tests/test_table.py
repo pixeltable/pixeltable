@@ -3172,6 +3172,15 @@ class TestTable:
         assert status.rows is not None and [r['id'] for r in status.rows] == [3]
         assert t.where(t.id == 1).select(t.name, t.tag).collect()[0] == {'name': 'a', 'tag': tags[1]}
         assert t.count() == 3
+        # only existing keys
+        status = t.batch_update(
+            [{'id': 1, 'name': 'x'}, {'id': 3, 'name': 'y'}],
+            if_exists='ignore',
+            if_not_exists='insert',
+            return_rows=True,
+        )
+        assert status.num_rows == 0
+        assert status.rows == []
         status = t.batch_update(
             [{'id': 2, 'name': 'y'}, {'id': 4, 'name': 'd'}], if_exists='ignore', if_not_exists='insert'
         )

@@ -54,7 +54,7 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--json', action='store_true', dest='as_json', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    # a column records a project module by its path from the project root
+    # import a module by its path from the project root
     root = project_root()
     sys.path.insert(0, os.getcwd() if root is None else root)
     try:

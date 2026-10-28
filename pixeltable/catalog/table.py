@@ -84,8 +84,9 @@ class Table(SchemaObject):
 
     def _non_nullable_dependents(self, col_name: str) -> list[str]:
         """Return the qualified names of the non-nullable computed columns of this table and its views that reference
-        its column col_name directly. They could not store the nulls they would compute from a null in col_name.
+        its column col_name directly.
         """
+        # TODO: return only the dependents whose value expression becomes nullable when col_name becomes nullable
         tbl_name = self.get_metadata()['name']
         own_path = self._path()
         # list_views() returns paths within this table's catalog
@@ -475,15 +476,15 @@ class Table(SchemaObject):
         """Alter the type of a column.
 
         The only supported change makes a non-computed column nullable. It fails if a non-nullable computed column of
-        this table or of one of its views references the column, since the computed column could not store the nulls.
+        this table or of one of its views references the column.
 
         Args:
             column: The name or reference of the column to alter.
             type_: The new type for the column.
 
         Raises:
-            Error: If the column does not exist, is a computed column, if `type_` is not the column's type made
-            nullable, or if a non-nullable computed column references the column.
+            Error: If the column does not exist, is a computed or primary key column, if `type_` is not the column's
+            type made nullable, or if a non-nullable computed column references the column.
 
         Examples:
             Make a previously non-nullable column nullable:

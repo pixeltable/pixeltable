@@ -535,53 +535,84 @@ def _messages_resource_estimate(
 
 
 class ChatCompletionTopLogprob(TypedDict):
+    """One of the most likely tokens at a position, with its log probability."""
+
     token: str
     bytes: NotRequired[list[int] | None]
+    """The UTF-8 bytes of the token."""
     logprob: float
+    """The log probability; `-9999.0` for a token outside the 20 most likely tokens."""
 
 
 class ChatCompletionTokenLogprob(TypedDict):
+    """A generated token, with its log probability."""
+
     token: str
     bytes: NotRequired[list[int] | None]
+    """The UTF-8 bytes of the token."""
     logprob: float
+    """The log probability; `-9999.0` for a token outside the 20 most likely tokens."""
     top_logprobs: list[ChatCompletionTopLogprob]
+    """The most likely tokens at this position."""
 
 
 class ChatCompletionChoiceLogprobs(TypedDict):
+    """The log probabilities of a choice's tokens."""
+
     content: NotRequired[list[ChatCompletionTokenLogprob] | None]
+    """The tokens of the message content."""
     refusal: NotRequired[list[ChatCompletionTokenLogprob] | None]
+    """The tokens of the refusal message."""
 
 
 class ChatCompletionURLCitation(TypedDict):
+    """A web page cited in the message."""
+
     end_index: int
+    """The index of the citation's last character in the message content."""
     start_index: int
+    """The index of the citation's first character in the message content."""
     title: str
     url: str
 
 
 class ChatCompletionAnnotation(TypedDict):
+    """A web search citation."""
+
     type: str
+    """Always `'url_citation'`."""
     url_citation: ChatCompletionURLCitation
 
 
 class ChatCompletionAudio(TypedDict):
+    """The audio reply, if the request asks for audio output."""
+
     id: str
     data: str
+    """The base64-encoded audio, in the requested format."""
     expires_at: int
+    """The Unix time in seconds after which a multi-turn conversation can no longer refer to the audio."""
     transcript: str
 
 
 class ChatCompletionFunctionCall(TypedDict):
+    """A function call that the model generated."""
+
     arguments: str
+    """The arguments as a JSON string; the model does not always generate valid JSON."""
     name: str
 
 
 class ChatCompletionCustomToolCall(TypedDict):
+    """A call of a custom tool that the model generated."""
+
     input: str
     name: str
 
 
 class ChatCompletionToolCall(TypedDict, total=False):
+    """A tool call that the model generated."""
+
     id: Required[str]
     type: Required[str]
     """`'function'`, with the `function` field, or `'custom'`, with the `custom` field."""
@@ -590,16 +621,24 @@ class ChatCompletionToolCall(TypedDict, total=False):
 
 
 class ChatCompletionMessage(TypedDict):
+    """The message that the model generated."""
+
     content: NotRequired[str | None]
+    """The generated text."""
     refusal: NotRequired[str | None]
+    """The model's refusal message."""
     role: str
+    """Always `'assistant'`."""
     annotations: NotRequired[list[ChatCompletionAnnotation] | None]
     audio: NotRequired[ChatCompletionAudio | None]
     function_call: NotRequired[ChatCompletionFunctionCall | None]
+    """Deprecated: `tool_calls` replaces it."""
     tool_calls: NotRequired[list[ChatCompletionToolCall] | None]
 
 
 class ChatCompletionChoice(TypedDict):
+    """A completion of the conversation."""
+
     finish_reason: str
     """`'stop'`, `'length'`, `'tool_calls'`, `'content_filter'` or `'function_call'`."""
     index: int
@@ -608,22 +647,32 @@ class ChatCompletionChoice(TypedDict):
 
 
 class CompletionTokensDetails(TypedDict):
+    """The completion tokens by category."""
+
     accepted_prediction_tokens: NotRequired[int | None]
+    """With Predicted Outputs, the predicted tokens that appear in the completion."""
     audio_tokens: NotRequired[int | None]
     reasoning_tokens: NotRequired[int | None]
     rejected_prediction_tokens: NotRequired[int | None]
+    """With Predicted Outputs, the predicted tokens missing from the completion; they count as completion tokens."""
     text_tokens: NotRequired[int | None]
 
 
 class PromptTokensDetails(TypedDict):
+    """The prompt tokens by category."""
+
     audio_tokens: NotRequired[int | None]
     cache_write_tokens: NotRequired[int | None]
+    """The prompt tokens written to the cache."""
     cached_tokens: NotRequired[int | None]
+    """The prompt tokens read from the cache."""
     image_tokens: NotRequired[int | None]
     text_tokens: NotRequired[int | None]
 
 
 class CompletionUsage(TypedDict):
+    """The token counts of a chat completion."""
+
     completion_tokens: int
     prompt_tokens: int
     total_tokens: int
@@ -632,15 +681,23 @@ class CompletionUsage(TypedDict):
 
 
 class ChatCompletion(TypedDict):
+    """A response of the OpenAI chat completions API."""
+
     id: str
     choices: list[ChatCompletionChoice]
+    """The completions; more than one if the request sets `n`."""
     created: int
+    """The creation time, as a Unix timestamp in seconds."""
     model: str
     object: str
+    """Always `'chat.completion'`."""
     metadata: NotRequired[dict[str, Any] | None]
     moderation: NotRequired[dict[str, Any] | None]
+    """The moderation results, if the request asks for moderated completions."""
     service_tier: NotRequired[str | None]
+    """The service tier that processed the request."""
     system_fingerprint: NotRequired[str | None]
+    """The backend configuration; a change can affect the determinism of a request with a `seed`."""
     usage: NotRequired[CompletionUsage | None]
 
 
@@ -675,8 +732,7 @@ async def chat_completions(
             parameters, see: <https://platform.openai.com/docs/api-reference/chat/create>
 
     Returns:
-        The OpenAI `ChatCompletion` object as a dictionary. The generated text is in
-        `response.choices[0].message.content`.
+        The OpenAI `ChatCompletion` object as a dictionary.
 
     Examples:
         Add a computed column that applies the model `gpt-4o-mini` to an existing Pixeltable column `tbl.prompt`
@@ -689,6 +745,10 @@ async def chat_completions(
         ... tbl.add_computed_column(
         ...     response=chat_completions(messages, model='gpt-4o-mini')
         ... )
+
+        Add a computed column with the generated text:
+
+        >>> tbl.add_computed_column(text=tbl.response.choices[0].message.content)
 
         You can also include images in the messages list by passing image data directly in the input dictionary, in
         the `'image_url'` field of the message content, as in this example:
@@ -781,17 +841,26 @@ def _(messages: list, model: str, model_kwargs: dict[str, Any] | None = None) ->
 
 
 class ResponseOutputContent(TypedDict, total=False):
+    """A content part of an output item."""
+
     type: Required[str]
     """`'output_text'` or `'refusal'` in a `'message'` item; `'reasoning_text'` in a `'reasoning'` item."""
     text: str
+    """The text of an `'output_text'` or `'reasoning_text'` part."""
     annotations: list[dict[str, Any]]
+    """The annotations of an `'output_text'` part, such as citations."""
     logprobs: list[dict[str, Any]] | None
+    """The token log probabilities of an `'output_text'` part."""
     refusal: str
+    """The refusal message of a `'refusal'` part."""
 
 
 class ResponseSummary(TypedDict):
+    """A part of the reasoning summary in a `'reasoning'` item."""
+
     text: str
     type: str
+    """Always `'summary_text'`."""
 
 
 # An item of Response.output: its type decides which fields are present. A 'message' has role and content, a
@@ -844,15 +913,23 @@ ResponseOutputItem = TypedDict(
 
 
 class ResponseInputTokensDetails(TypedDict):
+    """The input tokens by category."""
+
     cache_write_tokens: int
+    """The input tokens written to the cache."""
     cached_tokens: int
+    """The input tokens read from the cache."""
 
 
 class ResponseOutputTokensDetails(TypedDict):
+    """The output tokens by category."""
+
     reasoning_tokens: int
 
 
 class ResponseUsage(TypedDict):
+    """The token counts of a response."""
+
     input_tokens: int
     input_tokens_details: ResponseInputTokensDetails
     output_tokens: int
@@ -861,15 +938,22 @@ class ResponseUsage(TypedDict):
 
 
 class Response(TypedDict):
+    """A response of the OpenAI responses API. Most fields without a description repeat a request option."""
+
     id: str
     created_at: float
+    """The creation time, as a Unix timestamp in seconds."""
     error: NotRequired[dict[str, Any] | None]
+    """The error, if the model failed to generate a response."""
     incomplete_details: NotRequired[dict[str, Any] | None]
+    """Why the response is incomplete."""
     instructions: NotRequired[pxt.Json | None]
     metadata: NotRequired[dict[str, Any] | None]
     model: str
     object: str
+    """Always `'response'`."""
     output: list[ResponseOutputItem]
+    """The output items, such as messages, reasoning and tool calls."""
     output_text: str
     """The text of the `'output_text'` parts of the `'message'` items, as the SDK's `Response.output_text`
     computes it."""
@@ -880,24 +964,29 @@ class Response(TypedDict):
     top_p: NotRequired[float | None]
     background: NotRequired[bool | None]
     completed_at: NotRequired[float | None]
+    """The completion time, as a Unix timestamp in seconds."""
     conversation: NotRequired[dict[str, Any] | None]
     max_output_tokens: NotRequired[int | None]
     max_tool_calls: NotRequired[int | None]
     moderation: NotRequired[dict[str, Any] | None]
+    """The moderation results, if the request asks for moderated completions."""
     previous_response_id: NotRequired[str | None]
     prompt: NotRequired[dict[str, Any] | None]
     prompt_cache_key: NotRequired[str | None]
     prompt_cache_options: NotRequired[dict[str, Any] | None]
     prompt_cache_retention: NotRequired[str | None]
+    """Deprecated: `prompt_cache_options.ttl` replaces it."""
     reasoning: NotRequired[dict[str, Any] | None]
     safety_identifier: NotRequired[str | None]
     service_tier: NotRequired[str | None]
     status: NotRequired[str | None]
+    """`'completed'`, `'failed'`, `'in_progress'`, `'cancelled'`, `'queued'` or `'incomplete'`."""
     text: NotRequired[dict[str, Any] | None]
     top_logprobs: NotRequired[int | None]
     truncation: NotRequired[str | None]
     usage: NotRequired[ResponseUsage | None]
     user: NotRequired[str | None]
+    """Deprecated: `safety_identifier` and `prompt_cache_key` replace it."""
 
 
 @pxt.udf(is_deterministic=False)
@@ -933,8 +1022,8 @@ async def responses(
             (for structured outputs), `previous_response_id` (for multi-turn), and `store`.
 
     Returns:
-        The OpenAI `Response` object as a dictionary. The generated text is in `response.output_text`; the
-        `output` list has every item, such as `'message'`, `'reasoning'` and tool calls.
+        The OpenAI `Response` object as a dictionary. Its `output` list has every item, such as `'message'`,
+        `'reasoning'` and tool calls.
 
     Examples:
         Add a computed column that applies the model `gpt-4o-mini` to an existing Pixeltable column `tbl.prompt`
@@ -948,6 +1037,10 @@ async def responses(
         ...         model_kwargs={'instructions': 'You are a helpful assistant.'},
         ...     )
         ... )
+
+        Add a computed column with the generated text:
+
+        >>> tbl.add_computed_column(text=tbl.response.output_text)
 
         You can also include images in the input list by passing image data directly, using the Responses API
         `input_image` content type:
@@ -1008,13 +1101,7 @@ async def responses(
 
     result_dict = json.loads(result.text)
     # the SDK computes Response.output_text as a property; the JSON has no such field
-    result_dict['output_text'] = ''.join(
-        content['text']
-        for item in result_dict['output']
-        if item['type'] == 'message'
-        for content in item['content']
-        if content['type'] == 'output_text'
-    )
+    result_dict['output_text'] = result.parse().output_text
     telemetry_schemas.record_token_usage(
         f'{__name__}.responses', model, result_dict.get('usage'), 'input_tokens', 'output_tokens'
     )

@@ -3,7 +3,7 @@ import numpy as np
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
-from ..utils import SAMPLE_IMAGE_URL, DatabaseRoot, assert_type_eq, pxt_raises
+from ..utils import SAMPLE_IMAGE_URL, DatabaseRoot, assert_type_eq, pxt_raises, reload_catalog, validate_update_status
 
 
 class TestGlobals:
@@ -67,7 +67,7 @@ class TestGlobals:
                 'raw': pxt.Binary | None,
             },
         )
-        t.insert(
+        status = t.insert(
             [
                 {
                     'reviewed': None,
@@ -83,7 +83,9 @@ class TestGlobals:
                 {'reviewed': None, 'predicted': None, 'n': None, 'x': 3.5},
             ]
         )
-        t.add_computed_column(label=pxtf.coalesce(t.reviewed, t.predicted, 'unknown'))
+        validate_update_status(status, expected_rows=3)
+        status = t.add_computed_column(label=pxtf.coalesce(t.reviewed, t.predicted, 'unknown'))
+        validate_update_status(status, expected_rows=3)
         assert_type_eq(t.label.col_type, pxt.String)
         query = t.order_by(t.x).select(
             t.label, either=pxtf.coalesce(t.reviewed, t.predicted), num=pxtf.coalesce(t.n, t.x)
@@ -95,6 +97,11 @@ class TestGlobals:
         assert res['either'] == ['cat', 'dog', None]
         assert res['num'] == [1.5, 3, 3.5]
         assert len(t.where(pxtf.coalesce(t.reviewed, t.predicted) == 'cat').collect()) == 1
+
+        reload_catalog()
+        t = pxt.get_table(p('test_tbl'))
+        assert_type_eq(t.label.col_type, pxt.String)
+        assert t.order_by(t.x).select(t.label).collect()['label'] == ['cat', 'dog', 'unknown']
 
         res = (
             t.order_by(t.x)

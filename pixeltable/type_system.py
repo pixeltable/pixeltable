@@ -185,9 +185,13 @@ class ColumnType:
 
     def _to_base_str(self) -> str:
         """
-        String representation of this type, disregarding nullability. Default implementation is to camel-case
-        the type name; subclasses may override.
+        String representation of this type, disregarding nullability. Default implementation is type_name();
+        subclasses may override.
         """
+        return self.type_name()
+
+    def type_name(self) -> str:
+        """Return the name of this type without its parameters, such as `Json` for `Json[{'a': Int}]`."""
         return self._type.name[0] + self._type.name[1:].lower()
 
     def pretty_str(self) -> str:
@@ -982,7 +986,7 @@ class UUIDType(ColumnType):
     def print_value(self, val: Any) -> str:
         return f"'{val}'"
 
-    def _to_base_str(self) -> str:
+    def type_name(self) -> str:
         return 'UUID'
 
     def _validate_literal(self, val: Any) -> None:

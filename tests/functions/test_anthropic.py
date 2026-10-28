@@ -5,6 +5,7 @@ import pytest
 import pixeltable as pxt
 
 from ..utils import (
+    assert_sdk_mirrors,
     assert_type_eq,
     rerun,
     rerun_on_network_error,
@@ -82,15 +83,14 @@ class TestAnthropic:
 class TestAnthropicTypedDictAdherence:
     """Detect drift between the TypedDict mirrors and the SDK Pydantic models. Doesn't need credentials."""
 
-    def test_mirror_keys(self) -> None:
+    def test_mirrors(self) -> None:
         skip_test_if_not_installed('anthropic')
         from anthropic.types import ContentBlock, Message, Usage
 
         from pixeltable.functions import anthropic
 
-        assert set(anthropic.Message.__annotations__) == set(Message.model_fields)
-        assert set(anthropic.Usage.__annotations__) == set(Usage.model_fields)
         # ContentBlock is an Annotated union of the block types
-        block_types = typing.get_args(typing.get_args(ContentBlock)[0])
-        block_fields = {name for block_type in block_types for name in block_type.model_fields}
-        assert set(anthropic.ContentBlock.__annotations__) == block_fields
+        block_types = list(typing.get_args(typing.get_args(ContentBlock)[0]))
+        assert_sdk_mirrors(
+            [(anthropic.Message, [Message]), (anthropic.Usage, [Usage]), (anthropic.ContentBlock, block_types)]
+        )

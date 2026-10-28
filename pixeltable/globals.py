@@ -1121,16 +1121,17 @@ def eval_udf(fn: pxt.Function, /, *args: Any, **kwargs: Any) -> Any:
     """Evaluate a UDF on Python values and return its result, without a table.
 
     The arguments and the result are Python values, as a UDF body sees them: an image is a `PIL.Image.Image`, and
-    a video, audio or document is a local file path. A media argument can also be a file path or URL, except for a
-    UDF with several signatures, such as `huggingface.clip()`, where an image has to be a `PIL.Image.Image`. As in a
-    computed column, the UDF's signature validates the arguments, and a `None` argument for a non-nullable parameter
-    skips the call and returns `None`.
+    a video, audio or document is a local file path. A media argument can also be a file path or URL, unless the
+    argument's type differs between the UDF's signatures, as for the first argument of
+    [`huggingface.clip()`][pixeltable.functions.huggingface.clip]. As in a computed column, the UDF's signature
+    validates the arguments, and a `None` argument for a non-nullable parameter skips the call and returns `None`.
 
     A query function declared over a model reads the model's table once the model is bound, by `create_all()` or
     `bind_all()`.
 
     Args:
-        fn: The UDF or query function to evaluate. An aggregate function needs rows and cannot be evaluated this way.
+        fn: The UDF or query function to evaluate. An aggregate function needs rows and an iterator produces them,
+            so neither can be evaluated this way.
         args: The positional arguments.
         kwargs: The keyword arguments.
 
@@ -1151,6 +1152,11 @@ def eval_udf(fn: pxt.Function, /, *args: Any, **kwargs: Any) -> Any:
         >>> img = PIL.Image.open('photo.jpg')
         >>> rotated = pxt.eval_udf(pxtf.image.rotate, img, 90)
     """
+    if isinstance(fn, func.GeneratingFunction):
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'eval_udf(): {fn.name}() is an iterator, which produces rows; use it in create_view()',
+        )
     if not isinstance(fn, func.Function):
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT, f'eval_udf(): expected a UDF, got `{type(fn).__name__}`'

@@ -151,8 +151,8 @@ class Signature:
         return d.keys() == {'return_type', 'parameters', 'is_batched'}
 
     def arg_type(self, arg: int | str) -> ts.ColumnType | None:
-        """The type of the parameter that receives the positional argument at index arg, or the keyword argument arg;
-        None if no parameter does, or for a variable parameter."""
+        """Return the type of the parameter for the positional argument at index arg or the keyword argument arg; None
+        if the argument has no named parameter, such as an argument of *args or **kwargs."""
         if isinstance(arg, str):
             param = self.parameters.get(arg)
             return None if param is None else param.col_type

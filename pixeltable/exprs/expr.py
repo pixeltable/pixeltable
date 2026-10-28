@@ -81,6 +81,7 @@ class Expr(abc.ABC):
     # - set by the subclass's __init__()
     # - produced by _create_id()
     # - not expected to survive a serialize()/deserialize() roundtrip
+    # - underscored: an attribute named id would hide the JSON key id, as in t.reply.id
     _expr_id: int | None
 
     # whether col_type contributes to the id; a subclass sets this to False if two of its instances that compare
@@ -591,8 +592,9 @@ class Expr(abc.ABC):
     def eval_without_row(self) -> Any:
         """Evaluate this expression, which references no column, and return its value, or raise the exception of a
         failed evaluation."""
-        from pixeltable.exprs import RowBuilder
+        from pixeltable.exprs import ColumnRef, RowBuilder
 
+        assert not self.contains_(cls=ColumnRef)
         row_builder = RowBuilder(output_exprs=[self], columns=[], input_exprs=[])
         row = row_builder.make_row()
         row_builder.eval(row, ctx=row_builder.default_eval_ctx, ignore_errors=True)
@@ -714,8 +716,7 @@ class Expr(abc.ABC):
         """
         Return a new expression that casts this expression to a different type.
 
-        This represents a type _cast_, not a type _coercion_, so it will not mutate the underlying data; it simply
-        changes the static type given by the expression. Some casts convert the value:
+        Some casts also convert the value:
 
         - Bool to Int or Float: `False` and `True` become 0 and 1.
         - Int to Float.

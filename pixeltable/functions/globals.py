@@ -275,7 +275,9 @@ def coalesce(*values: Any) -> ts.Json | None:
 
         A default for a missing value:
 
-        >>> t.select(pxtf.coalesce(t.nickname, t.name, 'unknown')).collect()
+        >>> t.select(
+        ...     display_name=pxtf.coalesce(t.nickname, t.name, 'unknown')
+        ... ).collect()
     """
     for value in values:
         if value is not None:

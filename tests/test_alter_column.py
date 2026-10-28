@@ -61,17 +61,36 @@ class TestAlterColumn:
         validate_update_status(t.insert(c1=None, c2=None), 1)
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_alter_column_nullable_dependents(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
+    def test_alter_column_nullable_dependents(
+        self, db_root: DatabaseRoot, do_reload_catalog: bool, is_data_versioned: bool
+    ) -> None:
+        t = pxt.create_table(
+            db_root.make_catalog_path('test_tbl'), {'id': pxt.Int, 'd': pxt.Json}, _is_data_versioned=is_data_versioned
+        )
+        t.add_computed_column(a=t.d.a)
+        t.add_computed_column(next_id=t.id + 1)
+        t.alter_column('d', type_=pxt.Json | None)
+        reload_catalog(do_reload_catalog)
+
+        validate_update_status(t.insert([{'id': 1, 'd': {'a': 1, 'b': 2}}, {'id': 2, 'd': None}]))
+        assert t.order_by(t.id).select(t.a).collect()['a'] == [1, None]
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r"'id' cannot become nullable: non-nullable columns depend on it: test_tbl\.next_id",
+        ):
+            t.alter_column('id', type_=pxt.Int | None)
+
+    # views of an operational table are not supported yet (PXT-1101)
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_alter_column_nullable_view_dependents(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test_tbl'), {'id': pxt.Int, 'd': pxt.Json})
-        t.add_computed_column(a=t.d.a)
         v = pxt.create_view(p('test_view'), t)
         v.add_computed_column(b=v.d.b)
         t.alter_column('d', type_=pxt.Json | None)
         reload_catalog(do_reload_catalog)
 
         validate_update_status(t.insert([{'id': 1, 'd': {'a': 1, 'b': 2}}, {'id': 2, 'd': None}]))
-        assert t.order_by(t.id).select(t.a).collect()['a'] == [1, None]
         assert v.order_by(v.id).select(v.b).collect()['b'] == [2, None]
 
         # a non-nullable computed column of a view blocks the change

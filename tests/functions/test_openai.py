@@ -4,7 +4,6 @@ import random
 import time
 
 import PIL.Image
-import pydantic
 import pytest
 
 import pixeltable as pxt
@@ -15,12 +14,15 @@ from pixeltable.config import Config
 from ..conftest import SampleFileServer
 from ..utils import (
     SAMPLE_IMAGE_FILE_PATH,
+    assert_sdk_mirrors,
     assert_type_eq,
+    pydantic_model_fields,
     pxt_raises,
     rerun,
     rerun_on_network_error,
     skip_test_if_no_client,
     skip_test_if_not_installed,
+    typed_dict_fields,
     validate_update_status,
 )
 from .tool_utils import run_tool_invocations_test, server_state, stock_price, weather
@@ -822,45 +824,6 @@ class TestOpenaiTypedDictAdherence:
         """JSON-schema view of ct with optional/required info stripped at every nested level."""
         return self._strip_required(ct.to_json_schema())
 
-    def _td_fields(self, t: type) -> tuple[dict[str, ts.ColumnType], frozenset[str]]:
-        """Resolve a TypedDict to (field_types, optional_keys). Optional keys are meaningful at the top level."""
-        jt = ts.JsonType.from_python_type(t)
-        assert isinstance(jt, ts.JsonType), t
-        assert jt.type_schema is not None and isinstance(jt.type_schema.type_spec, dict), t
-        return jt.type_schema.type_spec, jt.type_schema.optional_keys
-
-    def _pydantic_fields(self, model: type) -> dict[str, ts.ColumnType]:
-        """Per-field JsonType conversion of a Pydantic model, keyed by JSON key. Fields whose annotation can't be
-        converted to a Pixeltable type are omitted (callers must declare them in overrides)."""
-        assert issubclass(model, pydantic.BaseModel)
-        out: dict[str, ts.ColumnType] = {}
-        for name, info in model.model_fields.items():
-            try:
-                ct = ts.ColumnType.normalize_type(info.annotation)
-            except Exception:
-                continue
-            out[info.alias or name] = ct
-        return out
-
-    def _assert_mirrors(
-        self, pairs: list[tuple[type, list[type[pydantic.BaseModel]]]], synth: frozenset[str] = frozenset()
-    ) -> None:
-        """Each TypedDict has the keys of its SDK models combined, plus synth, and each of its typed keys accepts
-        the key's type in every SDK model that has the key."""
-        for ours, sdk_models in pairs:
-            ours_fields, _ = self._td_fields(ours)
-            sdk_keys = {info.alias or name for model in sdk_models for name, info in model.model_fields.items()}
-            assert set(ours_fields) - synth == sdk_keys, (
-                f'{ours.__name__} keys drifted: missing {sdk_keys - set(ours_fields)}, '
-                f'extra {set(ours_fields) - synth - sdk_keys}'
-            )
-            for model in sdk_models:
-                for key, sdk_type in self._pydantic_fields(model).items():
-                    ours_type = ours_fields[key]
-                    assert ours_type.is_supertype_of(sdk_type), (
-                        f'{ours.__name__}.{key} drifted from {model.__name__}: ours={ours_type} sdk={sdk_type}'
-                    )
-
     def test_typed_paths(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
         from pixeltable.functions.openai import chat_completions, responses
@@ -893,7 +856,7 @@ class TestOpenaiTypedDictAdherence:
 
         function_tool_call = chat_completion_message_function_tool_call
         custom_tool_call = chat_completion_message_custom_tool_call
-        self._assert_mirrors(
+        assert_sdk_mirrors(
             [
                 (pxt_openai.ChatCompletion, [chat_completion.ChatCompletion]),
                 (pxt_openai.ChatCompletionChoice, [chat_completion.Choice]),
@@ -939,7 +902,7 @@ class TestOpenaiTypedDictAdherence:
 
         # ResponseOutputItem is an Annotated union
         output_items = list(typing.get_args(typing.get_args(response_output_item.ResponseOutputItem)[0]))
-        self._assert_mirrors(
+        assert_sdk_mirrors(
             [
                 (pxt_openai.Response, [response.Response]),
                 (pxt_openai.ResponseOutputItem, output_items),
@@ -1006,10 +969,10 @@ class TestOpenaiTypedDictAdherence:
 
         from pixeltable.functions.openai import TranscriptionResponse
 
-        ours_fields, ours_optional = self._td_fields(TranscriptionResponse)
+        ours_fields, ours_optional = typed_dict_fields(TranscriptionResponse)
         sdk_fields: dict[str, ts.ColumnType] = {}
         for model in (Transcription, TranscriptionVerbose):
-            sdk_fields.update(self._pydantic_fields(model))
+            sdk_fields.update(pydantic_model_fields(model))
 
         synth = {'srt', 'vtt'}  # fields we add that the SDK does not have
         overrides = {'usage'}  # fields we deliberately re-type (kept as dict); not convertible anyway
@@ -1043,10 +1006,10 @@ class TestOpenaiTypedDictAdherence:
 
         from pixeltable.functions.openai import TranslationResponse
 
-        ours_fields, ours_optional = self._td_fields(TranslationResponse)
+        ours_fields, ours_optional = typed_dict_fields(TranslationResponse)
         sdk_fields: dict[str, ts.ColumnType] = {}
         for model in (Translation, TranslationVerbose):
-            sdk_fields.update(self._pydantic_fields(model))
+            sdk_fields.update(pydantic_model_fields(model))
 
         synth = {'srt', 'vtt'}
 
@@ -1069,15 +1032,15 @@ class TestOpenaiTypedDictAdherence:
 
         from pixeltable.functions.openai import ImagesResponse
 
-        ours_fields, ours_optional = self._td_fields(ImagesResponse)
-        sdk_fields = self._pydantic_fields(SdkImagesResponse)
+        ours_fields, ours_optional = typed_dict_fields(ImagesResponse)
+        sdk_fields = pydantic_model_fields(SdkImagesResponse)
 
         overrides = {'data'}  # we re-type and guarantee non-null
         # openai 3.24 no longer declares size; a missing key reads as null, which size allows
         dropped_by_sdk = {'size'} - set(sdk_fields)
         # declared by newer SDKs only, so a response from an older one lacks them
         added_by_sdk = {'safety_identifier'}  # openai>=3.33
-        # whether this SDK declares them comes from its raw fields, since _pydantic_fields() drops a field whose
+        # whether this SDK declares them comes from its raw fields, since pydantic_model_fields() drops a field whose
         # annotation it can't convert, and that must fail the comparison below
         absent_from_sdk = added_by_sdk - set(SdkImagesResponse.model_fields)
         assert set(ours_fields) - dropped_by_sdk - absent_from_sdk == set(sdk_fields), (

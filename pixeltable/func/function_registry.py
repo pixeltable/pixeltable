@@ -121,7 +121,8 @@ class FunctionRegistry:
         try:
             return importlib.import_module(module)
         except ModuleNotFoundError as e:
-            if e.name != module:
+            # module is missing if e.name is module or one of its parents, such as 'a' for 'a.b'
+            if e.name is None or (module != e.name and not module.startswith(f'{e.name}.')):
                 raise
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'No module named {module!r}') from e
 

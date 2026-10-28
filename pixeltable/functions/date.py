@@ -95,7 +95,7 @@ def today() -> date:
     Return the current date in the default time zone.
 
     A query, or a computed column with `stored=False`, evaluates it when the query runs. A stored computed column
-    records the date of the insert.
+    records the date of the insert, and a recompute replaces it with the date of the recompute.
 
     Examples:
         The tasks that are due today:

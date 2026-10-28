@@ -9,7 +9,7 @@ from pixeltable_cli.client.commands import functions
 
 
 class TestFunctions:
-    def test_lists_type_methods(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_filters(self, capsys: pytest.CaptureFixture[str]) -> None:
         functions.run(['--on', 'Json'])
         lines = capsys.readouterr().out.splitlines()
         assert any(line.startswith('udf       pxt.Json.len() -> pxt.Int  # ') for line in lines)
@@ -24,7 +24,7 @@ class TestFunctions:
         assert captured.out == ''
         assert captured.err == 'pxt functions: no function matches\n'
 
-    def test_lists_project_module(
+    def test_project_module(
         self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         udf_src = textwrap.dedent(
@@ -54,8 +54,9 @@ class TestFunctions:
         functions.run(['cli_functions_project_app'])
         assert capsys.readouterr().out == 'udf       cli_functions_project_app.shout(text: pxt.String) -> pxt.String\n'
 
-    def test_unknown_module_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
-        with pytest.raises(SystemExit) as exc_info:
-            functions.run(['no_such_module'])
-        assert exc_info.value.code == 1
-        assert capsys.readouterr().err == "pxt functions: No module named 'no_such_module'\n"
+    def test_unknown_module(self, capsys: pytest.CaptureFixture[str]) -> None:
+        for module in ('no_such_module', 'no_such_module.sub'):
+            with pytest.raises(SystemExit) as exc_info:
+                functions.run([module])
+            assert exc_info.value.code == 1
+            assert capsys.readouterr().err == f"pxt functions: No module named '{module}'\n"

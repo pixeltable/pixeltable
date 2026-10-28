@@ -1411,7 +1411,6 @@ class TestExprs:
         t = test_tbl
         assert t.c4.astype(pxt.Int).col_type == ts.IntType(nullable=False)
 
-        # a column and a predicate convert in SQL, a udf result in Python
         res = (
             t.select(
                 col=t.c4.astype(pxt.Int),

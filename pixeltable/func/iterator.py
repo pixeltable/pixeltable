@@ -15,6 +15,7 @@ from pixeltable.exprs.expr import ValidationError
 from pixeltable.func.globals import resolve_symbol
 from pixeltable.types import FunctionInfo, FunctionKind
 
+from .function import function_info
 from .signature import Signature
 
 if TYPE_CHECKING:
@@ -144,7 +145,6 @@ class GeneratingFunction:
 
     def info(self, path: str) -> FunctionInfo:
         """Describe this iterator, with path as its import path."""
-        doc = self.comment()
         output_schema = self.fixed_output_schema
         outputs: dict[str, str] | None
         if output_schema is None:
@@ -153,17 +153,8 @@ class GeneratingFunction:
         else:
             outputs = {name: t.pretty_str() for name, t in output_schema.items()}
             returns = '{' + ', '.join(f'{name}: {t}' for name, t in outputs.items()) + '}'
-        call = f'{path.removeprefix("pixeltable.functions.")}({self.signature.params_str(with_defaults=True)})'
-        return FunctionInfo(
-            path=path,
-            name=self.name,
-            kind=self.kind,
-            call=f'{call} -> {returns}',
-            signatures=[self.signature._to_str(pretty_print_json=True, with_defaults=True)],
-            summary=None if doc is None else ' '.join(doc.split('\n\n', 1)[0].split()),
-            doc=doc,
-            outputs=outputs,
-        )
+        call = f'{path}({self.signature.params_str(with_defaults=True)}) -> {returns}'
+        return function_info(path, self.name, self.kind, call, [self.signature], self.comment(), outputs)
 
     def _infer_properties(self) -> None:
         self.py_sig = inspect.signature(self.decorated_callable, eval_str=True)

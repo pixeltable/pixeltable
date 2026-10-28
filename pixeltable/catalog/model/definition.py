@@ -746,8 +746,10 @@ class TableModelMeta(type):
         return list(cls.__registered_models__.values())
 
     def constant_columns(cls) -> dict[str, exprs.Expr]:
-        """This model's computed columns that reference no column and call no function without arguments, such as
-        uuid4(), with their value expressions."""
+        """Return the value expression of each computed column that references no column, by column name.
+
+        Excludes a value expression that calls a function without arguments, such as uuid4().
+        """
         constants: dict[str, exprs.Expr] = {}
         for name, col_spec in cls.__columns__.items():
             value = col_spec.get('value')

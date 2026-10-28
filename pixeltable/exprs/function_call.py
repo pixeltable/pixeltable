@@ -487,11 +487,13 @@ class FunctionCall(Expr):
             if param_name in init_param_names:
                 continue
             val = data_row[self.components[idx].slot_idx]
+            # a name outside the parameter list belongs to a **kwargs parameter
+            param = parameters.get(param_name)
             if (
                 val is None
-                and parameters[param_name].kind
-                in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-                and not parameters[param_name].col_type.nullable
+                and param is not None
+                and param.kind in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                and not param.col_type.nullable
             ):
                 return None
             kwargs[param_name] = val
