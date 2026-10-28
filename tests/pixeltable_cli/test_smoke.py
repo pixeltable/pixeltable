@@ -116,6 +116,17 @@ class TestDbRetryDeletion:
 
 
 class TestErrorCode:
+    def test_a_snippet_to_paste_stays_clean(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """A message ending in lines to paste, such as a TOML entry, gets its code on a line of its own (PXT-1616)."""
+        message = (
+            "422 no [[pixeltable.database]] entry for 'pxt://acme:main'; add one to pixeltable.toml:\n"
+            '  [[pixeltable.database]]\n'
+            "  name = 'pxt://acme:main'"
+        )
+        utils.RequestFailedError(message, 422, retryable=False, error_code='INVALID_CONFIGURATION').report()
+        lines = capsys.readouterr().err.splitlines()
+        assert lines[-2:] == ["  name = 'pxt://acme:main'", '[INVALID_CONFIGURATION]']
+
     def test_daemon_error(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """A daemon error keeps its error_code: at the end of the text line, and in the --json document."""
         missing = db_root.make_catalog_path('cli_code_missing/t')

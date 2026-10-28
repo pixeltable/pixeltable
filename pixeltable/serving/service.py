@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import shlex
 from pathlib import Path
 from typing import Literal, Sequence
 
@@ -432,7 +433,8 @@ def _service_diff(
         ops.append(ServiceChangeOp.release_changed())
 
     if app_info.model_mismatch_reason is not None:
-        command = f'pxt schema update {app_info.app_file}' + ('' if target == '' else f' {target}')
+        # quoted: the next: line and --json's next run it as a shell command, and a project path may hold a space
+        command = shlex.join(['pxt', 'schema', 'update', str(app_info.app_file), *([] if target == '' else [target])])
         ops.append(ServiceChangeOp.blocked_schema(name, app_info.model_mismatch_reason, command))
 
     if hosted and receipt is not None and not receipt.observed and len(ops) == 0:
