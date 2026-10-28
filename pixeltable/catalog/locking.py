@@ -376,7 +376,7 @@ class _LockSetBuilder:
         """Add the directory subtree to dirs_to_lock and return the ids of its visible tables."""
         self.dirs_to_lock[dir_id] = dir_path
         tbl_q = sql.select(schema.Table.id).where(active_tbl_clause(dir_id=dir_id))
-        tbl_ids = {r.id for r in self.conn.execute(tbl_q).all()}
+        tbl_ids = set(self.conn.execute(tbl_q).scalars())
 
         subdir_q = sql.select(schema.Dir.id, schema.Dir.md).where(schema.Dir.parent_id == dir_id)
         for row in self.conn.execute(subdir_q).all():
