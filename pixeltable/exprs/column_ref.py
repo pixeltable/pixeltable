@@ -654,13 +654,15 @@ class ColumnRef(Expr):
             # still being loaded (e.g. deserializing iterator args), so we must not trigger a re-entrant load.
             key = catalog.TableVersionKey(col_tbl_id, col_tbl_effective_version)
             tv = get_runtime().catalog.get_tbl_version(key, validate_initialized=False)
-            col = tv.cols_by_id.get(col_id)
-            if col is None:
+            # avoid TV.cols_by_id or other lookup structures, they might be incomplete at this point (if we're getting
+            # called from TableVersion._init_schema())
+            stored_md = tv.stored_column_version_md(col_id)
+            if stored_md is None:
                 raise excs.NotFoundError(
                     excs.ErrorCode.COLUMN_NOT_FOUND,
                     f'Column was dropped (no record for column ID {col_id} in table {tv.versioned_name!r})',
                 )
-            col_md = col.column_version_md()
+            col_md = stored_md
 
         if tbl_id != col_tbl_id or effective_version != col_tbl_effective_version:
             col_md = col_md.with_context(tbl_id, effective_version)

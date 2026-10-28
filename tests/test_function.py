@@ -834,16 +834,18 @@ class TestFunction:
         reload_catalog()
         pxt.drop_dir(p('test'), force=True)
 
-    def test_query_over_own_view(self, db_root: DatabaseRoot) -> None:
+    # 'text' is the view's own column, 'a' is inherited from tbl
+    @pytest.mark.parametrize('col_name', ['text', 'a'])
+    def test_query_over_own_view(self, db_root: DatabaseRoot, col_name: str) -> None:
         """A computed column can query a view of its own table."""
         p = db_root.make_catalog_path
         pxt.create_dir(p('test'))
         t = pxt.create_table(p('test/tbl'), {'a': pxt.String | None})
-        v = pxt.create_view(p('test/view'), t)
+        v = pxt.create_view(p('test/view'), t, additional_columns={'text': pxt.String | None})
 
         @pxt.query
         def retrieve() -> pxt.Query:
-            return v.select(v.a).limit(5)
+            return v.select(v[col_name]).limit(5)
 
         t.add_computed_column(result=retrieve())
         # the view's computed column references a column added to t after t.result
@@ -851,11 +853,32 @@ class TestFunction:
         v = pxt.get_table(p('test/view'))
         v.add_computed_column(copy_b=v.b)
         t.insert(a='x', b=1)
+        v.update({'text': v.a})
 
         reload_catalog()
         t = pxt.get_table(p('test/tbl'))
         t.insert(a='y', b=2)
         assert t.where(t.a == 'y').select(t.result).collect()[0]['result'] == ['x']
+
+    def test_query_over_dropped_table(self, db_root: DatabaseRoot) -> None:
+        """Writes that don't evaluate a stored query still work after its table is dropped."""
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('test'))
+        src = pxt.create_table(p('test/src'), {'a': pxt.String | None})
+
+        @pxt.query
+        def retrieve() -> pxt.Query:
+            return src.select(src.a)
+
+        t = pxt.create_table(p('test/tbl'), {'n': pxt.Int | None})
+        t.add_computed_column(result=retrieve())
+        t.insert([{'n': 1}, {'n': 2}])
+        pxt.drop_table(p('test/src'))
+
+        validate_update_status(t.delete(t.n == 1), expected_rows=1)
+        t.drop_column('result')
+        validate_update_status(t.insert(n=3), expected_rows=1)
+        assert t.count() == 2
 
     def test_query_with_limit(self, test_tbl: pxt.Table) -> None:
         """@pxt.query bodies that use limit() with differently-shaped limit arguments."""
