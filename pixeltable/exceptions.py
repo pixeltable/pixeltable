@@ -84,6 +84,7 @@ class ErrorCode(enum.Enum):
     # ServiceUnavailableError (6xxx)
     DATABASE_UNAVAILABLE = 6000, 503, True
     STORE_UNAVAILABLE = 6001, 503, True
+    SERVICE_BUSY = 6002, 503, True
 
     # ConcurrencyError (7xxx)
     SERIALIZATION_FAILURE = 7000, 409, True
@@ -247,7 +248,7 @@ class ExternalServiceError(Error):
 
 
 class ServiceUnavailableError(Error):
-    """Database, store, or other infrastructure is unreachable."""
+    """Database, store, or other infrastructure is unreachable or at capacity."""
 
 
 class ConcurrencyError(Error):
