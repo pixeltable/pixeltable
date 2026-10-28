@@ -187,7 +187,7 @@ def _extract_error_metadata(obj: Any) -> tuple[bool, float | None] | None:
 
 def _extract_aws_error_metadata(response: Any) -> tuple[bool, float | None] | None:
     """
-    Extract retry information from the `response` of a botocore `ClientError`.
+    Extract retry information from the `response` of an error that looks like botocore `ClientError`.
 
     Returns a tuple of is_retryable and an optional retry_delay, or None if `response` is not a botocore error response.
     """
