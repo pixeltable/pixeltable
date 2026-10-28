@@ -79,9 +79,12 @@ class TablePath(abc.ABC):
     @property
     def tbl_keys(self) -> list[TableVersionKey]:
         """The key of every table on this path, leaf first."""
-        if self.base is None:
-            return [self.tbl_key]
-        return [self.tbl_key, *self.base.tbl_keys]
+        keys: list[TableVersionKey] = []
+        path: TablePath | None = self
+        while path is not None:
+            keys.append(path.tbl_key)
+            path = path.base
+        return keys
 
     @property
     def root(self) -> TablePath:
