@@ -1,6 +1,4 @@
-import ctypes
 import functools
-import gc
 import hashlib
 import http.server
 import json
@@ -13,7 +11,7 @@ import sys
 import threading
 import urllib.parse
 import uuid
-from typing import Any, Callable, Generator, Iterator, get_args
+from typing import Callable, Generator, Iterator, get_args
 
 import pytest
 import requests
@@ -35,6 +33,7 @@ from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.service import proxy_daemon
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
+from pixeltable.utils.memory import release_process_memory
 from pixeltable.utils.sql import add_option_to_db_url
 
 from .utils import (
@@ -96,32 +95,26 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 def pytest_runtest_setup(item: pytest.Item) -> None:
     current_test = os.environ.get('PYTEST_CURRENT_TEST')
     _logger.info(f'Running Pixeltable test: {current_test}')
-    _clear_model_caches()
+    # always trim, not only when a model cache is populated: expensive tests (inlined objects, image tables)
+    # leave gigabytes in the glibc heap, and #1730's early-return skipped malloc_trim for those (PXT-1716)
+    release_process_memory()
+    _release_proxy_daemon_memory()
 
 
-def _clear_model_caches() -> None:
-    """Drop the models that earlier tests loaded and return their memory to the OS, so that the xdist worker that
-    runs the 'large_model' group doesn't accumulate them."""
-    caches: list[dict[Any, Any]] = [
-        pxtf.huggingface._model_cache,
-        pxtf.huggingface._processor_cache,
-        pxtf.llama_cpp._model_cache,
-        pxtf.vllm._model_cache,
-        pxtf.whisper._model_cache,
-        pxtf.whisperx._model_cache,
-        pxtf.whisperx._alignment_model_cache,
-        pxtf.whisperx._diarization_model_cache,
-        pxtf.yolox._model_cache,
-        pxtf.yolox._processor_cache,
-    ]
-    if not any(caches):
+def _release_proxy_daemon_memory() -> None:
+    """Ask this worker's session-scoped proxy daemon to drop caches and return heap, if it is running.
+
+    The daemon is a separate process, so the worker's own release_process_memory() does not reach it.
+    Skip until Env is up so this hook does not initialize Config before init_env. Best-effort: a missing
+    or non-test-mode daemon is a no-op, and a request failure must not fail the test.
+    """
+    if Env._instance is None:
         return
-    for cache in caches:
-        cache.clear()
-    gc.collect()
-    if platform.libc_ver()[0] == 'glibc':
-        # glibc keeps freed memory in the process's heap unless asked to return it
-        ctypes.CDLL('libc.so.6').malloc_trim(0)
+    worker_id = os.environ.get('PYTEST_XDIST_WORKER', 'master')
+    try:
+        proxy_daemon.release_memory(_worker_db_name(worker_id))
+    except Exception:
+        _logger.debug('Proxy daemon memory release skipped', exc_info=True)
 
 
 def pytest_runtest_teardown(item: pytest.Item) -> None:

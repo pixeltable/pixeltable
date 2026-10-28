@@ -243,12 +243,14 @@ jobs:
         # (including tests with the 'remote_api' marker that are not also marked 'expensive') will run on all matrix
         # configurations.
         # --basetemp pins pytest's temp root dir so that the Archive step below works on all platforms
-        # -n logical: one worker per vCPU (with psutil, -n auto counts physical cores: 2 on windows-2025)
+        # -n comes from the matrix (logical = one worker per vCPU; with psutil, -n auto counts physical cores:
+        # 2 on windows-2025). standard++ uses a lower cap so ubuntu-large stays under ~75% RAM (PXT-1716).
         run: |
           echo 'Running tests with options: ${{ matrix.pytest-options }}'
+          echo 'xdist workers             : ${{ matrix.pytest-n }}'
           echo 'Extra pre-test command    : ${{ matrix.pre-test-cmd }}'
           ${{ matrix.pre-test-cmd }}
-          pytest -v --strict-markers -n logical --dist loadgroup --basetemp="$RUNNER_TEMP/pxt-pytest" ${{ matrix.pytest-options }} $PYTEST_COVERAGE_OPTS
+          pytest -v --strict-markers -n ${{ matrix.pytest-n }} --dist loadgroup --basetemp="$RUNNER_TEMP/pxt-pytest" ${{ matrix.pytest-options }} $PYTEST_COVERAGE_OPTS
       - name: Run the OpenTelemetry instrumentation tests
         # The opentelemetry-instrumentation-pixeltable package is a separate distribution; the core suite does not
         # collect its tests (testpaths in pyproject.toml). It is tested here against a minimal install + otel extra.

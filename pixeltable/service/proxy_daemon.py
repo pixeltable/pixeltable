@@ -240,6 +240,20 @@ def reinitialize(db: str) -> None:
     response.raise_for_status()
 
 
+def release_memory(db: str) -> None:
+    """Test only. Drop the daemon's cached models and return freed heap to the OS.
+
+    No-op if no daemon is running for db, or if the daemon is not in test mode (no /release_memory endpoint).
+    """
+    ep = endpoint(db)
+    if ep is None:
+        return
+    response = httpx.post(f'{ep}/release_memory', timeout=30.0)
+    if response.status_code == 404:
+        return
+    response.raise_for_status()
+
+
 def delete(db: str) -> None:
     """Stop the daemon, drop its database, and remove its home directory."""
     stop(db)
@@ -255,6 +269,14 @@ def _reinitialize() -> None:
     """
     reset_runtime()
     pxt.init()
+    _release_process_memory()
+
+
+def _release_process_memory() -> None:
+    """Test only. Drop cached models and return freed heap to the OS. Runs inside the daemon process."""
+    from pixeltable.utils.memory import release_process_memory
+
+    release_process_memory()
 
 
 def _drop_database(db_name: str) -> None:
@@ -319,6 +341,12 @@ def _build_app(test_mode: bool = False) -> 'FastAPI':
         async def reinitialize_endpoint() -> Response:
             # _reinitialize() rebuilds the runtime, which is synchronous; keep it off the event loop
             await run_in_threadpool(_reinitialize)
+            return Response(content='{"status": "ok"}', media_type='application/json')
+
+        @app.post('/release_memory')
+        async def release_memory_endpoint() -> Response:
+            # model-cache clear + malloc_trim are synchronous; keep them off the event loop
+            await run_in_threadpool(_release_process_memory)
             return Response(content='{"status": "ok"}', media_type='application/json')
 
     @app.get('/health')
