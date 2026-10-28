@@ -757,7 +757,7 @@ class Catalog(CatalogBase):
                     return None
                 add(path_result[0])
                 any_data_versioned |= path_result[1]
-        write_tbl_keys = [TableVersionKey(tbl_id, None) for tbl_id in request.write_tbl_ids]
+        write_tbl_keys = (TableVersionKey(tbl_id, None) for tbl_id in request.write_tbl_ids)
         for tbl_keys, target_op_class in ((request.read_tbl_keys, TblOpClass.DATA_READ), (write_tbl_keys, op_class)):
             for key in tbl_keys:
                 ancestors_result = self._ancestors_lock_targets_from_cache(key, target_op_class)
