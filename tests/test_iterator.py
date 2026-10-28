@@ -674,22 +674,20 @@ class TestIterator:
     @pytest.mark.db_roots(
         'local', reason='breaks a client-process-local iterator module on disk; not visible to the daemon'
     )
-    def test_iterator_module_import_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, uses_db: None
-    ) -> None:
+    def test_iterator_module_import_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, uses_db: None) -> None:
         # A stored iterator whose module fails to import must surface the import failure, like the UDF path.
         (tmp_path / 'stored_it_mod.py').write_text(
             'import pixeltable as pxt\n'
             'from typing import Iterator, TypedDict\n\n'
             'class R(TypedDict):\n'
             '    x: int\n\n'
-            "@pxt.iterator\n"
+            '@pxt.iterator\n'
             'def it(n: int) -> Iterator[R]:\n'
             '    for i in range(n):\n'
             '        yield R(x=i)\n'
         )
         monkeypatch.syspath_prepend(str(tmp_path))
-        import stored_it_mod
+        import stored_it_mod  # type: ignore[import-not-found]
 
         t = pxt.create_table('test', {'n': pxt.Int})
         v = pxt.create_view('view', t, iterator=stored_it_mod.it(t.n))
@@ -704,8 +702,7 @@ class TestIterator:
         assert len(v.collect()) == 2
         t = pxt.get_table('test')
         with pxt_raises(
-            pxt.ErrorCode.INVALID_STATE,
-            match="could not be imported: No module named 'this_module_does_not_exist'",
+            pxt.ErrorCode.INVALID_STATE, match="could not be imported: No module named 'this_module_does_not_exist'"
         ):
             t.insert(n=1)
 

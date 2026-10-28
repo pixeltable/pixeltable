@@ -1702,12 +1702,8 @@ class TestFunction:
         with pytest.warns(pxt.PixeltableWarning, match=regex):
             t = pxt.get_table('test')
 
-    @pytest.mark.db_roots(
-        'local', reason='breaks a client-process-local UDF module on disk; not visible to the daemon'
-    )
-    def test_udf_module_import_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, uses_db: None
-    ) -> None:
+    @pytest.mark.db_roots('local', reason='breaks a client-process-local UDF module on disk; not visible to the daemon')
+    def test_udf_module_import_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, uses_db: None) -> None:
         # Regression test for PXT-1426: a stored UDF whose module fails to import must surface the import
         # failure, not just 'no longer exists'.
         # `from broken_helper import missing_name` fails with the helper module's file path in the error text;
@@ -1737,7 +1733,7 @@ class TestFunction:
         (tmp_path / 'stored_udf_mod.py').write_text(
             'import pixeltable as pxt\n\n@pxt.udf\ndef f(s: str) -> str:\n    return s\n'
         )
-        import stored_udf_mod
+        import stored_udf_mod  # type: ignore[import-not-found]
 
         t = pxt.create_table('test', {'s': pxt.String})
         t.add_computed_column(r=stored_udf_mod.f(t.s))
@@ -1746,8 +1742,7 @@ class TestFunction:
         monkeypatch.delitem(sys.modules, 'stored_udf_mod')
         reload_catalog()
         with pytest.warns(
-            pxt.PixeltableWarning,
-            match="could not be imported: No module named 'this_module_does_not_exist'",
+            pxt.PixeltableWarning, match="could not be imported: No module named 'this_module_does_not_exist'"
         ):
             pxt.get_table('test')
 
