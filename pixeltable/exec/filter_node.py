@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import AsyncIterator
+import contextlib
+from typing import AsyncGenerator
 
 from pixeltable import exprs
 
@@ -37,7 +38,7 @@ class FilterNode(ExecNode):
         self.bind_sources = [e for e in (self.limit, self.offset) if e is not None]
         super().init_bindings()
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         limit = self._resolve_positive_int(self.limit, 'limit') if self.limit is not None else None
         offset = self._resolve_positive_int(self.offset, 'offset') if self.offset is not None else None
         if limit == 0:
@@ -45,8 +46,9 @@ class FilterNode(ExecNode):
         num_passed = 0  # rows that passed the predicate (before offset/limit)
         limit_reached = False
 
-        async with self.input_aiter() as src:
-            async for batch in src:
+        assert self.input is not None
+        async with contextlib.aclosing(aiter(self.input)) as input_iter:
+            async for batch in input_iter:
                 if limit_reached:
                     break
                 output_batch = DataRowBatch(self.row_builder)

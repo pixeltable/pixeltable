@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import sys
-from typing import Any, AsyncIterator, Iterable, cast
+from typing import Any, AsyncGenerator, Iterable, cast
 
 from pixeltable import catalog, exceptions as excs, exprs, telemetry
 
@@ -82,7 +83,7 @@ class AggregationNode(ExecNode):
                 input_vals = [row[d.slot_idx] for d in fn_call.dependencies()]
                 raise excs.ExprEvalError(fn_call, expr_msg, exc, exc_tb, input_vals, row_num) from exc
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         limit = self._resolve_positive_int(self.limit, 'limit') if self.limit is not None else None
         if limit == 0:
             return
@@ -90,8 +91,9 @@ class AggregationNode(ExecNode):
         current_group: list[Any] | None = None  # the values of the group-by exprs
         num_input_rows = 0
         num_output_rows = 0
-        async with self.input_aiter() as src:
-            async for row_batch in src:
+        assert self.input is not None
+        async with contextlib.aclosing(aiter(self.input)) as input_iter:
+            async for row_batch in input_iter:
                 self.set_var_slots(row_batch)
                 num_input_rows += len(row_batch)
                 for row in row_batch:

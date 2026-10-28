@@ -270,9 +270,6 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         return result
 
     def close(self) -> None:
-        # Drop the decode generator so it cannot keep the container (and the media file) alive.
-        self.frames = iter(())
-        self.current_frame = None
         self.container.close()
 
     def seek(self, pos: int, **kwargs: Any) -> None:

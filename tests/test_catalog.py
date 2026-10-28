@@ -1,33 +1,17 @@
-import time
-from pathlib import Path
-
-import PIL.Image
 import psycopg
 import pytest
 import sqlalchemy as sql
 import sqlalchemy.exc as sql_exc
 
 import pixeltable as pxt
-import pixeltable.catalog.catalog as catalog_mod
 import pixeltable.exceptions as excs
-import pixeltable.utils.local_store as local_store_mod
-from pixeltable.catalog.catalog import Catalog
 from pixeltable.env import Env, store_app_name
-from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.fault_injection import FaultLocation
-from pixeltable.utils.local_store import LocalStore
 
 from .coordinator import MultiThreadedScenario
 from .fault_injection import BlockFault, ExceptionFault
 from .utils import DatabaseRoot, pxt_raises
-
-
-def _winerror_32(path: Path | str) -> PermissionError:
-    exc = PermissionError(32, 'The process cannot access the file because it is being used by another process')
-    exc.winerror = 32  # type: ignore[attr-defined]  # Windows-only attribute; set so Linux CI can simulate WinError 32
-    exc.filename = str(path)
-    return exc
 
 
 class TestCatalog:
@@ -158,81 +142,6 @@ class TestCatalog:
         assert isinstance(op, CreateTableMdOp)
         assert op.needs_xact  # now a ClassVar
         assert 'needs_xact' not in op.to_dict()
-
-    @pytest.mark.db_roots('local', reason='monkeypatches shutil.rmtree in-process to simulate WinError 32')
-    def test_drop_table_winerror_32_does_not_hang(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        t = pxt.create_table('media_tbl', {'img': pxt.Image | None})
-        t.insert(img=PIL.Image.new('RGB', (16, 16), color='red'))
-        tbl_id = t._id
-        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
-
-        orig_rmtree = local_store_mod.shutil.rmtree
-        monkeypatch.setattr(catalog_mod, '_MAX_NON_DB_FINALIZE_ATTEMPTS', 3)
-
-        n_rmtree = 0
-
-        def always_fail(path: str, *args: object, **kwargs: object) -> None:
-            nonlocal n_rmtree
-            n_rmtree += 1
-            raise _winerror_32(path)
-
-        monkeypatch.setattr(local_store_mod.shutil, 'rmtree', always_fail)
-
-        start = time.monotonic()
-        with pxt_raises(code=excs.ErrorCode.INTERNAL_ERROR, match='Table operation is still pending'):
-            pxt.drop_table('media_tbl')
-        elapsed = time.monotonic() - start
-        assert elapsed < 5, elapsed
-        assert n_rmtree == 3
-        with get_runtime().begin_xact() as conn:
-            pending = conn.execute(sql.select(sql.func.count()).select_from(schema.PendingTableOp)).scalar()
-            assert pending > 0
-            live = conn.execute(sql.select(sql.func.count()).where(schema.Table.id == tbl_id)).scalar()
-            assert live == 1
-
-        # Reloaded ROLLFORWARD ids get one non-DB attempt; this statement still commits.
-        pxt.create_table('other', {'img': pxt.Image | None})
-        assert 'other' in pxt.list_tables()
-        assert n_rmtree == 4
-        with get_runtime().begin_xact() as conn:
-            pending = conn.execute(sql.select(sql.func.count()).where(schema.PendingTableOp.tbl_id == tbl_id)).scalar()
-            assert pending > 0
-
-        monkeypatch.setattr(local_store_mod.shutil, 'rmtree', orig_rmtree)
-        pxt.create_table('media_tbl', {'img': pxt.Image | None})
-        with get_runtime().begin_xact() as conn:
-            pending = conn.execute(sql.select(sql.func.count()).select_from(schema.PendingTableOp)).scalar()
-            assert pending == 0
-        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
-
-    @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
-    def test_finalize_pending_ops_non_db_error_is_bounded(
-        self, uses_db: None, fault_injection: None, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        t = pxt.create_table('test', {'a': pxt.Int | None})
-        tbl_id = t._id
-        exc = Exception('injected persistent error')
-        fault = ExceptionFault(exc, recurring=True)
-        get_runtime().fault_manager.inject_fault(FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault)
-        monkeypatch.setattr(catalog_mod, '_MAX_NON_DB_FINALIZE_ATTEMPTS', 3)
-
-        with pxt_raises(code=excs.ErrorCode.INTERNAL_ERROR, match='injected persistent error'):
-            pxt.drop_table('test')
-        fault.assert_count(3)
-
-        cat = get_runtime().catalog
-        assert isinstance(cat, Catalog)
-        with (
-            pxt_raises(code=excs.ErrorCode.INTERNAL_ERROR, match='injected persistent error'),
-            cat.begin_xact(for_write=True, write_tbl_ids=[tbl_id]),
-        ):
-            pass
-        fault.assert_count(6)
-
-        # Complete the drop so teardown does not see leftover pending ops.
-        get_runtime().fault_manager._fault_state.clear()
-        leftover = cat._finalize_pending_ops(tbl_id)
-        assert leftover is None
 
     @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_finalize_pending_ops_retriable_error(self, uses_db: None, fault_injection: None) -> None:

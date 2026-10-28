@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import itertools
 import logging
 from collections import deque
 from concurrent import futures
 from pathlib import Path
-from typing import AsyncIterator, Iterator
+from typing import AsyncGenerator, AsyncIterator, Iterator
 from uuid import UUID
 
 from pixeltable import exceptions as excs, exprs, telemetry, telemetry_schemas
@@ -95,11 +96,12 @@ class CachePrefetchNode(ExecNode):
             self.input_finished = True
             return None
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        async with self.input_aiter() as input_iter:
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
+        assert self.input is not None
+        async with contextlib.aclosing(aiter(self.input)) as input_iter:
             with futures.ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
                 while True:
-                    # Create work to fill the queue to the high water mark ... ?without overrunning the
+                    # Create work to fill the queue to the high water mark without overrunning the
                     # in-flight row limit.
                     while not self.input_finished and self.queued_work < self.QUEUE_DEPTH_HIGH_WATER:
                         input_batch = await self.get_input_batch(input_iter)

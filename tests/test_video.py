@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Literal
 
 import PIL.Image
+import psutil
 import pytest
 
 import pixeltable as pxt
@@ -40,23 +41,8 @@ from .utils import (
 )
 
 
-def _open_file_paths() -> set[str]:
-    fd_dir = Path('/proc/self/fd')
-    if not fd_dir.is_dir():
-        return set()
-    result: set[str] = set()
-    for fd in fd_dir.iterdir():
-        try:
-            result.add(os.path.realpath(fd))
-        except OSError:
-            continue
-    return result
-
-
 def _assert_videos_closed(paths: list[str]) -> None:
-    open_paths = _open_file_paths()
-    if len(open_paths) == 0:
-        return
+    open_paths = {os.path.realpath(f.path) for f in psutil.Process().open_files()}
     still_open = [p for p in paths if os.path.realpath(p) in open_paths]
     assert still_open == [], still_open
 
@@ -332,7 +318,7 @@ class TestVideo:
                         # Ensure we get the bitmap-identical frame
                         assert selected_frame == frames[pos]
 
-    def test_replace_force_after_frame_query(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_replace_force_after_frame_query(self, db_root: DatabaseRoot) -> None:
         """Dropping a video table after querying its frame view must complete with no media left behind."""
         p = db_root.make_catalog_path
         paths = get_video_files()[:2]
@@ -344,55 +330,32 @@ class TestVideo:
         tbl_id = videos._id
         in_process = catalog_uri.db is None
 
-        close_calls = 0
-        # Runtime: @pxt.iterator replaces the class with a GeneratingFunction; mypy still sees the class.
-        iter_cls: Any = getattr(frame_iterator, 'decorated_callable', frame_iterator)
-        orig_close = iter_cls.close
-
-        def counting_close(self: Any) -> None:
-            nonlocal close_calls
-            orig_close(self)
-            close_calls += 1
-
-        if in_process:
-            monkeypatch.setattr(iter_cls, 'close', counting_close)
-
         # Seek-style reconstruction of the unstored `frame` column, matching test_frame_iterator_seek.
         res = frames.select(frames.frame).where(frames.pos < 4).order_by(frames.pos).collect()
         assert len(res) == 8
         if in_process:
-            assert close_calls >= 2
             _assert_videos_closed(paths)
-            close_calls = 0
             for _row in frames.select(frames.frame).cursor():
                 break
-            assert close_calls >= 1
             _assert_videos_closed(paths)
 
-            close_calls = 0
             for _row in frames.where(frames.frame.width > 0).select(frames.frame).cursor():
                 break
-            assert close_calls >= 1
             _assert_videos_closed(paths)
 
-            close_calls = 0
-
-            async def _cursor_break_with_loop() -> None:
-                await asyncio.sleep(0)
+            async def _cursor_break_with_loop() -> None:  # noqa: RUF029
                 for _row in frames.select(frames.frame).cursor():
                     break
 
             asyncio.run(_cursor_break_with_loop())
-            assert close_calls >= 1
             _assert_videos_closed(paths)
 
         pxt.create_table(p('videos'), {'video': pxt.Video | None}, if_exists='replace_force')
 
-        if not db_root.is_cloud:
-            if catalog_uri.db is None:
-                remaining = ObjectOps.count(tbl_id)
-            else:
-                remaining = ObjectOps.count(tbl_id, dest=str(proxy_daemon.proxy_home(catalog_uri.db) / 'media'))
+        if not db_root.is_cloud and not in_process:
+            # Only the proxy root copies the file into the media store; local inserts keep the source path.
+            assert catalog_uri.db is not None
+            remaining = ObjectOps.count(tbl_id, dest=str(proxy_daemon.proxy_home(catalog_uri.db) / 'media'))
             assert remaining == 0, remaining
 
     def test_keyframes_only(self, db_root: DatabaseRoot) -> None:

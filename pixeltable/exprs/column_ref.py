@@ -546,7 +546,6 @@ class ColumnRef(Expr):
     def prepare(self, args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         from pixeltable import store
 
-        self._close_iterator()
         if not self.needs_iterator_evaluation:
             return
         col = self.col
@@ -606,7 +605,7 @@ class ColumnRef(Expr):
             data_row[self.slot_idx] = None
             return
 
-        # Reconstruct an unstored iterator output by seeking.
+        # if this is a new base row, we need to instantiate a new iterator
         if self.iterator is None or self.base_rowid != data_row.pk[: self.base_rowid_len]:
             self._close_iterator()
             assert self.iter_arg_ctx is not None

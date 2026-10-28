@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import contextlib
 import queue
 import threading
-from contextlib import asynccontextmanager
-from types import AsyncGeneratorType, TracebackType
-from typing import Any, AsyncIterator, Iterable, Iterator, Self, TypeVar
+from types import TracebackType
+from typing import Any, AsyncGenerator, Iterable, Iterator, Self, TypeVar
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -15,15 +15,6 @@ from pixeltable.runtime import get_runtime
 
 from .data_row_batch import DataRowBatch
 from .exec_context import ExecContext
-
-
-async def aclose_agen(agen: AsyncIterator[Any]) -> None:
-    """Close an idle async generator. No-op if agen is running or is not an AsyncGenerator.
-
-    KeyboardInterrupt inside __anext__() leaves ag_running set; aclose() would replace it with RuntimeError.
-    """
-    if isinstance(agen, AsyncGeneratorType) and not agen.ag_running:
-        await agen.aclose()
 
 
 class ExecNode(abc.ABC):
@@ -118,17 +109,7 @@ class ExecNode(abc.ABC):
                 row[v.slot_idx] = val
 
     @abc.abstractmethod
-    def __aiter__(self) -> AsyncIterator[DataRowBatch]: ...
-
-    @asynccontextmanager
-    async def input_aiter(self) -> AsyncIterator[AsyncIterator[DataRowBatch]]:
-        """Yield aiter(self.input) and aclose it on exit."""
-        assert self.input is not None
-        agen = aiter(self.input)
-        try:
-            yield agen
-        finally:
-            await aclose_agen(agen)
+    def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]: ...  # noqa: PYI058
 
     def __iter__(self) -> Iterator[DataRowBatch]:
         try:
@@ -140,15 +121,18 @@ class ExecNode(abc.ABC):
             # if we don't already have a running loop, we can run the async iterator directly and avoid the extra
             # overhead introduced by _thread_iter()
             loop = get_runtime().event_loop
-            aiter = self.__aiter__()
+            agen = self.__aiter__()
             try:
                 while True:
-                    batch: DataRowBatch = loop.run_until_complete(anext(aiter))
+                    batch: DataRowBatch = loop.run_until_complete(anext(agen))
                     yield batch
             except StopAsyncIteration:
                 pass
             finally:
-                loop.run_until_complete(aclose_agen(aiter))
+                # SIGINT during run_until_complete() leaves ag_running set; aclose() would raise RuntimeError.
+                # typeshed's AsyncGenerator omits ag_running.
+                if not agen.ag_running:  # type: ignore[attr-defined]
+                    loop.run_until_complete(agen.aclose())
         else:
             yield from self._thread_iter()
 
@@ -181,17 +165,11 @@ class ExecNode(abc.ABC):
             hooks_token = telemetry.restore_context(hooks_ctx)
 
             async def produce() -> None:
-                agen = aiter(self)
-                try:
-                    while True:
-                        batch = await anext(agen)
+                async with contextlib.aclosing(aiter(self)) as agen:
+                    async for batch in agen:
                         _put(batch)
                         if stop.is_set():
                             return
-                except StopAsyncIteration:
-                    pass
-                finally:
-                    await aclose_agen(agen)
 
             # asyncio.Runner gives this thread the same loop teardown that asyncio.run() performs
             with asyncio.Runner() as runner:

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import io
 import itertools
 from concurrent import futures
 from pathlib import Path
 from types import NoneType
-from typing import IO, Any, AsyncIterator, Iterable
+from typing import IO, Any, AsyncGenerator, Iterable
 
 import numpy as np
 import PIL.Image
@@ -232,9 +233,10 @@ class CellReconstructionNode(ExecNode):
     def _open(self) -> None:
         self._init_exec_state()
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        async with self.input_aiter() as src:
-            async for batch in src:
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
+        assert self.input is not None
+        async with contextlib.aclosing(aiter(self.input)) as input_iter:
+            async for batch in input_iter:
                 urls = self._chunk_urls(batch)
                 self.reader.release(keep=urls)
                 await self.reader.prefetch(urls)

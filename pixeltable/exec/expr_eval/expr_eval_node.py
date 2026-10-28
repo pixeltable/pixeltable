@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import traceback
 from types import TracebackType
-from typing import AsyncIterator, Iterable
+from typing import AsyncGenerator, Iterable
 
 import numpy as np
 
@@ -13,7 +14,7 @@ from pixeltable import exprs, telemetry, telemetry_schemas
 from pixeltable.utils.progress_reporter import ProgressReporter
 
 from ..data_row_batch import DataRowBatch
-from ..exec_node import ExecNode, aclose_agen
+from ..exec_node import ExecNode
 from .evaluators import FnCallEvaluator, NestedRowList
 from .globals import ExprEvalCtx, Scheduler
 from .row_buffer import RowBuffer
@@ -54,7 +55,7 @@ class ExprEvalNode(ExecNode):
     error: Exception | None  # exception that needs to be propagated
     completed_rows: asyncio.Queue[exprs.DataRow]  # rows that have completed evaluation
     completed_event: asyncio.Event  # set when completed_rows is non-empty
-    input_iter: AsyncIterator[DataRowBatch]
+    input_iter: AsyncGenerator[DataRowBatch, None]
     current_input_batch: DataRowBatch | None  # batch from which we're currently consuming rows
     input_row_idx: int  # next row to consume from current_input_batch
     next_input_batch: DataRowBatch | None  # read-ahead input batch
@@ -98,7 +99,6 @@ class ExprEvalNode(ExecNode):
     def _init_exec_state(self) -> None:
         self.tasks = set()
         self.error = None
-        self.input_iter = aiter(self.input)
         self.current_input_batch = None
         self.next_input_batch = None
         self.input_row_idx = 0
@@ -241,7 +241,7 @@ class ExprEvalNode(ExecNode):
                     excs.ErrorCode.INTERNAL_ERROR, f'No scheduler found for resource pool {pool_name}'
                 )
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         """
         Main event loop
 
@@ -268,100 +268,102 @@ class ExprEvalNode(ExecNode):
         inner_args = {v.name: self.bound_args[v._bind_name] for v in self.vars}
         exprs.Expr.prepare_list(self.eval_ctx.all_exprs, inner_args, {})
 
-        try:
-            while True:
-                # process completed rows before doing anything else
-                while not self.completed_rows.empty():
-                    # move completed rows to output buffer
+        assert self.input is not None
+        async with contextlib.aclosing(aiter(self.input)) as input_iter:
+            self.input_iter = input_iter
+            try:
+                while True:
+                    # process completed rows before doing anything else
                     while not self.completed_rows.empty():
-                        row = self.completed_rows.get_nowait()
-                        self.output_buffer.add_row(row)
-                        if self.row_pos_map is not None:
-                            self.row_pos_map.pop(id(row))
+                        # move completed rows to output buffer
+                        while not self.completed_rows.empty():
+                            row = self.completed_rows.get_nowait()
+                            self.output_buffer.add_row(row)
+                            if self.row_pos_map is not None:
+                                self.row_pos_map.pop(id(row))
 
-                    self._log_state('processed completed')
-                    # return as many batches as we have available
-                    while self.output_buffer.num_ready >= self.BATCH_SIZE:
-                        batch_rows = self.output_buffer.get_rows(self.BATCH_SIZE)
-                        self.num_output_rows += len(batch_rows)
-                        # make sure we top up our in-flight rows before yielding
+                        self._log_state('processed completed')
+                        # return as many batches as we have available
+                        while self.output_buffer.num_ready >= self.BATCH_SIZE:
+                            batch_rows = self.output_buffer.get_rows(self.BATCH_SIZE)
+                            self.num_output_rows += len(batch_rows)
+                            # make sure we top up our in-flight rows before yielding
+                            self._dispatch_input_rows()
+                            self._log_state(f'yielding {len(batch_rows)} rows')
+                            yield DataRowBatch(row_builder=self.row_builder, rows=batch_rows)
+                            # at this point, we may have more completed rows
+
+                    assert self.completed_rows.empty()  # all completed rows should be sitting in output_buffer
+                    self.completed_event.clear()
+                    if self.input_complete and self.num_in_flight == 0:
+                        # there is no more input and nothing left to wait for
+                        assert self.avail_input_rows == 0
+                        if self.output_buffer.num_ready > 0:
+                            assert self.output_buffer.num_rows == self.output_buffer.num_ready
+                            # yield the leftover rows
+                            batch_rows = self.output_buffer.get_rows(self.output_buffer.num_ready)
+                            self.num_output_rows += len(batch_rows)
+                            self._log_state(f'yielding {len(batch_rows)} rows')
+                            yield DataRowBatch(row_builder=self.row_builder, rows=batch_rows)
+
+                        assert self.output_buffer.num_rows == 0
+                        return
+
+                    if self.input_complete and self.avail_input_rows == 0 and not closed_evaluators:
+                        # no more input rows to dispatch, but we're still waiting for rows to finish:
+                        # close  all slot evaluators to flush queued rows
+                        for evaluator in self.eval_ctx.slot_evaluators.values():
+                            evaluator.close()
+                        closed_evaluators = True
+
+                    # we don't have a full batch of rows at this point and need to wait
+                    aws = {exc_event_aw}  # always wait for an exception
+                    if self.next_input_batch is None and not self.input_complete:
+                        # also wait for another batch if we don't have a read-ahead batch yet
+                        if input_batch_aw is None:
+                            input_batch_aw = asyncio.create_task(self._fetch_input_batch(), name='_fetch_input_batch()')
+                        aws.add(input_batch_aw)
+                    if self.num_in_flight > 0:
+                        # also wait for more rows to complete
+                        if completed_aw is None:
+                            completed_aw = asyncio.create_task(self.completed_event.wait(), name='completed.wait()')
+                        aws.add(completed_aw)
+                    done, _ = await asyncio.wait(aws, return_when=asyncio.FIRST_COMPLETED)
+
+                    if self.exc_event.is_set():
+                        # we got an exception that we need to propagate through __iter__()
+                        if isinstance(self.error, excs.ExprEvalError):
+                            raise self.error from self.error.exc
+                        else:
+                            raise self.error
+                    if completed_aw in done:
+                        self._log_state('completed_aw done')
+                        completed_aw = None
+                    if input_batch_aw in done:
                         self._dispatch_input_rows()
-                        self._log_state(f'yielding {len(batch_rows)} rows')
-                        yield DataRowBatch(row_builder=self.row_builder, rows=batch_rows)
-                        # at this point, we may have more completed rows
+                        input_batch_aw = None
 
-                assert self.completed_rows.empty()  # all completed rows should be sitting in output_buffer
-                self.completed_event.clear()
-                if self.input_complete and self.num_in_flight == 0:
-                    # there is no more input and nothing left to wait for
-                    assert self.avail_input_rows == 0
-                    if self.output_buffer.num_ready > 0:
-                        assert self.output_buffer.num_rows == self.output_buffer.num_ready
-                        # yield the leftover rows
-                        batch_rows = self.output_buffer.get_rows(self.output_buffer.num_ready)
-                        self.num_output_rows += len(batch_rows)
-                        self._log_state(f'yielding {len(batch_rows)} rows')
-                        yield DataRowBatch(row_builder=self.row_builder, rows=batch_rows)
+            finally:
+                # task cleanup
+                active_tasks = {exc_event_aw}
+                if input_batch_aw is not None:
+                    active_tasks.add(input_batch_aw)
+                if completed_aw is not None:
+                    active_tasks.add(completed_aw)
+                active_tasks.update(self.tasks)
+                for task in active_tasks:
+                    if not task.done():
+                        task.cancel()
+                _ = await asyncio.gather(*active_tasks, return_exceptions=True)
 
-                    assert self.output_buffer.num_rows == 0
-                    return
+                for row in self._span_rows:
+                    if row.span is not None:
+                        telemetry.span_end(row.span, exc=self.error)
+                        row.span = None
+                self._span_rows = []
 
-                if self.input_complete and self.avail_input_rows == 0 and not closed_evaluators:
-                    # no more input rows to dispatch, but we're still waiting for rows to finish:
-                    # close  all slot evaluators to flush queued rows
-                    for evaluator in self.eval_ctx.slot_evaluators.values():
-                        evaluator.close()
-                    closed_evaluators = True
-
-                # we don't have a full batch of rows at this point and need to wait
-                aws = {exc_event_aw}  # always wait for an exception
-                if self.next_input_batch is None and not self.input_complete:
-                    # also wait for another batch if we don't have a read-ahead batch yet
-                    if input_batch_aw is None:
-                        input_batch_aw = asyncio.create_task(self._fetch_input_batch(), name='_fetch_input_batch()')
-                    aws.add(input_batch_aw)
-                if self.num_in_flight > 0:
-                    # also wait for more rows to complete
-                    if completed_aw is None:
-                        completed_aw = asyncio.create_task(self.completed_event.wait(), name='completed.wait()')
-                    aws.add(completed_aw)
-                done, _ = await asyncio.wait(aws, return_when=asyncio.FIRST_COMPLETED)
-
-                if self.exc_event.is_set():
-                    # we got an exception that we need to propagate through __iter__()
-                    if isinstance(self.error, excs.ExprEvalError):
-                        raise self.error from self.error.exc
-                    else:
-                        raise self.error
-                if completed_aw in done:
-                    self._log_state('completed_aw done')
-                    completed_aw = None
-                if input_batch_aw in done:
-                    self._dispatch_input_rows()
-                    input_batch_aw = None
-
-        finally:
-            # task cleanup
-            active_tasks = {exc_event_aw}
-            if input_batch_aw is not None:
-                active_tasks.add(input_batch_aw)
-            if completed_aw is not None:
-                active_tasks.add(completed_aw)
-            active_tasks.update(self.tasks)
-            for task in active_tasks:
-                if not task.done():
-                    task.cancel()
-            _ = await asyncio.gather(*active_tasks, return_exceptions=True)
-
-            for row in self._span_rows:
-                if row.span is not None:
-                    telemetry.span_end(row.span, exc=self.error)
-                    row.span = None
-            self._span_rows = []
-
-            # expr cleanup
-            exprs.Expr.release_list(self.eval_ctx.all_exprs)
-            await aclose_agen(self.input_iter)
+                # expr cleanup
+                exprs.Expr.release_list(self.eval_ctx.all_exprs)
 
     def dispatch_exc(
         self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType, exec_ctx: ExprEvalCtx

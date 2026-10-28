@@ -1,4 +1,5 @@
-from typing import AsyncIterator, Iterator
+import contextlib
+from typing import AsyncGenerator, Iterator
 
 from pixeltable import catalog, exceptions as excs, exprs, telemetry
 from pixeltable.func.iterator import GeneratingFunctionCall
@@ -67,11 +68,12 @@ class ComponentIterationNode(ExecNode):
                     return
             yield item
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         telemetry_active = telemetry.active()
         output_batch = DataRowBatch(self.row_builder)
-        async with self.input_aiter() as src:
-            async for input_batch in src:
+        assert self.input is not None
+        async with contextlib.aclosing(aiter(self.input)) as input_iter:
+            async for input_batch in input_iter:
                 for input_row in input_batch:
                     # usually computed by the input plan, which then garbage-collected the intermediates they depend on
                     if not input_row.has_val[self.iterator_args_expr.slot_idx]:

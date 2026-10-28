@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from types import TracebackType
-from typing import Any, AsyncIterator, Iterator, Self
+from typing import Any, AsyncGenerator, Iterator, Self
 from uuid import UUID
 
 import pixeltable.exceptions as excs
@@ -11,7 +12,7 @@ from pixeltable import exprs
 
 from .data_row_batch import DataRowBatch
 from .exec_context import ExecContext
-from .exec_node import ExecNode, aclose_agen
+from .exec_node import ExecNode
 
 
 class ExecPlan:
@@ -138,7 +139,7 @@ class ExecPlan:
     def __iter__(self) -> Iterator[DataRowBatch]:
         return iter(self.exec_root)
 
-    def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+    def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:  # noqa: PYI058
         return self.exec_root.__aiter__()
 
     def exec(self, args: dict[str, Any]) -> Iterator[exprs.DataRow]:
@@ -161,7 +162,7 @@ class ExecPlan:
             for batch in self.exec_root:
                 yield from batch
 
-    async def aexec(self, args: dict[str, Any]) -> AsyncIterator[exprs.DataRow]:
+    async def aexec(self, args: dict[str, Any]) -> AsyncGenerator[exprs.DataRow, None]:
         """Bind args, open the plan, and yield rows. Async path.
 
         Holds iter_lock for the lifetime of the iteration so concurrent async callers (e.g. a
@@ -179,10 +180,7 @@ class ExecPlan:
                 self._is_executing = False
                 raise
             with self:
-                agen = aiter(self.exec_root)
-                try:
-                    async for batch in agen:
+                async with contextlib.aclosing(aiter(self.exec_root)) as input_iter:
+                    async for batch in input_iter:
                         for row in batch:
                             yield row
-                finally:
-                    await aclose_agen(agen)

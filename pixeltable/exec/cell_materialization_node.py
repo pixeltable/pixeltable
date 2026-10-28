@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import io
 import os
 from collections import deque
 from concurrent import futures
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any, AsyncGenerator
 
 import numpy as np
 import PIL.Image
@@ -97,9 +98,10 @@ class CellMaterializationNode(ExecNode):
     def _open(self) -> None:
         self._init_exec_state()
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        async with self.input_aiter() as src:
-            async for batch in src:
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
+        assert self.input is not None
+        async with contextlib.aclosing(aiter(self.input)) as input_iter:
+            async for batch in input_iter:
                 for row in batch:
                     for col, slot_idx in self.output_col_info.items():
                         if row.has_exc(slot_idx):
