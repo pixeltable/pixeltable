@@ -139,6 +139,10 @@ class TestHttpUtils:
         assert not is_retryable_error(client_error('ValidationException', 400, 'Invalid input'))[0]
         assert not is_retryable_error(client_error('AccessDeniedException', 403, 'Access denied'))[0]
         assert is_retryable_error(
+            client_error('ValidationException', 400, 'Too many requests in one batch: 120 (the maximum is 100)')
+        ) == (False, None)
+        assert is_retryable_error(client_error('ResourceNotFoundException', 404, 'Job job1 timed out')) == (False, None)
+        assert is_retryable_error(
             client_error(
                 'AccessDeniedException',
                 403,
