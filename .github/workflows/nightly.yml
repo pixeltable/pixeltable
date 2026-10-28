@@ -137,7 +137,8 @@ jobs:
           python -m pip install --upgrade pip
           # Retried, since a new release can take a few minutes to reach every PyPI mirror
           ./scripts/retry.sh 3 60 python -m pip install "$PXT" ${{ matrix.package-configs }}
-          python -m pip install filelock pytest pytest-xdist pytest-rerunfailures pytest-benchmark
+          # PXT-1714: lift this pin when pytest-benchmark supports pytest 9.2.
+          python -m pip install filelock 'pytest>=9.0.3,<9.2' pytest-xdist pytest-rerunfailures pytest-benchmark
       - name: Delete source tree
         run: rm -rf pixeltable pixeltable_cli  # Ensure we use installed packages for testing, not local source tree
       - name: Install spaCy model
