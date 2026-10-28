@@ -712,24 +712,22 @@ class Catalog(CatalogBase):
         Also return whether any target is data-versioned. Apply `op_class` to every target. Return None if any
         metadata is missing or uninitialized.
         """
-        tv = self._tbl_versions.get(TableVersionKey(tbl_id, None))
-        if tv is None or not tv.is_initialized:
-            return None
-        targets = [
-            LockTarget(
-                tbl_id=tv.id,
-                store_tbl_name=get_store_tbl_name(tv.id, is_view=tv.is_view),
-                mode=op_class.tbl_lock_mode(tv.is_data_versioned),
-            )
-        ]
-        any_data_versioned = tv.is_data_versioned
-        for view in tv.mutable_views:
-            subtree = self._mutable_tree_lock_targets_from_cache(view.id, op_class)
-            if subtree is None:
+        targets: list[LockTarget] = []
+        any_data_versioned = False
+        remaining_tbl_ids = [tbl_id]
+        while len(remaining_tbl_ids) > 0:
+            tv = self._tbl_versions.get(TableVersionKey(remaining_tbl_ids.pop(), None))
+            if tv is None or not tv.is_initialized:
                 return None
-            subtree_targets, subtree_data_versioned = subtree
-            targets.extend(subtree_targets)
-            any_data_versioned |= subtree_data_versioned
+            targets.append(
+                LockTarget(
+                    tbl_id=tv.id,
+                    store_tbl_name=get_store_tbl_name(tv.id, is_view=tv.is_view),
+                    mode=op_class.tbl_lock_mode(tv.is_data_versioned),
+                )
+            )
+            any_data_versioned |= tv.is_data_versioned
+            remaining_tbl_ids.extend(view.id for view in tv.mutable_views)
         return targets, any_data_versioned
 
     def _resolve_lock_set_from_cache(self, request: LockRequest) -> LockSet | None:
