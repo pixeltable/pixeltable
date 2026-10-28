@@ -672,7 +672,14 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
         'accept': 'application/json',
     }
 
-    response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
+    from botocore.exceptions import ClientError
+
+    try:
+        response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
+    except ClientError as exc:
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_ERROR, f'Failed to generate embedding: {exc}', provider='bedrock'
+        ) from exc
     response_bytes = await asyncio.to_thread(response['body'].read)
     response_body = json.loads(response_bytes)
     if 'nova' in model_id:
@@ -713,7 +720,14 @@ async def _(image: PIL.Image.Image, *, model_id: str, dimensions: int | None = N
         'accept': 'application/json',
     }
 
-    response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
+    from botocore.exceptions import ClientError
+
+    try:
+        response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
+    except ClientError as exc:
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_ERROR, f'Failed to generate embedding: {exc}', provider='bedrock'
+        ) from exc
     response_bytes = await asyncio.to_thread(response['body'].read)
     response_body = json.loads(response_bytes)
     if 'nova' in model_id:

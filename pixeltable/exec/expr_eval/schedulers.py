@@ -31,6 +31,8 @@ def _is_retryable_udf_error(exc: Exception) -> tuple[bool, float | None]:
     if isinstance(exc, excs.Error):
         # exc.is_retryable is for users. Since schedulers retry automatically, they do it only for a subset of error
         # codes.
+        if exc.error_code == excs.ErrorCode.PROVIDER_ERROR and isinstance(exc.__cause__, Exception):
+            return _is_retryable_udf_error(exc.__cause__)
         if exc.error_code in _RETRYABLE_PXT_ERROR_CODES:
             return True, exc.retry_after
         return False, None
