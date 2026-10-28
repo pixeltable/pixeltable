@@ -713,8 +713,8 @@ async def responses(
             (for structured outputs), `previous_response_id` (for multi-turn), and `store`.
 
     Returns:
-        A dictionary containing the response and other metadata. The response text is accessible via
-        the `output_text` field for simple cases, or through the `output` list for structured access.
+        A dictionary containing the response and other metadata. The response text is in the `output` list,
+        for a simple text reply at `output[0].content[0].text`.
 
     Examples:
         Add a computed column that applies the model `gpt-4o-mini` to an existing Pixeltable column `tbl.prompt`
