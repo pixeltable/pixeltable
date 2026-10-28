@@ -85,8 +85,7 @@ _RETRIABLE_ERROR_INDICATORS = re.compile(
             '(?:quota|rate) exceed',
             'throttled',
             'timed out',
-            # `\b` avoids false positives on 429 inside longer numbers, such as the AWS account id in
-            # 'User: arn:aws:sts::842915429301:assumed-role/ci is not authorized to perform: ...'
+            # \b skips 429 inside a longer number, such as an AWS account id
             r'\b429\b',
         )
     )
@@ -140,7 +139,7 @@ def is_retryable_error(exc: Exception) -> tuple[bool, float | None]:
     if aws_md is not None:
         return aws_md
 
-    # Check for HTTP status TOO_MANY_REQUESTS in various exception classes.
+    # Check for retryable HTTP status codes in various exception classes.
     # We look for attributes that contain status codes, instead of checking the type of the exception,
     # in order to handle a wider variety of exception classes.
     err_md = _extract_error_metadata(exc)
