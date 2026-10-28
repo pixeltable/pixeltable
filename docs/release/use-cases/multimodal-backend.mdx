@@ -69,7 +69,8 @@ pxt service update app.py my_app
 `pxt service list` prints the service URL. POST `/docs` as multipart form data. The field name is `document`, the column in `uploadfile_inputs`. Point `curl` at a PDF, HTML, or `.txt` file on your machine. This page does not ship a sample file:
 
 ```bash
-# Replace URL with the rag service URL from pxt service list
+# Set URL to the rag service URL from pxt service list
+export URL=<rag-service-url>
 curl -F document=@handbook.pdf $URL/docs
 ```
 
@@ -88,12 +89,12 @@ docs = pxt.get_table('my_app.docs')
 docs.insert([{'document': 'handbook.pdf'}])
 ```
 
-PDF, HTML, XML, and `.txt` use packages Pixeltable already installs (`pypdfium2`, `beautifulsoup4`, `lxml`). Other extensions need more, or the insert returns HTTP 422 `INVALID_DATA_FORMAT`:
+PDF, HTML, and XML use packages Pixeltable already installs (`pypdfium2`, `beautifulsoup4`, `lxml`), and `.txt` needs none. The other extensions need the packages in this table. Without them, or for an extension not in the table, the insert returns HTTP 422 `INVALID_DATA_FORMAT`:
 
 | Extension | Extra packages |
 | --- | --- |
 | `.md` | `pip install mistune` |
-| `.docx`, `.doc`, `.pptx`, `.ppt`, `.xlsx`, `.xls` | `pip install mistune 'markitdown[pptx,docx,xlsx]'` |
+| `.docx`, `.pptx`, `.xlsx` | `pip install mistune 'markitdown[pptx,docx,xlsx]'` |
 
 On Cloud, sign in with `pxt login`, or set `PIXELTABLE_API_KEY`. `pxt org create` provisions `main`. Then run `pxt db update`, `pxt schema update`, and `pxt service update` against `pxt://org:main`. [Pixeltable Cloud](/cloud).
 
