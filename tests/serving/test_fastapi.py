@@ -1145,6 +1145,12 @@ class TestFastAPI:
         jobs = [client.post('/bg', json={'x': i, 'secs': 1.0}).json() for i in range(2)]
         refused = client.post('/bg', json={'x': 2, 'secs': 0.0})
         assert refused.status_code == 503 and refused.headers['Retry-After'] == '5', refused.text
+        assert refused.json()['detail'] == {
+            'error_code': 'SERVICE_BUSY',
+            'message': 'the service instance is at its limit of 2 unfinished background jobs',
+            'retryable': True,
+            'retry_after': 5,
+        }
         pending = client.get(jobs[0]['job_url'])
         assert pending.json()['status'] == 'pending' and pending.headers['Retry-After'] == '2'
         for job in jobs:
@@ -1335,7 +1341,8 @@ class TestFastAPI:
             assert wait_until(lambda: router._draining, 5.0)
             refused = c.post('/bg', json={'x': 2, 'secs': 0.0})
             assert refused.status_code == 503 and refused.headers['Retry-After'] == '1', refused.text
-            assert refused.json()['detail'] == 'the service instance is shutting down'
+            assert refused.json()['detail']['error_code'] == 'SERVICE_BUSY'
+            assert refused.json()['detail']['message'] == 'the service instance is shutting down'
             await_background_job(c, job)
             assert wait_until(lambda: served.server.should_exit, 5.0)
 
