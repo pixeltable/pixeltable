@@ -692,9 +692,9 @@ The command is the one you ran, with `-f` (or `--allow-destructive`) added; ever
  "next": [{"command": "pxt drop my_dir/my_table --json -f", "effect": "drop table my_dir/my_table"}]}
 ```
 
-A person who answers anything but `y` at the prompt also gets exit `3`, and with `--json` a document with `error_code` `CONFIRMATION_DECLINED` and no `next`. The plan commands (`schema`, `service`, `db update`) keep printing their plan instead; `schema update`, `schema prune` and `service prune` mark the refused operations `refused`. An unknown command exits `2` and suggests the commands it may have meant, such as `pxt db logs` and `pxt service logs` for `pxt logs`.
+A person who answers anything but `y` at the prompt also gets exit `3`, and with `--json` a document with `error_code` `CONFIRMATION_DECLINED` and no `next`. The plan commands (`schema`, `service`, `db update`) print their plan instead, with the error document's fields at its top level: `error_code` (`CONFIRMATION_REQUIRED`, `CONFIRMATION_DECLINED`, or `DESTRUCTIVE_SCHEMA_CHANGE` without `--allow-destructive`), `message`, `retryable` and, except for `CONFIRMATION_DECLINED`, `next`; `schema update`, `schema prune` and `service prune` mark the refused operations `refused`, and `service prune`, whose output is a list, puts it under `ops`. A `schema update` or `service update` that the database blocks exits `1` the same way, with `error_code` `PLAN_BLOCKED`, and a `next:` line for each command a blocking operation names, such as `pxt db update`. An unknown command exits `2` and suggests the commands it may have meant, such as `pxt db logs` and `pxt service logs` for `pxt logs`.
 
-A request that fails ends its line with the error code, as in `pxt: 404 Directory 'nope' does not exist. [DIRECTORY_NOT_FOUND]`, except a refusal only the user can lift, which prints Cloud's reason alone (see [Plan limits](#plan-limits)); with `--json`, stdout gets `{"error_code": ..., "message": ..., "retryable": ...}`. A daemon that does not start or cannot be reached gives `DAEMON_UNREACHABLE`; an answer without a code gives `HTTP_<status>` for a 4xx and `INTERNAL_ERROR` otherwise. When Pixeltable Cloud says how long to wait, as it does when busy, the `--json` document adds `retry_after` in seconds.
+A request that fails ends its line with the error code, as in `pxt: 404 Directory 'nope' does not exist. [DIRECTORY_NOT_FOUND]` (a message of several lines, such as one that ends in a TOML entry to paste, gets the code on a line of its own), except a refusal only the user can lift, which prints Cloud's reason alone (see [Plan limits](#plan-limits)); with `--json`, stdout gets `{"error_code": ..., "message": ..., "retryable": ...}`. A daemon that does not start or cannot be reached gives `DAEMON_UNREACHABLE`; an answer without a code gives `HTTP_<status>` for a 4xx and `INTERNAL_ERROR` otherwise. When Pixeltable Cloud says how long to wait, as it does when busy, the `--json` document adds `retry_after` in seconds.
 
 | Exit | Meaning |
 |---|---|
@@ -703,6 +703,7 @@ A request that fails ends its line with the error code, as in `pxt: 404 Director
 | `2` | A usage error elsewhere; for `diff`, `update -n` and `prune -n`, changes pending; for `db` and `service update`, a change still under way when the three-hour wait ends (`service restart`, `retry` and `stop` wait in the daemon, whose timeout exits `1`) |
 | `3` | Refused for want of consent: no `-f` without a terminal, an answer other than `y`, or a destructive `schema update`, `db update` or `service update` without `--allow-destructive` |
 | `130` | A wait stopped with Ctrl-C; the change continues in Pixeltable Cloud |
+| `143` | A wait stopped by SIGTERM, which a tool timeout sends on Linux and macOS; the change continues in Pixeltable Cloud |
 
 ## Serving
 
@@ -1170,7 +1171,7 @@ upload, and a change to them restarts its pods. Secrets are set with [`pxt secre
 project: `pxt db update` refuses a key such as `[openai] api_key` in the project configuration, and prints the
 `pxt secret set` command to run instead.
 
-Pixeltable Cloud applies an accepted update, start, stop, restart, retry, image build or delete even if the command exits early. While the command waits, it shows the current step, what the change is waiting for, and the last error being retried. Ctrl-C only stops the waiting, and `--no-wait` returns once the change is accepted; `pxt db status` shows the progress. After three hours the command stops waiting and exits with status 2. Rerunning the same `update` reports the update already accepted instead of starting another, and retries it if it failed. An update is refused if the database changed after `update` computed its plan; run it again to plan against the new state.
+Pixeltable Cloud applies an accepted update, start, stop, restart, retry, image build or delete even if the command exits early. While the command waits, it shows the current step, what the change is waiting for, and the last error being retried, on stderr: on a terminal as a spinner, and otherwise as a line at each change and at least once a minute. Ctrl-C or SIGTERM only stops the waiting and names `pxt db status` on a `next:` line, and `--no-wait` returns once the change is accepted; `pxt db status` shows the progress. After three hours the command stops waiting and exits with status 2. Rerunning the same `update` reports the update already accepted instead of starting another, and retries it if it failed. An update is refused if the database changed after `update` computed its plan; run it again to plan against the new state.
 
 #### `pxt db list`
 
