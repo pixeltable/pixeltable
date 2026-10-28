@@ -1,7 +1,7 @@
 ---
-title: 'Multimodal AI backends in one Python file'
+title: 'The backend agents build with'
 sidebarTitle: 'Why Pixeltable?'
-description: 'What Pixeltable replaces in a multimodal AI stack, why we built it, and when to use something else.'
+description: 'Multimodal database, orchestration, and serving in one file, by the co-creators of Apache Parquet and Impala.'
 ---
 
 Pixeltable is an open-source multimodal database you use from Python. You declare tables, computed columns and HTTP routes in one file, `app.py`. Insert a row and Pixeltable runs the model calls, stores the results and updates the indexes, with no scripts to keep files, results and embeddings in sync.
@@ -106,7 +106,7 @@ Every computed column refers to the columns it reads, so Pixeltable knows what t
 
 ## Why we built it
 
-We're database people: Pixeltable comes from the creators of Apache Parquet and Impala. When we looked at multimodal AI projects, we kept finding the same thing. The models were the interesting part, and the team spent most of its time on data plumbing.
+We're database people. When we looked at multimodal AI projects, we kept finding the same thing. The models were the interesting part, and the team spent most of its time on data plumbing.
 
 Lovable and Bolt made web apps something one person can build, by putting a small surface over a hard problem. We wanted that for developers working with video, images, audio and documents, so we moved the work into the database. The engine tracks what depends on what, so it works out which rows to recompute. The first version of an app and its tenth revision are the same kind of work: edit `app.py`, run `pxt schema update`, then `pxt service update`.
 

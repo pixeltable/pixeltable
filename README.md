@@ -3,12 +3,14 @@
   <img alt="Pixeltable" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/_logo/pxt-light.svg" width="40%">
 </picture>
 
-# Multimodal AI backends in one Python file
+# The backend agents build with
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/table-build-dark.svg">
   <img align="right" width="420" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/table-build-light.svg" alt="Animation: app.py declares a videos table one line at a time. The class creates the table and three video rows, the transcript and summary columns compute for every row, and a /search route answers from the same table.">
 </picture>
+
+### Multimodal database, orchestration, and serving in one file, by the co-creators of Apache Parquet and Impala.
 
 Pixeltable is an open-source multimodal database you use from Python. Build AI apps on video, images, audio and documents without writing scripts to keep files, model outputs and search indexes in sync.
 
@@ -114,7 +116,7 @@ New uploads use the new prompt after the service restarts. Existing rows keep th
 
 Multimodal AI projects kept needing the same stack: a bucket, a metadata database, an orchestrator, vector search and an API. Each piece is fine on its own. The trouble is in between: a sync script that hopes the bucket and the database still match, and a vector database still serving embeddings of last week's summaries.
 
-Pixeltable comes from the creators of Apache Parquet and Impala. Our answer was to make the database track dependencies and run the work.
+We're database people, so our answer was to make the database track dependencies and run the work.
 
 | You need to | Usually | With Pixeltable |
 |---|---|---|
