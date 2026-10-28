@@ -345,10 +345,11 @@ class TestVideo:
         in_process = catalog_uri.db is None
 
         close_calls = 0
-        iter_cls = frame_iterator.decorated_callable
-        orig_close = iter_cls.close  # type: ignore[attr-defined]
+        # Runtime: @pxt.iterator replaces the class with a GeneratingFunction; mypy still sees the class.
+        iter_cls: Any = getattr(frame_iterator, 'decorated_callable', frame_iterator)
+        orig_close = iter_cls.close
 
-        def counting_close(self: object) -> None:
+        def counting_close(self: Any) -> None:
             nonlocal close_calls
             orig_close(self)
             close_calls += 1
