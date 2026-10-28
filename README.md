@@ -3,8 +3,18 @@
   <img alt="Pixeltable" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/_logo/pxt-light.svg" width="40%">
 </picture>
 
-# The backend agents build with
-### Multimodal database, orchestration, and serving in one file
+# Multimodal AI backends in one Python file
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/images/hero/table-build-dark.svg">
+  <img align="right" width="420" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/images/hero/table-build-light.svg" alt="Animation: app.py declares a videos table one line at a time. The class creates the table and three video rows, the transcript and summary columns compute for every row, and a /search route answers from the same table.">
+</picture>
+
+Pixeltable is an open-source multimodal database you use from Python. Build AI apps on video, images, audio and documents without writing scripts to keep files, model outputs and search indexes in sync.
+
+```bash
+pip install 'pixeltable[serve]'
+```
 
 [**Quickstart**](https://docs.pixeltable.com/overview/quick-start) |
 [**Documentation**](https://docs.pixeltable.com/) |
@@ -15,26 +25,16 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml?query=branch%3Amain)
-[![nightly status](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml)
-[![stress-tests status](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml)
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 [![Python](https://img.shields.io/pypi/pyversions/pixeltable)](https://pypi.org/project/pixeltable/)
 
-Build AI apps on video, images, audio and documents in seconds. A table holds references to your files next to
-regular columns: a path or URL you insert stays where it is, and files you upload or Pixeltable produces go to its
-media store, on local disk or in [your own S3, GCS or Azure bucket](https://docs.pixeltable.com/integrations/cloud-storage). The work you want done on them, like
-pulling the audio out of a video, transcribing it or embedding a summary, is a column too. Insert a row and
-Pixeltable runs that work, stores the results and indexes them, with no embed-and-upsert job to run. Change a
-prompt later and only the summaries rerun; the transcripts you already paid for stay.
+You declare tables, computed columns and HTTP routes in `app.py`. Insert a row and Pixeltable runs the computations, stores the results and updates the indexes.
 
-That replaces the stack most of us end up with: a bucket for the files, a database for the metadata, a vector
-database for search, an orchestrator for the model calls, an API on top, and the scripts that keep it all in sync.
-Here it's one file, `app.py`.
+You can also use Pixeltable directly from Python or a notebook without an HTTP server. Start with the [10-minute tour](https://docs.pixeltable.com/overview/ten-minute-tour).
 
 ## What it looks like
 
-A small video API: upload a video with an audio track, get a summary back, then search across everything you
-uploaded. This is all of `app.py`:
+Upload a recording with speech. This API extracts its audio, transcribes it, summarizes what was said and indexes the summary for search. Save this as `app.py`:
 
 ```python
 import pixeltable as pxt
@@ -73,104 +73,74 @@ api.add_insert_route(Videos, path='/videos', uploadfile_inputs=[Videos.video], o
 api.add_query_route(path='/search', query=search)
 ```
 
+You need Python 3.11 or later and an OpenAI API key. From the same folder, run:
+
 ```bash
 pip install 'pixeltable[serve]' openai
-# the first pxt command starts a local daemon that runs Pixeltable's Postgres and reads your environment once
-export OPENAI_API_KEY=sk-...        # set it first, or run pxt daemon restart after
+export OPENAI_API_KEY=sk-...        # set this before the first pxt command
 pxt init                            # makes this folder a project
 pxt schema update app.py my_app     # creates the table and its index
 pxt service update app.py my_app    # starts the service and prints its URL
 ```
 
+If the local daemon is already running, run `pxt daemon restart` after exporting the key, before the schema and service commands.
+
+Replace `PORT` with the printed port and `talk.mp4` with your recording:
+
 ```bash
-# PORT is the one pxt service update printed
 curl -F video=@talk.mp4 http://127.0.0.1:PORT/videos
 # {"summary": "..."}
 curl -X POST http://127.0.0.1:PORT/search -H 'Content-Type: application/json' -d '{"query": "pricing"}'
 # {"rows": [{"video": "...", "summary": "..."}]}
 ```
 
-Each column you compute says which columns it reads, so Pixeltable knows what to run and in what order. In practice:
+Uploading more recordings processes only the new rows. Pixeltable runs model calls concurrently, throttles requests using provider-reported or configured limits, and retries rate-limit errors.
 
-- Upload 100 more videos and only those 100 get processed.
-- Insert 10,000 videos and the process doing the insert runs the model calls: the service for a route, your Python
-  process for a script. It keeps many requests in flight and stays under the provider's rate limits, read from the
-  provider's responses where it reports them or set in `config.toml` (600 requests a minute per provider if you
-  set nothing), and it retries rate-limited requests with backoff. On Pixeltable Cloud you set CPU, memory and
-  worker counts in the project config.
-- Change the summary prompt, run `pxt schema update` and `pxt service update` again, and new uploads use it.
-  `pxt recompute my_app/videos summary` then redoes the old summaries without touching the transcripts you already
-  paid for.
-- Bulk-load from Python with `on_error='ignore'` and a failed model call leaves its error on that row instead of
-  stopping the batch. `pxt recompute my_app/videos transcript --errors-only` reruns just those rows.
-- Every change to a table is versioned. `pxt history` shows it, `pxt revert` undoes it.
+### Change the summary without redoing transcription
 
-[How it works](https://docs.pixeltable.com/overview/how-it-works) explains the rules behind each of these.
+Say the summaries are too long. Change the system prompt in `app.py` to `Summarize this video in one sentence.`, then run:
+
+```bash
+pxt schema update app.py my_app
+pxt service update app.py my_app
+pxt recompute my_app/videos summary
+```
+
+New uploads use the new prompt after the service restarts. Existing rows keep their summaries until you recompute `summary`, which also updates its search index. The audio and transcripts stay.
+
+[How it works](https://docs.pixeltable.com/overview/how-it-works) covers dependencies, row errors, selective retries and table versions.
 
 ## Why we built it
 
-We kept seeing that same stack in every multimodal AI project, and each piece is fine on its own. The trouble is in
-between: a sync script that hopes the bucket and the database still match, and a vector database still serving
-embeddings of last week's summaries. Most of the code was plumbing, and so were most of the bugs.
+Multimodal AI projects kept needing the same stack: a bucket, a metadata database, an orchestrator, vector search and an API. Each piece is fine on its own. The trouble is in between: a sync script that hopes the bucket and the database still match, and a vector database still serving embeddings of last week's summaries.
 
-We're database people (Pixeltable comes from the creators of Apache Parquet and Impala), so our answer was to move
-the work into the database. The engine tracks what depends on what, so recomputing the right rows is its job, not
-yours.
-
-It won't make your models better. Media is still big, model calls still fail and evaluation is still on you. The
-longer version is on [Why Pixeltable](https://docs.pixeltable.com/overview/pixeltable).
-
-## How it's different
+Pixeltable comes from the creators of Apache Parquet and Impala. Our answer was to make the database track dependencies and run the work.
 
 | You need to | Usually | With Pixeltable |
 |---|---|---|
-| Store video, images, audio, PDFs | A bucket plus a metadata table | A column of type video, image, audio or document; the row holds a reference to the file and its results (`pxt.Video`, `pxt.Image`, `pxt.Audio`, `pxt.Document`) |
-| Call models on them | An orchestrator or a queue, plus scripts | A column whose value is a model call, run on every new row and stored (a computed column) |
-| Search them | A vector database you keep in sync | An index on that column, built and updated by the table (`pxt.EmbeddingIndex`) |
-| Split documents, sample frames | A preprocessing job | A table derived from the first, one row per chunk or frame, updated as rows come and go (a view) |
-| Serve the result | A FastAPI app you write | Routes declared next to the tables (`FastAPIRouter`) |
-| Undo a bad change | Restore a backup | Go back to an earlier version of the table (`pxt revert`) |
+| Store files and their results | A bucket plus a metadata table | Typed file references and computed results in the same row |
+| Call models | Jobs and scripts that track what ran | Computed columns with stored results |
+| Search the results | A vector database you keep in sync | An embedding index maintained by the table |
+| Split documents or sample frames | A preprocessing job | Views of chunks or frames, updated with the source table |
+| Serve the results | API handlers over those systems | `FastAPIRouter` routes declared next to the tables |
 
-If you don't want a schema, Pixeltable is the wrong tool. Coming from Pinecone, Postgres, LangGraph or Airflow?
-[Migrate](https://docs.pixeltable.com/howto/coming-from) shows what each one becomes.
+If you already use Pinecone, Postgres, LangGraph or Airflow, [Migrate to Pixeltable](https://docs.pixeltable.com/howto/coming-from) shows how the corresponding work looks here.
 
 ## What you can build
 
-- [RAG over documents, with no re-chunk or re-embed scripts when you add or remove documents](https://docs.pixeltable.com/use-cases/multimodal-backend)
-- [Video and image pipelines: frames, transcripts, detections](https://docs.pixeltable.com/use-cases/media-processing)
-- [Agents whose tool calls are rows you can query later](https://docs.pixeltable.com/use-cases/agentic-workflows)
+- [RAG over documents](https://docs.pixeltable.com/use-cases/multimodal-backend), with chunks and embeddings updated as documents arrive or leave.
+- [Video and image pipelines](https://docs.pixeltable.com/use-cases/media-processing), with frames, transcripts and detections.
+- [Agents](https://docs.pixeltable.com/use-cases/agentic-workflows) whose tool calls are rows you can query later.
 
-Rather not start from a blank file?
+Pixeltable fits best when files or prompts keep changing. If you don't want a typed schema, it's the wrong tool. It won't make your models better, and evaluation is still yours to manage. [Why Pixeltable](https://docs.pixeltable.com/overview/pixeltable) goes into the trade-offs.
 
-```bash
-pxt service example --out app.py   # a working app: a table, computed columns and HTTP routes
-pxt schema example                 # prints every construct a schema can use
-```
+## Start from an example
 
-For complete apps, browse
-[awesome-pixeltable-apps](https://github.com/pierrebrunelle/awesome-pixeltable-apps): each one opens in GitHub
-Codespaces.
+For a fresh project, `pxt service example --out app.py` writes an app that needs no model key. Follow the [quickstart](https://docs.pixeltable.com/overview/quick-start) to run it in a separate project folder.
 
-## Install
+Browse [complete apps](https://github.com/pierrebrunelle/awesome-pixeltable-apps), or follow [HTTP serving](https://docs.pixeltable.com/howto/deployment/serving) for uploads and TypeScript calls.
 
-```bash
-pip install 'pixeltable[serve]'
-```
-
-Python 3.11 or later. The [quickstart](https://docs.pixeltable.com/overview/quick-start) goes from an empty folder
-to your first POST. Rather start in a notebook? The
-[10-minute tour](https://docs.pixeltable.com/overview/ten-minute-tour) needs no CLI.
-[HTTP serving](https://docs.pixeltable.com/howto/deployment/serving) covers uploads and calling your routes from
-TypeScript. [Self-hosting](https://docs.pixeltable.com/howto/deployment/overview) covers your own FastAPI app and
-running without HTTP.
-
-**Pixeltable Cloud** is for running this in production: the same `app.py` on a hosted database, with media in a
-managed bucket and CPU, memory and worker counts set in the project config. The
-[Cloud guide](https://docs.pixeltable.com/cloud) goes from `pxt login` to a running service. To try it with no
-account, `pxt new` gives you a free Cloud database for about 48 hours and prints a link to keep it. Plans and
-prices are on the [pricing page](https://www.pixeltable.com/pricing).
-
-## Using a coding agent?
+### With a coding agent
 
 ```bash
 npx skills add pixeltable/pixeltable-skill
@@ -178,19 +148,14 @@ npx skills add pixeltable/pixeltable-skill
 pxt skills install
 ```
 
-The [skill](https://github.com/pixeltable/pixeltable-skill) teaches your agent to write `app.py` the way it's written
-above. With one file, the agent writes the whole backend and you review one diff instead of a change in every system.
+The [skill](https://github.com/pixeltable/pixeltable-skill) teaches your agent to write `app.py`, so you can review the backend change in one diff. [AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms) covers plugins for Claude, Cursor and ChatGPT, and MCP setup.
 
-Rather install a plugin? The same skill ships as one for [Claude](https://claude.com/marketplace/plugins/pixeltable),
-[Cursor](https://cursor.directory/plugins/pixeltable) and
-[ChatGPT](https://chatgpt.com/plugins/plugins_6aa9bce6481c81918d73be74740eed28). To let the agent look at your tables
-while it works, add the [developer MCP server](https://github.com/pixeltable/mcp-server-pixeltable-developer). It runs
-on your machine, with tools to inspect tables, run queries and use a Python REPL against your local or Cloud
-database. [AI coding agents](https://docs.pixeltable.com/overview/building-pixeltable-with-llms) covers setup for each
-tool and the hosted MCP servers for the docs and your Cloud org.
+## Where it runs
+
+- Locally, with the commands above. Uploaded and generated media go to local disk or [your own S3, GCS or Azure bucket](https://docs.pixeltable.com/integrations/cloud-storage).
+- On your infrastructure, from Python, inside your own FastAPI app, or with `pxt service`. [Self-hosting](https://docs.pixeltable.com/howto/deployment/overview) covers each option.
+- On [Pixeltable Cloud](https://docs.pixeltable.com/cloud), with the same `app.py`, a hosted database and managed media storage. Without an account, `pxt new` creates a free trial and prints its expiry and claim link.
 
 ## Contributing
 
-Bug reports and PRs are welcome: [CONTRIBUTING.md](https://github.com/pixeltable/pixeltable/blob/main/CONTRIBUTING.md).
-Questions go to [Discord](https://discord.gg/QPyqFYx2UN) or
-[GitHub Discussions](https://github.com/pixeltable/pixeltable/discussions). Pixeltable is Apache 2.0.
+Bug reports and PRs are welcome: [CONTRIBUTING.md](https://github.com/pixeltable/pixeltable/blob/main/CONTRIBUTING.md). Questions go to [Discord](https://discord.gg/QPyqFYx2UN) or [GitHub Discussions](https://github.com/pixeltable/pixeltable/discussions). Pixeltable is Apache 2.0.
