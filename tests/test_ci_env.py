@@ -11,3 +11,5 @@ def test_pytest_benchmark_fixture_constructs(benchmark: BenchmarkFixture) -> Non
     """
     assert isinstance(benchmark, BenchmarkFixture)
     assert benchmark.fullname
+    # One no-op round so the fixture is used; construction is what PXT-1714 broke.
+    benchmark.pedantic(lambda: None, rounds=1, iterations=1)
