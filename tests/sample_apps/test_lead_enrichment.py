@@ -32,6 +32,9 @@ def sample_app(
     for name in ('app.py', 'udfs.py', 'ui.html'):
         shutil.copy(_SAMPLE / name, project_env / name)
     monkeypatch.syspath_prepend(str(project_env))
+    # A stale 'app' left by another test's project would be returned by import_module before this copy loads.
+    for name in ('app', 'udfs'):
+        sys.modules.pop(name, None)
     try:
         yield load_app_module(str(project_env / 'app.py'), subject='application')
     finally:
@@ -120,24 +123,24 @@ def test_site_pages(
 
 
 @pytest.mark.parametrize(
-    'status,retryable',
+    'status,code,retryable',
     [
-        (401, False),
-        (402, False),
-        (409, True),
-        (422, False),
-        (429, True),
-        (500, True),
-        (502, True),
-        (503, True),
-        (504, True),
+        (401, pxt.ErrorCode.PROVIDER_AUTH_ERROR, False),
+        (402, pxt.ErrorCode.PROVIDER_BAD_REQUEST, False),
+        (409, pxt.ErrorCode.PROVIDER_OVERLOADED, True),
+        (422, pxt.ErrorCode.PROVIDER_BAD_REQUEST, False),
+        (429, pxt.ErrorCode.RATE_LIMITED, True),
+        (500, pxt.ErrorCode.PROVIDER_ERROR, True),
+        (502, pxt.ErrorCode.PROVIDER_ERROR, True),
+        (503, pxt.ErrorCode.PROVIDER_OVERLOADED, True),
+        (504, pxt.ErrorCode.PROVIDER_ERROR, True),
     ],
 )
 def test_status_retry(
-    sample_app: types.ModuleType, treg_transport: Callable[..., None], status: int, retryable: bool
+    sample_app: types.ModuleType, treg_transport: Callable[..., None], status: int, code: pxt.ErrorCode, retryable: bool
 ) -> None:
     treg_transport(lambda request: httpx.Response(status, text='secret diagnostic must not reach the client'))
-    with pytest.raises(pxt.ExternalServiceError, match=f'treg returned HTTP {status}') as error:
+    with pxt_raises(code, match=f'treg returned HTTP {status}') as error:
         asyncio.run(sys.modules['udfs']._treg_post('test', {}, lead_id=uuid.uuid4(), max_cost_usd=0.02))
     assert is_retryable_error(error.value)[0] is retryable
     assert 'secret diagnostic' not in str(error.value)
@@ -199,10 +202,11 @@ def test_pending_polls_existing_task(
                         'outcome': 'pending',
                         'served_by': 'provider.extract',
                         'call_ref': 'child-call',
+                        'reserved_micro': 100,
+                        'charged_micro': None,
                         'async': {'task_id': 'task-one', 'poll': descriptor['poll'], 'status': descriptor['status']},
                     },
                 },
-                headers={'X-Treg-Cost-Micro': '100'},
             )
         assert 'Idempotency-Key' not in request.headers
         if '/catalog/' in request.url.path:
@@ -216,7 +220,8 @@ def test_pending_polls_existing_task(
     if error_code is None:
         result = asyncio.run(udfs.treg_extract_site.py_fn(uuid.uuid4(), 'example.com'))
         assert result['markdown'] == 'Completed page'
-        assert result['cost_micro'] == 2100
+        # The 202 carried a reservation, not a charge: only the child receipt is billed.
+        assert result['cost_micro'] == 2000
     else:
         with pxt_raises(error_code, match='treg task child-call'):
             asyncio.run(udfs.treg_extract_site.py_fn(uuid.uuid4(), 'example.com'))
@@ -411,6 +416,68 @@ def test_pending_mailbox_verification(sample_app: types.ModuleType, treg_transpo
     assert seen.count('/call/bounceban.people.email.verify.status') == 1
 
 
+def test_null_verdict_keeps_email(sample_app: types.ModuleType, treg_transport: Callable[..., None]) -> None:
+    """A billed BounceBan miss returns a null result: keep the email the find call returned, marked unknown."""
+    descriptor = {
+        'poll': {'endpoint': 'bounceban.people.email.verify.status', 'param': {'name': 'id'}},
+        'status': {'path': 'status', 'success': ['success']},
+        'result': {'path': 'result'},
+        'interval': 0.001,
+        'max_age': 1,
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == 'POST':
+            return httpx.Response(
+                200,
+                json={
+                    'output': {'email': 'jane@example.com', 'verified': False},
+                    '_treg': {
+                        'verification': {
+                            'verdict': None,
+                            'pending': True,
+                            'served_by': 'bounceban.people.email.verify',
+                            'call_id': 'verify-call',
+                        }
+                    },
+                },
+                headers={'X-Treg-Cost-Micro': '200'},
+            )
+        if '/catalog/' in request.url.path:
+            return httpx.Response(200, json={'endpoint': {'async': descriptor}})
+        if request.url.path == '/calls/verify-call':
+            return httpx.Response(200, json={'async_task': {'task_id': 'bb-2'}, 'charged_micro': 500})
+        return httpx.Response(200, json={'id': 'bb-2', 'status': 'success', 'result': None})
+
+    treg_transport(handler)
+    result = asyncio.run(sys.modules['udfs'].treg_find_email.py_fn(uuid.uuid4(), 'Jane Doe', 'example.com'))
+    assert result['email'] == 'jane@example.com'
+    assert result['verdict'] == 'unknown'
+    assert result['cost_micro'] == 700
+
+
+def test_own_key_audio_is_unbilled(sample_app: types.ModuleType, treg_transport: Callable[..., None]) -> None:
+    # The team's own Fish key serves the call, and treg omits the cost header on it.
+    treg_transport(
+        lambda request: httpx.Response(200, content=_AUDIO.read_bytes(), headers={'Content-Type': 'audio/mpeg'})
+    )
+    receipt = asyncio.run(sys.modules['udfs'].treg_voice_note.py_fn(uuid.uuid4(), 'Hello'))
+    assert receipt['cost_micro'] == 0
+    assert base64.b64decode(receipt['audio_base64']) == _AUDIO.read_bytes()
+
+
+def test_voice_note_rejects_json_body(sample_app: types.ModuleType, treg_transport: Callable[..., None]) -> None:
+    treg_transport(lambda request: httpx.Response(200, json={'output': {'error': 'not audio'}}))
+    with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='not audio'):
+        asyncio.run(sys.modules['udfs'].treg_voice_note.py_fn(uuid.uuid4(), 'Hello'))
+
+
+def test_site_rejects_non_dict_page(sample_app: types.ModuleType, treg_transport: Callable[..., None]) -> None:
+    treg_transport(lambda request: httpx.Response(200, json={'output': {'pages': ['not a page']}}))
+    with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='Unsupported treg website'):
+        asyncio.run(sys.modules['udfs'].treg_extract_site.py_fn(uuid.uuid4(), 'example.com'))
+
+
 @pytest.mark.db_roots('local', reason='Validates the offline sample without provider calls')
 def test_explicit_demo(sample_app: types.ModuleType, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
     udfs = sys.modules['udfs']
@@ -449,3 +516,6 @@ def test_explicit_demo(sample_app: types.ModuleType, db_root: DatabaseRoot, monk
     assert result['email'] is None
     assert result['tier'] == 'review'
     assert result['cost_usd'] == 0
+    # The README's go-live cleanup removes demo rows by their served_by value.
+    table.delete(where=table.served_by == 'demo fixture')
+    assert table.count() == 0

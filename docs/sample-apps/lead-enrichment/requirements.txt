@@ -1,3 +1,0 @@
-pixeltable[serve]>=0.7.16
-httpx>=0.27
-openai>=1.40

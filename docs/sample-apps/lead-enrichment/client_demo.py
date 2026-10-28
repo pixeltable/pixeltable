@@ -48,7 +48,7 @@ def post_json(path: str, payload: dict[str, object]) -> Any:
     req = urllib.request.Request(
         f'{BASE}{path}', data=data, headers=_headers({'Content-Type': 'application/json'}), method='POST'
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with urllib.request.urlopen(req, timeout=600) as resp:
         return json.loads(resp.read().decode())
 
 

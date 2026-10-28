@@ -757,7 +757,7 @@
       const payload = {
         full_name: form.full_name.value.trim(),
         domain: form.domain.value.trim(),
-        role: form.role.value.trim() || 'Founder',
+        role: form.role.value.trim() || null,
         stage: form.stage.value,
       };
       const signature = JSON.stringify(payload);
@@ -802,7 +802,7 @@
         const payload = {
           full_name,
           domain,
-          role: form.role.value.trim() || 'Founder',
+          role: form.role.value.trim() || null,
           stage: form.stage.value,
         };
         const signature = JSON.stringify(payload);

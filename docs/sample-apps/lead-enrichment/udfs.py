@@ -50,12 +50,13 @@ def _check_response(response: httpx.Response) -> None:
 
 
 def _cost_micro(response: httpx.Response) -> int:
+    # treg omits the cost header when the team's own key served the call, and that call is not billed.
     header = (
         'X-Treg-Original-Cost-Micro'
         if response.headers.get('X-Treg-Idempotent-Replay') == 'true'
         else 'X-Treg-Cost-Micro'
     )
-    return int(response.headers[header])
+    return int(response.headers.get(header, 0))
 
 
 @dataclasses.dataclass
@@ -149,7 +150,9 @@ async def _finish_verification(
         task_id=task['task_id'],
         prior_cost_micro=0,
     )
-    verdict = {'deliverable': 'valid', 'undeliverable': 'invalid', 'risky': 'risky', 'unknown': 'unknown'}.get(output)
+    # A null result is a billed miss. Keep the email that the find call already returned, marked unknown.
+    verdicts = {'deliverable': 'valid', 'undeliverable': 'invalid', 'risky': 'risky', 'unknown': 'unknown'}
+    verdict = 'unknown' if output is None else verdicts.get(output)
     if verdict is None:
         raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, 'Unsupported BounceBan verdict')
     verification.update(pending=False, verdict=verdict, cost_micro=charged_micro)
@@ -163,16 +166,19 @@ async def _settle_response(
     _check_response(response)
     data = response.json() if response.headers.get('Content-Type', '').startswith('application/json') else {}
     meta = data.get('_treg', {})
+    pending = response.status_code == 202 or meta.get('outcome') == 'pending'
     result = _TregResult(
         output=data.get('output'),
         content=response.content,
         content_type=response.headers.get('Content-Type', ''),
-        cost_micro=_cost_micro(response),
+        # A pending 202 carries reserved_micro, not a charge. Its cost is the parent's settled charge (null until
+        # settled) plus the child receipt that _poll_task adds.
+        cost_micro=0 if pending else _cost_micro(response),
         call_id=response.headers.get('X-Treg-Call-Id') or meta.get('call_ref'),
         served_by=response.headers.get('X-Treg-Served-By') or meta.get('served_by'),
         verification=meta.get('verification'),
     )
-    if response.status_code == 202 or meta.get('outcome') == 'pending':
+    if pending:
         # A pending call settles through its catalog descriptor, as a JSON document.
         result.output, result.cost_micro = await _poll_task(
             client,
@@ -181,7 +187,7 @@ async def _settle_response(
             served_by=meta['served_by'],
             call_ref=meta['call_ref'],
             task_id=meta['async']['task_id'],
-            prior_cost_micro=result.cost_micro,
+            prior_cost_micro=meta.get('charged_micro') or 0,
         )
         result.call_id = meta['call_ref']
         result.served_by = meta['served_by']
@@ -267,12 +273,6 @@ async def treg_find_email(
     if not isinstance(output, dict) or 'email' not in output:
         raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, 'Unsupported treg email result schema')
     verification = result.verification or {}
-    # A pending verifier is not evidence of a deliverable mailbox.
-    if verification.get('pending'):
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_TIMEOUT,
-            f'Mailbox verification is still pending: {verification["call_id"]}. Inspect the call before retrying.',
-        )
     return {
         'email': output['email'],
         'verified': bool(output.get('verified')),
@@ -297,9 +297,9 @@ async def treg_extract_site(lead_id: uuid.UUID, domain: str, max_cost_usd: float
     url = domain if domain.startswith(('http://', 'https://')) else f'https://{domain}'
     result = await _treg_post('treg.web.extract', {'url': url}, lead_id=lead_id, max_cost_usd=max_cost_usd)
     output = result.output
-    if not isinstance(output, dict) or not isinstance(output.get('pages'), list):
+    pages = output.get('pages') if isinstance(output, dict) else None
+    if not isinstance(pages, list) or not all(isinstance(page, dict) for page in pages):
         raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, 'Unsupported treg website result schema')
-    pages = output['pages']
     excerpts = []
     for page in pages:
         text = page.get('markdown') or page.get('text') or page.get('raw_content') or page.get('excerpts') or ''

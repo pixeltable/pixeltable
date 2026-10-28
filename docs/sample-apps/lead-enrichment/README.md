@@ -38,14 +38,14 @@ Query routes return lists in a `rows` envelope. Insert, preview, and update retu
 
 ## Try the offline demo
 
-Set `export LEAD_ENRICHMENT_DEMO=1` before the local commands below to run without provider keys or charges. The UI shows a demo banner. The demo uses synthetic website text, an explicitly labelled draft, no verified email address, and a silent WAV voice note. Missing keys and live provider failures raise errors; they never switch to demo data.
+Set `export LEAD_ENRICHMENT_DEMO=1`, then restart the daemon with `uv run pxt daemon restart` and start `pxt service run` again. Both read the setting when they start. The demo runs without provider keys or charges, and the UI shows a demo banner. The demo uses synthetic website text, an explicitly labelled draft, no verified email address, and a silent WAV voice note. Missing keys and live provider failures raise errors; they never switch to demo data.
 
 To go live afterwards: unset `LEAD_ENRICHMENT_DEMO`, restart the daemon, stop `pxt service run` and start it again, and delete the demo rows so seeded prospects and the fixed-UUID examples below cannot collide with real inserts:
 
 ```bash
 unset LEAD_ENRICHMENT_DEMO
 uv run pxt daemon restart
-uv run python -c "import pixeltable as pxt; pxt.get_table('leads/leads').delete()"
+uv run python -c "import pixeltable as pxt; t = pxt.get_table('leads/leads'); t.delete(where=t.served_by == 'demo fixture')"
 ```
 
 ## Run locally
