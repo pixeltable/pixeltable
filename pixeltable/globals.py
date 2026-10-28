@@ -709,9 +709,7 @@ def copy_table(table: str | catalog.Table, dest_path: str) -> catalog.Table:
             f"copy_table(): {dest_path!r} is not a path in a hosted database ('pxt://<org>:<db>/<path>')",
         )
     if dest_path_obj.version is not None:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_PATH, f'copy_table(): {dest_path!r} must not specify a version'
-        )
+        raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'copy_table(): {dest_path!r} must not specify a version')
     src_tbl = get_table(str(src_path_obj))
     assert src_tbl is not None
     if not isinstance(src_tbl, catalog.InsertableTable):

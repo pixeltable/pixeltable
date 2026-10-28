@@ -1,6 +1,8 @@
+import json
 import os
 import pathlib
 import shutil
+import uuid
 from typing import Any
 
 import numpy as np
@@ -10,10 +12,12 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
+from pixeltable.catalog import table_copy
 from pixeltable.catalog.catalog_proxy import CatalogProxy
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.local_store import TempStore
+from pixeltable.service import proxy_dispatch, proxy_protocol
+from pixeltable.utils.filecache import FileCache
 
 from .utils import DatabaseRoot, get_image_files, pxt_raises
 
@@ -72,10 +76,10 @@ class TestCopyTable:
         def row(i: int) -> dict[str, Any]:
             # each array is larger than the store's inline limit, so it is stored in a file
             arr = rng.random((32, 32), dtype=np.float32)
-            return {'id': i, 's': f'text {i}', 'img': img_files[i], 'arr': arr, 'j': {'f': i}}
+            return {'id': i, 's': f'text {i}', 'img': img_files[i % len(img_files)], 'arr': arr, 'j': {'f': i}}
 
-        t.insert(row(i) for i in range(4))
-        t.insert(row(i) for i in range(4, 6))
+        t.insert((row(i) for i in range(4)), on_error='ignore')
+        t.insert((row(i) for i in range(4, 6)), on_error='ignore')
         t.update({'s': 'updated'}, where=t.id == 1)
         t.delete(where=t.id == 0)
         # a dropped column: its values remain part of the history
@@ -95,7 +99,9 @@ class TestCopyTable:
 
         assert t2.count() == t.count() == 5
         _assert_same_rows(
-            list(t2.select(*(t2[col] for col in cols), t2.ratio.errortype, t2.ratio.errormsg).order_by(t2.id).collect()),
+            list(
+                t2.select(*(t2[col] for col in cols), t2.ratio.errortype, t2.ratio.errormsg).order_by(t2.id).collect()
+            ),
             list(src_rows),
         )
         assert sum(1 for r in src_rows if r['ratio_errortype'] is not None) == 1
@@ -124,6 +130,7 @@ class TestCopyTable:
 
         # the copy doesn't depend on the local table, whose computed images go with it
         pxt.drop_table('src')
+        FileCache.get().clear()  # so that reading the images fetches them from the destination
         _assert_same_rows(
             list(t2.select(t2.id, t2.img, t2.rot).order_by(t2.id).collect()),
             [{'id': r['id'], 'img': r['img'], 'rot': r['rot']} for r in src_rows],
@@ -135,6 +142,47 @@ class TestCopyTable:
         assert new_row['u'] is not None
         assert new_row['rot'] is not None
 
+    def test_copy_table_chunks(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Rows in several chunks, which reference media files that earlier chunks uploaded."""
+        p = db_root.make_catalog_path
+        # a chunk of at most 2 rows, which ends at a row that references a new media file
+        monkeypatch.setattr(table_copy, '_ROW_BATCH_SIZE', 2)
+        monkeypatch.setattr(table_copy, '_MAX_CHUNK_ROW_BYTES', 1)
+        monkeypatch.setattr(table_copy, '_MAX_CHUNK_MEDIA_BYTES', 1)
+        num_chunks = 0
+        import_table_rows = CatalogProxy.import_table_rows
+
+        def count_chunks(self: CatalogProxy, *args: Any, **kwargs: Any) -> dict[str, str]:
+            nonlocal num_chunks
+            num_chunks += 1
+            return import_table_rows(self, *args, **kwargs)
+
+        monkeypatch.setattr(CatalogProxy, 'import_table_rows', count_chunks)
+
+        img_files = get_image_files()[:2]
+        t = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
+        t.add_computed_column(rot=t.img.rotate(90))
+        # both versions reference the same two input files
+        t.insert({'id': i, 'img': img_files[i % 2]} for i in range(5))
+        t.insert({'id': i, 'img': img_files[i % 2]} for i in range(5, 9))
+
+        t2 = pxt.copy_table('src', p('dst'))
+        assert num_chunks > 2
+        _assert_same_rows(
+            list(t2.select(t2.id, t2.img, t2.rot).order_by(t2.id).collect()),
+            list(t.select(t.id, t.img, t.rot).order_by(t.id).collect()),
+        )
+        # each input file was uploaded once
+        assert len(set(t2.select(t2.img.fileurl).collect()['img_fileurl'])) == 2
+        # an uploaded file is stored under the earliest version that references it, so reverting the second insert
+        # keeps the files of the first
+        t2.revert()
+        FileCache.get().clear()  # so that reading the images fetches them from the destination
+        _assert_same_rows(
+            list(t2.select(t2.id, t2.img, t2.rot).order_by(t2.id).collect()),
+            list(t.where(t.id < 5).select(t.id, t.img, t.rot).order_by(t.id).collect()),
+        )
+
     def test_copy_empty_table(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table('src', {'s': pxt.String})
@@ -145,7 +193,7 @@ class TestCopyTable:
         t2.insert([{'s': 'a'}])
         assert t2.select(t2.upper).collect()['upper'] == ['A']
 
-    def test_copy_table_errors(self, db_root: DatabaseRoot) -> None:
+    def test_copy_table_errors(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
         pxt.create_view('view', t)
@@ -163,10 +211,10 @@ class TestCopyTable:
             pxt.copy_table('src', p('no_dir/dst'))
 
         # a referenced local media file that no longer exists
-        img_path = TempStore.create_path(extension='.jpg')
+        img_path = tmp_path / 'img.jpg'
         shutil.copy(get_image_files()[0], img_path)
         t.insert([{'id': 0, 'img': str(img_path)}])
-        pathlib.Path(img_path).unlink()
+        img_path.unlink()
         with pxt_raises(pxt.ErrorCode.STORAGE_NOT_FOUND, match='no longer exist'):
             pxt.copy_table('src', p('dst'))
         assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
@@ -201,3 +249,25 @@ class TestCopyTable:
         assert pxt.get_table(p('dst')).columns() == ['other']
         if db_root.id == 'proxy':
             assert _pending_imports(db_root) == []
+
+
+def test_import_table_rows_takes_only_uploaded_files(init_env: None, tmp_path: pathlib.Path) -> None:
+    """The daemon refuses a rows or media file that a request names by a path of the daemon's own."""
+    daemon_file = tmp_path / 'daemon_file'
+    daemon_file.write_bytes(b'secret')
+    uploaded_rows = {'$pxt': 'file', 'name': 'rows.parquet', 'v': 0}
+    for rows_file, new_media in ((str(daemon_file), {}), (uploaded_rows, {'file:///img.jpg': str(daemon_file)})):
+        request = proxy_protocol.ProxyRequest(
+            class_name='CatalogBase',
+            method='import_table_rows',
+            args={
+                'import_id': {'$pxt': 'UUID', 'v': str(uuid.uuid4())},
+                'rows_file': rows_file,
+                'new_media': new_media,
+                'prev_media': {},
+            },
+        )
+        head, _ = proxy_protocol.decode_body(proxy_dispatch.handle(request.model_dump_json(), [b'rows']))
+        error = json.loads(head)['error']
+        assert error['error_code'] == 'INVALID_ARGUMENT'
+        assert 'must be uploaded files' in error['message']

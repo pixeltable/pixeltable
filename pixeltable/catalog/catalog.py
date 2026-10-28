@@ -3169,9 +3169,7 @@ class Catalog(CatalogBase):
     def _is_pending_import(self, tbl_id: UUID) -> bool:
         row = (
             get_runtime()
-            .conn.execute(
-                sql.select(schema.Table.dir_id, schema.Table.additional_md).where(schema.Table.id == tbl_id)
-            )
+            .conn.execute(sql.select(schema.Table.dir_id, schema.Table.additional_md).where(schema.Table.id == tbl_id))
             .one_or_none()
         )
         return row is not None and row.dir_id is None and _PENDING_IMPORT_KEY in row.additional_md

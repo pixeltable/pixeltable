@@ -336,6 +336,18 @@ def _get_table_by_id(request: ProxyRequest) -> list | None:
     return load()
 
 
+def _import_table_rows(request: ProxyRequest) -> dict[str, str]:
+    kwargs = proxy_protocol.deserialize_request(request)
+    # the files must be ones that this request uploaded: a path that a caller names must not reach the daemon's own
+    # files
+    uploaded = request._uploaded_names.keys()
+    if kwargs['rows_file'] not in uploaded or not uploaded >= set(kwargs['new_media'].values()):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, 'import_table_rows(): the rows and media files must be uploaded files'
+        )
+    return get_runtime().catalog.import_table_rows(**kwargs)
+
+
 def _finish_table_import(request: ProxyRequest) -> list:
     kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
@@ -655,7 +667,7 @@ _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
     ('CatalogBase', 'create_dir'): _catalog_method,
     ('CatalogBase', 'drop_dir'): _catalog_method,
     ('CatalogBase', 'begin_table_import'): _catalog_method,
-    ('CatalogBase', 'import_table_rows'): _catalog_method,
+    ('CatalogBase', 'import_table_rows'): _import_table_rows,
     ('CatalogBase', 'finish_table_import'): _finish_table_import,
     ('CatalogBase', 'abort_table_import'): _catalog_method,
     ('Query', 'collect'): _query_collect,

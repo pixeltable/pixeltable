@@ -22,7 +22,7 @@ from pathlib import Path as FsPath
 from typing import TYPE_CHECKING, Any, Iterable, Mapping
 
 import numpy as np
-import pgvector.sqlalchemy as sql_vector  # type: ignore[import-untyped]
+import pgvector.sqlalchemy as sql_vector
 import pyarrow as pa
 import pyarrow.parquet as pq
 import sqlalchemy as sql
@@ -141,8 +141,9 @@ def _to_arrow_value(val: Any, sa_type: sql.types.TypeEngine) -> Any:
         return json.dumps(val)
     if isinstance(sa_type, sql.UUID):
         return val.bytes
-    if isinstance(sa_type, sql_vector.HALFVEC):
-        return val.to_numpy().astype(np.float32)
+    if isinstance(sa_type, (sql_vector.Vector, sql_vector.HALFVEC)):
+        # a half-precision value is exactly representable as float32
+        return np.asarray(val, dtype=np.float32)
     return val
 
 
@@ -285,7 +286,7 @@ def _export_table(tbl: InsertableTable, tmp_dir: FsPath) -> _TableExport:
         order_by = [store.v_min_col, *store.rowid_columns()] if tv.is_data_versioned else store.rowid_columns()
         stmt = sql.select(store.sa_tbl).order_by(*order_by).execution_options(yield_per=_ROW_BATCH_SIZE)
         for row in conn.execute(stmt):
-            export.add_row(row._mapping)
+            export.add_row(row._asdict())
         export.finish()
     return export
 
@@ -310,10 +311,7 @@ def copy_table(tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path)
             for i, chunk in enumerate(export.chunks):
                 _logger.debug(f'Copying rows chunk {i + 1}/{len(export.chunks)} ({chunk.num_rows} rows)')
                 placed = dest_catalog.import_table_rows(
-                    import_id,
-                    str(chunk.rows_file),
-                    chunk.new_media,
-                    {url: uploaded[url] for url in chunk.prev_media},
+                    import_id, str(chunk.rows_file), chunk.new_media, {url: uploaded[url] for url in chunk.prev_media}
                 )
                 uploaded.update(placed)
             return dest_catalog.finish_table_import(import_id, dest_path, export.num_rows)
@@ -373,7 +371,8 @@ def place_media(tv: TableVersion, md: dict[str, Any], rows_file: str, new_media:
     unreferenced = new_media.keys() - placements.keys()
     if len(unreferenced) > 0:
         raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT, f'Uploaded media files are not referenced by any row: {sorted(unreferenced)}'
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'Uploaded media files are not referenced by any row: {sorted(unreferenced)}',
         )
 
     stores: dict[str | None, ObjectStoreBase] = {}
