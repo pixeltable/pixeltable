@@ -161,44 +161,19 @@ class TestCatalog:
         assert op.needs_xact  # now a ClassVar
         assert 'needs_xact' not in op.to_dict()
 
-    def test_local_store_delete_retries_winerror_32(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        orig_rmtree = local_store_mod.shutil.rmtree
+    def test_local_store_delete_propagates_winerror_32(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         tbl_id = uuid.uuid4()
         store = LocalStore(tmp_path)
         table_dir = tmp_path / ObjectPath.table_prefix(tbl_id)
         table_dir.mkdir()
         (table_dir / 'media.webm').write_bytes(b'x')
 
-        monkeypatch.setattr(local_store_mod, '_DELETE_RETRY_TIMEOUT_S', 0.2)
-        monkeypatch.setattr(local_store_mod, '_DELETE_RETRY_SLEEP_S', 0.04)
-
-        n_fail_then_ok = 0
-
-        def fail_twice_then_delete(path: str, *args: object, **kwargs: object) -> None:
-            nonlocal n_fail_then_ok
-            n_fail_then_ok += 1
-            if n_fail_then_ok <= 2:
-                raise _winerror_32(path)
-            orig_rmtree(path)
-
-        monkeypatch.setattr(local_store_mod.shutil, 'rmtree', fail_twice_then_delete)
-        store.delete(tbl_id)
-        assert n_fail_then_ok == 3
-        assert not table_dir.exists()
-
-        table_dir.mkdir()
-        (table_dir / 'media.webm').write_bytes(b'x')
-        n_always_fail = 0
-
         def always_fail(path: str, *args: object, **kwargs: object) -> None:
-            nonlocal n_always_fail
-            n_always_fail += 1
             raise _winerror_32(path)
 
         monkeypatch.setattr(local_store_mod.shutil, 'rmtree', always_fail)
-        store.delete(tbl_id)  # must not raise
-        assert n_always_fail >= 2
-        assert n_always_fail <= 15
+        with pytest.raises(PermissionError):
+            store.delete(tbl_id)
         assert table_dir.exists()
 
     @pytest.mark.db_roots('local', reason='monkeypatches shutil.rmtree in-process to simulate WinError 32')
@@ -208,8 +183,9 @@ class TestCatalog:
         tbl_id = t._id
         assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
-        monkeypatch.setattr(local_store_mod, '_DELETE_RETRY_TIMEOUT_S', 0.2)
-        monkeypatch.setattr(local_store_mod, '_DELETE_RETRY_SLEEP_S', 0.04)
+        orig_rmtree = local_store_mod.shutil.rmtree
+        monkeypatch.setattr(catalog_mod, '_MAX_NON_DB_FINALIZE_ATTEMPTS', 3)
+        monkeypatch.setattr(catalog_mod.time, 'sleep', lambda _s: None)
 
         n_rmtree = 0
 
@@ -221,15 +197,23 @@ class TestCatalog:
         monkeypatch.setattr(local_store_mod.shutil, 'rmtree', always_fail)
 
         start = time.monotonic()
-        pxt.drop_table('media_tbl')
+        with pxt_raises(code=excs.ErrorCode.INTERNAL_ERROR, match='Table operation was aborted'):
+            pxt.drop_table('media_tbl')
         elapsed = time.monotonic() - start
         assert elapsed < 5, elapsed
-        assert 2 <= n_rmtree <= 40
+        assert n_rmtree == 3
         with get_runtime().begin_xact() as conn:
             pending = conn.execute(sql.select(sql.func.count()).select_from(schema.PendingTableOp)).scalar()
-            assert pending == 0
+            assert pending > 0
             live = conn.execute(sql.select(sql.func.count()).where(schema.Table.id == tbl_id)).scalar()
-            assert live == 0
+            assert live == 1
+
+        # Complete the drop so teardown does not see leftover pending ops.
+        monkeypatch.setattr(local_store_mod.shutil, 'rmtree', orig_rmtree)
+        cat = get_runtime().catalog
+        assert isinstance(cat, Catalog)
+        leftover = cat._finalize_pending_ops(tbl_id)
+        assert leftover is None
 
     @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_finalize_pending_ops_non_db_error_is_bounded(
@@ -247,10 +231,17 @@ class TestCatalog:
             pxt.drop_table('test')
         fault.assert_count(3)
 
-        # Complete the drop so teardown does not see leftover pending ops.
-        get_runtime().fault_manager._fault_state.clear()
         cat = get_runtime().catalog
         assert isinstance(cat, Catalog)
+        with (
+            pxt_raises(code=excs.ErrorCode.INTERNAL_ERROR, match='injected persistent error'),
+            cat.begin_xact(for_write=True, write_tbl_ids=[tbl_id]),
+        ):
+            pass
+        fault.assert_count(6)
+
+        # Complete the drop so teardown does not see leftover pending ops.
+        get_runtime().fault_manager._fault_state.clear()
         leftover = cat._finalize_pending_ops(tbl_id)
         assert leftover is None
 

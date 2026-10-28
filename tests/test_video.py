@@ -40,6 +40,27 @@ from .utils import (
 )
 
 
+def _open_file_paths() -> set[str]:
+    fd_dir = Path('/proc/self/fd')
+    if not fd_dir.is_dir():
+        return set()
+    result: set[str] = set()
+    for fd in fd_dir.iterdir():
+        try:
+            result.add(os.path.realpath(fd))
+        except OSError:
+            continue
+    return result
+
+
+def _assert_videos_closed(paths: list[str]) -> None:
+    open_paths = _open_file_paths()
+    if len(open_paths) == 0:
+        return
+    still_open = [p for p in paths if os.path.realpath(p) in open_paths]
+    assert still_open == [], still_open
+
+
 class TestVideo:
     def _validate_videos(self, videos: list[str]) -> None:
         t = pxt.create_table('validated_videos', schema={'v': pxt.Video | None}, if_exists='ignore')
@@ -311,23 +332,41 @@ class TestVideo:
                         # Ensure we get the bitmap-identical frame
                         assert selected_frame == frames[pos]
 
-    def test_replace_force_after_frame_query(self, db_root: DatabaseRoot) -> None:
-        """Dropping a video table after querying its frame view must finish promptly with no leftover pending ops.
-
-        Reconstructing unstored `frame` values opens the stored video in the server process. If that handle is
-        left open, Windows cannot delete the media file and (before PXT-1715) `_finalize_pending_ops` spun until
-        the client timed out.
-        """
+    def test_replace_force_after_frame_query(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Dropping a video table after querying its frame view must finish promptly with no leftover pending ops."""
         p = db_root.make_catalog_path
-        path = get_video_files()[0]
+        paths = get_video_files()[:2]
+        assert len(paths) == 2
         videos = pxt.create_table(p('videos'), {'video': pxt.Video | None})
         frames = pxt.create_view(p('frames'), videos, iterator=frame_iterator(videos.video, num_frames=4))
-        videos.insert(video=path)
+        videos.insert({'video': path} for path in paths)
         catalog_uri = videos._tbl_path.catalog_uri
         tbl_id = videos._id
+        in_process = catalog_uri.db is None
+
+        close_calls = 0
+        iter_cls = frame_iterator.decorated_callable
+        orig_close = iter_cls.close  # type: ignore[attr-defined]
+
+        def counting_close(self: object) -> None:
+            nonlocal close_calls
+            orig_close(self)
+            close_calls += 1
+
+        if in_process:
+            monkeypatch.setattr(iter_cls, 'close', counting_close)
+
         # Seek-style reconstruction of the unstored `frame` column, matching test_frame_iterator_seek.
         res = frames.select(frames.frame).where(frames.pos < 4).order_by(frames.pos).collect()
-        assert len(res) > 0
+        assert len(res) > 4
+        if in_process:
+            assert close_calls >= 2
+            _assert_videos_closed(paths)
+            close_calls = 0
+            for _row in frames.select(frames.frame).cursor():
+                break
+            assert close_calls >= 1
+            _assert_videos_closed(paths)
 
         start = time.monotonic()
         pxt.create_table(p('videos'), {'video': pxt.Video | None}, if_exists='replace_force')

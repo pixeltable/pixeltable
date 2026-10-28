@@ -282,14 +282,6 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         if container is not None:
             container.close()
 
-    def __del__(self) -> None:
-        # Last-resort close if a caller drops the iterator without close()/__exit__. ColumnRef.release
-        # must still close deterministically: cyclic PyAV state is not collected promptly on Windows.
-        try:
-            self.close()
-        except Exception:
-            pass
-
     def seek(self, pos: int, **kwargs: Any) -> None:
         """Move to the frame of row pos, given the row's stored outputs in kwargs; the next __next__() returns it."""
         assert next(iter(kwargs.values()), None) is not None
@@ -389,9 +381,7 @@ class legacy_frame_iterator(pxt.PxtIterator[LegacyFrame]):
         return result
 
     def close(self) -> None:
-        underlying = getattr(self, 'underlying', None)
-        if underlying is not None:
-            underlying.close()
+        self.underlying.close()
 
     def seek(self, pos: int, **kwargs: Any) -> None:
         self.underlying.seek(pos, **kwargs)

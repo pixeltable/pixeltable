@@ -4,6 +4,7 @@ import abc
 import asyncio
 import queue
 import threading
+from collections.abc import AsyncGenerator
 from types import TracebackType
 from typing import Any, AsyncIterator, Iterable, Iterator, Self, TypeVar
 
@@ -127,6 +128,10 @@ class ExecNode(abc.ABC):
                     yield batch
             except StopAsyncIteration:
                 pass
+            finally:
+                # aclose() runs the async generator finally when the consumer stops early.
+                assert isinstance(aiter, AsyncGenerator)
+                loop.run_until_complete(aiter.aclose())
         else:
             yield from self._thread_iter()
 
@@ -142,6 +147,7 @@ class ExecNode(abc.ABC):
         # carry the ambient instrumentation span across the thread boundary so spans reported on the
         # worker thread nest under it
         hooks_ctx = telemetry.capture_context()
+        stop = threading.Event()
 
         def run() -> None:
             thread_runtime = get_runtime()
@@ -151,15 +157,25 @@ class ExecNode(abc.ABC):
 
             async def produce() -> None:
                 async for batch in aiter(self):
-                    result_queue.put(batch)
+                    # Timed put so stop.set() can unblock a full queue.
+                    while not stop.is_set():
+                        try:
+                            result_queue.put(batch, timeout=0.05)
+                            break
+                        except queue.Full:
+                            continue
+                    if stop.is_set():
+                        return
 
             # asyncio.Runner gives this thread the same loop teardown that asyncio.run() performs
             with asyncio.Runner() as runner:
                 try:
                     runner.run(produce())
-                    result_queue.put(ExecNode._THREAD_QUEUE_SENTINEL)
+                    if not stop.is_set():
+                        result_queue.put(ExecNode._THREAD_QUEUE_SENTINEL)
                 except BaseException as e:
-                    result_queue.put(e)
+                    if not stop.is_set():
+                        result_queue.put(e)
                 finally:
                     # the clients are bound to this loop, so they have to be closed while it is open
                     runner.run(thread_runtime.close_clients())
@@ -176,6 +192,7 @@ class ExecNode(abc.ABC):
                     raise item
                 yield item
         finally:
+            stop.set()
             thread.join(timeout=30)
 
     def __enter__(self) -> Self:

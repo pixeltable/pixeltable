@@ -606,9 +606,7 @@ class ColumnRef(Expr):
             data_row[self.slot_idx] = None
             return
 
-        # Reconstruct an unstored iterator output by seeking. Keep at most one open iterator per base row
-        # and close it when the base row changes or the query ends (release): on Windows, LocalStore.delete
-        # cannot unlink a media file that PyAV still has open (PXT-1715).
+        # Reconstruct an unstored iterator output by seeking. Keep at most one open iterator per base row.
         if self.iterator is None or self.base_rowid != data_row.pk[: self.base_rowid_len]:
             self._close_iterator()
             assert self.iter_arg_ctx is not None

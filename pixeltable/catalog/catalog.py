@@ -91,9 +91,14 @@ _MAX_RETRIES = -1
 # Max internal cache size
 _MAX_TBL_CACHE_SIZE = 1024
 
-# Non-DB exceptions in _finalize_pending_ops are retried with backoff up to this many attempts, then returned.
-# Without a cap, a persistent OSError (PXT-1715) busy-loops until the client times out.
+# Consecutive non-DB failures in _finalize_pending_ops() before the exception is returned to the caller.
 _MAX_NON_DB_FINALIZE_ATTEMPTS = 8
+
+
+def _raise_if_finalize_failed(exc: Exception | None) -> None:
+    if exc is not None:
+        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'Table operation was aborted with\n{exc!s}') from exc
+
 
 T = TypeVar('T')
 
@@ -162,7 +167,7 @@ def retry_loop(
                         return op(*args, **kwargs)
                 except PendingTableOpsError as e:
                     Env.get().console_logger.debug(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
-                    cat._finalize_pending_ops(e.tbl_id)
+                    _raise_if_finalize_failed(cat._finalize_pending_ops(e.tbl_id))
                 except sql_exc.DBAPIError as e:
                     if _is_retryable_exc(e):
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
@@ -442,7 +447,7 @@ class Catalog(CatalogBase):
         while True:
             if pending_ops_tbl_id is not None:
                 Env.get().console_logger.debug(f'begin_xact(): finalizing pending ops for {pending_ops_tbl_id}')
-                self._finalize_pending_ops(pending_ops_tbl_id)
+                _raise_if_finalize_failed(self._finalize_pending_ops(pending_ops_tbl_id))
                 pending_ops_tbl_id = None
 
             # one span per acquisition attempt; retries show up as sibling spans
@@ -884,11 +889,7 @@ class Catalog(CatalogBase):
     def _roll_forward(self) -> None:
         """Finalize pending ops for all tables in self._roll_forward_ids."""
         for tbl_id in self._roll_forward_ids:
-            exc = self._finalize_pending_ops(tbl_id)
-            if exc is not None:
-                raise excs.InternalError(
-                    excs.ErrorCode.INTERNAL_ERROR, f'Table operation was aborted with\n{exc!s}'
-                ) from exc
+            _raise_if_finalize_failed(self._finalize_pending_ops(tbl_id))
 
     def _finalize_pending_ops(self, tbl_id: UUID) -> Exception | None:
         """
@@ -910,6 +911,7 @@ class Catalog(CatalogBase):
         finalization are dealt with recursively.
         """
         num_retries = 0
+        num_non_db_retries = 0
         is_rollback = False
         tbl_md: schema.TableMd | None = None
         tbl_version: int | None = None
@@ -1100,9 +1102,11 @@ class Catalog(CatalogBase):
                         f'Finalize pending ops({tbl_id}): caught error: {e} of type {type(e)} but continuing',
                         exc_info=True,
                     )
-                    num_retries += 1
-                    if num_retries >= _MAX_NON_DB_FINALIZE_ATTEMPTS:
-                        _logger.error(f'Finalize pending ops({tbl_id}): giving up after {num_retries} non-DB errors')
+                    num_non_db_retries += 1
+                    if num_non_db_retries >= _MAX_NON_DB_FINALIZE_ATTEMPTS:
+                        _logger.error(
+                            f'Finalize pending ops({tbl_id}): giving up after {num_non_db_retries} non-DB errors'
+                        )
                         return e
                     time.sleep(random.uniform(0.1, 0.5))
                     continue
@@ -1110,6 +1114,7 @@ class Catalog(CatalogBase):
                 self._clear_tv_cache(TableVersionKey(tbl_id, None))
 
             num_retries = 0
+            num_non_db_retries = 0
 
     def _pending_table_ops_update_stmt(
         self, tbl_id: UUID, op: TableOp, new_status: OpStatus, *, is_final_op: bool

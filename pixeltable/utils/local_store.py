@@ -6,12 +6,10 @@ import logging
 import os
 import re
 import shutil
-import time
 import urllib.parse
 import urllib.request
 import uuid
 from collections import defaultdict
-from collections.abc import Callable
 from pathlib import Path
 from uuid import UUID
 
@@ -21,35 +19,6 @@ from pixeltable import env, exceptions as excs
 from pixeltable.utils.object_stores import FileDestination, ObjectPath, ObjectStoreBase, StorageObjectAddress
 
 _logger = logging.getLogger(__name__)
-
-# WinError 32 (ERROR_SHARING_VIOLATION): another handle still has the file open. Retry briefly, then leave
-# the files for later cleanup so media deletion cannot block a request whose metadata drop already committed.
-_WINERROR_SHARING_VIOLATION = 32
-_DELETE_RETRY_TIMEOUT_S = 5.0
-_DELETE_RETRY_SLEEP_S = 0.2
-
-
-def _is_winerror_sharing_violation(exc: BaseException) -> bool:
-    return isinstance(exc, PermissionError) and getattr(exc, 'winerror', None) == _WINERROR_SHARING_VIOLATION
-
-
-def _retry_locked_delete(action: Callable[[], None], path: Path | str) -> None:
-    """Run action, retrying WinError 32 for a bounded time; log and return if the file stays locked."""
-    deadline = time.monotonic() + _DELETE_RETRY_TIMEOUT_S
-    while True:
-        try:
-            action()
-            return
-        except PermissionError as exc:
-            if not _is_winerror_sharing_violation(exc):
-                raise
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                _logger.warning(
-                    'Could not delete %s because it is in use by another process; leaving for later cleanup', path
-                )
-                return
-            time.sleep(min(_DELETE_RETRY_SLEEP_S, remaining))
 
 
 class LocalStore(ObjectStoreBase):
@@ -234,12 +203,8 @@ class LocalStore(ObjectStoreBase):
         if tbl_version is None:
             # Remove the entire folder for this table id.
             path = self.__base_dir / table_prefix
-
-            def _rmtree() -> None:
-                if path.exists():
-                    shutil.rmtree(path)
-
-            _retry_locked_delete(_rmtree, path)
+            if path.exists():
+                shutil.rmtree(path)
             return None
         else:
             # Remove only the elements for the specified tbl_version.
@@ -247,14 +212,7 @@ class LocalStore(ObjectStoreBase):
                 str(self.__base_dir / table_prefix) + f'/**/{table_prefix}_*_{tbl_version}_*', recursive=True
             )
             for p in paths:
-
-                def _remove(path: str = p) -> None:
-                    try:
-                        os.remove(path)
-                    except FileNotFoundError:
-                        return
-
-                _retry_locked_delete(_remove, p)
+                os.remove(p)
             return len(paths)
 
     def count(self, tbl_id: UUID | None, tbl_version: int | None = None) -> int:
