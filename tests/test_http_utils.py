@@ -90,7 +90,13 @@ class TestHttpUtils:
         exc = DummyError('You are being rate limited')
         assert is_retryable_error(exc) == (True, None)
 
+        exc = DummyError('Connection errors: 3')
+        assert is_retryable_error(exc) == (True, None)
+
         # 429 appears in the string, but not as a word
+        exc = DummyError('Expecting value: line 1 column 1430 (char 1429)')
+        assert is_retryable_error(exc) == (False, None)
+
         exc = DummyError('Not authorized for arn:aws:bedrock:us-west-2:842915429301:async-invoke/a1b2c3d4e5f6')
         assert is_retryable_error(exc) == (False, None)
 
