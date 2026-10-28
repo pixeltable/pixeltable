@@ -791,6 +791,19 @@ class TestExprs:
         t.insert([{'j': {'mean': 1.5}}])
         assert t.select(t.m).collect()['m'] == [1.5]
 
+        # in a query, j.mean fails when the query is built, also behind astype() or inside a dict
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.select(m=t.j.mean.astype(pxt.Float))
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.select(x={'m': t.j.mean})
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.where(t.j.mean.astype(pxt.Float) > 1)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+
+            @pxt.query
+            def means(x: float) -> pxt.Query:
+                return t.where(t.m > x).select(m=t.j.mean.astype(pxt.Float))
+
         TableModel = pxt.model_base()  # noqa: N806
 
         class Stats(TableModel, name='stats'):

@@ -511,15 +511,8 @@ class Column:
         method_ref = next(self._value_expr.subexprs(expr_class=exprs.MethodRef), None)
         # a leftover MethodRef (that didn't get transformed into a FunctionCall of a method) is an error
         if method_ref is not None:
-            json_hint = (
-                f', or use {method_ref.base_expr}[{method_ref.method_name!r}] for the JSON field'
-                if method_ref.base_expr.col_type.is_json_type()
-                else ''
-            )
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_EXPRESSION,
-                f'Column {self.name!r}: {method_ref} is the method {method_ref.method_name}(); call it to get a value'
-                f'{json_hint}.',
+                excs.ErrorCode.INVALID_EXPRESSION, f'Column {self.name!r}: {method_ref.uncalled_msg()}'
             )
         self._value_expr.validate_storable(f'Computed column {self.name!r}')
         for e in self._value_expr.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):

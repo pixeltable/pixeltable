@@ -49,6 +49,15 @@ class MethodRef(Expr):
         result.is_method_call = True
         return result
 
+    def uncalled_msg(self) -> str:
+        """The error message for using this method reference as a value instead of calling it."""
+        json_hint = (
+            f', or use {self.base_expr}[{self.method_name!r}] for the JSON field'
+            if self.base_expr.col_type.is_json_type()
+            else ''
+        )
+        return f'{self} is the method {self.method_name}(); call it to get a value{json_hint}.'
+
     def _equals(self, other: 'MethodRef') -> bool:
         return self.base_expr.id == other.base_expr.id and self.method_name == other.method_name
 

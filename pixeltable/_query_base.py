@@ -459,6 +459,7 @@ class QueryBase(ABC):
             expr = exprs.Expr.from_object(raw_expr)
             if expr is None:
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression: {raw_expr}')
+            self._check_method_refs(expr)
             if expr.col_type.is_invalid_type() and not (isinstance(expr, exprs.Literal) and expr.val is None):
                 raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid type: {raw_expr}')
             if len(self._from_clause.tbls) == 1 and self._from_clause.is_local:
@@ -504,6 +505,11 @@ class QueryBase(ABC):
             offset=self.offset_val,
         )
 
+    def _check_method_refs(self, expr: exprs.Expr) -> None:
+        method_ref = next(expr.subexprs(expr_class=exprs.MethodRef), None)
+        if method_ref is not None:
+            raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, method_ref.uncalled_msg())
+
     def where(self, pred: exprs.Expr) -> Self:
         """Filter rows based on a predicate.
 
@@ -536,6 +542,7 @@ class QueryBase(ABC):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_EXPRESSION, f'where() expects a Pixeltable expression; got: {pred}'
             )
+        self._check_method_refs(pred)
         if not pred.col_type.is_bool_type():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
