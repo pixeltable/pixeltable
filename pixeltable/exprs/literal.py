@@ -51,6 +51,10 @@ class Literal(Expr):
         """True if val is a dict, list, ndarray or image, which a function can modify in place."""
         return isinstance(self.val, (dict, list, np.ndarray, PIL.Image.Image))
 
+    def defensive_copy(self) -> Any:
+        """A defensive copy of val: a deep copy if val is mutable, val itself otherwise."""
+        return copy.deepcopy(self.val) if self.has_mutable_val else self.val
+
     def default_column_name(self) -> str | None:
         return 'Literal'
 
@@ -87,8 +91,7 @@ class Literal(Expr):
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         # this will be called, even though sql_expr() does not return None
-        # each row gets its own copy of a mutable val
-        data_row[self.slot_idx] = copy.deepcopy(self.val) if self.has_mutable_val else self.val
+        data_row[self.slot_idx] = self.val
 
     def _as_dict(self) -> dict:
         if self.col_type.is_timestamp_type():

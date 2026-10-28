@@ -723,9 +723,13 @@ class TestFunction:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'prompt': pxt.String, 'grp': pxt.Int})
         t.add_computed_column(out=pop_max_tokens(t.prompt, model_kwargs={'max_tokens': 5}))
+        # an equal constant in another call of the same row
+        t.add_computed_column(upper_out=pop_max_tokens(t.prompt.upper(), model_kwargs={'max_tokens': 5}))
         t.insert([{'prompt': 'a', 'grp': 0}, {'prompt': 'b', 'grp': 0}, {'prompt': 'c', 'grp': 1}])
         t.insert([{'prompt': 'd', 'grp': 1}])
-        assert [r['out'] for r in t.order_by(t.prompt).collect()] == ['a:5', 'b:5', 'c:5', 'd:5']
+        res = t.order_by(t.prompt).collect()
+        assert [r['out'] for r in res] == ['a:5', 'b:5', 'c:5', 'd:5']
+        assert [r['upper_out'] for r in res] == ['A:5', 'B:5', 'C:5', 'D:5']
 
         res = t.order_by(t.prompt).select(out=pop_max_tokens(t.prompt, model_kwargs={'max_tokens': 7})).collect()
         assert [r['out'] for r in res] == ['a:7', 'b:7', 'c:7', 'd:7']

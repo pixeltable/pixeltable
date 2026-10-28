@@ -471,7 +471,7 @@ class FunctionCall(Expr):
         args: list[Any] = []
         parameters_by_pos = self.fn.signature.parameters_by_pos
         for idx in self.arg_idxs:
-            val = data_row[self.components[idx].slot_idx]
+            val = self._arg_val(data_row, idx)
             if (
                 val is None
                 and parameters_by_pos[idx].kind
@@ -488,7 +488,7 @@ class FunctionCall(Expr):
         for param_name, idx in self.kwarg_idxs.items():
             if param_name in init_param_names:
                 continue
-            val = data_row[self.components[idx].slot_idx]
+            val = self._arg_val(data_row, idx)
             if (
                 val is None
                 and parameters[param_name].kind
@@ -499,6 +499,13 @@ class FunctionCall(Expr):
             kwargs[param_name] = val
 
         return args, kwargs
+
+    def _arg_val(self, data_row: DataRow, component_idx: int) -> Any:
+        component = self.components[component_idx]
+        if isinstance(component, Literal) and not self.fn.is_builtin:
+            # a non-builtin function might modify its argument, and all rows and calls share a Literal's val
+            return component.defensive_copy()
+        return data_row[component.slot_idx]
 
     def get_param_values(self, param_names: Sequence[str], data_rows: list[DataRow]) -> list[dict[str, Any]]:
         """
