@@ -404,6 +404,7 @@ class Catalog(CatalogBase):
         convert_db_excs: bool = True,
         finalize_pending_ops: bool = True,
         isolation_level: Literal['READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'] | None = None,
+        max_xact_retries: int | None = None,
     ) -> Iterator[sql.Connection]:
         """
         Return a context manager that yields a connection to the database. Idempotent.
@@ -419,6 +420,7 @@ class Catalog(CatalogBase):
         - if finalize_pending_ops == True and a PendingTableOpsError is raised, finalizes pending ops and retries
         - this needs to be done in a retry loop, because Postgres can abort the transaction
           (SerializationFailure, LockNotAvailable)
+        - max_xact_retries caps those retries; None uses `_MAX_RETRIES` (-1, unlimited)
         - for that reason, we do all lock acquisition prior to doing any real work (eg, compute column values),
           to minimize the probability of losing that work due to a forced abort
 
@@ -437,6 +439,7 @@ class Catalog(CatalogBase):
             return
 
         num_retries = 0
+        retry_limit = _MAX_RETRIES if max_xact_retries is None else max_xact_retries
         pending_ops_tbl_id: UUID | None = None
         has_exc = False  # True if we exited the 'with ...begin_xact()' block with an exception
         while True:
@@ -491,7 +494,7 @@ class Catalog(CatalogBase):
                         except sql_exc.DBAPIError as e:
                             # Handle retriable errors
                             has_exc = True
-                            if _is_retryable_exc(e) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
+                            if _is_retryable_exc(e) and (num_retries < retry_limit or retry_limit == -1):
                                 _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
                                 num_retries += 1
                                 time.sleep(random.uniform(0.1, 0.5))
@@ -882,7 +885,12 @@ class Catalog(CatalogBase):
             self._get_tbl_version(key)
 
     def _roll_forward(self) -> None:
-        """Finalize pending ops recorded this call and any table still in ROLLFORWARD or ROLLBACK."""
+        """Finalize pending ops this statement recorded.
+
+        Ids in `_roll_forward_ids` use the usual give-up and lock retry. Other ROLLFORWARD/ROLLBACK tables
+        get one x-lock attempt and one non-DB attempt; LockNotAvailable or InternalError leaves those ops pending.
+        """
+        own_ids = list(self._roll_forward_ids)
         with self.begin_xact(for_write=False, finalize_pending_ops=False) as conn:
             rows = conn.execute(
                 sql.select(schema.Table.id).where(
@@ -891,15 +899,25 @@ class Catalog(CatalogBase):
                     )
                 )
             ).all()
-        self._roll_forward_ids.update(row[0] for row in rows)
-        for tbl_id in list(self._roll_forward_ids):
+        reloaded = [row[0] for row in rows if row[0] not in self._roll_forward_ids]
+        for tbl_id in own_ids:
             exc = self._finalize_pending_ops(tbl_id)
             if exc is not None:
                 raise excs.InternalError(
                     excs.ErrorCode.INTERNAL_ERROR, f'Table operation was aborted with\n{exc!s}'
                 ) from exc
+        for tbl_id in reloaded:
+            try:
+                exc = self._finalize_pending_ops(tbl_id, max_non_db_attempts=1, max_xact_retries=0)
+            except (excs.Error, sql_exc.DBAPIError) as e:
+                _logger.error(f'Finalize pending ops({tbl_id}): leaving it pending: {e}')
+                continue
+            if exc is not None:
+                _logger.error(f'Finalize pending ops({tbl_id}): another statement aborted with {exc}')
 
-    def _finalize_pending_ops(self, tbl_id: UUID) -> Exception | None:
+    def _finalize_pending_ops(
+        self, tbl_id: UUID, *, max_non_db_attempts: int | None = None, max_xact_retries: int | None = None
+    ) -> Exception | None:
         """
         Finalizes all pending ops for the given table, and clears the table version cache for that table.
 
@@ -916,10 +934,13 @@ class Catalog(CatalogBase):
         - when done, deletes all table ops and resets tbl_state to LIVE
 
         If an abortable statement is rolled back, that exception is returned. Persistent non-DB failures while
-        continuing rollforward or rollback are retried up to `_MAX_NON_DB_FINALIZE_ATTEMPTS` times, then raised as
-        InternalError; the pending ops remain. PendingOpsErrors encountered during finalization are dealt with
-        recursively.
+        continuing rollforward or rollback are retried up to `max_non_db_attempts` times (default
+        `_MAX_NON_DB_FINALIZE_ATTEMPTS`), then raised as InternalError; the pending ops remain. `max_xact_retries`
+        caps SerializationFailure/LockNotAvailable retries (default `_MAX_RETRIES`). PendingOpsErrors encountered
+        during finalization are dealt with recursively.
         """
+        attempt_limit = _MAX_NON_DB_FINALIZE_ATTEMPTS if max_non_db_attempts is None else max_non_db_attempts
+        xact_retry_limit = _MAX_RETRIES if max_xact_retries is None else max_xact_retries
         num_retries = 0
         num_non_db_retries = 0
         is_rollback = False
@@ -939,7 +960,11 @@ class Catalog(CatalogBase):
             try:
                 with (
                     self.begin_xact(
-                        for_write=True, write_tbl_ids=[tbl_id], convert_db_excs=False, finalize_pending_ops=False
+                        for_write=True,
+                        write_tbl_ids=[tbl_id],
+                        convert_db_excs=False,
+                        finalize_pending_ops=False,
+                        max_xact_retries=max_xact_retries,
                     ) as conn,
                     self._allow_tbl_md_read(),
                 ):
@@ -1057,7 +1082,9 @@ class Catalog(CatalogBase):
                 # - finalize the dependency first, then continue with this table
                 # - recursion is bounded by the dependency DAG of stored expressions
                 # - PendingTableOpsError does not propagate outside
-                other_exc = self._finalize_pending_ops(e.tbl_id)
+                other_exc = self._finalize_pending_ops(
+                    e.tbl_id, max_non_db_attempts=max_non_db_attempts, max_xact_retries=max_xact_retries
+                )
                 if other_exc is not None:
                     return other_exc
                 continue
@@ -1068,6 +1095,8 @@ class Catalog(CatalogBase):
                 # InFailedSqlTransaction is specific to finalizing a multi-op statement: an earlier op in the
                 # same transaction failed and poisoned it, so the current op needs a fresh transaction.
                 if _is_retryable_exc(e) or isinstance(e.orig, psycopg.errors.InFailedSqlTransaction):
+                    if xact_retry_limit != -1 and num_retries >= xact_retry_limit:
+                        raise
                     num_retries += 1
                     _logger.debug(f'Finalize pending ops({tbl_id}): retriable error: {e.orig} of type {type(e.orig)}')
                     log_msg: str
@@ -1099,7 +1128,11 @@ class Catalog(CatalogBase):
                     # we got an error for the last op and can abort this statement: switch to rollback mode
                     exc = e
                     with self.begin_xact(
-                        for_write=True, write_tbl_ids=[tbl_id], convert_db_excs=False, finalize_pending_ops=False
+                        for_write=True,
+                        write_tbl_ids=[tbl_id],
+                        convert_db_excs=False,
+                        finalize_pending_ops=False,
+                        max_xact_retries=max_xact_retries,
                     ) as conn:
                         stmt = (
                             sql.update(schema.Table)
@@ -1110,7 +1143,7 @@ class Catalog(CatalogBase):
                         assert status.rowcount == 1
                 else:
                     num_non_db_retries += 1
-                    if num_non_db_retries >= _MAX_NON_DB_FINALIZE_ATTEMPTS:
+                    if num_non_db_retries >= attempt_limit:
                         _logger.error(
                             f'Finalize pending ops({tbl_id}): giving up after {num_non_db_retries} non-DB errors: '
                             f'{e} of type {type(e)}',

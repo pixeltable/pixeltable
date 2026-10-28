@@ -191,7 +191,14 @@ class TestCatalog:
             live = conn.execute(sql.select(sql.func.count()).where(schema.Table.id == tbl_id)).scalar()
             assert live == 1
 
-        # Later DDL reloads persisted ROLLFORWARD ids and finishes DeleteTableMediaFilesOp.
+        # Reloaded ROLLFORWARD ids get one non-DB attempt; this statement still commits.
+        pxt.create_table('other', {'img': pxt.Image | None})
+        assert 'other' in pxt.list_tables()
+        assert n_rmtree == 4
+        with get_runtime().begin_xact() as conn:
+            pending = conn.execute(sql.select(sql.func.count()).where(schema.PendingTableOp.tbl_id == tbl_id)).scalar()
+            assert pending > 0
+
         monkeypatch.setattr(local_store_mod.shutil, 'rmtree', orig_rmtree)
         pxt.create_table('media_tbl', {'img': pxt.Image | None})
         with get_runtime().begin_xact() as conn:
