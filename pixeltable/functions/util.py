@@ -1,3 +1,6 @@
+import ctypes
+import gc
+import platform
 from typing import TypedDict
 
 import av
@@ -58,6 +61,17 @@ def clear_model_caches() -> None:
         yolox._processor_cache,
     ):
         cache.clear()
+
+
+def release_process_memory() -> None:
+    """Drop cached models and return freed heap to the OS.
+
+    glibc keeps freed arenas unless malloc_trim() runs.
+    """
+    clear_model_caches()
+    gc.collect()
+    if platform.libc_ver()[0] == 'glibc':
+        ctypes.CDLL('libc.so.6').malloc_trim(0)
 
 
 class ImageMetadata(TypedDict, total=False):

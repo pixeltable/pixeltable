@@ -147,7 +147,7 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
                     'ubuntu-large',
                     '3.11',
                     pytest_options=VERY_EXPENSIVE_PYTEST,
-                    pytest_n='8',
+                    pytest_n='8',  # -n logical OOMs ubuntu-large
                     # this configuration's runner has been shutting down mid-run; log memory to see whether it runs out
                     pre_test_cmd='./scripts/log-memory.sh 15 &',
                 )

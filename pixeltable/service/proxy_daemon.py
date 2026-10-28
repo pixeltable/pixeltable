@@ -34,8 +34,8 @@ from pixeltable import exceptions as excs
 from pixeltable.catalog import fold_identifier
 from pixeltable.config import Config
 from pixeltable.env import Env, validate_db_name
+from pixeltable.functions.util import release_process_memory
 from pixeltable.runtime import get_runtime, reset_runtime
-from pixeltable.utils.memory import release_process_memory
 from pixeltable.utils.process import is_pid, pid_alive
 
 from . import proxy_dispatch

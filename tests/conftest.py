@@ -28,12 +28,12 @@ from pixeltable import exprs, functions as pxtf
 from pixeltable.config import Config
 from pixeltable.env import LOG_FMT_STR, Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
+from pixeltable.functions.util import release_process_memory
 from pixeltable.metadata.schema import base_metadata
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.service import proxy_daemon
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
-from pixeltable.utils.memory import release_process_memory
 from pixeltable.utils.sql import add_option_to_db_url
 
 from .utils import (
