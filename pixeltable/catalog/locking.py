@@ -115,9 +115,8 @@ def tbl_lock_mode(op_class: TblOpClass, is_data_versioned: bool) -> TblLockMode:
 def should_wait(op_class: TblOpClass, any_data_versioned: bool) -> bool:
     """Return whether to wait for locks that are not immediately available, instead of failing.
 
-    The policy applies to the entire lock set. Data reads and writes fail fast when every locked table is operational.
-    If any table is data-versioned, they wait for all required locks. Schema changes and pending-op finalization
-    always wait.
+    Data reads and writes wait only if `any_data_versioned` is True. Schema changes and pending-op finalization always
+    wait.
     """
     if op_class in (TblOpClass.MD_WRITE, TblOpClass.FINALIZE):
         return True
@@ -150,7 +149,8 @@ class LockSet:
     tbl_targets: tuple[LockTarget, ...] = ()
     # dirs, sorted by directory path
     dir_ids: tuple[UUID, ...] = ()
-    # whether to wait for locks that are not immediately available; if False, raise LockNotAvailableError
+    # whether to wait for locks that are not immediately available; if False, raise LockNotAvailableError.
+    # Applies to every lock in the set: True if any table requires waiting.
     wait: bool = True
 
     def __post_init__(self) -> None:
