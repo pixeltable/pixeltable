@@ -1126,6 +1126,20 @@ class TestFastAPI:
             with pytest.raises(ValueError, match='must be an HTTPS origin'):
                 client.post('/bg', json={'id': 2})
 
+    def test_error_response_retry_after(self) -> None:
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import _fastapi
+
+        e = pxt.exceptions.ServiceUnavailableError(
+            pxt.exceptions.ErrorCode.DATABASE_UNAVAILABLE, 'down', retry_after=2.5
+        )
+        response = _fastapi._http_exception(e)
+        assert response.status_code == 503 and response.detail == e.to_dict()
+        # Retry-After takes whole seconds, so a fractional wait rounds up
+        assert response.headers == {'Retry-After': '3'}
+        no_hint = pxt.exceptions.ServiceUnavailableError(pxt.exceptions.ErrorCode.DATABASE_UNAVAILABLE, 'down')
+        assert _fastapi._http_exception(no_hint).headers is None
+
     @pytest.mark.db_roots(
         'local', reason='a background job computes in the router process only for an in-process catalog'
     )
@@ -1146,7 +1160,7 @@ class TestFastAPI:
         refused = client.post('/bg', json={'x': 2, 'secs': 0.0})
         assert refused.status_code == 503 and refused.headers['Retry-After'] == '5', refused.text
         assert refused.json()['detail'] == {
-            'error_code': 'SERVICE_BUSY',
+            'error_code': 'JOB_REFUSED',
             'message': 'the service instance is at its limit of 2 unfinished background jobs',
             'retryable': True,
             'retry_after': 5,
@@ -1341,8 +1355,12 @@ class TestFastAPI:
             assert wait_until(lambda: router._draining, 5.0)
             refused = c.post('/bg', json={'x': 2, 'secs': 0.0})
             assert refused.status_code == 503 and refused.headers['Retry-After'] == '1', refused.text
-            assert refused.json()['detail']['error_code'] == 'SERVICE_BUSY'
-            assert refused.json()['detail']['message'] == 'the service instance is shutting down'
+            assert refused.json()['detail'] == {
+                'error_code': 'JOB_REFUSED',
+                'message': 'the service instance is shutting down',
+                'retryable': True,
+                'retry_after': 1,
+            }
             await_background_job(c, job)
             assert wait_until(lambda: served.server.should_exit, 5.0)
 
