@@ -3434,6 +3434,8 @@ class TestTableModel:
         assert t.select(t.derived, t.derived2).collect()[0] == {'derived': 2, 'derived2': True}
         assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(root).values())
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_update_all_aggregate_query_column(self, db_root: DatabaseRoot) -> None:
         """A column of one model that aggregates over another model's rows, via an ungrouped `@pxt.query`."""
         p = db_root.make_catalog_path
