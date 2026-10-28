@@ -16,8 +16,6 @@ from requests.adapters import HTTPAdapter, Retry
 from tenacity import retry_if_exception
 from urllib3.connection import HTTPConnection
 
-from pixeltable import exceptions as excs
-
 _logger = logging.getLogger(__name__)
 
 # maximum number of connections kept open per host, sized for concurrent calls from multiple threads
@@ -135,13 +133,9 @@ def redact_url(url: str) -> str:
 
 def is_retryable_error(exc: Exception) -> tuple[bool, float | None]:
     """
-    Attempts to guess if the exception indicates a retryable error. If that is the case, returns True and the retry
-    delay in seconds.
-
-    A Pixeltable `Error` is classified by its error code.
+    Attempts to guess if the exception indicates a retryable error.
+    If that is the case, returns True and the retry delay in seconds.
     """
-    if isinstance(exc, excs.Error):
-        return exc.is_retryable, exc.retry_after if exc.is_retryable else None
 
     # Check for HTTP status TOO_MANY_REQUESTS in various exception classes.
     # We look for attributes that contain status codes, instead of checking the type of the exception,

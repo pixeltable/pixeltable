@@ -1,12 +1,15 @@
 # type: ignore
 
+from typing import Callable
+
 import pytest
 
 import pixeltable as pxt
 from pixeltable.runtime import get_runtime
+from pixeltable.utils import fault_injection
 from pixeltable.utils.fault_injection import FaultLocation
 from tests.fault_injection import ExceptionFault
-from tests.utils import pxt_raises, validate_update_status
+from tests.utils import pxt_raises
 
 pytestmark = pytest.mark.db_roots('local', reason='fault-injection test of the rate-limit scheduler internals')
 
@@ -22,12 +25,23 @@ async def _rate_limited_udf(x: int) -> int:  # noqa: RUF029
 
 @pxt.udf
 async def _model_udf(x: int, *, model_id: str) -> int:  # noqa: RUF029
+    fault_injection.process_fault(FaultLocation.TEST)
     return x + 1
 
 
 @_model_udf.resource_pool
 def _(model_id: str) -> str:
     return f'request-rate:test:{model_id}'
+
+
+def _aws_throttle_exception() -> Exception:
+    from botocore.exceptions import ClientError
+
+    response = {
+        'Error': {'Code': 'ThrottlingException', 'Message': 'Please slow down'},
+        'ResponseMetadata': {'HTTPStatusCode': 429, 'HTTPHeaders': {}},
+    }
+    return ClientError(response, 'InvokeModel')
 
 
 class TestSchedulers:
@@ -48,20 +62,30 @@ class TestSchedulers:
 
         fault.assert_count(1)
 
-    def test_request_rate_scheduler_retries_aws_throttle(self, uses_db: None, fault_injection: None) -> None:
-        """AWS throttle is retried."""
-        from botocore.exceptions import ClientError
-
+    @pytest.mark.parametrize(
+        ('error', 'is_retried'),
+        [
+            (_aws_throttle_exception, True),
+            (lambda: pxt.ExternalServiceError(pxt.ErrorCode.PROVIDER_ERROR, 'Server processing failed'), True),
+            (lambda: pxt.ExternalServiceError(pxt.ErrorCode.RATE_LIMITED, 'Slow down', retry_after=1), True),
+            (lambda: pxt.ExternalServiceError(pxt.ErrorCode.PROVIDER_TIMEOUT, 'Job timed out after 600s'), False),
+            (
+                lambda: pxt.ExternalServiceError(
+                    pxt.ErrorCode.PROVIDER_BAD_REQUEST, 'Too many requests in one batch: 120 (the maximum is 100)'
+                ),
+                False,
+            ),
+        ],
+    )
+    def test_request_rate_scheduler_retries(
+        self, uses_db: None, fault_injection: None, error: Callable[[], Exception], is_retried: bool
+    ) -> None:
         t = pxt.create_table('test_request_rate', {'x': pxt.Int | None})
         t.add_computed_column(y=_model_udf(t.x, model_id='vendor.model-v1:0'))
 
-        response = {
-            'Error': {'Code': 'ThrottlingException', 'Message': 'Please slow down'},
-            'ResponseMetadata': {'HTTPStatusCode': 429, 'HTTPHeaders': {}},
-        }
-        fault = ExceptionFault(ClientError(response, 'InvokeModel'))
-        get_runtime().fault_manager.inject_fault(FaultLocation.SCHEDULER_REQUEST_RATE_AEXEC, fault)
-
-        validate_update_status(t.insert([{'x': 1}]), expected_rows=1)
+        fault = ExceptionFault(error())
+        get_runtime().fault_manager.inject_fault(FaultLocation.TEST, fault)
+        status = t.insert([{'x': 1}], on_error='ignore')
         fault.assert_count(1)
-        assert t.select(t.y).collect()['y'] == [2]
+        assert status.num_excs == (0 if is_retried else 1)
+        assert t.select(t.y).collect()['y'] == ([2] if is_retried else [None])

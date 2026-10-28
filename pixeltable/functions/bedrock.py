@@ -263,7 +263,7 @@ async def _bedrock_async_invocation(
             await asyncio.sleep(_ASYNC_INVOCATION_POLL_INTERVAL_SECS)
             if time.monotonic() > deadline:
                 raise pxt.ExternalServiceError(
-                    pxt.ErrorCode.PROVIDER_JOB_TIMEOUT,
+                    pxt.ErrorCode.PROVIDER_TIMEOUT,
                     f'Async invocation {invocation_id} timed out after {_ASYNC_INVOCATION_TIMEOUT_SECS}s',
                     provider='bedrock',
                 )
