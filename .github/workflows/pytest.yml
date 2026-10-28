@@ -244,7 +244,7 @@ jobs:
         # configurations.
         # --basetemp pins pytest's temp root dir so that the Archive step below works on all platforms
         # -n comes from the matrix (logical = one worker per vCPU; with psutil, -n auto counts physical cores:
-        # 2 on windows-2025). standard++ uses a lower cap so ubuntu-large stays under ~75% RAM (PXT-1716).
+        # 2 on windows-2025)
         run: |
           echo 'Running tests with options: ${{ matrix.pytest-options }}'
           echo 'xdist workers             : ${{ matrix.pytest-n }}'

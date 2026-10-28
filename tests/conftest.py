@@ -95,8 +95,6 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 def pytest_runtest_setup(item: pytest.Item) -> None:
     current_test = os.environ.get('PYTEST_CURRENT_TEST')
     _logger.info(f'Running Pixeltable test: {current_test}')
-    # always trim, not only when a model cache is populated: expensive tests (inlined objects, image tables)
-    # leave gigabytes in the glibc heap, and #1730's early-return skipped malloc_trim for those (PXT-1716)
     release_process_memory()
     _release_proxy_daemon_memory()
 
@@ -105,8 +103,7 @@ def _release_proxy_daemon_memory() -> None:
     """Ask this worker's session-scoped proxy daemon to drop caches and return heap, if it is running.
 
     The daemon is a separate process, so the worker's own release_process_memory() does not reach it.
-    Skip until Env is up so this hook does not initialize Config before init_env. Best-effort: a missing
-    or non-test-mode daemon is a no-op, and a request failure must not fail the test.
+    Skip until Env is up so this hook does not initialize Config before init_env.
     """
     if Env._instance is None:
         return

@@ -38,6 +38,28 @@ def normalize_image_mode(image: PIL.Image.Image) -> PIL.Image.Image:
     return image
 
 
+def clear_model_caches() -> None:
+    """Drop the in-process function-module model caches.
+
+    llama_cpp.cleanup() closes llama.cpp instances first so their native allocations are released.
+    """
+    from pixeltable.functions import huggingface, llama_cpp, vllm, whisper, whisperx, yolox
+
+    llama_cpp.cleanup()
+    for cache in (
+        huggingface._model_cache,
+        huggingface._processor_cache,
+        vllm._model_cache,
+        whisper._model_cache,
+        whisperx._model_cache,
+        whisperx._alignment_model_cache,
+        whisperx._diarization_model_cache,
+        yolox._model_cache,
+        yolox._processor_cache,
+    ):
+        cache.clear()
+
+
 class ImageMetadata(TypedDict, total=False):
     width: int
     height: int

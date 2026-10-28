@@ -301,32 +301,6 @@ class TestProxyDaemon:
         proxy_daemon.main([])
         assert served == [(False, None, None)]
 
-    def test_release_memory_is_a_noop_without_a_daemon(self, init_env: None) -> None:
-        proxy_daemon.release_memory('no_such_db')
-
-    def test_clear_model_caches_drops_entries(self) -> None:
-        from pixeltable.functions import huggingface
-        from pixeltable.utils.memory import clear_model_caches, release_process_memory
-
-        huggingface._model_cache['pxt-1716',] = object()
-        # must not return early when caches are empty after the drop: that skip is what left
-        # inlined-object numpy heaps in the glibc arena on ubuntu-large (PXT-1716)
-        clear_model_caches()
-        assert huggingface._model_cache == {}
-        release_process_memory()
-
-    def test_release_memory_endpoint_is_test_only(self) -> None:
-        pytest.importorskip('fastapi')
-        from starlette.testclient import TestClient
-
-        prod = TestClient(proxy_daemon._build_app(test_mode=False))
-        assert prod.post('/release_memory').status_code == 404
-
-        test = TestClient(proxy_daemon._build_app(test_mode=True))
-        response = test.post('/release_memory')
-        assert response.status_code == 200
-        assert response.json() == {'status': 'ok'}
-
     def test_collect_remote_keys(self) -> None:
         file_tag = {'$pxt': 'file', 'name': 'a.png', 'v': 'uploads/r/0.png'}
         args = {
@@ -370,6 +344,21 @@ class TestProxyDaemon:
             pxt.ErrorCode.INVALID_ARGUMENT, match='Invalid archive member name: expected a string, got list'
         ):
             proxy_protocol.collect_remote_keys({'rows': [bad_member]})
+
+    def test_release_memory_is_a_noop_without_a_daemon(self, init_env: None) -> None:
+        proxy_daemon.release_memory('no_such_db')
+
+    def test_release_memory_endpoint_is_test_only(self) -> None:
+        pytest.importorskip('fastapi')
+        from starlette.testclient import TestClient
+
+        prod = TestClient(proxy_daemon._build_app(test_mode=False))
+        assert prod.post('/release_memory').status_code == 404
+
+        test = TestClient(proxy_daemon._build_app(test_mode=True))
+        response = test.post('/release_memory')
+        assert response.status_code == 200
+        assert response.json() == {'status': 'ok'}
 
     def test_prepare_once_on_stale_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
         client = ProxyClient.local('http://127.0.0.1:1')

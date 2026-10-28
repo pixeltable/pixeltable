@@ -72,22 +72,6 @@ ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 TRIGGERS = ('pull_request', 'merge_group', 'schedule', 'workflow_dispatch')
 
 
-# ubuntu-large is a 16 vCPU / ~64 GB host (confirmed by standard++ logs: gw0-gw15, used+available ~64300 MB).
-# -n logical would start 16 workers; each worker plus its proxy daemon can hold several GB, and standard++
-# has been exhausting the host (PXT-1716). Cap so expected peak stays under ~75% of RAM.
-UBUNTU_LARGE_VCPUS = 16
-UBUNTU_LARGE_MEM_GB = 64
-XDIST_WORKER_BUDGET_GB = 6
-
-
-def xdist_workers_for_host(*, vcpus: int, mem_gb: int, worker_budget_gb: int) -> int:
-    """Cap xdist workers so peak stays under ~75% of host RAM."""
-    return min(vcpus, mem_gb * 3 // 4 // worker_budget_gb)
-
-
-STANDARD_PP_XDIST_WORKERS = xdist_workers_for_host(
-    vcpus=UBUNTU_LARGE_VCPUS, mem_gb=UBUNTU_LARGE_MEM_GB, worker_budget_gb=XDIST_WORKER_BUDGET_GB
-)
 DEFAULT_XDIST_N = 'logical'  # one worker per vCPU (pytest-xdist; with psutil, -n auto counts physical cores)
 
 
@@ -163,7 +147,7 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
                     'ubuntu-large',
                     '3.11',
                     pytest_options=VERY_EXPENSIVE_PYTEST,
-                    pytest_n=str(STANDARD_PP_XDIST_WORKERS),
+                    pytest_n='8',
                     # this configuration's runner has been shutting down mid-run; log memory to see whether it runs out
                     pre_test_cmd='./scripts/log-memory.sh 15 &',
                 )
