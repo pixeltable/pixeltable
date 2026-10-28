@@ -88,7 +88,7 @@ class TestGeminiLocal:
         self._mock_response('blocked', monkeypatch)
         # generate_speech() is polymorphic, so this calls the single-voice overload's function directly
         single_voice = gemini.generate_speech.py_fns[0]
-        with pxt_raises(pxt.ErrorCode.PROVIDER_INVALID_RESPONSE, match='unexpected response structure'):
+        with pxt_raises(pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, match='unexpected response structure'):
             get_runtime().run_coro(single_voice('Say something.', model='gemini-test', voice='Kore'))
 
     def _mock_response(self, outcome: str, monkeypatch: pytest.MonkeyPatch) -> 'types.GenerateContentResponse':

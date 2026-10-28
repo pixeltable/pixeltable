@@ -290,7 +290,7 @@ async def _bedrock_async_invocation(
         keys = [obj['Key'] for obj in listed.get('Contents', [])]
         if not keys:
             raise pxt.ExternalServiceError(
-                pxt.ErrorCode.PROVIDER_INVALID_RESPONSE,
+                pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
                 f'No output found at {output_location}/{invocation_id} after job {invocation_id} completed',
                 provider='bedrock',
             )
@@ -298,7 +298,7 @@ async def _bedrock_async_invocation(
         result_key = next((k for k in keys if not k.endswith('manifest.json')), None)
         if result_key is None:
             raise pxt.ExternalServiceError(
-                pxt.ErrorCode.PROVIDER_INVALID_RESPONSE,
+                pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
                 f'No output file (only manifest) found for job {invocation_id}',
                 provider='bedrock',
             )

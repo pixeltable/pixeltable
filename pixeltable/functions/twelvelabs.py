@@ -149,7 +149,7 @@ async def embed(text: str, image: pxt.Image | None = None, *, model_name: str) -
         )
     if not res.data:
         raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_INVALID_RESPONSE,
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
             f"Didn't receive embedding for text: {text}\n{res}",
             provider='twelvelabs',
         )
@@ -174,7 +174,7 @@ async def _(image: pxt.Image, *, model_name: str) -> pxt.Array[np.float32] | Non
     )
     if not res.data:
         raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_INVALID_RESPONSE,
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
             f"Didn't receive embedding for image: {image}\n{res}",
             provider='twelvelabs',
         )
@@ -264,7 +264,7 @@ async def _embed_multi_input(
     )
     if not res.data or len(res.data) != 1 or len(res.data[0].embedding) != 512:
         raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_INVALID_RESPONSE,
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
             'Expected a single 512-dimensional embedding from Marengo 3.5.',
             provider='twelvelabs',
         )
@@ -356,7 +356,7 @@ async def _embed_av_content(
 
     if not res.data:
         raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_INVALID_RESPONSE,
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
             f"Didn't receive embedding for {input_type}: {file_path}\n{res}",
             provider='twelvelabs',
         )

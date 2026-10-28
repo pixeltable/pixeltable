@@ -171,7 +171,7 @@ class TestTwelveLabsLocal:
         from pixeltable.functions import twelvelabs
 
         mock_embeddings.return_value = SimpleNamespace(data=[SimpleNamespace(embedding=v) for v in vectors])
-        with pxt_raises(pxt.ErrorCode.PROVIDER_INVALID_RESPONSE, match='single 512-dimensional embedding'):
+        with pxt_raises(pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, match='single 512-dimensional embedding'):
             asyncio.run(twelvelabs.embed.py_fns[0](text='test', model_name='marengo3.5'))
 
     @pytest.mark.parametrize('model_name', ['marengo3.0', 'marengo3.5'])
