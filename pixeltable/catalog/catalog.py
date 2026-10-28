@@ -584,7 +584,8 @@ class Catalog(CatalogBase):
         Acquires locks on the specified write targets (including their mutable tree, if lock_mutable_tree is True), and
         updates self._x_locked_tbl_ids accordingly.
 
-        Refreshes the metadata cache for the read targets.
+        Refreshes the metadata cache for the read targets plus metadata for all tables referenced by the write targets'
+        columns.
 
         The order matters: TVPs are processed before tbl_ids in both groups so that ancestor-first validation
         (write_tvps -> write_tbl_ids -> read_tvps -> read_tbl_ids) is established before any unordered ID pass runs.
@@ -610,6 +611,14 @@ class Catalog(CatalogBase):
             self._acquire_path_locks(tbl=tvp, for_write=False, check_pending_ops=finalize_pending_ops)
         for tbl_id in read_tbl_ids:
             self._refresh_tbl_cache(tbl_id=tbl_id, check_pending_ops=finalize_pending_ops)
+
+        # _acquire_write_lock() loads the locked tables only if finalize_pending_ops is True
+        if finalize_pending_ops:
+            # load metadata for all tables referenced by the write targets
+            for tbl_id in x_locked_ids:
+                for ref_id in self._tbl_versions[TableVersionKey(tbl_id, None)].referenced_tbl_ids():
+                    if TableVersionKey(ref_id, None) not in self._tbl_versions:
+                        self._refresh_tbl_cache(tbl_id=ref_id)
 
         self._x_locked_tbl_ids = x_locked_ids
 

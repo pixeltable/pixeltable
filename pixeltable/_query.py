@@ -914,11 +914,6 @@ class Query(QueryBase):
         tbls: list[catalog.TablePath] = [
             catalog.TableVersionPath.from_key(catalog.TablePathKey.from_dict(tbl_dict)) for tbl_dict in d['tbls']
         ]
-        # load the referenced TableVersion instances now, while we're allowed to load metadata
-        for tbl in tbls:
-            assert isinstance(tbl, catalog.TableVersionPath)
-            for tvh in tbl.get_tbl_versions():
-                _ = tvh.get()
         join_clauses = [
             JoinClause(
                 join_type=JoinType[clause_dict['join_type']],

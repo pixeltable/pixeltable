@@ -808,7 +808,7 @@ class TestFunction:
         # Populate t (and hence v) with more rows than the limit, then verify that limit(20)
         # inside the query UDF is enforced when it runs as a view-column computation.
         t.insert([{'a': f's_{i}'} for i in range(30)])
-        # reload before each write below, so the write is the first to load v
+        # reload before the next three writes, so each one is the first to load v
         reload_catalog()
         retrieval = pxt.get_table(p('test/retrieval'))
         retrieval.insert(n=1)
@@ -825,8 +825,37 @@ class TestFunction:
         src_view = pxt.get_table(p('test/src_view'))
         assert len(src_view.select(src_view.result).collect()[0]['result']) == 10
 
+        # change the view's schema after loading retrieval
+        retrieval = pxt.get_table(p('test/retrieval'))
+        pxt.get_table(p('test/view')).add_column(extra=pxt.Int | None)
+        validate_update_status(retrieval.insert(n=2))
+        assert len(retrieval.where(retrieval.n == 2).select(retrieval.result).collect()[0]['result']) == 20
+
         reload_catalog()
         pxt.drop_dir(p('test'), force=True)
+
+    def test_query_over_own_view(self, db_root: DatabaseRoot) -> None:
+        """A computed column can query a view of its own table."""
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('test'))
+        t = pxt.create_table(p('test/tbl'), {'a': pxt.String | None})
+        v = pxt.create_view(p('test/view'), t)
+
+        @pxt.query
+        def retrieve() -> pxt.Query:
+            return v.select(v.a).limit(5)
+
+        t.add_computed_column(result=retrieve())
+        # the view's computed column references a column added to t after t.result
+        t.add_column(b=pxt.Int | None)
+        v = pxt.get_table(p('test/view'))
+        v.add_computed_column(copy_b=v.b)
+        t.insert(a='x', b=1)
+
+        reload_catalog()
+        t = pxt.get_table(p('test/tbl'))
+        t.insert(a='y', b=2)
+        assert t.where(t.a == 'y').select(t.result).collect()[0]['result'] == ['x']
 
     def test_query_with_limit(self, test_tbl: pxt.Table) -> None:
         """@pxt.query bodies that use limit() with differently-shaped limit arguments."""

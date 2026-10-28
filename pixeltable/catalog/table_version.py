@@ -2134,6 +2134,9 @@ class TableVersion:
         """Returns True if col is produced by an iterator (including the pos column)"""
         return col.is_iterator_col
 
+    def referenced_tbl_ids(self) -> set[UUID]:
+        return exprs.Expr.list_tbl_ids(col.value_expr for col in self.cols_by_id.values() if col.value_expr is not None)
+
     def iterator_columns(self) -> list[Column]:
         """Return all iterator-produced columns (including the pos column)"""
         # This is correct because self.cols_by_id is ordered by id (asc).
