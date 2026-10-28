@@ -15,6 +15,8 @@ import pixeltable as pxt
 from pixeltable import Query, catalog, exceptions as excs, exprs, func, telemetry, telemetry_schemas, type_system as ts
 from pixeltable.catalog import DirEntry, TablePath
 from pixeltable.catalog.globals import OnErrorParam, fold_identifier
+from pixeltable.catalog.model.definition import bind_query_templates
+from pixeltable.catalog.model.query import ModelQuery
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, RowDataTableDataConduit, TableDataConduit
@@ -1159,11 +1161,21 @@ def eval_udf(fn: pxt.Function, /, *args: Any, **kwargs: Any) -> Any:
             f'eval_udf(): {fn.name}() is an aggregate function, which needs rows; use it in a query',
         )
     args, kwargs = _local_media_args(fn, args, kwargs)
-    call = fn(*args, **kwargs)
+    call: exprs.Expr = fn(*args, **kwargs)
     if len(list(call.subexprs(exprs.ColumnRef))) > 0:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT, 'eval_udf(): the arguments must be Python values, not columns'
         )
+    if isinstance(fn, func.QueryTemplateFunction) and isinstance(fn.template_query, ModelQuery):
+        model_cls = fn.template_query.model_cls
+        catalog_dir = model_cls._catalog_dir
+        if catalog_dir is None:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'eval_udf(): {fn.name}() is declared over the model `{model_cls.__name__}`, which is not bound to '
+                'a table; call `bind_all()` on its TableModel base first',
+            )
+        call = bind_query_templates(call, catalog_dir)
     return call.eval_without_row()
 
 

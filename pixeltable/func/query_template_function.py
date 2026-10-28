@@ -120,18 +120,18 @@ class QueryTemplateFunction(Function):
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         # _collect() opens its own transaction; _acollect() requires one
         query, bound_args = self._query_and_args(args, kwargs)
-        return self._return_value(query, query._collect(args=bound_args))
+        return self._return_value(query._collect(args=bound_args))
 
     async def aexec(self, *args: Any, **kwargs: Any) -> Any:
         query, bound_args = self._query_and_args(args, kwargs)
-        return self._return_value(query, await query._acollect(args=bound_args))
+        return self._return_value(await query._acollect(args=bound_args))
 
     def _query_and_args(self, args: Sequence[Any], kwargs: dict[str, Any]) -> tuple[Query, dict[str, Any]]:
         """Return the query over a table and the argument of each parameter, with defaults applied."""
         from pixeltable._query import Query
-        from pixeltable.catalog.model.query import ModelQuery
 
         bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
+        # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
             {
                 param.name: param.default_value
@@ -139,24 +139,18 @@ class QueryTemplateFunction(Function):
                 if param.has_default() and param.name not in bound_args
             }
         )
-        query = self.template_query
-        if isinstance(query, ModelQuery):
-            # binding a model records the catalog directory of its table
-            catalog_dir = query.model_cls._catalog_dir
-            if catalog_dir is None:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Query UDF {self.name!r} is declared over the model `{query.model_cls.__name__}`, which is not '
-                    f'bound to a table; call `bind_all()` on its TableModel base first.',
-                )
-            query = query.bind(catalog_dir)
-        assert isinstance(query, Query)
-        return query, bound_args
+        # a template declared over a model has no table to read until bind_query_templates() replaces it
+        if not isinstance(self.template_query, Query):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Query UDF {self.name!r} is declared over a model rather than a table, so it cannot be evaluated.',
+            )
+        return self.template_query, bound_args
 
-    def _return_value(self, query: Query, result: ResultSet) -> Any:
+    def _return_value(self, result: ResultSet) -> Any:
         rows: list[Any] = list(result)
         if self.return_scalar:
-            col_name = next(iter(query.schema))
+            col_name = next(iter(self.template_query.schema))
             rows = [row[col_name] for row in rows]
         if self.single_row:
             assert len(rows) <= 1
