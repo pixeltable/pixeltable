@@ -8,8 +8,8 @@ Check every item marked `Fix` or `Redesign` against these traps:
 
 - **The "Implement Properly" Trap.** Did a reviewer or bot complain that a helper, fallback, state machine, or config path has an edge case? Check whether that mechanism is needed at all. If no hard requirement demands it, change the disposition from `Fix` to `Revert/Delete` rather than expanding the mechanism to handle the edge case.
 - **The Unverified Bot Premise.** Did an automated reviewer (Claude, Grok, Muse, Copilot) claim a null dereference, race, or contract mismatch without a concrete trigger? Trace the caller boundary. If upstream validation or types already make that state unrepresentable, change the disposition to `Dismiss` and cite the boundary `file:line`.
-- **Boundary Violation.** Does the proposed fix add a `try/except`, `isinstance` check, or null guard deep inside internal logic? Validate untrusted model JSON once at the record boundary in `claude_review_contract.py`, use `assert` for internal invariants, or delete the guard if the invariant already holds.
-- **High-Risk Escalation.** Never auto-dismiss findings touching security, authentication, tenant isolation, billing, or the review history marker and resolution proof without either a concrete `file:line` disproof or asking the user (`Ask`).
+- **Boundary Violation.** Does the proposed fix add a `try/except`, `isinstance` check, or null guard deep inside internal logic? Validate untrusted input once at the boundary that receives it, use `assert` for internal invariants, or delete the guard if the invariant already holds.
+- **High-Risk Escalation.** Never auto-dismiss findings touching security, authentication, tenant isolation, or billing without either a concrete `file:line` disproof or asking the user (`Ask`).
 
 ## 2. Diff Footprint & Reader-Load Gate
 
@@ -26,4 +26,4 @@ Inspect `git diff <merge-base>...HEAD` and `git diff <pre-fix-head>...HEAD`:
 - Audit all draft thread replies and summary prose against [`.claude/skills/articulate-the-abstraction/references/prose.md`](../../articulate-the-abstraction/references/prose.md):
   - Cut sycophancy ("Good catch", "You're right", "Thanks for pointing this out").
   - Use ASCII typography only (no em-dashes).
-  - Lead with the action or disproof and cite `file:line` ("Required a prior evidence path in `validate_resolution()` at `.github/scripts/claude_review_contract.py:241`." or "Not applicable: `verify_sources()` rejects a symlink at `.github/scripts/claude_review_contract.py:186`.").
+  - Lead with the action or disproof and cite `file:line` ("`review_json()` returns None when the fence does not parse, at `.github/scripts/post_claude_review.py:35`." or "Not applicable: `review_json()` already returns None for a fence that does not parse, at `.github/scripts/post_claude_review.py:35`.").

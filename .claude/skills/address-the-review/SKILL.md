@@ -24,6 +24,7 @@ Preserve unrelated work. Group the verified code changes so they can be one comm
 - Read the PR title, description, and every review summary and unresolved inline thread before editing any file:
   - Top-level reviews and summary comments (`## Claude review`, `From Grok`, `From Muse`, Copilot, and human reviews): `gh pr view <PR> --json title,body,baseRefOid,headRefOid,reviews,comments`
   - Inline review threads and their resolution status (`isResolved`, `path`, `line`, `diffHunk`, `comments`): query `reviewThreads` via `gh api graphql` or `gh api repos/<owner>/<repo>/pulls/<pr>/comments`.
+- A `## Claude review` is the model's review as GitHub stored it. There is no separate findings record to parse.
 - If the PR has already gone through one or more review-fix commits, inspect `git log --oneline <first-reviewed-sha>..HEAD` and `git diff <first-reviewed-sha>..HEAD` to see where previous fix rounds added complexity.
 - Separate the PR's core requirement from reviewer preferences, speculative edge cases, and out-of-scope requests. Hold all edits until every summary point and inline thread is mapped.
 

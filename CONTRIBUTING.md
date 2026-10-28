@@ -121,8 +121,7 @@ Once you've set up your dev environment, you're ready to start contributing PRs.
 
     * Don't worry about making small, incremental commits to your branch; they'll be squash-committed when it
         eventually gets merged to `main`.
-    * Use `make format` to format your Python code, and `make check` for static checks, including the
-        `.github/scripts` unit tests. These checks are
+    * Use `make format` to format your Python code, and `make check` for static checks. These checks are
         enforced by CI during pull request.
     * If you're updating documentation, use `make docs-serve` to preview your changes locally before submitting
         your PR (requires Node.js and Mintlify CLI installation - see "Building and Serving Documentation Locally"
@@ -170,9 +169,6 @@ Once you've set up your dev environment, you're ready to start contributing PRs.
         or a dash, or on the next line, or start it with "focus": `claude review focus on function signatures` or
         `claude review: error paths`. Claude reacts to the comment with a thumbs-up when the review starts, and posts
         its summary and inline comments as one review. A request while a Claude review of the PR runs starts no other.
-        The review uses fixed source revisions and validates declared checker labels and accepted records before posting.
-        Missing coverage is explicit. For local preparation, validation, and the output contract, see
-        [the review guide](.github/scripts/README.claude-review.md).
     * The erosion check is currently commented out in `claude-review.yml`. When it runs, on every commit it measures
         how your PR changes code erosion and verbosity, as defined in
         [SlopCodeBench](https://arxiv.org/abs/2603.24755), and Claude judges up to 10 functions whose complexity, not

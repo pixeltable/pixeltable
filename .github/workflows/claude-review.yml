@@ -76,21 +76,28 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 1
-      - id: prepare
-        timeout-minutes: 5
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REVIEW_FOCUS: ${{ needs.plan.outputs.focus }}
-        run: >-
-          python3 .github/scripts/prepare_claude_review.py
-          "https://github.com/${{ github.repository }}/pull/${{ env.PR_NUMBER }}"
-          --output "$RUNNER_TEMP/pxt-review" --focus="$REVIEW_FOCUS"
+      # actions/checkout refuses fork PR code in this run without allow-unsafe-pr-checkout. Nothing from this copy runs:
+      # the next step moves it out of the working directory and strips its agent files.
+      - uses: actions/checkout@v6
+        with:
+          ref: refs/pull/${{ env.PR_NUMBER }}/head
+          path: pr-head
+          fetch-depth: 1
+          persist-credentials: false
+          allow-unsafe-pr-checkout: true
+      # Claude loads CLAUDE.md and .claude/ from inside its working directory. Move the PR out of it and drop the PR's
+      # agent instruction files, so the PR cannot supply instructions.
+      - run: |
+          mv pr-head "$RUNNER_TEMP/pr-head"
+          find "$RUNNER_TEMP/pr-head" \
+            \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name AGENTS.md -o -name .claude -o -name .mcp.json \) \
+            -prune -exec rm -rf {} +
       # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB fails without bubblewrap, and the action installs it only when
       # allowed_non_write_users is set. Ubuntu 24.04 blocks the unprivileged user namespaces bubblewrap needs.
-      # Review execution and posting continue on error. Trusted preparation fails the job if it cannot freeze the
-      # source. Outcome artifacts and the final reaction expose review or delivery failures.
+      # This step, the Claude step, the post step, and both reaction steps continue on error, so a failed review does
+      # not fail the run. The report step turns a failure into a warning, and the last step reacts to the comment with
+      # a confused face.
       - continue-on-error: true
-        timeout-minutes: 2
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends bubblewrap socat
@@ -98,24 +105,22 @@ jobs:
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
       - id: claude
-        timeout-minutes: 30
         continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          settings: '{"permissions": {"additionalDirectories": ["${{ runner.temp }}/pxt-review"]}}'
+          settings: '{"permissions": {"additionalDirectories": ["${{ runner.temp }}/pr-head"]}}'
           prompt: >-
             /pxt-review https://github.com/${{ github.repository }}/pull/${{ env.PR_NUMBER }}
-            --review-context ${{ runner.temp }}/pxt-review/manifest.json
+            --pr-head ${{ runner.temp }}/pr-head
             ${{ needs.plan.outputs.focus && format('--focus {0}', needs.plan.outputs.focus) || '' }}
           # Opus runs the review and hands each pass to a subagent, as the command says. Naming Grep or Glob restores
           # both tools, which Claude Code leaves out on Linux by default. Claude has no tool that posts: its final
-          # message holds the review contract, and trusted host code validates and publishes it.
+          # message holds the review, and the post step publishes it.
           claude_args: >-
             --model claude-opus-5-5
-            --max-budget-usd ${{ vars.CLAUDE_REVIEW_MAX_BUDGET_USD || '8' }}
-            --allowedTools "Read" "Grep" "Glob" "Bash(gh pr view:*)" "Bash(gh pr checks:*)"
+            --allowedTools "Read" "Grep" "Glob" "Bash(gh pr view:*)" "Bash(gh pr diff:*)" "Bash(gh pr checks:*)"
       # The action hides Claude's transcript. Print Claude's final message, each tool call the allowlist refused, and
       # the cost per model.
       - if: always()
@@ -133,28 +138,13 @@ jobs:
             | join(", ")' "$EXECUTION_FILE"
       # Posts the summary and the inline comments as one review.
       - id: post
-        timeout-minutes: 3
-        if: always() && steps.prepare.outcome == 'success'
+        if: steps.claude.outcome == 'success'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
-          REVIEW_CONTEXT: ${{ runner.temp }}/pxt-review/manifest.json
         run: python3 .github/scripts/post_claude_review.py
-      - if: always()
-        uses: actions/upload-artifact@v4
-        timeout-minutes: 2
-        with:
-          name: claude-review-${{ env.PR_NUMBER }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/pxt-review/manifest.json
-            ${{ runner.temp }}/pxt-review/sources.json
-            ${{ runner.temp }}/pxt-review/outcome.json
-            ${{ runner.temp }}/pxt-review/stats.json
-            ${{ runner.temp }}/pxt-review/review.json
-          if-no-files-found: ignore
-          retention-days: 14
       # A cancelled run is no failure of the review.
       - if: always() && !cancelled() && (steps.claude.outcome != 'success' || steps.post.outcome != 'success')
         continue-on-error: true
@@ -194,7 +184,7 @@ jobs:
   #         python-version: '3.12'
   #     - uses: actions/setup-node@v7
   #       with:
-  #         node-version-file: .github/node-version
+  #         node-version: '24'
   #     # The job holds ANTHROPIC_API_KEY and a token that can comment, so every dependency is pinned by hash.
   #     - run: |
   #         pip install --quiet --require-hashes -r .github/scripts/claude_erosion_requirements.txt

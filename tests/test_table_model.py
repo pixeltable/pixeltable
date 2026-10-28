@@ -24,6 +24,7 @@ from .utils import (
     DatabaseRoot,
     assert_resultset_eq,
     assert_table_metadata_eq,
+    assert_type_eq,
     btree_idxs,
     capture_console_output,
     dummy_embedding,
@@ -544,7 +545,7 @@ class TestTableModel:
 
     def test_dict_key_order_diff(self, db_root: DatabaseRoot) -> None:
         """An unchanged model with a constant dict nested in a dict stays up to date after a catalog reload, and
-        reordering a dict's keys changes the column type."""
+        reordering a dict literal's keys changes the value expression (but not the column type)."""
         p = db_root.make_catalog_path
         root = p('')
         TableModel = pxt.model_base()
@@ -563,18 +564,31 @@ class TestTableModel:
             content: pxt.String
             payload = {'text': content, 'type': 'text', 'meta': {'zzz': 1, 'aaa': 2}}
 
+        # the reordered literal has the same Json type but a different value expression
         diff = TableModelV2.get_model_diff(root)['docs']
-        assert diff.resolution == 'unsupported'
+        assert diff.resolution == 'update_additive'
         [op] = diff.ops
-        assert (op.name, op.op, op.severity) == ('payload', 'alter', 'unsupported')
-        assert op.model == {
-            'type': "Json[{'text': String, 'type': String, 'meta': Json[{'zzz': Int, 'aaa': Int}]}]",
-            'value': "{'text': content, 'type': 'text', 'meta': {'zzz': 1, 'aaa': 2}}",
-        }
-        assert op.existing == {
-            'type': "Json[{'type': String, 'text': String, 'meta': Json[{'zzz': Int, 'aaa': Int}]}]",
-            'value': "{'type': 'text', 'text': content, 'meta': {'zzz': 1, 'aaa': 2}}",
-        }
+        assert (op.name, op.op, op.severity) == ('payload', 'alter', 'additive')
+        assert op.model == {'value': "{'text': content, 'type': 'text', 'meta': {'zzz': 1, 'aaa': 2}}"}
+        assert op.existing == {'value': "{'type': 'text', 'text': content, 'meta': {'zzz': 1, 'aaa': 2}}"}
+
+    def test_json_type_key_order_diff(self, db_root: DatabaseRoot) -> None:
+        """PXT-1549: reordering keys in a Json type schema is not a column type change."""
+        p = db_root.make_catalog_path
+        root = p('')
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            payload: pxt.Json[{'a': pxt.String, 'b': pxt.Int}]
+
+        TableModel.create_all(root)
+
+        TableModelV2 = pxt.model_base()
+
+        class DocsV2(TableModelV2, name='docs'):
+            payload: pxt.Json[{'b': pxt.Int, 'a': pxt.String}]
+
+        assert TableModelV2.get_model_diff(root)['docs'].resolution == 'up_to_date'
 
     def test_operational_table_model_diff(self, db_root: DatabaseRoot) -> None:
         """There is no conversion between the two table kinds, so a mismatched model is unsupported."""
@@ -2657,7 +2671,7 @@ class TestTableModel:
         probe = pxt.get_table(f'{target}/probe')
         probe.insert([{'cutoff': 0}, {'cutoff': 1}])
         rows = probe.order_by(probe.cutoff).select(probe.matches).collect()['matches']
-        assert rows == [[{'title': 'alpha'}, {'title': 'beta'}], [{'title': 'beta'}]]
+        assert rows == [['alpha', 'beta'], ['beta']]
 
     # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
     @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
@@ -2691,11 +2705,8 @@ class TestTableModel:
         probe = pxt.get_table(f'{target}/probe')
         probe.insert([{'cutoff': 0}, {'cutoff': 2}])
         rows = probe.order_by(probe.cutoff).select(probe.matches, probe.from_two, probe.match_count).collect()
-        assert [r['matches'] for r in rows] == [
-            [{'title': 'alpha'}, {'title': 'beta'}, {'title': 'gamma'}],
-            [{'title': 'gamma'}],
-        ]
-        assert [r['from_two'] for r in rows] == [[{'title': 'gamma'}], [{'title': 'gamma'}]]
+        assert [r['matches'] for r in rows] == [['alpha', 'beta', 'gamma'], ['gamma']]
+        assert [r['from_two'] for r in rows] == [['gamma'], ['gamma']]
         assert [r['match_count'] for r in rows] == [3, 1]
 
     # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
@@ -2744,11 +2755,11 @@ class TestTableModel:
         reload_catalog()
         probe = pxt.get_table(f'{target}/probe')
         rows = probe.order_by(probe.cutoff).select(probe.from_zero).collect()
-        assert [r['from_zero'] for r in rows] == [[{'title': 'alpha'}, {'title': 'beta'}]] * 2
+        assert [r['from_zero'] for r in rows] == [['alpha', 'beta']] * 2
 
         probe.recompute_columns('matches')
         rows = probe.order_by(probe.cutoff).select(probe.matches).collect()
-        assert [r['matches'] for r in rows] == [[{'title': 'beta'}], [{'title': 'beta'}]]
+        assert [r['matches'] for r in rows] == [['beta'], ['beta']]
 
     # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
     @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
@@ -2786,9 +2797,7 @@ class TestTableModel:
 
         view = pxt.get_table(f'{target}/probe_view')
         rows = view.select(view.matches, view.tool_matches, view.match_count).collect()
-        assert list(rows) == [
-            {'matches': [{'title': 'beta'}], 'tool_matches': {'titles_after': [[{'title': 'beta'}]]}, 'match_count': 1}
-        ]
+        assert list(rows) == [{'matches': ['beta'], 'tool_matches': {'titles_after': [['beta']]}, 'match_count': 1}]
 
     # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
     @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
@@ -2830,7 +2839,7 @@ class TestTableModel:
 
         view = pxt.get_table(f'{target}/probe_view')
         assert view.select(view.matches).collect()['matches'] == [
-            [{'topic': 'cats', 'titles': [{'title': 'a'}, {'title': 'b'}]}, {'topic': 'cows', 'titles': []}]
+            [{'topic': 'cats', 'titles': ['a', 'b']}, {'topic': 'cows', 'titles': []}]
         ]
 
     # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
@@ -2874,7 +2883,7 @@ class TestTableModel:
         pxt.get_table(f'{target}/topics').insert([{'topic': 'cats'}])
         probe = pxt.get_table(f'{target}/probe')
         probe.recompute_columns('matches')
-        assert probe.select(probe.matches).collect()['matches'] == [[{'titles': [{'title': 'a'}]}]]
+        assert probe.select(probe.matches).collect()['matches'] == [[{'titles': ['a']}]]
 
     def test_table_model_validation_errors(self, db_root: DatabaseRoot) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""
@@ -3306,7 +3315,7 @@ class TestTableModel:
         pxt.get_table(f'{query_root}/docs').insert([{'doc_id': 1, 'title': 'alpha'}, {'doc_id': 5, 'title': 'beta'}])
         probe = pxt.get_table(f'{query_root}/probe')
         probe.insert([{'cutoff': 0}])
-        assert probe.select(probe.matches).collect()['matches'] == [[{'title': 'alpha'}, {'title': 'beta'}]]
+        assert probe.select(probe.matches).collect()['matches'] == [['alpha', 'beta']]
 
         reload_catalog()
         AlteredQueryModel = pxt.model_base()
@@ -3424,6 +3433,36 @@ class TestTableModel:
         t = pxt.get_table(p('test_table'))
         assert t.select(t.derived, t.derived2).collect()[0] == {'derived': 2, 'derived2': True}
         assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(root).values())
+
+    def test_update_all_aggregate_query_column(self, db_root: DatabaseRoot) -> None:
+        """A column of one model that aggregates over another model's rows, via an ungrouped `@pxt.query`."""
+        p = db_root.make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        class Orders(TableModel, name='orders'):
+            order_id = Column(type=pxt.Int, primary_key=True)
+            customer: pxt.String
+            amount: pxt.Float
+
+        @pxt.query
+        def customer_total(customer: str) -> pxt.Query:
+            return Orders.where(Orders.customer == customer).select(pxtf.sum(Orders.amount))  # type: ignore[arg-type]
+
+        class Customers(TableModel, name='customers'):
+            customer = Column(type=pxt.String, primary_key=True)
+            total = customer_total(customer)
+
+        TableModel.create_all(root)
+        orders = pxt.get_table(p('orders'))
+        customers = pxt.get_table(p('customers'))
+        orders.insert(
+            [{'order_id': 1, 'customer': 'a', 'amount': 2.5}, {'order_id': 2, 'customer': 'a', 'amount': 1.0}]
+        )
+        customers.insert([{'customer': 'a'}, {'customer': 'b'}])
+        assert_type_eq(customers.total.col_type, pxt.Float | None)
+        assert customers.order_by(customers.customer).select(customers.total).collect()['total'] == [3.5, None]
 
     def test_update_all_altered_columns_reversed_dependency(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

@@ -150,8 +150,7 @@ class LocalTable(Table):
                 continue
             if isinstance(info.idx, index.EmbeddingIndex):
                 indexed_col_md = self._tbl_version_path.get_column_md(QColumnId(info.col.tbl_handle.id, info.col.id))
-                col_ref = ColumnRef(indexed_col_md)
-                embedding_fncall = info.idx.embeddings[info.col.col_type._type](col_ref)
+                embedding_str = str(info.idx.create_value_expr(indexed_col_md))
                 index_info[info.name] = IndexMetadata(
                     name=info.name,
                     columns=[info.col.name],
@@ -159,7 +158,7 @@ class LocalTable(Table):
                     parameters=EmbeddingIndexParams(
                         metric=info.idx.metric.name.lower(),  # type: ignore[typeddict-item]
                         precision=info.idx.precision.name.lower(),  # type: ignore[typeddict-item]
-                        embedding=str(embedding_fncall),
+                        embedding=embedding_str,
                         embedding_functions=[str(fn) for fn in info.idx.embeddings.values()],
                     ),
                 )
@@ -446,10 +445,8 @@ class LocalTable(Table):
                 continue
             if isinstance(info.idx, index.EmbeddingIndex):
                 col_md = self._tbl_version_path.get_column_md(QColumnId(info.col.tbl_handle.id, info.col.id))
-                col_ref = ColumnRef(col_md)
-                embedding = info.idx.embeddings[info.col.col_type._type](col_ref)
                 row['Metric'] = str(info.idx.metric.name.lower())
-                row['Embedding'] = str(embedding)
+                row['Embedding'] = str(info.idx.create_value_expr(col_md))
             else:
                 row['Metric'] = ''
                 row['Embedding'] = ''

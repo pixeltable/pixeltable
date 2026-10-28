@@ -1,44 +1,39 @@
-"""Validate a prepared review, then render it locally or publish one GitHub review."""
+"""Post the review in Claude's final message as one GitHub pull request review.
 
-from __future__ import annotations
+The final message ends with a fenced json block, as `.claude/commands/pxt-review.md` specifies. Reads EXECUTION_FILE
+(the claude-code-action execution file), REPO, and PR_NUMBER from the environment; `gh` authenticates with GH_TOKEN.
+"""
 
-import argparse
 import json
 import os
-import re
 import subprocess
 import sys
-from pathlib import Path
 from typing import Any
-
-from claude_review_contract import MAX_JSON_BYTES, publication_body, read_json, render, verify_sources
 
 
 def final_message(execution_file: str) -> str:
     with open(execution_file, encoding='utf-8') as f:
         messages = json.load(f)
-    if isinstance(messages, dict):
-        return messages.get('result') or ''
-    results = [m for m in messages if isinstance(m, dict) and m.get('type') == 'result']
+    results = [m for m in messages if m.get('type') == 'result']
     return (results[-1].get('result') or '') if results else ''
 
 
 def review_json(message: str) -> dict[str, Any] | None:
-    if len(message.encode()) > MAX_JSON_BYTES:
+    # Match fences by whole lines. A JSON string cannot hold a raw newline, so a fence quoted in the body or a comment
+    # never fills a line of its own.
+    lines = message.splitlines()
+    closes = [i for i, line in enumerate(lines) if line.strip() == '```']
+    if not closes:
         return None
-    raw = message.strip()
+    opens = [i for i, line in enumerate(lines[: closes[-1]]) if line.strip() == '```json']
+    if not opens:
+        return None
     try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        opens = re.findall(r'^```json[ \t]*\r?$', raw, re.M)
-        blocks = re.findall(r'^```json[ \t]*\r?\n(.*?)^```[ \t]*\r?$', raw, re.M | re.S)
-        if len(opens) != 1 or len(blocks) != 1:
-            return None
-        try:
-            data = json.loads(blocks[0])
-        except json.JSONDecodeError:
-            return None
-    return data if isinstance(data, dict) else None
+        data: dict[str, Any] = json.loads('\n'.join(lines[opens[-1] + 1 : closes[-1]]))
+    except json.JSONDecodeError as e:
+        print(f'The review JSON does not parse: {e}')
+        return None
+    return data
 
 
 def post(repo: str, pr: str, review: dict[str, Any]) -> subprocess.CompletedProcess[str]:
@@ -51,143 +46,46 @@ def post(repo: str, pr: str, review: dict[str, Any]) -> subprocess.CompletedProc
     )
 
 
-def source_status(manifest: dict[str, Any]) -> str:
-    """'current', 'head' when only the reviewed head moved, or 'base' when the target no longer matches."""
-    result = subprocess.run(
-        ['gh', 'pr', 'view', manifest['pr_url'], '--json', 'baseRefOid,headRefOid,baseRefName'],
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    current = json.loads(result.stdout)
-    if current['baseRefName'] != manifest['metadata']['baseRefName']:
-        return 'base'
-    if current['baseRefOid'] != manifest['base_sha']:
-        compared = subprocess.run(
-            [
-                'gh',
-                'api',
-                f'repos/{manifest["repo"]}/compare/{current["baseRefOid"]}...{current["headRefOid"]}',
-                '--jq',
-                '.merge_base_commit.sha',
-            ],
-            text=True,
-            capture_output=True,
-            check=True,
-        )
-        if compared.stdout.strip() != manifest['merge_base_sha']:
-            return 'base'
-    if current['headRefOid'] != manifest['head_sha']:
-        return 'head'
-    return 'current'
-
-
-def publish(manifest: dict[str, Any], review: dict[str, Any]) -> dict[str, Any]:
-    if source_status(manifest) == 'base':
-        return {'status': 'incomplete', 'delivery': 'not_posted', 'reason': 'PR target changed during review'}
-    fallback_used = False
-    result = post(manifest['repo'], str(manifest['pr']), review)
-    if result.returncode and 'HTTP 422' in result.stderr:
-        moved = '\n\n'.join(f'**{c["path"]}:{c["line"]}**\n\n{c["body"]}' for c in review['comments'])
-        appendix = '\n\n### Comments not attached to lines\n\n' + moved if moved else ''
-        try:
-            fallback = {'event': 'COMMENT', 'body': publication_body(review['body'], appendix)}
-        except ValueError as e:
-            return {'delivery': 'failed', 'publication_fallback': False, 'reason': str(e)}
-        if source_status(manifest) == 'base':
-            return {'status': 'incomplete', 'delivery': 'not_posted', 'reason': 'PR target changed before retry'}
-        fallback_used = True
-        result = post(manifest['repo'], str(manifest['pr']), fallback)
-    if result.returncode:
-        rejected = re.search(r'HTTP 4\d\d', result.stderr) is not None
-        return {
-            'delivery': 'failed' if rejected else 'unknown',
-            'publication_fallback': fallback_used,
-            'reason': 'GitHub did not confirm publication; no automatic transport retry',
-            'error': result.stderr.strip(),
-        }
-    outcome: dict[str, Any] = {'delivery': 'posted', 'publication_fallback': fallback_used}
-    try:
-        response = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        outcome['response'] = 'GitHub acknowledged submission but its response could not be decoded'
-    else:
-        if isinstance(response, dict):
-            outcome['review_url'] = response.get('html_url')
-    try:
-        fresh = source_status(manifest)
-    except (OSError, ValueError, KeyError, subprocess.CalledProcessError):
-        return {
-            **outcome,
-            'status': 'incomplete',
-            'freshness': 'unknown',
-            'reason': 'Review was posted; the final source check was unavailable',
-        }
-    if fresh != 'current':
-        return {
-            **outcome,
-            'status': 'incomplete',
-            'freshness': 'stale',
-            'reason': 'PR source changed during publication',
-        }
-    return outcome
+def inline_comment(comment: dict[str, Any]) -> dict[str, Any]:
+    result = {'path': comment['path'], 'line': comment['line'], 'side': 'RIGHT', 'body': comment['body']}
+    start_line = comment.get('start_line')
+    if start_line is not None and start_line < comment['line']:
+        result |= {'start_line': start_line, 'start_side': 'RIGHT'}
+    return result
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--review-context', type=Path, default=os.environ.get('REVIEW_CONTEXT'))
-    parser.add_argument('--execution-file', type=Path, default=os.environ.get('EXECUTION_FILE') or None)
-    parser.add_argument('--result', type=Path, help='Raw or fenced JSON from a local /pxt-review invocation')
-    parser.add_argument('--validate-only', action='store_true')
-    args = parser.parse_args()
-    if args.review_context is None:
-        parser.error('--review-context is required')
-    outcome_path = args.review_context.parent / 'outcome.json'
-    try:
-        return process_review(args)
-    except (ValueError, KeyError, TypeError, AttributeError, OSError, subprocess.CalledProcessError) as e:
-        outcome = {'status': 'failed', 'delivery': 'not_posted', 'reason': str(e)}
-        outcome_path.write_text(json.dumps(outcome, indent=2) + '\n', encoding='utf-8')
-        print(json.dumps(outcome))
+    repo, pr = os.environ['REPO'], os.environ['PR_NUMBER']
+    data = review_json(final_message(os.environ['EXECUTION_FILE']))
+    if data is None:
+        print("::warning::Claude's final message has no review JSON that parses, so nothing was posted.")
+        return 1
+    if not data.get('post'):
+        print(f'Nothing to post: {data.get("reason", "no reason given")}')
+        return 0
+
+    comments = [inline_comment(c) for c in data.get('comments', [])]
+    review = {'commit_id': data['commit_id'], 'body': data['body'], 'event': 'COMMENT', 'comments': comments}
+    result = post(repo, pr, review)
+    if result.returncode == 0:
+        print(f'Posted one review with {len(comments)} inline comments.')
+        return 0
+
+    if not comments:
+        print(f'::warning::GitHub rejected the review: {result.stderr.strip()}')
         return 1
 
-
-def process_review(args: argparse.Namespace) -> int:
-    outcome_path = args.review_context.parent / 'outcome.json'
-    manifest = read_json(args.review_context)
-    verify_sources(manifest)
-    if args.result is not None:
-        message = args.result.read_text(encoding='utf-8')
-    elif args.execution_file is not None:
-        message = final_message(str(args.execution_file))
-    else:
-        raise ValueError('Provide --result or --execution-file')
-    data = review_json(message)
-    if data is None:
-        raise ValueError('Final message must contain exactly one review JSON object')
-    review, stats = render(data, manifest)
-    (outcome_path.parent / 'review.json').write_text(json.dumps(review, indent=2) + '\n')
-    if args.execution_file is not None:
-        execution = json.loads(args.execution_file.read_text(encoding='utf-8'))
-        results = (
-            [m for m in execution if isinstance(m, dict) and m.get('type') == 'result']
-            if isinstance(execution, list)
-            else [execution]
-        )
-        if results:
-            stats['model_usage'] = results[-1].get('modelUsage', {})
-            stats['duration_ms'] = results[-1].get('duration_ms')
-            stats['permission_denials'] = len(results[-1].get('permission_denials', []))
-    (outcome_path.parent / 'stats.json').write_text(json.dumps(stats, indent=2) + '\n')
-    outcome = {'status': stats['status'], 'snapshot_id': manifest['snapshot_id'], 'delivery': 'not_requested'}
-    if stats['reason']:
-        outcome['reason'] = stats['reason']
-    if stats['status'] != 'skipped' and not args.validate_only:
-        outcome.update(publish(manifest, review))
-    outcome_path.write_text(json.dumps(outcome, indent=2) + '\n')
-    print(json.dumps(outcome))
-    undelivered = outcome.get('delivery') in {'failed', 'unknown', 'not_posted'}
-    return 1 if undelivered or outcome.get('freshness') == 'unknown' else 0
+    # GitHub rejects the whole review when one comment's line is outside the diff. Move every comment into the body,
+    # and leave out commit_id, in case GitHub rejected that instead.
+    print(f'::warning::GitHub rejected the inline comments: {result.stderr.strip()}')
+    moved = '\n\n'.join(f'**{c["path"]}:{c["line"]}**\n\n{c["body"]}' for c in comments)
+    review = {'body': f'{data["body"]}\n\n### Comments not attached to lines\n\n{moved}', 'event': 'COMMENT'}
+    result = post(repo, pr, review)
+    if result.returncode == 0:
+        print(f'Posted one review with {len(comments)} comments in its body.')
+        return 0
+    print(f'::warning::GitHub rejected the review: {result.stderr.strip()}')
+    return 1
 
 
 if __name__ == '__main__':

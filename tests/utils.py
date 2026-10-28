@@ -37,6 +37,7 @@ import pandas as pd
 import PIL.Image
 import pytest
 import sqlalchemy as sql
+from typing_extensions import TypeForm
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
@@ -553,6 +554,37 @@ def generate_test_video(
     return str(output_path)
 
 
+def generate_color_video(
+    tmp_path: Path, segments: list[tuple[str, int]], extension: str = 'mp4', start_time: float = 0.0
+) -> str:
+    """
+    Create an h264 video from 1-second segments of solid color and return its path.
+
+    Each segment is a (color, fps) pair; segments with different fps produce a variable frame rate video. The first
+    frame is at start_time.
+    """
+    cmd = ['ffmpeg']
+    for color, fps in segments:
+        cmd.extend(['-f', 'lavfi', '-i', f'color=c={color}:s=64x64:r={fps}:d=1'])
+    inputs = ''.join(f'[{i}]' for i in range(len(segments)))
+    cmd.extend(['-filter_complex', f'{inputs}concat=n={len(segments)}:v=1', '-fps_mode', 'passthrough'])
+    cmd.extend(['-output_ts_offset', str(start_time), '-c:v', 'libx264', '-pix_fmt', 'yuv420p'])
+    output_path = tmp_path / f'{uuid4()}.{extension}'
+    cmd.extend(['-y', str(output_path)])
+    subprocess.run(cmd, capture_output=True, check=True)
+    return str(output_path)
+
+
+def generate_tone_audio(tmp_path: Path, extension: str, start_time: float = 0.0) -> str:
+    """Create a 2-second 440 Hz tone whose first sample is at start_time and return its path."""
+    codec = 'libopus' if extension == 'webm' else 'flac'
+    output_path = tmp_path / f'{uuid4()}.{extension}'
+    cmd = ['ffmpeg', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2']
+    cmd.extend(['-output_ts_offset', str(start_time), '-c:a', codec, '-y', str(output_path)])
+    subprocess.run(cmd, capture_output=True, check=True)
+    return str(output_path)
+
+
 __IMAGE_FILES: list[str] = []
 __IMAGE_FILES_WITH_BAD_IMAGE: list[str] = []
 
@@ -666,7 +698,7 @@ def get_sentences(n: int = 100) -> list[str]:
     return [q['question'].replace("'", '') for q in questions_list[:n]]
 
 
-def assert_type_eq(col_type: ts.ColumnType, pxt_type: type[ts._PxtType]) -> None:
+def assert_type_eq(col_type: ts.ColumnType, pxt_type: TypeForm) -> None:
     assert col_type == ts.ColumnType.normalize_type(pxt_type)
 
 
