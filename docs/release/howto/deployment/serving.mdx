@@ -322,6 +322,26 @@ After `.collect()`, use `to_pydantic()`. After `return_rows=True`, use `model_va
 }
 ```
 
+A router holds at most 64 unfinished background jobs on each service instance, the running ones included. Past
+that, or while the instance shuts down, a submit answers 503 with `Retry-After` and the error code `SERVICE_BUSY`,
+and the request does not run: send it again after the interval.
+
+```python
+import time
+
+import requests
+
+
+def submit(url: str, row: dict, headers: dict) -> dict:
+    for _ in range(10):
+        r = requests.post(url, json=row, headers=headers)
+        if r.status_code != 503:
+            break
+        time.sleep(float(r.headers.get('Retry-After', '5')))
+    r.raise_for_status()
+    return r.json()
+```
+
 Poll `job_url`:
 
 ```bash
@@ -350,7 +370,7 @@ does:
 | 200 `done` or `error` | the job finished; the result is kept 10 minutes, or 1 minute after the first poll that returns it |
 | 404 | the id is unknown, or the result has expired |
 | 410 | the service instance that ran the job stopped (a restart, a redeploy or a crash); the job may not have finished, or may have finished without a poll returning its result, so resubmitting an insert, update or delete can repeat a write |
-| 503 with `Retry-After` | the instance is at its limit of unfinished jobs or is shutting down, or the instance that runs the job did not answer; retry after the interval |
+| 503 with `Retry-After` | the instance that runs the job did not answer; poll again after the interval |
 
 When a hosted service redeploys or scales down, a stopping instance first finishes its running jobs, for up to
 about 5 minutes. It keeps each finished result until a poll returns it, or for 30 seconds after the job finished.

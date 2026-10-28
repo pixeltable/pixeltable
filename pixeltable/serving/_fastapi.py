@@ -2895,20 +2895,20 @@ class FastAPIRouter(fastapi.APIRouter):
         media: _ResponseMedia,
     ) -> None:
         """Run endpoint_op as the background job job_id. Raises a 503 if this router takes no more jobs."""
-        refusal: HTTPException | None = None
+        refusal: excs.ServiceUnavailableError | None = None
         with self._jobs_lock:
             self._prune_jobs(time.monotonic())
             if self._draining:
-                refusal = HTTPException(
-                    status_code=503,
-                    detail='the service instance is shutting down',
-                    headers={'Retry-After': str(_DRAINING_RETRY_AFTER_S)},
+                refusal = excs.ServiceUnavailableError(
+                    excs.ErrorCode.SERVICE_BUSY,
+                    'the service instance is shutting down',
+                    retry_after=_DRAINING_RETRY_AFTER_S,
                 )
             elif sum(1 for job in self._jobs.values() if job.finished_at is None) >= _MAX_PENDING_JOBS:
-                refusal = HTTPException(
-                    status_code=503,
-                    detail=f'the service instance is at its limit of {_MAX_PENDING_JOBS} unfinished background jobs',
-                    headers={'Retry-After': str(_JOB_LIMIT_RETRY_AFTER_S)},
+                refusal = excs.ServiceUnavailableError(
+                    excs.ErrorCode.SERVICE_BUSY,
+                    f'the service instance is at its limit of {_MAX_PENDING_JOBS} unfinished background jobs',
+                    retry_after=_JOB_LIMIT_RETRY_AFTER_S,
                 )
             else:
                 job = _Job(self._executor.submit(_run_endpoint_op, endpoint_op, kwargs, tmp_paths, media))
@@ -2916,7 +2916,11 @@ class FastAPIRouter(fastapi.APIRouter):
                 self._has_run_jobs = True
         if refusal is not None:
             _unlink_tmp_paths(tmp_paths)
-            raise refusal
+            raise HTTPException(
+                status_code=refusal.http_status,
+                detail=refusal.to_dict(),
+                headers={'Retry-After': str(refusal.retry_after)},
+            )
         # outside the lock: for a finished future, add_done_callback() calls _finish_job() at once, which takes the lock
         job.future.add_done_callback(lambda _: self._finish_job(job))
 
