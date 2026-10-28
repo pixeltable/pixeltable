@@ -459,7 +459,7 @@ class QueryBase(ABC):
             expr = exprs.Expr.from_object(raw_expr)
             if expr is None:
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression: {raw_expr}')
-            self._check_method_refs(expr)
+            expr.check_method_refs()
             if expr.col_type.is_invalid_type() and not (isinstance(expr, exprs.Literal) and expr.val is None):
                 raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid type: {raw_expr}')
             if len(self._from_clause.tbls) == 1 and self._from_clause.is_local:
@@ -505,11 +505,6 @@ class QueryBase(ABC):
             offset=self.offset_val,
         )
 
-    def _check_method_refs(self, expr: exprs.Expr) -> None:
-        method_ref = next(expr.subexprs(expr_class=exprs.MethodRef), None)
-        if method_ref is not None:
-            raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, method_ref.uncalled_msg())
-
     def where(self, pred: exprs.Expr) -> Self:
         """Filter rows based on a predicate.
 
@@ -542,7 +537,7 @@ class QueryBase(ABC):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_EXPRESSION, f'where() expects a Pixeltable expression; got: {pred}'
             )
-        self._check_method_refs(pred)
+        pred.check_method_refs()
         if not pred.col_type.is_bool_type():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -569,6 +564,7 @@ class QueryBase(ABC):
         if isinstance(on, exprs.ColumnRef):
             on = [on]
         elif isinstance(on, exprs.Expr):
+            on.check_method_refs()
             if not on.is_bound_by(joined_tbls):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -809,6 +805,7 @@ class QueryBase(ABC):
                 break
             if not isinstance(item, exprs.Expr):
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression in group_by(): {item}')
+            item.check_method_refs()
         if grouping_tbl_key is None:
             # no Table item was found, so every item passed the Expr check above
             group_by_clause = cast('list[exprs.Expr]', list(grouping_items))
@@ -889,6 +886,7 @@ class QueryBase(ABC):
         for e in expr_list:
             if not isinstance(e, exprs.Expr):
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression in order_by(): {e}')
+            e.check_method_refs()
         order_by_clause = self.order_by_clause if self.order_by_clause is not None else []
         order_by_clause.extend((e.copy(), asc) for e in expr_list)
         return type(self)(
@@ -1061,6 +1059,7 @@ class QueryBase(ABC):
             for expr in stratify_by:
                 if expr is None or not isinstance(expr, exprs.Expr):
                     raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression: {expr}')
+                expr.check_method_refs()
                 if not expr.col_type.is_scalar_type():
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_ARGUMENT,

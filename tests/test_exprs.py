@@ -777,7 +777,7 @@ class TestExprs:
         )
 
     def test_ambiguous_json_key(self, db_root: DatabaseRoot) -> None:
-        """j.mean refers to the Json method mean(), which a computed column can't use as a value; j['mean'] works."""
+        """j.mean refers to the Json method mean(), which can't be used as a value; j['mean'] works."""
         p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'j': pxt.Json})
         msg = r"j\.mean is the method mean\(\); call it to get a value, or use j\['mean'\] for the JSON field"
@@ -799,10 +799,34 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
             t.where(t.j.mean.astype(pxt.Float) > 1)
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.order_by(t.j.mean)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.group_by(t.j.mean)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.sample(n_per_stratum=1, stratify_by=t.j.mean)
+        other = pxt.create_table(p('other'), {'x': pxt.Float})
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.join(other, on=t.j.mean.astype(pxt.Float) == other.x)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
 
             @pxt.query
             def means(x: float) -> pxt.Query:
                 return t.where(t.m > x).select(m=t.j.mean.astype(pxt.Float))
+
+        # an update, delete or view fails before it changes anything
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.update({'j': t.j.mean})
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.update({'j': {}}, where=t.j.mean.astype(pxt.Float) > 1)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.delete(where=t.j.mean.astype(pxt.Float) > 1)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.recompute_columns('m', where=t.j.mean.astype(pxt.Float) > 1)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            pxt.create_view(p('chunks'), t, iterator=pxtf.string.string_splitter(t.j.mean, separators='sentence'))
+        res = t.select(t.j, t.m).collect()
+        assert res['j'] == [{'mean': 1.5}]
+        assert res['m'] == [1.5]
 
         TableModel = pxt.model_base()  # noqa: N806
 
@@ -2019,6 +2043,9 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION):
             # nested aggregates
             _ = t.group_by(t.c2 % 2).select(sum(count(t.c2))).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'c1\.upper is the method upper\(\)'):
+            # uncalled method in group_by clause
+            _ = t.group_by(t.c1.upper).select(count(t.c2)).collect()
 
     def test_function_call_errors(self, test_tbl: pxt.Table) -> None:
         t = test_tbl

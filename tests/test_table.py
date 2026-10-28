@@ -3017,11 +3017,21 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not a recognized'):
             t.update({'c3': lambda c3: math.sqrt(c3)})
 
+        # uncalled method
+        c1_vals = t.order_by(t.c2).select(t.c1).collect()['c1']
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'c1\.upper is the method upper\(\)'):
+            t.update({'c1': t.c1.upper})
+        assert t.order_by(t.c2).select(t.c1).collect()['c1'] == c1_vals
+
         # non-Predicate filter
         with pxt_raises(
             pxt.ErrorCode.INVALID_EXPRESSION, match=r'`where` argument must be a valid Pixeltable expression'
         ):
             t.update({'c3': 1.0}, where=lambda c2: c2 == 10)  # type: ignore[arg-type]
+
+        # uncalled method in filter
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'c1\.upper is the method upper\(\)'):
+            t.update({'c3': 1.0}, where=t.c1.upper == 'a')
 
         img_t = small_img_tbl
 
@@ -3290,6 +3300,10 @@ class TestTable:
             pxt.ErrorCode.INVALID_EXPRESSION, match=r'`where` argument must be a valid Pixeltable expression; got'
         ):
             t.delete(where=lambda c2: c2 == 10)  # type: ignore[arg-type]
+
+        # uncalled method in filter
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'c1\.upper is the method upper\(\)'):
+            t.delete(where=t.c1.upper == 'a')
 
         img_t = small_img_tbl
 
@@ -4066,6 +4080,8 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="not bound by table 'recompute_test'"):
             y = pxt.create_table('other_table', {'i': pxt.Int | None})
             t.recompute_columns('i1', where=y.i == 0)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r's\.upper is the method upper\(\)'):
+            t.recompute_columns('i1', where=t.s.upper == 'a')
 
     def __test_drop_column_if_not_exists(self, t: pxt.Table, non_existing_col: str | ColumnRef) -> None:
         """Test the if_not_exists parameter of drop_column API"""

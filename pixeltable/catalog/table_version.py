@@ -1411,17 +1411,7 @@ class TableVersion:
 
         update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True, allow_media=True)
         if where is not None:
-            if not isinstance(where, exprs.Expr):
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_EXPRESSION,
-                    f'`where` argument must be a valid Pixeltable expression; got `{type(where)}`',
-                )
-            analysis_info = Planner.analyze(self.path, where)
-            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
-            if analysis_info.filter is not None:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter}'
-                )
+            self._validate_where_clause(where, error_prefix='`where` argument')
 
         with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
             update_plan = Planner.create_update_plan(
@@ -1571,6 +1561,7 @@ class TableVersion:
                         excs.ErrorCode.UNSUPPORTED_OPERATION,
                         f'Column {col_name!r}: value is not a recognized literal or expression: {val!r}',
                     ) from exc
+                value_expr.check_method_refs(f'Column {col_name!r}: ')
                 if not col.col_type.is_supertype_of(value_expr.col_type, ignore_nullable=True):
                     raise excs.RequestError(
                         excs.ErrorCode.TYPE_MISMATCH,
@@ -1782,6 +1773,7 @@ class TableVersion:
                 excs.ErrorCode.INVALID_EXPRESSION,
                 f'{error_prefix} must be a valid Pixeltable expression; got `{type(pred)}`',
             )
+        pred.check_method_refs(f'{error_prefix}: ')
         analysis_info = Planner.analyze(self.path, pred)
         # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
         if analysis_info.filter is not None:

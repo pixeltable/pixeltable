@@ -757,8 +757,10 @@ class TestFunction:
 
         # an embedding udf with an argument bound by using()
         t.add_embedding_index('prompt', embedding=pop_embedding.using(opts={'n': 3}))
-        sims = [t.select(sim=t.prompt.similarity(string='a')).collect()['sim'][0] for _ in range(2)]
-        assert sims == pytest.approx([1.0, 1.0])
+        sim = t.prompt.similarity(string='a')
+        # running the same query multiple times still returns the correct result
+        for _ in range(2):
+            assert t.order_by(sim, asc=False).limit(4).select(sim=sim).collect()['sim'] == pytest.approx([1.0] * 4)
 
     @pytest.mark.db_roots('local', reason="the udf runs on the proxy daemon, where the client's path doesn't resolve")
     def test_udf_calls_get_table(self, db_root: DatabaseRoot) -> None:

@@ -508,12 +508,7 @@ class Column:
 
     def check_value_expr(self) -> None:
         assert self._value_expr is not None
-        method_ref = next(self._value_expr.subexprs(expr_class=exprs.MethodRef), None)
-        # a leftover MethodRef (that didn't get transformed into a FunctionCall of a method) is an error
-        if method_ref is not None:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_EXPRESSION, f'Column {self.name!r}: {method_ref.uncalled_msg()}'
-            )
+        self._value_expr.check_method_refs(f'Column {self.name!r}: ')
         self._value_expr.validate_storable(f'Computed column {self.name!r}')
         for e in self._value_expr.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
             if e.is_cellmd_prop():
