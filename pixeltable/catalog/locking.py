@@ -282,119 +282,135 @@ def lookup_dir_path(dir_id: UUID) -> Path:
     return Path.parse('/'.join(names), allow_empty_path=True)
 
 
-def resolve_lock_set_from_store(request: LockRequest) -> LockSet:
-    """Build a lock set from stored metadata in the current transaction.
+class _LockSetBuilder:
+    """Collects a LockRequest's lock requirements from stored metadata."""
 
-    Read raw `tables` rows without constructing TableVersion instances, so pending operations do not prevent
-    lock-set discovery. Targets named by id or TableVersionPath include tables pending drop; catalog-path
-    lookups include only visible tables.
-
-    Apply the request's `op_class` to write targets and the views or subtrees affected by their writes. Lock other
-    tables, including ancestors, for read. If a table has several roles, use the strongest required mode.
-    """
-    assert get_runtime().in_xact
-    conn = get_runtime().conn
+    request: LockRequest
+    conn: sql.Connection
     # Table id -> required operation classes. Start with requested targets, then add related tables.
     # Requested ids may refer to tables that have already been dropped.
-    tbl_id_to_op_classes: defaultdict[UUID, set[TblOpClass]] = defaultdict(set)
-    # Table id -> store table name, for existing tables with physical storage only.
-    store_tbl_names: dict[UUID, str] = {}
-    # True for data-versioned tables. Contains exactly the same tables as store_tbl_names.
-    is_data_versioned: dict[UUID, bool] = {}
+    tbl_id_to_op_classes: defaultdict[UUID, set[TblOpClass]]
+    # table id -> (store table name, is_data_versioned), for existing tables with physical storage
+    store_tbls: dict[UUID, tuple[str, bool]]
     # Directory id -> local catalog path. Paths determine directory lock order.
-    dirs_to_lock: dict[UUID, Path] = {}
-
-    # A write path locks its leaf for write if it is a live table, and everything else for read.
-    for tvp in request.read_tvps:
-        for key in tvp.tbl_keys:
-            tbl_id_to_op_classes[key.tbl_id].add(TblOpClass.DATA_READ)
-    for tvp in request.write_tvps:
-        for i, key in enumerate(tvp.tbl_keys):
-            is_live_tbl_leaf = i == 0 and key.effective_version is None
-            tbl_id_to_op_classes[key.tbl_id].add(request.op_class if is_live_tbl_leaf else TblOpClass.DATA_READ)
-    for key in request.read_tbl_keys:
-        tbl_id_to_op_classes[key.tbl_id].add(TblOpClass.DATA_READ)
-    for tbl_id in request.write_tbl_ids:
-        tbl_id_to_op_classes[tbl_id].add(request.op_class)
-
-    def list_dir_contents(dir_id: UUID, dir_path: Path) -> tuple[dict[UUID, Path], set[UUID]]:
-        """Return directory id-to-path mappings for the subtree and the ids of its visible tables."""
-        tbl_q = sql.select(schema.Table.id).where(active_tbl_clause(dir_id=dir_id))
-        tbl_ids = {r.id for r in conn.execute(tbl_q).all()}
-
-        subtree_dirs = {dir_id: dir_path}
-        subdir_q = sql.select(schema.Dir.id, schema.Dir.md).where(schema.Dir.parent_id == dir_id)
-        for row in conn.execute(subdir_q).all():
-            child_dirs, child_tbl_ids = list_dir_contents(row.id, dir_path.append(row.md['name']))
-            subtree_dirs.update(child_dirs)
-            tbl_ids |= child_tbl_ids
-        return subtree_dirs, tbl_ids
-
-    # Resolve catalog paths; include all directory descendants when lock_path_subtree is requested.
-    write_path_tbl_ids: set[UUID] = set()
-    for path in request.write_paths:
-        # path can be a hosted catalog (e.g. pxt://org:db/dir/), but we are only interested in its local form
-        path = Path.from_components(path.components)  # noqa: PLW2901
-        parent: schema.Dir | None = lookup_dir_md(path.parent)
-        if parent is None:
-            # the parent dir is gone, nothing to lock
-            continue
-
-        # Lock the parent even when the target does not exist, so concurrent creators cannot claim the same name.
-        dirs_to_lock.setdefault(parent.id, path.parent)
-
-        # If path points at a directory, add it to the lock set
-        dir = lookup_dir_md(path)
-        if dir is not None:
-            dirs_to_lock.setdefault(dir.id, path)
-            if request.lock_path_subtree:
-                subtree_dirs, subtree_tbl_ids = list_dir_contents(dir.id, path)
-                dirs_to_lock.update(subtree_dirs)
-                write_path_tbl_ids |= subtree_tbl_ids
-            continue
-
-        # If path does not point at a directory, see if it points at a table, and add that table to the lock set
-        tbl_q = sql.select(schema.Table.id).where(active_tbl_clause(dir_id=parent.id, tbl_name=path.name))
-        tbl_id = conn.execute(tbl_q).scalars().one_or_none()
-        if tbl_id is not None:
-            write_path_tbl_ids.add(tbl_id)
-    for tbl_id in write_path_tbl_ids:
-        tbl_id_to_op_classes[tbl_id].add(request.op_class)
-
+    dirs_to_lock: dict[UUID, Path]
     # table ids that we already looked up, including those that did not exist in the store
-    visited_tbl_ids: set[UUID] = set()
+    visited_tbl_ids: set[UUID]
     # table id -> its parent dir id
-    tbl_dirs: dict[UUID, UUID] = {}
+    tbl_dirs: dict[UUID, UUID]
     # table id -> base id, only for views whose finalization will advance the base's view_sn
-    finalized_view_bases: dict[UUID, UUID] = {}
+    finalized_view_bases: dict[UUID, UUID]
 
-    def visit_tables(where: sql.ColumnElement, op_class: TblOpClass) -> set[UUID]:
+    def __init__(self, request: LockRequest) -> None:
+        self.request = request
+        self.conn = get_runtime().conn
+        self.tbl_id_to_op_classes = defaultdict(set)
+        self.store_tbls = {}
+        self.dirs_to_lock = {}
+        self.visited_tbl_ids = set()
+        self.tbl_dirs = {}
+        self.finalized_view_bases = {}
+
+    def build(self) -> LockSet:
+        self._add_request_targets()
+        path_tbl_ids = self._add_write_paths()
+        if self.request.lock_mutable_tree:
+            self._visit_views(self.request.mutable_write_tbl_ids(), mutable_only=True)
+        # Tables at or under the write paths, including their views and snapshots
+        path_tree_ids: set[UUID] = set()
+        if self.request.lock_path_subtree:
+            path_tree_ids = self._visit_views(path_tbl_ids, mutable_only=False)
+        self._visit_remaining()
+        if self.request.op_class is TblOpClass.FINALIZE:
+            self._add_finalized_view_bases()
+        self._add_view_dirs(path_tree_ids)
+        return self._lock_set()
+
+    def _add_request_targets(self) -> None:
+        # A write path locks its leaf for write if it is a live table, and everything else for read.
+        for tvp in self.request.read_tvps:
+            for key in tvp.tbl_keys:
+                self.tbl_id_to_op_classes[key.tbl_id].add(TblOpClass.DATA_READ)
+        for tvp in self.request.write_tvps:
+            for i, key in enumerate(tvp.tbl_keys):
+                is_live_tbl_leaf = i == 0 and key.effective_version is None
+                self.tbl_id_to_op_classes[key.tbl_id].add(
+                    self.request.op_class if is_live_tbl_leaf else TblOpClass.DATA_READ
+                )
+        for key in self.request.read_tbl_keys:
+            self.tbl_id_to_op_classes[key.tbl_id].add(TblOpClass.DATA_READ)
+        for tbl_id in self.request.write_tbl_ids:
+            self.tbl_id_to_op_classes[tbl_id].add(self.request.op_class)
+
+    def _add_write_paths(self) -> set[UUID]:
+        # Resolve catalog paths; include all directory descendants when lock_path_subtree is requested.
+        write_path_tbl_ids: set[UUID] = set()
+        for path in self.request.write_paths:
+            # path can be a hosted catalog (e.g. pxt://org:db/dir/), but we are only interested in its local form
+            path = Path.from_components(path.components)  # noqa: PLW2901
+            parent: schema.Dir | None = lookup_dir_md(path.parent)
+            if parent is None:
+                # the parent dir is gone, nothing to lock
+                continue
+
+            # Lock the parent even when the target does not exist, so concurrent creators cannot claim the same name.
+            self.dirs_to_lock.setdefault(parent.id, path.parent)
+
+            # If path points at a directory, add it to the lock set
+            dir = lookup_dir_md(path)
+            if dir is not None:
+                self.dirs_to_lock.setdefault(dir.id, path)
+                if self.request.lock_path_subtree:
+                    write_path_tbl_ids |= self._add_dir_subtree(dir.id, path)
+                continue
+
+            # If path does not point at a directory, see if it points at a table, and add that table to the lock set
+            tbl_q = sql.select(schema.Table.id).where(active_tbl_clause(dir_id=parent.id, tbl_name=path.name))
+            tbl_id = self.conn.execute(tbl_q).scalars().one_or_none()
+            if tbl_id is not None:
+                write_path_tbl_ids.add(tbl_id)
+        for tbl_id in write_path_tbl_ids:
+            self.tbl_id_to_op_classes[tbl_id].add(self.request.op_class)
+        return write_path_tbl_ids
+
+    def _add_dir_subtree(self, dir_id: UUID, dir_path: Path) -> set[UUID]:
+        """Add the directory subtree to dirs_to_lock and return the ids of its visible tables."""
+        self.dirs_to_lock[dir_id] = dir_path
+        tbl_q = sql.select(schema.Table.id).where(active_tbl_clause(dir_id=dir_id))
+        tbl_ids = {r.id for r in self.conn.execute(tbl_q).all()}
+
+        subdir_q = sql.select(schema.Dir.id, schema.Dir.md).where(schema.Dir.parent_id == dir_id)
+        for row in self.conn.execute(subdir_q).all():
+            tbl_ids |= self._add_dir_subtree(row.id, dir_path.append(row.md['name']))
+        return tbl_ids
+
+    def _visit_tables(self, where: sql.ColumnElement, op_class: TblOpClass) -> set[UUID]:
         """Read matching table metadata, record each table's lock requirements, and return its id.
 
         Add ancestors to the tables to visit, with DATA_READ as their operation class.
         """
-        rows = conn.execute(sql.select(schema.Table.id, schema.Table.dir_id, schema.Table.md).where(where)).all()
+        rows = self.conn.execute(sql.select(schema.Table.id, schema.Table.dir_id, schema.Table.md).where(where)).all()
         read_ids: set[UUID] = set()
         for row in rows:
             read_ids.add(row.id)
-            visited_tbl_ids.add(row.id)
-            tbl_id_to_op_classes[row.id].add(op_class)
+            self.visited_tbl_ids.add(row.id)
+            self.tbl_id_to_op_classes[row.id].add(op_class)
             tbl_md = schema.md_from_dict(schema.TableMd, row.md)
             if row.dir_id is not None:
-                tbl_dirs[row.id] = row.dir_id
+                self.tbl_dirs[row.id] = row.dir_id
             if not tbl_md.is_pure_snapshot:
-                store_tbl_names[row.id] = get_store_tbl_name(row.id, is_view=tbl_md.view_md is not None)
-                is_data_versioned[row.id] = tbl_md.is_data_versioned
+                store_tbl_name = get_store_tbl_name(row.id, is_view=tbl_md.view_md is not None)
+                self.store_tbls[row.id] = (store_tbl_name, tbl_md.is_data_versioned)
             view_base_id = finalized_view_base_id(tbl_md)
             if view_base_id is not None:
-                finalized_view_bases[row.id] = view_base_id
+                self.finalized_view_bases[row.id] = view_base_id
             if tbl_md.view_md is not None:
                 for hex_id, _ in tbl_md.view_md.base_versions:
                     ancestor_id = UUID(hex_id)
-                    tbl_id_to_op_classes[ancestor_id].add(TblOpClass.DATA_READ)
+                    self.tbl_id_to_op_classes[ancestor_id].add(TblOpClass.DATA_READ)
         return read_ids
 
-    def visit_transitive_views(tbl_ids: set[UUID], *, mutable_only: bool) -> set[UUID]:
+    def _visit_views(self, tbl_ids: Iterable[UUID], *, mutable_only: bool) -> set[UUID]:
         """Visit the given tables and their descendant views, returning all visited ids.
 
         When `mutable_only` is True, skip views whose base version is pinned.
@@ -411,55 +427,68 @@ def resolve_lock_set_from_store(request: LockRequest) -> LockSet:
             where = sql.and_(
                 schema.Table.md['view_md']['base_versions'][0][0].astext.in_([i.hex for i in next_ids]), snapshot_filter
             )
-            discovered_view_ids = visit_tables(where, request.op_class)
+            discovered_view_ids = self._visit_tables(where, self.request.op_class)
             visited_ids |= next_ids
             next_ids = discovered_view_ids - visited_ids
         return visited_ids
 
-    if request.lock_mutable_tree:
-        visit_transitive_views(set(request.mutable_write_tbl_ids()), mutable_only=True)
+    def _visit_remaining(self) -> None:
+        # Visiting a table can add its ancestors. Continue until every discovered id has been checked.
+        while True:
+            todo = self.tbl_id_to_op_classes.keys() - self.visited_tbl_ids
+            if len(todo) == 0:
+                break
+            self._visit_tables(schema.Table.id.in_(todo), TblOpClass.DATA_READ)
+            # Mark missing ids as visited too, so dropped tables do not cause an endless loop.
+            self.visited_tbl_ids.update(todo)
 
-    # Descendant table/view ids reached from write paths, including snapshots when requested.
-    write_path_mutable_views: set[UUID] = set()
-    if request.lock_path_subtree:
-        write_path_mutable_views = visit_transitive_views(write_path_tbl_ids, mutable_only=False)
-
-    # Visiting a table can add its ancestors. Continue until every discovered id has been checked.
-    while True:
-        todo = tbl_id_to_op_classes.keys() - visited_tbl_ids
-        if len(todo) == 0:
-            break
-        visit_tables(schema.Table.id.in_(todo), TblOpClass.DATA_READ)
-        # Mark missing ids as visited too, so dropped tables do not cause an endless loop.
-        visited_tbl_ids.update(todo)
-
-    # Require an exclusive lock on the base if finalization will advance its view_sn.
-    if request.op_class is TblOpClass.FINALIZE:
-        for tbl_id in request.write_tbl_ids:
-            base_id = finalized_view_bases.get(tbl_id)
+    def _add_finalized_view_bases(self) -> None:
+        # Require an exclusive lock on the base if finalization will advance its view_sn.
+        for tbl_id in self.request.write_tbl_ids:
+            base_id = self.finalized_view_bases.get(tbl_id)
             if base_id is not None:
-                tbl_id_to_op_classes[base_id].add(TblOpClass.FINALIZE)
-    if request.lock_path_subtree:
-        for tbl_id in write_path_mutable_views:
-            # Views outside the target directory subtree also need their parent directories locked.
-            dir_id = tbl_dirs.get(tbl_id)
-            if dir_id is not None:
-                dirs_to_lock.setdefault(dir_id, lookup_dir_path(dir_id))
+                self.tbl_id_to_op_classes[base_id].add(TblOpClass.FINALIZE)
 
-    sorted_tbl_targets = tuple(
-        LockTarget(
-            tbl_id=tbl_id,
-            store_tbl_name=store_tbl_name,
-            mode=TblLockMode.strongest_of(
-                tbl_lock_mode(op_class, is_data_versioned=is_data_versioned[tbl_id])
-                for op_class in tbl_id_to_op_classes[tbl_id]
+    def _add_view_dirs(self, tbl_ids: set[UUID]) -> None:
+        for tbl_id in tbl_ids:
+            # Views outside the target directory subtree also need their parent directories locked.
+            dir_id = self.tbl_dirs.get(tbl_id)
+            if dir_id is not None:
+                self.dirs_to_lock.setdefault(dir_id, lookup_dir_path(dir_id))
+
+    def _lock_set(self) -> LockSet:
+        sorted_tbl_targets = tuple(
+            LockTarget(
+                tbl_id=tbl_id,
+                store_tbl_name=store_tbl_name,
+                mode=TblLockMode.strongest_of(
+                    tbl_lock_mode(op_class, is_data_versioned=is_data_versioned)
+                    for op_class in self.tbl_id_to_op_classes[tbl_id]
+                ),
+            )
+            for tbl_id, (store_tbl_name, is_data_versioned) in sorted(
+                self.store_tbls.items(), key=lambda item: item[1][0]
+            )
+        )
+        sorted_dir_ids = tuple(dir_id for dir_id, _ in sorted(self.dirs_to_lock.items(), key=lambda item: item[1]))
+        return LockSet(
+            tbl_targets=sorted_tbl_targets,
+            dir_ids=sorted_dir_ids,
+            wait=should_wait(
+                self.request.op_class, any(is_data_versioned for _, is_data_versioned in self.store_tbls.values())
             ),
         )
-        for tbl_id, store_tbl_name in sorted(store_tbl_names.items(), key=lambda item: item[1])
-    )
-    sorted_dir_ids = tuple(dir_id for dir_id, _ in sorted(dirs_to_lock.items(), key=lambda item: item[1]))
-    return LockSet(
-        tbl_targets=sorted_tbl_targets,
-        dir_ids=sorted_dir_ids,
-        wait=should_wait(request.op_class, any(is_data_versioned.values())),
-    )
+
+
+def resolve_lock_set_from_store(request: LockRequest) -> LockSet:
+    """Build a lock set from stored metadata in the current transaction.
+
+    Read raw `tables` rows without constructing TableVersion instances, so pending operations do not prevent
+    lock-set discovery. Targets named by id or TableVersionPath include tables pending drop; catalog-path
+    lookups include only visible tables.
+
+    Apply the request's `op_class` to write targets and the views or subtrees affected by their writes. Lock other
+    tables, including ancestors, for read. If a table has several roles, use the strongest required mode.
+    """
+    assert get_runtime().in_xact
+    return _LockSetBuilder(request).build()
