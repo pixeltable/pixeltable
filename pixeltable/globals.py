@@ -660,6 +660,73 @@ def move(
     get_runtime().get_catalog(path_obj).move(path_obj, new_path_obj, if_exists_, if_not_exists_)
 
 
+@telemetry.spanned('pixeltable.copy_table', set_current=True)
+def copy_table(table: str | catalog.Table, dest_path: str) -> catalog.Table:
+    """Copy a local table, with its data and version history, into a hosted database.
+
+    The copy keeps the stored values of every column, computed columns and embedding indexes included, without
+    computing them again, and keeps every version of the table, so that
+    `pxt.get_table('pxt://<org>:<db>/<path>:<version>')` reads the same rows as the local table at that version.
+    Local media files are uploaded to the database's storage; media at a remote URL keeps its URL. The local table
+    is left as it is.
+
+    The database must be able to load every UDF that a computed column or an embedding index of the table uses;
+    deploy your own UDFs to it with `pxt db update` first. Only base tables can be copied, not views or snapshots.
+
+    Args:
+        table: Path or handle of the local table to copy.
+        dest_path: Path of the new table in a hosted database, of the form `'pxt://<org>:<db>/<path>'`. Its
+            directory must exist, and nothing may exist at the path.
+
+    Returns:
+        A handle to the new table.
+
+    Raises:
+        Error: If
+
+            - `table` is not a local base table,
+            - `dest_path` is not a path in a hosted database, or something exists at it,
+            - the table references local media files that no longer exist, or
+            - the database cannot load a UDF that the table uses.
+
+    Examples:
+        Copy a local table into a hosted database:
+
+        >>> t = pxt.copy_table('films', 'pxt://my-org:my-db/films')
+    """
+    src_path_obj = table._path() if isinstance(table, catalog.Table) else catalog.Path.parse(table)
+    dest_path_obj = catalog.Path.parse(dest_path)
+    telemetry.add_attrs(
+        telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(src_path_obj), new_path=str(dest_path_obj))
+    )
+    if not src_path_obj.is_local:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'copy_table(): {str(src_path_obj)!r} is not a local table'
+        )
+    if dest_path_obj.is_local:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f"copy_table(): {dest_path!r} is not a path in a hosted database ('pxt://<org>:<db>/<path>')",
+        )
+    if dest_path_obj.version is not None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_PATH, f'copy_table(): {dest_path!r} must not specify a version'
+        )
+    src_tbl = get_table(str(src_path_obj))
+    assert src_tbl is not None
+    if not isinstance(src_tbl, catalog.InsertableTable):
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'copy_table(): {src_tbl._display_str()} cannot be copied; only base tables can be copied',
+        )
+
+    from pixeltable.catalog.table_copy import copy_table as copy_table_impl
+
+    tbl = copy_table_impl(src_tbl, get_runtime().get_catalog(dest_path_obj), dest_path_obj)
+    Env.get().console_logger.info(f'Copied {src_tbl._display_str()} to {dest_path!r}.')
+    return tbl
+
+
 @telemetry.spanned('pixeltable.drop_table', set_current=True)
 def drop_table(
     table: str | catalog.Table, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error'

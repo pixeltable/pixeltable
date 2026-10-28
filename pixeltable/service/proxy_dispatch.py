@@ -336,6 +336,14 @@ def _get_table_by_id(request: ProxyRequest) -> list | None:
     return load()
 
 
+def _finish_table_import(request: ProxyRequest) -> list:
+    kwargs = _deserialize_args(request)
+    cat = get_runtime().catalog
+    tbl = cat.finish_table_import(**kwargs)
+    with cat.begin_xact(for_write=False):
+        return cat.read_md_for_export(tbl)
+
+
 def _catalog_method(request: ProxyRequest) -> Any:
     """Generic handler for catalog methods whose return value is directly serializable."""
     method = getattr(get_runtime().catalog, request.method)
@@ -646,6 +654,10 @@ _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
     ('CatalogBase', 'get_dir_contents'): _catalog_method,
     ('CatalogBase', 'create_dir'): _catalog_method,
     ('CatalogBase', 'drop_dir'): _catalog_method,
+    ('CatalogBase', 'begin_table_import'): _catalog_method,
+    ('CatalogBase', 'import_table_rows'): _catalog_method,
+    ('CatalogBase', 'finish_table_import'): _finish_table_import,
+    ('CatalogBase', 'abort_table_import'): _catalog_method,
     ('Query', 'collect'): _query_collect,
     ('Query', 'count'): _query_count,
 }

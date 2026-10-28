@@ -100,3 +100,37 @@ class CatalogBase(abc.ABC):
 
     @abc.abstractmethod
     def drop_dir(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None: ...
+
+    # The destination's side of copy_table(): a table copy takes one begin_table_import(), an import_table_rows() per
+    # chunk of rows and a finish_table_import(). Until finish_table_import(), the copy is in no directory.
+
+    @abc.abstractmethod
+    def begin_table_import(self, path: Path, md: dict[str, Any], md_version: int) -> UUID:
+        """Create a copy of the table described by md (see Catalog.read_md_for_copy()), without rows, to be placed
+        at path. md_version is the metadata version of md.
+
+        Returns:
+            The id of the copy, which the other *_table_import() calls take.
+        """
+
+    @abc.abstractmethod
+    def import_table_rows(
+        self, import_id: UUID, rows_file: str, new_media: dict[str, str], prev_media: dict[str, str]
+    ) -> dict[str, str]:
+        """Insert the store rows in the Parquet file rows_file into the copy.
+
+        Args:
+            new_media: url -> local path of each media file that these rows are the first to reference
+            prev_media: url -> stored url of each media file that an earlier call returned and these rows reference
+
+        Returns:
+            url -> stored url, for each url in new_media
+        """
+
+    @abc.abstractmethod
+    def finish_table_import(self, import_id: UUID, path: Path, num_rows: int) -> Table:
+        """Check that the copy holds num_rows store rows, and place it at path."""
+
+    @abc.abstractmethod
+    def abort_table_import(self, import_id: UUID) -> None:
+        """Drop the copy, if it hasn't been finished."""

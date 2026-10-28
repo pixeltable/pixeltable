@@ -58,6 +58,10 @@ _logger = logging.getLogger(__name__)
 # catalog may take this name; an entry created before the reservation keeps working
 _HOSTED_RESERVED_ROOT_NAME = PXT_BUCKETS_DIR
 
+# Marks the Table record of a table that begin_table_import() created and finish_table_import() hasn't yet placed in
+# a directory (schema.Table.additional_md)
+_PENDING_IMPORT_KEY = 'pending_import'
+
 
 def _unpack_row(row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api.DeclarativeBase]]) -> list[Any] | None:
     """Convert a Row result into a list of entity instances.
@@ -2980,6 +2984,201 @@ class Catalog(CatalogBase):
             ancestor_md.tbl_md.current_schema_version = ancestor_md.schema_version_md.schema_version
 
         return md
+
+    def read_md_for_copy(self, tbl_id: UUID) -> dict[str, Any]:
+        """
+        Returns every metadata record of the table as stored:
+        {'tbl_md': TableMd, 'version_mds': [VersionMd, ...], 'schema_version_mds': [SchemaVersionMd, ...]}, as dicts.
+        """
+        conn = get_runtime().conn
+        tbl_md = conn.execute(sql.select(schema.Table.md).where(schema.Table.id == tbl_id)).scalar_one()
+        version_mds = conn.execute(
+            sql.select(schema.TableVersion.md)
+            .where(schema.TableVersion.tbl_id == tbl_id)
+            .order_by(schema.TableVersion.version)
+        ).scalars()
+        schema_version_mds = conn.execute(
+            sql.select(schema.TableSchemaVersion.md)
+            .where(schema.TableSchemaVersion.tbl_id == tbl_id)
+            .order_by(schema.TableSchemaVersion.schema_version)
+        ).scalars()
+        return {'tbl_md': tbl_md, 'version_mds': list(version_mds), 'schema_version_mds': list(schema_version_mds)}
+
+    def begin_table_import(self, path: Path, md: dict[str, Any], md_version: int) -> UUID:
+        from pixeltable import metadata
+        from pixeltable.utils.object_stores import ObjectPath, StorageTarget
+
+        from .table_copy import remap_tbl_id
+
+        if md_version != metadata.VERSION:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'Cannot copy a table with metadata version {md_version} into a database with metadata version '
+                f'{metadata.VERSION}. Copy it with the Pixeltable version that the database runs.',
+            )
+        tbl_id = uuid4()
+        md = remap_tbl_id(md, UUID(md['tbl_md']['tbl_id']), tbl_id)
+        tbl_md = schema.md_from_dict(schema.TableMd, md['tbl_md'])
+        version_mds = [schema.md_from_dict(schema.VersionMd, d) for d in md['version_mds']]
+        schema_version_mds = [schema.md_from_dict(schema.SchemaVersionMd, d) for d in md['schema_version_mds']]
+        src_name = tbl_md.name
+        if tbl_md.view_md is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot copy {src_name!r}: only base tables can be copied'
+            )
+        if tbl_md.pending_stmt is not None or tbl_md.tbl_state != schema.TableState.LIVE:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE,
+                f'Cannot copy {src_name!r} while an operation on it is in progress; retry the copy',
+            )
+        tbl_md.name = path.name
+        tbl_md.user = Env.get().user
+        for col_md in tbl_md.column_md.values():
+            if (
+                isinstance(col_md.destination, str)
+                and ObjectPath.parse_object_storage_addr(col_md.destination, False).storage_target
+                == StorageTarget.LOCAL_STORE
+            ):
+                # the source's local directory doesn't exist here; the column falls back to the default destination
+                col_md.destination = None
+
+        # an embedding index builds its functions when the table is loaded, so check those before loading it
+        for idx_md in tbl_md.index_md.values():
+            if not idx_md.is_visible_in_version(tbl_md.current_schema_version):
+                continue
+            for arg in idx_md.init_args.values():
+                if isinstance(arg, dict) and '_classpath' in arg:
+                    fn = func.Function.from_dict(arg)
+                    if isinstance(fn, func.InvalidFunction):
+                        raise excs.NotFoundError(
+                            excs.ErrorCode.FUNCTION_NOT_FOUND,
+                            f'Cannot copy {src_name!r}: the index {idx_md.name!r} uses the UDF `{fn.self_path}`, '
+                            'which is not defined in the destination database.\n'
+                            'You can use `pxt db update` to deploy the UDF to the database.',
+                        )
+
+        @retry_loop(for_write=True)
+        def write_md() -> None:
+            self._prepare_dir_op(add_dir_path=path.parent, add_name=path.name, raise_if_exists=True)
+            # the table stays out of any directory until finish_table_import(), so that nothing sees it half-copied
+            get_runtime().session.add(
+                schema.Table(
+                    id=tbl_id,
+                    dir_id=None,
+                    md=dataclasses.asdict(tbl_md, dict_factory=schema.md_dict_factory),
+                    additional_md={_PENDING_IMPORT_KEY: {'created_at': time.time()}},
+                )
+            )
+            for version_md in version_mds:
+                self.write_tbl_md(tbl_id, None, None, version_md, None)
+            for schema_version_md in schema_version_mds:
+                self.write_tbl_md(tbl_id, None, None, None, schema_version_md)
+
+            # a missing UDF is reported below rather than warned about
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', excs.PixeltableWarning)
+                tv = self._get_tbl_version(TableVersionKey(tbl_id, None))
+            for col in tv.cols_by_id.values():
+                validation_error = None if col.value_expr is None else col.value_expr.validation_error
+                if validation_error is not None:
+                    raise excs.NotFoundError(
+                        excs.ErrorCode.FUNCTION_NOT_FOUND,
+                        f'Cannot copy {src_name!r}: the computed column {col.name!r} cannot be evaluated in the '
+                        f'destination database.\n{validation_error.catalog_error_msg()}\n'
+                        'You can use `pxt db update` to deploy the UDF to the database.',
+                    )
+
+        try:
+            write_md()
+        except BaseException:
+            self._clear_tv_cache(TableVersionKey(tbl_id, None))
+            raise
+
+        try:
+            tv = self.get_tbl_version(TableVersionKey(tbl_id, None))
+            assert tv is not None
+            # as in CreateStoreTableOp
+            with get_runtime().begin_xact():
+                tv.store_tbl.create()
+        except BaseException:
+            self.abort_table_import(tbl_id)
+            raise
+        return tbl_id
+
+    def import_table_rows(
+        self, import_id: UUID, rows_file: str, new_media: dict[str, str], prev_media: dict[str, str]
+    ) -> dict[str, str]:
+        from . import table_copy
+
+        key = TableVersionKey(import_id, None)
+
+        @retry_loop(for_write=False)
+        def read_md() -> tuple[dict[str, Any], TableVersion]:
+            self._check_pending_import(import_id)
+            return self.read_md_for_copy(import_id), self._get_tbl_version(key)
+
+        md, tv = read_md()
+        # object store I/O runs outside of a transaction, so that it doesn't hold a db connection
+        placed_media = table_copy.place_media(tv, md, rows_file, new_media)
+
+        @retry_loop(for_write=True, write_tbl_ids=[import_id])
+        def insert() -> None:
+            self._check_pending_import(import_id)
+            table_copy.insert_rows(self._get_tbl_version(key), md, rows_file, prev_media | placed_media)
+
+        insert()
+        return placed_media
+
+    def finish_table_import(self, import_id: UUID, path: Path, num_rows: int) -> LocalTable:
+        @retry_loop(for_write=True)
+        def finish() -> None:
+            # lock the directory before the table, as every other directory operation does
+            _, dest_dir, _ = self._prepare_dir_op(add_dir_path=path.parent, add_name=path.name, raise_if_exists=True)
+            assert dest_dir is not None
+            self._check_pending_import(import_id)
+            self._x_locked_tbl_ids.update(self._acquire_write_lock(tbl_id=import_id))
+            sa_tbl = self._get_tbl_version(TableVersionKey(import_id, None)).store_tbl.sa_tbl
+            conn = get_runtime().conn
+            stored_rows = conn.execute(sql.select(sql.func.count()).select_from(sa_tbl)).scalar_one()
+            if stored_rows != num_rows:
+                raise excs.InternalError(
+                    excs.ErrorCode.INTERNAL_ERROR,
+                    f'The copy of {path!r} is incomplete: expected {num_rows} rows, found {stored_rows}',
+                )
+            self._move_table(import_id, path.name, dest_dir._id)
+            conn.execute(sql.update(schema.Table).where(schema.Table.id == import_id).values(additional_md={}))
+
+        finish()
+        tbl = self.get_table_by_id(import_id)
+        assert tbl is not None
+        return tbl
+
+    def abort_table_import(self, import_id: UUID) -> None:
+        @retry_loop(for_write=True)
+        def abort() -> None:
+            if not self._is_pending_import(import_id):
+                return
+            tbl = self.get_table_by_id(import_id)
+            assert tbl is not None
+            self._drop_tbl(tbl._tbl_version_path, force=False, is_replace=False)
+
+        self._roll_forward_ids.clear()
+        abort()
+        self._roll_forward()
+
+    def _is_pending_import(self, tbl_id: UUID) -> bool:
+        row = (
+            get_runtime()
+            .conn.execute(
+                sql.select(schema.Table.dir_id, schema.Table.additional_md).where(schema.Table.id == tbl_id)
+            )
+            .one_or_none()
+        )
+        return row is not None and row.dir_id is None and _PENDING_IMPORT_KEY in row.additional_md
+
+    def _check_pending_import(self, tbl_id: UUID) -> None:
+        if not self._is_pending_import(tbl_id):
+            raise excs.NotFoundError(excs.ErrorCode.TABLE_NOT_FOUND, f'No table copy in progress with id {tbl_id}')
 
     @telemetry.spanned('pixeltable.catalog.load_tbl_version')
     def _load_tbl_version(self, key: TableVersionKey, *, check_pending_ops: bool = True) -> TableVersion:
