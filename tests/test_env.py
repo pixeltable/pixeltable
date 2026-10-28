@@ -4,6 +4,7 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
+from textwrap import dedent
 from typing import Iterator
 
 import numpy as np
@@ -13,11 +14,13 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import env, exceptions as excs
+from pixeltable.catalog.model import schema as schema_verbs
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
+from pixeltable_cli.utils import PxtPath
 
 from .utils import aux_db_name, pxt_raises, skip_test_if_not_local
 
@@ -177,25 +180,41 @@ class TestEnvReset:
 
 
 class TestLazyDb:
-    def test_get_starts_no_database(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Env.get() leaves the database alone; the first use of it connects, once."""
+    def test_hosted_path_starts_no_database(
+        self, proxy_daemon_db: str, project_env: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With the local database unusable, a hosted schema diff succeeds and only local use fails."""
+        app_file = project_env / 'lazy_app.py'
+        app_file.write_text(
+            dedent(
+                """
+                import datetime
+
+                import pixeltable as pxt
+
+                TableModel = pxt.model_base()
+
+
+                class Events(TableModel, name='events'):
+                    at: pxt.Timestamp
+                    recent = at > datetime.datetime(2024, 1, 1)
+                """
+            ),
+            encoding='utf-8',
+        )
+
+        def unusable_db(self: Env, reinit_db: bool) -> None:
+            raise RuntimeError('local database unusable')
+
         reset_runtime()
         Env.get()._clean_up()
-        monkeypatch.setattr(Env, '_instance', None)
-        connects: list[Env] = []
-        connect_db = Env._connect_db
+        Env._instance = None  # restore_env() replaces this Env with a working one
+        monkeypatch.setattr(Env, '_connect_db', unusable_db)
 
-        def counting_connect_db(self: Env, echo: bool, reinit_db: bool) -> None:
-            connects.append(self)
-            connect_db(self, echo, reinit_db)
-
-        monkeypatch.setattr(Env, '_connect_db', counting_connect_db)
-        env = Env.get()
-        assert env.media_dir.is_dir()
-        assert connects == []
-        assert pxt.list_tables() is not None
-        _ = env.engine
-        assert connects == [env]
+        plan = schema_verbs.schema_diff(str(app_file), PxtPath(f'pxt://local:{proxy_daemon_db}'))
+        assert [tbl.model_cls for tbl in plan.tables] == ['Events']
+        with pytest.raises(RuntimeError, match='local database unusable'):
+            _ = Env.get().engine
 
 
 class TestTmpDir:

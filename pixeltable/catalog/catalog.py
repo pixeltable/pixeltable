@@ -284,12 +284,7 @@ class Catalog(CatalogBase):
         self._tbl_md_read_allowed = False
         self._column_dependencies = {}
         self._column_dependents = None
-        # the store's own setup writes, which a frozen caller (eg an app module import) did not ask for
-        token = _frozen.set(False)
-        try:
-            self._init_store()
-        finally:
-            _frozen.reset(token)
+        self._init_store()
 
     def __deepcopy__(self, memo: dict[int, object]) -> 'Catalog':
         # Catalog instances are owned by Runtime and never duplicated. Return self here to prevent deepcopies.

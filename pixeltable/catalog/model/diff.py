@@ -573,8 +573,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
 
         return results
 
-    # a hosted catalog answers each read in its own daemon, so a local transaction around them would only start the
-    # local database
+    # retry_loop() opens a local transaction, and a hosted catalog does not use it
     return retry_loop(for_write=False)(op)() if is_local else op()
 
 

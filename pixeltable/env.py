@@ -170,7 +170,6 @@ class Env:
         # hit the assertion in _init_env())
         with cls._init_lock:
             if cls._instance is None:
-                # the database starts on first use: a process that only works with hosted databases never needs it
                 cls._init_env(connect=False)
         return cls._instance
 
@@ -285,7 +284,6 @@ class Env:
 
     @property
     def default_time_zone(self) -> ZoneInfo | None:
-        self._connect()
         return self._default_time_zone
 
     @default_time_zone.setter
@@ -365,7 +363,6 @@ class Env:
         return tz_name
 
     def _set_up(self) -> None:
-        """Set up everything but the database, which _connect() starts."""
         if self._initialized:
             return
 
@@ -374,6 +371,8 @@ class Env:
         config = Config.get()
 
         self._initialized = True
+        # _create_engine() sets the database session to the same zone
+        self._default_time_zone = ZoneInfo(self._get_tz_name())
 
         self._media_dir = Config.get().home / 'media'
         self._file_cache_dir = Config.get().home / 'file_cache'
@@ -506,7 +505,7 @@ class Env:
         self.clear_tmp_dir()
         self._set_up_runtime()
 
-    def _connect(self, echo: bool = False, reinit_db: bool = False) -> None:
+    def _connect(self, reinit_db: bool = False) -> None:
         """Start or connect to the database, create its metadata and upgrade it. Idempotent."""
         if self._db_connected:
             return
@@ -516,12 +515,12 @@ class Env:
                 return
             self._db_connecting = True
             try:
-                self._connect_db(echo, reinit_db)
+                self._connect_db(reinit_db)
                 self._db_connected = True
             finally:
                 self._db_connecting = False
 
-    def _connect_db(self, echo: bool, reinit_db: bool) -> None:
+    def _connect_db(self, reinit_db: bool) -> None:
         config = Config.get()
         tz_name = self._get_tz_name()
         self._init_db(config)
@@ -548,7 +547,7 @@ class Env:
             _logger.info(f'Using external database at: {self.redacted_db_url}')
 
         # Create the SQLAlchemy engine. This will also set the default time zone.
-        self._create_engine(time_zone_name=tz_name, echo=echo)
+        self._create_engine(time_zone_name=tz_name)
 
         # Create catalog tables and system metadata
         self._init_metadata()
