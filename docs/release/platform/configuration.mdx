@@ -120,7 +120,7 @@ The OTLP auth headers are a secret and do not go in the entry: set `OTEL_EXPORTE
 | OPENAI_API_KEY | [openai]<br/>api_key | (string) API key to use for OpenAI services |
 | OPENAI_BASE_URL | [openai]<br/>base_url | (string, optional) Base URL to use for OpenAI services |
 | OPENAI_API_VERSION | [openai]<br/>api_version | (string) API version for use with Azure OpenAI; must be `'latest'` or `'preview'` |
-| OPENLLM_API_KEY | [openllm]<br/>api_key | (string) API key to use for OpenLLM services |
+| OPENLLM_API_KEY | [openllm]<br/>api_key | (string, optional) API key to use for OpenLLM services; not needed for the local daemon |
 | OPENLLM_BASE_URL | [openllm]<br/>base_url | (string, optional) Base URL to use for OpenLLM services; defaults to the local daemon at `http://127.0.0.1:8787/v1` |
 | OPENROUTER_API_KEY | [openrouter]<br/>api_key | (string) API key to use for OpenRouter services |
 | OPENROUTER_SITE_URL | [openrouter]<br/>site_url | (string) Application URL (optional, for OpenRouter analytics) |

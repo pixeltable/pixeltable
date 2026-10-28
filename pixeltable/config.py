@@ -1023,7 +1023,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'write_timeout': 'HTTP write timeout',
     },
     'openllm': {
-        'api_key': 'OpenLLM API key',
+        'api_key': 'OpenLLM API key (optional for the local daemon)',
         'base_url': 'OpenLLM API base URL (default: the local daemon at http://127.0.0.1:8787/v1)',
         'rate_limit': 'Rate limit for OpenLLM API requests',
     },
