@@ -2,6 +2,7 @@ import time
 import uuid
 from pathlib import Path
 
+import PIL.Image
 import psycopg
 import pytest
 import sqlalchemy as sql
@@ -21,12 +22,12 @@ from pixeltable.utils.object_stores import ObjectPath
 
 from .coordinator import MultiThreadedScenario
 from .fault_injection import BlockFault, ExceptionFault
-from .utils import DatabaseRoot, get_image_files, pxt_raises
+from .utils import DatabaseRoot, pxt_raises
 
 
 def _winerror_32(path: Path | str) -> PermissionError:
     exc = PermissionError(32, 'The process cannot access the file because it is being used by another process')
-    exc.winerror = 32
+    exc.winerror = 32  # type: ignore[attr-defined]  # Windows-only attribute; set so Linux CI can simulate WinError 32
     exc.filename = str(path)
     return exc
 
@@ -173,12 +174,12 @@ class TestCatalog:
 
         n_fail_then_ok = 0
 
-        def fail_twice_then_delete(path: Path, *args: object, **kwargs: object) -> None:
+        def fail_twice_then_delete(path: str, *args: object, **kwargs: object) -> None:
             nonlocal n_fail_then_ok
             n_fail_then_ok += 1
             if n_fail_then_ok <= 2:
                 raise _winerror_32(path)
-            orig_rmtree(path, *args, **kwargs)
+            orig_rmtree(path)
 
         monkeypatch.setattr(local_store_mod.shutil, 'rmtree', fail_twice_then_delete)
         store.delete(tbl_id)
@@ -189,7 +190,7 @@ class TestCatalog:
         (table_dir / 'media.webm').write_bytes(b'x')
         n_always_fail = 0
 
-        def always_fail(path: Path, *args: object, **kwargs: object) -> None:
+        def always_fail(path: str, *args: object, **kwargs: object) -> None:
             nonlocal n_always_fail
             n_always_fail += 1
             raise _winerror_32(path)
@@ -203,18 +204,16 @@ class TestCatalog:
     @pytest.mark.db_roots('local', reason='monkeypatches shutil.rmtree in-process to simulate WinError 32')
     def test_drop_table_winerror_32_does_not_hang(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
         t = pxt.create_table('media_tbl', {'img': pxt.Image | None})
-        t.insert(img=get_image_files()[0])
+        t.insert(img=PIL.Image.new('RGB', (16, 16), color='red'))
         tbl_id = t._id
         assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         monkeypatch.setattr(local_store_mod, '_DELETE_RETRY_TIMEOUT_S', 0.2)
         monkeypatch.setattr(local_store_mod, '_DELETE_RETRY_SLEEP_S', 0.04)
-        monkeypatch.setattr(catalog_mod, '_MAX_NON_DB_FINALIZE_ATTEMPTS', 3)
-        monkeypatch.setattr(catalog_mod.time, 'sleep', lambda _s: None)
 
         n_rmtree = 0
 
-        def always_fail(path: Path, *args: object, **kwargs: object) -> None:
+        def always_fail(path: str, *args: object, **kwargs: object) -> None:
             nonlocal n_rmtree
             n_rmtree += 1
             raise _winerror_32(path)
