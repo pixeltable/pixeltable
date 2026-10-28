@@ -16,7 +16,8 @@ proc_label() {
     local tag=""
     if [ -r "$envfile" ]; then
         local envvars worker daemon
-        envvars=$(tr '\0' '\n' < "$envfile" 2>/dev/null)
+        # Brace group silences EACCES on the environ redirect; test -r is not sufficient.
+        envvars=$( { tr '\0' '\n' < "$envfile"; } 2>/dev/null)
         worker=$(printf '%s\n' "$envvars" | sed -n 's/^PYTEST_XDIST_WORKER=//p' | head -n1)
         daemon=$(printf '%s\n' "$envvars" | sed -n 's/^PIXELTABLE_PROXY_DAEMON=//p' | head -n1)
         if [ -n "$worker" ]; then
