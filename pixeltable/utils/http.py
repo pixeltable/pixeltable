@@ -113,31 +113,24 @@ def redact_url(url: str) -> str:
 
 
 def is_retryable_error(exc: Exception) -> tuple[bool, float | None]:
-    """
-    Attempts to guess if the exception indicates a retryable error.
-    If that is the case, returns True and the retry delay in seconds.
+    """Attempts to guess if the exception indicates a retryable error."""
+    from pixeltable.exceptions import Error
 
-    An explicit HTTP status is authoritative. A status outside `_RETRIABLE_HTTP_STATUSES` does not fall
-    through to substring matching, so a 404 whose text contains "429", or a 400 that says "timed out", is final.
-    `ExternalServiceError`'s `status_code`, stored as `provider_http_status_code`, is that status.
-    """
-
-    # Check for HTTP status TOO_MANY_REQUESTS in various exception classes.
-    # We look for attributes that contain status codes, instead of checking the type of the exception,
-    # in order to handle a wider variety of exception classes.
-    err_md = _extract_error_metadata(exc)
-    if err_md is not None and not err_md[0]:
+    # A non-retryable code is final. A retryable code still needs an HTTP status: the message is not a retry signal.
+    if isinstance(exc, Error) and not exc.is_retryable:
         return False, None
-    if err_md is None:
-        response = getattr(exc, 'response', None)
-        if response is not None:
-            err_md = _extract_error_metadata(response)
-            if err_md is not None and not err_md[0]:
-                return False, None
 
-    if err_md is not None and err_md[0]:
-        retry_after = err_md[1]
-        return True, retry_after if retry_after is not None and retry_after >= 0 else None
+    err_md = _extract_error_metadata(exc)
+    if err_md is None and hasattr(exc, 'response'):
+        err_md = _extract_error_metadata(exc.response)
+    if err_md is not None:
+        is_retryable, retry_delay = err_md
+        if is_retryable and isinstance(exc, Error) and exc.retry_after is not None and exc.retry_after >= 0:
+            retry_delay = exc.retry_after
+        return is_retryable, retry_delay if retry_delay is not None and retry_delay >= 0 else None
+
+    if isinstance(exc, Error):
+        return False, None
 
     # Transport-level failures are retryable.
     if isinstance(exc, (urllib.error.URLError, ConnectionError, TimeoutError)) and not isinstance(
@@ -158,29 +151,18 @@ retry_if_retryable_error = retry_if_exception(lambda exc: isinstance(exc, Except
 
 
 def _coerce_http_status(value: Any) -> int | None:
-    """HTTP status code, or None when `value` is not one."""
-    if isinstance(value, bool) or value is None:
-        return None
     if isinstance(value, int):
         return value if 100 <= value <= 599 else None
     if isinstance(value, str):
-        text = value.strip()
-        if text.isdigit():
-            code = int(text)
-            return code if 100 <= code <= 599 else None
-        try:
-            return int(HTTPStatus[text.upper().replace('-', '_').replace(' ', '_')])
-        except KeyError:
-            return None
+        member = HTTPStatus.__members__.get(value.upper())
+        return int(member) if member is not None else None
     return None
 
 
 def _extract_error_metadata(obj: Any) -> tuple[bool, float | None] | None:
     """`(retryable, delay)` from an HTTP status or a retry header, or None when this object says neither.
 
-    `(False, None)` is an explicit status outside the retryable set. The caller must not match the message.
-    The last attribute that parses as an HTTP status wins. A retry header does not override that status.
-    `provider_http_status_code` is included so `ExternalServiceError(status_code=...)` is authoritative.
+    A non-retryable status wins over a retry header.
     """
     status: int | None = None
     for attr in ('status', 'code', 'status_code', 'provider_http_status_code'):

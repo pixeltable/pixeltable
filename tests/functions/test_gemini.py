@@ -488,3 +488,29 @@ class TestGemini:
             .collect()
         )
         assert res[1]['sim'] - res[0]['sim'] > 0.1
+
+
+class TestGeminiRateLimits:
+    def test_video_deadline_stays_retried_and_file_poll_stays_final(self) -> None:
+        from pixeltable.exceptions import ErrorCode, ExternalServiceError
+        from pixeltable.functions.gemini import GeminiRateLimitsInfo
+        from pixeltable.utils.http import is_retryable_error
+
+        info = GeminiRateLimitsInfo()
+        video = ExternalServiceError(
+            ErrorCode.PROVIDER_TIMEOUT,
+            "Video generation timed out after 300 seconds for Gemini model 'veo'.",
+            provider='gemini',
+        )
+        assert info.get_retry_delay(video, 0) is not None
+        assert is_retryable_error(video) == (False, None)
+
+        upload = ExternalServiceError(
+            ErrorCode.PROVIDER_TIMEOUT, 'Timeout: failed to upload 1/1 file(s):\n- clip.mp4', provider='gemini'
+        )
+        assert info.get_retry_delay(upload, 0) is None
+        assert is_retryable_error(upload) == (False, None)
+
+        failed = ExternalServiceError(ErrorCode.PROVIDER_ERROR, 'Video generation failed: policy', provider='gemini')
+        assert info.get_retry_delay(failed, 0) is None
+        assert is_retryable_error(failed) == (False, None)

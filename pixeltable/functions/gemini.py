@@ -90,6 +90,13 @@ class GeminiRateLimitsInfo(env.RateLimitsInfo):
                         return delay
             except (AttributeError, KeyError, TypeError):
                 return exponential_backoff(attempt)
+        # generate_videos' deadline says "Video generation timed out". The file-upload poll uses this code and does not.
+        if (
+            isinstance(exc, excs.Error)
+            and exc.error_code is excs.ErrorCode.PROVIDER_TIMEOUT
+            and str(exc).startswith('Video generation timed out')
+        ):
+            return exponential_backoff(attempt)
         return None
 
 

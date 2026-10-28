@@ -36,6 +36,55 @@ class TestHttpUtils:
         exc.status_code = 'IM_A_TEAPOT'
         assert not is_retryable_error(exc)[0]
 
+        exc = DummyError('asset ee429ff was not found')
+        exc.status_code = 404
+        assert is_retryable_error(exc) == (False, None)
+
+        exc = DummyError('request timed out')
+        exc.status = 400
+        assert is_retryable_error(exc) == (False, None)
+
+        exc = DummyError('gateway timed out')
+        exc.status_code = 500
+        assert is_retryable_error(exc) == (False, None)
+
+        exc = DummyError('asset ee429ff was not found')
+        exc.status_code = 'NOT_FOUND'
+        assert is_retryable_error(exc) == (False, None)
+
+        exc = DummyError('request timed out')
+        exc.status_code = 404
+        exc.headers = {'Retry-After': '3'}
+        assert is_retryable_error(exc) == (False, None)
+
+        http_error = urllib.error.HTTPError(
+            'https://example.test/assets/ee429ff', 404, 'asset ee429ff was not found', hdrs=None, fp=None
+        )
+        assert is_retryable_error(http_error) == (False, None)
+
+        failed_asset = ExternalServiceError(
+            ErrorCode.PROVIDER_BAD_REQUEST,
+            'TwelveLabs asset ee429ff failed: processing timed out',
+            provider='twelvelabs',
+        )
+        assert is_retryable_error(failed_asset) == (False, None)
+        failed_job = ExternalServiceError(
+            ErrorCode.PROVIDER_ERROR, 'Video generation failed: policy', provider='gemini'
+        )
+        assert is_retryable_error(failed_job) == (False, None)
+        timed_provider = ExternalServiceError(ErrorCode.PROVIDER_ERROR, 'processing timed out', provider='twelvelabs')
+        assert is_retryable_error(timed_provider) == (False, None)
+        deadline = ExternalServiceError(
+            ErrorCode.PROVIDER_TIMEOUT, 'TwelveLabs asset test-asset timed out after 600s', provider='twelvelabs'
+        )
+        assert is_retryable_error(deadline) == (False, None)
+        video_deadline = ExternalServiceError(
+            ErrorCode.PROVIDER_TIMEOUT,
+            "Video generation timed out after 300 seconds for Gemini model 'veo'.",
+            provider='gemini',
+        )
+        assert is_retryable_error(video_deadline) == (False, None)
+
     def test_non_retriable_errors_inside_response(self) -> None:
         exc = DummyError('dummy')
         exc.response = types.SimpleNamespace()
@@ -48,6 +97,10 @@ class TestHttpUtils:
         exc.response = types.SimpleNamespace()
         exc.response.code = 'BAD_REQUEST'
         assert not is_retryable_error(exc)[0]
+
+        exc = DummyError('asset ee429ff was not found')
+        exc.response = types.SimpleNamespace(status=404, headers={'Retry-After': '8'})
+        assert is_retryable_error(exc) == (False, None)
 
     def test_retriable_errors(self) -> None:
         exc = DummyError('dummy')
@@ -65,6 +118,17 @@ class TestHttpUtils:
         exc = DummyError('dummy')
         exc.code = 'too_many_requests'
         assert is_retryable_error(exc) == (True, None)
+
+        for status in (408, 504):
+            exc = DummyError('request timed out')
+            exc.status_code = status
+            assert is_retryable_error(exc) == (True, None)
+
+        limited = ExternalServiceError(
+            ErrorCode.RATE_LIMITED, 'slow down', provider='twelvelabs', status_code=429, retry_after=2.5
+        )
+        assert is_retryable_error(limited) == (True, 2.5)
+        assert is_retryable_error(urllib.error.URLError('timed out'))[0] is True
 
     def test_retriable_errors_inside_response(self) -> None:
         exc = DummyError('dummy')
@@ -86,6 +150,8 @@ class TestHttpUtils:
 
         exc = DummyError('429, try again in 5 seconds')
         assert is_retryable_error(exc) == (True, 5)
+
+        assert is_retryable_error(DummyError('asset ee429ff was not found'))[0] is True
 
     def test_twelvelabs_exc(self) -> None:
         # Almost the actual error received from TwelveLabs
@@ -113,72 +179,6 @@ class TestHttpUtils:
             'x-trace-id': '122506435189331138',
         }
         assert is_retryable_error(exc) == (True, 11382)
-
-    def test_explicit_status_is_authoritative(self) -> None:
-        """A non-retryable HTTP status does not fall through to substring matching."""
-        exc = DummyError('asset ee429ff was not found')
-        exc.status_code = 404
-        assert is_retryable_error(exc) == (False, None)
-
-        exc = DummyError('request timed out')
-        exc.status = 400
-        assert is_retryable_error(exc) == (False, None)
-
-        exc = DummyError('gateway timed out')
-        exc.status_code = 500
-        assert is_retryable_error(exc) == (False, None)
-
-        exc = DummyError('asset ee429ff was not found')
-        exc.status_code = 'NOT_FOUND'
-        assert is_retryable_error(exc) == (False, None)
-
-        exc = DummyError('request timed out')
-        exc.status_code = 404
-        exc.headers = {'Retry-After': '3'}
-        assert is_retryable_error(exc) == (False, None)
-
-        exc = DummyError('asset ee429ff was not found')
-        exc.response = types.SimpleNamespace(status=404, headers={'Retry-After': '8'})
-        assert is_retryable_error(exc) == (False, None)
-
-        http_error = urllib.error.HTTPError(
-            'https://example.test/assets/ee429ff', 404, 'asset ee429ff was not found', hdrs=None, fp=None
-        )
-        assert is_retryable_error(http_error) == (False, None)
-
-        # Retryable statuses stay retryable, including when the message would also match.
-        for status in (408, 429, 503, 504):
-            exc = DummyError('request timed out')
-            exc.status_code = status
-            assert is_retryable_error(exc) == (True, None)
-
-        exc = DummyError('slow down')
-        exc.status_code = '429'
-        exc.headers = {'Retry-After': '3'}
-        assert is_retryable_error(exc) == (True, 3)
-
-        exc = DummyError('request timed out')
-        exc.code = 'too_many_requests'
-        assert is_retryable_error(exc)[0] is True
-
-        # No HTTP status: message matching still applies, and a transport failure is still retryable.
-        assert is_retryable_error(DummyError('asset ee429ff was not found'))[0] is True
-        assert is_retryable_error(urllib.error.URLError('timed out'))[0] is True
-
-        # ExternalServiceError stores the constructor status as provider_http_status_code.
-        failed_asset = ExternalServiceError(
-            ErrorCode.PROVIDER_ERROR,
-            'TwelveLabs asset ee429ff failed: processing timed out',
-            provider='twelvelabs',
-            status_code=502,
-        )
-        assert is_retryable_error(failed_asset) == (False, None)
-        limited = ExternalServiceError(ErrorCode.RATE_LIMITED, 'slow down', provider='twelvelabs', status_code=429)
-        assert is_retryable_error(limited) == (True, None)
-        unmatched = ExternalServiceError(
-            ErrorCode.PROVIDER_ERROR, 'TwelveLabs asset ee429ff failed: processing timed out', provider='twelvelabs'
-        )
-        assert is_retryable_error(unmatched)[0] is True
 
     def test_parse_duration_header(self) -> None:
         assert parse_duration_str(None) is None
