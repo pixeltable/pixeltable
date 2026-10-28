@@ -6213,7 +6213,7 @@ extra-dev = [{ name = "llama-cpp-python", marker = "sys_platform != 'win32'", sp
 storage-sdks = [{ name = "google-cloud-storage", specifier = ">=2.18.0" }]
 test = [
     { name = "filelock", specifier = ">=3.20.3" },
-    { name = "pytest", specifier = ">=9.0.3,<9.2" },
+    { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-benchmark", specifier = ">=5.1" },
     { name = "pytest-cov", specifier = ">=7" },
     { name = "pytest-rerunfailures", specifier = ">=15.1" },
