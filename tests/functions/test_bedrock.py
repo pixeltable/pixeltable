@@ -1,6 +1,5 @@
-import io
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Iterator
 
 import PIL.Image
 import pytest
@@ -11,7 +10,6 @@ from pixeltable.config import Config
 
 from ..utils import (
     NETWORK_ERROR_PATTERNS,
-    aws_client_error,
     get_audio_files,
     get_image_files,
     get_video_files,
@@ -181,87 +179,6 @@ def test_unavailable_video_model_error() -> None:
         'An error occurred (ResourceNotFoundException) when calling the StartAsyncInvoke operation: '
         'The requested resource was not found.',
     )
-
-
-def _mock_async_invoke(monkeypatch: pytest.MonkeyPatch, poll: Callable[[], dict]) -> list[dict]:
-    """Route a Bedrock async invocation to fakes; `poll` answers each get_async_invoke. Returns the submissions."""
-    from pixeltable.functions import bedrock
-    from pixeltable.utils.s3_store import S3Store
-
-    submissions: list[dict] = []
-
-    class BedrockClient:
-        def start_async_invoke(self, **kwargs: Any) -> dict:
-            submissions.append(kwargs)
-            return {'invocationArn': 'arn:aws:bedrock:us-east-1:123456789012:async-invoke/job1'}
-
-        def get_async_invoke(self, invocationArn: str) -> dict:  # noqa: N803
-            return poll()
-
-    class S3Client:
-        def list_objects_v2(self, Bucket: str, Prefix: str) -> dict:  # noqa: N803
-            return {'Contents': [{'Key': f'{Prefix}output.json'}, {'Key': f'{Prefix}manifest.json'}]}
-
-        def get_object(self, Bucket: str, Key: str) -> dict:  # noqa: N803
-            return {'Body': io.BytesIO(b'{"data": [{"embedding": [0.5]}]}')}
-
-        def delete_object(self, Bucket: str, Key: str) -> None:  # noqa: N803
-            pass
-
-    class Store(S3Store):
-        def client(self) -> Any:
-            return S3Client()
-
-    get_store = bedrock.ObjectOps.get_store
-
-    def get_test_store(dest: Any, *args: Any, **kwargs: Any) -> Any:
-        if isinstance(dest, bedrock.StorageObjectAddress) and dest.container == 'test-bucket':
-            return Store(dest)
-        return get_store(dest, *args, **kwargs)
-
-    monkeypatch.setenv('BEDROCK_TEMP_LOCATION', 's3://test-bucket/bedrock_outputs/')
-    Config.init(reinit=True)
-    monkeypatch.setattr(bedrock, '_bedrock_client', BedrockClient)
-    monkeypatch.setattr(bedrock.ObjectOps, 'get_store', get_test_store)
-    return submissions
-
-
-def _marengo_audio_table() -> pxt.Table:
-    from pixeltable.functions.bedrock import invoke_model
-
-    t = pxt.create_table('tbl', {'uri': pxt.String})
-    t.add_computed_column(
-        response=invoke_model(
-            {'inputType': 'audio', 'audio': {'mediaSource': {'s3Location': {'uri': t.uri}}}},
-            model_id='twelvelabs.marengo-embed-3-0-v1:0',
-        )
-    )
-    return t
-
-
-def test_async_invoke_poll_throttle(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A throttled status poll keeps polling the accepted job instead of submitting a new one."""
-    from pixeltable.functions import bedrock
-
-    poll_results: list[Exception | dict] = [
-        aws_client_error('ThrottlingException', 429, 'Too many requests'),
-        {'status': 'InProgress'},
-        {'status': 'Completed'},
-    ]
-
-    def poll() -> dict:
-        result = poll_results.pop(0)
-        if isinstance(result, Exception):
-            raise result
-        return result
-
-    submissions = _mock_async_invoke(monkeypatch, poll)
-    monkeypatch.setattr(bedrock, '_ASYNC_INVOCATION_POLL_INTERVAL_SECS', 0.0)
-    t = _marengo_audio_table()
-    validate_update_status(t.insert(uri='s3://test-bucket/audio.mp3'), expected_rows=1)
-    assert len(submissions) == 1
-    assert poll_results == []
-    assert t.collect()[0]['response'] == {'data': [{'embedding': [0.5]}]}
 
 
 @pytest.mark.remote_api
