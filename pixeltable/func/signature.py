@@ -145,6 +145,24 @@ class Signature:
         parameters = [Parameter.from_dict(param_dict) for param_dict in d['parameters']]
         return cls(ts.ColumnType.from_dict(d['return_type']), parameters, d['is_batched'])
 
+    @classmethod
+    def is_signature_dict(cls, d: dict[str, Any]) -> bool:
+        """Return True if d has the keys of as_dict()."""
+        return d.keys() == {'return_type', 'parameters', 'is_batched'}
+
+    def arg_type(self, arg: int | str) -> ts.ColumnType | None:
+        """The type of the parameter that receives the positional argument at index arg, or the keyword argument arg;
+        None if no parameter does, or for a variable parameter."""
+        if isinstance(arg, str):
+            param = self.parameters.get(arg)
+            return None if param is None else param.col_type
+        positional = [
+            p
+            for p in self.parameters_by_pos
+            if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        ]
+        return positional[arg].col_type if arg < len(positional) else None
+
     def is_consistent_with(self, other: Signature) -> bool:
         """
         Returns True if this signature is consistent with the other signature.

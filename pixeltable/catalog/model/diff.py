@@ -348,12 +348,7 @@ def _value_dicts_match(model: Any, existing: Any) -> bool:
     if isinstance(model, dict) and isinstance(existing, dict):
         if model.keys() != existing.keys():
             return False
-        # a serialized FunctionCall, or a serialized Signature with the keys of Signature.as_dict()
-        has_return_type = model.get('_classname') == 'FunctionCall' or model.keys() == {
-            'return_type',
-            'parameters',
-            'is_batched',
-        }
+        has_return_type = model.get('_classname') == 'FunctionCall' or func.Signature.is_signature_dict(model)
         for key, model_val in model.items():
             existing_val = existing[key]
             if (

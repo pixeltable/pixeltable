@@ -1164,34 +1164,40 @@ def eval_udf(fn: pxt.Function, /, *args: Any, **kwargs: Any) -> Any:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT, 'eval_udf(): the arguments must be Python values, not columns'
         )
-    row_builder = exprs.RowBuilder(output_exprs=[call], columns=[], input_exprs=[])
-    row = row_builder.make_row()
-    row_builder.eval(row, ctx=row_builder.default_eval_ctx, ignore_errors=True)
-    slot_idx = row_builder.get_output_exprs()[0].slot_idx
-    if row.has_exc(slot_idx):
-        exc = row.get_exc(slot_idx)
-        assert exc is not None
-        raise exc
-    return row[slot_idx]
+    return call.eval_without_row()
 
 
 def _local_media_args(
     fn: pxt.Function, args: tuple[Any, ...], kwargs: dict[str, Any]
 ) -> tuple[tuple[Any, ...], dict[str, Any]]:
     """Replace each file path or URL for a media parameter of fn with a literal of that media type, downloading a URL
-    first."""
-    if fn.is_polymorphic:
-        return args, kwargs
-    try:
-        bound = fn.signature.py_signature.bind(*args, **kwargs)
-    except TypeError:
+    first. The parameter must have the same media type in every signature of fn that accepts the call: a path as the
+    first argument of clip() could be a text or an image, so it stays a string."""
+    signatures: list[func.Signature] = []
+    for sig in fn.signatures:
+        try:
+            sig.py_signature.bind(*args, **kwargs)
+        except TypeError:
+            continue
+        signatures.append(sig)
+    if len(signatures) == 0:
         # the call itself reports the mismatch
         return args, kwargs
-    for name, val in bound.arguments.items():
-        col_type = fn.signature.parameters[name].col_type
-        if col_type is not None and col_type.is_media_type() and isinstance(val, str):
-            bound.arguments[name] = exprs.Literal(str(fetch_url(val, allow_local_file=True)), col_type=col_type)
-    return bound.args, bound.kwargs
+    new_args, new_kwargs = list(args), dict(kwargs)
+    arg_vals: list[tuple[int | str, Any]] = [*enumerate(args), *kwargs.items()]
+    for arg, val in arg_vals:
+        if not isinstance(val, str):
+            continue
+        col_types = [sig.arg_type(arg) for sig in signatures]
+        col_type = col_types[0]
+        if col_type is None or not col_type.is_media_type() or any(t != col_type for t in col_types):
+            continue
+        literal = exprs.Literal(str(fetch_url(val, allow_local_file=True)), col_type=col_type)
+        if isinstance(arg, int):
+            new_args[arg] = literal
+        else:
+            new_kwargs[arg] = literal
+    return tuple(new_args), new_kwargs
 
 
 def tools(*args: func.Function | func.tools.Tool) -> func.tools.Tools:

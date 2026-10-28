@@ -46,6 +46,18 @@ def _expr_property_double(x: int) -> int:
     return x * 2
 
 
+@pxt.udf
+def _checked(x: int) -> int:
+    if x % 10 == 3:
+        raise ValueError(f'unlucky {x}')
+    return x
+
+
+@pxt.expr_udf
+def _checked_plus_one(x: int) -> int:
+    return _checked(x) + 1  # type: ignore[return-value]
+
+
 # Module-level udfs with non-JSON-serializable default arguments, used by TestFunction.test_constants.
 # The timestamp default is timezone-aware so that building its Literal at import time does not require an
 # initialized Env (a naive datetime would need Env.get().default_time_zone).
@@ -75,6 +87,16 @@ def doubled(xs: Batch[int]) -> Batch[int]:
 @pxt.udf
 def failing_udf(x: int) -> int:
     raise ValueError(f'bad value: {x}')
+
+
+@pxt.udf
+def describe(text: str) -> str:
+    return f'text {text}'
+
+
+@describe.overload
+def _(image: PIL.Image.Image) -> str:
+    return f'image {image.width}x{image.height}'
 
 
 T = typing.TypeVar('T')
@@ -188,6 +210,10 @@ class TestFunction:
         image_path = get_image_files()[0]
         assert pxt.eval_udf(pxtf.image.width, image_path) == PIL.Image.open(image_path).width
         assert pxt.eval_udf(pxtf.video.get_duration, video=get_video_files()[0]) > 0
+        # a path for a parameter that is a string in one signature and an image in another stays a string
+        assert pxt.eval_udf(describe, image_path) == f'text {image_path}'
+        width, height = PIL.Image.open(image_path).size
+        assert pxt.eval_udf(describe, image=image_path) == f'image {width}x{height}'
         assert pxt.eval_udf(doubled, 21) == 42
         assert pxt.eval_udf(pxtf.image.resize.using(size=(3, 4)), PIL.Image.new('RGB', (10, 20))).size == (3, 4)
         with pytest.raises(ValueError, match='bad value: 1'):
@@ -200,7 +226,7 @@ class TestFunction:
         def names_above(n: int) -> pxt.Query:
             return t.where(t.n > n).select(t.name)
 
-        assert pxt.eval_udf(names_above, 2) == [{'name': 'b'}]
+        assert pxt.eval_udf(names_above, 2) == ['b']
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='not columns'):
             pxt.eval_udf(pxtf.string.upper, t.name)
@@ -1233,6 +1259,17 @@ class TestFunction:
         res_prop = t.select(out=t.c2._expr_property_double).order_by(t.c2).collect()
         res_inline2 = t.select(out=t.c2 * 2).order_by(t.c2).collect()
         assert_resultset_eq(res_prop, res_inline2)
+
+    def test_expr_udf_error(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        # a failure inside an expr_udf reports the exception that failed
+        status = t.add_computed_column(out=_checked_plus_one(t.c2), on_error='ignore')
+        assert status.num_excs == 10
+        res = t.where(t.c2 == 3).select(t.out, errortype=t.out.errortype, errormsg=t.out.errormsg).collect()
+        assert res[0] == {'out': None, 'errortype': 'ValueError', 'errormsg': 'unlucky 3'}
+        assert pxt.eval_udf(_checked_plus_one, 4) == 5
+        with pytest.raises(ValueError, match='unlucky 13'):
+            pxt.eval_udf(_checked_plus_one, 13)
 
     def test_expr_udf_method_errors(self) -> None:
         # is_method and is_property are mutually exclusive

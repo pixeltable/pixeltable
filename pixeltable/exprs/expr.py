@@ -588,6 +588,21 @@ class Expr(abc.ABC):
         Not called if sql_expr() != None (exception: Literal).
         """
 
+    def eval_without_row(self) -> Any:
+        """Evaluate this expression, which references no column, and return its value, or raise the exception of a
+        failed evaluation."""
+        from pixeltable.exprs import RowBuilder
+
+        row_builder = RowBuilder(output_exprs=[self], columns=[], input_exprs=[])
+        row = row_builder.make_row()
+        row_builder.eval(row, ctx=row_builder.default_eval_ctx, ignore_errors=True)
+        slot_idx = row_builder.get_output_exprs()[0].slot_idx
+        if row.has_exc(slot_idx):
+            exc = row.get_exc(slot_idx)
+            assert exc is not None
+            raise exc
+        return row[slot_idx]
+
     def prepare(self, args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         """
         Create execution state. Called before each iteration begins.

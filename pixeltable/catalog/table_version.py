@@ -1499,15 +1499,23 @@ class TableVersion:
         pk_cols = self.primary_key_columns()
         key_vals = [tuple(row[col].val for col in pk_cols) for row in batch]
         sa_key_cols = [col.sa_col for col in pk_cols]
-        stmt = sql.select(*sa_key_cols).where(sql.tuple_(*sa_key_cols).in_(key_vals))
-        # restricts the lookup to the rows visible at the current version
-        stmt = SqlNode.create_from_clause(self.path, stmt)
-        existing = {tuple(row) for row in get_runtime().conn.execute(stmt)}
-        new_rows = [
-            {col.name: val_expr.val for col, val_expr in row.items()}
-            for key, row in zip(key_vals, batch)
-            if key not in existing
-        ]
+        # Postgres allows at most 64K bind parameters per statement, and the lookup binds one per key column per key
+        keys_per_lookup = 10_000 // len(pk_cols)
+        existing: set[tuple] = set()
+        for start in range(0, len(key_vals), keys_per_lookup):
+            stmt = sql.select(*sa_key_cols).where(
+                sql.tuple_(*sa_key_cols).in_(key_vals[start : start + keys_per_lookup])
+            )
+            # restricts the lookup to the rows visible at the current version
+            stmt = SqlNode.create_from_clause(self.path, stmt)
+            existing.update(tuple(row) for row in get_runtime().conn.execute(stmt))
+        new_rows: list[dict[str, Any]] = []
+        for key, row in zip(key_vals, batch):
+            if key in existing:
+                continue
+            # a repeated key exists after its first row, so its later rows are ignored
+            existing.add(key)
+            new_rows.append({col.name: val_expr.val for col, val_expr in row.items()})
         if len(new_rows) == 0:
             return UpdateStatus(rows=[] if return_rows else None)
         return self.insert(new_rows, None, print_stats=False, fail_on_exception=False, return_rows=return_rows)

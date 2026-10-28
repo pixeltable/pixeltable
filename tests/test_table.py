@@ -3177,6 +3177,15 @@ class TestTable:
         )
         assert status.num_rows == 1
 
+        # the batch applies row by row: a repeated new key keeps its first row, as an upsert keeps its last
+        status = t.batch_update(
+            [{'id': 6, 'name': 'f'}, {'id': 6, 'name': 'f2'}], if_exists='ignore', if_not_exists='insert'
+        )
+        assert status.num_rows == 1
+        t.batch_update([{'id': 7, 'name': 'g'}, {'id': 7, 'name': 'g2'}], if_not_exists='insert')
+        assert t.where(t.id >= 6).select(t.id, t.name).order_by(t.id).collect()['name'] == ['f', 'g2']
+        t.where(t.id >= 6).delete()
+
         # with another if_not_exists, if_exists='ignore' would change nothing
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="requires if_not_exists='insert'"):
             t.batch_update([{'id': 8, 'name': 'h'}], if_exists='ignore')
@@ -3222,6 +3231,21 @@ class TestTable:
             [{'a': 1, 'b': 'x', 'v': 9}, {'a': 1, 'b': 'y', 'v': 2}], if_exists='ignore', if_not_exists='insert'
         )
         assert pairs.order_by(pairs.b).select(pairs.b, pairs.v).collect()['v'] == [1, 2]
+
+    def test_batch_update_if_exists_many_keys(self, db_root: DatabaseRoot) -> None:
+        # 4 key columns for each of 20,000 keys exceed Postgres's limit of 65535 bind parameters per statement
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('test'),
+            {'a': pxt.Int, 'b': pxt.Int, 'c': pxt.Int, 'd': pxt.Int, 'name': pxt.String},
+            primary_key=['a', 'b', 'c', 'd'],
+        )
+        rows = [{'a': i, 'b': i + 1, 'c': i + 2, 'd': i + 3, 'name': 'x'} for i in range(20_000)]
+        status = t.batch_update(rows, if_exists='ignore', if_not_exists='insert')
+        assert status.num_rows == 20_000
+        status = t.batch_update(rows, if_exists='ignore', if_not_exists='insert')
+        assert status.num_rows == 0
+        assert t.count() == 20_000
 
     def test_update_return_rows(
         self, db_root: DatabaseRoot, is_data_versioned: bool, local_embed: pxt.Function

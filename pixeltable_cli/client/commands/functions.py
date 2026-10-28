@@ -9,6 +9,7 @@ import typing
 
 import pixeltable as pxt
 from pixeltable.types import FunctionKind
+from pixeltable_cli.utils import project_root
 
 from ..parser import Parser
 from ..utils import EXIT_ERROR
@@ -53,8 +54,9 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--json', action='store_true', dest='as_json', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    # import modules in the working directory, as python -c 'import app' does
-    sys.path.insert(0, os.getcwd())
+    # a column records a project module by its path from the project root
+    root = project_root()
+    sys.path.insert(0, os.getcwd() if root is None else root)
     try:
         functions = pxt.list_functions(
             args.module, on=None if args.on is None else getattr(pxt, args.on), search=args.search, kind=args.kind

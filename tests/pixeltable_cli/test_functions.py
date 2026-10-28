@@ -24,25 +24,35 @@ class TestFunctions:
         assert captured.out == ''
         assert captured.err == 'pxt functions: no function matches\n'
 
-    def test_lists_module_in_working_dir(
+    def test_lists_project_module(
         self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        (tmp_path / 'cli_functions_app.py').write_text(
-            textwrap.dedent(
-                """
-                import pixeltable as pxt
+        udf_src = textwrap.dedent(
+            """
+            import pixeltable as pxt
 
 
-                @pxt.udf
-                def shout(text: str) -> str:
-                    return text.upper()
-                """
-            )
+            @pxt.udf
+            def shout(text: str) -> str:
+                return text.upper()
+            """
         )
-        monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(sys, 'path', list(sys.path))
+
+        # outside a project, a module in the working directory
+        (tmp_path / 'cli_functions_app.py').write_text(udf_src)
+        monkeypatch.chdir(tmp_path)
         functions.run(['cli_functions_app'])
         assert capsys.readouterr().out == 'udf       cli_functions_app.shout(text: pxt.String) -> pxt.String\n'
+
+        # in a project, the module path from the project root, from any of its directories
+        project = tmp_path / 'project'
+        (project / 'api').mkdir(parents=True)
+        (project / 'pixeltable.toml').write_text('')
+        (project / 'cli_functions_project_app.py').write_text(udf_src)
+        monkeypatch.chdir(project / 'api')
+        functions.run(['cli_functions_project_app'])
+        assert capsys.readouterr().out == 'udf       cli_functions_project_app.shout(text: pxt.String) -> pxt.String\n'
 
     def test_unknown_module_fails(self, capsys: pytest.CaptureFixture[str]) -> None:
         with pytest.raises(SystemExit) as exc_info:

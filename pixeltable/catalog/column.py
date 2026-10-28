@@ -522,7 +522,8 @@ class Column:
         if self._value_expr.contains_(filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_std_agg_fn_call):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_EXPRESSION,
-                f'Column {self.name!r}: aggregate functions are not supported in computed columns:\n{self.value_expr}',
+                f'Column {self.name!r}: aggregate functions are not supported in computed columns:\n'
+                f'{self.value_expr!s}',
             )
         if not self.stored and self.is_computed and self.has_window_fn_call():
             raise excs.RequestError(

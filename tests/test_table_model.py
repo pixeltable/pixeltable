@@ -59,6 +59,16 @@ def typed_chat_response(prompt: str) -> ChatResponse:
     return {'content': [{'type': 'text', 'text': prompt}]}
 
 
+@pxt.udf
+def word_count(text: str) -> int:
+    return len(text.split())
+
+
+@pxt.udf
+def word_count_as_str(text: str) -> str:
+    return str(len(text.split()))
+
+
 def as_dict(diff: TableDiff) -> dict[str, Any]:
     """The diff as a dict, including the model-side and catalog-side operands serialization excludes."""
     return {
@@ -3619,6 +3629,41 @@ class TestTableModel:
         assert_type_eq(t.response.col_type, pxt.Json)
         assert_type_eq(t.text.col_type, pxt.Json | None)
         assert t.order_by(t.id).select(t.text).collect()['text'] == ['a', 'b']
+
+    @pytest.mark.db_roots('local', reason='monkeypatches a UDF in-process')
+    def test_diff_incompatible_udf_return_type(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        """After a UDF's return type changes incompatibly, a column that calls it no longer matches its model, even
+        where the column's own type stays the same."""
+        p = db_root.make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            id = Column(type=pxt.Int, primary_key=True)
+            body: pxt.String
+            words = pxtf.json.dumps(word_count(body))
+
+        TableModel.create_all(root)
+
+        # a new version of word_count() returns a String
+        monkeypatch.setattr(
+            'tests.test_table_model.word_count',
+            func.CallableFunction(
+                word_count_as_str.signatures, word_count_as_str.py_fns, 'tests.test_table_model.word_count'
+            ),
+        )
+        reload_catalog()
+        NewModel = pxt.model_base()
+
+        class NewDocs(NewModel, name='docs'):
+            id = Column(type=pxt.Int, primary_key=True)
+            body: pxt.String
+            words = pxtf.json.dumps(word_count(body))
+
+        with pytest.warns(pxt.PixeltableWarning, match="computed column 'words' in table 'docs' is no longer valid"):
+            diff = NewModel.get_model_diff(root)['docs']
+        assert [(op.op, op.name) for op in diff.ops] == [('alter', 'words')]
 
     def test_update_all_altered_columns_reversed_dependency(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

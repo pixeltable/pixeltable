@@ -3,14 +3,12 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import logging
-import tempfile
 from collections import defaultdict, deque
 from concurrent import futures
 from pathlib import Path
 from typing import AsyncIterator, Iterator, NamedTuple
 
 from pixeltable import exprs, telemetry, telemetry_schemas
-from pixeltable.config import Config
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectPath, ObjectStoreBase, StorageTarget
 from pixeltable.utils.progress_reporter import ProgressReporter
 
@@ -63,8 +61,6 @@ class ObjectStoreSaveNode(ExecNode):
 
     retain_input_order: bool  # if True, return rows in the exact order they were received
     file_col_info: list[exprs.ColumnSlotIdx]
-    home_dir: Path  # the resolved Pixeltable home
-    system_tmp_dirs: tuple[Path, ...]  # the resolved system temp directories
 
     # execution state
     num_returned_rows: int
@@ -99,24 +95,12 @@ class ObjectStoreSaveNode(ExecNode):
         super().__init__(input.row_builder, [], [], input)
         self.retain_input_order = retain_input_order
         self.file_col_info = file_col_info
-        self.home_dir = Config.get().home.resolve()
-        self.system_tmp_dirs = tuple(Path(d).resolve() for d in (tempfile.gettempdir(), '/tmp', '/var/tmp'))
         assert self.QUEUE_DEPTH_HIGH_WATER > self.QUEUE_DEPTH_LOW_WATER
         self._init_exec_state()
 
     @property
     def queued_work(self) -> int:
         return len(self.in_flight_requests)
-
-    def _in_system_temp_dir(self, path: Path) -> bool:
-        """Return True if path lies in a system temp directory and outside the Pixeltable home.
-
-        The home is excluded because it may itself lie in a temp directory.
-        """
-        resolved = path.resolve()
-        if resolved.is_relative_to(self.home_dir):
-            return False
-        return any(resolved.is_relative_to(tmp_dir) for tmp_dir in self.system_tmp_dirs)
 
     def _init_exec_state(self) -> None:
         self.num_returned_rows = 0
@@ -271,7 +255,11 @@ class ObjectStoreSaveNode(ExecNode):
                 # The url does not point to a local file, do not attempt to copy/move it
                 continue
 
-            if destination is None and not TempStore.contains_path(src_path) and not self._in_system_temp_dir(src_path):
+            if (
+                destination is None
+                and not TempStore.contains_path(src_path)
+                and not TempStore.in_system_temp_dir(src_path)
+            ):
                 # Do not copy local file URLs to the LocalStore, unless the OS may clean up the file
                 continue
 
