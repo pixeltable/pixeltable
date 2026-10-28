@@ -121,6 +121,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
     last_frame: av.VideoFrame | None  # latest frame from self.frames; the final frame once current_frame is None
     last_frame_interval: int | None  # pts between the last two frames decoded from self.frames
     at_seek_target: bool  # set by seek(); indicates that current_frame stores the frame of the seek target row
+    _closed: bool
 
     def __init__(
         self, video: pxt.Video, *, fps: float | None = None, num_frames: int | None = None, keyframes_only: bool = False
@@ -129,6 +130,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         assert video_path.exists() and video_path.is_file()
         self.video_path = video_path
         self.container = av.open(str(video_path))
+        self._closed = False
         self.fps = fps
         self.num_frames = num_frames
         self.keyframes_only = keyframes_only
@@ -270,7 +272,23 @@ class frame_iterator(pxt.PxtIterator[Frame]):
         return result
 
     def close(self) -> None:
-        self.container.close()
+        if getattr(self, '_closed', False):
+            return
+        self._closed = True
+        # Drop the decode generator so it cannot keep the container (and the media file) alive.
+        self.frames = iter(())
+        self.current_frame = None
+        container = getattr(self, 'container', None)
+        if container is not None:
+            container.close()
+
+    def __del__(self) -> None:
+        # Last-resort close if a caller drops the iterator without close()/__exit__. ColumnRef.release
+        # must still close deterministically: cyclic PyAV state is not collected promptly on Windows.
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def seek(self, pos: int, **kwargs: Any) -> None:
         """Move to the frame of row pos, given the row's stored outputs in kwargs; the next __next__() returns it."""
@@ -371,7 +389,9 @@ class legacy_frame_iterator(pxt.PxtIterator[LegacyFrame]):
         return result
 
     def close(self) -> None:
-        self.underlying.close()
+        underlying = getattr(self, 'underlying', None)
+        if underlying is not None:
+            underlying.close()
 
     def seek(self, pos: int, **kwargs: Any) -> None:
         self.underlying.seek(pos, **kwargs)

@@ -1,17 +1,34 @@
+import time
+import uuid
+from pathlib import Path
+
 import psycopg
 import pytest
 import sqlalchemy as sql
 import sqlalchemy.exc as sql_exc
 
 import pixeltable as pxt
+import pixeltable.catalog.catalog as catalog_mod
 import pixeltable.exceptions as excs
+import pixeltable.utils.local_store as local_store_mod
+from pixeltable.catalog.catalog import Catalog
 from pixeltable.env import Env, store_app_name
+from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.fault_injection import FaultLocation
+from pixeltable.utils.local_store import LocalStore
+from pixeltable.utils.object_stores import ObjectPath
 
 from .coordinator import MultiThreadedScenario
 from .fault_injection import BlockFault, ExceptionFault
-from .utils import DatabaseRoot, pxt_raises
+from .utils import DatabaseRoot, get_image_files, pxt_raises
+
+
+def _winerror_32(path: Path | str) -> PermissionError:
+    exc = PermissionError(32, 'The process cannot access the file because it is being used by another process')
+    exc.winerror = 32
+    exc.filename = str(path)
+    return exc
 
 
 class TestCatalog:
@@ -142,6 +159,101 @@ class TestCatalog:
         assert isinstance(op, CreateTableMdOp)
         assert op.needs_xact  # now a ClassVar
         assert 'needs_xact' not in op.to_dict()
+
+    def test_local_store_delete_retries_winerror_32(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        orig_rmtree = local_store_mod.shutil.rmtree
+        tbl_id = uuid.uuid4()
+        store = LocalStore(tmp_path)
+        table_dir = tmp_path / ObjectPath.table_prefix(tbl_id)
+        table_dir.mkdir()
+        (table_dir / 'media.webm').write_bytes(b'x')
+
+        monkeypatch.setattr(local_store_mod, '_DELETE_RETRY_TIMEOUT_S', 0.2)
+        monkeypatch.setattr(local_store_mod, '_DELETE_RETRY_SLEEP_S', 0.04)
+
+        n_fail_then_ok = 0
+
+        def fail_twice_then_delete(path: Path, *args: object, **kwargs: object) -> None:
+            nonlocal n_fail_then_ok
+            n_fail_then_ok += 1
+            if n_fail_then_ok <= 2:
+                raise _winerror_32(path)
+            orig_rmtree(path, *args, **kwargs)
+
+        monkeypatch.setattr(local_store_mod.shutil, 'rmtree', fail_twice_then_delete)
+        store.delete(tbl_id)
+        assert n_fail_then_ok == 3
+        assert not table_dir.exists()
+
+        table_dir.mkdir()
+        (table_dir / 'media.webm').write_bytes(b'x')
+        n_always_fail = 0
+
+        def always_fail(path: Path, *args: object, **kwargs: object) -> None:
+            nonlocal n_always_fail
+            n_always_fail += 1
+            raise _winerror_32(path)
+
+        monkeypatch.setattr(local_store_mod.shutil, 'rmtree', always_fail)
+        store.delete(tbl_id)  # must not raise
+        assert n_always_fail >= 2
+        assert n_always_fail <= 15
+        assert table_dir.exists()
+
+    @pytest.mark.db_roots('local', reason='monkeypatches shutil.rmtree in-process to simulate WinError 32')
+    def test_drop_table_winerror_32_does_not_hang(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        t = pxt.create_table('media_tbl', {'img': pxt.Image | None})
+        t.insert(img=get_image_files()[0])
+        tbl_id = t._id
+        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
+
+        monkeypatch.setattr(local_store_mod, '_DELETE_RETRY_TIMEOUT_S', 0.2)
+        monkeypatch.setattr(local_store_mod, '_DELETE_RETRY_SLEEP_S', 0.04)
+        monkeypatch.setattr(catalog_mod, '_MAX_NON_DB_FINALIZE_ATTEMPTS', 3)
+        monkeypatch.setattr(catalog_mod.time, 'sleep', lambda _s: None)
+
+        n_rmtree = 0
+
+        def always_fail(path: Path, *args: object, **kwargs: object) -> None:
+            nonlocal n_rmtree
+            n_rmtree += 1
+            raise _winerror_32(path)
+
+        monkeypatch.setattr(local_store_mod.shutil, 'rmtree', always_fail)
+
+        start = time.monotonic()
+        pxt.drop_table('media_tbl')
+        elapsed = time.monotonic() - start
+        assert elapsed < 5, elapsed
+        assert 2 <= n_rmtree <= 40
+        with get_runtime().begin_xact() as conn:
+            pending = conn.execute(sql.select(sql.func.count()).select_from(schema.PendingTableOp)).scalar()
+            assert pending == 0
+            live = conn.execute(sql.select(sql.func.count()).where(schema.Table.id == tbl_id)).scalar()
+            assert live == 0
+
+    @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
+    def test_finalize_pending_ops_non_db_error_is_bounded(
+        self, uses_db: None, fault_injection: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        t = pxt.create_table('test', {'a': pxt.Int | None})
+        tbl_id = t._id
+        exc = Exception('injected persistent error')
+        fault = ExceptionFault(exc, recurring=True)
+        get_runtime().fault_manager.inject_fault(FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault)
+        monkeypatch.setattr(catalog_mod, '_MAX_NON_DB_FINALIZE_ATTEMPTS', 3)
+        monkeypatch.setattr(catalog_mod.time, 'sleep', lambda _s: None)
+
+        with pxt_raises(code=excs.ErrorCode.INTERNAL_ERROR, match='injected persistent error'):
+            pxt.drop_table('test')
+        fault.assert_count(3)
+
+        # Complete the drop so teardown does not see leftover pending ops.
+        get_runtime().fault_manager._fault_state.clear()
+        cat = get_runtime().catalog
+        assert isinstance(cat, Catalog)
+        leftover = cat._finalize_pending_ops(tbl_id)
+        assert leftover is None
 
     @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_finalize_pending_ops_retriable_error(self, uses_db: None, fault_injection: None) -> None:

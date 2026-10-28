@@ -91,6 +91,10 @@ _MAX_RETRIES = -1
 # Max internal cache size
 _MAX_TBL_CACHE_SIZE = 1024
 
+# Non-DB exceptions in _finalize_pending_ops are retried with backoff up to this many attempts, then returned.
+# Without a cap, a persistent OSError (PXT-1715) busy-loops until the client times out.
+_MAX_NON_DB_FINALIZE_ATTEMPTS = 8
+
 T = TypeVar('T')
 
 
@@ -1096,6 +1100,12 @@ class Catalog(CatalogBase):
                         f'Finalize pending ops({tbl_id}): caught error: {e} of type {type(e)} but continuing',
                         exc_info=True,
                     )
+                    num_retries += 1
+                    if num_retries >= _MAX_NON_DB_FINALIZE_ATTEMPTS:
+                        _logger.error(f'Finalize pending ops({tbl_id}): giving up after {num_retries} non-DB errors')
+                        return e
+                    time.sleep(random.uniform(0.1, 0.5))
+                    continue
             finally:
                 self._clear_tv_cache(TableVersionKey(tbl_id, None))
 

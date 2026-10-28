@@ -2,6 +2,7 @@ import math
 import os
 import platform
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Callable, Literal
 
@@ -18,7 +19,9 @@ from pixeltable.functions.video import (
     legacy_frame_iterator,
     video_splitter,
 )
+from pixeltable.service import proxy_daemon
 from pixeltable.utils import av as av_utils
+from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
     DatabaseRoot,
@@ -307,6 +310,36 @@ class TestVideo:
                         assert isinstance(selected_frame, PIL.Image.Image)
                         # Ensure we get the bitmap-identical frame
                         assert selected_frame == frames[pos]
+
+    def test_replace_force_after_frame_query(self, db_root: DatabaseRoot) -> None:
+        """Dropping a video table after querying its frame view must finish promptly with no leftover pending ops.
+
+        Reconstructing unstored `frame` values opens the stored video in the server process. If that handle is
+        left open, Windows cannot delete the media file and (before PXT-1715) `_finalize_pending_ops` spun until
+        the client timed out.
+        """
+        p = db_root.make_catalog_path
+        path = get_video_files()[0]
+        videos = pxt.create_table(p('videos'), {'video': pxt.Video | None})
+        frames = pxt.create_view(p('frames'), videos, iterator=frame_iterator(videos.video, num_frames=4))
+        videos.insert(video=path)
+        catalog_uri = videos._tbl_path.catalog_uri
+        tbl_id = videos._id
+        # Seek-style reconstruction of the unstored `frame` column, matching test_frame_iterator_seek.
+        res = frames.select(frames.frame).where(frames.pos < 4).order_by(frames.pos).collect()
+        assert len(res) > 0
+
+        start = time.monotonic()
+        pxt.create_table(p('videos'), {'video': pxt.Video | None}, if_exists='replace_force')
+        elapsed = time.monotonic() - start
+        assert elapsed < 15, elapsed
+
+        if not db_root.is_cloud:
+            if catalog_uri.db is None:
+                remaining = ObjectOps.count(tbl_id)
+            else:
+                remaining = ObjectOps.count(tbl_id, dest=str(proxy_daemon.proxy_home(catalog_uri.db) / 'media'))
+            assert remaining == 0, remaining
 
     def test_keyframes_only(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

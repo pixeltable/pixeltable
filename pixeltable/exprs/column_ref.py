@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import Any, Iterator, Sequence, cast
+from typing import Any, Sequence, cast
 from uuid import UUID
 
 import numpy as np
@@ -63,7 +63,7 @@ class ColumnRef(Expr):
 
     # execution state
     base_rowid: Sequence[Any | None]
-    iterator: Iterator
+    iterator: func.PxtIterator[Any] | None
     pos_idx: int
 
     def __init__(self, col_md: catalog.ColumnVersionMd, perform_validation: bool = False):
@@ -546,6 +546,7 @@ class ColumnRef(Expr):
     def prepare(self, args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         from pixeltable import store
 
+        self._close_iterator()
         if not self.needs_iterator_evaluation:
             return
         col = self.col
@@ -553,6 +554,16 @@ class ColumnRef(Expr):
         self.base_rowid = [None] * self.base_rowid_len
         assert isinstance(col.get_tbl().store_tbl, store.StoreComponentView)
         self.pos_idx = cast(store.StoreComponentView, col.get_tbl().store_tbl).pos_col_idx
+
+    def release(self) -> None:
+        self._close_iterator()
+        super().release()
+
+    def _close_iterator(self) -> None:
+        iterator = self.iterator
+        if iterator is not None:
+            self.iterator = None
+            iterator.close()
 
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         if self.perform_validation:
@@ -595,8 +606,11 @@ class ColumnRef(Expr):
             data_row[self.slot_idx] = None
             return
 
-        # if this is a new base row, we need to instantiate a new iterator
-        if self.base_rowid != data_row.pk[: self.base_rowid_len]:
+        # Reconstruct an unstored iterator output by seeking. Keep at most one open iterator per base row
+        # and close it when the base row changes or the query ends (release): on Windows, LocalStore.delete
+        # cannot unlink a media file that PyAV still has open (PXT-1715).
+        if self.iterator is None or self.base_rowid != data_row.pk[: self.base_rowid_len]:
+            self._close_iterator()
             assert self.iter_arg_ctx is not None
             row_builder.eval(data_row, self.iter_arg_ctx)
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]

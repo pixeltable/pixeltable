@@ -54,6 +54,12 @@ class PxtIterator(abc.ABC, Iterator[T], Generic[T]):
     def close(self) -> None:
         pass
 
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
     def seek(self, pos: int, **kwargs: Any) -> None:
         raise NotImplementedError()
 
