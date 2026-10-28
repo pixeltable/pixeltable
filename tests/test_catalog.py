@@ -168,7 +168,6 @@ class TestCatalog:
 
         orig_rmtree = local_store_mod.shutil.rmtree
         monkeypatch.setattr(catalog_mod, '_MAX_NON_DB_FINALIZE_ATTEMPTS', 3)
-        monkeypatch.setattr(catalog_mod.time, 'sleep', lambda _s: None)
 
         n_rmtree = 0
 
@@ -216,7 +215,6 @@ class TestCatalog:
         fault = ExceptionFault(exc, recurring=True)
         get_runtime().fault_manager.inject_fault(FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault)
         monkeypatch.setattr(catalog_mod, '_MAX_NON_DB_FINALIZE_ATTEMPTS', 3)
-        monkeypatch.setattr(catalog_mod.time, 'sleep', lambda _s: None)
 
         with pxt_raises(code=excs.ErrorCode.INTERNAL_ERROR, match='injected persistent error'):
             pxt.drop_table('test')
