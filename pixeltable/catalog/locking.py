@@ -65,6 +65,35 @@ class TblOpClass(enum.Enum):
     MD_WRITE = 'md_update'  # table or dir metadata write
     FINALIZE = 'finalize'  # table pending op finalization
 
+    def tbl_lock_mode(self, is_data_versioned: bool) -> TblLockMode:
+        """Return the table lock mode required for this operation.
+
+        Operational writes use ROW EXCLUSIVE, which allows concurrent writers. Data-versioned writes use EXCLUSIVE
+        so writers run one at a time and preserve a linear version history. Both modes allow concurrent reads.
+
+        Schema changes and pending-op finalization use ACCESS EXCLUSIVE, which conflicts with all of these modes.
+        """
+        if self is TblOpClass.DATA_READ:
+            return TblLockMode.ACCESS_SHARE
+        if self is TblOpClass.DATA_WRITE:
+            return TblLockMode.EXCLUSIVE if is_data_versioned else TblLockMode.ROW_EXCLUSIVE
+        assert self in (TblOpClass.MD_WRITE, TblOpClass.FINALIZE)
+        return TblLockMode.ACCESS_EXCLUSIVE
+
+    def should_wait(self, any_data_versioned: bool) -> bool:
+        """Return whether to wait for locks that are not immediately available, instead of failing.
+
+        Data reads and writes wait only if `any_data_versioned` is True. Schema changes and pending-op finalization
+        always wait.
+        """
+        if self in (TblOpClass.MD_WRITE, TblOpClass.FINALIZE):
+            return True
+        if self is TblOpClass.MD_READ:
+            # MD_READ takes no locks, so the return value has no effect.
+            return False
+        assert self in (TblOpClass.DATA_READ, TblOpClass.DATA_WRITE)
+        return any_data_versioned
+
 
 class TblLockMode(enum.Enum):
     """The Postgres table lock modes that Pixeltable uses."""
@@ -94,37 +123,6 @@ class TblLockMode(enum.Enum):
     def strongest_of(cls, modes: Iterable['TblLockMode']) -> 'TblLockMode':
         """Return the strongest mode in the nonempty iterable `modes`."""
         return max(modes, key=lambda mode: mode._strength)
-
-
-def tbl_lock_mode(op_class: TblOpClass, is_data_versioned: bool) -> TblLockMode:
-    """Return the table lock mode required for this operation.
-
-    Operational writes use ROW EXCLUSIVE, which allows concurrent writers. Data-versioned writes use EXCLUSIVE
-    so writers run one at a time and preserve a linear version history. Both modes allow readers.
-
-    Schema changes and pending-op finalization use ACCESS EXCLUSIVE, which conflicts with all of these modes.
-    """
-    if op_class is TblOpClass.DATA_READ:
-        return TblLockMode.ACCESS_SHARE
-    if op_class is TblOpClass.DATA_WRITE:
-        return TblLockMode.EXCLUSIVE if is_data_versioned else TblLockMode.ROW_EXCLUSIVE
-    assert op_class in (TblOpClass.MD_WRITE, TblOpClass.FINALIZE)
-    return TblLockMode.ACCESS_EXCLUSIVE
-
-
-def should_wait(op_class: TblOpClass, any_data_versioned: bool) -> bool:
-    """Return whether to wait for locks that are not immediately available, instead of failing.
-
-    Data reads and writes wait only if `any_data_versioned` is True. Schema changes and pending-op finalization always
-    wait.
-    """
-    if op_class in (TblOpClass.MD_WRITE, TblOpClass.FINALIZE):
-        return True
-    if op_class is TblOpClass.MD_READ:
-        # MD_READ takes no locks, so the return value has no effect.
-        return False
-    assert op_class in (TblOpClass.DATA_READ, TblOpClass.DATA_WRITE)
-    return any_data_versioned
 
 
 @dataclasses.dataclass(frozen=True)
@@ -462,8 +460,7 @@ class _LockSetBuilder:
                 tbl_id=tbl_id,
                 store_tbl_name=store_tbl_name,
                 mode=TblLockMode.strongest_of(
-                    tbl_lock_mode(op_class, is_data_versioned=is_data_versioned)
-                    for op_class in self.tbl_id_to_op_classes[tbl_id]
+                    op_class.tbl_lock_mode(is_data_versioned) for op_class in self.tbl_id_to_op_classes[tbl_id]
                 ),
             )
             for tbl_id, (store_tbl_name, is_data_versioned) in sorted(
@@ -474,8 +471,8 @@ class _LockSetBuilder:
         return LockSet(
             tbl_targets=sorted_tbl_targets,
             dir_ids=sorted_dir_ids,
-            wait=should_wait(
-                self.request.op_class, any(is_data_versioned for _, is_data_versioned in self.store_tbls.values())
+            wait=self.request.op_class.should_wait(
+                any(is_data_versioned for _, is_data_versioned in self.store_tbls.values())
             ),
         )
 

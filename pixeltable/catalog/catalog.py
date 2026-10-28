@@ -47,8 +47,6 @@ from .locking import (
     lookup_dir_md,
     lookup_dir_path,
     resolve_lock_set_from_store,
-    should_wait,
-    tbl_lock_mode,
 )
 from .model import IndexDefinition, TableSchemaChangeSet, prepare_model, prepare_model_updates
 from .path import ROOT_PATH, Path
@@ -680,7 +678,7 @@ class Catalog(CatalogBase):
                 LockTarget(
                     tbl_id=tv.id,
                     store_tbl_name=get_store_tbl_name(tv.id, is_view=tv.is_view),
-                    mode=tbl_lock_mode(op_class, tv.is_data_versioned),
+                    mode=op_class.tbl_lock_mode(tv.is_data_versioned),
                 )
             )
             any_data_versioned |= tv.is_data_versioned
@@ -721,7 +719,7 @@ class Catalog(CatalogBase):
             LockTarget(
                 tbl_id=tv.id,
                 store_tbl_name=get_store_tbl_name(tv.id, is_view=tv.is_view),
-                mode=tbl_lock_mode(op_class, tv.is_data_versioned),
+                mode=op_class.tbl_lock_mode(tv.is_data_versioned),
             )
         ]
         any_data_versioned = tv.is_data_versioned
@@ -777,7 +775,7 @@ class Catalog(CatalogBase):
                 add(tree_result[0])
                 any_data_versioned |= tree_result[1]
         return LockSet(
-            tbl_targets=tuple(targets[name] for name in sorted(targets)), wait=should_wait(op_class, any_data_versioned)
+            tbl_targets=tuple(targets[name] for name in sorted(targets)), wait=op_class.should_wait(any_data_versioned)
         )
 
     def _resolve_lock_set(self, request: LockRequest) -> LockSet:
@@ -875,7 +873,7 @@ class Catalog(CatalogBase):
 
     def assert_rows_write_locked(self, tv: TableVersion) -> None:
         """Assert that the transaction holds the required lock for writing this table's rows."""
-        mode = tbl_lock_mode(TblOpClass.DATA_WRITE, tv.is_data_versioned)
+        mode = TblOpClass.DATA_WRITE.tbl_lock_mode(tv.is_data_versioned)
         assert self._is_tbl_locked(tv.id, mode), (tv.id, mode, self._locks_held)
 
     def assert_store_schema_write_locked(self, tbl_id: UUID) -> None:
@@ -888,7 +886,7 @@ class Catalog(CatalogBase):
         TODO(PXT-1343): turn this into an assertion once the lock set includes all tables read by query UDFs
         in computed columns.
         """
-        read_lock_mode = tbl_lock_mode(TblOpClass.DATA_READ, tv.is_data_versioned)
+        read_lock_mode = TblOpClass.DATA_READ.tbl_lock_mode(tv.is_data_versioned)
         if not self._is_tbl_locked(tv.id, read_lock_mode):
             warnings.warn(
                 f'Table {tv.versioned_name} was not locked for read at the transaction start',
