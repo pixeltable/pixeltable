@@ -429,7 +429,12 @@ class RequestFailedError(Exception):
         if json_requested():
             print_error_document(self.error_code, self.detail, retryable=self.transient, retry_after=self.retry_after)
             sys.stdout.flush()
-        print(str(self) if self.as_written else f'pxt: {self} [{self.error_code}]', file=sys.stderr)
+        if self.as_written:
+            line = str(self)
+        else:
+            # a message that ends in a snippet to paste, such as a TOML entry, keeps its last line clean
+            line = f'pxt: {self}' + ('\n' if '\n' in str(self) else ' ') + f'[{self.error_code}]'
+        print(line, file=sys.stderr)
         if self.server_tb is not None:
             # an unexpected daemon failure carries its traceback; show it so the user can report the error
             print(f'\n--- daemon traceback ---\n{self.server_tb}', file=sys.stderr)
@@ -603,6 +608,23 @@ def json_requested() -> bool:
     return invocation is not None and '--json' in invocation
 
 
+def error_document(
+    error_code: str,
+    message: str,
+    *,
+    retryable: bool,
+    next_steps: list[dict[str, str]] | None = None,
+    retry_after: float | None = None,
+) -> dict[str, Any]:
+    """A failure's --json fields: error_code, message, retryable, retry_after, next."""
+    doc: dict[str, Any] = {'error_code': error_code, 'message': message, 'retryable': retryable}
+    if retry_after is not None:
+        doc['retry_after'] = retry_after
+    if next_steps is not None:
+        doc['next'] = next_steps
+    return doc
+
+
 def print_error_document(
     error_code: str,
     message: str,
@@ -611,16 +633,34 @@ def print_error_document(
     next_steps: list[dict[str, str]] | None = None,
     retry_after: float | None = None,
 ) -> None:
-    """Prints a failure as the one --json document on stdout: error_code, message, retryable, retry_after, next."""
-    doc: dict[str, Any] = {'error_code': error_code, 'message': message, 'retryable': retryable}
-    if retry_after is not None:
-        doc['retry_after'] = retry_after
-    if next_steps is not None:
-        doc['next'] = next_steps
+    """Prints a failure as the one --json document on stdout."""
+    doc = error_document(error_code, message, retryable=retryable, next_steps=next_steps, retry_after=retry_after)
     print(json.dumps(doc, indent=2))
 
 
-def confirm_or_exit(prompt: str, force: bool, *, on_refusal: Callable[[], None] | None = None) -> None:
+def print_json(document: dict[str, Any], error: dict[str, Any] | None) -> None:
+    """Prints a command's --json document, with a failure's fields (see error_document()) at its top level."""
+    print(json.dumps(document if error is None else {**document, **error}, indent=2))
+
+
+def blocked_document(descriptions: list[str], commands: list[str]) -> dict[str, Any]:
+    """The failure of a plan that operations block until the database changes; next runs each command they name."""
+    steps = [{'command': c, 'effect': 'clears what blocks the plan'} for c in dict.fromkeys(commands)]
+    return error_document('PLAN_BLOCKED', '; '.join(descriptions), retryable=False, next_steps=steps)
+
+
+def print_blocked(error: dict[str, Any]) -> None:
+    """Names, on next: lines, the commands that clear a blocked plan."""
+    flush_stdout()
+    for step in error['next']:
+        print_next(step['command'], step['effect'])
+
+
+# reports a refusal itself, given its error_document(); a plan command prints the plan with those fields
+OnRefusal = Callable[[dict[str, Any]], None]
+
+
+def confirm_or_exit(prompt: str, force: bool, *, on_refusal: OnRefusal | None = None) -> None:
     """Prompt for yes/no on stdin unless --force; exit with EXIT_REFUSED on anything but yes, or without a TTY.
 
     See _refuse_unanswered() for the refusal without a TTY.
@@ -634,16 +674,17 @@ def confirm_or_exit(prompt: str, force: bool, *, on_refusal: Callable[[], None] 
     ans = sys.stdin.readline().strip().lower()
     if ans not in ('y', 'yes'):
         # a person said no, so no command is named to get past it
+        doc = error_document('CONFIRMATION_DECLINED', f'declined: {prompt}', retryable=False)
         if on_refusal is not None:
-            on_refusal()
+            on_refusal(doc)
         elif json_requested():
-            print_error_document('CONFIRMATION_DECLINED', f'declined: {prompt}', retryable=False)
+            print(json.dumps(doc, indent=2))
         flush_stdout()
         print('aborted', file=sys.stderr)
         sys.exit(EXIT_REFUSED)
 
 
-def _refuse_unanswered(prompt: str, *, on_refusal: Callable[[], None] | None) -> NoReturn:
+def _refuse_unanswered(prompt: str, *, on_refusal: OnRefusal | None) -> NoReturn:
     """Refuse a prompt no one can answer, with no TTY, naming the command to rerun with -f.
 
     on_refusal runs first, for a caller that reports the refusal itself; otherwise, with --json, the refusal is an
@@ -653,11 +694,12 @@ def _refuse_unanswered(prompt: str, *, on_refusal: Callable[[], None] | None) ->
     command = rerun_command('-f')
     # the question says what the command does; what follows it, such as 'This is irreversible.', does not
     effect = prompt.partition('?')[0]
+    steps = [] if command is None else [{'command': command, 'effect': effect}]
+    doc = error_document('CONFIRMATION_REQUIRED', message, retryable=False, next_steps=steps)
     if on_refusal is not None:
-        on_refusal()
+        on_refusal(doc)
     elif json_requested():
-        steps = [] if command is None else [{'command': command, 'effect': effect}]
-        print_error_document('CONFIRMATION_REQUIRED', message, retryable=False, next_steps=steps)
+        print(json.dumps(doc, indent=2))
     flush_stdout()
     print(f'pxt: {message}', file=sys.stderr)
     if command is not None:
@@ -665,21 +707,22 @@ def _refuse_unanswered(prompt: str, *, on_refusal: Callable[[], None] | None) ->
     sys.exit(EXIT_REFUSED)
 
 
-def refuse_destructive(prog: str, destructive: int, *, force: bool, on_refusal: Callable[[], None]) -> NoReturn:
+def refuse_destructive(prog: str, destructive: int, *, force: bool, on_refusal: OnRefusal) -> NoReturn:
     """Refuse a plan whose destructive operations --allow-destructive did not permit, naming the command that does.
 
     on_refusal reports the refused plan first.
     """
-    on_refusal()
-    flush_stdout()
-    print(
-        f'{prog}: refusing to apply {destructive} destructive operation(s) without --allow-destructive', file=sys.stderr
-    )
+    message = f'refusing to apply {destructive} destructive operation(s) without --allow-destructive'
     # add -f too when the confirmation that follows would refuse in turn
     flags = ('--allow-destructive',) if force or stdin_is_a_tty() else ('--allow-destructive', '-f')
     command = rerun_command(*flags)
+    effect = f'applies {destructive} destructive operation(s)'
+    steps = [] if command is None else [{'command': command, 'effect': effect}]
+    on_refusal(error_document('DESTRUCTIVE_SCHEMA_CHANGE', message, retryable=False, next_steps=steps))
+    flush_stdout()
+    print(f'{prog}: {message}', file=sys.stderr)
     if command is not None:
-        print_next(command, f'applies {destructive} destructive operation(s)')
+        print_next(command, effect)
     sys.exit(EXIT_REFUSED)
 
 

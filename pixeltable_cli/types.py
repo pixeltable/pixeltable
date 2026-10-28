@@ -60,6 +60,7 @@ class SchemaChangeOpDetails(pydantic.BaseModel):
     previous_value: str | None = None  # altered computed columns only: the old value expression
     stored: bool | None = None  # altered computed columns only: whether the column is stored
     index_ref: SchemaChangeIndexRef | None = None  # the new index for an index add or alter
+    command: str | None = None  # a blocked op: the command that clears it
 
 
 class SchemaChangeOp(ChangeOp):
@@ -84,6 +85,7 @@ class SchemaChangeOp(ChangeOp):
             severity='blocked',
             description=f'the udf definitions in the database are out of date ({_summary(changes)}); '
             f'run {command} first',
+            details=SchemaChangeOpDetails(command=command),
         )
 
     @classmethod
