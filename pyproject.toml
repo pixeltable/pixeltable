@@ -219,7 +219,7 @@ dev = [
     "scipy>=1.17 ; python_version >= '3.14'",
 ]
 test = [
-    "pytest>=9.0.3",
+    "pytest>=9.0.3,<9.2",  # PXT-1714: lift when pytest-benchmark supports pytest 9.2
     "pytest-xdist[psutil]>=3.8",
     "pytest-rerunfailures>=15.1",
     "pytest-benchmark>=5.1",

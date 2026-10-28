@@ -44,7 +44,8 @@ for nb in "$TEST_PATH"/*.ipynb; do
 
     echo "Installing pytest ..."
     pip install -qU pip
-    pip install -q pytest nbmake
+    # PXT-1714: lift this pin when pytest-benchmark supports pytest 9.2.
+    pip install -q 'pytest>=9.0.3,<9.2' nbmake
 
     echo "Running notebook $nb ..."
     pytest -v -m '' --nbmake --nbmake-timeout=1800 "$nb" || (( FAILURES++ )) || true
