@@ -1,0 +1,79 @@
+import pytest
+
+import pixeltable as pxt
+import pixeltable.type_system as ts
+
+from ..conftest import SampleFileServer
+from ..utils import (
+    SAMPLE_IMAGE_FILE_PATH,
+    rerun_on_network_error,
+    skip_test_if_no_client,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
+
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
+
+
+@pytest.mark.remote_api
+@pytest.mark.very_expensive
+@rerun_on_network_error()
+class TestCheaperInference:
+    def test_chat_completions(self, uses_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('cheaperinference')
+        from pixeltable.functions.cheaperinference import chat_completions
+
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
+        msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
+        t.add_computed_column(input_msgs=msgs)
+        t.add_computed_column(chat_output=chat_completions(model='gpt-5.4-mini', messages=t.input_msgs))
+
+        validate_update_status(t.insert(input='What is the capital of France?'), 1)
+        result = t.collect()
+        assert 'paris' in result['chat_output'][0]['choices'][0]['message']['content'].lower()
+
+    def test_vision(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('cheaperinference')
+        from pixeltable.functions.cheaperinference import chat_completions
+
+        t = pxt.create_table('test_tbl', {'image': pxt.Image | None})
+        msgs = [
+            {
+                'role': 'user',
+                'content': [
+                    {'type': 'text', 'text': "What's in this image?"},
+                    {'type': 'image_url', 'image_url': t.image},
+                ],
+            }
+        ]
+        t.add_computed_column(response=chat_completions(msgs, model='gpt-5.4-mini'))
+
+        validate_update_status(t.insert(image=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH)), 1)
+        result = t.collect()
+        assert 'broccoli' in result['response'][0]['choices'][0]['message']['content'].lower()
+
+    def test_embeddings(self, uses_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('cheaperinference')
+        from pixeltable.functions.cheaperinference import embeddings
+
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
+        t.add_computed_column(embedding=embeddings(t.input, model='text-embedding-3-small'))
+
+        type_info = t._get_schema()
+        assert isinstance(type_info['embedding'], ts.ArrayType)
+        assert type_info['embedding'].shape == (1536,)
+
+        validate_update_status(t.insert(input='Hello, world!'), 1)
+        result = t.collect()
+        assert len(result['embedding'][0]) == 1536
+
+        t.add_embedding_index(t.input, embedding=embeddings.using(model='text-embedding-3-small'))
+        validate_update_status(t.insert(input='Another sentence for you to index.'), 1)
+        _ = t.head()
+
+        sim = t.input.similarity(string='Indexing sentences is fun.')
+        res = t.select(t.input, sim=sim).order_by(sim, asc=False).collect()
+        assert res[0]['input'] == 'Another sentence for you to index.'

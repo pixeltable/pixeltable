@@ -15,6 +15,7 @@ from . import (
     audio,
     bedrock,
     bfl,
+    cheaperinference,
     date,
     deepseek,
     document,
