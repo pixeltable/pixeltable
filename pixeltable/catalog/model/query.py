@@ -103,9 +103,9 @@ class ModelQuery(QueryBase):
 
     def bind(self, catalog_dir: str) -> pxt.Query:
         """The equivalent Query over the table of this query's model under catalog_dir."""
-        return resolve_query_columns(self.bind_by_name(catalog_dir))
+        return resolve_query_columns(self.bind_unresolved(catalog_dir))
 
-    def bind_by_name(self, catalog_dir: str) -> pxt.Query:
+    def bind_unresolved(self, catalog_dir: str) -> pxt.Query:
         """The Query over the table of this query's model under catalog_dir, with each ColumnRefByName left in place."""
         # _resolve_tbl() rather than _bind(): binding the model here would fix its columns to the schema the
         # table has now, and update_all() may still be about to migrate it.

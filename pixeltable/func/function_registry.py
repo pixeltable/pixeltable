@@ -64,7 +64,7 @@ class FunctionRegistry:
 
     def deregister_module(self, module_name: str) -> None:
         """Drop every function registered for module_name."""
-        self.deregister_functions([fqn for fqn in self.module_fns if fqn.startswith(f'{module_name}.')])
+        self.deregister_functions([fqn for fqn, name in self.module_names.items() if name == module_name])
 
     def deregister_functions(self, fqns: Collection[str]) -> None:
         """Drop the named functions, and any type method for which they are registered."""

@@ -287,7 +287,10 @@ def resolve_query_calls(value_expr: exprs.Expr) -> exprs.Expr:
 
 
 def resolve_query_columns(query: pxt.Query) -> pxt.Query:
-    """Replace each ColumnRefByName in query's clauses with a ColumnRef to the column of that name in query's table."""
+    """Replace each ColumnRefByName in query's clauses with a ColumnRef to the column of that name in query's table.
+
+    For a local table, this first clears the cached column metadata of the query's table path.
+    """
     tbl_path = query._from_clause._first_tbl
     if query._from_clause.is_local:
         # the TableVersionPath's cached ColumnVersionMds don't include columns added to its TableVersion after caching

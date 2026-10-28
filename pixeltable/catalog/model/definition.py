@@ -454,7 +454,7 @@ class _ModelNamespace(dict):
 
 
 def bind_query_templates(e: exprs.Expr, catalog_dir: str | None) -> exprs.Expr:
-    """Replace each ModelQuery template in e's QueryTemplateFunction calls with ModelQuery.bind_by_name(catalog_dir).
+    """Replace each ModelQuery template in e's QueryTemplateFunction calls with ModelQuery.bind_unresolved(catalog_dir).
 
     With `catalog_dir=None`, the replacement is ModelQuery.to_defined_query().
     """
@@ -463,7 +463,7 @@ def bind_query_templates(e: exprs.Expr, catalog_dir: str | None) -> exprs.Expr:
     def bound_query(template_query: QueryBase) -> pxt.Query | None:
         if not isinstance(template_query, ModelQuery):
             return None
-        return template_query.to_defined_query() if catalog_dir is None else template_query.bind_by_name(catalog_dir)
+        return template_query.to_defined_query() if catalog_dir is None else template_query.bind_unresolved(catalog_dir)
 
     return func.substitute_template_queries(e, bound_query)
 
