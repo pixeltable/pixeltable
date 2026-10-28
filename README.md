@@ -6,8 +6,8 @@
 # Multimodal AI backends in one Python file
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/images/hero/table-build-dark.svg">
-  <img align="right" width="420" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/images/hero/table-build-light.svg" alt="Animation: app.py declares a videos table one line at a time. The class creates the table and three video rows, the transcript and summary columns compute for every row, and a /search route answers from the same table.">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/table-build-dark.svg">
+  <img align="right" width="420" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/table-build-light.svg" alt="Animation: app.py declares a videos table one line at a time. The class creates the table and three video rows, the transcript and summary columns compute for every row, and a /search route answers from the same table.">
 </picture>
 
 Pixeltable is an open-source multimodal database you use from Python. Build AI apps on video, images, audio and documents without writing scripts to keep files, model outputs and search indexes in sync.

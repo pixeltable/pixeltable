@@ -2,24 +2,15 @@
 title: 'Multimodal AI backends in one Python file'
 sidebarTitle: 'Why Pixeltable?'
 description: 'What Pixeltable replaces in a multimodal AI stack, why we built it, and when to use something else.'
-mode: 'wide'
 ---
 
-<Columns cols={2}>
-  <div>
-    Pixeltable is an open-source multimodal database you use from Python. You declare tables, computed columns and HTTP routes in one file, `app.py`. Insert a row and Pixeltable runs the model calls, stores the results and updates the indexes, with no scripts to keep files, results and embeddings in sync.
+Pixeltable is an open-source multimodal database you use from Python. You declare tables, computed columns and HTTP routes in one file, `app.py`. Insert a row and Pixeltable runs the model calls, stores the results and updates the indexes, with no scripts to keep files, results and embeddings in sync.
 
-    ```bash
-    pip install 'pixeltable[serve]'
-    ```
+```bash
+pip install 'pixeltable[serve]'
+```
 
-    [Quickstart](/overview/quick-start) · [How it works](/overview/how-it-works) · [Pixeltable Cloud](/cloud)
-  </div>
-  <div>
-    <img className="block dark:hidden" src="/images/hero/table-build-light.svg" alt="Animation: app.py declares a videos table one line at a time. The class creates the table and three video rows, the transcript and summary columns compute for every row, and a /search route answers from the same table." noZoom />
-    <img className="hidden dark:block" src="/images/hero/table-build-dark.svg" alt="Animation: app.py declares a videos table one line at a time. The class creates the table and three video rows, the transcript and summary columns compute for every row, and a /search route answers from the same table." noZoom />
-  </div>
-</Columns>
+[Quickstart](/overview/quick-start) · [How it works](/overview/how-it-works) · [Pixeltable Cloud](/cloud)
 
 ## The stack it replaces
 

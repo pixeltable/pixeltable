@@ -3,15 +3,13 @@
 // play, scripts and web fonts do not. Every element's base style is the finished frame, so
 // reduced motion (animations off) shows it whole. Timeline and data mirror HeroTableBuild.tsx; the code lines are the README's app.py.
 //
-//   node build-table-svg.mjs        writes table-build-light.svg and table-build-dark.svg to OUT
+//   node build-table-svg.mjs        writes table-build-light.svg and table-build-dark.svg here
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-// the README and the docs home page both load the SVGs from the docs site's images folder
-const OUT = join(HERE, '..', 'release', 'images', 'hero');
 
 const STEPS = [
   { at: 0, job: 'database', line: "class Videos(TableModel, name='videos'):" },
@@ -157,8 +155,7 @@ ${out.join('\n')}
 }
 
 for (const theme of ['light', 'dark']) {
-  mkdirSync(OUT, { recursive: true });
-  const file = join(OUT, `table-build-${theme}.svg`);
+  const file = join(HERE, `table-build-${theme}.svg`);
   writeFileSync(file, render(theme));
   console.log('wrote', file);
 }
