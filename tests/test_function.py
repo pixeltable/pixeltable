@@ -777,7 +777,7 @@ class TestFunction:
     # column, which references 'view', which no longer exists).
     # TODO: find a general solution (PXT-1706)
     @pytest.mark.filterwarnings(
-        "ignore:The computed column 'result' in table '(retrieval|src_view)' is no longer valid"
+        "ignore:The computed column '(result|unstored_result)' in table '(retrieval|src_view)' is no longer valid"
     )
     # 'text' is the view's own column, 'a' is inherited from tbl
     @pytest.mark.parametrize('col_name', ['text', 'a'])
@@ -830,6 +830,12 @@ class TestFunction:
         pxt.get_table(p('test/view')).add_column(extra=pxt.Int | None)
         validate_update_status(retrieval.insert(n=2))
         assert len(retrieval.where(retrieval.n == 2).select(retrieval.result).collect()[0]['result']) == 20
+
+        # a read is the first to load v
+        retrieval.add_computed_column(unstored_result=retrieve(), stored=False)
+        reload_catalog()
+        retrieval = pxt.get_table(p('test/retrieval'))
+        assert len(retrieval.select(retrieval.unstored_result).collect()[0]['unstored_result']) == 20
 
         reload_catalog()
         pxt.drop_dir(p('test'), force=True)

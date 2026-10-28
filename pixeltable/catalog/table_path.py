@@ -324,19 +324,10 @@ class TableVersionPath(TablePath):
         effective_version = self.tbl_version.effective_version
         column_version_md: dict[QColumnId, ColumnVersionMd] = {}
         # own columns (all, incl. system) first, so they shadow same-named base columns in iteration order
-        for col in tv.cols_by_id.values():
-            col_md_obj = tv.tbl_md.column_md[col.id]
-            schema_col = tv._schema_version_md.columns[col.id]
-            qcolid = QColumnId(self.tbl_id, col.id)
-            column_version_md[qcolid] = ColumnVersionMd(
-                tbl_id=self.tbl_id,
-                effective_version=effective_version,
-                qcolid=qcolid,
-                col_effective_version=effective_version,
-                col_md=col_md_obj,
-                schema_col=schema_col,
-                is_iterator_col=col.is_iterator_col,
-            )
+        for col_id in tv.cols_by_id:
+            col_md = tv.stored_column_version_md(col_id)
+            assert col_md is not None
+            column_version_md[col_md.qcolid] = col_md
         if self.base is not None:
             for base_col_md in self.base._cached_column_version_md().values():
                 column_version_md[base_col_md.qcolid] = base_col_md.with_context(self.tbl_version.id, effective_version)

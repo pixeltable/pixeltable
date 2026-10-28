@@ -585,7 +585,7 @@ class Catalog(CatalogBase):
         updates self._x_locked_tbl_ids accordingly.
 
         Refreshes the metadata cache for the read targets plus, if finalize_pending_ops is True, metadata for all tables
-        referenced by the write targets' columns.
+        referenced by the write targets' columns and the read targets' unstored columns.
 
         The order matters: TVPs are processed before tbl_ids in both groups so that ancestor-first validation
         (write_tvps -> write_tbl_ids -> read_tvps -> read_tbl_ids) is established before any unordered ID pass runs.
@@ -614,16 +614,21 @@ class Catalog(CatalogBase):
 
         # _acquire_write_lock() loads the locked tables only if finalize_pending_ops is True
         if finalize_pending_ops:
-            # load metadata for all tables referenced by the write targets
+            # load metadata for all tables referenced by the write targets and the read targets' unstored columns
+            ref_ids: set[UUID] = set()
             for tbl_id in x_locked_ids:
-                for ref_id in self._tbl_versions[TableVersionKey(tbl_id, None)].referenced_tbl_ids():
-                    if TableVersionKey(ref_id, None) not in self._tbl_versions:
-                        try:
-                            self._refresh_tbl_cache(tbl_id=ref_id)
-                        except excs.NotFoundError as e:
-                            # a column that references a dropped table fails when it's evaluated, not here
-                            if e.error_code != excs.ErrorCode.TABLE_NOT_FOUND:
-                                raise
+                ref_ids |= self._tbl_versions[TableVersionKey(tbl_id, None)].referenced_tbl_ids()
+            for tvp in read_tvps:
+                for tvh in tvp.get_tbl_versions():
+                    ref_ids |= self._tbl_versions[tvh.key].referenced_tbl_ids(unstored_only=True)
+            for ref_id in ref_ids:
+                if TableVersionKey(ref_id, None) not in self._tbl_versions:
+                    try:
+                        self._refresh_tbl_cache(tbl_id=ref_id)
+                    except excs.NotFoundError as e:
+                        # a column that references a dropped table fails when it's evaluated, not here
+                        if e.error_code != excs.ErrorCode.TABLE_NOT_FOUND:
+                            raise
 
         self._x_locked_tbl_ids = x_locked_ids
 
