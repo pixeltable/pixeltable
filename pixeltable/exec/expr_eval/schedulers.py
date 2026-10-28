@@ -339,9 +339,7 @@ class RequestRateScheduler(Scheduler):
         self.total_retried = 0
         self.total_errors = 0
 
-        # Try to get the rate limit from the config. The pool name has the form of `request-rate:<endpoint>`
-        # or `request-rate:<endpoint>:<model>`. The model name can contain `:` (e.g. `amazon.nova-pro-v1:0`); use
-        # maxsplit to avoid splitting it.
+        # model name can contain `:`, e.g. 'amazon.nova-pro-v1:0'
         elems = resource_pool.split(':', maxsplit=2)
         section: str
         key: str
