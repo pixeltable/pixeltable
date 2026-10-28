@@ -606,7 +606,7 @@ class ColumnRef(Expr):
             data_row[self.slot_idx] = None
             return
 
-        # Reconstruct an unstored iterator output by seeking. Keep at most one open iterator per base row.
+        # Reconstruct an unstored iterator output by seeking.
         if self.iterator is None or self.base_rowid != data_row.pk[: self.base_rowid_len]:
             self._close_iterator()
             assert self.iter_arg_ctx is not None

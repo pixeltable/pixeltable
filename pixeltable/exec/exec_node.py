@@ -18,7 +18,10 @@ from .exec_context import ExecContext
 
 
 async def aclose_agen(agen: AsyncIterator[Any]) -> None:
-    # KeyboardInterrupt inside __anext__() leaves ag_running set; aclose() would replace it with RuntimeError.
+    """Close an idle async generator. No-op if agen is running or is not an AsyncGenerator.
+
+    KeyboardInterrupt inside __anext__() leaves ag_running set; aclose() would replace it with RuntimeError.
+    """
     if isinstance(agen, AsyncGeneratorType) and not agen.ag_running:
         await agen.aclose()
 
@@ -119,6 +122,7 @@ class ExecNode(abc.ABC):
 
     @asynccontextmanager
     async def input_aiter(self) -> AsyncIterator[AsyncIterator[DataRowBatch]]:
+        """Yield aiter(self.input) and aclose it on exit."""
         assert self.input is not None
         agen = aiter(self.input)
         try:

@@ -191,12 +191,13 @@ class TestCatalog:
             live = conn.execute(sql.select(sql.func.count()).where(schema.Table.id == tbl_id)).scalar()
             assert live == 1
 
-        # Complete the drop so teardown does not see leftover pending ops.
+        # Later DDL reloads persisted ROLLFORWARD ids and finishes DeleteTableMediaFilesOp.
         monkeypatch.setattr(local_store_mod.shutil, 'rmtree', orig_rmtree)
-        cat = get_runtime().catalog
-        assert isinstance(cat, Catalog)
-        leftover = cat._finalize_pending_ops(tbl_id)
-        assert leftover is None
+        pxt.create_table('media_tbl', {'img': pxt.Image | None})
+        with get_runtime().begin_xact() as conn:
+            pending = conn.execute(sql.select(sql.func.count()).select_from(schema.PendingTableOp)).scalar()
+            assert pending == 0
+        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
     @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_finalize_pending_ops_non_db_error_is_bounded(

@@ -882,8 +882,17 @@ class Catalog(CatalogBase):
             self._get_tbl_version(key)
 
     def _roll_forward(self) -> None:
-        """Finalize pending ops for all tables in self._roll_forward_ids."""
-        for tbl_id in self._roll_forward_ids:
+        """Finalize pending ops recorded this call and any table still in ROLLFORWARD or ROLLBACK."""
+        with self.begin_xact(for_write=False, finalize_pending_ops=False) as conn:
+            rows = conn.execute(
+                sql.select(schema.Table.id).where(
+                    schema.Table.md['tbl_state'].astext.in_(
+                        [str(schema.TableState.ROLLFORWARD.value), str(schema.TableState.ROLLBACK.value)]
+                    )
+                )
+            ).all()
+        self._roll_forward_ids.update(row[0] for row in rows)
+        for tbl_id in list(self._roll_forward_ids):
             exc = self._finalize_pending_ops(tbl_id)
             if exc is not None:
                 raise excs.InternalError(
@@ -906,9 +915,10 @@ class Catalog(CatalogBase):
         - this process starts with the first pending op, because it could have been partially executed
         - when done, deletes all table ops and resets tbl_state to LIVE
 
-        If an abortable statement is rolled back, that exception is returned. Persistent non-DB failures in the
-        rollforward-continue branch are retried up to `_MAX_NON_DB_FINALIZE_ATTEMPTS` times, then raised; the pending
-        ops remain. PendingOpsErrors encountered during finalization are dealt with recursively.
+        If an abortable statement is rolled back, that exception is returned. Persistent non-DB failures while
+        continuing rollforward or rollback are retried up to `_MAX_NON_DB_FINALIZE_ATTEMPTS` times, then raised as
+        InternalError; the pending ops remain. PendingOpsErrors encountered during finalization are dealt with
+        recursively.
         """
         num_retries = 0
         num_non_db_retries = 0
@@ -1099,20 +1109,21 @@ class Catalog(CatalogBase):
                         status = conn.execute(stmt)
                         assert status.rowcount == 1
                 else:
-                    # log this error but keep going
-                    _logger.error(
-                        f'Finalize pending ops({tbl_id}): caught error: {e} of type {type(e)} but continuing',
-                        exc_info=True,
-                    )
                     num_non_db_retries += 1
                     if num_non_db_retries >= _MAX_NON_DB_FINALIZE_ATTEMPTS:
                         _logger.error(
-                            f'Finalize pending ops({tbl_id}): giving up after {num_non_db_retries} non-DB errors'
+                            f'Finalize pending ops({tbl_id}): giving up after {num_non_db_retries} non-DB errors: '
+                            f'{e} of type {type(e)}',
+                            exc_info=True,
                         )
                         raise excs.InternalError(
                             excs.ErrorCode.INTERNAL_ERROR,
                             f'Table operation is still pending after {num_non_db_retries} non-DB errors:\n{e!s}',
                         ) from e
+                    _logger.error(
+                        f'Finalize pending ops({tbl_id}): caught error: {e} of type {type(e)} but continuing',
+                        exc_info=True,
+                    )
                     time.sleep(random.uniform(0.1, 0.5))
                     continue
             finally:
