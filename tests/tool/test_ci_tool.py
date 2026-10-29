@@ -3,7 +3,6 @@ import pytest
 from tool.ci_tool import (
     ALTERNATIVE_PLATFORMS,
     BASIC_PLATFORMS,
-    DEFAULT_XDIST_N,
     EXPENSIVE_PLATFORMS,
     EXPENSIVE_PYTEST,
     MAIN_PLATFORM,
@@ -62,20 +61,3 @@ class TestBuildConfigs:
     def test_unknown_trigger_is_rejected(self) -> None:
         with pytest.raises(AssertionError):
             build_configs('push', force_all=False, has_aws_credentials=False)
-
-    @pytest.mark.parametrize('trigger', FULL_TRIGGERS)
-    def test_standard_pp_caps_xdist_workers(self, trigger: str) -> None:
-        configs = build_configs(trigger, force_all=True, has_aws_credentials=False)
-        pp = [cfg for cfg in configs if cfg.display_name_prefix == 'standard++']
-        assert len(pp) == 1
-        assert pp[0].pytest_n == '8'
-        assert pp[0].matrix_entry['pytest-n'] == '8'
-        others = [cfg for cfg in configs if cfg.display_name_prefix != 'standard++']
-        assert others
-        assert all(cfg.pytest_n == DEFAULT_XDIST_N for cfg in others)
-
-    def test_standard_plus_keeps_logical_workers(self) -> None:
-        configs = build_configs('merge_group', force_all=False, has_aws_credentials=False)
-        plus = next(cfg for cfg in configs if cfg.display_name_prefix == 'standard+')
-        assert plus.pytest_n == DEFAULT_XDIST_N
-        assert plus.matrix_entry['pytest-n'] == DEFAULT_XDIST_N

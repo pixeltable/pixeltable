@@ -1,6 +1,3 @@
-import ctypes
-import gc
-import platform
 from typing import TypedDict
 
 import av
@@ -39,39 +36,6 @@ def normalize_image_mode(image: PIL.Image.Image) -> PIL.Image.Image:
     if image.mode == 'LA':
         return image.convert('RGBA')
     return image
-
-
-def clear_model_caches() -> None:
-    """Drop the in-process function-module model caches.
-
-    llama_cpp.cleanup() closes llama.cpp instances first so their native allocations are released.
-    """
-    from pixeltable.functions import huggingface, llama_cpp, vllm, whisper, whisperx, yolox
-
-    llama_cpp.cleanup()
-    for cache in (
-        huggingface._model_cache,
-        huggingface._processor_cache,
-        vllm._model_cache,
-        whisper._model_cache,
-        whisperx._model_cache,
-        whisperx._alignment_model_cache,
-        whisperx._diarization_model_cache,
-        yolox._model_cache,
-        yolox._processor_cache,
-    ):
-        cache.clear()
-
-
-def release_process_memory() -> None:
-    """Drop cached models and return freed heap to the OS.
-
-    glibc keeps freed arenas unless malloc_trim() runs.
-    """
-    clear_model_caches()
-    gc.collect()
-    if platform.libc_ver()[0] == 'glibc':
-        ctypes.CDLL('libc.so.6').malloc_trim(0)
 
 
 class ImageMetadata(TypedDict, total=False):
