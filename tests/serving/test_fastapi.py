@@ -1126,19 +1126,37 @@ class TestFastAPI:
             with pytest.raises(ValueError, match='must be an HTTPS origin'):
                 client.post('/bg', json={'id': 2})
 
-    def test_error_response_retry_after(self) -> None:
+    def test_error_response_retry_after(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
-        from pixeltable.serving import _fastapi
+        from pixeltable.serving import FastAPIRouter, _fastapi
 
-        e = pxt.exceptions.ServiceUnavailableError(
-            pxt.exceptions.ErrorCode.DATABASE_UNAVAILABLE, 'down', retry_after=2.5
-        )
-        response = _fastapi._http_exception(e)
-        assert response.status_code == 503 and response.detail == e.to_dict()
+        t = pxt.create_table(p('items'), {'id': pxt.Int}, primary_key='id')
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/ins')
+        client = make_test_client(router)
+
+        # an error without a wait sends no Retry-After
+        assert client.post('/ins', json={'id': 1}).status_code == 200
+        duplicate = client.post('/ins', json={'id': 1})
+        assert duplicate.status_code == 422 and 'Retry-After' not in duplicate.headers, duplicate.text
+
+        # the route's work fails with a wait, as an unreachable hosted database does
+        def unreachable(*args: Any) -> None:
+            raise pxt.exceptions.ServiceUnavailableError(
+                pxt.exceptions.ErrorCode.DATABASE_UNAVAILABLE, 'down', retry_after=2.5
+            )
+
+        monkeypatch.setattr(_fastapi, '_validate_registered_schema', unreachable)
+        refused = client.post('/ins', json={'id': 2})
         # Retry-After takes whole seconds, so a fractional wait rounds up
-        assert response.headers == {'Retry-After': '3'}
-        no_hint = pxt.exceptions.ServiceUnavailableError(pxt.exceptions.ErrorCode.DATABASE_UNAVAILABLE, 'down')
-        assert _fastapi._http_exception(no_hint).headers is None
+        assert refused.status_code == 503 and refused.headers['Retry-After'] == '3', refused.text
+        assert refused.json()['detail'] == {
+            'error_code': 'DATABASE_UNAVAILABLE',
+            'message': 'down',
+            'retryable': True,
+            'retry_after': 2.5,
+        }
 
     @pytest.mark.db_roots(
         'local', reason='a background job computes in the router process only for an in-process catalog'
