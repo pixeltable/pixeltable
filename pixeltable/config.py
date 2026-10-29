@@ -994,6 +994,10 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'rate_limits': 'Per-model rate limits for Bedrock API requests',
     },
     'bfl': {'api_key': 'Black Forest Labs (BFL) API key', 'rate_limit': 'Rate limit for BFL API requests'},
+    'cheaperinference': {
+        'api_key': 'Cheaper Inference API key',
+        'rate_limit': 'Rate limit for Cheaper Inference API requests',
+    },
     'deepseek': {'api_key': 'Deepseek API key', 'rate_limit': 'Rate limit for Deepseek API requests'},
     'fal': {'api_key': 'fal.ai API key', 'rate_limit': 'Rate limit for fal.ai API requests'},
     'fireworks': {'api_key': 'Fireworks API key', 'rate_limit': 'Rate limit for Fireworks API requests'},

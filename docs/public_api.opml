@@ -408,6 +408,10 @@
           <outline text="udf|pixeltable.functions.bfl.fill" />
           <outline text="udf|pixeltable.functions.bfl.expand" />
         </outline>
+        <outline text="module|pixeltable.functions.cheaperinference">
+          <outline text="udf|pixeltable.functions.cheaperinference.chat_completions" />
+          <outline text="udf|pixeltable.functions.cheaperinference.embeddings" />
+        </outline>
         <outline text="module|pixeltable.functions.deepseek">
           <outline text="udf|pixeltable.functions.deepseek.chat_completions" />
         </outline>
