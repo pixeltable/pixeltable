@@ -162,8 +162,8 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
         # Standard test suite on Ubuntu on intermediate Python versions
         configs.extend(MatrixConfig('standard', 'py', MAIN_PLATFORM, py) for py in ('3.12', '3.13', '3.14'))
 
-        # Minimal tests on Python 3.14
-        configs.append(MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.14', uv_options='--no-dev'))
+        # Minimal tests on Python 3.15
+        configs.append(MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.15', uv_options='--no-dev'))
 
         # Minimal tests on alternative platforms (we don't run the standard suite on these, since dev dependencies
         # can be hit-or-miss)

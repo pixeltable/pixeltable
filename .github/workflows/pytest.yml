@@ -17,7 +17,7 @@ name: tests
 #   - Random ops, and the OpenTelemetry instrumentation tests.
 #   - Python 3.15 on ubuntu-24.04, macos-15, and windows-2025 runners.
 #   - Python 3.12, 3.13, and 3.14 on ubuntu-24.04.
-#   - Minimal Pixeltable with Python 3.14 on ubuntu-24.04.
+#   - Minimal Pixeltable with Python 3.15 on ubuntu-24.04.
 #   - Minimal Pixeltable with Python 3.11 on ubuntu-24.04-arm and macos-15-intel.
 #   - Minimal Pixeltable with an S3 media destination (only when AWS credentials are available).
 #   - Notebook tests, excluding Hugging Face-dependent notebooks.
