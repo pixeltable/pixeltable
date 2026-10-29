@@ -360,7 +360,7 @@ def _create_audio_response(cls: type[_AudioResponseT], result: Any, response_for
             out = {'vtt': result}
         else:
             raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_ERROR,
+                excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
                 f'Unexpected string response from audio API (response_format={response_format!r})',
                 provider='openai',
             )
@@ -971,13 +971,15 @@ def _decode_image_response(result: dict) -> dict:
     data = result.get('data')
     if data is None or len(data) == 0:
         raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR, 'No image content in the response.', provider='openai'
+            excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, 'No image content in the response.', provider='openai'
         )
     for i in range(len(data)):
         b64_str = data[i].get('b64_json')
         if b64_str is None:
             raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_ERROR, 'Image content is missing in the response.', provider='openai'
+                excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+                'Image content is missing in the response.',
+                provider='openai',
             )
         b64_bytes = base64.b64decode(b64_str)
         img = PIL.Image.open(io.BytesIO(b64_bytes))
