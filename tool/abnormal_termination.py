@@ -39,7 +39,7 @@ import pixeltable as pxt
 
 TABLE_NAME = 'abnormal_termination'
 MARKER = '@@ '  # prefix of the lines a worker prints to report progress to the driver
-WORKER_TIMEOUT_SECS = 300.0  # time allowed for a worker to start its insert or finish verifying
+WORKER_TIMEOUT_SECS = 300.0  # time allowed for each wait on a worker, including cycle 0's whole insert
 
 
 class CheckFailedError(Exception):
@@ -107,7 +107,10 @@ class Worker:
 
     def __init__(self, home: Path, label: str, args: list[str]) -> None:
         self.label = label
-        env = {**os.environ, 'PIXELTABLE_HOME': str(home), 'PYTHONIOENCODING': 'utf-8'}
+        # Inherited settings such as PIXELTABLE_PGDATA or PIXELTABLE_DB_CONNECT_STR could point the worker at a database
+        # outside the home
+        env = {k: v for k, v in os.environ.items() if not k.startswith('PIXELTABLE_') or k == 'PIXELTABLE_VERBOSITY'}
+        env.update(PIXELTABLE_HOME=str(home), PYTHONIOENCODING='utf-8')
         env.setdefault('PIXELTABLE_VERBOSITY', '0')
         self.proc = subprocess.Popen(
             [sys.executable, '-u', __file__, *args],
@@ -209,10 +212,12 @@ def run_cycles(args: Namespace, home: Path) -> None:
     worker.finish()
     print(f'Cycle 0: inserted {args.rows} rows in {insert_secs:.1f}s', flush=True)
     committed = [0]
-    num_killed = 0
+    scheduled: Counter[str] = Counter()  # cycles per kill mode
+    killed_by_mode: Counter[str] = Counter()
 
     for cycle in range(1, args.cycles + 1):
         mode = args.kill if args.kill != 'alternate' else ('python', 'all')[(cycle - 1) % 2]
+        scheduled[mode] += 1
         worker = Worker(
             home, f'insert {cycle}', ['--worker', 'insert', '--cycle', str(cycle), '--rows', str(args.rows)]
         )
@@ -229,7 +234,7 @@ def run_cycles(args: Namespace, home: Path) -> None:
                 raise CheckFailedError(f'{worker.label}: exited with code {returncode}')
             killed = False
             print(f'Cycle {cycle}: insert finished before the kill at {delay:.1f}s; verifying', flush=True)
-        num_killed += killed
+        killed_by_mode[mode] += killed
 
         verifier = Worker(home, f'verify {cycle}', ['--worker', 'verify', '--rows', str(args.rows)])
         found = verifier.wait_for('committed')
@@ -240,9 +245,11 @@ def run_cycles(args: Namespace, home: Path) -> None:
         committed = found
         print(f'Cycle {cycle}: OK; committed inserts: {committed}', flush=True)
 
-    if num_killed == 0:
-        raise CheckFailedError('Every insert finished before its kill, so no cycle tested an abnormal termination')
-    print(f'Passed: {num_killed} of {args.cycles} inserts killed mid-stream, and Pixeltable loaded normally after each')
+    kills = ', '.join(f'{killed_by_mode[mode]} of {n} ({mode})' for mode, n in scheduled.items())
+    untested = [mode for mode in scheduled if killed_by_mode[mode] == 0]
+    if untested:
+        raise CheckFailedError(f'No {" or ".join(untested)} kill: each such insert finished before its kill ({kills})')
+    print(f'Passed: inserts killed mid-stream: {kills}; Pixeltable loaded normally after each', flush=True)
 
 
 def main() -> None:
