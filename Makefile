@@ -23,7 +23,7 @@ CMAKE_POLICY_VERSION_MINIMUM := 3.5
 
 # Dev dependency versions not handled by pyproject.toml
 UV_VERSION := 0.12.3
-FFMPEG_VERSION := 6.1.1=gpl*
+FFMPEG_VERSION := 7.1.1=gpl*
 MINTLIFY_VERSION := 4.2.506
 OTEL_PKG := packages/opentelemetry-instrumentation-pixeltable
 

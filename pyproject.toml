@@ -318,7 +318,7 @@ name = 'pxt://pixeltable:pxttest'
 include = ['pixeltable/_version.py']
 # no pod reads the documentation tree, and it is a quarter of what the archive would otherwise carry
 exclude = ['docs/**']
-system_dependencies = ["libiconv", "ffmpeg==6.1.1=gpl*"]
+system_dependencies = ["libiconv", "ffmpeg==7.1.1=gpl*"]
 memory_mb = 6144
 workers = 3
 cpu = 2.0
