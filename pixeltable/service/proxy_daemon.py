@@ -360,7 +360,7 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
             'The proxy daemon requires the serve dependencies (fastapi, uvicorn). '
-            'Install them with: pip install pixeltable[serve]',
+            'Install them with: pip install -U pixeltable[serve]',
         ) from e
 
     app = _build_app(test_mode)

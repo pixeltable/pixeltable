@@ -10,7 +10,7 @@ The `pxt` CLI ships with the `pixeltable` package. It covers two surfaces:
 - **Service deployment** -- run the services defined in an application file with `pxt service`. Requires the `serve` extra (which pulls in `fastapi[standard]` and `uvicorn`):
 
   ```bash
-  pip install 'pixeltable[serve]'
+  pip install -U 'pixeltable[serve]'
   ```
 
 Verify the installation:
@@ -712,7 +712,7 @@ A request that fails ends its line with the error code, as in `pxt: 404 Director
 `pxt service` runs the services in an application file. An application file is any Python source file containing
 table/view models and either `FastAPIRouter` instances (which serve routes over them) or a `fastapi.FastAPI`
 application of your own. It requires the `serve` extra
-(`pip install 'pixeltable[serve]'`), which pulls in `fastapi[standard]` and `uvicorn`.
+(`pip install -U 'pixeltable[serve]'`), which pulls in `fastapi[standard]` and `uvicorn`.
 
 <Info>
 A service is a full FastAPI application with auto-generated [OpenAPI docs](https://fastapi.tiangolo.com/features/#automatic-docs)
@@ -1014,7 +1014,7 @@ A dry run (`-n`) of `update` or `prune` leaves each operation's `status` null in
 ### Tracing
 
 `--otel` emits OpenTelemetry traces from the served application: Pixeltable's own spans, nested under the
-request spans of the FastAPI app. It needs the instrumentation package (`pip install 'pixeltable[otel]'`),
+request spans of the FastAPI app. It needs the instrumentation package (`pip install -U 'pixeltable[otel]'`),
 and the endpoint and service name come from the `OTEL_*` environment variables or the `[otel]` config
 section, as they do for any Pixeltable process.
 
