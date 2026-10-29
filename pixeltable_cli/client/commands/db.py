@@ -29,6 +29,7 @@ from ..utils import (
     EXIT_CHANGES_PENDING,
     EXIT_ERROR,
     EXIT_IN_AGREEMENT,
+    RequestFailedError,
     confirm_or_exit,
     get_request,
     post_request,
@@ -259,10 +260,22 @@ def _add_config_entry(args: argparse.Namespace, db_uri: str) -> str | None:
     return str(config_file)
 
 
+def _post_diff(db_uri: str, entry_added_to: str | None) -> DbPlan:
+    """Post the diff for db_uri. On a failure, say when the entry this run added stays in the project configuration."""
+    try:
+        return DbPlan.model_validate(post_request('/api/db/diff', {'db_uri': db_uri}, raise_on_error=True))
+    except RequestFailedError as e:
+        e.report()
+        if entry_added_to is not None:
+            print(f'pxt: {entry_added_to} keeps the entry for {db_uri}.', file=sys.stderr)
+            print('Run `pxt login`, or set PIXELTABLE_API_KEY, then retry.', file=sys.stderr)
+        sys.exit(EXIT_ERROR)
+
+
 def _diff(args: argparse.Namespace) -> None:
     db_uri = _db_uri(args, 'pxt db diff')
     entry_added_to = _add_config_entry(args, db_uri)
-    plan = DbPlan.model_validate(post_request('/api/db/diff', {'db_uri': db_uri}))
+    plan = _post_diff(db_uri, entry_added_to)
     plan.entry_added_to = entry_added_to
     _print_plan(plan, as_json=args.json_output)
     sys.exit(EXIT_IN_AGREEMENT if plan.in_agreement else EXIT_CHANGES_PENDING)
@@ -272,7 +285,7 @@ def _update(args: argparse.Namespace) -> None:
     db_uri = _db_uri(args, 'pxt db update')
     entry_added_to = _add_config_entry(args, db_uri)
     body: dict[str, Any] = {'db_uri': db_uri}
-    plan = DbPlan.model_validate(post_request('/api/db/diff', body))
+    plan = _post_diff(db_uri, entry_added_to)
     plan.entry_added_to = entry_added_to
     if plan.in_agreement:
         _print_plan(plan, as_json=args.json_output)
