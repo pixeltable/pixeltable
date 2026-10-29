@@ -289,6 +289,8 @@ jobs:
         run: |
           # Install quarto and mintlify in order to build the docs
           ./scripts/retry.sh 3 30 conda install -y -c conda-forge quarto nodejs
+          # retry.sh runs conda in its own shell, so reactivate here for quarto's activation script (QUARTO_DENO etc.)
+          conda activate pxt
           npm install -g mint@$MINTLIFY_VERSION
           python -m pixeltable_doctools.build --no-changelog
           cd target/docs && mint broken-links
