@@ -192,29 +192,6 @@ class CatalogProxy(CatalogBase):
             'CatalogBase', 'drop_dir', {'path': path, 'if_not_exists': if_not_exists, 'force': force}
         )
 
-    def begin_table_import(self, path: Path, md: dict[str, Any], md_version: int) -> UUID:
-        return self.client.send_request(
-            'CatalogBase', 'begin_table_import', {'path': path, 'md': md, 'md_version': md_version}
-        )
-
-    def import_table_rows(
-        self, import_id: UUID, rows_file: str, new_media: dict[str, str], prev_media: dict[str, str]
-    ) -> dict[str, str]:
-        from pixeltable.service.proxy_protocol import LocalFile
-
-        args = {
-            'import_id': import_id,
-            'rows_file': LocalFile(rows_file),
-            'new_media': {url: LocalFile(path) for url, path in new_media.items()},
-            'prev_media': prev_media,
-        }
-        return self.client.send_request('CatalogBase', 'import_table_rows', args)
-
-    def finish_table_import(self, import_id: UUID, path: Path, num_rows: int) -> Table:
-        md = self.client.send_request(
-            'CatalogBase', 'finish_table_import', {'import_id': import_id, 'path': path, 'num_rows': num_rows}
-        )
-        return self._make_table(md, is_anon_snapshot=False)
-
-    def abort_table_import(self, import_id: UUID) -> None:
-        self.client.send_request('CatalogBase', 'abort_table_import', {'import_id': import_id})
+    def create_table_from_md(self, path: Path, md: list[TableVersionMd]) -> Table:
+        new_md = self.client.send_request('CatalogBase', 'create_table_from_md', {'path': path, 'md': md})
+        return self._make_table(new_md, is_anon_snapshot=False)

@@ -1,22 +1,18 @@
-import json
 import os
 import pathlib
 import shutil
-import uuid
 from typing import Any
 
 import numpy as np
 import PIL.Image
 import pytest
-import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.catalog import table_copy
 from pixeltable.catalog.catalog_proxy import CatalogProxy
-from pixeltable.metadata import schema
-from pixeltable.runtime import get_runtime
-from pixeltable.service import proxy_dispatch, proxy_protocol
+from pixeltable.catalog.table_proxy import TableProxy
+from pixeltable.service.proxy_protocol import LocalFile
 from pixeltable.utils.filecache import FileCache
 
 from .utils import DatabaseRoot, get_image_files, pxt_raises
@@ -30,15 +26,9 @@ if not os.environ.get('PIXELTABLE_PROXY_DAEMON') and not os.environ.get('PXTCLOU
         return n + 1
 
 
-def _pending_imports(db_root: DatabaseRoot) -> list[Any]:
-    """The ids of incomplete copies in the destination; only the local proxy daemon shares this process's database."""
-    assert db_root.id == 'proxy'
-    with get_runtime().begin_xact() as conn:
-        return list(
-            conn.execute(
-                sql.select(schema.Table.id).where(schema.Table.additional_md.has_key('pending_import'))
-            ).scalars()
-        )
+def _temporary_copies(db_root: DatabaseRoot) -> list[str]:
+    """The tables in the destination that a copy fills before moving them to their path."""
+    return [path for path in pxt.list_tables(db_root.prefix) if '_copy_' in path]
 
 
 def _assert_same_rows(rows1: list[dict[str, Any]], rows2: list[dict[str, Any]]) -> None:
@@ -150,14 +140,14 @@ class TestCopyTable:
         monkeypatch.setattr(table_copy, '_MAX_CHUNK_ROW_BYTES', 1)
         monkeypatch.setattr(table_copy, '_MAX_CHUNK_MEDIA_BYTES', 1)
         num_chunks = 0
-        import_table_rows = CatalogProxy.import_table_rows
+        dispatch = TableProxy._dispatch
 
-        def count_chunks(self: CatalogProxy, *args: Any, **kwargs: Any) -> dict[str, str]:
+        def count_chunks(self: TableProxy, method: str, args: dict[str, Any]) -> Any:
             nonlocal num_chunks
-            num_chunks += 1
-            return import_table_rows(self, *args, **kwargs)
+            num_chunks += method == 'load_store_rows'
+            return dispatch(self, method, args)
 
-        monkeypatch.setattr(CatalogProxy, 'import_table_rows', count_chunks)
+        monkeypatch.setattr(TableProxy, '_dispatch', count_chunks)
 
         img_files = get_image_files()[:2]
         t = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
@@ -227,8 +217,7 @@ class TestCopyTable:
         with pxt_raises(pxt.ErrorCode.FUNCTION_NOT_FOUND, match=r"computed column 'n1'(.|\n)*pxt db update"):
             pxt.copy_table('src', p('dst'))
         assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
-        if db_root.id == 'proxy':
-            assert _pending_imports(db_root) == []
+        assert _temporary_copies(db_root) == []
 
     def test_copy_table_abort(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
         """A failed copy leaves nothing behind in the destination."""
@@ -236,38 +225,30 @@ class TestCopyTable:
         t = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
         t.insert({'id': i, 'img': f} for i, f in enumerate(get_image_files()[:3]))
 
-        finish_table_import = CatalogProxy.finish_table_import
+        move = CatalogProxy.move
 
-        def finish_after_conflict(self: CatalogProxy, *args: Any, **kwargs: Any) -> pxt.Table:
+        def move_after_conflict(self: CatalogProxy, *args: Any, **kwargs: Any) -> None:
             # someone else creates the destination while the rows are being copied
             pxt.create_table(p('dst'), {'other': pxt.String})
-            return finish_table_import(self, *args, **kwargs)
+            move(self, *args, **kwargs)
 
-        monkeypatch.setattr(CatalogProxy, 'finish_table_import', finish_after_conflict)
+        monkeypatch.setattr(CatalogProxy, 'move', move_after_conflict)
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
             pxt.copy_table('src', p('dst'))
         assert pxt.get_table(p('dst')).columns() == ['other']
-        if db_root.id == 'proxy':
-            assert _pending_imports(db_root) == []
+        assert _temporary_copies(db_root) == []
 
-
-def test_import_table_rows_takes_only_uploaded_files(init_env: None, tmp_path: pathlib.Path) -> None:
-    """The daemon refuses a rows or media file that a request names by a path of the daemon's own."""
-    daemon_file = tmp_path / 'daemon_file'
-    daemon_file.write_bytes(b'secret')
-    uploaded_rows = {'$pxt': 'file', 'name': 'rows.parquet', 'v': 0}
-    for rows_file, new_media in ((str(daemon_file), {}), (uploaded_rows, {'file:///img.jpg': str(daemon_file)})):
-        request = proxy_protocol.ProxyRequest(
-            class_name='CatalogBase',
-            method='import_table_rows',
-            args={
-                'import_id': {'$pxt': 'UUID', 'v': str(uuid.uuid4())},
-                'rows_file': rows_file,
-                'new_media': new_media,
-                'prev_media': {},
-            },
-        )
-        head, _ = proxy_protocol.decode_body(proxy_dispatch.handle(request.model_dump_json(), [b'rows']))
-        error = json.loads(head)['error']
-        assert error['error_code'] == 'INVALID_ARGUMENT'
-        assert 'must be uploaded files' in error['message']
+    def test_load_store_rows_takes_only_uploaded_files(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
+        """The destination refuses a rows or media file that a request names by a path of the destination's own."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('dst'), {'img': pxt.Image})
+        assert isinstance(t, TableProxy)
+        daemon_file = str(tmp_path / 'daemon_file')
+        rows_file = tmp_path / 'rows.parquet'
+        rows_file.write_bytes(b'rows')
+        for args in (
+            {'rows_file': daemon_file, 'new_media': {}, 'prev_media': {}},
+            {'rows_file': LocalFile(str(rows_file)), 'new_media': {'file:///img.jpg': daemon_file}, 'prev_media': {}},
+        ):
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be uploaded files'):
+                t._dispatch('load_store_rows', args)

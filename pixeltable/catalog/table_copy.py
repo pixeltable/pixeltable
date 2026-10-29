@@ -4,10 +4,10 @@ The copy is physical: the table's metadata records and the rows of its store tab
 value or embedding is computed again. The destination gives the table a new id, and each local media file that a row
 references is uploaded and rewritten to the destination's media store.
 
-copy_table() drives a copy from the source process: it exports the table into chunks (a Parquet file of store rows,
-plus the local media files those rows are the first to reference), then calls the destination catalog's
-begin_table_import(), import_table_rows() for each chunk, and finish_table_import(). place_media() and insert_rows()
-are the destination's side of import_table_rows().
+copy_table() drives a copy from the source process with existing catalog operations, plus
+create_table_from_md(): it exports the table into chunks (a Parquet file of store rows, plus the local media files
+those rows are the first to reference), creates the copy under a temporary name, loads each chunk into it with
+load_store_rows(), and moves it to its path. A failed copy drops the temporary table.
 """
 
 from __future__ import annotations
@@ -28,14 +28,17 @@ import pyarrow.parquet as pq
 import sqlalchemy as sql
 from sqlalchemy.dialects.postgresql import JSONB
 
-from pixeltable import exceptions as excs, metadata, type_system as ts
+from pixeltable import exceptions as excs, func, type_system as ts
 from pixeltable.env import Env
+from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 from pixeltable.utils import parse_local_file_path
 from pixeltable.utils.local_store import TempStore
-from pixeltable.utils.object_stores import ObjectOps, ObjectStoreBase
+from pixeltable.utils.object_stores import ObjectOps, ObjectPath, ObjectStoreBase, StorageTarget
 
 from .column import Column
+from .globals import IfExistsParam, IfNotExistsParam
+from .types import TableVersionMd
 
 if TYPE_CHECKING:
     from .catalog_base import CatalogBase
@@ -47,8 +50,8 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 _ROW_BATCH_SIZE = 1_000
-# A chunk is one import_table_rows() request. These bounds keep each request within the destination's memory, temp
-# disk and statement timeout.
+# A chunk is one load_store_rows() request. These bounds keep each request within the destination's memory, temp disk
+# and statement timeout.
 _MAX_CHUNK_ROW_BYTES = 64 * 2**20
 _MAX_CHUNK_MEDIA_BYTES = 512 * 2**20
 _MAX_UPLOAD_THREADS = 16
@@ -74,39 +77,93 @@ class _StoreColumn:
         return Column.cellmd_store_name_from_id(self.col_id)
 
 
-def store_columns(md: Mapping[str, Any]) -> list[_StoreColumn]:
-    """The stored columns described by md, as read_md_for_copy() returns it."""
+def _store_columns(md: list[TableVersionMd]) -> list[_StoreColumn]:
+    """The stored columns of the table whose history is md."""
     # the latest schema version that has a column describes it
-    schema_cols: dict[int, dict[str, Any]] = {}
-    for schema_version_md in sorted(md['schema_version_mds'], key=lambda d: d['schema_version']):
-        for col_id, schema_col in schema_version_md['columns'].items():
-            schema_cols[int(col_id)] = schema_col
-    result: list[_StoreColumn] = []
-    for col_id_str, col_md in md['tbl_md']['column_md'].items():
-        if not col_md['stored']:
-            continue
-        schema_col = schema_cols[int(col_id_str)]
-        result.append(
-            _StoreColumn(
-                col_id=int(col_id_str),
-                is_media=ts.ColumnType.from_dict(schema_col['col_type']).is_media_type(),
-                is_computed=schema_col['value_expr'] is not None,
-                stores_cellmd=col_md['stores_cellmd'],
-            )
+    schema_cols: dict[int, schema.SchemaColumn] = {}
+    for version_md in sorted(md, key=lambda m: m.schema_version_md.schema_version):
+        schema_cols.update(version_md.schema_version_md.columns)
+    return [
+        _StoreColumn(
+            col_id=col_id,
+            is_media=ts.ColumnType.from_dict(schema_cols[col_id].col_type).is_media_type(),
+            is_computed=schema_cols[col_id].value_expr is not None,
+            stores_cellmd=col_md.stores_cellmd,
         )
-    return result
+        for col_id, col_md in md[0].tbl_md.column_md.items()
+        if col_md.stored
+    ]
 
 
-def remap_tbl_id(md: Any, old_id: uuid.UUID, new_id: uuid.UUID) -> Any:
+def _remap_tbl_id(md: Any, old_id: uuid.UUID, new_id: uuid.UUID) -> Any:
     """Return md with every reference to old_id (a string value equal to str(old_id)) replaced with new_id."""
     old_str, new_str = str(old_id), str(new_id)
     if isinstance(md, str):
         return new_str if md == old_str else md
     if isinstance(md, list):
-        return [remap_tbl_id(x, old_id, new_id) for x in md]
+        return [_remap_tbl_id(x, old_id, new_id) for x in md]
     if isinstance(md, dict):
-        return {k: remap_tbl_id(v, old_id, new_id) for k, v in md.items()}
+        return {k: _remap_tbl_id(v, old_id, new_id) for k, v in md.items()}
     return md
+
+
+def md_for_copy(
+    md: list[TableVersionMd], tbl_id: uuid.UUID, name: str
+) -> tuple[schema.TableMd, list[schema.VersionMd], list[schema.SchemaVersionMd]]:
+    """The metadata records of a copy, with id tbl_id and named name, of the base table whose history is md."""
+    src_md = md[0].tbl_md
+    if src_md.view_md is not None:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot copy {src_md.name!r}: only base tables can be copied'
+        )
+    if src_md.pending_stmt is not None or src_md.tbl_state != schema.TableState.LIVE:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_STATE,
+            f'Cannot copy {src_md.name!r} while an operation on it is in progress; retry the copy',
+        )
+    # an embedding index builds its functions when the table is loaded, so check those before writing anything
+    for idx_md in src_md.index_md.values():
+        if not idx_md.is_visible_in_version(src_md.current_schema_version):
+            continue
+        for arg in idx_md.init_args.values():
+            if isinstance(arg, dict) and '_classpath' in arg:
+                fn = func.Function.from_dict(arg)
+                if isinstance(fn, func.InvalidFunction):
+                    raise excs.NotFoundError(
+                        excs.ErrorCode.FUNCTION_NOT_FOUND,
+                        f'Cannot copy {src_md.name!r}: the index {idx_md.name!r} uses the UDF `{fn.self_path}`, '
+                        'which is not defined in the destination database.\n'
+                        'You can use `pxt db update` to deploy the UDF to the database.',
+                    )
+
+    src_id = uuid.UUID(src_md.tbl_id)
+    copy_md = [TableVersionMd.from_dict(_remap_tbl_id(m.as_dict(), src_id, tbl_id)) for m in md]
+    tbl_md = copy_md[0].tbl_md
+    tbl_md.name = name
+    tbl_md.user = Env.get().user
+    for col_md in tbl_md.column_md.values():
+        if (
+            isinstance(col_md.destination, str)
+            and ObjectPath.parse_object_storage_addr(col_md.destination, False).storage_target
+            == StorageTarget.LOCAL_STORE
+        ):
+            # the source's local directory doesn't exist here; the column falls back to the default destination
+            col_md.destination = None
+    schema_version_mds = {m.schema_version_md.schema_version: m.schema_version_md for m in copy_md}
+    return tbl_md, [m.version_md for m in copy_md], list(schema_version_mds.values())
+
+
+def check_computed_columns(tv: TableVersion, src_name: str) -> None:
+    """Refuse a copy of src_name whose computed columns the destination cannot evaluate."""
+    for col in tv.cols_by_id.values():
+        validation_error = None if col.value_expr is None else col.value_expr.validation_error
+        if validation_error is not None:
+            raise excs.NotFoundError(
+                excs.ErrorCode.FUNCTION_NOT_FOUND,
+                f'Cannot copy {src_name!r}: the computed column {col.name!r} cannot be evaluated in the destination '
+                f'database.\n{validation_error.catalog_error_msg()}\n'
+                'You can use `pxt db update` to deploy the UDF to the database.',
+            )
 
 
 def _arrow_type(sa_type: sql.types.TypeEngine) -> pa.DataType:
@@ -175,7 +232,7 @@ class _Chunk:
 class _TableExport:
     """Writes the store rows of a table into chunks and collects the local media files that they reference."""
 
-    md: dict[str, Any]
+    md: list[TableVersionMd]
     chunks: list[_Chunk]
     num_rows: int
     missing_files: list[str]  # urls of local media files that don't exist
@@ -190,7 +247,7 @@ class _TableExport:
     _writer: pq.ParquetWriter | None
     _batch: list[Mapping[str, Any]]
 
-    def __init__(self, md: dict[str, Any], sa_tbl: sql.Table, tmp_dir: FsPath):
+    def __init__(self, md: list[TableVersionMd], sa_tbl: sql.Table, tmp_dir: FsPath):
         self.md = md
         self.chunks = []
         self.num_rows = 0
@@ -198,7 +255,7 @@ class _TableExport:
         self._tmp_dir = tmp_dir
         self._sa_cols = list(sa_tbl.columns)
         self._arrow_schema = pa.schema([(col.name, _arrow_type(col.type)) for col in self._sa_cols])
-        cols = store_columns(md)
+        cols = _store_columns(md)
         self._media_cols = [col.store_name for col in cols if col.is_media]
         self._cellmd_cols = [col.cellmd_store_name for col in cols if col.stores_cellmd]
         self._exported_media = set()
@@ -276,7 +333,7 @@ def _export_table(tbl: InsertableTable, tmp_dir: FsPath) -> _TableExport:
     cat = get_runtime().catalog
     # a single REPEATABLE READ transaction makes the metadata and the rows a snapshot of the same table state
     with cat.begin_xact(for_write=False, read_tbl_ids=[tbl._id], isolation_level='REPEATABLE READ') as conn:
-        md = cat.read_md_for_copy(tbl._id)
+        md = cat._collect_tbl_history(tbl._id, None)
         tv = tbl._tbl_version.get()
         store = tv.store_tbl
         export = _TableExport(md, store.sa_tbl, tmp_dir)
@@ -292,7 +349,14 @@ def _export_table(tbl: InsertableTable, tmp_dir: FsPath) -> _TableExport:
 
 
 def copy_table(tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path) -> Table:
-    """Copy the local base table tbl to dest_path in dest_catalog."""
+    """Copy the local base table tbl to dest_path in dest_catalog, a hosted catalog."""
+    from pixeltable.service.proxy_protocol import LocalFile
+
+    from .table_proxy import TableProxy
+
+    # fail before the export, rather than at the move that ends the copy
+    if dest_catalog.get_table(dest_path, IfNotExistsParam.IGNORE) is not None:
+        raise excs.AlreadyExistsError(excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {dest_path!r} already exists.')
     tmp_dir = TempStore.create_path()
     tmp_dir.mkdir(parents=True)
     try:
@@ -305,24 +369,67 @@ def copy_table(tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path)
                 f'including:\n{listed}',
             )
 
-        import_id = dest_catalog.begin_table_import(dest_path, export.md, metadata.VERSION)
+        # the copy is filled under a temporary name, so that dest_path only ever names a complete copy
+        tmp_path = dest_path.parent.append(f'{dest_path.name}_copy_{uuid.uuid4().hex[:8]}')
+        copy = dest_catalog.create_table_from_md(tmp_path, export.md)
+        assert isinstance(copy, TableProxy)
         try:
             uploaded: dict[str, str] = {}  # local url -> its url in the destination
+            num_rows = 0
             for i, chunk in enumerate(export.chunks):
                 _logger.debug(f'Copying rows chunk {i + 1}/{len(export.chunks)} ({chunk.num_rows} rows)')
-                placed = dest_catalog.import_table_rows(
-                    import_id, str(chunk.rows_file), chunk.new_media, {url: uploaded[url] for url in chunk.prev_media}
+                result = copy._dispatch(
+                    'load_store_rows',
+                    {
+                        'rows_file': LocalFile(str(chunk.rows_file)),
+                        'new_media': {url: LocalFile(path) for url, path in chunk.new_media.items()},
+                        'prev_media': {url: uploaded[url] for url in chunk.prev_media},
+                    },
                 )
-                uploaded.update(placed)
-            return dest_catalog.finish_table_import(import_id, dest_path, export.num_rows)
+                uploaded.update(result['placed_media'])
+                num_rows += result['num_rows']
+            if num_rows != export.num_rows:
+                raise excs.InternalError(
+                    excs.ErrorCode.INTERNAL_ERROR,
+                    f'The copy of {tbl._display_str()} is incomplete: {num_rows} of {export.num_rows} rows were stored',
+                )
+            dest_catalog.move(tmp_path, dest_path, IfExistsParam.ERROR, IfNotExistsParam.ERROR)
         except BaseException:
             try:
-                dest_catalog.abort_table_import(import_id)
+                dest_catalog.drop_table(tmp_path, IfNotExistsParam.IGNORE, force=False)
             except Exception:
-                _logger.warning(f'Failed to clean up the incomplete copy of {tbl._display_str()}', exc_info=True)
+                _logger.warning(f'Failed to drop the incomplete copy {tmp_path!r}', exc_info=True)
             raise
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+    result_tbl = dest_catalog.get_table(dest_path, IfNotExistsParam.ERROR)
+    assert result_tbl is not None
+    return result_tbl
+
+
+def load_store_rows(
+    tbl: InsertableTable, rows_file: str, new_media: dict[str, str], prev_media: dict[str, str]
+) -> dict[str, Any]:
+    """Insert the store rows in the Parquet file rows_file into tbl, a copy that create_table_from_md() created.
+
+    Args:
+        new_media: url -> local path of each media file that these rows are the first to reference
+        prev_media: url -> stored url of each media file that an earlier call stored and these rows reference
+
+    Returns:
+        {'placed_media': url -> stored url for each url in new_media, 'num_rows': the number of inserted rows}
+    """
+    from .catalog import retry_loop
+
+    md = get_runtime().catalog.collect_tbl_history(tbl._id, None)
+    # object store I/O runs outside of a transaction, so that it doesn't hold a db connection
+    placed_media = _place_media(tbl._tbl_version.get(), md, rows_file, new_media)
+
+    @retry_loop(for_write=True, write_tbl_ids=[tbl._id])
+    def insert() -> int:
+        return _insert_rows(tbl._tbl_version.get(), md, rows_file, prev_media | placed_media)
+
+    return {'placed_media': placed_media, 'num_rows': insert()}
 
 
 def _iter_rows(rows_file: str, columns: list[str] | None = None) -> Iterable[list[dict[str, Any]]]:
@@ -337,7 +444,9 @@ def _media_destination(tv: TableVersion, col: _StoreColumn) -> str | None:
     return Env.get().default_output_media_dest if col.is_computed else Env.get().default_input_media_dest
 
 
-def place_media(tv: TableVersion, md: dict[str, Any], rows_file: str, new_media: dict[str, str]) -> dict[str, str]:
+def _place_media(
+    tv: TableVersion, md: list[TableVersionMd], rows_file: str, new_media: dict[str, str]
+) -> dict[str, str]:
     """Move the uploaded media files new_media (url -> local path) into the media store of tv.
 
     Each file is stored under the column and version of the first row in rows_file that references it.
@@ -345,7 +454,7 @@ def place_media(tv: TableVersion, md: dict[str, Any], rows_file: str, new_media:
     Returns:
         url -> the url of the stored file, for each url in new_media
     """
-    cols = store_columns(md)
+    cols = _store_columns(md)
     media_cols = [col for col in cols if col.is_media]
     cellmd_cols = [col for col in cols if col.stores_cellmd]
     read_cols = [col.store_name for col in media_cols] + [col.cellmd_store_name for col in cellmd_cols]
@@ -392,7 +501,7 @@ def place_media(tv: TableVersion, md: dict[str, Any], rows_file: str, new_media:
         return {url: future.result() for url, future in futures.items()}
 
 
-def insert_rows(tv: TableVersion, md: dict[str, Any], rows_file: str, media_urls: dict[str, str]) -> int:
+def _insert_rows(tv: TableVersion, md: list[TableVersionMd], rows_file: str, media_urls: dict[str, str]) -> int:
     """Insert the store rows in rows_file into the store table of tv, rewriting each media url in media_urls.
 
     Returns:
@@ -405,7 +514,7 @@ def insert_rows(tv: TableVersion, md: dict[str, Any], rows_file: str, media_urls
             excs.ErrorCode.INVALID_DATA_FORMAT,
             f'The rows do not match the columns of {tv.name!r}: {sorted(file_cols)} != {sorted(sa_tbl.columns.keys())}',
         )
-    cols = store_columns(md)
+    cols = _store_columns(md)
     media_cols = {col.store_name for col in cols if col.is_media}
     cellmd_cols = {col.cellmd_store_name for col in cols if col.stores_cellmd}
 

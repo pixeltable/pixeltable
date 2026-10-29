@@ -670,6 +670,10 @@ def copy_table(table: str | catalog.Table, dest_path: str) -> catalog.Table:
     Local media files are uploaded to the database's storage; media at a remote URL keeps its URL. The local table
     is left as it is.
 
+    While it runs, the copy is filled under a temporary name in the directory of `dest_path`, of the form
+    `<name>_copy_<suffix>`, and moved to `dest_path` once it is complete. A copy that fails drops the temporary table;
+    one interrupted by a crash leaves it behind, to be dropped with `pxt.drop_table()`.
+
     The database must be able to load every UDF that a computed column or an embedding index of the table uses;
     deploy your own UDFs to it with `pxt db update` first. Only base tables can be copied, not views or snapshots.
 
