@@ -156,11 +156,11 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
             # scheduled run passes (see NB_TEST_OPTS in pytest.yml), so they are excluded here.
             configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.11'))
 
-        # Standard test suite on main & basic platforms on Python 3.14
-        configs.extend(MatrixConfig('standard', 'py', platform, '3.14') for platform in ALL_PLATFORMS)
+        # Standard test suite on main & basic platforms on Python 3.15
+        configs.extend(MatrixConfig('standard', 'py', platform, '3.15') for platform in ALL_PLATFORMS)
 
         # Standard test suite on Ubuntu on intermediate Python versions
-        configs.extend(MatrixConfig('standard', 'py', MAIN_PLATFORM, py) for py in ('3.11', '3.12', '3.13'))
+        configs.extend(MatrixConfig('standard', 'py', MAIN_PLATFORM, py) for py in ('3.12', '3.13', '3.14'))
 
         # Minimal tests on Python 3.14
         configs.append(MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.14', uv_options='--no-dev'))
