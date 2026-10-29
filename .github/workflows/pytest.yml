@@ -229,7 +229,7 @@ jobs:
         # so CI has to produce it before the test job runs.
         if: ${{ matrix.test-category == 'py' }}
         run: |
-          conda install -y -c conda-forge nodejs
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge nodejs
           cd dashboard && npm install --silent && npm run build
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
@@ -288,7 +288,7 @@ jobs:
         if: ${{ matrix.test-category == 'lint' }}
         run: |
           # Install quarto and mintlify in order to build the docs
-          conda install -y -c conda-forge quarto nodejs
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge quarto nodejs
           npm install -g mint@$MINTLIFY_VERSION
           python -m pixeltable_doctools.build --no-changelog
           cd target/docs && mint broken-links
