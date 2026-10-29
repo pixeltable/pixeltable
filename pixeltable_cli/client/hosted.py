@@ -140,11 +140,12 @@ def _print_span_trees(spans: list[dict[str, Any]]) -> None:
 def _print_span_subtree(children: dict[str | None, list[dict[str, Any]]], parent_id: str | None, depth: int) -> None:
     for span in children.get(parent_id, []):
         start = datetime.datetime.fromtimestamp(span['start_ms'] / 1000, datetime.timezone.utc)
+        # every daemon request is one pixeltable.rpc span and every served route one pixeltable.route span, so the
+        # operation is in their attributes
+        operation = span['attributes'].get('pxt.method') or span['attributes'].get('pxt.route')
+        name = f'{span["name"]} {operation}' if operation else span['name']
         error = '  ERROR' if span['status'] == 'ERROR' else ''
-        print(
-            f'{"  " * depth}{start.isoformat(timespec="milliseconds")}  {span["duration_ms"]:.1f} ms  '
-            f'{span["name"]}{error}'
-        )
+        print(f'{"  " * depth}{start.isoformat(timespec="milliseconds")}  {span["duration_ms"]:.1f} ms  {name}{error}')
         _print_span_subtree(children, span['span_id'], depth + 1)
 
 

@@ -55,7 +55,13 @@ def _list_dbs(cli: PxtRunner, project: pathlib.Path) -> set[str]:
 
 
 def _span(
-    trace_id: str, span_id: str, parent_span_id: str | None, name: str, offset_ms: int, status: str = 'UNSET'
+    trace_id: str,
+    span_id: str,
+    parent_span_id: str | None,
+    name: str,
+    offset_ms: int,
+    status: str = 'UNSET',
+    attributes: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """A span as the daemon returns it, starting offset_ms after midnight UTC on 2026-10-15."""
     return SpanRecord(
@@ -66,7 +72,7 @@ def _span(
         start_ms=1_792_022_400_000 + offset_ms,
         duration_ms=12.5,
         status=status,
-        attributes={},
+        attributes=attributes or {},
     ).model_dump(mode='json')
 
 
@@ -437,8 +443,9 @@ class TestLocalLogs:
             _span(trace_a, '01', None, 'POST /ingest', 0),
             # trace b starts before the rest of trace a, so it is printed second
             _span(trace_b, '11', None, 'GET /search', 5),
-            _span(trace_a, '02', '01', 'insert', 10),
-            _span(trace_a, '03', '02', 'compute', 20, status='ERROR'),
+            # a daemon request or a served route is named by its operation attribute
+            _span(trace_a, '02', '01', 'pixeltable.route', 10, attributes={'pxt.route': 'POST /ingest/docs'}),
+            _span(trace_a, '03', '02', 'pixeltable.rpc', 20, status='ERROR', attributes={'pxt.method': 'Table.insert'}),
             _span(trace_a, '04', '01', 'commit', 30),
             # its parent was not sampled, so it sits at depth 0
             _span(trace_b, '12', '99', 'orphan', 40),
@@ -449,8 +456,8 @@ class TestLocalLogs:
         assert capsys.readouterr().out.splitlines() == [
             f'trace {trace_a}',
             '2026-10-15T00:00:00.000+00:00  12.5 ms  POST /ingest',
-            '  2026-10-15T00:00:00.010+00:00  12.5 ms  insert',
-            '    2026-10-15T00:00:00.020+00:00  12.5 ms  compute  ERROR',
+            '  2026-10-15T00:00:00.010+00:00  12.5 ms  pixeltable.route POST /ingest/docs',
+            '    2026-10-15T00:00:00.020+00:00  12.5 ms  pixeltable.rpc Table.insert  ERROR',
             '  2026-10-15T00:00:00.030+00:00  12.5 ms  commit',
             f'trace {trace_b}',
             '2026-10-15T00:00:00.005+00:00  12.5 ms  GET /search',
