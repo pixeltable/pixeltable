@@ -21,6 +21,23 @@ _logger = logging.getLogger(__name__)
 
 __all__ = ['RateLimitsScheduler', 'RequestRateScheduler']
 
+_RETRYABLE_PXT_ERROR_CODES = frozenset(
+    (excs.ErrorCode.PROVIDER_ERROR, excs.ErrorCode.RATE_LIMITED, excs.ErrorCode.PROVIDER_OVERLOADED)
+)
+
+
+def _is_retryable_udf_error(exc: Exception) -> tuple[bool, float | None]:
+    """Returns whether a scheduler should retry a failed UDF call, and the suggested retry delay."""
+    if isinstance(exc, excs.Error):
+        # exc.is_retryable is for users. Since schedulers retry automatically, they do it only for a subset of error
+        # codes.
+        if exc.error_code == excs.ErrorCode.PROVIDER_ERROR and isinstance(exc.__cause__, Exception):
+            return _is_retryable_udf_error(exc.__cause__)
+        if exc.error_code in _RETRYABLE_PXT_ERROR_CODES:
+            return True, exc.retry_after
+        return False, None
+    return is_retryable_error(exc)
+
 
 class RateLimitsScheduler(Scheduler):
     """
@@ -254,7 +271,7 @@ class RateLimitsScheduler(Scheduler):
                     if retry_delay is None:
                         # The resource pool did not recognize it as a retriable error. Try our generic best-effort logic
                         # before giving up.
-                        is_retriable, retry_delay = is_retryable_error(exc)
+                        is_retriable, retry_delay = _is_retryable_udf_error(exc)
                         if is_retriable:
                             retry_delay = retry_delay or exponential_backoff(num_retries)
                     if retry_delay is not None:
@@ -324,8 +341,8 @@ class RequestRateScheduler(Scheduler):
         self.total_retried = 0
         self.total_errors = 0
 
-        # try to get the rate limit from the config
-        elems = resource_pool.split(':')
+        # model name can contain `:`, e.g. 'amazon.nova-pro-v1:0'
+        elems = resource_pool.split(':', maxsplit=2)
         section: str
         key: str
         if len(elems) == 2:
@@ -423,7 +440,7 @@ class RequestRateScheduler(Scheduler):
             _logger.exception(f'exception for {self.resource_pool}: type={type(exc)}\n{exc}')
             if hasattr(exc, 'response') and hasattr(exc.response, 'headers'):
                 _logger.debug(f'scheduler {self.resource_pool}: exception headers: {exc.response.headers}')
-            is_retriable, retry_after = is_retryable_error(exc)
+            is_retriable, retry_after = _is_retryable_udf_error(exc)
             if is_retriable and num_retries < self.MAX_RETRIES:
                 retry_delay = self._compute_retry_delay(num_retries, retry_after)
                 _logger.debug(f'scheduler {self.resource_pool}: retrying after {retry_delay}')

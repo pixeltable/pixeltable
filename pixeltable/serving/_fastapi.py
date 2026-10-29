@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import inspect
 import logging
+import math
 import mimetypes
 import os
 import re
@@ -526,8 +527,15 @@ def _run_endpoint_op(
     except Exception as e:
         _unlink_tmp_paths(tmp_paths)
         if isinstance(e, pxt.Error):
-            raise HTTPException(status_code=e.http_status, detail=e.to_dict()) from e
+            raise _http_exception(e) from e
         raise
+
+
+def _http_exception(e: pxt.Error) -> HTTPException:
+    """The response for e: its status, its to_dict() as detail, and Retry-After when it has a retry_after."""
+    # Retry-After takes whole seconds
+    headers = None if e.retry_after is None else {'Retry-After': str(math.ceil(e.retry_after))}
+    return HTTPException(status_code=e.http_status, detail=e.to_dict(), headers=headers)
 
 
 class PxtEndpoint:
@@ -2895,20 +2903,24 @@ class FastAPIRouter(fastapi.APIRouter):
         media: _ResponseMedia,
     ) -> None:
         """Run endpoint_op as the background job job_id. Raises a 503 if this router takes no more jobs."""
-        refusal: excs.ServiceUnavailableError | None = None
+        refusal: HTTPException | None = None
         with self._jobs_lock:
             self._prune_jobs(time.monotonic())
             if self._draining:
-                refusal = excs.ServiceUnavailableError(
-                    excs.ErrorCode.SERVICE_BUSY,
-                    'the service instance is shutting down',
-                    retry_after=_DRAINING_RETRY_AFTER_S,
+                refusal = _http_exception(
+                    excs.ServiceUnavailableError(
+                        excs.ErrorCode.JOB_REFUSED,
+                        'the service instance is shutting down',
+                        retry_after=_DRAINING_RETRY_AFTER_S,
+                    )
                 )
             elif sum(1 for job in self._jobs.values() if job.finished_at is None) >= _MAX_PENDING_JOBS:
-                refusal = excs.ServiceUnavailableError(
-                    excs.ErrorCode.SERVICE_BUSY,
-                    f'the service instance is at its limit of {_MAX_PENDING_JOBS} unfinished background jobs',
-                    retry_after=_JOB_LIMIT_RETRY_AFTER_S,
+                refusal = _http_exception(
+                    excs.ServiceUnavailableError(
+                        excs.ErrorCode.JOB_REFUSED,
+                        f'the service instance is at its limit of {_MAX_PENDING_JOBS} unfinished background jobs',
+                        retry_after=_JOB_LIMIT_RETRY_AFTER_S,
+                    )
                 )
             else:
                 job = _Job(self._executor.submit(_run_endpoint_op, endpoint_op, kwargs, tmp_paths, media))
@@ -2916,11 +2928,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 self._has_run_jobs = True
         if refusal is not None:
             _unlink_tmp_paths(tmp_paths)
-            raise HTTPException(
-                status_code=refusal.http_status,
-                detail=refusal.to_dict(),
-                headers={'Retry-After': str(refusal.retry_after)},
-            )
+            raise refusal
         # outside the lock: for a finished future, add_done_callback() calls _finish_job() at once, which takes the lock
         job.future.add_done_callback(lambda _: self._finish_job(job))
 
