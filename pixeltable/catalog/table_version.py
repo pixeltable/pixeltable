@@ -1569,7 +1569,7 @@ class TableVersion:
                         excs.ErrorCode.UNSUPPORTED_OPERATION,
                         f'Column {col_name!r}: value is not a recognized literal or expression: {val!r}',
                     ) from exc
-                # an expression's values aren't validated, so its type may declare no keys that the column's doesn't
+                # expression values aren't validated, so every key of the expression's type must be in the column type
                 if not closed_type.is_supertype_of(value_expr.col_type.closed(), ignore_nullable=True):
                     raise excs.RequestError(
                         excs.ErrorCode.TYPE_MISMATCH,

@@ -1314,8 +1314,8 @@ class JsonType(ColumnType):
                             raise TypeError(f'Unexpected key: {key!r}')
 
         def to_json_schema(self) -> dict[str, Any]:
-            # additionalProperties is False even for open schemas: this is used for LLM tool parameters, and strict
-            # tool calling requires it
+            # additionalProperties is False even for open schemas, a requirement of strict tool calling (which LLM tool
+            # parameters use)
             json_schema: dict[str, Any]
 
             if isinstance(self.type_spec, list):

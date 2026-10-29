@@ -403,7 +403,7 @@ def _(self: exprs.Expr, other: exprs.Expr) -> ts.ColumnType:
     if a is None or b is None or not isinstance(a.type_spec, dict) or not isinstance(b.type_spec, dict):
         return ts.JsonType(nullable=True)
     # Other wins on a shared key. An open operand may have keys its schema doesn't declare, with any type, so the
-    # result declares only the keys whose value type is known; it is closed only if both operands are.
+    # result declares only the keys whose value type is known, and it is closed only if both operands are closed.
     type_spec: dict[str, ts.ColumnType] = {}
     optional_keys: set[str] = set()
     for k in [*a.type_spec, *(k for k in b.type_spec if k not in a.type_spec)]:
@@ -411,7 +411,7 @@ def _(self: exprs.Expr, other: exprs.Expr) -> ts.ColumnType:
         if k in b.type_spec and k not in b.optional_keys:
             type_, optional = b.type_spec[k], False
         elif k in b.type_spec:
-            # other may omit the key, and then self supplies it, unless self is closed and doesn't declare it
+            # other may omit the key; then self supplies it, unless self is closed and lacks the key
             if k in a.type_spec:
                 type_ = ts.JsonType.value_supertype(a.type_spec[k], b.type_spec[k])
             else:
