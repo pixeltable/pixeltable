@@ -126,8 +126,8 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
         )
         # Also exercise the newest supported Python on the main platform
         configs.append(MatrixConfig('slim', 'py', MAIN_PLATFORM, '3.14', pytest_options=slim_pytest))
-        # Python 3.15 is not supported yet: many locked dependencies have no 3.15 wheels. This configuration tracks
-        # what still breaks on 3.15, without blocking the PR.
+        # Python 3.15 is not supported yet. This configuration tracks what still breaks on 3.15, without blocking
+        # the PR.
         configs.append(
             MatrixConfig('slim', 'py', MAIN_PLATFORM, '3.15', pytest_options=slim_pytest, allow_failure=True)
         )
