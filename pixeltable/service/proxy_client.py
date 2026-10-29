@@ -8,6 +8,7 @@ determines how those bytes reach the daemon (direct HTTP, or an authenticated TL
 from __future__ import annotations
 
 import abc
+import base64
 import http.client
 import json
 import logging
@@ -21,6 +22,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import weakref
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -52,9 +54,11 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.http import DOWNLOAD_USER_AGENT, fetch_url, retry_if_retryable_error, tcp_keepalive_options
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectPath, StorageTarget
+from pixeltable_cli.types import DbState
 
-from . import proxy_protocol
+from . import management_client, proxy_protocol
 from .management_client import Credential, is_refusal, refusal
+from .management_protocol import GetDbRequest, GetDbResponse
 from .proxy_protocol import (
     InlinePartSink,
     MediaPath,
@@ -135,6 +139,9 @@ class HttpTransport(Transport):
     def __init__(self, endpoint: str):
         self._endpoint = endpoint
         self._http = httpx.Client(base_url=endpoint, timeout=httpx.Timeout(120.0))
+        # closes the pooled connections when the transport is collected without close(), as when the runtime holding
+        # it is discarded
+        weakref.finalize(self, self._http.close)
 
     def post(self, body: bytes) -> bytes:
         # an explicit Content-Length keeps the request unchunked on the wire
@@ -156,14 +163,20 @@ class HttpTransport(Transport):
         self._http.close()
 
 
-_CONNECT_TIMEOUT = 30.0
+# A TCP connect that times out on every try reads as a network that blocks the port, so the tries must outlast a
+# gateway rollout, in which a load balancer address can drop SYNs for ~20 s. create_connection() gives each address
+# the timeout, and *.pxt.run resolves to two.
+_CONNECT_TIMEOUT = 10.0
+_CONNECT_TRIES = 2
+_HANDSHAKE_TIMEOUT = 30.0  # TLS + PXT/1.0
 _RPC_TIMEOUT = 1800.0
 _MAX_POOL_SIZE = 16  # matches the fetch_media download threadpool
 _MAX_IDLE_S = 4.0  # below the proxy daemon's 5 s keep-alive, so no connection is reused as the daemon closes it
 
 # Failures that leave the request undelivered (connect, handshake, writing it); retried with backoff.
 _TUNNEL_TRANSIENT_EXC = (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError)
-_TUNNEL_RETRY_MAX_DELAY = 90.0  # seconds; > _CONNECT_TIMEOUT so a hung handshake still leaves retry budget
+_TUNNEL_RETRY_MAX_DELAY = 90.0  # seconds; > _HANDSHAKE_TIMEOUT so a hung handshake still leaves retry budget
+_STATE_CHECK_INTERVAL_S = 30.0  # how often a failing tunnel asks the control plane whether the database is stopped
 
 
 class _TunnelHTTPConnection(http.client.HTTPConnection):
@@ -203,6 +216,15 @@ def _is_server_closed(conn: http.client.HTTPConnection) -> bool:
         return True
 
 
+def _close_idle(idle: list[tuple[_TunnelHTTPConnection, float]]) -> None:
+    for conn, _ in idle:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    idle.clear()
+
+
 class _TunnelPool:
     """Thread-safe pool of TLS + PXT/1.0 tunnel connections."""
 
@@ -211,6 +233,9 @@ class _TunnelPool:
         self._max = max_size
         self._lock = threading.Lock()
         self._idle: list[tuple[_TunnelHTTPConnection, float]] = []  # with when each one's last response arrived
+        # closes the idle connections when GC collects the pool, in a cycle with its transport, without close(); it
+        # holds the list, since holding the pool would keep the pool alive
+        weakref.finalize(self, _close_idle, self._idle)
 
     @contextmanager
     def borrow(self) -> Iterator[_TunnelHTTPConnection]:
@@ -241,12 +266,107 @@ class _TunnelPool:
 
     def close(self) -> None:
         with self._lock:
-            for conn, _ in self._idle:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-            self._idle.clear()
+            _close_idle(self._idle)
+
+
+def _parse_proxy_url(url: str) -> urllib.parse.SplitResult:
+    """HTTPS_PROXY's URL, read as http:// when it names no scheme.
+
+    A URL that does not parse raises an error that leaves the URL out: urlsplit()'s own error repeats the netloc,
+    and that can hold the proxy's password.
+    """
+    try:
+        return urllib.parse.urlsplit(url if '://' in url else f'http://{url}')
+    except ValueError:
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, 'HTTPS_PROXY is not a valid URL.') from None
+
+
+def _https_proxy(host: str, port: int) -> urllib.parse.SplitResult | None:
+    """The HTTP proxy that HTTPS_PROXY names for host:port, unless NO_PROXY exempts it; None for a direct connection.
+
+    Sandboxes that send all traffic through a proxy answer a direct connection on 443 themselves, as an HTTP
+    server, so the tunnel goes through the proxy as HTTPS would. Only an http:// proxy can carry it; any other
+    kind is left to connect directly, as before proxies were honored.
+    """
+    url = urllib.request.getproxies_environment().get('https')
+    # with a proxy in the environment, proxy_bypass() reads NO_PROXY from there too, not the system settings; given
+    # host:port, it matches entries for the host, its domains, or that host and port
+    if url is None or urllib.request.proxy_bypass(f'{host}:{port}'):
+        return None
+    proxy = _parse_proxy_url(url)
+    if proxy.scheme != 'http' or proxy.hostname is None:
+        _logger.debug('Not using HTTPS_PROXY %s://%s for the tunnel to %s', proxy.scheme, proxy.hostname, host)
+        return None
+    try:
+        _ = proxy.port
+    except ValueError:
+        # not the URL itself, which can hold the proxy's password
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'HTTPS_PROXY names {proxy.hostname} with an invalid port.'
+        ) from None
+    return proxy
+
+
+def _connect_through(proxy: urllib.parse.SplitResult, org: str, db: str, host: str, port: int) -> socket.socket:
+    """Open a connection to host:port with the proxy's CONNECT method.
+
+    A proxy that cannot be reached, or answers 429 or 5xx, raises ConnectionError, to be retried; one that refuses,
+    or closes the connection instead of answering, refuses again on a retry.
+    """
+    proxy_addr = f'{proxy.hostname}:{proxy.port or 80}'
+    try:
+        sock = socket.create_connection((proxy.hostname, proxy.port or 80), timeout=_CONNECT_TIMEOUT)
+    except (TimeoutError, PermissionError):
+        raise  # a timeout counts as a try, and a denied socket is not retried
+    except OSError as e:
+        raise ConnectionError(f'Cannot connect to the HTTPS proxy at {proxy_addr}: {e}') from e
+    try:
+        request = f'CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\n'
+        if proxy.username is not None:
+            user_pass = f'{urllib.parse.unquote(proxy.username)}:{urllib.parse.unquote(proxy.password or "")}'
+            request += f'Proxy-Authorization: Basic {base64.b64encode(user_pass.encode()).decode()}\r\n'
+        sock.sendall(f'{request}\r\n'.encode())
+        response = b''
+        while b'\r\n\r\n' not in response:
+            try:
+                chunk = sock.recv(4096)
+            except (ConnectionResetError, ConnectionAbortedError):
+                chunk = b''
+            if len(chunk) == 0:
+                # a sandbox's proxy that allows only some ports closes a CONNECT to any other one
+                raise excs.ServiceUnavailableError(
+                    excs.ErrorCode.DATABASE_UNAVAILABLE,
+                    f'Cannot reach pxt://{org}:{db}: the HTTPS proxy at {proxy_addr} closed the connection when asked '
+                    f'for {host}:{port}.\nIt may allow only some ports, such as 443.',
+                )
+            response += chunk
+        status_line = response.split(b'\r\n', 1)[0].decode(errors='replace')
+        _, _, status = status_line.partition(' ')
+        code = status.partition(' ')[0]
+        if code == '200':
+            return sock
+        if code.startswith('5') or code == '429':
+            raise ConnectionError(f'HTTPS proxy at {proxy_addr} could not connect to {host}:{port}: {status_line}')
+        if code == '407':
+            fix = (
+                f'Put the proxy credentials in HTTPS_PROXY, as http://user:password@{proxy_addr}.'
+                if proxy.username is None
+                else 'Check the proxy credentials in HTTPS_PROXY.'
+            )
+            raise excs.ServiceUnavailableError(
+                excs.ErrorCode.DATABASE_UNAVAILABLE,
+                f'Cannot reach pxt://{org}:{db}: the HTTPS proxy at {proxy_addr} requires authentication ({status}).'
+                f'\n{fix}',
+            )
+        domain = host.partition('.')[2]
+        raise excs.ServiceUnavailableError(
+            excs.ErrorCode.DATABASE_UNAVAILABLE,
+            f'Cannot reach pxt://{org}:{db}: the HTTPS proxy at {proxy_addr} refused to connect to {host}:{port} '
+            f'({status}).\nAllow *.{domain} on port {port} in the proxy, or exempt it with NO_PROXY.',
+        )
+    except BaseException:
+        sock.close()
+        raise
 
 
 class TunnelTransport(Transport):
@@ -270,17 +390,51 @@ class TunnelTransport(Transport):
         self._host = host
         self._port = port
         self._pool = _TunnelPool(self._connect_tunnel)
+        self._state_checked_at: float | None = None
         # media URLs are formed against this endpoint; they are reachable only through the tunnel (see fetch())
         self._endpoint = f'https://{self._host}:{self._port}'
 
     def _connect_tunnel(self) -> _TunnelHTTPConnection:
-        """Open one tunnel connection: TCP + TLS + PXT/1.0 CONNECT handshake."""
         # before connecting: renewing a session is a round trip of its own, and a refused credential needs no socket
         credential = self._credential_cb()
+        try:
+            return self._open_tunnel(credential)
+        except PermissionError:
+            raise
+        except _TUNNEL_TRANSIENT_EXC:
+            self._raise_if_stopped(credential)
+            raise
+
+    def _raise_if_stopped(self, credential: Credential) -> None:
+        """A stopped database resets tunnels without a word, which no retry fixes: ask the control plane.
+
+        credential is the one the tunnel presented, since none may be configured.
+        """
+        now = time.monotonic()
+        if self._state_checked_at is not None and now - self._state_checked_at < _STATE_CHECK_INTERVAL_S:
+            return
+        self._state_checked_at = now
+        try:
+            current = GetDbResponse.model_validate(
+                management_client.api_call(GetDbRequest(org=self._org, db=self._db), credential)
+            ).report.current
+        except Exception:
+            return  # no answer: keep retrying
+        if current is not None and current.state in (DbState.STOPPED, DbState.STOPPING):
+            # the next failure asks again, so a call made within the interval is not retried until it ends
+            self._state_checked_at = None
+            uri = f'pxt://{self._org}:{self._db}'
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE, f'{uri} is stopped; start it with `pxt db start {uri}`.'
+            )
+
+    def _open_tunnel(self, credential: Credential) -> _TunnelHTTPConnection:
+        """Open one tunnel connection: TCP + TLS + PXT/1.0 CONNECT handshake."""
         ctx = ssl.create_default_context()
-        raw_sock = socket.create_connection((self._host, self._port), timeout=_CONNECT_TIMEOUT)
+        raw_sock = self._open_socket()
         ssl_sock: ssl.SSLSocket | None = None
         try:
+            raw_sock.settimeout(_HANDSHAKE_TIMEOUT)
             raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             for level, option, value in tcp_keepalive_options():
                 raw_sock.setsockopt(level, option, value)
@@ -302,17 +456,76 @@ class TunnelTransport(Transport):
             if not first_line.startswith('PXT/1.0 200'):
                 raise self._handshake_error(first_line, credential)
 
-            # Switch from the connect-phase timeout to the RPC timeout now that the handshake is done;
-            # otherwise the socket would time out on any request that takes longer than _CONNECT_TIMEOUT.
+            # Switch from the handshake timeout to the RPC timeout now that the handshake is done;
+            # otherwise the socket would time out on any request that takes longer than _HANDSHAKE_TIMEOUT.
             ssl_sock.settimeout(_RPC_TIMEOUT)
             return _TunnelHTTPConnection(self._host, ssl_sock, timeout=_RPC_TIMEOUT)
         except Exception:
             (ssl_sock or raw_sock).close()
             raise
 
+    def _open_socket(self) -> socket.socket:
+        """Open the TCP connection, through the proxy HTTPS_PROXY names if any; fail without retries when every try
+        times out (see _CONNECT_TRIES).
+
+        A proxy that refuses the CONNECT, or closes the connection instead of answering, raises an error that is not
+        retried either. Any other error is raised as it is; `_request()` retries it if it is an OSError.
+        """
+        proxy = _https_proxy(self._host, self._port)
+        timeout: TimeoutError | None = None
+        for _ in range(_CONNECT_TRIES):
+            try:
+                if proxy is None:
+                    return socket.create_connection((self._host, self._port), timeout=_CONNECT_TIMEOUT)
+                return _connect_through(proxy, self._org, self._db, self._host, self._port)
+            except TimeoutError as e:
+                _logger.debug('TCP connect to %s:%d timed out', self._host, self._port)
+                timeout = e
+        # every tunnel host is <org>-<db>.<domain>, so allowing *.<domain> covers every database
+        domain = self._host.partition('.')[2]
+        through = '' if proxy is None else f' through the HTTPS proxy at {proxy.hostname}:{proxy.port or 80}'
+        raise excs.ServiceUnavailableError(
+            excs.ErrorCode.DATABASE_UNAVAILABLE,
+            f'Cannot reach pxt://{self._org}:{self._db}: the TCP connection to {self._host}:{self._port}{through} '
+            f'timed out.\nIf this network blocks outbound ports, allow outbound TCP port {self._port} to *.{domain}.',
+        ) from timeout
+
+    def _unused_proxy_hint(self) -> str:
+        """What to do about an intercepted direct connection, given why the tunnel did not use HTTPS_PROXY."""
+        url = urllib.request.getproxies_environment().get('https')
+        if url is None:
+            return 'If this network sends HTTPS through a proxy, set HTTPS_PROXY to it.'
+        if urllib.request.proxy_bypass(f'{self._host}:{self._port}'):
+            return f'NO_PROXY exempts {self._host}:{self._port} from HTTPS_PROXY; remove it from NO_PROXY.'
+        # only the scheme: the URL can hold the proxy's password
+        scheme = _parse_proxy_url(url).scheme
+        if scheme == 'http':
+            return 'HTTPS_PROXY names no proxy host.'
+        return f'The tunnel can use only an http:// proxy, and HTTPS_PROXY names a {scheme}:// one.'
+
     def _handshake_error(self, status_line: str, sent: Credential) -> Exception:
-        """A refusal reads as the control plane's does, naming the credential; any other status is retried."""
-        _, _, status = status_line.partition(' ')
+        """The error for a handshake the sidecar did not accept; only a ConnectionError is retried.
+
+        A PXT/1.0 refusal reads as the control plane's does, naming the credential, and is final; any other PXT/1.0
+        status is a ConnectionError. An answer that is not PXT/1.0 came from something between this machine and the
+        sidecar, such as a sandbox's egress gateway answering as an HTTP server; it answers the same way again, so
+        that is final too.
+        """
+        protocol, _, status = status_line.partition(' ')
+        if protocol != 'PXT/1.0':
+            if _https_proxy(self._host, self._port) is None:
+                fix = self._unused_proxy_hint()
+            else:
+                domain = self._host.partition('.')[2]
+                fix = (
+                    f'The HTTPS proxy may inspect TLS: have it pass *.{domain} through uninspected, or exempt it with '
+                    'NO_PROXY if this network allows a direct connection.'
+                )
+            return excs.ServiceUnavailableError(
+                excs.ErrorCode.DATABASE_UNAVAILABLE,
+                f'Cannot reach pxt://{self._org}:{self._db}: something between this machine and '
+                f'{self._host}:{self._port} answered instead of Pixeltable Cloud ({status_line!r}).\n{fix}',
+            )
         code, _, reason = status.partition(' ')
         if code.isdigit() and is_refusal(int(code)):
             return refusal(int(code), reason or f'HTTP {code}', sent, f'connect to pxt://{self._org}:{self._db}')
@@ -322,8 +535,8 @@ class TunnelTransport(Transport):
         """Borrow a tunnel connection, issue one request, return the raw body.
 
         A failure that leaves the request undelivered (connect, handshake, writing it) is retried with
-        backoff on a fresh connection, as is a 5xx; a refused credential, a connection the OS refuses, and
-        non-5xx HTTP errors are not.
+        backoff on a fresh connection, as is a 5xx; a refused credential, a connection the OS refuses, a TCP
+        connect that timed out on every try, and non-5xx HTTP errors are not.
 
         A connection that fails *after* the daemon has received the request is treated as a server crash and is
         not retried; retries in this scenario can inadvertently DOS the pod.

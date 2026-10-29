@@ -32,7 +32,15 @@ TWELVELABS_INLINE_LIMIT_BYTES = 2 * 2**20
 def _(api_key: str) -> 'twelvelabs.AsyncTwelveLabs':
     import twelvelabs
 
-    return twelvelabs.AsyncTwelveLabs(api_key=api_key)
+    class _ClosableClient(twelvelabs.AsyncTwelveLabs):
+        """twelvelabs.AsyncTwelveLabs has no close() (its __aexit__() does nothing); Runtime.close_clients() needs
+        one."""
+
+        async def close(self) -> None:
+            # the client creates its httpx client in its constructor
+            await self._client_wrapper.httpx_client.httpx_client.aclose()
+
+    return _ClosableClient(api_key=api_key)
 
 
 def _twelvelabs_client() -> 'twelvelabs.AsyncTwelveLabs':
@@ -141,7 +149,9 @@ async def embed(text: str, image: pxt.Image | None = None, *, model_name: str) -
         )
     if not res.data:
         raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_ERROR, f"Didn't receive embedding for text: {text}\n{res}", provider='twelvelabs'
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            f"Didn't receive embedding for text: {text}\n{res}",
+            provider='twelvelabs',
         )
     vector = res.data[0].embedding
     return np.array(vector, dtype='float32')
@@ -164,7 +174,9 @@ async def _(image: pxt.Image, *, model_name: str) -> pxt.Array[np.float32] | Non
     )
     if not res.data:
         raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_ERROR, f"Didn't receive embedding for image: {image}\n{res}", provider='twelvelabs'
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            f"Didn't receive embedding for image: {image}\n{res}",
+            provider='twelvelabs',
         )
     vector = res.data[0].embedding
     return np.array(vector, dtype='float32')
@@ -252,7 +264,7 @@ async def _embed_multi_input(
     )
     if not res.data or len(res.data) != 1 or len(res.data[0].embedding) != 512:
         raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_ERROR,
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
             'Expected a single 512-dimensional embedding from Marengo 3.5.',
             provider='twelvelabs',
         )
@@ -344,7 +356,7 @@ async def _embed_av_content(
 
     if not res.data:
         raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_ERROR,
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
             f"Didn't receive embedding for {input_type}: {file_path}\n{res}",
             provider='twelvelabs',
         )

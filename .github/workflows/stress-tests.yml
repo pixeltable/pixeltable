@@ -48,11 +48,7 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache
           df -h
       - name: Install miniforge
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniforge-version: latest
-          activate-environment: pxt
-          conda-remove-defaults: true
+        uses: ./.github/actions/setup-miniforge
       - name: Install python
         run: |
           ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=3.11 pip
@@ -93,11 +89,7 @@ jobs:
           detached: true
 
       - name: Install miniforge
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniforge-version: latest
-          activate-environment: pxt
-          conda-remove-defaults: true
+        uses: ./.github/actions/setup-miniforge
 
       - name: Install python
         run: |
@@ -141,11 +133,7 @@ jobs:
           detached: true
 
       - name: Install miniforge
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniforge-version: latest
-          activate-environment: pxt
-          conda-remove-defaults: true
+        uses: ./.github/actions/setup-miniforge
 
       - name: Install python
         run: |

@@ -152,8 +152,7 @@ class LocalTable(Table):
                 continue
             if isinstance(info.idx, index.EmbeddingIndex):
                 indexed_col_md = self._tbl_version_path.get_column_md(QColumnId(info.col.tbl_handle.id, info.col.id))
-                col_ref = ColumnRef(indexed_col_md)
-                embedding_fncall = info.idx.embeddings[info.col.col_type._type](col_ref)
+                embedding_str = str(info.idx.create_value_expr(indexed_col_md))
                 index_info[info.name] = IndexMetadata(
                     name=info.name,
                     columns=[info.col.name],
@@ -161,7 +160,7 @@ class LocalTable(Table):
                     parameters=EmbeddingIndexParams(
                         metric=info.idx.metric.name.lower(),  # type: ignore[typeddict-item]
                         precision=info.idx.precision.name.lower(),  # type: ignore[typeddict-item]
-                        embedding=str(embedding_fncall),
+                        embedding=embedding_str,
                         embedding_functions=[str(fn) for fn in info.idx.embeddings.values()],
                     ),
                 )
@@ -421,19 +420,39 @@ class LocalTable(Table):
 
         if self._tbl_version is None:
             return pd.DataFrame([])
-        pd_rows = []
-        for name, info in self._tbl_version.get().idxs_by_name.items():
-            if isinstance(info.idx, index.EmbeddingIndex) and (columns is None or info.col.name in columns):
-                col_md = self._tbl_version_path.get_column_md(QColumnId(info.col.tbl_handle.id, info.col.id))
-                col_ref = ColumnRef(col_md)
-                embedding = info.idx.embeddings[info.col.col_type._type](col_ref)
-                row = {
-                    'Index Name': name,
-                    'Column': info.col.name,
-                    'Metric': str(info.idx.metric.name.lower()),
-                    'Embedding': str(embedding),
-                }
+        # Only surface indexes whose underlying column is user-visible (same rule as _get_metadata()).
+        visible_cols = {col.name for col in self._tbl_version_path.columns() if col.name is not None}
+        infos: list[TableVersion.IndexInfo] = []
+        for info in self._tbl_version.get().idxs_by_name.values():
+            col_name = info.col.name
+            if col_name is None or col_name not in visible_cols or (columns is not None and col_name not in columns):
+                continue
+            if isinstance(info.idx, (index.EmbeddingIndex, index.BtreeIndex)):
+                infos.append(info)
+        if not infos:
+            return pd.DataFrame([])
+
+        # Embedding-only output keeps Index Name/Column/Metric/Embedding. Type is added when a B-tree index is
+        # present; Metric/Embedding are blank for those rows and omitted when nothing is an embedding index.
+        show_type = any(isinstance(info.idx, index.BtreeIndex) for info in infos)
+        show_embedding = any(isinstance(info.idx, index.EmbeddingIndex) for info in infos)
+        pd_rows: list[dict[str, str]] = []
+        for info in infos:
+            assert info.col.name is not None
+            row: dict[str, str] = {'Index Name': info.name, 'Column': info.col.name}
+            if show_type:
+                row['Type'] = info.idx.display_name()
+            if not show_embedding:
                 pd_rows.append(row)
+                continue
+            if isinstance(info.idx, index.EmbeddingIndex):
+                col_md = self._tbl_version_path.get_column_md(QColumnId(info.col.tbl_handle.id, info.col.id))
+                row['Metric'] = str(info.idx.metric.name.lower())
+                row['Embedding'] = str(info.idx.create_value_expr(col_md))
+            else:
+                row['Metric'] = ''
+                row['Embedding'] = ''
+            pd_rows.append(row)
         return pd.DataFrame(pd_rows)
 
     @telemetry.spanned('pixeltable.describe', set_current=True)

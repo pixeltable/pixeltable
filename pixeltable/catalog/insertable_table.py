@@ -134,8 +134,6 @@ class InsertableTable(LocalTable):
             data_source = TableDataConduit.create(
                 source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
             )
-            data_source.add_table_info(self)
-            data_source.prepare_for_insert_into_table()
 
         status = self._insert_table_data_source(
             data_source=data_source,
@@ -158,18 +156,22 @@ class InsertableTable(LocalTable):
 
         start_ts = time.perf_counter()
         status = pxt.UpdateStatus()
+        query = data_source.pxt_query if isinstance(data_source, QueryTableDataConduit) else None
         with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+            for_write=True,
+            write_tvps=[self._tbl_version_path],
+            read_tvps=query._from_clause.tvps if query is not None else None,
+            read_tbl_ids=query.referenced_tbl_ids() if query is not None else None,
+            lock_mutable_tree=True,
         ):
+            data_source.add_table_info(self)
+            data_source.prepare_for_insert_into_table()
             # in on_error='abort' mode the exec raises the internal ExprEvalError on the first failing cell;
             # convert it to a user-facing Error (on_error='ignore' records per-cell errors and never raises)
             try:
-                if isinstance(data_source, QueryTableDataConduit):
+                if query is not None:
                     status += self._tbl_version.get().insert(
-                        source=None,
-                        query=data_source.pxt_query,
-                        print_stats=print_stats,
-                        fail_on_exception=fail_on_exception,
+                        source=None, query=query, print_stats=print_stats, fail_on_exception=fail_on_exception
                     )
                 else:
                     for row_batch in data_source.valid_row_batch():

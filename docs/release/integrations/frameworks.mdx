@@ -52,7 +52,7 @@ class Articles(TableModel, name='articles'):
   <Card
     title="Azure OpenAI"
     icon="microsoft"
-    href="/howto/providers/working-with-openai"
+    href="/howto/providers/working-with-openai#azure-openai"
   >
     OpenAI models via Azure
   </Card>
@@ -234,9 +234,9 @@ Platforms that host or route many models from a shared catalog.
   <Card
     title="YOLOX"
     icon="camera"
-    href="/howto/use-cases/object-detection-in-videos"
+    href="/howto/cookbooks/images/yolox-object-detection"
   >
-    Object detection with YOLOX
+    YOLOX object detection on images and video frames
   </Card>
 
   <Card
@@ -250,13 +250,22 @@ Platforms that host or route many models from a shared catalog.
 
 ## Audio
 
-<Card
-  title="Whisper / WhisperX"
-  icon="waveform"
-  href="/howto/use-cases/audio-transcriptions"
->
-  Speech recognition with Whisper
-</Card>
+<CardGroup cols={2}>
+  <Card
+    title="WhisperX"
+    icon="waveform"
+    href="/howto/cookbooks/audio/whisperx-transcription"
+  >
+    Transcription, speaker diarization, and search
+  </Card>
+  <Card
+    title="Whisper"
+    icon="waveform"
+    href="/howto/use-cases/audio-transcriptions"
+  >
+    Speech recognition with Whisper
+  </Card>
+</CardGroup>
 
 ## Enterprise
 
@@ -277,5 +286,28 @@ Platforms that host or route many models from a shared catalog.
 >
   Import and export pandas DataFrames. Do not use pandas as the database that holds your app data.
 </Card>
+
+## Observability
+
+<CardGroup cols={2}>
+  <Card title="Langfuse" icon="chart-line" href="/integrations/langfuse">
+    Trace operations, UDF calls, and LLM generations
+  </Card>
+  <Card title="Arize Phoenix" icon="eye" href="/integrations/phoenix">
+    Trace operations, UDF calls, and LLM spans in Phoenix
+  </Card>
+  <Card title="Pydantic Logfire" icon="fire" href="/integrations/logfire">
+    Trace operations, UDF calls, and OpenAI calls in Logfire
+  </Card>
+  <Card title="SigNoz" icon="chart-area" href="/integrations/signoz">
+    Trace operations, UDF calls, and LLM spans in SigNoz
+  </Card>
+  <Card title="Opik" icon="magnifying-glass-chart" href="/integrations/opik">
+    Trace operations, UDF calls, and LLM spans in Opik
+  </Card>
+  <Card title="OpenTelemetry" icon="gauge" href="/platform/observability">
+    Export spans and metrics from the OpenTelemetry bridge
+  </Card>
+</CardGroup>
 
 Provider notebooks: [docs/release/howto/providers](https://github.com/pixeltable/pixeltable/tree/main/docs/release/howto/providers).

@@ -167,10 +167,12 @@ class EmbeddingIndex:
             self.embedding, self.string_embed, self.image_embed, self.audio_embed, self.video_embed, self.document_embed
         )
 
-    def as_fn_call(self) -> exprs.FunctionCall:
+    def as_fn_call(self) -> exprs.Expr:
         """The embedding call for the indexed column's own type, which is what the index materializes."""
         assert isinstance(self.column, exprs.ColumnRefByName)
         col_type = self.column.col_type
+        if col_type.is_array_type():
+            return self.column
         embeddings = self.resolved_embeddings()
         if col_type._type not in embeddings:
             raise excs.RequestError(
@@ -465,7 +467,6 @@ def bind_query_templates(e: exprs.Expr, catalog_dir: str | None) -> exprs.Expr:
         rebound = func.QueryTemplateFunction(
             fn.template_query.to_defined_query() if catalog_dir is None else fn.template_query.bind(catalog_dir),
             list(fn.signature.parameters.values()),
-            return_scalar=fn.return_scalar,
             path=fn.self_path,
             name=fn.self_name,
             comment=fn.comment(),

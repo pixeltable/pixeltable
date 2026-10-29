@@ -1,5 +1,6 @@
 import datetime
 import random
+import re
 import string
 import sys
 from typing import Any, Callable, Literal
@@ -12,7 +13,6 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.index as index
 import pixeltable.type_system as ts
-from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip
 
 from .conftest import SampleFileServer
@@ -296,7 +296,7 @@ class TestIndex:
         for q, r in zip(query_texts, res['r'], strict=True):
             sim = chunks.text.similarity(string=q)
             expected = chunks.select(mean=pxtf.mean(sim), mean_sq=pxtf.mean(sim * sim), n=pxtf.count(sim)).collect()
-            assert r == [expected[0]]
+            assert r == expected[0]
 
     def test_search_fn(self, small_img_tbl: pxt.Table, local_embed: pxt.Function) -> None:
         t = small_img_tbl
@@ -979,19 +979,16 @@ class TestIndex:
             sim = img_t.img.similarity(string='red truck')
             _ = img_t.order_by(sim, asc=False).limit(1).collect()
 
-        if not Env.get().is_using_cockroachdb:
-            # TODO(PXT-941): Revisit embedding index precision behavior for cloud launch
-            # In CockroachDB we use VECTOR type that doesn't have the same limitation as pgvector's VECTOR and HALFVEC
-            with pxt_raises(
-                pxt.ErrorCode.INVALID_ARGUMENT,
-                match="Embedding index's vector dimensionality 4001 exceeds maximum of 4000 for fp16 precision",
-            ):
-                test_tbl.add_embedding_index(test_tbl.c1, embedding=local_embedding.using(dim=4001), precision='fp16')
-            with pxt_raises(
-                pxt.ErrorCode.INVALID_ARGUMENT,
-                match="Embedding index's vector dimensionality 2001 exceeds maximum of 2000 for fp32 precision",
-            ):
-                test_tbl.add_embedding_index(test_tbl.c1, embedding=local_embedding.using(dim=2001), precision='fp32')
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match="Embedding index's vector dimensionality 4001 exceeds maximum of 4000 for fp16 precision",
+        ):
+            test_tbl.add_embedding_index(test_tbl.c1, embedding=local_embedding.using(dim=4001), precision='fp16')
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match="Embedding index's vector dimensionality 2001 exceeds maximum of 2000 for fp32 precision",
+        ):
+            test_tbl.add_embedding_index(test_tbl.c1, embedding=local_embedding.using(dim=2001), precision='fp32')
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r"Invalid precision.+Must be one of: \['fp16', 'fp32'\]"):
             test_tbl.add_embedding_index(
@@ -1660,3 +1657,34 @@ class TestIndex:
             pxt.ErrorCode.CONSTRAINT_VIOLATION, match="Value too large for the btree index on column 'c_str'"
         ):
             tbl.add_btree_index('c_str')
+
+    def test_array_embedding_index_metadata(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('array_emb_tbl'), {'vec': pxt.Array[(10,), pxt.Float]})
+        t.add_embedding_index('vec', idx_name='vec_idx', metric='cosine')
+
+        md = t.get_metadata()
+        assert 'vec_idx' in md['indexes']
+        idx_md = md['indexes']['vec_idx']
+        assert idx_md['index_type'] == 'embedding'
+        assert idx_md['columns'] == ['vec']
+        assert idx_md['parameters']['embedding'] == 'vec'
+        assert idx_md['parameters']['embedding_functions'] == []
+        assert idx_md['parameters']['metric'] == 'cosine'
+
+        assert re.search(r'^\s*vec_idx\s+vec\s+cosine\s+vec\s*$', repr(t), re.MULTILINE)
+
+        table_model = pxt.model_base()
+
+        class ArrayModel(table_model, name='array_model'):
+            id: pxt.Int
+            vec: pxt.Array[(10,), pxt.Float]
+            vec2: pxt.Array[(10,), pxt.Float]
+            __indexes__ = [  # noqa: RUF012
+                pxt.EmbeddingIndex(vec, name='vec_idx', metric='cosine'),  # noqa: F821
+                pxt.EmbeddingIndex(vec2, metric='l2'),  # noqa: F821
+            ]
+
+        root = p('')
+        table_model.create_all(root)
+        assert table_model.get_model_diff(root)['array_model'].resolution == 'up_to_date'

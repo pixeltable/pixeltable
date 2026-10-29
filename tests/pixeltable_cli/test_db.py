@@ -9,7 +9,9 @@ against the session's hosted database, the one the cloud catalog tests use.
 import pathlib
 import shutil
 import time
+import tomllib
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Iterator
 
 import pytest
@@ -22,6 +24,7 @@ from .conftest import (
     EXIT_CHANGES_PENDING,
     EXIT_ERROR,
     EXIT_IN_AGREEMENT,
+    EXIT_REFUSED,
     PxtRunner,
     assert_in_agreement,
     db_diff,
@@ -73,9 +76,12 @@ class TestCloudDb:
     def test_create(self, cli: PxtRunner, project: pathlib.Path) -> None:
         db_name = f'pxttest-absent-{uuid.uuid4().hex[:12]}'
         absent = f'pxt://pixeltable:{db_name}'
-        create_project_config(cli, project, absent)
+        undeclared = cli('db', 'diff', absent, cwd=project, check=False)
+        assert undeclared.returncode == EXIT_ERROR
+        assert f"run 'pxt db diff {absent} --add-config-entry'" in undeclared.stderr, undeclared.stderr
 
-        plan = db_diff(cli, project, absent)
+        plan = db_diff(cli, project, absent, '--add-config-entry')
+        assert plan['entry_added_to'] == str(project / 'pixeltable.toml')
         assert plan['resolution'] == 'create'
         assert not plan['exists']
         assert plan['state'] is None
@@ -136,8 +142,8 @@ class TestCloudDb:
         assert db_diff(cli, project, mixed)['resolution'] == 'create'
 
     def test_source_edit(self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> None:
-        create_project_config(cli, project, test_db_uri)
-        db_update(cli, project, test_db_uri)
+        applied = db_update(cli, project, test_db_uri, '--add-config-entry')
+        assert applied['entry_added_to'] == str(project / 'pixeltable.toml')
         assert_in_agreement(cli, project, test_db_uri)
 
         edit_app(project, 'an edit that changes no dependency')
@@ -208,7 +214,6 @@ class TestCloudDb:
         assert get_target_ops(db_diff(cli, other, test_db_uri), 'archive') != []
 
     def test_excluded_files(self, cli: PxtRunner, project: pathlib.Path, test_db_uri: str) -> None:
-        # the entry itself is a project file, so the database has to be given the rewritten one
         create_project_config(cli, project, test_db_uri, exclude=['notes/**'])
         db_update(cli, project, test_db_uri)
         assert_in_agreement(cli, project, test_db_uri)
@@ -241,7 +246,7 @@ class TestCloudDb:
         # taking capacity away is destructive, so it needs the flag that permits it
         create_project_config(cli, project, test_db_uri, memory_mb=running_on)
         refused = cli('db', 'update', test_db_uri, '-f', cwd=project, check=False, timeout=APPLY_TIMEOUT)
-        assert refused.returncode == EXIT_ERROR
+        assert refused.returncode == EXIT_REFUSED
         assert '--allow-destructive' in refused.stderr, refused.stderr
         assert [
             op['status']
@@ -267,14 +272,19 @@ class TestCloudDb:
 
         not_a_uri = cli('db', 'diff', 'my_dir', cwd=project, check=False)
         assert 'URI must be pxt://org:db' in not_a_uri.stderr, not_a_uri.stderr
+        # a usage error exits 1, since 2 means changes pending
         table_uri = cli('db', 'logs', f'{test_db_uri}/table', cwd=project, check=False)
-        assert table_uri.returncode == 2 and 'URI must be pxt://org:db' in table_uri.stderr, table_uri.stderr
+        assert table_uri.returncode == 1 and 'URI must be pxt://org:db' in table_uri.stderr, table_uri.stderr
         # 'db diff' takes a database URI, 'org status' an org URI
         for bad in ('pxt://pixeltable', 'pxt://pixeltable:pxttest/'):
             r = cli('db', 'diff', bad, cwd=project, check=False)
-            assert r.returncode == 2 and 'URI must be pxt://org:db' in r.stderr, r.stderr
+            assert r.returncode == 1 and 'URI must be pxt://org:db' in r.stderr, r.stderr
         org_with_db = cli('org', 'status', test_db_uri, cwd=project, check=False)
         assert org_with_db.returncode == 2 and 'URI must be pxt://org,' in org_with_db.stderr, org_with_db.stderr
+        # the daemon refuses an invalid hosted name itself, before any request to the control plane
+        not_hosted = cli('db', 'diff', 'pxt://pixeltable:my_db', cwd=project, check=False)
+        assert not_hosted.returncode == EXIT_ERROR and "database name 'my_db' is invalid" in not_hosted.stderr
+        assert 'Traceback' not in not_hosted.stderr, not_hosted.stderr
 
         # the daemon validates --since and --tail before reading anything
         r = cli('db', 'logs', test_db_uri, '--since', 'bogus', cwd=project, check=False)
@@ -292,6 +302,94 @@ class TestCloudDb:
         assert never_built.returncode == EXIT_ERROR
         assert 'pxt db update' in never_built.stderr, never_built.stderr
 
+    def test_add_config_entry(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+        """--add-config-entry appends a missing database entry, and leaves an existing one as it is."""
+        db_name = f'pxttest-absent-{uuid.uuid4().hex[:12]}'
+        absent = f'pxt://pixeltable:{db_name}'
+
+        # after 'pxt init', the entry follows the local one, whose comments stay
+        initialized = tmp_path / 'initialized'
+        initialized.mkdir()
+        cli('init', cwd=initialized)
+        config_file = initialized / 'pixeltable.toml'
+        written = config_file.read_text(encoding='utf-8')
+        plan = db_diff(cli, initialized, absent, '--add-config-entry')
+        assert (plan['entry_added_to'], plan['resolution']) == (str(config_file), 'create')
+        appended = config_file.read_text(encoding='utf-8')
+        assert appended.startswith(written)
+        assert tomllib.loads(appended)['pixeltable']['database'] == [{}, {'name': absent}]
+
+        # the entry matches in any case, so a rerun leaves the file as it is
+        rerun = db_diff(cli, initialized, f'pxt://pixeltable:{db_name.upper()}', '--add-config-entry')
+        assert rerun['entry_added_to'] is None
+        assert config_file.read_text(encoding='utf-8') == appended
+
+        # in a pyproject.toml, the entry goes in [tool.pixeltable], or in [tool.pixeltable.pixeltable] if there is one
+        for i, (text, expected) in enumerate(
+            (
+                ('[tool.pixeltable]', {'database': [{'name': absent}]}),  # without a trailing newline
+                ('[tool.pixeltable.pixeltable]\n', {'pixeltable': {'database': [{'name': absent}]}}),
+            )
+        ):
+            in_pyproject = tmp_path / f'in_pyproject{i}'
+            in_pyproject.mkdir()
+            pyproject = in_pyproject / 'pyproject.toml'
+            pyproject.write_text(f"[project]\nname = 'app'\n\n{text}", encoding='utf-8')
+            assert db_diff(cli, in_pyproject, absent, '--add-config-entry')['entry_added_to'] == str(pyproject)
+            assert tomllib.loads(pyproject.read_text(encoding='utf-8'))['tool']['pixeltable'] == expected
+
+        # concurrent commands append the entry once; a plain diff first moves the daemon onto this project, so
+        # that the concurrent commands don't each restart it
+        concurrent = tmp_path / 'concurrent'
+        concurrent.mkdir()
+        (concurrent / 'pixeltable.toml').write_text('', encoding='utf-8')
+        assert cli('db', 'diff', absent, cwd=concurrent, check=False).returncode == EXIT_ERROR
+        with ThreadPoolExecutor(4) as pool:
+            futures = [pool.submit(db_diff, cli, concurrent, absent, '--add-config-entry') for _ in range(4)]
+        assert sorted(f.result()['entry_added_to'] is None for f in futures) == [False, True, True, True]
+        config = tomllib.loads((concurrent / 'pixeltable.toml').read_text(encoding='utf-8'))
+        assert config == {'pixeltable': {'database': [{'name': absent}]}}
+
+        # a single [pixeltable.database] table for the database is its entry
+        single = tmp_path / 'single'
+        single.mkdir()
+        (single / 'pixeltable.toml').write_text(f"[pixeltable.database]\nname = '{absent}'\n", encoding='utf-8')
+        assert db_diff(cli, single, absent, '--add-config-entry')['entry_added_to'] is None
+
+        # update appends the entry in a dry run, and when it refuses for lack of -f and a TTY
+        for flags, returncode in ((('--dry-run',), EXIT_CHANGES_PENDING), ((), EXIT_REFUSED)):
+            updated = tmp_path / f'updated{len(flags)}'
+            updated.mkdir()
+            (updated / 'pixeltable.toml').write_text('', encoding='utf-8')
+            r = cli('db', 'update', absent, '--add-config-entry', '--json', *flags, cwd=updated, check=False)
+            assert r.returncode == returncode, r.stderr
+            assert (r.json['entry_added_to'], r.json['resolution']) == (str(updated / 'pixeltable.toml'), 'create')
+            assert db_name not in _list_dbs(cli, updated)
+
+
+class TestLocalConfigEntry:
+    def test_add_config_entry_errors(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+        """--add-config-entry exits 1 before any request, and leaves the project configuration as it is."""
+        uri = 'pxt://acme:main'
+        r = cli('db', 'diff', uri, '--add-config-entry', cwd=tmp_path, check=False)
+        assert r.returncode == EXIT_ERROR
+        assert "pxt db diff: no project configuration here; run 'pxt init' to write one" in r.stderr, r.stderr
+        assert list(tmp_path.iterdir()) == []
+
+        r = cli('db', 'update', "pxt://acme:it's", '--add-config-entry', cwd=tmp_path, check=False)
+        assert r.returncode == EXIT_ERROR
+        assert 'pxt db update: database name "it\'s" is invalid' in r.stderr, r.stderr
+
+        config_file = tmp_path / 'pixeltable.toml'
+        for text, error in (
+            ('[pixeltable.database]\n', 'declares pixeltable.database as a single table'),
+            ('[pixeltable]\ndatabase = [{}]\n', 'declares pixeltable.database as an inline array'),
+        ):
+            config_file.write_text(text, encoding='utf-8')
+            r = cli('db', 'diff', uri, '--add-config-entry', cwd=tmp_path, check=False)
+            assert r.returncode == EXIT_ERROR and error in r.stderr, r.stderr
+            assert config_file.read_text(encoding='utf-8') == text
+
 
 class TestLocalLogs:
     @pytest.mark.db_roots('proxy', reason='a proxy-daemon database logs to a file, which the error names')
@@ -299,5 +397,7 @@ class TestLocalLogs:
         r = cli('db', 'logs', db_root.prefix, check=False)
         log_file = proxy_daemon.log_path(proxy_daemon_db)
         assert r.returncode == EXIT_ERROR, r.stderr
-        assert f'not supported; the log is at {log_file}' in r.stderr, r.stderr
+        assert f'writes its log to {log_file}' in r.stderr, r.stderr
+        assert 'Pixeltable Cloud database' in r.stderr and 'pxt new' in r.stderr, r.stderr
+        assert "'pxt db update pxt://org:db'" in r.stderr, r.stderr
         assert log_file.is_file()

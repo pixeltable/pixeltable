@@ -7,12 +7,13 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from pixeltable.service.resources import DatabaseCapacity
 from pixeltable.utils.project import ProjectFingerprint
 from pixeltable_cli.types import DbState
 
 
-class DatabaseResources(BaseModel):
-    """The resources of a database, in the widest sense (everything available in the runtime environment)."""
+class DatabaseResources(DatabaseCapacity):
+    """A hosted database's deployment: its project and the size and number of its pods."""
 
     # TODO: make that fingerprint accessible instead and record it here
     fingerprint: ProjectFingerprint | None = Field(
@@ -23,23 +24,6 @@ class DatabaseResources(BaseModel):
         default=0, description='metadata schema version of the Pixeltable that packaged the archive'
     )
     default_bucket: str | None = None
-
-    cpu: float | None = Field(default=None, description='cores; null takes the default for the tier')
-    memory_mb: int | None = Field(default=None, description='null takes the default for the tier')
-    disk_gb: int | None = Field(default=None, description='null takes the default for the tier')
-    workers: int | None = Field(default=None, description='pods serving the database; null takes the default')
-
-    def capacity(self) -> dict[str, int | float]:
-        result: dict[str, int | float] = {}
-        if self.cpu is not None:
-            result['cpu'] = self.cpu
-        if self.memory_mb is not None:
-            result['memory_mb'] = self.memory_mb
-        if self.disk_gb is not None:
-            result['disk_gb'] = self.disk_gb
-        if self.workers is not None:
-            result['workers'] = self.workers
-        return result
 
 
 class DatabaseStatus(BaseModel):
@@ -55,3 +39,6 @@ class DatabaseStatus(BaseModel):
     )
     last_build_error: str | None = None
     failure_reason: str | None = Field(default=None, description='why the state is FAILED')
+    md_version: int | None = Field(
+        default=None, description='metadata version of the running database; null if unknown'
+    )

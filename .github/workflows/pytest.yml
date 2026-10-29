@@ -176,11 +176,7 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache
           df -h
       - name: Install miniforge
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniforge-version: latest
-          activate-environment: pxt
-          conda-remove-defaults: true
+        uses: ./.github/actions/setup-miniforge
       - name: Install python
         run: |
           ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=${{ matrix.python-version }} pip
@@ -220,6 +216,8 @@ jobs:
           export VIRTUAL_ENV="$CONDA_PREFIX"
           ./scripts/retry.sh 3 60 uv sync --active ${{ matrix.uv-options }}
       - name: Clean the uv cache
+        # Skipped on Windows: deleting ~70k cached files takes minutes there, and Windows runners don't need the space.
+        if: ${{ !startsWith(matrix.os, 'windows') }}
         run: uv cache clean
       - name: Set up credentials
         run: ./scripts/set-up-ci-credentials.sh
@@ -245,11 +243,13 @@ jobs:
         # (including tests with the 'remote_api' marker that are not also marked 'expensive') will run on all matrix
         # configurations.
         # --basetemp pins pytest's temp root dir so that the Archive step below works on all platforms
+        # -n comes from the matrix
         run: |
           echo 'Running tests with options: ${{ matrix.pytest-options }}'
+          echo 'xdist workers             : ${{ matrix.xdist-workers }}'
           echo 'Extra pre-test command    : ${{ matrix.pre-test-cmd }}'
           ${{ matrix.pre-test-cmd }}
-          pytest -v --strict-markers -n auto --dist loadgroup --basetemp="$RUNNER_TEMP/pxt-pytest" ${{ matrix.pytest-options }} $PYTEST_COVERAGE_OPTS
+          pytest -v --strict-markers -n ${{ matrix.xdist-workers }} --dist loadgroup --basetemp="$RUNNER_TEMP/pxt-pytest" ${{ matrix.pytest-options }} $PYTEST_COVERAGE_OPTS
       - name: Run the OpenTelemetry instrumentation tests
         # The opentelemetry-instrumentation-pixeltable package is a separate distribution; the core suite does not
         # collect its tests (testpaths in pyproject.toml). It is tested here against a minimal install + otel extra.
@@ -300,6 +300,9 @@ jobs:
         run: |
           ruff format --check
           ruff check --select I
+      - name: CI script tests
+        if: ${{ matrix.test-category == 'lint' }}
+        run: python -m unittest discover -s .github/scripts -p 'test_*.py'
       - name: Notebook checks
         if: ${{ matrix.test-category == 'lint' }}
         run: ./scripts/check-notebooks.sh

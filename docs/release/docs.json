@@ -8,7 +8,7 @@
       "Application code puts a TableModel in app.py, then runs `pxt schema update app.py my_app` to create the tables and `pxt service update app.py my_app` to start HTTP. The last argument can be a Cloud URL such as `pxt://org:db`. Do not call pxt.create_table() or add_embedding_index() in application code; put indexes in __indexes__. Notebooks, tests, and the REPL do use pxt.create_table().",
       "Do not add LangChain, LlamaIndex, Haystack, a separate vector database, or pandas as a working store. Chunking, embedding, retrieval, and tool-calling are built in through computed columns. Use a computed column instead of a per-row loop that calls a model.",
       "Install with `pip install -U 'pixeltable[serve]'` on Python 3.11+. `pxt init` is a prerequisite for `pxt schema update`.",
-      "Pixeltable Cloud is in Limited Beta. Direct interested users to contact@pixeltable.com."
+      "For Pixeltable Cloud, point users to https://docs.pixeltable.com/cloud, which goes from `pxt login` to a running service."
     ]
   },
   "colors": {
@@ -224,6 +224,7 @@
                 "group": "Images",
                 "expanded": false,
                 "pages": [
+                  "howto/cookbooks/images/yolox-object-detection",
                   "howto/cookbooks/images/img-detect-objects",
                   "howto/cookbooks/images/img-detection-vs-segmentation",
                   "howto/cookbooks/images/img-visualize-detections",
@@ -244,6 +245,7 @@
                 "group": "Audio",
                 "expanded": false,
                 "pages": [
+                  "howto/cookbooks/audio/whisperx-transcription",
                   "howto/cookbooks/audio/audio-transcribe",
                   "howto/use-cases/audio-transcriptions",
                   "howto/cookbooks/audio/audio-summarize-podcast",
@@ -323,6 +325,16 @@
             "group": "Built-in Integrations",
             "pages": [
               "integrations/frameworks"
+            ]
+          },
+          {
+            "group": "Observability",
+            "pages": [
+              "integrations/langfuse",
+              "integrations/phoenix",
+              "integrations/logfire",
+              "integrations/opik",
+              "integrations/signoz"
             ]
           },
           {
@@ -467,6 +479,10 @@
   },
   "redirects": [
     {
+      "source": "/sdk/latest/pixeltable/serving/SqlExport",
+      "destination": "/sdk/latest/sqlexport"
+    },
+    {
       "source": "/overview/from-your-stack",
       "destination": "/howto/coming-from"
     },
@@ -592,7 +608,7 @@
     },
     {
       "source": "/examples/vision/yolox",
-      "destination": "/howto/cookbooks/images/img-detect-objects"
+      "destination": "/howto/cookbooks/images/yolox-object-detection"
     },
     {
       "source": "/examples/vision/object-detection",
@@ -864,7 +880,7 @@
     },
     {
       "source": "/libraries/yolox",
-      "destination": "/integrations/frameworks"
+      "destination": "/howto/cookbooks/images/yolox-object-detection"
     }
   ]
 }

@@ -12,6 +12,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable.functions.audio import audio_splitter
 from pixeltable.functions.video import video_splitter
+from pixeltable.runtime import get_runtime, reset_runtime
 
 from ..utils import (
     get_audio_files,
@@ -40,6 +41,16 @@ def mock_embeddings(init_env: None, monkeypatch: pytest.MonkeyPatch) -> AsyncMoc
     )
     monkeypatch.setattr(twelvelabs, '_twelvelabs_client', lambda: client)
     return create
+
+
+class TestTwelveLabsClient:
+    def test_client_closed_on_reset(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        monkeypatch.setenv('TWELVELABS_API_KEY', 'test-key')
+        # no public accessor exposes the SDK's httpx client, so this reads the private attribute that holds it
+        http_client = get_runtime().get_client('twelvelabs')._client_wrapper.httpx_client.httpx_client
+        reset_runtime()
+        assert http_client.is_closed
 
 
 class TestTwelveLabsLocal:
@@ -160,7 +171,7 @@ class TestTwelveLabsLocal:
         from pixeltable.functions import twelvelabs
 
         mock_embeddings.return_value = SimpleNamespace(data=[SimpleNamespace(embedding=v) for v in vectors])
-        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='single 512-dimensional embedding'):
+        with pxt_raises(pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, match='single 512-dimensional embedding'):
             asyncio.run(twelvelabs.embed.py_fns[0](text='test', model_name='marengo3.5'))
 
     @pytest.mark.parametrize('model_name', ['marengo3.0', 'marengo3.5'])

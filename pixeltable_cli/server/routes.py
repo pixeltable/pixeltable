@@ -10,10 +10,11 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import PIL.Image
+import pydantic
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.catalog import Path, fold_identifier
+from pixeltable.catalog import Path, TableMetadata, fold_identifier
 from pixeltable.catalog.model import schema
 from pixeltable.config import Config
 from pixeltable.env import Env
@@ -21,7 +22,6 @@ from pixeltable.service import auth, db, management_client, proxy_daemon, sessio
 from pixeltable.service.management_protocol import (
     CreateKeyRequest,
     CreateOrgRequest,
-    DeleteDbRequest,
     DeleteKeyRequest,
     DeleteSecretRequest,
     GetDbRequest,
@@ -31,10 +31,7 @@ from pixeltable.service.management_protocol import (
     ListDbRequest,
     ListKeysRequest,
     ListOrgsRequest,
-    RestartDbRequest,
     SetSecretRequest,
-    StartDbRequest,
-    StopDbRequest,
     UpdateKeyRequest,
 )
 from pixeltable.serving import service
@@ -313,23 +310,7 @@ def table_errors(req: Request) -> models.ErrorsResponse:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT, f'{path}: no primary key defined; errors view requires one'
         )
-
-    if col is not None:
-        col_md = md['columns'].get(col)
-        if col_md is None:
-            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'unknown column: {col}')
-        if not (col_md['is_computed'] and col_md.get('is_stored')):
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT,
-                f'{col}: not a stored computed column (errors view only addresses those)',
-            )
-
-    # errortype/errormsg only apply to stored computed columns
-    computed = [
-        name
-        for name, c in md['columns'].items()
-        if c['is_computed'] and c.get('is_stored') and (col is None or name == col)
-    ]
+    computed = _stored_computed_columns(md, col)
     if len(computed) == 0:
         return models.ErrorsResponse(entries=[])
 
@@ -343,15 +324,64 @@ def table_errors(req: Request) -> models.ErrorsResponse:
         select_args += [t[c_name].errortype, t[c_name].errormsg]
     rows = t.where(where).select(*select_args).collect()
 
+    # only a failed column needs its defining base, which a pxt:// view reads over the network
+    failed = {c_name for r in rows for c_name in computed if r[f'{c_name}_errortype'] is not None}
+    bases = {c_name: _defining_base(md, c_name) for c_name in failed}
     entries: list[models.ErrorEntry] = []
     for r in rows:
         pk = {name: r[name] for name in pk_names}
         for c_name in computed:
             etype = r[f'{c_name}_errortype']
-            emsg = r[f'{c_name}_errormsg']
             if etype is not None:
-                entries.append(models.ErrorEntry(pk=pk, column=c_name, errortype=etype, errormsg=emsg))
+                base, recomputable = bases[c_name]
+                entries.append(
+                    models.ErrorEntry(
+                        pk=pk,
+                        column=c_name,
+                        errortype=etype,
+                        errormsg=r[f'{c_name}_errormsg'],
+                        defining_base=base,
+                        recomputable=recomputable,
+                    )
+                )
     return models.ErrorsResponse(entries=entries)
+
+
+def _stored_computed_columns(md: TableMetadata, col: str | None) -> list[str]:
+    """The columns whose errors are listed: every stored computed column, or col, which must be one."""
+    if col is None:
+        # errortype/errormsg only apply to stored computed columns
+        return [name for name, c in md['columns'].items() if c['is_computed'] and c.get('is_stored')]
+    col_md = md['columns'].get(col)
+    if col_md is None:
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'unknown column: {col}')
+    if not (col_md['is_computed'] and col_md.get('is_stored')):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'{col}: not a stored computed column (errors view only addresses those)'
+        )
+    return [col]
+
+
+def _defining_base(md: TableMetadata, column: str) -> tuple[str | None, bool]:
+    """(the path of the base that defines a column a view inherits, or None for the table's own column; whether the
+    column's cells can be recomputed there, which a snapshot's cannot).
+
+    The defining base is the furthest one up whose column has the same `defined_in`: a query view's own column can
+    shadow a base column of the same name.
+    """
+    owner = md['columns'][column]['defined_in']
+    path = None
+    while md['base'] is not None:
+        base_md = pxt.get_table(md['base']).get_metadata()
+        base_col = base_md['columns'].get(column)
+        if base_col is None or base_col['defined_in'] != owner:
+            break
+        path, md = md['base'], base_md
+    # a snapshot's base is a versioned path, such as 'dir/t:5'
+    in_snapshot = md['is_snapshot'] or (
+        path is not None and Path.parse(path, allow_versioned_path=True).version is not None
+    )
+    return path, not in_snapshot
 
 
 @router.get('/api/tables/history', checks_env=False)
@@ -534,7 +564,11 @@ def service_check(req: Request) -> types.CheckReport:
 def service_diff(req: Request) -> types.ServicePlan:
     body = req.body(models.ServiceDiffBody)
     return service.service_diff(
-        body.app_file, req.resolve_path(body.target), service_name=body.service_name, otel=body.otel
+        body.app_file,
+        req.resolve_path(body.target),
+        service_name=body.service_name,
+        otel=body.otel,
+        keep_release=body.keep_release,
     )
 
 
@@ -548,6 +582,9 @@ def service_update(req: Request) -> types.ServicePlan:
         allow_destructive=body.allow_destructive,
         otel=body.otel,
         port=body.port,
+        keep_release=body.keep_release,
+        expected_generations=body.expected_generations,
+        wait=body.wait,
     )
     return applied
 
@@ -568,6 +605,12 @@ def service_stop(req: Request) -> list[types.ServiceChangeOp]:
 def service_restart(req: Request) -> list[types.ServiceChangeOp]:
     body = req.body(models.ServiceRestartBody)
     return service.service_restart(body.names)
+
+
+@router.post('/api/service/retry')
+def service_retry(req: Request) -> list[types.ServiceChangeOp]:
+    body = req.body(models.ServiceRestartBody)
+    return service.service_retry(body.names)
 
 
 @router.get('/api/service/list')
@@ -1059,29 +1102,69 @@ def delete_key(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(DeleteKeyRequest))
 
 
+class _GetUsageRequest(pydantic.BaseModel):
+    operation_type: typing.Literal['get_usage'] = management_client.GET_USAGE
+
+
+@router.get('/api/usage')
+def get_usage(_req: Request) -> dict[str, Any]:
+    return management_client.api_call(_GetUsageRequest())
+
+
 @router.get('/api/db')
 def get_db(req: Request) -> dict[str, Any]:
-    return management_client.api_call(GetDbRequest(org=req.required_query_str('org'), db=req.required_query_str('db')))
+    """The database's report; with missing_ok, an empty one for a database that does not exist."""
+    request = GetDbRequest(org=req.required_query_str('org'), db=req.required_query_str('db'))
+    try:
+        return management_client.api_call(request)
+    except excs.ExternalServiceError as exc:
+        if exc.provider_http_status_code != 404 or not req.query_bool('missing_ok'):
+            raise
+        return {'report': {}, 'worker_status': []}
+
+
+def _lifecycle_response(db_uri: str, receipt: types.GenerationReceipt) -> models.DbLifecycleResponse:
+    db_path = Path.parse(db_uri, allow_empty_path=True)
+    try:
+        current = management_client.api_call(GetDbRequest(org=db_path.org, db=db_path.db))
+    except excs.ExternalServiceError as exc:
+        if exc.provider_http_status_code != 404:
+            raise
+        return models.DbLifecycleResponse(receipt=receipt)
+    return models.DbLifecycleResponse(
+        receipt=receipt, report=current.get('report') or {}, worker_status=current.get('worker_status') or []
+    )
+
+
+def _change_db_lifecycle(req: Request, action: db.DbAction) -> models.DbLifecycleResponse:
+    body = req.body(models.DbLifecycleBody)
+    return _lifecycle_response(body.db_uri, db.db_change_lifecycle(body.db_uri, action, wait=body.wait))
 
 
 @router.post('/api/db/delete')
-def delete_db(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(DeleteDbRequest))
+def delete_db(req: Request) -> models.DbLifecycleResponse:
+    return _change_db_lifecycle(req, 'delete')
 
 
 @router.post('/api/db/start')
-def start_db(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(StartDbRequest))
+def start_db(req: Request) -> models.DbLifecycleResponse:
+    return _change_db_lifecycle(req, 'start')
 
 
 @router.post('/api/db/stop')
-def stop_db(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(StopDbRequest))
+def stop_db(req: Request) -> models.DbLifecycleResponse:
+    return _change_db_lifecycle(req, 'stop')
 
 
 @router.post('/api/db/restart')
-def restart_db(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(RestartDbRequest))
+def restart_db(req: Request) -> models.DbLifecycleResponse:
+    return _change_db_lifecycle(req, 'restart')
+
+
+@router.post('/api/db/retry')
+def retry_db(req: Request) -> models.DbLifecycleResponse:
+    body = req.body(models.DbLifecycleBody)
+    return _lifecycle_response(body.db_uri, db.db_retry(body.db_uri, wait=body.wait))
 
 
 @router.get('/api/logs')
@@ -1105,8 +1188,10 @@ def get_logs(req: Request) -> dict[str, Any]:
     if org == 'local':
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'Reading the log of a database on this machine is not supported; the log is at '
-            f'{proxy_daemon.log_path(db_name)}',
+            f'A database on this machine writes its log to {proxy_daemon.log_path(db_name)}. '
+            "'pxt db logs' reads the log of a Pixeltable Cloud database, such as pxt://org:db. "
+            "Run 'pxt new' to get a free Pixeltable Cloud trial database. "
+            "To deploy to a Pixeltable Cloud database, run 'pxt db update pxt://org:db'.",
         )
     return management_client.api_call(
         GetLogsRequest(
@@ -1125,9 +1210,22 @@ def db_diff(req: Request) -> types.DbPlan:
 @router.post('/api/db/update')
 def db_update(req: Request) -> types.DbPlan:
     body = req.body(models.DbUpdateBody)
-    return db.db_update(body.db_uri, allow_destructive=body.allow_destructive)
+    return db.db_update(
+        body.db_uri,
+        allow_destructive=body.allow_destructive,
+        expected_generation=body.expected_generation,
+        wait=body.wait,
+    )
 
 
 @router.post('/api/db/build-image')
-def db_build_image(req: Request) -> list[types.DbChangeOp]:
-    return db.db_build_image(req.body(models.DbBuildImageBody).db_uri)
+def db_build_image(req: Request) -> models.DbBuildImageResponse:
+    body = req.body(models.DbBuildImageBody)
+    ops, accepted = db.db_build_image(body.db_uri, wait=body.wait)
+    return models.DbBuildImageResponse(ops=ops, receipts=accepted)
+
+
+@router.post('/api/receipts')
+def receipts(req: Request) -> models.ReceiptsResponse:
+    body = req.body(models.ReceiptsBody)
+    return models.ReceiptsResponse(receipts=db.db_receipts(body.db_uri, body.receipts))

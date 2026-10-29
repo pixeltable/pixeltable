@@ -10,7 +10,7 @@ Install FastAPI and uvicorn first:
 pip install 'pixeltable[serve]'
 ```
 
-How the process starts is on [Self-hosting](/howto/deployment/overview). This page covers the route API once you have chosen which process serves it. A local service exposes FastAPI's interactive docs at `/docs` and its OpenAPI schema at `/openapi.json`. `pxt service update` assigns a local port; look up the endpoint by catalog path and service name rather than assuming port 8000. For the README's `my_app/ingest` example:
+How the process starts is on [Self-hosting](/howto/deployment/overview). This page covers the route API once you have chosen which process serves it. A local service exposes FastAPI's interactive docs at `/docs` and its OpenAPI schema at `/openapi.json`. `pxt service update` assigns a local port; look up the endpoint by catalog path and service name rather than assuming port 8000. For the [Quickstart](/overview/quick-start)'s `my_app/ingest` example:
 
 ```bash
 SERVICE_URL=$(pxt service list my_app --json | jq -r '.[] | select(.catalog_path == "my_app" and .name == "ingest") | .endpoint')
@@ -36,7 +36,7 @@ Routes with `return_fileresponse=True` advertise a binary response for any media
 
 ## Call from a TypeScript app server
 
-Keep a Cloud API key in your application server's environment, never in browser code. Generated types do not check raw `fetch` calls, so call routes through `openapi-fetch` with the generated `paths`. The same module calls a local service (no key) or a hosted one. Set `PIXELTABLE_SERVICE_URL` to the full service endpoint, as above, run `npm install openapi-fetch server-only`, and put this in `src/lib/pixeltable-client.ts`. With the README's `/titles` compute route:
+Keep a Cloud API key in your application server's environment, never in browser code. Generated types do not check raw `fetch` calls, so call routes through `openapi-fetch` with the generated `paths`. The same module calls a local service (no key) or a hosted one. Set `PIXELTABLE_SERVICE_URL` to the full service endpoint, as above, run `npm install openapi-fetch server-only`, and put this in `src/lib/pixeltable-client.ts`. With the Quickstart's `/titles` compute route:
 
 ```typescript
 import 'server-only';
@@ -210,7 +210,7 @@ A Pixeltable insert with `method='update'` is allowed: append-only here, current
 
 `export_sql=` cannot combine with `return_fileresponse=True`. It works with `background=True` (the SQL write runs in the worker).
 
-[`SqlExport`](https://docs.pixeltable.com/sdk/latest/pixeltable/serving/SqlExport)
+[`SqlExport`](/sdk/latest/sqlexport)
 
 <Warning>
 A connection string with an embedded password is plaintext in the application file. Pull credentials from the environment, a `.pgpass`-style file, or `pxt secret set`.
@@ -237,6 +237,11 @@ class Images(TableModel, name='images'):
 @pxt.query
 def search_images(text: str) -> pxt.Query:
     return Images.where(Images.tag == text).select(Images.thumbnail)
+
+
+@pxt.query
+def first_image(text: str) -> pxt.Query:
+    return Images.where(Images.tag == text).select(Images.thumbnail).limit(1)
 
 
 images = FastAPIRouter(name='image-processing')
@@ -267,8 +272,7 @@ images.add_query_route(path='/search', query=search_images)
 
 images.add_query_route(
     path='/thumbnail',
-    query=search_images,
-    one_row=True,
+    query=first_image,
     method='get',
     return_fileresponse=True,
 )
@@ -313,21 +317,47 @@ After `.collect()`, use `to_pydantic()`. After `return_rows=True`, use `model_va
 
 ```json
 {
-  "id": "abc123",
-  "job_url": "http://127.0.0.1:<port>/_pxt/jobs/abc123"
+  "id": "<job id>",
+  "job_url": "<the URL that polls this job>"
 }
 ```
 
-Poll `job_url` (`pxt service list` prints the base URL):
+Each router accepts at most 64 unfinished background jobs per service instance, running jobs included. Past
+that, or while a hosted instance is stopping, a submit answers 503 with `Retry-After` and the error code `JOB_REFUSED`.
+The request does not run, and the [same retry rule](#call-from-a-typescript-app-server) applies.
+
+Poll `job_url`:
 
 ```bash
-curl http://127.0.0.1:<port>/_pxt/jobs/abc123
+curl "<job_url>"
 # {"status": "pending"}
 # {"status": "done", "result": {...}}
 # {"status": "error", "error": "...", "error_detail": {...}}
 ```
 
-Poll through your application server with the same Cloud key when hosted. Cloud returns an HTTPS `job_url`. The polling path is in the generated schema, so polling is a typed call on the same [TypeScript client](#call-from-a-typescript-app-server): `pixeltable.GET('/_pxt/jobs/{job_id}', { params: { path: { job_id: id } } })`. A failed job's `error_detail` has the same shape as an HTTP error's `detail`, so the same retry rule applies.
+Poll through your application server with the same Cloud key when hosted. Cloud returns an HTTPS `job_url`. The polling route is in the generated schema, so polling is also a typed call on the same [TypeScript client](#call-from-a-typescript-app-server). A failed job's `error_detail` has the same shape as an HTTP error's `detail`, so the same retry rule applies.
+
+Treat the job id and `job_url` as opaque: their form can change between releases.
+
+Each router with background routes has its own polling route. An application can include at most one unnamed
+router with background routes; give the others distinct names with `FastAPIRouter(name=...)`. Use the
+returned `job_url` to poll, including any prefixes added by your app or the hosted service. Regenerate client
+types when an upgrade or a router name change alters the polling routes in your OpenAPI schema.
+
+A background job runs in the memory of the service instance that accepted it. Like a synchronous request, it
+does not survive the loss of that instance. A local `pxt service` answers polls the same way a hosted service
+does:
+
+| Answer | Meaning |
+| --- | --- |
+| 200 `pending` | the job has not finished; poll again after the `Retry-After` interval |
+| 200 `done` or `error` | the job finished; the result is kept 10 minutes, or 1 minute after the first poll that returns it |
+| 404 | the id is unknown, or the result has expired |
+| 410 | the service instance that ran the job stopped (a restart, a redeploy or a crash); the job may not have finished, or may have finished without a poll returning its result, so resubmitting an insert, update or delete can repeat a write |
+| 503 with `Retry-After` | the instance that runs the job did not answer; poll again after the interval |
+
+When a hosted service redeploys or scales down, a stopping instance first finishes its running jobs, for up to
+about 5 minutes. It keeps each finished result until a poll returns it, or for 30 seconds after the job finished.
 
 `background` cannot combine with `return_fileresponse`.
 

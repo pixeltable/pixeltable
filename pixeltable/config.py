@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -11,13 +12,14 @@ import tomllib
 import typing
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, NamedTuple, TypeAlias, TypeVar
 
 import pydantic
 import toml
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs
+from pixeltable.service.resources import DatabaseCapacity, ServiceResources
 
 if TYPE_CHECKING:
     from pixeltable import catalog
@@ -31,7 +33,7 @@ ConfVarT = TypeVar('ConfVarT', bound=str)
 # Pydantic models for deployment configuration.
 
 
-class DatabaseConfig(pydantic.BaseModel):
+class DatabaseConfig(DatabaseCapacity):
     """The contents of a [[pixeltable.database]] entry from the project config."""
 
     model_config = pydantic.ConfigDict(extra='forbid')
@@ -54,11 +56,17 @@ class DatabaseConfig(pydantic.BaseModel):
     python_version: str | None = None  # override the runtime Python version.
     uv_options: str | None = None  # extra options to pass to `uv sync` when building the runtime image
 
-    # hosted db resources
-    cpu: float | None = None
-    memory_mb: int | None = None
-    disk_gb: int | None = None
-    workers: int | None = None
+    # keyed by the service's URL path: '<base path>/<service name>', or the name alone at the database's root
+    services: dict[str, ServiceResources] | None = None
+
+    def service_resources(self, base_path: str) -> dict[str, ServiceResources]:
+        """Return the resources of the services at base_path, keyed by lowercase service name."""
+        resources: dict[str, ServiceResources] = {}
+        for path, entry in (self.services or {}).items():
+            path_base, _, name = path.rpartition('/')
+            if path_base.lower() == base_path.lower():
+                resources[name.lower()] = entry
+        return resources
 
     @pydantic.model_validator(mode='before')
     @classmethod
@@ -99,9 +107,37 @@ class DatabaseConfig(pydantic.BaseModel):
             raise ValueError(f"`python_version` must be a version like '3.12' or '3.12.8', got {v!r}")
         return v
 
+    @pydantic.field_validator('services', mode='before')
+    @classmethod
+    def _check_service_keys(cls, v: Any) -> Any:
+        # ServiceResources ignores unknown fields, so that a record stored by an older version still loads
+        if not isinstance(v, dict):
+            return v
+        for path, entry in v.items():
+            unknown = sorted(set(entry) - set(ServiceResources.model_fields)) if isinstance(entry, dict) else []
+            if len(unknown) > 0:
+                raise ValueError(f'`services.{path}` has unknown settings: {", ".join(unknown)}')
+        return v
+
+    @pydantic.model_validator(mode='after')
+    def _check_services(self) -> Self:
+        if self.services is None:
+            return self
+        if self.name == LOCAL_DATABASE:
+            raise ValueError('`services` applies to a hosted database; a local service runs in-process')
+        paths: dict[str, str] = {}
+        for path in self.services:
+            other = paths.setdefault(path.lower(), path)
+            if other != path:
+                raise ValueError(f'`services` has both {other!r} and {path!r}, which differ only in case')
+        return self
+
 
 # the entry in [[pixeltable.database]] that configures the local database
 LOCAL_DATABASE = 'local'
+
+# section -> key -> value, in the layout of a config file
+ConfigSections: TypeAlias = dict[str, dict[str, Any]]
 
 
 class _Unspecified:
@@ -113,9 +149,6 @@ _UNSPECIFIED = _Unspecified()
 # the recognized config files
 PROJECT_CONFIG_FILE = 'pixeltable.toml'
 PYPROJECT_FILE = 'pyproject.toml'  # with a [tool.pixeltable] section
-
-# both of them, for a caller that handles whichever the project holds
-PROJECT_CONFIG_FILES = (PROJECT_CONFIG_FILE, PYPROJECT_FILE)
 
 
 def _load_toml(path: Path) -> dict[str, Any]:
@@ -316,8 +349,8 @@ class Config:
 
     __project_config_file: Path | None
 
-    # what each file supplied; __config_dict records one source per option, too coarse to name the file
-    # a single database binding came from
+    # each config file's settings before the merge; __config_dict records one source for the merged database
+    # list, and __own_database_values() reports the source of each var
     __home_config: dict[str, dict[str, tuple[Any, Path | None]]]
     __project_config: dict[str, dict[str, tuple[Any, Path | None]]]
 
@@ -553,6 +586,13 @@ class Config:
         if self.__config_file.exists():
             config_dict = self.__read_toml_file(self.__config_file)
             self.__validate_config(config_dict, self.__config_file)
+            for db in config_dict.get('pixeltable', {}).get('database', []):
+                if db.name != LOCAL_DATABASE:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_CONFIGURATION,
+                        f'Cannot configure {db.name!r} in {self.__config_file}: a hosted database is configured in '
+                        f"its project. Move the [[pixeltable.database]] entry to the project's {PROJECT_CONFIG_FILE}.",
+                    )
             return self.__add_path(config_dict, self.__config_file)
 
         else:
@@ -666,6 +706,45 @@ class Config:
         if databases is None:
             return None
         return next((db for db in databases if db.name == db_name), None)
+
+    def create_project_config(self, db_config: DatabaseConfig | None) -> ConfigSections:
+        """Create the config for db_config.
+
+        It contains:
+        - the settings of the project config file, with the SHA-256 of each secret in place of its value
+        - in place of the file's [[pixeltable.database]] list: a list with one entry for db_config (its name, vars
+          and db_* settings), or no list if db_config is None
+
+        A secret in the project config file is an error for a hosted database.
+        """
+        is_hosted = db_config is not None and db_config.name != LOCAL_DATABASE
+        result: ConfigSections = {}
+        for section, options in self.__project_config.items():
+            for key, (value, _) in options.items():
+                if section == 'pixeltable' and key == 'database':
+                    continue  # replaced by the entry for db_config
+                if key in _SECRET_KEYS:
+                    if is_hosted:
+                        assert db_config is not None
+                        raise excs.RequestError(
+                            excs.ErrorCode.INVALID_CONFIGURATION,
+                            f"'{section}.{key}' in {self.__project_config_file} is a secret, and a hosted "
+                            f'database receives its secrets through `pxt secret`. Remove it and run:\n'
+                            f'  pxt secret set {db_config.name} {env_var_name(section, key)}=<value>',
+                        )
+                    # an edit to a local secret still changes the config, and so restarts a local service
+                    result.setdefault(section, {})[key] = hashlib.sha256(str(value).encode()).hexdigest()
+                    continue
+                result.setdefault(section, {})[key] = value
+
+        if db_config is not None:
+            entry: dict[str, Any] = {'name': db_config.name}
+            if db_config.vars is not None:
+                entry['vars'] = db_config.vars
+            entry.update(db_config.settings or {})
+            result.setdefault('pixeltable', {})['database'] = [entry]
+
+        return result
 
     def __own_database_values(self, field: Literal['vars', 'settings']) -> dict[str, tuple[str, Path | None]]:
         """Return the `vars` or `settings` of the database we are connected to, each with the file that supplied it.
@@ -882,6 +961,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'verbosity': 'Verbosity level for console output',
         'log_level': "Level of the 'pixeltable' logger, eg DEBUG (default: INFO)",
         'sql_log_level': "Level of the 'sqlalchemy.engine' logger: INFO logs SQL statements (default: WARNING)",
+        'psycopg_log_level': "Level of the 'psycopg' logger (default: WARNING)",
         'show_progress': 'Show a progress tracker for long-running operations (default: false)',
         'api_key': 'API key for Pixeltable cloud',
         'input_media_dest': 'Default destination URI for input media data',
@@ -893,7 +973,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'database': (
             'One entry per database the project uses: its variable bindings, per-database values for the media '
             'destinations and the OTLP endpoint and protocol (db_<key>), and for a hosted database the contents of '
-            'its runtime image',
+            "its runtime image and its services' resources",
             list[DatabaseConfig],
         ),
         'db_pool_size': ('Number of database connections the engine keeps open (default: 5)', int),
@@ -911,9 +991,14 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'temp_location': 'S3 URI for temporary storage used by Bedrock async model invocations',
         'performance_config_latency': 'Performance setting for supported models (standard or optimized)',
         'service_tier': 'Processing tier for requests (priority, default, flex, or reserved)',
+        'rate_limits': 'Per-model rate limits for Bedrock API requests',
     },
     'bfl': {'api_key': 'Black Forest Labs (BFL) API key', 'rate_limit': 'Rate limit for BFL API requests'},
-    'deepseek': {'api_key': 'Deepseek API key', 'rate_limit': 'Rate limit for Deepseek API requests'},
+    'deepseek': {
+        'api_key': 'Deepseek API key',
+        'base_url': 'Deepseek API base URL',
+        'rate_limit': 'Rate limit for Deepseek API requests',
+    },
     'fal': {'api_key': 'fal.ai API key', 'rate_limit': 'Rate limit for fal.ai API requests'},
     'fireworks': {'api_key': 'Fireworks API key', 'rate_limit': 'Rate limit for Fireworks API requests'},
     'gemini': {
@@ -988,6 +1073,11 @@ _INSTALLATION_KEYS = frozenset(
         'db_pool_size',
         'db_pool_max_overflow',
     }
+)
+
+# settings that contain credentials
+_SECRET_KEYS = frozenset(
+    {'api_key', 'api_secret', 'api_token', 'token', 'storage_account_key', 'exporter_otlp_headers'}
 )
 
 # whitelist of allowed setting overrides for individual dbs; the db_ prefix keeps them apart from the db
