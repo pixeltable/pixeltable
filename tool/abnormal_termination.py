@@ -6,10 +6,9 @@ A new process then initializes Pixeltable, reads the whole table and checks that
 full or left no rows, and that every committed row's media files exist.
 
 Kill modes:
-- python: only the worker process dies; the Postgres server that Pixeltable started keeps running, as when the
-  OS kills Python for running out of memory or a user kills a hung notebook kernel.
-- all: the worker and every Postgres process die together, as in a container kill or a machine crash, so the next
-  start runs Postgres crash recovery. Unlike a power failure, writes the OS had not yet flushed to disk survive.
+- python: only the worker process dies; the Postgres server that Pixeltable started keeps running.
+- all: the worker and every Postgres process die together, so the next start runs Postgres crash recovery. Unlike
+  a power failure, writes the OS had not yet flushed to disk survive.
 - alternate (default): python on odd cycles, all on even cycles.
 
 Usage: python tool/abnormal_termination.py [--cycles N] [--rows N] [--kill MODE] [--home DIR] [--seed N]
@@ -34,6 +33,7 @@ from typing import Any
 import numpy as np
 import PIL.Image
 import psutil
+from pixeltable_pgserver.utils import PostmasterInfo
 
 import pixeltable as pxt
 
@@ -110,7 +110,7 @@ class Worker:
         # Inherited settings such as PIXELTABLE_PGDATA or PIXELTABLE_DB_CONNECT_STR could point the worker at a database
         # outside the home
         env = {k: v for k, v in os.environ.items() if not k.startswith('PIXELTABLE_') or k == 'PIXELTABLE_VERBOSITY'}
-        env.update(PIXELTABLE_HOME=str(home), PYTHONIOENCODING='utf-8')
+        env.update(PIXELTABLE_HOME=str(home), PIXELTABLE_PGDATA=str(home / 'pgdata'), PYTHONIOENCODING='utf-8')
         env.setdefault('PIXELTABLE_VERBOSITY', '0')
         self.proc = subprocess.Popen(
             [sys.executable, '-u', __file__, *args],
@@ -166,14 +166,13 @@ class Worker:
 
 def postgres_processes(pgdata: Path) -> list[psutil.Process]:
     """Returns the postmaster and its descendants, or [] if no server is running."""
+    # After a kill, the pid in the stale postmaster.pid can belong to an unrelated process; PostmasterInfo sets
+    # process only for a postgres process whose -D is this pgdata
     try:
-        lines = (pgdata / 'postmaster.pid').read_text().splitlines()
-        postmaster = psutil.Process(int(lines[0]))
-        # After a kill, the pid in the stale postmaster.pid can belong to an unrelated process (quite likely on
-        # Windows); the server's start time tells them apart
-        if abs(postmaster.create_time() - int(lines[2])) > 5:
+        info = PostmasterInfo.read_from_pgdata(pgdata)
+        if info is None or info.process is None:
             return []
-        return [postmaster, *postmaster.children(recursive=True)]
+        return [info.process, *info.process.children(recursive=True)]
     except (FileNotFoundError, psutil.Error):
         return []
 
@@ -287,7 +286,10 @@ def main() -> None:
             sys.exit(f'--home must be a new or empty directory: {home}')
     if args.seed is None:
         args.seed = random.randrange(2**32)
-    print(f'Pixeltable home: {home}\nSeed: {args.seed}', flush=True)
+    print(
+        f'Pixeltable home: {home}\nSeed: {args.seed}  cycles: {args.cycles}  rows: {args.rows}  kill: {args.kill}',
+        flush=True,
+    )
 
     try:
         run_cycles(args, home)
@@ -295,7 +297,6 @@ def main() -> None:
         print(f'FAILED: {e}', flush=True)
         sys.exit(1)
     finally:
-        # Leave no worker or Postgres server running
         kill(psutil.Process().children(recursive=True) + postgres_processes(home / 'pgdata'))
     if args.home is None:
         shutil.rmtree(home, ignore_errors=True)
