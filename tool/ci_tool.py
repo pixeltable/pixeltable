@@ -72,8 +72,6 @@ ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 TRIGGERS = ('pull_request', 'merge_group', 'schedule', 'workflow_dispatch')
 
 DEFAULT_XDIST_WORKERS = 'logical'  # one worker per vCPU; -n auto would be 2 on windows-2025 (physical cores)
-# 16 workers on ubuntu-large exhaust its memory (standard++) and the shared test Postgres server's 100 connections
-# (standard+), with no gain in merge-queue time: the windows-2025 jobs are the long pole
 LARGE_RUNNER_XDIST_WORKERS = '8'
 
 
