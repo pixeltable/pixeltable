@@ -1,4 +1,5 @@
-from typing import AsyncIterator, Iterator
+import contextlib
+from typing import AsyncGenerator, Iterator
 
 from pixeltable import catalog, exceptions as excs, exprs, telemetry
 from pixeltable.func.iterator import GeneratingFunctionCall
@@ -67,34 +68,35 @@ class ComponentIterationNode(ExecNode):
                     return
             yield item
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         telemetry_active = telemetry.active()
         output_batch = DataRowBatch(self.row_builder)
-        async for input_batch in self.input:
-            for input_row in input_batch:
-                # usually computed by the input plan, which then garbage-collected the intermediates they depend on
-                if not input_row.has_val[self.iterator_args_expr.slot_idx]:
-                    self.row_builder.eval(input_row, self.iterator_args_ctx)
-                iterator_args = input_row[self.iterator_args_expr.slot_idx]
-                assert isinstance(iterator_args, dict)
-                # We need to ensure that all of the required (non-nullable) parameters of the iterator are
-                # specified and are not null. If any of them are null, then we skip this row (i.e., we emit 0
-                # output rows for this input row).
-                if self.__non_nullable_args_specified(iterator_args):
-                    iterator = self.view.get().iterator_call.eval(iterator_args)
-                    try:
-                        steps = self._instrumented_iter(iterator) if telemetry_active else iterator
-                        for pos, component_dict in enumerate(steps):
-                            output_row = self.row_builder.make_row()
-                            input_row.copy(output_row)
-                            # we're expanding the input and need to add the iterator position to the pk
-                            self.__populate_output_row(output_row, pos, component_dict)
-                            output_batch.add_row(output_row)
-                            if len(output_batch) == self.__OUTPUT_BATCH_SIZE:
-                                yield output_batch
-                                output_batch = DataRowBatch(self.row_builder)
-                    finally:
-                        iterator.close()
+        async with contextlib.aclosing(aiter(self.input)) as input_iter:
+            async for input_batch in input_iter:
+                for input_row in input_batch:
+                    # usually computed by the input plan, which then garbage-collected the intermediates they depend on
+                    if not input_row.has_val[self.iterator_args_expr.slot_idx]:
+                        self.row_builder.eval(input_row, self.iterator_args_ctx)
+                    iterator_args = input_row[self.iterator_args_expr.slot_idx]
+                    assert isinstance(iterator_args, dict)
+                    # We need to ensure that all of the required (non-nullable) parameters of the iterator are
+                    # specified and are not null. If any of them are null, then we skip this row (i.e., we emit 0
+                    # output rows for this input row).
+                    if self.__non_nullable_args_specified(iterator_args):
+                        iterator = self.view.get().iterator_call.eval(iterator_args)
+                        try:
+                            steps = self._instrumented_iter(iterator) if telemetry_active else iterator
+                            for pos, component_dict in enumerate(steps):
+                                output_row = self.row_builder.make_row()
+                                input_row.copy(output_row)
+                                # we're expanding the input and need to add the iterator position to the pk
+                                self.__populate_output_row(output_row, pos, component_dict)
+                                output_batch.add_row(output_row)
+                                if len(output_batch) == self.__OUTPUT_BATCH_SIZE:
+                                    yield output_batch
+                                    output_batch = DataRowBatch(self.row_builder)
+                        finally:
+                            iterator.close()
 
         if len(output_batch) > 0:
             yield output_batch

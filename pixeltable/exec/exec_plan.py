@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from types import TracebackType
-from typing import Any, AsyncIterator, Iterator, Self
+from typing import Any, AsyncGenerator, Iterator, Self
 from uuid import UUID
 
 import pixeltable.exceptions as excs
@@ -138,9 +139,6 @@ class ExecPlan:
     def __iter__(self) -> Iterator[DataRowBatch]:
         return iter(self.exec_root)
 
-    def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        return self.exec_root.__aiter__()
-
     def exec(self, args: dict[str, Any]) -> Iterator[exprs.DataRow]:
         """Bind args, open the plan, and yield rows. Synchronous path.
 
@@ -157,17 +155,17 @@ class ExecPlan:
         except BaseException:
             self._is_executing = False
             raise
-        with self:
-            for batch in self.exec_root:
+        with self, contextlib.closing(iter(self.exec_root)) as batches:
+            for batch in batches:
                 yield from batch
 
-    async def aexec(self, args: dict[str, Any]) -> AsyncIterator[exprs.DataRow]:
+    async def aexec(self, args: dict[str, Any]) -> AsyncGenerator[exprs.DataRow, None]:
         """Bind args, open the plan, and yield rows. Async path.
 
         Holds iter_lock for the lifetime of the iteration so concurrent async callers (e.g. a
         per-row inner-query template invoked from an outer ExprEvalNode) don't interleave their
-        bind+iterate cycles on the same cached plan. Callers must drain the generator (or aclose
-        it); standard async-generator finalization releases the lock when the generator is closed.
+        bind+iterate cycles on the same cached plan. Callers must drain the generator or aclose() it;
+        both release the lock.
         """
         if self._iter_lock is None:
             self._iter_lock = asyncio.Lock()
@@ -179,6 +177,7 @@ class ExecPlan:
                 self._is_executing = False
                 raise
             with self:
-                async for batch in self.exec_root:
-                    for row in batch:
-                        yield row
+                async with contextlib.aclosing(aiter(self.exec_root)) as batches:
+                    async for batch in batches:
+                        for row in batch:
+                            yield row

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import io
 import os
 from collections import deque
 from concurrent import futures
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any, AsyncGenerator
 
 import numpy as np
 import PIL.Image
@@ -97,39 +98,41 @@ class CellMaterializationNode(ExecNode):
     def _open(self) -> None:
         self._init_exec_state()
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        async for batch in self.input:
-            for row in batch:
-                for col, slot_idx in self.output_col_info.items():
-                    if row.has_exc(slot_idx):
-                        # Nulls in JSONB columns need to be stored as sql.sql.null(), otherwise it stores a json 'null'
-                        row.cell_vals[col.id] = sql.sql.null() if col.col_type.is_json_type() else None
-                        exc = row.get_exc(slot_idx)
-                        row.cell_md[col.id] = exprs.CellMd(errortype=type(exc).__name__, errormsg=str(exc))
-                        continue
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
+        async with contextlib.aclosing(aiter(self.input)) as input_iter:
+            async for batch in input_iter:
+                for row in batch:
+                    for col, slot_idx in self.output_col_info.items():
+                        if row.has_exc(slot_idx):
+                            # Nulls in JSONB columns need to be stored as sql.sql.null(),
+                            # otherwise it stores a json 'null'
+                            row.cell_vals[col.id] = sql.sql.null() if col.col_type.is_json_type() else None
+                            exc = row.get_exc(slot_idx)
+                            row.cell_md[col.id] = exprs.CellMd(errortype=type(exc).__name__, errormsg=str(exc))
+                            continue
 
-                    val = row[slot_idx]
-                    if val is None:
-                        row.cell_vals[col.id] = sql.sql.null() if col.col_type.is_json_type() else None
-                        row.cell_md[col.id] = None
-                        continue
+                        val = row[slot_idx]
+                        if val is None:
+                            row.cell_vals[col.id] = sql.sql.null() if col.col_type.is_json_type() else None
+                            row.cell_md[col.id] = None
+                            continue
 
-                    if col.col_type.is_json_type():
-                        self._materialize_json_cell(row, col, val)
-                    elif col.col_type.is_array_type():
-                        assert isinstance(val, np.ndarray)
-                        self._materialize_array_cell(row, col, val)
-                    else:
-                        assert col.col_type.is_binary_type()
-                        assert isinstance(val, bytes)
-                        self._materialize_binary_cell(row, col, val)
+                        if col.col_type.is_json_type():
+                            self._materialize_json_cell(row, col, val)
+                        elif col.col_type.is_array_type():
+                            assert isinstance(val, np.ndarray)
+                            self._materialize_array_cell(row, col, val)
+                        else:
+                            assert col.col_type.is_binary_type()
+                            assert isinstance(val, bytes)
+                            self._materialize_binary_cell(row, col, val)
 
-                    # continue with only the currently open chunk
-                    self.chunks = self.chunks[-1:] if self.buffered_writer is not None else []
+                        # continue with only the currently open chunk
+                        self.chunks = self.chunks[-1:] if self.buffered_writer is not None else []
 
-                await self._wait_for_uploads(self.MAX_PENDING_UPLOADS)
+                    await self._wait_for_uploads(self.MAX_PENDING_UPLOADS)
 
-            yield batch
+                yield batch
 
         self._flush_buffer(finalize=True)
         # the rows reference the chunks' urls, so they can't be committed before all uploads have succeeded

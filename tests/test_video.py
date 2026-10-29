@@ -1,3 +1,4 @@
+import asyncio
 import math
 import os
 import platform
@@ -6,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Literal
 
 import PIL.Image
+import psutil
 import pytest
 
 import pixeltable as pxt
@@ -307,6 +309,56 @@ class TestVideo:
                         assert isinstance(selected_frame, PIL.Image.Image)
                         # Ensure we get the bitmap-identical frame
                         assert selected_frame == frames[pos]
+
+    @pytest.mark.db_roots('local', reason='checks the open files of this process; a proxy query runs in the server')
+    def test_frame_view_open_files(self, uses_db: None) -> None:
+        """Queries over the unstored frame column leave no video file open, including queries that stop early."""
+        video_paths = get_video_files(extension='.mp4')
+        videos = pxt.create_table('videos', {'video': pxt.Video})
+        frames = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, fps=1))
+        videos.insert({'video': path} for path in video_paths)
+        resolved_paths = {Path(path).resolve() for path in video_paths}
+
+        def open_videos() -> list[str]:
+            return [f.path for f in psutil.Process().open_files() if Path(f.path).resolve() in resolved_paths]
+
+        assert len(frames.where(frames.pos == 3).select(frames.frame).collect()) == len(video_paths)
+        assert open_videos() == []
+
+        num_frames = frames.count()
+        assert len(frames.select(frames.frame).collect()) == num_frames
+        assert open_videos() == []
+
+        query = frames.select(frames.frame)
+        query.collect()
+        query.collect()
+        assert open_videos() == []
+
+        assert len(frames.where(frames.frame.width > 0).select(frames.frame).limit(2).collect()) == 2
+        assert open_videos() == []
+
+        assert len(frames.group_by(videos).select(pxtf.max(frames.frame.width)).limit(1).collect()) == 1
+        assert open_videos() == []
+
+        with frames.select(frames.frame).cursor() as cursor:
+            for _ in cursor:
+                break
+        assert open_videos() == []
+
+        for _ in frames.select(frames.frame).cursor():
+            break
+        assert open_videos() == []
+
+        # with all frames, the cursor below stops while the query is still producing rows
+        all_frames = pxt.create_view('all_frames', videos, iterator=frame_iterator(videos.video))
+
+        async def query_from_a_running_loop() -> None:  # noqa: RUF029
+            assert len(frames.select(frames.frame).collect()) == num_frames
+            for _ in all_frames.select(all_frames.frame).cursor():
+                break
+
+        asyncio.run(query_from_a_running_loop())
+        assert open_videos() == []
 
     def test_keyframes_only(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import contextlib
 import queue
 import threading
 from types import TracebackType
-from typing import Any, AsyncIterator, Iterable, Iterator, Self, TypeVar
+from typing import Any, AsyncGenerator, Generator, Iterable, Iterator, Self, TypeVar
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -107,10 +108,11 @@ class ExecNode(abc.ABC):
             for row in rows:
                 row[v.slot_idx] = val
 
+    # not AsyncIterator: callers aclose() the generator
     @abc.abstractmethod
-    def __aiter__(self) -> AsyncIterator[DataRowBatch]: ...
+    def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]: ...  # noqa: PYI058
 
-    def __iter__(self) -> Iterator[DataRowBatch]:
+    def __iter__(self) -> Generator[DataRowBatch, None, None]:
         try:
             running = asyncio.get_running_loop()
         except RuntimeError:
@@ -121,12 +123,20 @@ class ExecNode(abc.ABC):
             # overhead introduced by _thread_iter()
             loop = get_runtime().event_loop
             aiter = self.__aiter__()
+            step: asyncio.Future[DataRowBatch] | None = None
             try:
                 while True:
-                    batch: DataRowBatch = loop.run_until_complete(aiter.__anext__())
+                    step = asyncio.ensure_future(aiter.__anext__(), loop=loop)
+                    batch: DataRowBatch = loop.run_until_complete(step)
                     yield batch
             except StopAsyncIteration:
                 pass
+            finally:
+                if step is not None and not step.done():
+                    # an interrupt escaped run_until_complete() mid-step; aclose() refuses a running generator
+                    step.cancel()
+                    loop.run_until_complete(asyncio.wait([step]))
+                loop.run_until_complete(aiter.aclose())
         else:
             yield from self._thread_iter()
 
@@ -138,6 +148,7 @@ class ExecNode(abc.ABC):
         # consumption (but buffering more than that would simply increase memory consumption without additional
         # benefits)
         result_queue: queue.Queue = queue.Queue(maxsize=2)
+        consumer_done = threading.Event()
         caller_runtime = get_runtime()
         # carry the ambient instrumentation span across the thread boundary so spans reported on the
         # worker thread nest under it
@@ -150,8 +161,11 @@ class ExecNode(abc.ABC):
             hooks_token = telemetry.restore_context(hooks_ctx)
 
             async def produce() -> None:
-                async for batch in aiter(self):
-                    result_queue.put(batch)
+                async with contextlib.aclosing(aiter(self)) as batches:
+                    async for batch in batches:
+                        result_queue.put(batch)
+                        if consumer_done.is_set():
+                            break
 
             # asyncio.Runner gives this thread the same loop teardown that asyncio.run() performs
             with asyncio.Runner() as runner:
@@ -176,6 +190,10 @@ class ExecNode(abc.ABC):
                     raise item
                 yield item
         finally:
+            consumer_done.set()
+            # unblock a pending put(); the producer then puts at most one batch, plus the sentinel or an exception
+            while not result_queue.empty():
+                result_queue.get_nowait()
             thread.join(timeout=30)
 
     def __enter__(self) -> Self:
