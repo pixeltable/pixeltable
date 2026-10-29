@@ -105,10 +105,6 @@ class ColumnVersionMd:
     def stores_cellmd(self) -> bool:
         return self.col_md.stores_cellmd
 
-    @property
-    def tbl_version_key(self) -> TableVersionKey:
-        return TableVersionKey(self.tbl_id, self.effective_version)
-
     def with_context(self, tbl_id: UUID, effective_version: int | None) -> ColumnVersionMd:
         """Reset the path-context table."""
         if tbl_id == self.tbl_id and effective_version == self.effective_version:

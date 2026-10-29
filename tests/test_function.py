@@ -772,16 +772,12 @@ class TestFunction:
     # to a circular initialization failure.
     # It is currently broken, because it depends on the order in which tables are being dropped, which in turn
     # depends on the order in which table ids are being returned by the query that identifies which tables to drop.
-    # If 'tbl' is dropped before 'retrieval' or 'src', we get an error when trying to drop 'retrieval' or 'src_view'
-    # (it tries to load the required TableVersion, which requires deserializing the value expr for the 'result'
-    # column, which references 'view', which no longer exists).
-    # TODO: find a general solution (PXT-1706)
-    @pytest.mark.filterwarnings(
-        "ignore:The computed column '(result|unstored_result)' in table '(retrieval|src_view)' is no longer valid"
-    )
-    # 'text' is the view's own column, 'a' is inherited from tbl
-    @pytest.mark.parametrize('col_name', ['text', 'a'])
-    def test_query_over_view(self, db_root: DatabaseRoot, col_name: str) -> None:
+    # If 'tbl' is dropped before 'retrieval', we get an error when trying to drop 'retrieval' (it tries to load
+    # the required TableVersion, which requires deserializing the value expr for the 'result' column, which
+    # references 'view', which no longer exists).
+    # TODO: find a general solution
+    @pytest.mark.filterwarnings("ignore:The computed column 'result' in table 'retrieval' is no longer valid")
+    def test_query_over_view(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('test'))
         t = pxt.create_table(p('test/tbl'), {'a': pxt.String | None})
@@ -789,7 +785,7 @@ class TestFunction:
 
         @pxt.query
         def retrieve() -> pxt.Query:
-            return v.select(v[col_name]).limit(20)
+            return v.select(v.text).limit(20)
 
         assert_type_eq(retrieve.signature.return_type, pxt.Json[[pxt.String | None]])
 
@@ -797,178 +793,16 @@ class TestFunction:
         retrieval.add_computed_column(result=retrieve())
         assert retrieval.result.col_type == retrieve.signature.return_type
 
-        @pxt.query
-        def retrieve_n(n: int) -> pxt.Query:
-            return v.select(v[col_name]).limit(n)
-
-        src = pxt.create_table(p('test/src'), {'n': pxt.Int | None})
-        src_view = pxt.create_view(p('test/src_view'), src)
-        src_view.add_computed_column(result=retrieve_n(src_view.n))
-
         # Populate t (and hence v) with more rows than the limit, then verify that limit(20)
         # inside the query UDF is enforced when it runs as a view-column computation.
         t.insert([{'a': f's_{i}'} for i in range(30)])
-        # reload before the next three writes, so each one is the first to load v
-        reload_catalog()
-        retrieval = pxt.get_table(p('test/retrieval'))
         retrieval.insert(n=1)
         res = retrieval.select(retrieval.result).collect()
         assert len(res) == 1
         assert len(res[0]['result']) == 20
 
         reload_catalog()
-        validate_update_status(pxt.get_table(p('test/src')).insert(n=5))
-        src_view = pxt.get_table(p('test/src_view'))
-        assert len(src_view.select(src_view.result).collect()[0]['result']) == 5
-        reload_catalog()
-        validate_update_status(pxt.get_table(p('test/src')).update({'n': 10}))
-        src_view = pxt.get_table(p('test/src_view'))
-        assert len(src_view.select(src_view.result).collect()[0]['result']) == 10
-
-        # change the view's schema after loading retrieval
-        retrieval = pxt.get_table(p('test/retrieval'))
-        pxt.get_table(p('test/view')).add_column(extra=pxt.Int | None)
-        validate_update_status(retrieval.insert(n=2))
-        assert len(retrieval.where(retrieval.n == 2).select(retrieval.result).collect()[0]['result']) == 20
-
-        # a read is the first to load v
-        retrieval.add_computed_column(unstored_result=retrieve(), stored=False)
-        reload_catalog()
-        retrieval = pxt.get_table(p('test/retrieval'))
-        assert len(retrieval.select(retrieval.unstored_result).collect()[0]['unstored_result']) == 20
-
-        reload_catalog()
         pxt.drop_dir(p('test'), force=True)
-
-    # 'text' is the view's own column, 'a' is inherited from tbl
-    @pytest.mark.parametrize('col_name', ['text', 'a'])
-    def test_query_over_own_view(self, db_root: DatabaseRoot, col_name: str) -> None:
-        """A computed column can query a view of its own table."""
-        p = db_root.make_catalog_path
-        pxt.create_dir(p('test'))
-        t = pxt.create_table(p('test/tbl'), {'a': pxt.String | None})
-        v = pxt.create_view(p('test/view'), t, additional_columns={'text': pxt.String | None})
-
-        @pxt.query
-        def retrieve() -> pxt.Query:
-            return v.select(v[col_name]).limit(5)
-
-        t.add_computed_column(result=retrieve())
-        # the view's computed column references a column added to t after t.result
-        t.add_column(b=pxt.Int | None)
-        v = pxt.get_table(p('test/view'))
-        v.add_computed_column(copy_b=v.b)
-        t.insert(a='x', b=1)
-        v.update({'text': v.a})
-
-        reload_catalog()
-        t = pxt.get_table(p('test/tbl'))
-        t.insert(a='y', b=2)
-        assert t.where(t.a == 'y').select(t.result).collect()[0]['result'] == ['x']
-
-    def test_query_over_dropped_table(self, db_root: DatabaseRoot) -> None:
-        """Writes that don't evaluate a stored query still work after its table is dropped."""
-        p = db_root.make_catalog_path
-        pxt.create_dir(p('test'))
-        src = pxt.create_table(p('test/src'), {'a': pxt.String | None})
-
-        @pxt.query
-        def retrieve() -> pxt.Query:
-            return src.select(src.a)
-
-        t = pxt.create_table(p('test/tbl'), {'n': pxt.Int | None})
-        t.add_computed_column(result=retrieve())
-        t.insert([{'n': 1}, {'n': 2}])
-        pxt.drop_table(p('test/src'))
-
-        validate_update_status(t.delete(t.n == 1), expected_rows=1)
-        t.drop_column('result')
-        validate_update_status(t.insert(n=3), expected_rows=1)
-        assert t.count() == 2
-
-    def test_query_over_dropped_column(self, db_root: DatabaseRoot) -> None:
-        """A query over a dropped unstored column fails only when it's evaluated."""
-        p = db_root.make_catalog_path
-        pxt.create_dir(p('test'))
-        src = pxt.create_table(p('test/src'), {'a': pxt.String | None})
-        src.add_computed_column(upper=src.a.upper(), stored=False)
-        src.insert(a='x')
-
-        @pxt.query
-        def retrieve() -> pxt.Query:
-            return src.select(src.upper)
-
-        t = pxt.create_table(p('test/tbl'), {'n': pxt.Int | None})
-        t.add_computed_column(result=retrieve())
-        t.insert([{'n': 1}, {'n': 2}])
-        src.drop_column('upper')
-
-        validate_update_status(t.delete(t.n == 1), expected_rows=1)
-        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Column was dropped'):
-            t.insert(n=3)
-
-    def test_query_source_shapes(self, db_root: DatabaseRoot) -> None:
-        """
-        Inserts and reads evaluate queries that reach a view through a snapshot, an unstored column, a nested query,
-        a function call or a query without a select list.
-        """
-        p = db_root.make_catalog_path
-        pxt.create_dir(p('test'))
-        src = pxt.create_table(p('test/src'), {'a': pxt.String | None})
-        src.insert(a='x')
-        v1, v2, v3, v4, v5, v6 = (pxt.create_view(p(f'test/view_{i}'), src) for i in range(1, 7))
-        snap = pxt.create_snapshot(p('test/snap'), v1)
-
-        def select_a(tbl: pxt.Table) -> func.QueryTemplateFunction:
-            @pxt.query
-            def retrieve() -> pxt.Query:
-                return tbl.select(tbl.a)
-
-            return retrieve
-
-        other = pxt.create_table(p('test/other'), {'b': pxt.String | None})
-        other.add_computed_column(r2=select_a(v2)(), stored=False)
-        other.add_computed_column(r5=select_a(v5)(), stored=False)
-        other.add_computed_column(r6=select_a(v6)(), stored=False)
-        other.insert(b='o')
-
-        @pxt.query
-        def select_r2() -> pxt.Query:
-            return other.select(other.r2)
-
-        @pxt.query
-        def select_r6() -> pxt.Query:
-            return other.select(other.r6)
-
-        @pxt.query
-        def select_nested() -> pxt.Query:
-            return src.select(select_a(v3)())
-
-        @pxt.query
-        def select_all() -> pxt.Query:
-            return other.limit(5)
-
-        t = pxt.create_table(p('test/tbl'), {'n': pxt.Int | None})
-        t.add_computed_column(snap_result=select_a(snap)())
-        t.add_computed_column(unstored_result=select_r2())
-        t.add_computed_column(nested_result=select_nested())
-        t.add_computed_column(wrapped_result=pxtf.json.len(select_a(v4)()))
-        t.add_computed_column(select_all_result=select_all())
-        t.add_computed_column(read_result=select_r6(), stored=False)
-
-        reload_catalog()
-        validate_update_status(pxt.get_table(p('test/tbl')).insert(n=1), expected_rows=1)
-        reload_catalog()
-        t = pxt.get_table(p('test/tbl'))
-        assert t.collect()[0] == {
-            'n': 1,
-            'snap_result': ['x'],
-            'unstored_result': [['x']],
-            'nested_result': [['x']],
-            'wrapped_result': 1,
-            'select_all_result': [{'b': 'o', 'r2': ['x'], 'r5': ['x'], 'r6': ['x']}],
-            'read_result': [['x']],
-        }
 
     def test_query_with_limit(self, test_tbl: pxt.Table) -> None:
         """@pxt.query bodies that use limit() with differently-shaped limit arguments."""

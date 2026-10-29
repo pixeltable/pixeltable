@@ -98,7 +98,8 @@ class ColumnRef(Expr):
     def tbl_version(self) -> catalog.TableVersionHandle:
         # the path-context table (e.g. the view a base column is accessed through), where column-level metadata
         # such as indexes lives - as opposed to _col, which is the column's physical owner
-        return catalog.TableVersionHandle(self.col_md.tbl_version_key)
+        key = catalog.TableVersionKey(self.col_md.tbl_id, self.col_md.effective_version)
+        return catalog.TableVersionHandle(key)
 
     def set_iter_arg_ctx(self, iter_arg_ctx: RowBuilder.EvalCtx, iter_outputs: list[ColumnRef]) -> None:
         self.iter_arg_ctx = iter_arg_ctx
@@ -457,8 +458,9 @@ class ColumnRef(Expr):
                     f'{type_str} embedding and does not support {type_str} queries',
                 )
 
+        table_version_key = catalog.TableVersionKey(self.col_md.tbl_id, self.col_md.effective_version)
         return SimilarityExpr(
-            expr, idx_name=idx_md.name, qcol_id=self.col_md.qcolid, table_version_key=self.col_md.tbl_version_key
+            expr, idx_name=idx_md.name, qcol_id=self.col_md.qcolid, table_version_key=table_version_key
         )
 
     def embedding(self, *, idx: str | None = None) -> ColumnRef:
@@ -654,15 +656,13 @@ class ColumnRef(Expr):
             # still being loaded (e.g. deserializing iterator args), so we must not trigger a re-entrant load.
             key = catalog.TableVersionKey(col_tbl_id, col_tbl_effective_version)
             tv = get_runtime().catalog.get_tbl_version(key, validate_initialized=False)
-            # avoid TV.cols_by_id or other lookup structures, they might be incomplete at this point (if we're getting
-            # called from TableVersion._init_schema())
-            stored_md = tv.stored_column_version_md(col_id)
-            if stored_md is None:
+            col = tv.cols_by_id.get(col_id)
+            if col is None:
                 raise excs.NotFoundError(
                     excs.ErrorCode.COLUMN_NOT_FOUND,
                     f'Column was dropped (no record for column ID {col_id} in table {tv.versioned_name!r})',
                 )
-            col_md = stored_md
+            col_md = col.column_version_md()
 
         if tbl_id != col_tbl_id or effective_version != col_tbl_effective_version:
             col_md = col_md.with_context(tbl_id, effective_version)

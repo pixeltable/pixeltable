@@ -44,7 +44,7 @@ from .tbl_ops import (
     TableOp,
     TableOpsBuilder,
 )
-from .types import ColumnVersionMd, QColumnId, TableVersionKey, TableVersionMd
+from .types import QColumnId, TableVersionKey, TableVersionMd
 from .update_status import RowCountStats, UpdateStatus
 from .utils import generate_idx_name, validate_idxs
 
@@ -2133,24 +2133,6 @@ class TableVersion:
     def is_iterator_column(self, col: Column) -> bool:
         """Returns True if col is produced by an iterator (including the pos column)"""
         return col.is_iterator_col
-
-    def stored_column_version_md(self, col_id: int) -> ColumnVersionMd | None:
-        """Return the column's metadata, or None if this version's schema doesn't have the column.
-
-        Reads the stored schema rather than cols_by_id, so it also works during _init_schema().
-        """
-        schema_col = self._schema_version_md.columns.get(col_id)
-        if schema_col is None:
-            return None
-        return ColumnVersionMd(
-            tbl_id=self.id,
-            effective_version=self.effective_version,
-            qcolid=QColumnId(self.id, col_id),
-            col_effective_version=self.effective_version,
-            col_md=self.tbl_md.column_md[col_id],
-            schema_col=schema_col,
-            is_iterator_col=self.is_component_view and col_id < self.num_iterator_cols,
-        )
 
     def iterator_columns(self) -> list[Column]:
         """Return all iterator-produced columns (including the pos column)"""

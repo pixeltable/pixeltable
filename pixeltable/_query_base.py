@@ -318,9 +318,6 @@ class QueryBase(ABC):
         self._referenced_tbl_ids = tbl_ids
         return tbl_ids
 
-    def from_clause_tbl_version_keys(self) -> list[catalog.TableVersionKey]:
-        return [key for tp in self._from_clause.tbls for key in tp.key().keys]
-
     def _descriptors(self) -> DescriptionHelper:
         helper = DescriptionHelper()
         helper.append(self._col_descriptor())

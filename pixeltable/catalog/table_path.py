@@ -141,15 +141,6 @@ class TablePath(abc.ABC):
             return None
         return self.base.find_tbl_version(id)
 
-    def find_idx_tbl_version(
-        self, qcolid: QColumnId, name: str | None, idx_class: type[IndexBase]
-    ) -> TableVersionKey | None:
-        if self.has_idx(qcolid, name, idx_class):
-            return TableVersionKey(self.tbl_id, self.effective_version())
-        if self.base is None:
-            return None
-        return self.base.find_idx_tbl_version(qcolid, name, idx_class)
-
     @property
     def path_len(self) -> int:
         return 1 if self.base is None else 1 + self.base.path_len
@@ -193,10 +184,6 @@ class TablePath(abc.ABC):
     @abc.abstractmethod
     def get_idx_md(self, qcolid: QColumnId, name: str | None, idx_class: type[IndexBase]) -> schema.IndexMd:
         """Return the index metadata for an index on the given column."""
-
-    @abc.abstractmethod
-    def has_idx(self, qcolid: QColumnId, name: str | None, idx_class: type[IndexBase]) -> bool:
-        """Return True if this path's own table has an idx_class index on qcolid; a None name matches any index."""
 
     @abc.abstractmethod
     def media_validation(self) -> MediaValidation:
@@ -324,10 +311,19 @@ class TableVersionPath(TablePath):
         effective_version = self.tbl_version.effective_version
         column_version_md: dict[QColumnId, ColumnVersionMd] = {}
         # own columns (all, incl. system) first, so they shadow same-named base columns in iteration order
-        for col_id in tv.cols_by_id:
-            col_md = tv.stored_column_version_md(col_id)
-            assert col_md is not None
-            column_version_md[col_md.qcolid] = col_md
+        for col in tv.cols_by_id.values():
+            col_md_obj = tv.tbl_md.column_md[col.id]
+            schema_col = tv._schema_version_md.columns[col.id]
+            qcolid = QColumnId(self.tbl_id, col.id)
+            column_version_md[qcolid] = ColumnVersionMd(
+                tbl_id=self.tbl_id,
+                effective_version=effective_version,
+                qcolid=qcolid,
+                col_effective_version=effective_version,
+                col_md=col_md_obj,
+                schema_col=schema_col,
+                is_iterator_col=col.is_iterator_col,
+            )
         if self.base is not None:
             for base_col_md in self.base._cached_column_version_md().values():
                 column_version_md[base_col_md.qcolid] = base_col_md.with_context(self.tbl_version.id, effective_version)
@@ -486,13 +482,6 @@ class TableVersionPath(TablePath):
             raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Column {qcolid!r} not found')
         idx_info = tv.get_idx(col, name, idx_class)
         return tv._tbl_md.index_md[idx_info.id]
-
-    def has_idx(self, qcolid: QColumnId, name: str | None, idx_class: type[IndexBase]) -> bool:
-        name = None if name is None else fold_identifier(name)
-        return any(
-            isinstance(info.idx, idx_class) and (name is None or info.name == name)
-            for info in self._cached_tv().idxs_by_col.get(qcolid, [])
-        )
 
     def as_dict(self) -> dict:
         return {
@@ -693,7 +682,18 @@ class TableMdPath(TablePath):
         # by the base column's qcolid), so resolve at the first level that has a matching index
         level: TableMdPath | None = self
         while level is not None:
-            candidates = level._idx_mds(qcolid, idx_class)
+            schema_version = level.md.schema_version_md.schema_version
+            candidates = [
+                idx_md
+                for idx_md in level.md.tbl_md.index_md.values()
+                if (
+                    idx_md.indexed_col_id == qcolid.col_id
+                    and UUID(idx_md.indexed_col_tbl_id) == qcolid.tbl_id
+                    and idx_md.schema_version_add <= schema_version
+                    and (idx_md.schema_version_drop is None or idx_md.schema_version_drop > schema_version)
+                    and issubclass(resolve_symbol(idx_md.class_fqn), idx_class)  # type: ignore[arg-type]
+                )
+            ]
             if len(candidates) > 0:
                 if len(candidates) > 1 and name is None:
                     raise excs.RequestError(
@@ -714,21 +714,3 @@ class TableMdPath(TablePath):
         raise excs.NotFoundError(
             excs.ErrorCode.INDEX_NOT_FOUND, f'No {idx_class.display_name()} index found for column {col_name!r}'
         )
-
-    def has_idx(self, qcolid: QColumnId, name: str | None, idx_class: type[IndexBase]) -> bool:
-        name = None if name is None else fold_identifier(name)
-        return any(name is None or idx_md.name == name for idx_md in self._idx_mds(qcolid, idx_class))
-
-    def _idx_mds(self, qcolid: QColumnId, idx_class: type[IndexBase]) -> list[schema.IndexMd]:
-        schema_version = self.md.schema_version_md.schema_version
-        return [
-            idx_md
-            for idx_md in self.md.tbl_md.index_md.values()
-            if (
-                idx_md.indexed_col_id == qcolid.col_id
-                and UUID(idx_md.indexed_col_tbl_id) == qcolid.tbl_id
-                and idx_md.schema_version_add <= schema_version
-                and (idx_md.schema_version_drop is None or idx_md.schema_version_drop > schema_version)
-                and issubclass(resolve_symbol(idx_md.class_fqn), idx_class)  # type: ignore[arg-type]
-            )
-        ]
