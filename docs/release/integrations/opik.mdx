@@ -1,0 +1,229 @@
+---
+title: 'Opik'
+description: 'Trace Pixeltable operations and LLM calls in Opik with OpenTelemetry'
+---
+
+Pixeltable runs LLM calls inside computed columns and UDFs. [Opik](https://www.comet.com/docs/opik/) records each call as a trace: the operation, the row, the UDF, and, with an OpenInference instrumentor, the model request. This page sends Pixeltable's OpenTelemetry spans to Opik. The bridge itself, including metrics, is covered in [Observability](/platform/observability). Opik's side of the same setup is [Opik's Pixeltable integration](https://www.comet.com/docs/opik/integrations/pixeltable).
+
+One Pixeltable operation (`insert`, `add_computed_column`, `collect`, and the rest) is one trace. At `span_level='debug'` an OpenAI insert looks like this. `openai.chat_completions` runs on a resource pool, so its UDF span sits beside `pixeltable.row`. A UDF without a resource pool nests under `pixeltable.row`.
+
+```text
+pixeltable.insert
+└─ pixeltable.store.insert_rows
+   ├─ pixeltable.row                      (one per row, debug)
+   ├─ pixeltable.udf.chat_completions     (one per LLM cell, debug)
+   │  └─ ChatCompletion                    (OpenInference: model, tokens)
+   └─ pixeltable.sa.insert_rows
+```
+
+<Note>
+This page matches Pixeltable 0.7.21, `opentelemetry-instrumentation-pixeltable` 0.1.0, `openinference-instrumentation-openai` 0.1.66, and Opik 2.2.133. `pixeltable[otel]` installs the instrumentation package from PyPI.
+</Note>
+
+## Install
+
+```bash
+pip install 'pixeltable[otel]' openai openinference-instrumentation-openai
+```
+
+`pixeltable[otel]` installs the Pixeltable bridge, the OpenTelemetry SDK, and the OTLP exporters. `openinference-instrumentation-openai` records LLM spans for `pixeltable.functions.openai`. For another provider, install that provider's OpenInference instrumentor instead. `openai` is the client that `chat_completions()` calls. Neither Pixeltable nor the instrumentor installs it.
+
+## Set the environment
+
+`init()` defaults to OTLP/HTTP and appends `/v1/traces` to the endpoint, so pass Opik's base URL. Opik ingests traces only. Pass `metrics=False`. With an endpoint set and `metrics` left unset, `init()` also posts metrics to `/v1/metrics`.
+
+The `Authorization` header is the raw Opik API key. Do not add a `Bearer ` prefix.
+
+Opik Cloud takes the key and the workspace from the account. `projectName` selects the project. Leave it out and the traces land in Default Project.
+
+```bash
+export OPIK_API_KEY="your-api-key"
+export OPIK_WORKSPACE="default"
+export OPENAI_API_KEY="sk-..."
+```
+
+```text
+endpoint: https://www.comet.com/opik/api/v1/private/otel
+headers:  Authorization=<OPIK_API_KEY>,Comet-Workspace=<workspace>,projectName=<project>
+```
+
+An Enterprise deployment uses the same headers and this endpoint:
+
+```text
+https://<comet-deployment-url>/opik/api/v1/private/otel
+```
+
+A self-hosted server listens on `http://localhost:5173/api/v1/private/otel`. It takes no auth headers. `projectName=<project>` is optional.
+
+## Export spans to Opik
+
+`pxt_otel.init()` builds the tracer provider and starts Pixeltable's spans. Call it once in the process, before the first Pixeltable operation. The default `protocol` is `http/protobuf`.
+
+```python
+import os
+
+import opentelemetry.instrumentation.pixeltable as pxt_otel
+from openinference.instrumentation.openai import OpenAIInstrumentor
+
+pxt_otel.init(
+    endpoint='https://www.comet.com/opik/api/v1/private/otel',  # base URL; /v1/traces is appended
+    headers=(
+        f"Authorization={os.environ['OPIK_API_KEY']},"
+        f"Comet-Workspace={os.environ['OPIK_WORKSPACE']},"
+        'projectName=pixeltable-app'
+    ),
+    service_name='pixeltable-app',  # default service.name is pixeltable
+    span_level='debug',  # info: operation, catalog, store, SQL; debug adds row, UDF, and file spans
+    metrics=False,
+)
+OpenAIInstrumentor().instrument()
+```
+
+For a self-hosted server, call `init()` like this instead, then `OpenAIInstrumentor().instrument()` as above:
+
+```python
+pxt_otel.init(
+    endpoint='http://localhost:5173/api/v1/private/otel',
+    headers='projectName=pixeltable-app',  # optional; omit it for Default Project
+    service_name='pixeltable-app',
+    span_level='debug',
+    metrics=False,
+)
+```
+
+<Warning>
+Pass the Opik endpoint and headers to `init()` when another OTLP exporter runs in the same process. Every OTLP exporter in the process reads `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS`, so those variables would point that exporter at Opik and would send it the Opik API key.
+</Warning>
+
+<Note>
+A `pxt_otel.init()` argument overrides the config. With the argument left unset, `endpoint` and `protocol` resolve from the database entry (`db_exporter_otlp_endpoint`, `db_exporter_otlp_protocol` in `pixeltable.toml`), then `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL`, then the `[otel]` section of `~/.pixeltable/config.toml`. `headers` resolves from `OTEL_EXPORTER_OTLP_HEADERS`, then `[otel]`. Build the header value from environment variables, and never write the key into code. `headers` is one string of comma-separated `key=value` pairs, not a Python dict. On a hosted database, run `pxt secret set pxt://<org>:<db> OTEL_EXPORTER_OTLP_HEADERS='Authorization=<api-key>,Comet-Workspace=<workspace>,projectName=pixeltable-app'`, then `pxt db restart pxt://<org>:<db>` and `pxt service restart pxt://<org>:<db>/<service>`. [Configuration](/platform/configuration).
+</Note>
+
+The span name is `pixeltable.udf.` plus the UDF's display name, so this column is `pixeltable.udf.chat_completions`.
+
+`span_level='trace'` adds a span per iterator step. At the default `'info'`, row and UDF spans are omitted, and the LLM span nests under `pixeltable.store.insert_rows`.
+
+Setting only `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` does not start export. Set `OTEL_EXPORTER_OTLP_ENDPOINT` or pass `endpoint`. If the connected database's entry sets `db_exporter_otlp_endpoint`, that value wins over the environment variable.
+
+### Declare the table and insert
+
+An application file puts the columns on a `TableModel`. `pxt schema update app.py my_app` creates `my_app.articles`. The insert runs in the process that called `pxt_otel.init()`.
+
+A script can create the same column with `create_table` and `add_computed_column` in that same process. Both forms store the completion text. The model runs when the row is inserted.
+
+<Tabs>
+  <Tab title="Application file">
+    ```python
+    import pixeltable as pxt
+    import pixeltable.functions as pxtf
+
+    TableModel = pxt.model_base()
+
+
+    class Articles(TableModel, name='articles'):
+        id: pxt.Int
+        body: pxt.String
+        summary = pxtf.openai.chat_completions(
+            messages=[{'role': 'user', 'content': 'Summarize in one sentence: ' + body}],
+            model='gpt-4o-mini',
+        ).choices[0].message.content
+    ```
+
+    ```bash
+    pxt schema update app.py my_app
+    ```
+
+    In the process that called `pxt_otel.init()`:
+
+    ```python
+    import pixeltable as pxt
+    from opentelemetry import trace
+
+    t = pxt.get_table('my_app.articles')
+    t.insert([
+        {'id': 1, 'body': 'Pixeltable is declarative data infrastructure for multimodal AI apps.'}
+    ])
+    trace.get_tracer_provider().force_flush()  # short-lived scripts: send spans before exit
+    ```
+  </Tab>
+  <Tab title="Script">
+    In the same process as `pxt_otel.init()`:
+
+    ```python
+    import pixeltable as pxt
+    import pixeltable.functions as pxtf
+    from opentelemetry import trace
+
+    t = pxt.create_table('articles', {'id': pxt.Int, 'body': pxt.String}, if_exists='replace')
+    t.add_computed_column(
+        summary=pxtf.openai.chat_completions(
+            messages=[{'role': 'user', 'content': 'Summarize in one sentence: ' + t.body}],
+            model='gpt-4o-mini',
+        ).choices[0].message.content
+    )
+    t.insert([
+        {'id': 1, 'body': 'Pixeltable is declarative data infrastructure for multimodal AI apps.'}
+    ])
+    trace.get_tracer_provider().force_flush()
+    ```
+  </Tab>
+</Tabs>
+
+To trace a served app, add `--otel` to `pxt service run` or `pxt service update` ([Tracing](/platform/cli#tracing)). It calls `pxt_otel.init()` with no arguments before it loads the app file, so configure the export in the environment, or in the matching `[otel]` keys:
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT="https://www.comet.com/opik/api/v1/private/otel"
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=$OPIK_API_KEY,Comet-Workspace=$OPIK_WORKSPACE,projectName=pixeltable-app"
+export OTEL_METRICS=false
+export OTEL_SPAN_LEVEL=debug
+```
+
+A self-hosted server uses the local base URL and, when you want a named project, only the project header:
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:5173/api/v1/private/otel"
+export OTEL_EXPORTER_OTLP_HEADERS="projectName=pixeltable-app"
+export OTEL_METRICS=false
+export OTEL_SPAN_LEVEL=debug
+```
+
+`pxt service run` reads these variables in its own process. `pxt service update` starts the service from the Pixeltable daemon, which reads the environment once, so run `pxt daemon restart` after the exports.
+
+If the database entry in `pixeltable.toml` sets `db_exporter_otlp_endpoint`, it wins over `OTEL_EXPORTER_OTLP_ENDPOINT`, so set the Opik endpoint on that entry instead.
+
+`--otel` calls `pxt_otel.init()` and instruments FastAPI. It does not instrument OpenAI, and an `OpenAIInstrumentor().instrument()` in another process does not carry into this one. Put this at module scope in `app.py`. The service loads the file after `init()`, so the instrumentor attaches to that provider:
+
+```python
+from openinference.instrumentation.openai import OpenAIInstrumentor
+
+OpenAIInstrumentor().instrument()
+```
+
+The app file must not call `pxt_otel.init()`: with `--otel`, that second call raises `INVALID_STATE`, and without `--otel` it records Pixeltable spans but not the FastAPI request spans.
+
+## View the traces
+
+Open the project and go to **Logs**, then the **Traces** tab. The `projectName` header is the project name, so this example is the `pixeltable-app` project. With the header omitted, the traces are in Default Project.
+
+Select the `pixeltable.insert` trace. The waterfall shows `pixeltable.udf.chat_completions` under `pixeltable.store.insert_rows`, beside `pixeltable.row`, and `ChatCompletion` under the UDF span. Opik marks `ChatCompletion` as the LLM span. It carries the model (`gpt-4o-mini` for this column), the prompt, the completion, and the token counts. The UDF span carries `pxt.udf_path` (`pixeltable.functions.openai.chat_completions`), `pxt.resource_pool`, and `pxt.retries`. At `span_level='debug'` the same trace also contains catalog, plan, and store spans such as `pixeltable.plan.create` and `pixeltable.store.build_rows`.
+
+`create_table`, `add_computed_column`, and `collect` each appear as their own trace. `collect()` records a Pixeltable span and does not call the model again.
+
+## Caveats
+
+- With the bridge on, every Pixeltable operation is a trace, including `create_dir`, `create_table`, `drop_dir`, and `collect`. `span_level='info'` drops the per-row, per-UDF, and per-file spans. On an insert, the LLM span then nests under `pixeltable.store.insert_rows`.
+- Per-row spans stop at 100 rows in one operation. A provider call on a resource pool still gets its `pixeltable.udf.*` span.
+- Computed-column values are stored. `collect()` records a Pixeltable span and does not call the model again. The model runs on `insert`, on `update`, and when `add_computed_column` backfills existing rows.
+- Flush before the process exits: `trace.get_tracer_provider().force_flush()`. `pxt_otel.init()` uses a batch span processor, so a script can finish while spans are still queued.
+- Call `pxt_otel.init()` and enable the instrumentors before the first Pixeltable operation. `pxt_otel.init()` runs once per process. A second call raises an error that instrumentation is already initialized.
+- Instrument each provider once.
+- Prompts and completions are sent to Opik on the `ChatCompletion` span. `logs` defaults to off. Leave it off unless those log lines are redacted.
+
+<CardGroup cols={2}>
+  <Card title="Observability" icon="chart-line" href="/platform/observability">
+    Span tree, metrics, and a Grafana Cloud export.
+  </Card>
+  <Card title="Configuration" icon="gear" href="/platform/configuration">
+    `OTEL_EXPORTER_OTLP_*` and the `[otel]` section.
+  </Card>
+</CardGroup>
