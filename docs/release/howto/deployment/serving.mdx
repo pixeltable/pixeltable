@@ -322,25 +322,9 @@ After `.collect()`, use `to_pydantic()`. After `return_rows=True`, use `model_va
 }
 ```
 
-A router holds at most 64 unfinished background jobs on each service instance, the running ones included. Past
-that, or while a hosted instance is stopping, a submit answers 503 with `Retry-After` and the error code `SERVICE_BUSY`,
-and the request does not run: send it again after the interval.
-
-```python
-import time
-
-import requests
-
-
-def submit(url: str, row: dict, headers: dict) -> dict:
-    for _ in range(10):
-        r = requests.post(url, json=row, headers=headers)
-        if r.status_code != 503 or 'Retry-After' not in r.headers:
-            break
-        time.sleep(float(r.headers['Retry-After']))
-    r.raise_for_status()
-    return r.json()
-```
+Each router accepts at most 64 unfinished background jobs per service instance, running jobs included. Past
+that, or while a hosted instance is stopping, a submit answers 503 with `Retry-After` and the error code `JOB_REFUSED`.
+The request does not run, and the [same retry rule](#call-from-a-typescript-app-server) applies.
 
 Poll `job_url`:
 
