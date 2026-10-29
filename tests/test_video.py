@@ -23,9 +23,11 @@ from pixeltable.utils import av as av_utils
 from .utils import (
     DatabaseRoot,
     check_media_store_count,
+    generate_color_video,
     generate_test_video,
     get_audio_files,
     get_image_files,
+    get_test_video_files,
     get_video_files,
     pxt_raises,
     reload_catalog,
@@ -105,15 +107,15 @@ class TestVideo:
         tbl.revert()
         check_media_store_count(view, view.count(), db_root, default_output_dest=True)
 
-    @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
     @rerun_on_network_error()
-    def test_query(self, uses_db: None) -> None:
+    def test_query(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         video_filepaths = get_video_files()
-        base_t, view_t = self.create_tbls()
+        base_t, view_t = self.create_tbls(p=p)
         # also include an external file, to make sure that prefetching works
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
         video_filepaths.append(url)
-        status = base_t.insert({'video': p} for p in video_filepaths)
+        status = base_t.insert({'video': path} for path in video_filepaths)
         assert status.num_excs == 0
         # make sure that we can get the frames back
         res = view_t.select(view_t.frame).collect().to_pandas()
@@ -123,37 +125,150 @@ class TestVideo:
         res = view_t.where(view_t.video == url).collect()
         assert len(res) == len(all_rows[all_rows.url == url])
 
-    @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
-    def test_fps(self, uses_db: None) -> None:
+    def test_fps(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         path = get_video_files()[0]
-        videos = pxt.create_table('videos', {'video': pxt.Video | None})
-        frames_all = pxt.create_view('frames_all', videos, iterator=frame_iterator(videos.video))
-        frames_1_0 = pxt.create_view('frames_1_0', videos, iterator=frame_iterator(videos.video, fps=1))
-        frames_0_5 = pxt.create_view('frames_0_5', videos, iterator=frame_iterator(videos.video, fps=1 / 2))
-        frames_0_33 = pxt.create_view('frames_0_33', videos, iterator=frame_iterator(videos.video, fps=1 / 3))
-        frames_1000 = pxt.create_view('frames_1000', videos, iterator=frame_iterator(videos.video, fps=1000))
-        num_frames_10 = pxt.create_view('num_frames_10', videos, iterator=frame_iterator(videos.video, num_frames=10))
-        num_frames_50 = pxt.create_view('num_frames_50', videos, iterator=frame_iterator(videos.video, num_frames=50))
+        videos = pxt.create_table(p('videos'), {'video': pxt.Video | None})
+        frames_all = pxt.create_view(p('frames_all'), videos, iterator=frame_iterator(videos.video))
+        frames_1_0 = pxt.create_view(p('frames_1_0'), videos, iterator=frame_iterator(videos.video, fps=1))
+        frames_0_5 = pxt.create_view(p('frames_0_5'), videos, iterator=frame_iterator(videos.video, fps=1 / 2))
+        frames_0_33 = pxt.create_view(p('frames_0_33'), videos, iterator=frame_iterator(videos.video, fps=1 / 3))
+        frames_1000 = pxt.create_view(p('frames_1000'), videos, iterator=frame_iterator(videos.video, fps=1000))
+        num_frames_10 = pxt.create_view(
+            p('num_frames_10'), videos, iterator=frame_iterator(videos.video, num_frames=10)
+        )
+        num_frames_50 = pxt.create_view(
+            p('num_frames_50'), videos, iterator=frame_iterator(videos.video, num_frames=50)
+        )
         num_frames_1000 = pxt.create_view(
-            'num_frames_1000', videos, iterator=frame_iterator(videos.video, num_frames=1000)
+            p('num_frames_1000'), videos, iterator=frame_iterator(videos.video, num_frames=1000)
         )
         videos.insert(video=path)
-        assert frames_all.count() == 448
+        assert frames_all.count() == 449
         assert frames_1_0.count() == 15
         assert frames_0_5.count() == 8
         assert frames_0_33.count() == 5
-        assert frames_1000.count() == 448
+        assert frames_1000.count() == 449
         assert num_frames_10.count() == 10
         assert num_frames_50.count() == 50
-        assert num_frames_1000.count() == 448
+        assert num_frames_1000.count() == 449
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='At most one of'):
-            _ = pxt.create_view('invalid_args', videos, iterator=frame_iterator(videos.video, fps=1 / 2, num_frames=10))
+            _ = pxt.create_view(
+                p('invalid_args'), videos, iterator=frame_iterator(videos.video, fps=1 / 2, num_frames=10)
+            )
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`fps` must be a positive number'):
-            _ = pxt.create_view('invalid_fps', videos, iterator=frame_iterator(videos.video, fps=0))
+            _ = pxt.create_view(p('invalid_fps'), videos, iterator=frame_iterator(videos.video, fps=0))
 
-    @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
-    def test_frame_iterator_seek(self, uses_db: None) -> None:
+    def test_frame_counts(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
+        p = db_root.make_catalog_path
+        videos = pxt.create_table(p('videos'), {'video': pxt.Video | None, 'name': pxt.String})
+        all_frames = pxt.create_view(p('all_frames'), videos, iterator=frame_iterator(videos.video))
+        # in test_13_frames.mp4, the last of the 7 extraction times falls after the start of the last frame
+        num_frames_7 = pxt.create_view(p('num_frames_7'), videos, iterator=frame_iterator(videos.video, num_frames=7))
+        # in the .mpg files, the header duration ends before the last frame
+        num_frames_50 = pxt.create_view(
+            p('num_frames_50'), videos, iterator=frame_iterator(videos.video, num_frames=50)
+        )
+        # in 1s.mp4, the extraction time for pos 10 (1.0 s) equals the end of the video
+        fps_10 = pxt.create_view(p('fps_10'), videos, iterator=frame_iterator(videos.video, fps=10))
+        paths = get_test_video_files() + get_video_files(extension='.mpg')
+        videos.insert({'video': path, 'name': Path(path).name} for path in paths)
+        videos.insert(video=generate_color_video(tmp_path, [('red', 25)]), name='1s.mp4')
+        # vfr.flv records no frame durations, stream duration or average frame rate; its last frame lasts as long as the
+        # interval before it
+        vfr_videos = pxt.create_table(p('vfr_videos'), {'video': pxt.Video | None, 'name': pxt.String})
+        fps_5 = pxt.create_view(p('fps_5'), vfr_videos, iterator=frame_iterator(vfr_videos.video, fps=5))
+        vfr_videos.insert(
+            video=generate_color_video(tmp_path, [('red', 25), ('red', 5)], extension='flv'), name='vfr.flv'
+        )
+        for view, expected in (
+            (
+                all_frames,
+                {
+                    'test_13_frames.mp4': 13,
+                    'test_462_frames.mp4': 462,
+                    'v_shooting_01_01.mpg': 108,
+                    'v_shooting_01_02.mpg': 141,
+                    '1s.mp4': 25,
+                },
+            ),
+            (
+                num_frames_7,
+                {
+                    'test_13_frames.mp4': 7,
+                    'test_462_frames.mp4': 7,
+                    'v_shooting_01_01.mpg': 7,
+                    'v_shooting_01_02.mpg': 7,
+                    '1s.mp4': 7,
+                },
+            ),
+            (
+                num_frames_50,
+                {
+                    'test_13_frames.mp4': 13,
+                    'test_462_frames.mp4': 50,
+                    'v_shooting_01_01.mpg': 50,
+                    'v_shooting_01_02.mpg': 50,
+                    '1s.mp4': 25,
+                },
+            ),
+            (
+                fps_10,
+                {
+                    'test_13_frames.mp4': 13,
+                    'test_462_frames.mp4': 185,
+                    'v_shooting_01_01.mpg': 37,
+                    'v_shooting_01_02.mpg': 48,
+                    '1s.mp4': 10,
+                },
+            ),
+            (fps_5, {'vfr.flv': 10}),
+        ):
+            res = view.group_by(view.name).select(view.name, num_frames=pxtf.count(view.pos)).collect()
+            assert {row['name']: row['num_frames'] for row in res} == expected
+
+    def test_seek_last_frame(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
+        p = db_root.make_catalog_path
+        # the last frame of test_13_frames.mp4 comes from the decoder flush; the .flv file has a single keyframe
+        mp4_path = next(path for path in get_test_video_files() if Path(path).name == 'test_13_frames.mp4')
+        flv_path = generate_color_video(tmp_path, [('red', 25), ('blue', 1)], extension='flv')
+        videos = pxt.create_table(p('videos'), {'video': pxt.Video | None, 'name': pxt.String})
+        frames = pxt.create_view(p('frames'), videos, iterator=frame_iterator(videos.video))
+        videos.insert([{'video': mp4_path, 'name': 'mp4'}, {'video': flv_path, 'name': 'flv'}])
+        for name in ('mp4', 'flv'):
+            frames_in_order = frames.where(frames.name == name).order_by(frames.pos).select(frames.frame).collect()
+            # a separate query seeks to the last frame
+            last = len(frames_in_order) - 1
+            res = frames.where((frames.name == name) & (frames.pos == last)).select(frames.frame).collect()
+            assert res['frame'] == [frames_in_order['frame'][last]]
+
+    def test_start_offset(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
+        p = db_root.make_catalog_path
+        # 2 s at 25 fps, starting at 0.5 s; mp4 records a duration, mkv an end time
+        videos = pxt.create_table(p('videos'), {'video': pxt.Video | None, 'container': pxt.String})
+        frames = pxt.create_view(p('frames'), videos, iterator=frame_iterator(videos.video, num_frames=4))
+        videos.insert(
+            {
+                'video': generate_color_video(tmp_path, [('red', 25), ('red', 25)], extension=c, start_time=0.5),
+                'container': c,
+            }
+            for c in ('mp4', 'mkv')
+        )
+
+        durations = videos.select(duration=videos.video.get_duration()).collect()
+        assert list(durations['duration']) == pytest.approx([2.0, 2.0])
+        for container in ('mp4', 'mkv'):
+            times = (
+                frames.where(frames.container == container)
+                .order_by(frames.pos)
+                .select(time=frames.frame_attrs.time)
+                .collect()
+            )
+            # the frames nearest to 0.75, 1.25, 1.75 and 2.25 s
+            assert list(times['time']) == pytest.approx([0.74, 1.26, 1.74, 2.26])
+
+    def test_frame_iterator_seek(self, db_root: DatabaseRoot) -> None:
         """
         Test that we can seek to specific frames in the video iterator and get consistent results.
 
@@ -162,7 +277,8 @@ class TestVideo:
         """
         # It's important to run this test for all videos and for many kwargs combinations, since there are so many
         # edge cases when working with video data.
-        for p in get_video_files():
+        p = db_root.make_catalog_path
+        for path in get_video_files():
             for kwargs in (
                 {},
                 {'fps': 0.5},
@@ -172,14 +288,17 @@ class TestVideo:
                 {'num_frames': 50},
                 {'num_frames': 10000},
             ):
-                videos = pxt.create_table('videos', {'video': pxt.Video | None}, if_exists='replace_force')
-                view = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, **kwargs))
-                videos.insert(video=p)
+                videos = pxt.create_table(p('videos'), {'video': pxt.Video | None}, if_exists='replace_force')
+                view = pxt.create_view(p('frames'), videos, iterator=frame_iterator(videos.video, **kwargs))
+                videos.insert(video=path)
                 # Load the first 20 frames sequentially
-                frames = view.select(view.frame).where(view.pos < 20).order_by(view.frame).collect()['frame']
+                frames = view.select(view.frame).where(view.pos < 20).order_by(view.pos).collect()['frame']
+                # A range that starts after the first frame returns the same frames as the sequential load
+                res = view.where((view.pos >= 3) & (view.pos < 20)).order_by(view.pos).select(view.frame).collect()
+                assert res['frame'] == frames[3:]
                 # Now load them one at a time (we intentionally do this in separate queries)
                 for pos in (11, 7, 3, 15):
-                    print(f'test_frame_iterator_seek: {p=}, {kwargs=}, {pos=}')
+                    print(f'test_frame_iterator_seek: {path=}, {kwargs=}, {pos=}')
                     res = view.where(view.pos == pos).select(view.frame).collect()['frame']
                     if len(res) == 0:
                         assert len(frames) <= pos
@@ -189,14 +308,14 @@ class TestVideo:
                         # Ensure we get the bitmap-identical frame
                         assert selected_frame == frames[pos]
 
-    @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
-    def test_keyframes_only(self, uses_db: None) -> None:
+    def test_keyframes_only(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         path = get_video_files()[0]
-        videos = pxt.create_table('videos', {'video': pxt.Video | None})
+        videos = pxt.create_table(p('videos'), {'video': pxt.Video | None})
 
         # Test keyframes_only=True extracts all keyframes
-        keyframes = pxt.create_view('keyframes', videos, iterator=frame_iterator(videos.video, keyframes_only=True))
-        frames = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, fps=None))
+        keyframes = pxt.create_view(p('keyframes'), videos, iterator=frame_iterator(videos.video, keyframes_only=True))
+        frames = pxt.create_view(p('frames'), videos, iterator=frame_iterator(videos.video, fps=None))
 
         videos.insert(video=path)
 
@@ -206,37 +325,37 @@ class TestVideo:
         assert keyframes_count == sum(attrs['key_frame'] for attrs in res['frame_attrs'])
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='At most one of'):
-            _ = pxt.create_view('invalid', videos, iterator=frame_iterator(videos.video, keyframes_only=True, fps=1))
+            _ = pxt.create_view(p('invalid'), videos, iterator=frame_iterator(videos.video, keyframes_only=True, fps=1))
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='At most one of'):
             _ = pxt.create_view(
-                'invalid', videos, iterator=frame_iterator(videos.video, keyframes_only=True, num_frames=10)
+                p('invalid'), videos, iterator=frame_iterator(videos.video, keyframes_only=True, num_frames=10)
             )
 
-    @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
-    def test_computed_cols(self, uses_db: None) -> None:
+    def test_computed_cols(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         video_filepaths = get_video_files()
-        base_t, view_t = self.create_tbls()
-        base_t.insert({'video': p} for p in video_filepaths)
+        base_t, view_t = self.create_tbls(p=p)
+        base_t.insert({'video': path} for path in video_filepaths)
         _ = view_t.select(view_t.video, view_t.frame).collect()
         # c2 and c4 depend directly on c1, c3 depends on it indirectly
         view_t.add_computed_column(c1=view_t.frame.resize([224, 224]))
         view_t.add_computed_column(c2=view_t.c1.rotate(10))
         view_t.add_computed_column(c3=view_t.c2.rotate(20))
         view_t.add_computed_column(c4=view_t.c1.rotate(30))
-        for name in ['c1', 'c2', 'c3', 'c4']:
-            assert view_t._tbl_version_path.tbl_version.get().cols_by_name[name].is_stored
-        base_t.insert({'video': p} for p in video_filepaths)
+        columns = view_t.get_metadata()['columns']
+        assert all(columns[name]['is_stored'] for name in ['c1', 'c2', 'c3', 'c4'])
+        base_t.insert({'video': path} for path in video_filepaths)
         _ = view_t.select(view_t.frame, view_t.c1, view_t.c2, view_t.c3, view_t.c4).collect()
 
-    @pytest.mark.db_roots('local', reason='TODO: convert; frame-iterator view')
-    def test_frame_attrs(self, uses_db: None) -> None:
+    def test_frame_attrs(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         video_filepaths = get_video_files()
-        base_t, view_t = self.create_tbls(use_legacy_schema=False)
+        base_t, view_t = self.create_tbls(use_legacy_schema=False, p=p)
         base_t.insert([{'video': video_filepaths[0]}])
         all_attrs = set(view_t.limit(1).select(view_t.frame_attrs).collect()[0, 0].keys())
         assert all_attrs == {'index', 'pts', 'dts', 'time', 'is_corrupt', 'key_frame', 'pict_type', 'interlaced_frame'}
-        _, view_t = self.create_tbls(use_legacy_schema=True)
+        _, view_t = self.create_tbls(use_legacy_schema=True, p=p)
         default_attrs = set(view_t.get_metadata()['columns'].keys())
         assert default_attrs == {'frame', 'pos', 'frame_idx', 'pos_msec', 'pos_frame', 'video'}
 
@@ -558,9 +677,13 @@ class TestVideo:
     # TODO: Not working with VFR sample video or .mpg samples (PXT-986, PXT-987)
     @pytest.mark.db_roots('local', reason='pure UDF test')
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
-    def test_segment_video_duration(self, mode: Literal['fast', 'accurate'], uses_db: None) -> None:
+    def test_segment_video_duration(self, mode: Literal['fast', 'accurate'], uses_db: None, tmp_path: Path) -> None:
         t = pxt.create_table('test_segments', {'video': pxt.Video | None})
-        t.insert({'video': f} for f in get_video_files(include_vfr=False, include_mpgs=False))
+        video_files = [
+            *get_video_files(include_vfr=False, include_mpgs=False),
+            generate_test_video(tmp_path, duration=12.0, fps=30),
+        ]
+        t.insert({'video': f} for f in video_files)
 
         duration = t.video.get_metadata().streams[0].duration_seconds
         result = (
@@ -590,9 +713,12 @@ class TestVideo:
     # TODO: Not working with .mpg samples (PXT-987)
     @pytest.mark.db_roots('local', reason='pure UDF test')
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
-    def test_segment_video_segment_times(self, mode: Literal['fast', 'accurate'], uses_db: None) -> None:
+    def test_segment_video_segment_times(
+        self, mode: Literal['fast', 'accurate'], uses_db: None, tmp_path: Path
+    ) -> None:
         t = pxt.create_table('test_segments', {'video': pxt.Video | None})
-        t.insert([{'video': f} for f in get_video_files(include_mpgs=False)])
+        video_files = [*get_video_files(include_mpgs=False), generate_test_video(tmp_path, duration=12.0, fps=30)]
+        t.insert([{'video': f} for f in video_files])
 
         duration = t.video.get_metadata().streams[0].duration_seconds
         segment_times = [6.0, 11.0, 16.0]
@@ -861,9 +987,9 @@ class TestVideo:
     )
     @pytest.mark.db_roots('local', reason='TODO: convert; video-splitter view')
     def test_video_splitter_duration(
-        self, segment_duration: float, mode: Literal['fast', 'accurate'], uses_db: None
+        self, segment_duration: float, mode: Literal['fast', 'accurate'], uses_db: None, tmp_path: Path
     ) -> None:
-        video_filepaths = get_video_files(include_mpgs=False)
+        video_filepaths = [*get_video_files(include_mpgs=False), generate_test_video(tmp_path, duration=12.0, fps=30)]
         overlaps = [0.0, 1.0, 4.0] if mode == 'fast' else [None]
         eps = 0.1 if mode == 'fast' else 0.0
         for min_segment_duration in [None, 0.0, segment_duration]:
@@ -888,10 +1014,10 @@ class TestVideo:
     @pytest.mark.db_roots('local', reason='TODO: convert; video-splitter view')
     @pytest.mark.parametrize('segment_times,mode', [([6.0, 11.0, 16.0], 'fast'), ([6.0, 11.0, 16.0], 'accurate')])
     def test_video_splitter_segment_times(
-        self, segment_times: list[float], mode: Literal['fast', 'accurate'], uses_db: None
+        self, segment_times: list[float], mode: Literal['fast', 'accurate'], uses_db: None, tmp_path: Path
     ) -> None:
         eps = 0.1 if mode == 'fast' else 0.0
-        video_filepaths = get_video_files(include_mpgs=False)
+        video_filepaths = [*get_video_files(include_mpgs=False), generate_test_video(tmp_path, duration=12.0, fps=30)]
         t = pxt.create_table('videos', {'video': pxt.Video | None})
         t.insert({'video': p} for p in video_filepaths)
         s = pxt.create_view('segments', t, iterator=video_splitter(t.video, segment_times=segment_times, mode=mode))
@@ -1874,6 +2000,17 @@ class TestVideo:
         )
         _ = v.collect()
 
+        for scene_detect in (
+            pxtf.video.scene_detect_adaptive,
+            pxtf.video.scene_detect_content,
+            pxtf.video.scene_detect_threshold,
+            pxtf.video.scene_detect_histogram,
+            pxtf.video.scene_detect_hash,
+        ):
+            for fps in (0.0, -1.0):
+                with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`fps` must be a positive number'):
+                    _ = t.select(scene_detect(t.video, fps=fps)).collect()
+
     def test_scene_detect_cut_at_scene_start(self, init_env: None) -> None:
         skip_test_if_not_installed('scenedetect')
         from scenedetect import FrameTimecode  # type: ignore[import-untyped]
@@ -1908,10 +2045,51 @@ class TestVideo:
         assert scenes[0]['duration'] > 0.0
 
         # the cut at the first frame is skipped; the cuts at the next two frames end the scenes that start at the first
-        # and second frame
+        # and second frame, and the third scene runs to the end of the video
         scenes = _scene_detect(video, 2.0, StubDetector(frame_cuts={0, 1, 2}, final_cuts=[]))
-        assert len(scenes) == 2
+        assert len(scenes) == 3
         assert all(s['duration'] > 0.0 for s in scenes)
+
+    @pytest.mark.db_roots('local', reason='pure UDF test')
+    def test_scene_detect_spans_video(self, uses_db: None, tmp_path: Path) -> None:
+        skip_test_if_not_installed('scenedetect')
+        # 1 s of red at 25 fps, then a single red frame lasting 1 s
+        vfr = [('red', 25), ('red', 1)]
+        # (video, expected (start_time, duration) of each scene)
+        scenarios: list[tuple[str, list[tuple[float, float]]]] = [
+            (generate_color_video(tmp_path, [('red', 25), ('red', 25)]), [(0.0, 2.0)]),
+            (generate_color_video(tmp_path, [('red', 25), ('blue', 25)]), [(0.0, 1.0), (1.0, 1.0)]),
+            (
+                generate_color_video(tmp_path, [('red', 25), ('blue', 25), ('red', 25)]),
+                [(0.0, 1.0), (1.0, 1.0), (2.0, 1.0)],
+            ),
+            (generate_color_video(tmp_path, vfr), [(0.0, 2.0)]),
+            # the frames have no durations, and the DURATION tag records the end
+            (generate_color_video(tmp_path, vfr, extension='mkv'), [(0.0, 2.0)]),
+            (generate_color_video(tmp_path, vfr, extension='mkv', start_time=0.5), [(0.5, 2.0)]),
+            # neither the frames nor the headers record the end; the last frame lasts 1/25 s (nominal frame rate)
+            (generate_color_video(tmp_path, vfr, extension='flv'), [(0.08, 1.04)]),
+        ]
+        t = pxt.create_table('videos', {'video': pxt.Video | None, 'expected': pxt.Json})
+        t.insert({'video': video, 'expected': expected} for video, expected in scenarios)
+        res = t.select(
+            t.expected, all_frames=t.video.scene_detect_content(), fps_2=t.video.scene_detect_content(fps=2.0)
+        ).collect()
+        for row in res:
+            for scenes in (row['all_frames'], row['fps_2']):
+                assert [s['start_time'] for s in scenes] == pytest.approx([start for start, _ in row['expected']])
+                assert [s['duration'] for s in scenes] == pytest.approx([duration for _, duration in row['expected']])
+
+        t = pxt.create_table('fixtures', {'video': pxt.Video | None})
+        # get_duration() doesn't match the frame timestamps of the .mpg files
+        t.insert({'video': p} for p in get_video_files(include_mpgs=False))
+        res = t.select(duration=t.video.get_duration(), scenes=t.video.scene_detect_content(fps=2.0)).collect()
+        for row in res:
+            scenes = row['scenes']
+            ends = [s['start_time'] + s['duration'] for s in scenes]
+            assert scenes[0]['start_time'] == 0.0
+            assert ends[:-1] == pytest.approx([s['start_time'] for s in scenes[1:]])
+            assert ends[-1] == pytest.approx(row['duration'])
 
     @pytest.mark.db_roots('local', reason='reads Env default video encoder config')
     def test_default_video_codec(self, uses_db: None) -> None:

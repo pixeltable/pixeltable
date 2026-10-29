@@ -466,6 +466,14 @@ class Env:
         sql_logger.propagate = False
         self._managed_logging_handlers.append((sql_logger, fh))
 
+        # Configure psycopg logging. Its warnings (e.g. Pipeline.__exit__ noise) belong in the log file, not on
+        # the user's console.
+        psycopg_logger = logging.getLogger('psycopg')
+        init_log_level(psycopg_logger, config, 'psycopg_log_level', default=logging.WARNING)
+        psycopg_logger.addHandler(fh)
+        psycopg_logger.propagate = False
+        self._managed_logging_handlers.append((psycopg_logger, fh))
+
         # configure pyav logging
         av_logfilename = self._logfilename.replace('.log', '_av.log')
         av_fh = logging.FileHandler(self._log_dir / av_logfilename, mode='w')

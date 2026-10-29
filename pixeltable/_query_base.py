@@ -158,6 +158,19 @@ class QueryBase(ABC):
         select_list_exprs, column_names = self._normalize_select_list(self._from_clause.tbls, None)
         return list(zip(select_list_exprs, column_names))
 
+    @property
+    def _is_ungrouped_aggregate(self) -> bool:
+        if self._select_list_exprs is None or self.grouping_tbl_key is not None:
+            return False
+        # group_by() without arguments forms a single group, the same as no group_by()
+        if self.group_by_clause is not None and len(self.group_by_clause) > 0:
+            return False
+        # any(): if there are any non-window agg function calls in the select list, we must be doing non-grouping agg
+        return any(
+            e.is_std_agg_fn_call
+            for e in exprs.Expr.list_subexprs(self._select_list_exprs, expr_class=exprs.FunctionCall)
+        )
+
     def _vars(self) -> dict[str, exprs.Variable]:
         """
         Return a dict mapping variable name to Variable for all Variables contained in any component of the Query
@@ -780,6 +793,10 @@ class QueryBase(ABC):
 
         Note that grouping will be applied to the rows based on the select clause of this Query.
         In the absence of a select clause, by default, all columns are selected in the grouping.
+
+        Each selected expression must be expressible in SQL. A JSON path, including one passed through
+        `astype()`, is not. Executing the query raises `RequestError` rather than returning duplicate rows.
+        Store the value in a computed column of a scalar type and select that column.
 
         Examples:
             Select unique addresses from table `addresses`.

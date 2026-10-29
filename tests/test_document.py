@@ -123,6 +123,17 @@ class TestDocument:
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='limit'):
             _ = pxt.create_view('chunks', t, iterator=document_splitter(document=t.doc, separators='token_limit'))
 
+        for sep in ('char_limit', 'token_limit'):
+            for overlap in (50, 51):
+                with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'overlap' must be smaller than 'limit'"):
+                    _ = pxt.create_view(
+                        'chunks', t, iterator=document_splitter(t.doc, separators=sep, limit=50, overlap=overlap)
+                    )
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'overlap' must be a non-negative integer"):
+                _ = pxt.create_view(
+                    'chunks', t, iterator=document_splitter(t.doc, separators=sep, limit=50, overlap=-1)
+                )
+
         # test invalid metadata
         invalid_metadata = [
             'chapter',  # invalid
@@ -386,6 +397,83 @@ class TestDocument:
             assert r['doc'].endswith('pxtbrief.txt')
 
         pxt.drop_table('chunks')
+
+    def _create_pxtbrief_table(self) -> pxt.Table:
+        file_path = next(p for p in self.valid_doc_paths() if p.endswith('pxtbrief.txt'))
+        doc_t = pxt.create_table('docs', {'doc': pxt.Document | None})
+        doc_t.insert(doc=file_path)
+        return doc_t
+
+    def _split(self, doc_t: pxt.Table, **kwargs: Any) -> list[str]:
+        chunks_t = pxt.create_view('chunks', doc_t, iterator=document_splitter(doc_t.doc, **kwargs))
+        chunks = [r['text'] for r in chunks_t.order_by(chunks_t.pos).select(chunks_t.text).collect()]
+        pxt.drop_table(chunks_t)
+        return chunks
+
+    @pytest.mark.parametrize('separator', ['char_limit', 'token_limit'])
+    def test_doc_splitter_limit(self, separator: str, uses_db: None) -> None:
+        if separator == 'token_limit':
+            skip_test_if_not_installed('tiktoken')
+        chunks = self._split(self._create_pxtbrief_table(), separators=separator, limit=100)
+        assert chunks[0].startswith('Pixeltable Briefing Doc\n')
+        assert chunks[-1].endswith('enhancing productivity.\n')
+        if separator == 'char_limit':
+            assert len(chunks) == 28
+            assert chunks[0].endswith('Main Themes:\n\nAI Data Infr')
+            assert chunks[1].startswith('astructure: Pixeltable is a Python library')
+            assert chunks[1].endswith('the management and processing of mul')
+            assert chunks[-1].startswith('egration make it a valuable tool')
+        else:
+            assert len(chunks) == 6
+            assert chunks[0].endswith('making it suitable for diverse AI applications')
+            assert chunks[1].startswith('.\n\nKey Features and Advantages:')
+            assert chunks[1].endswith('custom user-defined functions (UDFs).\nMultim')
+            assert chunks[-1].startswith(' for streamlining AI development')
+
+    @pytest.mark.parametrize('separator', ['char_limit', 'token_limit'])
+    def test_doc_splitter_limit_overlap(self, separator: str, uses_db: None) -> None:
+        if separator == 'token_limit':
+            skip_test_if_not_installed('tiktoken')
+        chunks = self._split(self._create_pxtbrief_table(), separators=separator, limit=100, overlap=25)
+        assert chunks[0].startswith('Pixeltable Briefing Doc\n')
+        assert chunks[-1].endswith('enhancing productivity.\n')
+        if separator == 'char_limit':
+            assert len(chunks) == 37
+            assert chunks[0].endswith('Main Themes:\n\nAI Data Infr')
+            assert chunks[1].startswith('ain Themes:\n\nAI Data Infrastructure')
+            assert chunks[1].endswith('simplify the managem')
+            assert chunks[-2].endswith('Python integration make it a valuab')
+            assert chunks[-1].startswith('egration make it a valuable tool')
+        else:
+            assert len(chunks) == 7
+            assert chunks[0].endswith('making it suitable for diverse AI applications')
+            assert chunks[1].startswith(' Support: Pixeltable handles various data types')
+            assert chunks[1].endswith('only performs necessary updates, saving time and')
+            assert chunks[-2].endswith('efficient solution for managing and')
+            assert chunks[-1].startswith(', allowing them to focus on model development')
+
+    def test_doc_splitter_limit_edge_cases(self, uses_db: None) -> None:
+        skip_test_if_not_installed('tiktoken')
+        doc_t = self._create_pxtbrief_table()
+
+        chunks = self._split(doc_t, separators='')
+        assert len(chunks) == 1
+        full_text = chunks[0]
+        assert len(full_text) == 2793
+        assert full_text.startswith('Pixeltable Briefing Doc\n')
+        assert full_text.endswith('enhancing productivity.\n')
+
+        assert self._split(doc_t, separators='char_limit', limit=5000, overlap=100) == [full_text]
+        assert self._split(doc_t, separators='token_limit', limit=1000, overlap=100) == [full_text]
+
+        chunks = self._split(doc_t, separators='char_limit', limit=993, overlap=93)
+        assert len(chunks) == 3
+        assert chunks[-1] == full_text[1800:]
+
+        chunks = self._split(doc_t, separators='token_limit', limit=109, overlap=9)
+        assert len(chunks) == 5
+        assert chunks[-1].startswith(', vector search, prompt management, and chain')
+        assert chunks[-1].endswith('enhancing productivity.\n')
 
     def test_doc_splitter_images(self, uses_db: None) -> None:
         file_paths = [p for p in get_documents() if p.endswith('.pdf')]
