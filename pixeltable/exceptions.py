@@ -306,7 +306,8 @@ def raise_from_expr_eval_err(e: ExprEvalError) -> NoReturn:
         nl = '\n'
         detail = f'Stack:\n{nl.join(stack_trace[-1:1:-1])}'
     if isinstance(e.exc, Error):
-        err: Error = type(e.exc)(e.exc.error_code, msg)
+        # rebuilt as a round trip rebuilds it, so it keeps what its class carries (retry_after, a provider's fields)
+        err: Error = Error.from_dict({**e.exc.to_dict(), 'message': msg})
     else:
         err = RequestError(ErrorCode.UNSUPPORTED_OPERATION, msg)
     err.detail = detail
