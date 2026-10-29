@@ -117,6 +117,10 @@ override-dependencies = [
     "protobuf>=5.29.6",  # Required because 'fireworks-ai' hard-codes 'protobuf==5.29.4'
     # "huggingface-hub>=1",  # Required due to 'whisperx'
 ]
+constraint-dependencies = [
+    "numpy>=2.5 ; python_version >= '3.15'",  # The first numpy with Python 3.15 wheels
+    "torch>=2.15 ; python_version >= '3.15'",  # The first torch with Python 3.15 wheels
+]
 
 [tool.uv.workspace]
 members = ["packages/*"]
@@ -232,7 +236,7 @@ extra-dev = [
 ]
 cuda-dev = [
     # Dependencies that require CUDA.
-    "vllm>=0.24"
+    "vllm>=0.24 ; python_version < '3.15'"
 ]
 cloud-dev = [
     # Minimal set of dev dependencies needed to run the [cloud*] tests. This is a subset of `dev`.

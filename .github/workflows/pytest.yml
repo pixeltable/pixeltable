@@ -186,7 +186,8 @@ jobs:
           conda info
       - name: Install tools and libraries
         # cmake is needed for certain CI environments where it is not preinstalled.
-        run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
+        # conda-forge's ffmpeg 6.1.1 builds need libffi <3.5, which rules out Python 3.15; 3.15 gets ffmpeg 7.1.1.
+        run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv "ffmpeg==${{ matrix.python-version == '3.15' && '7.1.1' || '6.1.1' }}=gpl*"
       - name: Install ollama
         if: ${{ matrix.uv-options == '' && startsWith(matrix.os, 'ubuntu') && matrix.python-version == '3.11' }}
         run: |
