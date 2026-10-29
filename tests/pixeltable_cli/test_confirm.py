@@ -76,8 +76,36 @@ class TestConfirmation:
         monkeypatch.setattr(sys, 'stdin', io.StringIO('n\n'))
         monkeypatch.setattr(utils, 'invocation', ['schema', 'update', 'app.py', '--json'])
         with pytest.raises(SystemExit):
-            utils.confirm_or_exit('apply 2 changes?', force=False, on_refusal=lambda: print('{"plan": "refused"}'))
-        assert capsys.readouterr().out == '{"plan": "refused"}\n'
+            utils.confirm_or_exit(
+                'apply 2 changes?', force=False, on_refusal=lambda error: utils.print_json({'plan': 'refused'}, error)
+            )
+        # the plan command's document, with the error document's fields at its top level
+        assert json.loads(capsys.readouterr().out) == {
+            'plan': 'refused',
+            'error_code': 'CONFIRMATION_DECLINED',
+            'message': 'declined: apply 2 changes?',
+            'retryable': False,
+        }
+
+    def test_a_destructive_refusal_names_the_flag(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(utils, 'stdin_is_a_tty', lambda: False)
+        monkeypatch.setattr(utils, 'invocation', ['db', 'update', 'pxt://acme:main', '--json'])
+        with pytest.raises(SystemExit) as exc:
+            utils.refuse_destructive(
+                'pxt db update', 2, force=False, on_refusal=lambda error: utils.print_json({'plan': 1}, error)
+            )
+        assert exc.value.code == utils.EXIT_REFUSED
+        doc = json.loads(capsys.readouterr().out)
+        assert doc['plan'] == 1
+        assert doc['error_code'] == 'DESTRUCTIVE_SCHEMA_CHANGE'
+        assert doc['next'] == [
+            {
+                'command': 'pxt db update pxt://acme:main --json --allow-destructive -f',
+                'effect': 'applies 2 destructive operation(s)',
+            }
+        ]
 
 
 class TestRefusal:

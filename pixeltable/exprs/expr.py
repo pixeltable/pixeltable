@@ -970,23 +970,33 @@ class Expr(abc.ABC):
             return ArithmeticExpr(op, Literal(other), self)
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
-    def __and__(self, other: object) -> Expr:
-        if not isinstance(other, Expr):
-            raise TypeError(f'Other needs to be an expression: {type(other)}')
-        if not other.col_type.is_bool_type():
-            raise TypeError(f'Other needs to be an expression that returns a boolean: {other.col_type}')
+    def _make_compound_predicate(self, op: LogicalOperator, other: object) -> Expr:
+        """
+        `self op other` where other is an Expr or a literal; both operands must be boolean. The reflected
+        operators call this directly: `True & t.col` displays as `(col) & (True)`.
+        """
         from .compound_predicate import CompoundPredicate
 
-        return CompoundPredicate(LogicalOperator.AND, [self, other])
+        if not self.col_type.is_bool_type():
+            raise TypeError(f'Expression does not return a boolean: {self.col_type}')
+        other_expr = other if isinstance(other, Expr) else Expr.from_object(other)
+        if other_expr is None or not other_expr.col_type.is_bool_type():
+            raise TypeError(f'Other needs to be an expression that returns a boolean: {other!r}')
+        return CompoundPredicate(op, [self, other_expr])
+
+    def __and__(self, other: object) -> Expr:
+        return self._make_compound_predicate(LogicalOperator.AND, other)
+
+    def __rand__(self, other: object) -> Expr:
+        # `and` is commutative for booleans
+        return self._make_compound_predicate(LogicalOperator.AND, other)
 
     def __or__(self, other: object) -> Expr:
-        if not isinstance(other, Expr):
-            raise TypeError(f'Other needs to be an expression: {type(other)}')
-        if not other.col_type.is_bool_type():
-            raise TypeError(f'Other needs to be an expression that returns a boolean: {other.col_type}')
-        from .compound_predicate import CompoundPredicate
+        return self._make_compound_predicate(LogicalOperator.OR, other)
 
-        return CompoundPredicate(LogicalOperator.OR, [self, other])
+    def __ror__(self, other: object) -> Expr:
+        # `or` is commutative for booleans
+        return self._make_compound_predicate(LogicalOperator.OR, other)
 
     def __invert__(self) -> Expr:
         from .compound_predicate import CompoundPredicate

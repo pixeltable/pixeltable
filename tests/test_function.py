@@ -3,9 +3,11 @@ import builtins
 import os
 import re
 import subprocess
+import sys
 import typing
 import warnings
 from datetime import datetime, timezone
+from pathlib import Path
 from textwrap import dedent
 from typing import Any
 
@@ -1780,6 +1782,50 @@ class TestFunction:
         reload_catalog()
         with pytest.warns(pxt.PixeltableWarning, match=regex):
             t = pxt.get_table('test')
+
+    @pytest.mark.db_roots('local', reason='breaks a client-process-local UDF module on disk; not visible to the daemon')
+    def test_udf_module_import_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, uses_db: None) -> None:
+        # Regression test for PXT-1426: a stored UDF whose module fails to import must surface the import
+        # failure, not just 'no longer exists'.
+        # `from broken_helper import missing_name` fails with the helper module's file path in the error text;
+        # that path is stripped so the message stays safe to show remote callers.
+        (tmp_path / 'broken_helper.py').write_text('')
+        (tmp_path / 'broken_udf_mod.py').write_text('from broken_helper import missing_name\n')
+        monkeypatch.syspath_prepend(str(tmp_path))
+        d = {
+            '_classpath': 'pixeltable.func.callable_function.CallableFunction',
+            'path': 'broken_udf_mod.f',
+            'signatures': [],
+        }
+        fn = Function.from_dict(d)
+        assert isinstance(fn, func.InvalidFunction)
+        assert 'could not be imported' in fn.error_msg
+        assert "cannot import name 'missing_name' from 'broken_helper'" in fn.error_msg
+        assert str(tmp_path) not in fn.error_msg
+
+        # the cause also has to reach the protocol error shown to remote callers
+        from pixeltable.exprs.function_call import FunctionValidationError
+
+        validation_error = FunctionValidationError(function_path='broken_udf_mod.f', error_msg=fn.error_msg)
+        assert "cannot import name 'missing_name' from 'broken_helper'" in validation_error.protocol_error_msg()
+        assert str(tmp_path) not in validation_error.protocol_error_msg()
+
+        # the same cause on the user-visible path: a stored UDF whose module breaks warns on get_table
+        (tmp_path / 'stored_udf_mod.py').write_text(
+            'import pixeltable as pxt\n\n@pxt.udf\ndef f(s: str) -> str:\n    return s\n'
+        )
+        import stored_udf_mod  # type: ignore[import-not-found]
+
+        t = pxt.create_table('test', {'s': pxt.String})
+        t.add_computed_column(r=stored_udf_mod.f(t.s))
+
+        (tmp_path / 'stored_udf_mod.py').write_text('import this_module_does_not_exist\n')
+        monkeypatch.delitem(sys.modules, 'stored_udf_mod')
+        reload_catalog()
+        with pytest.warns(
+            pxt.PixeltableWarning, match="could not be imported: No module named 'this_module_does_not_exist'"
+        ):
+            pxt.get_table('test')
 
     def test_tool_errors(self) -> None:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
