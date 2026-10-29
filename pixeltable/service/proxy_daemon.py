@@ -356,7 +356,8 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
 
     With an OTLP endpoint in the database's entry (db_exporter_otlp_endpoint), in OTEL_EXPORTER_OTLP_ENDPOINT, or in
     the [otel] config section, the daemon exports telemetry there. A cloud pod skips the entry and exports to the
-    collector in the pod, at the address in OTEL_EXPORTER_OTLP_ENDPOINT.
+    collector in the pod, at the address in OTEL_EXPORTER_OTLP_ENDPOINT. With a span dump file (OTEL_SPAN_DUMP, or
+    span_dump in the [otel] section) the daemon writes its spans to that file, with or without an endpoint.
     """
     # mark this process as a hosted-catalog server (no client-accessible local store) before the catalog inits
     os.environ['PIXELTABLE_PROXY_DAEMON'] = '1'
@@ -374,15 +375,17 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
     # configuration, not a flag, turns this on: a cloud pod running an older pixeltable ignores an unknown
     # environment variable but fails on an unknown flag
     otel_endpoint = Config.get().get_string_value('exporter_otlp_endpoint', section='otel')
+    otel_span_dump = Config.get().get_string_value('span_dump', section='otel')
+    otel_configured = otel_endpoint is not None or otel_span_dump is not None
     env = Env.get()
     otel_installed = env.is_installed_package('opentelemetry.instrumentation.pixeltable') and env.is_installed_package(
         'opentelemetry.instrumentation.fastapi'
     )
-    if otel_endpoint is not None and not otel_installed:
+    if otel_configured and not otel_installed:
         # the endpoint can come from an OTEL_* variable that another program set, and a missing package must not
         # stop the daemon
-        _logger.warning('An OTLP endpoint is configured, but the daemon exports no telemetry without pixeltable[otel]')
-    otel = otel_endpoint is not None and otel_installed
+        _logger.warning('OTLP export is configured, but the daemon exports no telemetry without pixeltable[otel]')
+    otel = otel_configured and otel_installed
     if otel:
         init_instrumentation()
     app = _build_app(test_mode)
