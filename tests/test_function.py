@@ -1,5 +1,6 @@
 # ruff: noqa: RUF029
 import builtins
+import importlib
 import os
 import re
 import subprocess
@@ -1814,6 +1815,8 @@ class TestFunction:
         (tmp_path / 'stored_udf_mod.py').write_text(
             'import pixeltable as pxt\n\n@pxt.udf\ndef f(s: str) -> str:\n    return s\n'
         )
+        # tmp_path's cached listing predates this file, and on Windows its directory mtime may be unchanged
+        importlib.invalidate_caches()
         import stored_udf_mod  # type: ignore[import-not-found]
 
         t = pxt.create_table('test', {'s': pxt.String})
