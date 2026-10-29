@@ -80,13 +80,14 @@ class MatrixConfig(NamedTuple):
     uv_options: str = ''
     pytest_options: str = DEFAULT_PYTEST
     pre_test_cmd: str = ''  # Extra bash command to be run just before tests
+    allow_failure: bool = False  # Sets continue-on-error, so that a failure does not fail the workflow
 
     @property
     def display_name(self) -> str:
         return f'{self.display_name_prefix}, {self.os}, {self.python_version}'
 
     @property
-    def matrix_entry(self) -> dict[str, str]:
+    def matrix_entry(self) -> dict[str, str | bool]:
         return {
             'display-name': self.display_name,
             'test-category': self.test_category,
@@ -95,6 +96,7 @@ class MatrixConfig(NamedTuple):
             'uv-options': self.uv_options,
             'pytest-options': self.pytest_options,
             'pre-test-cmd': self.pre_test_cmd,
+            'allow-failure': self.allow_failure,
         }
 
 
@@ -124,6 +126,11 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
         )
         # Also exercise the newest supported Python on the main platform
         configs.append(MatrixConfig('slim', 'py', MAIN_PLATFORM, '3.14', pytest_options=slim_pytest))
+        # Python 3.15 is not supported yet: many locked dependencies have no 3.15 wheels. This configuration tracks
+        # what still breaks on 3.15, without blocking the PR.
+        configs.append(
+            MatrixConfig('slim', 'py', MAIN_PLATFORM, '3.15', pytest_options=slim_pytest, allow_failure=True)
+        )
 
     else:
         # A non-PR trigger: merge queue, workflow dispatch, or schedule.
