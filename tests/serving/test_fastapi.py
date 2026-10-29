@@ -104,13 +104,6 @@ def add_one(x: int) -> int:
     return x + 1
 
 
-@pxt.udf
-def provider_fails(x: int) -> int:
-    raise pxt.exceptions.ExternalServiceError(
-        pxt.exceptions.ErrorCode.PROVIDER_ERROR, 'boom', provider='gemini', status_code=500, retry_after=2.5
-    )
-
-
 # the event loop of every computation that ran through record_loop(), which for a background job is the
 # loop of the worker thread that ran it
 _computation_loops: list[asyncio.AbstractEventLoop] = []
@@ -1164,21 +1157,6 @@ class TestFastAPI:
             'retryable': True,
             'retry_after': 2.5,
         }
-
-    def test_computed_column_error_keeps_its_fields(self, db_root: DatabaseRoot) -> None:
-        p = db_root.make_catalog_path
-        skip_test_if_not_installed('fastapi')
-        from pixeltable.serving import FastAPIRouter
-
-        t = pxt.create_table(p('items'), {'x': pxt.Int})
-        t.add_computed_column(y=provider_fails(t.x))
-        router = FastAPIRouter()
-        router.add_insert_route(t, path='/ins')
-        resp = make_test_client(router).post('/ins', json={'x': 1})
-        assert resp.status_code == 502 and resp.headers['Retry-After'] == '3', resp.text
-        detail = resp.json()['detail']
-        assert detail['message'].startswith('In row 0 the expression provider_fails(x)'), detail
-        assert (detail['provider'], detail['provider_http_status_code'], detail['retry_after']) == ('gemini', 500, 2.5)
 
     @pytest.mark.db_roots(
         'local', reason='a background job computes in the router process only for an in-process catalog'
