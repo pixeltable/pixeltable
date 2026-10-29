@@ -7,7 +7,7 @@ import {
   normalizeCloudCatalogUri,
   saveExtraCatalogs,
 } from '@/lib/utils'
-import { getDirectoryTree } from '@/api/client'
+import { useDashboardRuntime } from '@/lib/dashboard-runtime'
 import {
   Check,
   ChevronDown,
@@ -34,6 +34,7 @@ export function CatalogSwitcher({
   collapsed = false,
   onExpandRequest,
 }: CatalogSwitcherProps) {
+  const { client } = useDashboardRuntime()
   const [catalogs, setCatalogs] = useState<string[]>(loadExtraCatalogs)
   const [open, setOpen] = useState(false)
   const [adding, setAdding] = useState(false)
@@ -100,7 +101,7 @@ export function CatalogSwitcher({
     setAddingBusy(true)
     setAddError(null)
     try {
-      await getDirectoryTree(uri)
+      await client.getDirectoryTree(uri)
       if (!catalogs.includes(uri)) setCatalogs(prev => [...prev, uri])
       onSelect(uri)
       setOpen(false)

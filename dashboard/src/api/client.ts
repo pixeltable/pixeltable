@@ -27,77 +27,6 @@ function apiErrorMessage(body: { detail?: unknown; error?: unknown; error_code?:
   return detail || `HTTP ${status}`;
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(apiErrorMessage(error, response.status));
-  }
-  return response.json();
-}
-
-// GET /api/dirs returns an LsResponse object (see LsResponse in pixeltable_cli/models.py), not a
-// bare array. With tree=true the recursive DirectoryNode/TableNode list the UI renders lives under
-// tree.entries; the flat entries field is empty in that mode.
-interface LsResponse {
-  entries: unknown[];
-  tree: { path: string; entries: TreeNode[] } | null;
-}
-
-// List a directory's contents as a tree. Omit path (or pass 'local') for the in-process catalog root;
-// pass a hosted catalog uri (e.g. 'pxt://org:db'), or any directory path in either catalog, to list that
-// directory. The daemon reports each node's path relative to the queried directory, re-rooted so a hosted
-// path carries its pxt:// prefix.
-export async function getDirectoryTree(path?: string): Promise<TreeNode[]> {
-  const params = new URLSearchParams({ tree: 'true' });
-  if (path !== undefined && path !== '' && path !== 'local') params.set('path', path);
-  const res = await fetchJson<LsResponse>(`${API_BASE}/dirs?${params}`);
-  return res.tree?.entries ?? [];
-}
-
-export async function getTableMetadata(path: string): Promise<TableMetadata> {
-  return fetchJson<TableMetadata>(`${API_BASE}/dashboard/tables/meta?path=${encodeURIComponent(path)}`);
-}
-
-export async function getTableData(
-  path: string,
-  options: {
-    offset?: number;
-    limit?: number;
-    orderBy?: string;
-    orderDesc?: boolean;
-    errorsOnly?: boolean;
-  } = {}
-): Promise<TableData> {
-  const params = new URLSearchParams({ path });
-  if (options.offset !== undefined) params.set('offset', String(options.offset));
-  if (options.limit !== undefined) params.set('limit', String(options.limit));
-  if (options.orderBy) params.set('order_by', options.orderBy);
-  if (options.orderDesc) params.set('order_desc', 'true');
-  if (options.errorsOnly) params.set('errors_only', 'true');
-
-  return fetchJson<TableData>(`${API_BASE}/dashboard/tables/data?${params.toString()}`);
-}
-
-// Search the local catalog plus any additional (hosted) catalogs; the daemon always includes the local
-// catalog and returns full, resolvable paths.
-export async function search(query: string, additionalCatalogs?: string[]): Promise<SearchResults> {
-  const params = new URLSearchParams({ q: query });
-  for (const c of additionalCatalogs ?? []) params.append('catalogs', c);
-  return fetchJson<SearchResults>(`${API_BASE}/dashboard/search?${params}`);
-}
-
-export async function getPipeline(tablePath?: string): Promise<PipelineResponse> {
-  if (tablePath === undefined || tablePath === '' || tablePath === 'local') {
-    return fetchJson<PipelineResponse>(`${API_BASE}/dashboard/pipeline`);
-  }
-  // Catalog root only (pxt://org:db) → full DAG; a table path → connected component.
-  const url = /^pxt:\/\/[^/]+$/.test(tablePath)
-    ? `${API_BASE}/dashboard/pipeline?path=${encodeURIComponent(tablePath)}`
-    : `${API_BASE}/dashboard/tables/pipeline?path=${encodeURIComponent(tablePath)}`;
-  return fetchJson<PipelineResponse>(url);
-}
-
 interface SystemConfig {
   home: string;
   db_url: string;
@@ -124,17 +53,97 @@ interface StatusResponse {
   total_errors: number;
 }
 
-export async function getStatus(): Promise<SystemStatus> {
-  const s = await fetchJson<StatusResponse>(`${API_BASE}/status`);
-  return {
-    version: s.pxt_version,
-    total_tables: s.total_tables,
-    total_errors: s.total_errors,
-    config: {
-      home: s.home ?? '',
-      db_url: s.db_url ?? '',
-      media_dir: s.media_dir ?? '',
-      file_cache_dir: s.file_cache_dir ?? '',
-    },
-  };
+
+export type DashboardTransport = (url: string) => Promise<Response>;
+
+export function createDashboardClient(transport: DashboardTransport = (url) => fetch(url)) {
+  async function fetchJson<T>(url: string): Promise<T> {
+    const response = await transport(url);
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(apiErrorMessage(error, response.status));
+    }
+    return response.json();
+  }
+
+  // GET /api/dirs returns an LsResponse object (see LsResponse in pixeltable_cli/models.py), not a
+  // bare array. With tree=true the recursive DirectoryNode/TableNode list the UI renders lives under
+  // tree.entries; the flat entries field is empty in that mode.
+  interface LsResponse {
+    entries: unknown[];
+    tree: { path: string; entries: TreeNode[] } | null;
+  }
+
+  // List a directory's contents as a tree. Omit path (or pass 'local') for the in-process catalog root;
+  // pass a hosted catalog uri (e.g. 'pxt://org:db'), or any directory path in either catalog, to list that
+  // directory. The daemon reports each node's path relative to the queried directory, re-rooted so a hosted
+  // path carries its pxt:// prefix.
+  async function getDirectoryTree(path?: string): Promise<TreeNode[]> {
+    const params = new URLSearchParams({ tree: 'true' });
+    if (path !== undefined && path !== '' && path !== 'local') params.set('path', path);
+    const res = await fetchJson<LsResponse>(`${API_BASE}/dirs?${params}`);
+    return res.tree?.entries ?? [];
+  }
+
+  async function getTableMetadata(path: string): Promise<TableMetadata> {
+    return fetchJson<TableMetadata>(`${API_BASE}/dashboard/tables/meta?path=${encodeURIComponent(path)}`);
+  }
+
+  async function getTableData(
+    path: string,
+    options: {
+      offset?: number;
+      limit?: number;
+      orderBy?: string;
+      orderDesc?: boolean;
+      errorsOnly?: boolean;
+    } = {}
+  ): Promise<TableData> {
+    const params = new URLSearchParams({ path });
+    if (options.offset !== undefined) params.set('offset', String(options.offset));
+    if (options.limit !== undefined) params.set('limit', String(options.limit));
+    if (options.orderBy) params.set('order_by', options.orderBy);
+    if (options.orderDesc) params.set('order_desc', 'true');
+    if (options.errorsOnly) params.set('errors_only', 'true');
+
+    return fetchJson<TableData>(`${API_BASE}/dashboard/tables/data?${params.toString()}`);
+  }
+
+  // Search the local catalog plus any additional (hosted) catalogs; the daemon always includes the local
+  // catalog and returns full, resolvable paths.
+  async function search(query: string, additionalCatalogs?: string[]): Promise<SearchResults> {
+    const params = new URLSearchParams({ q: query });
+    for (const c of additionalCatalogs ?? []) params.append('catalogs', c);
+    return fetchJson<SearchResults>(`${API_BASE}/dashboard/search?${params}`);
+  }
+
+  async function getPipeline(tablePath?: string): Promise<PipelineResponse> {
+    if (tablePath === undefined || tablePath === '' || tablePath === 'local') {
+      return fetchJson<PipelineResponse>(`${API_BASE}/dashboard/pipeline`);
+    }
+    // Catalog root only (pxt://org:db) → full DAG; a table path → connected component.
+    const url = /^pxt:\/\/[^/]+$/.test(tablePath)
+      ? `${API_BASE}/dashboard/pipeline?path=${encodeURIComponent(tablePath)}`
+      : `${API_BASE}/dashboard/tables/pipeline?path=${encodeURIComponent(tablePath)}`;
+    return fetchJson<PipelineResponse>(url);
+  }
+
+  async function getStatus(): Promise<SystemStatus> {
+    const s = await fetchJson<StatusResponse>(`${API_BASE}/status`);
+    return {
+      version: s.pxt_version,
+      total_tables: s.total_tables,
+      total_errors: s.total_errors,
+      config: {
+        home: s.home ?? '',
+        db_url: s.db_url ?? '',
+        media_dir: s.media_dir ?? '',
+        file_cache_dir: s.file_cache_dir ?? '',
+      },
+    };
+  }
+
+  return { getDirectoryTree, getTableMetadata, getTableData, search, getPipeline, getStatus };
 }
+
+export type DashboardClient = ReturnType<typeof createDashboardClient>;

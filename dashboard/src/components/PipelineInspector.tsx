@@ -35,7 +35,7 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import { cn, tableHref } from '@/lib/utils'
-import { getPipeline } from '@/api/client'
+import { useDashboardRuntime } from '@/lib/dashboard-runtime'
 import type { PipelineNode as PipelineNodeType, PipelineColumn, PipelineResponse } from '@/types'
 import { FUNC_STYLES } from '@/lib/func-styles'
 import { ColumnTypeBadge, ColumnTypeIcon } from '@/lib/column-types'
@@ -672,6 +672,7 @@ export function PipelineInspector({ catalog = 'local' }: { catalog?: string }) {
 }
 
 function PipelineInspectorInner({ catalog }: { catalog: string }) {
+  const { client: { getPipeline } } = useDashboardRuntime()
   const navigate = useNavigate()
   const [pipeline, setPipeline] = useState<PipelineResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)

@@ -37,3 +37,6 @@ tests/cloud/sample_app/uv.lock
 
 # generated per test session: a pixeltable pin plus requirements.in
 tests/pixeltable_cli/requirements.txt
+
+!dashboard/package-lock.json
+/pixeltable_cli/server/embedded/
