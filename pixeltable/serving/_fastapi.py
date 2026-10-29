@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import base64
 import dataclasses
+import hashlib
+import hmac
 import inspect
 import logging
+import math
 import mimetypes
 import os
+import re
+import secrets
 import shutil
 import threading
+import time
 import urllib.parse
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -28,6 +35,7 @@ from typing import (
 )
 
 import fastapi
+import httpx
 import numpy as np
 import PIL.Image
 import pydantic
@@ -131,6 +139,142 @@ _EMBEDDED_OBJECT_TYPES: tuple[type, ...] = (np.ndarray, np.generic, PIL.Image.Im
 
 # how many background requests a router runs at a time
 _N_BACKGROUND_WORKERS = 16
+
+# unfinished background jobs per router; a submit beyond it answers 503
+_MAX_PENDING_JOBS = 4 * _N_BACKGROUND_WORKERS
+
+# how long a finished job's result is kept, and how long after the first poll that returned it
+_JOB_RESULT_TTL_S = 600.0
+_JOB_FETCHED_TTL_S = 60.0
+
+# how long a drain waits for a poll of a finished job's result
+_DRAIN_COLLECT_S = 30.0
+
+# Retry-After values, in seconds
+_PENDING_RETRY_AFTER_S = 2
+_FORWARD_RETRY_AFTER_S = 2
+_JOB_LIMIT_RETRY_AFTER_S = 5
+_DRAINING_RETRY_AFTER_S = 1
+
+# _job_status() sets it to the router's instance
+_JOB_INSTANCE_HEADER = 'X-Pxt-Job-Instance'
+_FORWARD_TIMEOUT = httpx.Timeout(5.0, connect=1.0)
+# not forwarded with a job poll: the hop-by-hop headers, and the ones httpx sets itself, except Host
+_UNFORWARDED_HEADERS = frozenset(
+    (
+        'connection',
+        'keep-alive',
+        'proxy-authorization',
+        'te',
+        'trailer',
+        'transfer-encoding',
+        'upgrade',
+        'content-length',
+        'accept-encoding',
+    )
+)
+
+_UNKNOWN_JOB = 'unknown or expired job'
+_STOPPED_INSTANCE = 'the service instance that ran this job has stopped'
+
+_INSTANCE_RE = re.compile(r'[0-9a-f]{16}')
+_UUID_RE = re.compile(r'[0-9a-f]{32}')
+
+
+@dataclasses.dataclass
+class _Job:
+    """A background job submitted to a router."""
+
+    future: Future
+    finished_at: float | None = None  # time.monotonic()
+    fetched_at: float | None = None  # time.monotonic() of the first poll that returned the final status
+
+    def is_expired(self, now: float) -> bool:
+        if self.fetched_at is not None and now - self.fetched_at > _JOB_FETCHED_TTL_S:
+            return True
+        return self.finished_at is not None and now - self.finished_at > _JOB_RESULT_TTL_S
+
+    def is_collected(self, now: float) -> bool:
+        """Return whether the job finished and its result was fetched or has been kept for _DRAIN_COLLECT_S."""
+        if self.finished_at is None:
+            return False
+        return self.fetched_at is not None or now - self.finished_at > _DRAIN_COLLECT_S
+
+
+class _JobIds:
+    """Issues and parses a router's background job ids; each id identifies the router instance that runs its job.
+
+    An id is <instance>.<uuid>, or <instance>.<addr>.<uuid>.<mac> once forwarding is enabled: the other instances of
+    the service forward a poll to addr, and the MAC keeps a client from choosing that address.
+    """
+
+    instance: str  # random, 16 hex digits
+    addr: str | None  # host:port of this process for the other instances of its service; None without forwarding
+    _key: bytes | None  # MAC key, shared by the instances of the service; set together with addr
+
+    def __init__(self) -> None:
+        self.instance = secrets.token_hex(8)
+        self.addr = None
+        self._key = None
+
+    def enable_forwarding(self, addr: str, secret: str, service_path: str) -> None:
+        """Issue ids that the other instances of the service at service_path forward to addr.
+
+        All instances of the service derive the same MAC key from secret and service_path; another service derives
+        a different one.
+        """
+        self.addr = addr
+        self._key = hmac.new(secret.encode(), f'pxt-job-id:{service_path}'.encode(), hashlib.sha256).digest()
+
+    def new_id(self) -> str:
+        job_uuid = uuid.uuid4().hex
+        if self.addr is None:
+            return f'{self.instance}.{job_uuid}'
+        # <instance>.<addr>.<uuid>.<mac>, e.g. for addr 10.0.0.7:8000:
+        # 3f2a9c1e5b7d4a60.MTAuMC4wLjc6ODAwMA.9b2e4c7a1f0d4e8b8c6a5d3f2e1b0a97.4a917dd7ad72ac47d91ed15ec0b5e600
+        signed = f'{self.instance}.{self._encode_addr(self.addr)}.{job_uuid}'
+        return f'{signed}.{self._mac(signed)}'
+
+    def owner(self, job_id: str) -> tuple[str, str | None] | None:
+        """Return the instance and the address in job_id; None if job_id is malformed or its MAC is wrong."""
+        parts = job_id.split('.')
+        addr: str | None = None
+        if len(parts) == 2:
+            # <instance>.<uuid>, from a router that does not forward polls
+            instance, job_uuid = parts
+        elif len(parts) == 4 and self._key is not None:
+            # <instance>.<addr>.<uuid>.<mac>
+            instance, addr_b64, job_uuid, mac = parts
+            # a forged id, or one from another service, has the wrong MAC
+            expected_mac = self._mac(f'{instance}.{addr_b64}.{job_uuid}')
+            # bytes: compare_digest() raises TypeError for a str with non-ASCII characters
+            if not hmac.compare_digest(mac.encode(), expected_mac.encode()):
+                return None
+            try:
+                addr = self._decode_addr(addr_b64)
+            except ValueError:
+                return None
+        else:
+            # a forwarding id at a router without forwarding, or no job id at all
+            return None
+        # the <instance>.<uuid> form has no MAC that vouches for its parts
+        if _INSTANCE_RE.fullmatch(instance) is None or _UUID_RE.fullmatch(job_uuid) is None:
+            return None
+        return instance, addr
+
+    def _mac(self, signed: str) -> str:
+        """Return the MAC of signed, a job id up to its MAC, such as 3f2a9c1e5b7d4a60.MTAuMC4wLjc6ODAwMA.9b2e...97."""
+        assert self._key is not None
+        # HMAC-SHA256, truncated to 128 bits (32 hex digits) to keep the id short
+        return hmac.new(self._key, signed.encode(), hashlib.sha256).hexdigest()[:32]
+
+    def _encode_addr(self, addr: str) -> str:
+        # URL-safe base64 without the '=' padding, which is redundant: the length determines it
+        return base64.urlsafe_b64encode(addr.encode()).decode().rstrip('=')
+
+    def _decode_addr(self, addr_b64: str) -> str:
+        # urlsafe_b64decode() requires the padding: append '=' until the length is a multiple of 4
+        return base64.urlsafe_b64decode(addr_b64 + '=' * (-len(addr_b64) % 4)).decode()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -364,6 +508,14 @@ class _ResponseMedia:
             self._sink.flush()
 
 
+def _unlink_tmp_paths(tmp_paths: list[Path]) -> None:
+    for p in tmp_paths:
+        try:
+            p.unlink(missing_ok=True)
+        except Exception:
+            _logger.warning(f'failed to delete tmp file: {p}', exc_info=True)
+
+
 def _run_endpoint_op(
     endpoint_op: Callable[..., T], kwargs: dict[str, Any], tmp_paths: list[Path], media: _ResponseMedia
 ) -> T:
@@ -373,14 +525,17 @@ def _run_endpoint_op(
         media.flush()
         return result
     except Exception as e:
-        for p in tmp_paths:
-            try:
-                p.unlink(missing_ok=True)
-            except Exception:
-                _logger.warning(f'failed to delete tmp file: {p}', exc_info=True)
+        _unlink_tmp_paths(tmp_paths)
         if isinstance(e, pxt.Error):
-            raise HTTPException(status_code=e.http_status, detail=e.to_dict()) from e
+            raise _http_exception(e) from e
         raise
+
+
+def _http_exception(e: pxt.Error) -> HTTPException:
+    """The response for e: its status, its to_dict() as detail, and Retry-After when it has a retry_after."""
+    # Retry-After takes whole seconds
+    headers = None if e.retry_after is None else {'Retry-After': str(math.ceil(e.retry_after))}
+    return HTTPException(status_code=e.http_status, detail=e.to_dict(), headers=headers)
 
 
 class PxtEndpoint:
@@ -428,17 +583,15 @@ class PxtEndpoint:
                     kwargs[input_name] = str(path)
 
         if self.route.spec.background:
-            job_id = uuid.uuid4().hex
-            job_url = str(request.url_for(_JOB_STATUS_ROUTE_NAME, job_id=job_id))
+            job_id = self.router._job_ids.new_id()
+            job_url = str(request.url_for(self.router._job_route_name, job_id=job_id))
             public_origin = os.environ.get('PIXELTABLE_PUBLIC_ORIGIN')
             if public_origin is not None:
                 origin = urllib.parse.urlsplit(public_origin)
                 if origin.scheme != 'https' or not origin.netloc or origin.path or origin.query or origin.fragment:
                     raise ValueError('PIXELTABLE_PUBLIC_ORIGIN must be an HTTPS origin')
                 job_url = f'{public_origin}{urllib.parse.urlsplit(job_url).path}'
-            fut = self.router._executor.submit(_run_endpoint_op, self.endpoint_op, kwargs, tmp_paths, media)
-            with self.router._jobs_lock:
-                self.router._jobs[job_id] = fut
+            self.router._submit_job(job_id, self.endpoint_op, kwargs, tmp_paths, media)
             return BackgroundJobResponse(id=job_id, job_url=job_url)
         else:
             return _run_endpoint_op(self.endpoint_op, kwargs, tmp_paths, media)
@@ -451,11 +604,18 @@ class FastAPIRouter(fastapi.APIRouter):
     `FastAPIRouter` is for apps that already have a FastAPI server. If you do
     not have one, use `pxt service` from the CLI; Pixeltable creates and runs the
     FastAPI app for you. Learn more here: [HTTP Serving](https://docs.pixeltable.com/howto/deployment/serving).
+
+    An app can include several routers with background routes if at most one of them is unnamed.
     """
 
     _executor: ThreadPoolExecutor
-    _jobs: dict[str, Future]  # holds background requests; key: job id (uuid4().hex)
+    _jobs: dict[str, _Job]  # background requests, keyed by job id
     _jobs_lock: threading.Lock
+    _job_ids: _JobIds
+    _job_route_name: str  # the name of the route that polls this router's jobs, unique per router name
+    _server_root_path: str  # the server's root_path, which uvicorn prepends to scope['raw_path']; '' without forwarding
+    _draining: bool  # set by _start_drain(); new background jobs are refused
+    _has_run_jobs: bool  # a background job ran; stays set after the job expires from _jobs
     _is_shut_down: bool
     _home_dir: Path
     _allowed_media_dirs: list[Path]
@@ -482,12 +642,17 @@ class FastAPIRouter(fastapi.APIRouter):
                 'hyphens, starting with a letter or digit',
             )
         self._name = name
+        self._job_route_name = _JOB_STATUS_ROUTE_NAME if name is None else f'{_JOB_STATUS_ROUTE_NAME}.{name}'
         super().__init__(*args, **kwargs)
         self._executor = ThreadPoolExecutor(
             max_workers=_N_BACKGROUND_WORKERS, thread_name_prefix='pxt-serve-background'
         )
         self._jobs = {}
         self._jobs_lock = threading.Lock()
+        self._job_ids = _JobIds()
+        self._server_root_path = ''
+        self._draining = False
+        self._has_run_jobs = False
         self._is_shut_down = False
         self._home_dir = Config.get().home.resolve()
         self._allowed_media_dirs = [
@@ -735,10 +900,10 @@ class FastAPIRouter(fastapi.APIRouter):
         if self._is_shut_down:
             return
         self._is_shut_down = True
-        if len(self._jobs) > 0:
+        if self._has_run_jobs:
             # cancel what we can, to speed up close_threadpool_runtimes()
             for job in list(self._jobs.values()):
-                job.cancel()
+                job.future.cancel()
             # a background job ran, so a worker thread has a runtime to close; the calls queue behind the
             # in-flight requests, so that the loops and clients are closed only after workers stop using them
             close_threadpool_runtimes(self._executor, _N_BACKGROUND_WORKERS)
@@ -807,6 +972,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 for the schema-compatibility rules.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
                 the computation in a background thread. Poll `job_url` for the result.
+                A poll answers 410 after the instance that ran the job stops.
 
         Examples:
             JSON request/response (no row stored):
@@ -866,17 +1032,11 @@ class FastAPIRouter(fastapi.APIRouter):
 
             >>> router.add_compute_route(t, path='/slow', background=True)
 
-            ```bash
-            # submit
-            curl -X POST http://localhost:8000/slow -d '{"prompt": "hello"}'
-            # {"id": "abc123", "job_url": "http://localhost:8000/jobs/abc123"}
-            ```
-
-            ```bash
-            # poll
-            curl http://localhost:8000/jobs/abc123
-            # {"status": "done", "result": {...}}
-            ```
+            >>> import time
+            >>> import httpx
+            >>> job = httpx.post('http://localhost:8000/slow', json={'prompt': 'hello'}).json()
+            >>> while (status := httpx.get(job['job_url']).json())['status'] == 'pending':
+            ...     time.sleep(2)
         """
         target = t
         inputs, uploadfile_inputs, outputs = _col_names(inputs), _col_names(uploadfile_inputs), _col_names(outputs)
@@ -946,8 +1106,9 @@ class FastAPIRouter(fastapi.APIRouter):
                 If the external write fails after the Pixeltable insert has already succeeded,
                 the request fails with HTTP 500; no rollback is performed.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
-                the insert in a background thread. Poll `job_url` for the result. Mutually
-                exclusive with `return_fileresponse`.
+                the insert in a background thread. Poll `job_url` for the result.
+                A poll answers 410 after the instance that ran the job stops.
+                Mutually exclusive with `return_fileresponse`.
 
         Examples:
             JSON request/response:
@@ -996,17 +1157,11 @@ class FastAPIRouter(fastapi.APIRouter):
 
             >>> router.add_insert_route(t, path='/slow', background=True)
 
-            ```bash
-            # submit
-            curl -X POST http://localhost:8000/slow -d '{"prompt": "hello"}'
-            # {"id": "abc123", "job_url": "http://localhost:8000/jobs/abc123"}
-            ```
-
-            ```bash
-            # poll
-            curl http://localhost:8000/jobs/abc123
-            # {"status": "done", "result": {...}}
-            ```
+            >>> import time
+            >>> import httpx
+            >>> job = httpx.post('http://localhost:8000/slow', json={'prompt': 'hello'}).json()
+            >>> while (status := httpx.get(job['job_url']).json())['status'] == 'pending':
+            ...     time.sleep(2)
         """
         target = t
         inputs, uploadfile_inputs, outputs = _col_names(inputs), _col_names(uploadfile_inputs), _col_names(outputs)
@@ -1172,6 +1327,7 @@ class FastAPIRouter(fastapi.APIRouter):
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
                 the computation plus post-processing in a background thread. Poll `job_url` for the
                 result; the decorated function's return value is delivered as the job result.
+                A poll answers 410 after the instance that ran the job stops.
 
         Examples:
             Per-column form:
@@ -1290,6 +1446,7 @@ class FastAPIRouter(fastapi.APIRouter):
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
                 the insert plus post-processing in a background thread. Poll `job_url` for the
                 result; the decorated function's return value is delivered as the job result.
+                A poll answers 410 after the instance that ran the job stops.
 
         Examples:
             >>> class GenerateResponse(pydantic.BaseModel):
@@ -1489,8 +1646,9 @@ class FastAPIRouter(fastapi.APIRouter):
                 If the external write fails after the Pixeltable update has already succeeded,
                 the request fails with HTTP 500; no rollback is performed.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
-                the update in a background thread. Poll `job_url` for the result. Mutually
-                exclusive with `return_fileresponse`.
+                the update in a background thread. Poll `job_url` for the result.
+                A poll answers 410 after the instance that ran the job stops.
+                Mutually exclusive with `return_fileresponse`.
 
         Examples:
             JSON request/response (table has primary key `id`):
@@ -1518,17 +1676,11 @@ class FastAPIRouter(fastapi.APIRouter):
 
             >>> router.add_update_route(t, path='/slow-update', background=True)
 
-            ```bash
-            # submit
-            curl -X POST http://localhost:8000/slow-update \\
-              -H 'Content-Type: application/json' \\
-              -d '{"id": 1, "prompt": "hello"}'
-            # {"id": "abc123", "job_url": "http://localhost:8000/jobs/abc123"}
-
-            # poll
-            curl http://localhost:8000/jobs/abc123
-            # {"status": "done", "result": {...}}
-            ```
+            >>> import time
+            >>> import httpx
+            >>> job = httpx.post('http://localhost:8000/slow-update', json={'id': 1, 'prompt': 'hello'}).json()
+            >>> while (status := httpx.get(job['job_url']).json())['status'] == 'pending':
+            ...     time.sleep(2)
         """
         target = t
         inputs, outputs = _col_names(inputs), _col_names(outputs)
@@ -1645,6 +1797,7 @@ class FastAPIRouter(fastapi.APIRouter):
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run the
                 update plus post-processing in a background thread. Poll `job_url` for the result;
                 the decorated function's return value is delivered as the job result.
+                A poll answers 410 after the instance that ran the job stops.
 
         Examples:
             >>> class ItemResponse(pydantic.BaseModel):
@@ -1683,17 +1836,11 @@ class FastAPIRouter(fastapi.APIRouter):
             ... def format_response(*, id: int, result: str) -> MyResponse:
             ...     return MyResponse(id=id, result=result.strip())
 
-            ```bash
-            # submit
-            curl -X POST http://localhost:8000/slow-update \\
-              -H 'Content-Type: application/json' \\
-              -d '{"id": 1, "text": "hello"}'
-            # {"id": "abc123", "job_url": "http://localhost:8000/jobs/abc123"}
-
-            # poll
-            curl http://localhost:8000/jobs/abc123
-            # {"status": "done", "result": {"id": 1, "result": "hello"}}
-            ```
+            >>> import time
+            >>> import httpx
+            >>> job = httpx.post('http://localhost:8000/slow-update', json={'id': 1, 'text': 'hello'}).json()
+            >>> while (status := httpx.get(job['job_url']).json())['status'] == 'pending':
+            ...     time.sleep(2)
         """
         target = t
         inputs, outputs = _col_names(inputs), _col_names(outputs)
@@ -1762,6 +1909,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 Must be non-empty.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run the
                 operation in a background thread. Poll `job_url` for the result.
+                A poll answers 410 after the instance that ran the job stops.
 
         Examples:
             >>> router.add_delete_route(t, path='/delete')
@@ -1847,7 +1995,6 @@ class FastAPIRouter(fastapi.APIRouter):
         query: pxt.Function,
         inputs: ColumnsParam | None = None,
         uploadfile_inputs: ColumnsParam | None = None,
-        one_row: bool = False,
         return_fileresponse: bool = False,
         background: bool = False,
         method: Literal['get', 'post'] = 'post',
@@ -1856,9 +2003,21 @@ class FastAPIRouter(fastapi.APIRouter):
         Add an endpoint that executes a `@pxt.query` or `pxt.retrieval_udf` and returns the results.
 
         By default the endpoint accepts POST requests with a JSON
-        [`Body`](https://fastapi.tiangolo.com/tutorial/body/) and returns `{"rows": [{...}, ...]}`.
+        [`Body`](https://fastapi.tiangolo.com/tutorial/body/).
         Use `method='get'` for
         [`Query`](https://fastapi.tiangolo.com/tutorial/query-params/) parameters instead.
+
+        The response depends on the shape of the query. A query returns at most one row if it aggregates without
+        `group_by()` or has `limit(1)`; otherwise it returns multiple rows.
+        Only a literal `limit(1)` counts: `limit(n)` with a parameter returns multiple rows, even when `n` is 1.
+
+        - Multiple rows, selecting a single unnamed expression, as in `select(t.text)`: a JSON array of values.
+        - Multiple rows, with any other select list: `{"rows": [{...}, ...]}`, with a JSON object per row.
+        - At most one row, selecting a single unnamed expression: the value itself.
+        - At most one row, with any other select list: the row as a JSON object.
+
+        To get JSON objects for a single expression, name it, as in `select(text=t.text)`.
+        If a query that returns at most one row finds no row, the response is a 404.
 
         Args:
             path: The URL path for the endpoint.
@@ -1867,20 +2026,23 @@ class FastAPIRouter(fastapi.APIRouter):
             uploadfile_inputs: Parameters to accept as
                 [`UploadFile`](https://fastapi.tiangolo.com/tutorial/request-files/) fields
                 (must be media-typed).
-            one_row: If True, expect exactly one result row and return it as a plain JSON object
-                (not wrapped in `{"rows": [...]}`). 0 rows produces a 404, >1 rows a 409.
             return_fileresponse: If True, return the single media-typed result column as a
                 [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse).
-                Requires `one_row` semantics (0 rows -> 404, >1 rows -> 409).
+                Requires a query that returns one row; no row produces a 404.
                 Mutually exclusive with `background`.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
-                the query in a background thread. Poll `job_url` for the result. Mutually
-                exclusive with `return_fileresponse`.
+                the query in a background thread. Poll `job_url` for the result.
+                A poll answers 410 after the instance that ran the job stops.
+                Mutually exclusive with `return_fileresponse`.
             method: HTTP method for the endpoint (`'get'` or `'post'`).
 
         Examples:
-            Multi-row JSON response:
+            A search; the response contains a JSON object per result row under `rows`:
 
+            >>> @pxt.query
+            ... def search_docs(query_text: str) -> pxt.Query:
+            ...     sim = docs.text.similarity(string=query_text)
+            ...     return docs.order_by(sim, asc=False).select(docs.id, docs.text, score=sim)
             >>> router.add_query_route(path='/search', query=search_docs)
 
             ```bash
@@ -1890,16 +2052,32 @@ class FastAPIRouter(fastapi.APIRouter):
             # {"rows": [{"id": 1, "text": "hello world", "score": 0.95}, ...]}
             ```
 
-            Single-row lookup:
+            The same search over a single unnamed expression; the response is a JSON array of values:
 
-            >>> router.add_query_route(path='/lookup', query=lookup_by_id, one_row=True)
+            >>> @pxt.query
+            ... def search_texts(query_text: str) -> pxt.Query:
+            ...     sim = docs.text.similarity(string=query_text)
+            ...     return docs.order_by(sim, asc=False).select(docs.text)
+            >>> router.add_query_route(path='/search-texts', query=search_texts)
+
+            ```bash
+            curl -X POST http://localhost:8000/search-texts -d '{"query_text": "hello"}'
+            # ["hello world", ...]
+            ```
+
+            A lookup with `limit(1)`; the response is a single JSON object, or a 404 if there is no row:
+
+            >>> @pxt.query
+            ... def lookup_by_id(id: int) -> pxt.Query:
+            ...     return users.where(users.id == id).limit(1)
+            >>> router.add_query_route(path='/lookup', query=lookup_by_id)
 
             ```bash
             curl -X POST http://localhost:8000/lookup -d '{"id": 42}'
             # {"id": 42, "name": "Alice", "email": "alice@example.com"}
             ```
 
-            GET with query-string parameters:
+            The same lookup with query-string parameters; the response is again a single JSON object:
 
             >>> router.add_query_route(path='/lookup', query=lookup_by_id, method='get')
 
@@ -1908,8 +2086,24 @@ class FastAPIRouter(fastapi.APIRouter):
             # {"id": 42, "name": "Alice", "email": "alice@example.com"}
             ```
 
-            `FileResponse`:
+            An aggregation without `group_by()`; the response is the value itself:
 
+            >>> @pxt.query
+            ... def user_count(min_age: int) -> pxt.Query:
+            ...     return users.where(users.age >= min_age).select(pxtf.count(users.id))
+            >>> router.add_query_route(path='/user-count', query=user_count)
+
+            ```bash
+            curl -X POST http://localhost:8000/user-count -d '{"min_age": 21}'
+            # 1234
+            ```
+
+            A `FileResponse`; the query returns at most one row, and the response is the file itself, or a 404 if
+            there is no row:
+
+            >>> @pxt.query
+            ... def get_thumbnail(id: int) -> pxt.Query:
+            ...     return images.where(images.id == id).select(images.thumbnail).limit(1)
             >>> router.add_query_route(
             ...     path='/thumbnail', query=get_thumbnail, return_fileresponse=True,
             ... )
@@ -1929,6 +2123,13 @@ class FastAPIRouter(fastapi.APIRouter):
             raise pxt.RequestError(
                 pxt.ErrorCode.INVALID_ARGUMENT,
                 'add_query_route(): return_fileresponse and background are mutually exclusive',
+            )
+        single_row = query.single_row
+        if return_fileresponse and not single_row:
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_ARGUMENT,
+                f'add_query_route(): return_fileresponse requires a query that returns one row, such as one with '
+                f'limit(1); {query.name!r} returns a list',
             )
         uploadfile_inputs = uploadfile_inputs or []
 
@@ -1978,7 +2179,7 @@ class FastAPIRouter(fastapi.APIRouter):
             path_elements = path.split('/')
             path_str = ''.join(el.capitalize() for el in path_elements if len(el) > 0)
             query_result_model = self._create_model(name=f'{path_str}RowResponse', output_schema=result_schema)
-            if one_row:
+            if single_row:
                 output_model = query_result_model
             else:
                 # Multi-row: wrap per-row models in a response with a rows field.
@@ -1995,7 +2196,7 @@ class FastAPIRouter(fastapi.APIRouter):
             endpoint_model = None
         elif return_scalar:
             scalar_py_type = next(iter(result_schema.values())).to_pydantic_type()
-            endpoint_model = list[scalar_py_type] if not one_row else scalar_py_type  # type: ignore[valid-type]
+            endpoint_model = scalar_py_type if single_row else list[scalar_py_type]  # type: ignore[valid-type]
         else:
             endpoint_model = output_model
 
@@ -2014,7 +2215,7 @@ class FastAPIRouter(fastapi.APIRouter):
             background=background,
             return_fileresponse=return_fileresponse,
             query_fn=query.self_path,
-            one_row=one_row,
+            one_row=single_row,
             query_cols=() if declared_query is None else sorted(declared_query.referenced_column_names()),
         )
         if isinstance(template_query, ModelQuery):
@@ -2031,18 +2232,8 @@ class FastAPIRouter(fastapi.APIRouter):
             result_set = self._query_binding(route.route_id)._collect(args=call_kwargs)
             rows = list(result_set)
 
-            # do error checking now, before converting data
-            if return_fileresponse or one_row:
-                if len(rows) == 0:
-                    raise HTTPException(status_code=404, detail='query returned no rows')
-                if len(rows) > 1:
-                    raise HTTPException(
-                        status_code=409,
-                        detail=(
-                            f'Query returned {len(rows)} rows; expected exactly 1 for one_row=True. '
-                            'Change the query to return exactly one row.'
-                        ),
-                    )
+            if single_row and len(rows) == 0:
+                raise HTTPException(status_code=404, detail='query returned no rows')
 
             output = self._create_output(
                 rows,
@@ -2057,8 +2248,8 @@ class FastAPIRouter(fastapi.APIRouter):
                 # output is list[dict]; extract the single column value from each row
                 assert isinstance(output, list)
                 scalars = [row[scalar_col_name] for row in output]  # type: ignore[index]
-                return scalars[0] if one_row else scalars
-            elif one_row:
+                return scalars[0] if single_row else scalars
+            elif single_row:
                 assert isinstance(output, list)
                 return output[0]
             else:
@@ -2670,29 +2861,165 @@ class FastAPIRouter(fastapi.APIRouter):
         )
 
     def _register_jobs_route(self) -> None:
-        def get_job_status(job_id: str) -> JobStatusResponse:
-            with self._jobs_lock:
-                fut = self._jobs.get(job_id)
-            if fut is None:
-                raise HTTPException(status_code=404, detail='unknown job id')
-            if not fut.done():
-                return JobStatusResponse(status='pending')
-            exc = fut.exception()
-            if exc is not None:
-                # _run_endpoint_op() already turned a Pixeltable error into its HTTPException
-                error_detail = exc.detail if isinstance(exc, HTTPException) else None
-                return JobStatusResponse(status='error', error=str(exc), error_detail=error_detail)
-            # FileResponse cannot be JSON-serialized; only response_model instances make it here
-            # in practice (background+return_fileresponse is rejected at registration).
-            return JobStatusResponse(status='done', result=fut.result())
+        async def get_job_status(job_id: str, request: Request, response: fastapi.Response) -> Any:
+            if _UUID_RE.fullmatch(job_id) is not None:
+                # a plain uuid: an id from an earlier pixeltable version
+                # TODO: remove
+                raise HTTPException(status_code=410, detail=_STOPPED_INSTANCE)
+            owner = self._job_ids.owner(job_id)
+            if owner is None:
+                raise HTTPException(status_code=404, detail=_UNKNOWN_JOB)
+            instance, addr = owner
+            if instance == self._job_ids.instance:
+                return self._job_status(job_id, response)
+            if addr is None or addr == self._job_ids.addr:
+                # the owner served alone and its server restarted, or this process now has the owner's address
+                raise HTTPException(status_code=410, detail=_STOPPED_INSTANCE)
+            return await self._forward_job_poll(addr, instance, request)
 
-        self.add_api_route(
-            f'{_PXT_SEGMENT}/jobs/{{job_id}}',
-            get_job_status,
-            methods=['GET'],
-            response_model=JobStatusResponse,
-            name=_JOB_STATUS_ROUTE_NAME,
+        # with its name in the path, a router's poll route stays apart from those of other routers in the app, also
+        # under one prefix
+        path = (
+            f'{_PXT_SEGMENT}/jobs/{{job_id}}' if self._name is None else f'{_PXT_SEGMENT}/jobs/{self._name}/{{job_id}}'
         )
+        self.add_api_route(
+            path, get_job_status, methods=['GET'], response_model=JobStatusResponse, name=self._job_route_name
+        )
+
+    def _configure_job_forwarding(self, addr: str, secret: str, root_path: str) -> None:
+        """Issue job ids that the other instances of the service forward to addr, signed with a key from secret.
+
+        root_path, the server's root_path, also identifies the service in the key.
+        """
+        self._job_ids.enable_forwarding(addr, secret, root_path)
+        self._server_root_path = root_path
+
+    def _submit_job(
+        self,
+        job_id: str,
+        endpoint_op: Callable[..., Any],
+        kwargs: dict[str, Any],
+        tmp_paths: list[Path],
+        media: _ResponseMedia,
+    ) -> None:
+        """Run endpoint_op as the background job job_id. Raises a 503 if this router takes no more jobs."""
+        refusal: HTTPException | None = None
+        with self._jobs_lock:
+            self._prune_jobs(time.monotonic())
+            if self._draining:
+                refusal = _http_exception(
+                    excs.ServiceUnavailableError(
+                        excs.ErrorCode.JOB_REFUSED,
+                        'the service instance is shutting down',
+                        retry_after=_DRAINING_RETRY_AFTER_S,
+                    )
+                )
+            elif sum(1 for job in self._jobs.values() if job.finished_at is None) >= _MAX_PENDING_JOBS:
+                refusal = _http_exception(
+                    excs.ServiceUnavailableError(
+                        excs.ErrorCode.JOB_REFUSED,
+                        f'the service instance is at its limit of {_MAX_PENDING_JOBS} unfinished background jobs',
+                        retry_after=_JOB_LIMIT_RETRY_AFTER_S,
+                    )
+                )
+            else:
+                job = _Job(self._executor.submit(_run_endpoint_op, endpoint_op, kwargs, tmp_paths, media))
+                self._jobs[job_id] = job
+                self._has_run_jobs = True
+        if refusal is not None:
+            _unlink_tmp_paths(tmp_paths)
+            raise refusal
+        # outside the lock: for a finished future, add_done_callback() calls _finish_job() at once, which takes the lock
+        job.future.add_done_callback(lambda _: self._finish_job(job))
+
+    def _finish_job(self, job: _Job) -> None:
+        with self._jobs_lock:
+            job.finished_at = time.monotonic()
+
+    def _prune_jobs(self, now: float) -> None:
+        """Drop the jobs whose results expired."""
+        assert self._jobs_lock.locked()
+        for job_id in [job_id for job_id, job in self._jobs.items() if job.is_expired(now)]:
+            del self._jobs[job_id]
+
+    def _job_status(self, job_id: str, response: fastapi.Response) -> JobStatusResponse:
+        """Answer a poll for a job of this router."""
+        headers = {_JOB_INSTANCE_HEADER: self._job_ids.instance}
+        now = time.monotonic()
+        with self._jobs_lock:
+            self._prune_jobs(now)
+            job = self._jobs.get(job_id)
+            if job is None:
+                raise HTTPException(status_code=404, detail=_UNKNOWN_JOB, headers=headers)
+            if job.future.done() and job.fetched_at is None:
+                job.fetched_at = now
+
+        response.headers.update(headers)
+        if not job.future.done():
+            response.headers['Retry-After'] = str(_PENDING_RETRY_AFTER_S)
+            return JobStatusResponse(status='pending')
+        exc = job.future.exception()
+        if exc is not None:
+            # _run_endpoint_op() already turned a Pixeltable error into its HTTPException
+            error_detail = exc.detail if isinstance(exc, HTTPException) else None
+            return JobStatusResponse(status='error', error=str(exc), error_detail=error_detail)
+        # FileResponse cannot be JSON-serialized; only response_model instances make it here
+        # in practice (background+return_fileresponse is rejected at registration).
+        return JobStatusResponse(status='done', result=job.future.result())
+
+    async def _forward_job_poll(self, addr: str, instance: str, request: Request) -> fastapi.Response:
+        """Forward the poll to the job's owner at addr and relay its answer."""
+        assert self._job_ids.addr is not None
+        # the path as this server received it: the owner's server prepends root_path again
+        path = request.scope['raw_path'].decode().removeprefix(self._server_root_path)
+        # the owner's route dependencies and middleware see the client's headers; httpx keeps the client's Host while it
+        # connects to addr
+        headers = [(k, v) for k, v in request.headers.items() if k not in _UNFORWARDED_HEADERS]
+        try:
+            async with httpx.AsyncClient(timeout=_FORWARD_TIMEOUT) as client:
+                owner_resp = await client.get(f'http://{addr}{path}', headers=headers)
+        except (
+            httpx.ReadTimeout,
+            httpx.WriteTimeout,
+            httpx.PoolTimeout,
+            httpx.ReadError,
+            httpx.WriteError,
+            httpx.RemoteProtocolError,
+        ) as exc:
+            # the owner accepted the connection and may still run the job: a retry reaches it, or fails to connect
+            raise HTTPException(
+                status_code=503,
+                detail='the service instance that runs this job did not answer',
+                headers={'Retry-After': str(_FORWARD_RETRY_AFTER_S)},
+            ) from exc
+        except httpx.TransportError as exc:
+            # no connection, ConnectTimeout included: the owner is gone, and a retry would fail the same way
+            raise HTTPException(status_code=410, detail=_STOPPED_INSTANCE) from exc
+
+        # _job_status() puts the instance header on its 404s: a 404 without it comes from another process at the owner's
+        # address. Any other answer is the owner's, including a rejection by its app's middleware.
+        if owner_resp.status_code == 404 and owner_resp.headers.get(_JOB_INSTANCE_HEADER) != instance:
+            raise HTTPException(status_code=410, detail=_STOPPED_INSTANCE)
+        retry_after = owner_resp.headers.get('Retry-After')
+        return fastapi.Response(
+            content=owner_resp.content,
+            status_code=owner_resp.status_code,
+            media_type=owner_resp.headers.get('Content-Type'),
+            headers=None if retry_after is None else {'Retry-After': retry_after},
+        )
+
+    def _start_drain(self) -> None:
+        """Refuse new background jobs; jobs already submitted keep running and can be polled."""
+        with self._jobs_lock:
+            self._draining = True
+
+    def _wait_drained(self, deadline: float) -> None:
+        """Wait until every job is collected (_Job.is_collected()) or until deadline, a time.monotonic() value."""
+        while (now := time.monotonic()) < deadline:
+            with self._jobs_lock:
+                if all(job.is_collected(now) for job in self._jobs.values()):
+                    return
+            time.sleep(0.2)
 
     def _build_response_field(self, col_type: ts.ColumnType, *, comment: str | None = None) -> tuple[Any, FieldInfo]:
         """Build a (annotation, FieldInfo) pair for pydantic.create_model() from a ColumnType."""

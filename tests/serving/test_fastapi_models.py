@@ -36,7 +36,7 @@ class TestFastAPIModels:
 
         @pxt.query
         def note_thumb(note_id: int) -> pxt.Query:
-            return Notes.where(Notes.note_id == note_id).select(Notes.thumb)  # type: ignore[arg-type]
+            return Notes.where(Notes.note_id == note_id).select(Notes.thumb).limit(1)  # type: ignore[arg-type]
 
         # a model attribute is a ColumnRefByName at runtime, but a type checker sees the column's declared value
         # type, so these do not satisfy the declared argument types; the ignores go away with the mypy plugin fix
@@ -98,9 +98,7 @@ class TestFastAPIModels:
 
         Notes.table.insert([{'note_id': 5, 'val': 50, 'img': get_image_files()[0]}])
         # each route serves the media column the way its own response needs it
-        rows = client.post('/thumb-json', json={'note_id': 5}).json()['rows']
-        assert len(rows) == 1, rows
-        assert_correct_result_url(rows[0]['thumb'], db_root, True)
+        assert_correct_result_url(client.post('/thumb-json', json={'note_id': 5}).json(), db_root, True)
         resp = client.post('/thumb-file', json={'note_id': 5})
         assert resp.status_code == 200, resp.text
         assert resp.headers['content-type'].startswith('image/'), resp.headers['content-type']
@@ -208,7 +206,7 @@ class TestFastAPIModels:
         TableModel.create_all(p(''))
         router.bind(p(''))
         assert client.post('/ins', json={'note_id': 1, 'val': 10}).status_code == 200
-        assert client.post('/q', json={}).json() == {'rows': [{'val': 10}]}
+        assert client.post('/q', json={}).json() == [10]
 
     def test_view_model_target(self, db_root: DatabaseRoot) -> None:
         """A compute route can be declared against a view model before either table exists."""
@@ -311,9 +309,9 @@ class TestFastAPIModels:
         router.bind(p(''))
         Docs.table.insert([{'body': 'alpha'}, {'body': 'beta'}])
 
-        assert client.post('/ins', json={'question': 'alpha'}).json() == {'hits': [{'body': 'alpha'}]}
-        assert client.post('/comp', json={'question': 'beta'}).json() == {'hits': [{'body': 'beta'}]}
-        assert client.post('/asked', json={'question': 'alpha'}).json() == {'rows': [{'hits': [{'body': 'alpha'}]}]}
+        assert client.post('/ins', json={'question': 'alpha'}).json() == {'hits': ['alpha']}
+        assert client.post('/comp', json={'question': 'beta'}).json() == {'hits': ['beta']}
+        assert client.post('/asked', json={'question': 'alpha'}).json() == [['alpha']]
         assert client.post('/del', json={'question': 'alpha'}).json() == {'num_rows': 1}
 
     def test_bind(self, db_root: DatabaseRoot) -> None:
@@ -360,7 +358,7 @@ class TestFastAPIModels:
         client = make_test_client(router)
         resp = client.post('/ins', json={'note_id': 1, 'val': 10, 'note': 'hi'})
         assert resp.status_code == 200, resp.text
-        assert client.post('/q', json={'min_val': 1}).json() == {'rows': [{'note': 'hi'}]}
+        assert client.post('/q', json={'min_val': 1}).json() == ['hi']
 
         # binding is to one place: a second target would silently retarget the routes already being served
         with pxt_raises(pxt.ErrorCode.ALREADY_BOUND, match='already bound'):

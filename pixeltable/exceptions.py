@@ -18,6 +18,8 @@ class ErrorCode(enum.Enum):
     """
 
     http_status: int
+    # Tells the caller whether re-running the failed operation might succeed. Pixeltable's own internal retries follow
+    # separate rules.
     is_retryable: bool
 
     def __new__(cls, value: int, http_status: int, is_retryable: bool) -> Self:
@@ -80,10 +82,12 @@ class ErrorCode(enum.Enum):
     PROVIDER_BAD_REQUEST = 5003, 400, False
     PROVIDER_TIMEOUT = 5004, 504, True
     PROVIDER_OVERLOADED = 5005, 503, True
+    PROVIDER_UNEXPECTED_RESPONSE = 5006, 502, False
 
     # ServiceUnavailableError (6xxx)
     DATABASE_UNAVAILABLE = 6000, 503, True
     STORE_UNAVAILABLE = 6001, 503, True
+    JOB_REFUSED = 6002, 503, True
 
     # ConcurrencyError (7xxx)
     SERIALIZATION_FAILURE = 7000, 409, True
@@ -124,6 +128,10 @@ class Error(Exception):
     def __str__(self) -> str:
         return self.message if self.detail is None else f'{self.message}\n{self.detail}'
 
+    def __reduce__(self) -> tuple[Any, ...]:
+        """Supports copy and pickle, which would otherwise call __init__() with only the message."""
+        return _restore_error, (type(self), self.args), self.__dict__
+
     @property
     def http_status(self) -> int:
         return self.error_code.http_status
@@ -133,6 +141,8 @@ class Error(Exception):
         """
         If False, re-running the operation that caused this error without any changes is guaranteed to fail with the
         same error. If True, the error might be transient and the operation might succeed if retried.
+
+        This is guidance for the user. Pixeltable's own automatic retries follow separate rules.
         """
         return self.error_code.is_retryable
 
@@ -173,6 +183,10 @@ class Error(Exception):
         return err
 
 
+def _restore_error(cls: type[Error], args: tuple[Any, ...]) -> Error:
+    return cls.__new__(cls, *args)
+
+
 class InternalError(Error):
     """A Pixeltable-internal invalid state."""
 
@@ -208,6 +222,7 @@ class ExternalServiceError(Error):
 
     provider: str | None = None
     provider_http_status_code: int | None = None
+    provider_error_code: str | None = None  # e.g. Pixeltable Cloud's X-Pixeltable-Error-Code
 
     def __init__(
         self,
@@ -217,10 +232,12 @@ class ExternalServiceError(Error):
         retry_after: float | None = None,
         provider: str | None = None,
         status_code: int | None = None,
+        provider_error_code: str | None = None,
     ) -> None:
         super().__init__(error_code, message, retry_after=retry_after)
         self.provider = provider
         self.provider_http_status_code = status_code
+        self.provider_error_code = provider_error_code
 
     def to_dict(self, with_detail: bool = False) -> dict[str, Any]:
         d = super().to_dict(with_detail)
@@ -228,6 +245,8 @@ class ExternalServiceError(Error):
             d['provider'] = self.provider
         if self.provider_http_status_code is not None:
             d['provider_http_status_code'] = self.provider_http_status_code
+        if self.provider_error_code is not None:
+            d['provider_error_code'] = self.provider_error_code
         return d
 
     @classmethod
@@ -236,11 +255,12 @@ class ExternalServiceError(Error):
         assert isinstance(err, ExternalServiceError)
         err.provider = d.get('provider')
         err.provider_http_status_code = d.get('provider_http_status_code')
+        err.provider_error_code = d.get('provider_error_code')
         return err
 
 
 class ServiceUnavailableError(Error):
-    """Database, store, or other infrastructure is unreachable."""
+    """Database, store, service instance or other infrastructure is temporarily unavailable."""
 
 
 class ConcurrencyError(Error):

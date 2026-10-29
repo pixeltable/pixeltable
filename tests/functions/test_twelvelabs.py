@@ -12,6 +12,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable.functions.audio import audio_splitter
 from pixeltable.functions.video import video_splitter
+from pixeltable.runtime import get_runtime, reset_runtime
 
 from ..utils import (
     get_audio_files,
@@ -74,6 +75,16 @@ def mock_embeddings(init_env: None, monkeypatch: pytest.MonkeyPatch) -> SimpleNa
     )
     monkeypatch.setattr(twelvelabs, '_twelvelabs_client', lambda: client)
     return client
+
+
+class TestTwelveLabsClient:
+    def test_client_closed_on_reset(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        monkeypatch.setenv('TWELVELABS_API_KEY', 'test-key')
+        # no public accessor exposes the SDK's httpx client, so this reads the private attribute that holds it
+        http_client = get_runtime().get_client('twelvelabs')._client_wrapper.httpx_client.httpx_client
+        reset_runtime()
+        assert http_client.is_closed
 
 
 class TestTwelveLabsLocal:
@@ -198,7 +209,7 @@ class TestTwelveLabsLocal:
         mock_embeddings.embed.v_2.create.return_value = SimpleNamespace(
             data=[SimpleNamespace(embedding=v) for v in vectors]
         )
-        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='single 512-dimensional embedding'):
+        with pxt_raises(pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, match='single 512-dimensional embedding'):
             asyncio.run(twelvelabs.embed.py_fns[0](text='test', model_name='marengo3.5'))
 
     @pytest.mark.parametrize('model_name', ['marengo3.0', 'marengo3.5'])
@@ -282,6 +293,23 @@ class TestTwelveLabsLocal:
             asyncio.run(twelvelabs.embed.py_fns[3](str(tmp_path / 'media.mp4'), model_name='marengo3.0'))
         mock_embeddings.embed.v_2.create.assert_not_awaited()
         mock_embeddings.multipart_upload.upload_file.assert_awaited_once()
+        mock_embeddings.assets.delete.assert_awaited_once_with('test-asset')
+
+    def test_readiness_timeout_reports_the_retrieve_error(
+        self, mock_embeddings: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from twelvelabs.errors import TooManyRequestsError
+
+        from pixeltable.functions import twelvelabs
+
+        _fast_polls(monkeypatch, timeout=0.05)
+        _upload_media(monkeypatch, tmp_path)
+        mock_embeddings.assets.retrieve.side_effect = TooManyRequestsError(body='slow down')
+
+        with pxt_raises(pxt.ErrorCode.PROVIDER_TIMEOUT, match='timed out') as exc_info:
+            asyncio.run(twelvelabs.embed.py_fns[3](str(tmp_path / 'media.mp4'), model_name='marengo3.0'))
+        assert isinstance(exc_info.value.__cause__, TooManyRequestsError)
+        mock_embeddings.embed.v_2.create.assert_not_awaited()
         mock_embeddings.assets.delete.assert_awaited_once_with('test-asset')
 
     def test_rate_limited_retrieve_is_polled_again(
@@ -449,6 +477,8 @@ class TestTwelveLabs:
         assert res['embedding'][0].shape == (512,)
 
     def test_embed_large_media(self, uses_db: None, model_name: str) -> None:
+        if model_name != 'marengo3.0':
+            pytest.skip('Marengo 3.5 embeds media inline and does not upload an asset.')
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')
         from pixeltable.functions.twelvelabs import embed

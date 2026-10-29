@@ -8,6 +8,7 @@ import json
 import os
 import platform
 import re
+import shlex
 import signal
 import socket
 import subprocess
@@ -18,7 +19,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import psutil
 import pydantic
@@ -42,6 +43,9 @@ EXIT_IN_AGREEMENT = 0
 EXIT_ERROR = 1
 EXIT_CHANGES_PENDING = 2
 EXIT_REFUSED = 3
+
+# management_client.USER_ACTION_CODES; this module does not import pixeltable
+USER_ACTION_CODES = frozenset(('PAYMENT_REQUIRED', 'PLAN_LIMIT', 'STORE_FULL'))
 
 
 def session_key() -> str:
@@ -235,8 +239,12 @@ def _pid_cmdline(pid: int) -> str | None:
     except OSError:
         pass
     if _IS_WINDOWS:
-        # No cheap stdlib argv source; the caller falls back to refusing to kill.
-        return None
+        # Windows has neither /proc nor ps; psutil reads the command line out of the process itself
+        try:
+            args = psutil.Process(pid).cmdline()
+        except (psutil.Error, OSError):
+            return None
+        return ' '.join(args) if len(args) > 0 else None
     # macOS/BSD (and Linux without a readable /proc entry): ask ps for the full command line.
     try:
         out = subprocess.run(
@@ -256,19 +264,10 @@ def _pid_is_our_daemon(pid: int) -> bool:
 
 def _pid_alive(pid: int) -> bool:
     assert pid > 0, pid
-    try:
-        # signal 0 is the 'are you there?' probe (doesn't kill, just raises if the PID is gone)
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        # PID exists but is owned by another user; treat as alive (we can't kill it anyway).
-        return True
-    except (OSError, SystemError):
-        # SystemError surfaces on Windows when os.kill(pid, 0) hits an internal CPython
-        # result-handling edge case for an unknown PID; treat the same as OSError ("gone").
-        return False
-    return True
+    # On POSIX this is the os.kill(pid, 0) probe, counting a pid owned by another user as alive. Windows can't
+    # use that probe: signal 0 is CTRL_C_EVENT there, and when the event can't be sent, CPython 3.11 goes on to
+    # call TerminateProcess on the pid, killing the process it was only meant to probe.
+    return psutil.pid_exists(pid)
 
 
 def kill_and_wait(pid: int, timeout: float = 5.0) -> None:
@@ -354,12 +353,111 @@ def ensure_running() -> str:
     return base_url()
 
 
+class RequestFailedError(Exception):
+    """A daemon request that failed; status is None when no response came back."""
+
+    status: int | None
+    retryable: bool | None
+    server_tb: str | None
+    # the daemon's error_code; without one, DAEMON_UNREACHABLE when no daemon answered, HTTP_<status> for a 4xx from its
+    # HTTP layer, and INTERNAL_ERROR otherwise
+    error_code: str
+    detail: str  # the reason, without the status
+    as_written: bool  # the message is the control plane's reason, printed without a prefix
+    retry_after: float | None  # seconds after which resending may succeed, when the daemon knows
+
+    def __init__(
+        self,
+        message: str,
+        status: int | None = None,
+        retryable: bool | None = None,
+        server_tb: str | None = None,
+        *,
+        error_code: str = 'INTERNAL_ERROR',
+        detail: str | None = None,
+        as_written: bool = False,
+        retry_after: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.retryable = retryable
+        self.server_tb = server_tb
+        self.error_code = error_code
+        self.detail = detail or message
+        self.as_written = as_written
+        self.retry_after = retry_after
+
+    @classmethod
+    def from_response(cls, e: urllib.error.HTTPError) -> 'RequestFailedError':
+        """The error for a daemon's error response, from the fields of its JSON body."""
+        try:
+            parsed = json.loads(e.read() or b'null')
+        except ValueError:
+            parsed = None
+        body = parsed if isinstance(parsed, dict) else {}
+        detail = str(body.get('detail') or e.reason)
+        retryable = body.get('retryable')
+        error_code = body.get('error_code')
+        retry_after = body.get('retry_after')
+        if not isinstance(error_code, str):
+            # the daemon's HTTP layer answers an unknown route, a refused host or an oversized body with no code
+            error_code = 'INTERNAL_ERROR' if e.code >= 500 else f'HTTP_{e.code}'
+        # a refusal only the user can lift: its reason is printed as the control plane wrote it
+        as_written = error_code in USER_ACTION_CODES
+        return cls(
+            detail if as_written else f'{e.code} {detail}',
+            e.code,
+            retryable=retryable if isinstance(retryable, bool) else None,
+            server_tb=body.get('traceback'),
+            error_code=error_code,
+            detail=detail,
+            as_written=as_written,
+            retry_after=retry_after if isinstance(retry_after, (int, float)) else None,
+        )
+
+    @property
+    def transient(self) -> bool:
+        """Whether resending the request may succeed.
+
+        The daemon's retryable flag when it gave one; otherwise True when no response came back, or for a server error.
+        """
+        if self.retryable is not None:
+            return self.retryable
+        return self.status is None or self.status >= 500
+
+    def report(self) -> None:
+        if json_requested():
+            print_error_document(self.error_code, self.detail, retryable=self.transient, retry_after=self.retry_after)
+            sys.stdout.flush()
+        if self.as_written:
+            line = str(self)
+        else:
+            # a message that ends in a snippet to paste, such as a TOML entry, keeps its last line clean
+            line = f'pxt: {self}' + ('\n' if '\n' in str(self) else ' ') + f'[{self.error_code}]'
+        print(line, file=sys.stderr)
+        if self.server_tb is not None:
+            # an unexpected daemon failure carries its traceback; show it so the user can report the error
+            print(f'\n--- daemon traceback ---\n{self.server_tb}', file=sys.stderr)
+            print_next(
+                "pxt feedback --kind bug 'WHAT YOU RAN AND WHAT HAPPENED'",
+                'previews a report for the Pixeltable team; send it with --send once the user agrees',
+            )
+
+
 def _request(method: str, path: str, body: dict[str, Any] | None = None, params: dict[str, Any] | None = None) -> Any:
+    try:
+        return _send(method, path, body, params)
+    except RequestFailedError as e:
+        e.report()
+        sys.exit(1)
+
+
+def _send(method: str, path: str, body: dict[str, Any] | None, params: dict[str, Any] | None) -> Any:
     try:
         base = ensure_running()
     except RuntimeError as e:
-        print(f'pxt: {e}', file=sys.stderr)
-        sys.exit(1)
+        # resending cannot start a daemon that just failed to
+        raise RequestFailedError(str(e), retryable=False, error_code='DAEMON_UNREACHABLE') from e
 
     url = f'{base}{path}'
     if params is not None:
@@ -382,32 +480,28 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None, params:
         with urllib.request.urlopen(req) as r:
             return json.loads(r.read() or b'null')
     except urllib.error.HTTPError as e:
-        try:
-            parsed = json.loads(e.read() or b'null')
-            body = parsed if isinstance(parsed, dict) else {}
-        except ValueError:
-            body = {}
-        detail = body.get('detail') or e.reason
-        print(f'pxt: {e.code} {detail}', file=sys.stderr)
-        server_tb = body.get('traceback')
-        if server_tb is not None:
-            # an unexpected daemon failure carries its traceback; show it so the user can report the error
-            print(f'\n--- daemon traceback ---\n{server_tb}', file=sys.stderr)
-        sys.exit(1)
+        raise RequestFailedError.from_response(e) from e
     except urllib.error.URLError as e:
-        print(f'pxt: cannot reach daemon at {url}: {e.reason}', file=sys.stderr)
-        sys.exit(1)
+        raise RequestFailedError(f'cannot reach daemon at {url}: {e.reason}', error_code='DAEMON_UNREACHABLE') from e
     except http.client.HTTPException as e:
         # a truncated or malformed response, eg. the daemon writing headers and then dropping the connection
-        print(f'pxt: bad response from daemon at {url}: {type(e).__name__}: {e}', file=sys.stderr)
-        sys.exit(1)
+        raise RequestFailedError(f'bad response from daemon at {url}: {type(e).__name__}: {e}') from e
 
 
-def get_request(path: str, params: dict[str, Any] | None = None) -> Any:
+def get_request(path: str, params: dict[str, Any] | None = None, *, raise_on_error: bool = False) -> Any:
+    """GET path from the daemon and return its response; on an error, exit 1 unless raise_on_error is set."""
+    if raise_on_error:
+        return _send('GET', path, None, params)
     return _request('GET', path, params=params)
 
 
-def post_request(path: str, body: dict[str, Any]) -> Any:
+def post_request(path: str, body: dict[str, Any], *, raise_on_error: bool = False) -> Any:
+    """POST body to the daemon and return its response; on an error, exit 1 unless raise_on_error is set.
+
+    raise_on_error: raise RequestFailedError instead of exiting.
+    """
+    if raise_on_error:
+        return _send('POST', path, body, None)
     return _request('POST', path, body=body)
 
 
@@ -493,31 +587,151 @@ def plural(n: int, noun: str) -> str:
     return f'{n} {noun}' if n == 1 else f'{n} {noun}s'
 
 
-def confirm_or_exit(
-    prompt: str, force: bool, *, refused_exit_code: int = 2, on_refusal: Callable[[], None] | None = None
-) -> None:
-    """Prompt for yes/no on stdin; refuse non-tty unless --force. Both refusals exit with refused_exit_code.
+# the command being run, as main.dispatch() received it, so a refusal can name the command that finishes the job
+invocation: list[str] | None = None
 
-    on_refusal runs just before the non-tty refusal exits, for a caller that reports the refusal itself.
+
+def rerun_command(*flags: str) -> str | None:
+    """The command being run, with flags added before any '--', as a shell command line; None outside dispatch()."""
+    if invocation is None:
+        return None
+    end = invocation.index('--') if '--' in invocation else len(invocation)
+    return shlex.join(['pxt', *invocation[:end], *flags, *invocation[end:]])
+
+
+def print_next(command: str, effect: str) -> None:
+    print(f'next: {command}  # {effect}', file=sys.stderr)
+
+
+def json_requested() -> bool:
+    """Whether the command being run asked for --json output."""
+    return invocation is not None and '--json' in invocation
+
+
+def error_document(
+    error_code: str,
+    message: str,
+    *,
+    retryable: bool,
+    next_steps: list[dict[str, str]] | None = None,
+    retry_after: float | None = None,
+) -> dict[str, Any]:
+    """A failure's --json fields: error_code, message, retryable, retry_after, next."""
+    doc: dict[str, Any] = {'error_code': error_code, 'message': message, 'retryable': retryable}
+    if retry_after is not None:
+        doc['retry_after'] = retry_after
+    if next_steps is not None:
+        doc['next'] = next_steps
+    return doc
+
+
+def print_error_document(
+    error_code: str,
+    message: str,
+    *,
+    retryable: bool,
+    next_steps: list[dict[str, str]] | None = None,
+    retry_after: float | None = None,
+) -> None:
+    """Prints a failure as the one --json document on stdout."""
+    doc = error_document(error_code, message, retryable=retryable, next_steps=next_steps, retry_after=retry_after)
+    print(json.dumps(doc, indent=2))
+
+
+def print_json(document: dict[str, Any], error: dict[str, Any] | None) -> None:
+    """Prints a command's --json document, with a failure's fields (see error_document()) at its top level."""
+    print(json.dumps(document if error is None else {**document, **error}, indent=2))
+
+
+def blocked_document(descriptions: list[str], commands: list[str]) -> dict[str, Any]:
+    """The failure of a plan that operations block until the database changes; next runs each command they name."""
+    steps = [{'command': c, 'effect': 'clears what blocks the plan'} for c in dict.fromkeys(commands)]
+    return error_document('PLAN_BLOCKED', '; '.join(descriptions), retryable=False, next_steps=steps)
+
+
+def print_blocked(error: dict[str, Any]) -> None:
+    """Names, on next: lines, the commands that clear a blocked plan."""
+    flush_stdout()
+    for step in error['next']:
+        print_next(step['command'], step['effect'])
+
+
+# reports a refusal itself, given its error_document(); a plan command prints the plan with those fields
+OnRefusal = Callable[[dict[str, Any]], None]
+
+
+def confirm_or_exit(prompt: str, force: bool, *, on_refusal: OnRefusal | None = None) -> None:
+    """Prompt for yes/no on stdin unless --force; exit with EXIT_REFUSED on anything but yes, or without a TTY.
+
+    See _refuse_unanswered() for the refusal without a TTY.
     """
     if force:
         return
     if not stdin_is_a_tty():
-        if on_refusal is not None:
-            on_refusal()
-        # stdout is block-buffered on a pipe; flush it before stderr emits the refusal line
-        try:
-            sys.stdout.flush()
-        except OSError:
-            pass
-        print(f'pxt: refusing to proceed without --force/-f (no TTY for confirmation): {prompt}', file=sys.stderr)
-        sys.exit(refused_exit_code)
+        _refuse_unanswered(prompt, on_refusal=on_refusal)
     sys.stderr.write(f'{prompt} [y/N] ')
     sys.stderr.flush()
     ans = sys.stdin.readline().strip().lower()
     if ans not in ('y', 'yes'):
+        # a person said no, so no command is named to get past it
+        doc = error_document('CONFIRMATION_DECLINED', f'declined: {prompt}', retryable=False)
+        if on_refusal is not None:
+            on_refusal(doc)
+        elif json_requested():
+            print(json.dumps(doc, indent=2))
+        flush_stdout()
         print('aborted', file=sys.stderr)
-        sys.exit(refused_exit_code)
+        sys.exit(EXIT_REFUSED)
+
+
+def _refuse_unanswered(prompt: str, *, on_refusal: OnRefusal | None) -> NoReturn:
+    """Refuse a prompt no one can answer, with no TTY, naming the command to rerun with -f.
+
+    on_refusal runs first, for a caller that reports the refusal itself; otherwise, with --json, the refusal is an
+    error document on stdout.
+    """
+    message = f'refusing to proceed without --force/-f (no TTY for confirmation): {prompt}'
+    command = rerun_command('-f')
+    # the question says what the command does; what follows it, such as 'This is irreversible.', does not
+    effect = prompt.partition('?')[0]
+    steps = [] if command is None else [{'command': command, 'effect': effect}]
+    doc = error_document('CONFIRMATION_REQUIRED', message, retryable=False, next_steps=steps)
+    if on_refusal is not None:
+        on_refusal(doc)
+    elif json_requested():
+        print(json.dumps(doc, indent=2))
+    flush_stdout()
+    print(f'pxt: {message}', file=sys.stderr)
+    if command is not None:
+        print_next(command, effect)
+    sys.exit(EXIT_REFUSED)
+
+
+def refuse_destructive(prog: str, destructive: int, *, force: bool, on_refusal: OnRefusal) -> NoReturn:
+    """Refuse a plan whose destructive operations --allow-destructive did not permit, naming the command that does.
+
+    on_refusal reports the refused plan first.
+    """
+    message = f'refusing to apply {destructive} destructive operation(s) without --allow-destructive'
+    # add -f too when the confirmation that follows would refuse in turn
+    flags = ('--allow-destructive',) if force or stdin_is_a_tty() else ('--allow-destructive', '-f')
+    command = rerun_command(*flags)
+    effect = f'applies {destructive} destructive operation(s)'
+    steps = [] if command is None else [{'command': command, 'effect': effect}]
+    on_refusal(error_document('DESTRUCTIVE_SCHEMA_CHANGE', message, retryable=False, next_steps=steps))
+    flush_stdout()
+    print(f'{prog}: {message}', file=sys.stderr)
+    if command is not None:
+        print_next(command, effect)
+    sys.exit(EXIT_REFUSED)
+
+
+def flush_stdout() -> None:
+    # stdout is block-buffered on a pipe; flush it before stderr emits the refusal line
+    try:
+        sys.stdout.flush()
+    except OSError:
+        pass
 
 
 def print_json_schema(adapter: pydantic.TypeAdapter) -> None:

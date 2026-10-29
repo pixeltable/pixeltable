@@ -1,6 +1,7 @@
 import ctypes
 import functools
 import gc
+import hashlib
 import http.server
 import json
 import logging
@@ -167,9 +168,13 @@ def _set_up_external_db_schema(worker_id: int | str) -> str:
     return schema_name
 
 
+# separates the test dbs of checkouts that share one PIXELTABLE_PGDATA
+_CHECKOUT_HASH = hashlib.sha256(str(pathlib.Path(__file__).resolve().parents[1]).encode()).hexdigest()[:8]
+
+
 def _worker_db_name(worker_id: int | str) -> str:
     """The db name used by both the pytest process and its proxy daemon."""
-    return f'test_{worker_id}'
+    return f'test_{_CHECKOUT_HASH}_{worker_id}'
 
 
 @pytest.fixture
@@ -225,15 +230,19 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
 
     # Set the relevant env vars for the test db.
-    # We use a single shared pgserver instance, running in the "true" home directory ($PIXELTABLE_HOME/pgdata).
+    # We use a single shared pgserver instance, running in $PIXELTABLE_PGDATA or else the "true" home directory
+    # ($PIXELTABLE_HOME/pgdata).
     # Each worker gets its own test db in this instance, along with its own home directory for everything else
     # (file cache, media store, etc).
-    shared_home = pathlib.Path(os.environ.get('PIXELTABLE_HOME', str(pathlib.Path.home() / '.pixeltable')))
+    # an empty variable counts as unset, as in Config.lookup_env()
+    home_var = os.environ.get('PIXELTABLE_HOME', '')
+    shared_home = pathlib.Path(home_var) if home_var != '' else pathlib.Path.home() / '.pixeltable'
     home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
     os.environ['PIXELTABLE_HOME'] = home_dir
     os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.toml')
     os.environ['PIXELTABLE_DB'] = _worker_db_name(worker_id)
-    os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
+    pgdata_var = os.environ.get('PIXELTABLE_PGDATA', '')
+    os.environ['PIXELTABLE_PGDATA'] = pgdata_var if pgdata_var != '' else str(shared_home / 'pgdata')
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
     # Verbose logging, for this process and for every pixeltable process it spawns (the proxy daemon, the pxt CLI
     # daemon)
@@ -372,8 +381,7 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
     so the per-test db_root fixture only reloads the daemon's catalog rather than restarting the process.
     """
     # the proxy daemon serves over HTTP via fastapi/uvicorn (the serve extra); a minimal install omits them
-    pytest.importorskip('fastapi')
-    pytest.importorskip('uvicorn')
+    skip_test_if_not_installed('fastapi', 'uvicorn')
 
     db = _worker_db_name(worker_id)
     proxy_daemon.start(db, test_mode=True)
@@ -594,14 +602,6 @@ def clean_db(drop_md_tables: bool = False) -> None:
             if drop_md_tables:
                 # Drop existing metadata tables
                 conn.execute(text(f'DROP TABLE IF EXISTS {table_names} CASCADE'))
-            elif Env.get().is_using_cockroachdb:
-                # CockroachDB sometimes rejects TRUNCATE when other in-flight statements are
-                # dropping indexes on the same table; use DELETEs instead, in reverse FK
-                # dependency order (children before parents). dirs' self-referential FK is fine
-                # because FK constraints are checked at the end of each DELETE statement.
-                for tbl in reversed(base_metadata.sorted_tables):
-                    if tbl.name in existing_md_names:
-                        conn.execute(tbl.delete())
             else:
                 # Truncate existing metadata tables
                 conn.execute(text(f'TRUNCATE TABLE {table_names} CASCADE'))

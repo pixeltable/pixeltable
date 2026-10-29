@@ -1,5 +1,8 @@
 """Tests for pixeltable.exceptions."""
 
+import copy
+import pickle
+
 import pytest
 
 import pixeltable.exceptions as excs
@@ -38,3 +41,34 @@ class TestExceptions:
             (excs.ErrorCode.COLUMN_NOT_FOUND, excs.NotFoundError),
         ):
             assert type(excs.Error.from_dict(cls(code, 'a message').to_dict())) is cls
+
+    def test_external_service_error_round_trips_its_provider_fields(self) -> None:
+        err = excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_BAD_REQUEST,
+            'a reason',
+            provider='pixeltable_cloud',
+            status_code=403,
+            provider_error_code='PLAN_LIMIT',
+        )
+        copy = excs.Error.from_dict(err.to_dict())
+        assert isinstance(copy, excs.ExternalServiceError)
+        assert (copy.provider, copy.provider_http_status_code, copy.provider_error_code) == (
+            'pixeltable_cloud',
+            403,
+            'PLAN_LIMIT',
+        )
+
+    def test_copy_and_pickle(self) -> None:
+        err = excs.ExternalServiceError(
+            excs.ErrorCode.RATE_LIMITED, 'slow down', retry_after=5, provider='bedrock', status_code=429
+        )
+        err.detail = 'a detail'
+        for clone in (copy.copy(err), copy.deepcopy(err), pickle.loads(pickle.dumps(err))):
+            assert isinstance(clone, excs.ExternalServiceError)
+            assert (clone.error_code, clone.message, clone.retry_after, clone.detail) == (
+                excs.ErrorCode.RATE_LIMITED,
+                'slow down',
+                5,
+                'a detail',
+            )
+            assert (clone.provider, clone.provider_http_status_code) == ('bedrock', 429)

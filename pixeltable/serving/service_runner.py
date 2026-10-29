@@ -5,18 +5,16 @@ import argparse
 import atexit
 import logging
 import signal
-import socket
 import sys
 from pathlib import Path
 from typing import Any
 
 import pixeltable.catalog as catalog
-from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.serving._app import create_app, init_instrumentation, instrument_app
 from pixeltable.utils.project import project_fingerprint
 
-from .service_manager import ServiceManager
+from .service_manager import ServiceManager, bind_service_port
 
 
 def _serve(app_file: str, service_name: str, base_path: str, otel: bool, port: int = 0) -> None:
@@ -30,18 +28,11 @@ def _serve(app_file: str, service_name: str, base_path: str, otel: bool, port: i
     if otel:
         # before the first Pixeltable operation, so that loading the file is traced too
         init_instrumentation()
-    app, spec = create_app(app_file, service_name, base_path)
+    app, spec, _ = create_app(app_file, service_name, base_path)
     if otel:
         instrument_app(app)
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    try:
-        sock.bind(('127.0.0.1', port))
-    except OSError as e:
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot serve {service_name!r} on port {port}: {e.strerror}'
-        ) from e
+    sock = bind_service_port(service_name, port)
     port = sock.getsockname()[1]
 
     project_root = Config.get().project_root
@@ -56,7 +47,9 @@ def _serve(app_file: str, service_name: str, base_path: str, otel: bool, port: i
         app_file=str(Path(app_file).resolve()),
         spec=spec,
         otel=otel,
-        fingerprint=project_fingerprint(project_root, db_config),
+        fingerprint=project_fingerprint(
+            project_root, db_config, project_config=Config.get().create_project_config(db_config)
+        ),
     )
 
     def _cleanup(*_: Any) -> None:

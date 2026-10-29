@@ -35,15 +35,29 @@ _ASSET_READY_TIMEOUT_SECS = 600.0
 def _(api_key: str) -> 'twelvelabs.AsyncTwelveLabs':
     import twelvelabs
 
-    return twelvelabs.AsyncTwelveLabs(api_key=api_key)
+    class _ClosableClient(twelvelabs.AsyncTwelveLabs):
+        """twelvelabs.AsyncTwelveLabs has no close() (its __aexit__() does nothing); Runtime.close_clients() needs
+        one."""
+
+        async def close(self) -> None:
+            # the client creates its httpx client in its constructor
+            await self._client_wrapper.httpx_client.httpx_client.aclose()
+
+    return _ClosableClient(api_key=api_key)
 
 
 def _twelvelabs_client() -> 'twelvelabs.AsyncTwelveLabs':
     return get_runtime().get_client('twelvelabs')
 
 
-async def _poll_asset_until_ready(client: 'twelvelabs.AsyncTwelveLabs', asset_id: str) -> None:
-    """An uploaded asset can be used only once its status is 'ready'."""
+async def _poll_asset_until_ready(
+    client: 'twelvelabs.AsyncTwelveLabs', asset_id: str, last_retryable: list[Exception]
+) -> None:
+    """An uploaded asset can be used only once its status is 'ready'.
+
+    `last_retryable` receives the latest retrieve error that was polled again. The caller raises the readiness
+    deadline from it, so a rate limit is not reported as slow processing.
+    """
     while True:
         try:
             result = await client.assets.retrieve(asset_id)
@@ -51,6 +65,7 @@ async def _poll_asset_until_ready(client: 'twelvelabs.AsyncTwelveLabs', asset_id
             retryable, retry_delay = is_retryable_error(exc)
             if not retryable:
                 raise
+            last_retryable[:] = [exc]
         else:
             if result.status == 'failed':
                 reason = result.error.message if result.error is not None else 'unknown error'
@@ -61,28 +76,32 @@ async def _poll_asset_until_ready(client: 'twelvelabs.AsyncTwelveLabs', asset_id
                 )
             if result.status == 'ready':
                 return
+            last_retryable.clear()
             retry_delay = None
         await asyncio.sleep(max(_ASSET_POLL_INTERVAL_SECS, retry_delay or 0))
 
 
 @asynccontextmanager
-async def _asset_uploads(input_type: Literal['audio', 'video'], file: str) -> AsyncIterator[str]:
+async def _asset_upload(input_type: Literal['audio', 'video'], file: str) -> AsyncIterator[str]:
     """Upload `file`, wait until its asset is ready, and delete that asset on exit."""
     client = _twelvelabs_client()
     uploaded = await client.multipart_upload.upload_file(file_path=file, file_type=input_type)  # type: ignore[attr-defined]
     asset_id: str = uploaded.asset_id
+    last_retryable: list[Exception] = []
     try:
         try:
-            await asyncio.wait_for(_poll_asset_until_ready(client, asset_id), timeout=_ASSET_READY_TIMEOUT_SECS)
+            await asyncio.wait_for(
+                _poll_asset_until_ready(client, asset_id, last_retryable), timeout=_ASSET_READY_TIMEOUT_SECS
+            )
         except asyncio.TimeoutError as exc:
             raise pxt.ExternalServiceError(
                 pxt.ErrorCode.PROVIDER_TIMEOUT,
                 f'TwelveLabs asset {asset_id} timed out after {_ASSET_READY_TIMEOUT_SECS:g}s',
                 provider='twelvelabs',
-            ) from exc
+            ) from (last_retryable[0] if last_retryable else exc)
         yield asset_id
     finally:
-        # A failed delete must not replace the readiness error.
+        # A failed delete must not replace the embedding result or the readiness error.
         with suppress(Exception):
             await client.assets.delete(asset_id)
 
@@ -160,7 +179,9 @@ async def embed(text: str, image: pxt.Image | None = None, *, model_name: str) -
         )
     if not res.data:
         raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_ERROR, f"Didn't receive embedding for text: {text}\n{res}", provider='twelvelabs'
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            f"Didn't receive embedding for text: {text}\n{res}",
+            provider='twelvelabs',
         )
     vector = res.data[0].embedding
     return np.array(vector, dtype='float32')
@@ -183,7 +204,9 @@ async def _(image: pxt.Image, *, model_name: str) -> pxt.Array[np.float32] | Non
     )
     if not res.data:
         raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_ERROR, f"Didn't receive embedding for image: {image}\n{res}", provider='twelvelabs'
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            f"Didn't receive embedding for image: {image}\n{res}",
+            provider='twelvelabs',
         )
     vector = res.data[0].embedding
     return np.array(vector, dtype='float32')
@@ -271,7 +294,7 @@ async def _embed_multi_input(
     )
     if not res.data or len(res.data) != 1 or len(res.data[0].embedding) != 512:
         raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_ERROR,
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
             'Expected a single 512-dimensional embedding from Marengo 3.5.',
             provider='twelvelabs',
         )
@@ -334,7 +357,7 @@ async def _embed_av_content(
     res: twelvelabs.EmbeddingSuccessResponse
 
     if size_bytes > TWELVELABS_INLINE_LIMIT_BYTES:
-        async with _asset_uploads(input_type=input_type, file=file_path) as asset_id:
+        async with _asset_upload(input_type=input_type, file=file_path) as asset_id:
             create_kwargs = {
                 'input_type': input_type,
                 'model_name': model_name,
@@ -363,7 +386,7 @@ async def _embed_av_content(
 
     if not res.data:
         raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_ERROR,
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
             f"Didn't receive embedding for {input_type}: {file_path}\n{res}",
             provider='twelvelabs',
         )

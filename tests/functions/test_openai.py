@@ -458,6 +458,93 @@ class TestOpenai:
         t.add_computed_column(flagged=t.moderation.results[0].flagged)
         assert t.get_metadata()['columns']['flagged']['type_'] == 'Bool | None'
 
+    @pytest.mark.very_expensive
+    def test_decisions(self, uses_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions.openai import decisions
+
+        model = 'gpt-6-luna'
+        topics = ['shipping', 'quality', 'price']
+        questions = [
+            {'type': 'predicate', 'name': 'complaint', 'instructions': 'Is the review a complaint?'},
+            {
+                'type': 'choice',
+                'name': 'topic',
+                'instructions': 'What is the review mainly about?',
+                'choices': [{'value': topic} for topic in topics],
+            },
+            {
+                'type': 'score',
+                'name': 'sentiment',
+                'instructions': 'How positive is the review?',
+                'levels': [{'label': 'negative'}, {'label': 'neutral'}, {'label': 'positive'}],
+            },
+            {'type': 'predicate', 'instructions': 'Is the review written in English?'},
+        ]
+        t = pxt.create_table('text_tbl', {'review': pxt.String | None})
+        t.add_computed_column(
+            decision=decisions(
+                t.review,
+                questions=questions,
+                model=model,
+                model_kwargs={'prompt_cache_key': 'pxt-test', 'safety_identifier': 'pxt-test'},
+            )
+        )
+        t.add_computed_column(complaint=t.decision.answers[0].probability)
+        assert t.get_metadata()['columns']['complaint']['type_'] == 'Float | None'
+        t.add_computed_column(no_questions=decisions(t.review, questions=[], model=model), on_error='ignore')
+        review = 'The package arrived two weeks late and the box was crushed.'
+        status = t.insert([{'review': review}, {'review': None}], on_error='ignore')
+        assert status.num_rows == 2 and status.num_excs == 1
+
+        rows = t.order_by(t.review).select(t.decision, msg=t.no_questions.errormsg).collect()
+        decision = rows[0]['decision']
+        assert [answer['name'] for answer in decision['answers']] == ['complaint', 'topic', 'sentiment', None]
+        complaint, topic, sentiment, english = decision['answers']
+        assert complaint['type'] == 'predicate' and 0.0 <= complaint['probability'] <= 1.0
+        assert topic['type'] == 'choice' and topic['choice'] in topics and 0.0 <= topic['confidence'] <= 1.0
+        assert sentiment['type'] == 'score' and 0.0 <= sentiment['confidence'] <= 1.0
+        assert all(0.0 <= p['probability'] <= 1.0 for p in topic['probabilities'] + sentiment['probabilities'])
+        assert english['type'] == 'predicate' and english['probability'] > 0.5
+        assert decision['model'].startswith(model)
+        usage = decision['usage']
+        assert usage['total_tokens'] == usage['input_tokens'] + usage['output_tokens'] > 0
+        assert '`questions` must contain at least one question' in rows[0]['msg']
+        # a null review short-circuits both calls
+        assert rows[1] == {'decision': None, 'msg': None}
+
+        public_url = (
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg'
+        )
+        image_tbl = pxt.create_table('image_tbl', {'image': pxt.Image})
+        messages = [
+            {
+                'role': 'user',
+                'content': [
+                    {'type': 'input_text', 'text': 'Two photos:'},
+                    {'type': 'input_image', 'image_url': image_tbl.image},
+                    {'type': 'input_image', 'image_url': public_url},
+                ],
+            }
+        ]
+        image_questions = [
+            {'type': 'predicate', 'name': 'food', 'instructions': 'Do both photos show food?'},
+            {
+                'type': 'predicate',
+                'name': 'same_meal',
+                'instructions': [
+                    {'type': 'input_text', 'text': 'Do the photos show the same meal as this reference photo?'},
+                    {'type': 'input_image', 'image_url': image_tbl.image},
+                ],
+            },
+        ]
+        image_tbl.add_computed_column(decision=decisions(messages, questions=image_questions, model=model))
+        validate_update_status(image_tbl.insert(image=SAMPLE_IMAGE_FILE_PATH), 1)
+        answers = image_tbl.select(a=image_tbl.decision.answers).collect()[0]['a']
+        assert [(a['name'], a['type']) for a in answers] == [('food', 'predicate'), ('same_meal', 'predicate')]
+        assert all(a['probability'] > 0.5 for a in answers)
+
     @pytest.mark.expensive
     def test_image_generations_gpt_image(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
@@ -840,6 +927,7 @@ class TestOpenaiTypedDictAdherence:
         """JsonType equality for TypedDicts that are exact mirrors of an SDK Pydantic model."""
         skip_test_if_not_installed('openai')
         from openai.types import (
+            decision as sdk_decision,
             images_response as sdk_images,
             moderation as sdk_moderation,
             moderation_create_response as sdk_moderation_create_response,
@@ -863,6 +951,9 @@ class TestOpenaiTypedDictAdherence:
             (pxt_openai.CategoryAppliedInputTypes, sdk_moderation.CategoryAppliedInputTypes),
             (pxt_openai.Moderation, sdk_moderation.Moderation),
             (pxt_openai.ModerationCreateResponse, sdk_moderation_create_response.ModerationCreateResponse),
+            (pxt_openai.DecisionInputTokensDetails, sdk_decision.UsageInputTokensDetails),
+            (pxt_openai.DecisionOutputTokensDetails, sdk_decision.UsageOutputTokensDetails),
+            (pxt_openai.DecisionUsage, sdk_decision.Usage),
         ]
         for ours, sdk in pairs:
             ours_jt = ts.JsonType.from_python_type(ours)
@@ -938,9 +1029,61 @@ class TestOpenaiTypedDictAdherence:
 
         assert ours_optional == frozenset(ours_fields.keys())
 
+    def test_decision_response(self) -> None:
+        """DecisionResponse mirrors Decision except for its flattened answer variants."""
+        skip_test_if_not_installed('openai')
+        from openai.types.decision import Decision
+
+        from pixeltable.functions.openai import DecisionResponse
+
+        ours_fields, ours_optional = self._td_fields(DecisionResponse)
+        sdk_fields = self._pydantic_fields(Decision)
+        assert set(ours_fields) == set(Decision.model_fields)
+        assert not ours_optional
+        for name in set(ours_fields) - {'answers'}:
+            assert name in sdk_fields, f'Decision field {name!r} is not convertible'
+            assert self._normalize(ours_fields[name]) == self._normalize(sdk_fields[name]), (
+                f'DecisionResponse field {name!r} drifted: ours={ours_fields[name]} sdk={sdk_fields[name]}'
+            )
+
+    def test_decision_answer(self) -> None:
+        """DecisionAnswer flattens the SDK's four answer variants into one TypedDict."""
+        skip_test_if_not_installed('openai')
+        from openai.types import decision as sdk_decision
+
+        from pixeltable.functions.openai import DecisionAnswer, DecisionProbability
+
+        variants = (
+            sdk_decision.AnswerAnswerResourcePredicate,
+            sdk_decision.AnswerAnswerResourceChoice,
+            sdk_decision.AnswerAnswerResourceScore,
+            sdk_decision.AnswerAnswerResourceRefusal,
+        )
+        ours_fields, ours_optional = self._td_fields(DecisionAnswer)
+        assert set(ours_fields) == set().union(*(v.model_fields for v in variants))
+        assert ours_optional == frozenset(ours_fields) - {'type'}
+        # `type` is a Literal in each variant; `choice` is a str or bool; `probabilities` differ per variant
+        overrides = {'type', 'choice', 'probabilities'}
+        for variant in variants:
+            for name, sdk_type in self._pydantic_fields(variant).items():
+                if name in overrides:
+                    continue
+                assert self._normalize(ours_fields[name]) == self._normalize(sdk_type), (
+                    f'DecisionAnswer field {name!r} drifted from {variant.__name__}: '
+                    f'ours={ours_fields[name]} sdk={sdk_type}'
+                )
+
+        probability_variants = (
+            sdk_decision.AnswerAnswerResourceChoiceProbability,
+            sdk_decision.AnswerAnswerResourceScoreProbability,
+        )
+        ours_fields, ours_optional = self._td_fields(DecisionProbability)
+        assert set(ours_fields) == set().union(*(v.model_fields for v in probability_variants))
+        assert ours_optional == {'label'}
+
     def test_images_response(self) -> None:
         """ImagesResponse mirrors SDK ImagesResponse field-for-field, except data is non-null
-        (we guarantee a populated list in _decode_image_response)."""
+        (we guarantee a populated list in _decode_image_response), and fields that newer SDKs added are optional."""
         skip_test_if_not_installed('openai')
         from openai.types.images_response import ImagesResponse as SdkImagesResponse
 
@@ -952,7 +1095,12 @@ class TestOpenaiTypedDictAdherence:
         overrides = {'data'}  # we re-type and guarantee non-null
         # openai 3.24 no longer declares size; a missing key reads as null, which size allows
         dropped_by_sdk = {'size'} - set(sdk_fields)
-        assert set(ours_fields) - dropped_by_sdk == set(sdk_fields), (
+        # declared by newer SDKs only, so a response from an older one lacks them
+        added_by_sdk = {'safety_identifier'}  # openai>=3.33
+        # whether this SDK declares them comes from its raw fields, since _pydantic_fields() drops a field whose
+        # annotation it can't convert, and that must fail the comparison below
+        absent_from_sdk = added_by_sdk - set(SdkImagesResponse.model_fields)
+        assert set(ours_fields) - dropped_by_sdk - absent_from_sdk == set(sdk_fields), (
             f'ImagesResponse field set drifted: ours={set(ours_fields)} sdk={set(sdk_fields)}'
         )
         for name, sdk_type in sdk_fields.items():
@@ -961,5 +1109,5 @@ class TestOpenaiTypedDictAdherence:
             assert self._normalize(ours_fields[name]) == self._normalize(sdk_type), (
                 f'ImagesResponse field {name!r} drifted: ours={ours_fields[name]} sdk={sdk_type}'
             )
-        # all fields always present
-        assert ours_optional == frozenset()
+        # all fields always present, except the ones that older SDKs lack
+        assert ours_optional == added_by_sdk

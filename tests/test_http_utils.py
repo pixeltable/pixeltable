@@ -15,6 +15,8 @@ from pixeltable.utils.http import fetch_url, is_retryable_error, new_session, pa
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
+from .utils import aws_client_error
+
 
 class DummyError(Exception):
     pass
@@ -107,6 +109,12 @@ class TestHttpUtils:
         exc.response = types.SimpleNamespace(status_code=404, headers={'Retry-After': '8'})
         assert is_retryable_error(exc) == (False, None)
 
+        # Retry-After on the response, with no status of its own, does not retry a 404.
+        exc = DummyError('request timed out')
+        exc.status_code = 404
+        exc.response = types.SimpleNamespace(headers={'Retry-After': '8'})
+        assert is_retryable_error(exc) == (False, None)
+
         exc = DummyError('gateway timed out')
         exc.status_code = 529
         exc.response = types.SimpleNamespace(status_code=529, headers={'x-should-retry': 'true'})
@@ -172,8 +180,18 @@ class TestHttpUtils:
         exc = DummyError('429, try again in 5 seconds')
         assert is_retryable_error(exc) == (True, 5)
 
-        # Known limit: with no HTTP status, the "429" inside this asset id matches the rate-limit token.
-        assert is_retryable_error(DummyError('asset ee429ff was not found'))[0] is True
+        exc = DummyError('You are being rate limited')
+        assert is_retryable_error(exc) == (True, None)
+
+        exc = DummyError('Connection errors: 3')
+        assert is_retryable_error(exc) == (True, None)
+
+        # 429 appears in the string, but not as a word
+        exc = DummyError('Expecting value: line 1 column 1430 (char 1429)')
+        assert is_retryable_error(exc) == (False, None)
+
+        exc = DummyError('Not authorized for arn:aws:bedrock:us-west-2:842915429301:async-invoke/a1b2c3d4e5f6')
+        assert is_retryable_error(exc) == (False, None)
 
     def test_twelvelabs_exc(self) -> None:
         # Almost the actual error received from TwelveLabs
@@ -201,6 +219,31 @@ class TestHttpUtils:
             'x-trace-id': '122506435189331138',
         }
         assert is_retryable_error(exc) == (True, 11382)
+
+    def test_aws_client_error(self) -> None:
+        assert is_retryable_error(aws_client_error('ThrottlingException', 429, 'Please slow down')) == (True, None)
+        assert is_retryable_error(aws_client_error('Throttling', 400, 'Please slow down')) == (True, None)
+        assert is_retryable_error(aws_client_error('ServiceUnavailableException', 503, 'Unavailable')) == (True, None)
+        assert is_retryable_error(aws_client_error('ThrottlingException', 429, 'Slow down', {'retry-after': '7'})) == (
+            True,
+            7,
+        )
+        assert not is_retryable_error(aws_client_error('ValidationException', 400, 'Invalid input'))[0]
+        assert not is_retryable_error(aws_client_error('AccessDeniedException', 403, 'Access denied'))[0]
+        assert is_retryable_error(
+            aws_client_error('ValidationException', 400, 'Too many requests in one batch: 120 (the maximum is 100)')
+        ) == (False, None)
+        assert is_retryable_error(aws_client_error('ResourceNotFoundException', 404, 'Job job1 timed out')) == (
+            False,
+            None,
+        )
+        assert is_retryable_error(
+            aws_client_error(
+                'AccessDeniedException',
+                403,
+                'User: arn:aws:sts::123442901234:assumed-role/ci is not authorized to perform: bedrock:GetAsyncInvoke',
+            )
+        ) == (False, None)
 
     def test_parse_duration_header(self) -> None:
         assert parse_duration_str(None) is None

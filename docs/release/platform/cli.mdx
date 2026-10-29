@@ -39,7 +39,7 @@ Use `pxt <command> --help` for per-subcommand flags and examples.
 | **Schema** | `schema diff`, `schema update`, `schema prune` |
 | **Interactive** | `shell` |
 | **Serving** | `service` |
-| **Cloud** | `login`, `logout`, `whoami`, `db`, `secret`, `org`, `key` |
+| **Cloud** | `login`, `logout`, `whoami`, `db`, `secret`, `org`, `key`, `usage` |
 | **Lifecycle** | `daemon`, `dashboard`, `health` |
 
 ### Universal flags
@@ -49,10 +49,10 @@ These flags work the same way across the catalog commands that support them and 
 | Flag | Available on | Description |
 |---|---|---|
 | `-h`, `--help` | Every command | Print the command's usage and examples |
-| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs other than `example`, plus `init`, `skills install`, `login`, `whoami`, `db`, `secret`, `org`, `key`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), `schema example` and `service example` (which print an example file), or the commands that print plain status lines (`logout`, `daemon start`/`stop`/`restart`). |
+| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), the `schema` and `service` verbs other than `example`, plus `init`, `skills install`, `feedback`, `login`, `whoami`, `db`, `secret`, `org`, `key`, `usage`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), `schema example` and `service example` (which print an example file), or the commands that print plain status lines (`logout`, `daemon start`/`stop`/`restart`). |
 | `--json-schema` | `schema diff`, `service diff`, `db diff`, `db status`, `service list` | Print the JSON Schema of that command's `--json` output, with descriptions of every field and enum value, and exit. |
 | `-n`, `--dry-run` | Every catalog mutation (`drop`, `drop-dir`, `rename`, `mv`, `recompute`, `revert`), plus `schema update`, `schema prune`, `service update` and `service prune` | Print the intended action; don't execute. |
-| `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `recompute`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`, `db update`, `db delete`, `skills install`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
+| `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `recompute`, `revert`, `schema update`, `schema prune`, `service update`, `service prune`, `db update`, `db delete`, `skills install`) | Skip the `[y/N]` prompt. Required in non-interactive contexts: without it the command exits `3` and names the command to run with `-f` on a `next:` line (see [Output and scripting](#output-and-scripting)). `rename` and `mv` don't prompt and don't accept `-f`. |
 
 ### Working directory
 
@@ -127,6 +127,7 @@ pxt logout                       # forget this device's cached session, or its `
 # cloud -- databases
 pxt db update pxt://myorg:mydb   # create the database, or bring it up to what the project declares
 pxt db diff   pxt://myorg:mydb   # what 'update' would change
+pxt db diff   pxt://myorg:mydb --add-config-entry   # the same, after appending the database's entry to the project
 pxt db diff   --json-schema      # JSON Schema for the --json output
 pxt db list                      # the databases in your org
 pxt db logs   pxt://myorg:mydb   # what the database's pod logged
@@ -139,6 +140,9 @@ pxt secret list                  # every secret in your org and its databases
 pxt key create ci                # a key that acts as you
 pxt key create app --grant access:pxt://myorg:mydb/services/ingest
 pxt key list                     # every key in the org, and who created it
+
+# cloud -- usage
+pxt usage                        # this month's usage and cost against your plan
 ```
 
 ## Inspection commands
@@ -281,6 +285,8 @@ pxt get my_dir/my_table 42 abc                # composite PK, in declared order
 pxt get my_dir/my_table 42 --cols id,text     # restrict to listed columns
 ```
 
+When no row has that key, `get` exits `1` and prints `pxt: no row found for {...} [ROW_NOT_FOUND]` on stderr; with `--json`, stdout still gets the response, with `row` set to `null`.
+
 ### `pxt count`
 
 ```bash
@@ -301,9 +307,11 @@ pxt errors my_dir/my_table
 pxt errors my_dir/my_table --col embedding
 ```
 
+For each failed column, a `next:` line names the `pxt recompute ... --errors-only -f` that reruns its failed cells, which is the fix once their cause is gone (a provider outage, a missing secret). On a view, a column it inherits is recomputed on the table that defines it. When nothing failed, stdout stays empty and stderr says `no failed cells in PATH`.
+
 ## Mutation commands
 
-Every mutation accepts the universal `-n`/`--dry-run` and `--json` flags. The destructive ones (`drop`, `drop-dir`, `recompute`, `revert`) also prompt `[y/N]` with a TTY and accept `-f`/`--force` to skip the prompt; in non-interactive contexts they refuse to proceed without `-f`. `rename` and `mv` don't prompt: renaming or moving a catalog entry is reversible and doesn't lose data.
+Every mutation accepts the universal `-n`/`--dry-run` and `--json` flags. The destructive ones (`drop`, `drop-dir`, `recompute`, `revert`) also prompt `[y/N]` with a TTY and accept `-f`/`--force` to skip the prompt; in non-interactive contexts they exit `3` without `-f`. `rename` and `mv` don't prompt: renaming or moving a catalog entry is reversible and doesn't lose data.
 
 ### `pxt drop`
 
@@ -400,6 +408,8 @@ cd ~/proj
 pxt init                             # writes pixeltable.toml, making ~/proj the project root
 ```
 
+`pxt init` refuses (exit 3) your home directory, any directory above it and the Pixeltable home.
+
 That file has one entry for each database in the project:
 
 ```toml
@@ -451,6 +461,24 @@ The command downloads the skill from the repository's `main` branch and prints t
 - Claude Code started at the repository root loads a copy written in a subdirectory only once it reads a file there, so install at the root.
 - If Claude Code also has the Pixeltable plugin, both copies load, because plugin skills are namespaced: keep one.
 - Commit both directories to give every collaborator's agent the same copy, and delete them to remove the skill.
+
+### Reporting a gap
+
+When Pixeltable cannot do what a task needs, a coding agent drafts a report for the Pixeltable team with `pxt feedback`:
+
+```bash
+pxt feedback --kind gap 'What the task needed, what was tried, what happened'   # prints what would be sent; sends nothing
+```
+
+`--kind` is `bug`, `gap` or `docs`. The text is one argument of 1 to 4000 characters, in single quotes so the shell runs no `` `command` `` and expands no `$VARIABLE` in it; it may hold newlines and tabs, a carriage return becomes a newline, and any other control character is refused.
+
+Without `--send`, the command prints the destination and every field it would send, and sends nothing. The preview spells out a character a terminal would not show, such as a right-to-left override, as an escape; the report keeps it. With `--send`, it sends these fields and nothing else: the kind, the text, the Pixeltable version, the Python version, the OS, and the coding agent it runs under, when it can tell. Besides the text, which goes as written, it sends no paths, hostnames, organization or file contents. With `DO_NOT_TRACK` set to `1`, `true` or `yes`, `--send` prints the preview (with `--json`, an error document with `error_code` `DO_NOT_TRACK`), sends nothing and exits 3. `PIXELTABLE_SITE_URL`, which also points `pxt new` elsewhere, sends the report to another site; it must use https, except on localhost.
+
+A report that fails exits 1, and with `--json` prints an error document: `RATE_LIMITED`, with `retry_after` in seconds when the site gives one; `FEEDBACK_UNCONFIRMED`, not retryable, after a server error, a read timeout or a dropped connection, when the report may have arrived and a resend may duplicate it; `INVALID_CONFIGURATION` for a `PIXELTABLE_SITE_URL` it refuses, even for a preview; `FEEDBACK_NOT_SENT` otherwise.
+
+The text comes from your project, so an agent should show you the preview and wait for your yes before it adds `--send`.
+
+An unexpected daemon failure prints its traceback, followed by a `next:` line naming `pxt feedback --kind bug`.
 
 ## Schema management
 
@@ -622,7 +650,7 @@ Pruning is irreversible. Run it with `-n` first.
 
 ## Interactive shell
 
-For agentic or scripted workloads that issue many commands in sequence, `pxt shell` amortizes Python startup over the session:
+For scripted workloads that issue many commands in sequence, `pxt shell` amortizes Python startup over the session:
 
 ```text
 $ pxt shell
@@ -651,6 +679,33 @@ pxt count my_dir/my_table --json | jq '.count'
 Without `--json`, output is column-aligned text.
 
 The `schema` commands additionally report drift in their exit status (`0` in sync, `2` pending, `3` refused, `1` error), so a CI gate needs no output parsing.
+
+When another command finishes the job, as after a refusal or a `pxt errors` listing, stderr names it on a `next:` line, followed by what running it does:
+
+```text
+pxt: refusing to proceed without --force/-f (no TTY for confirmation): drop table my_dir/my_table?
+next: pxt drop my_dir/my_table -f  # drop table my_dir/my_table
+```
+
+The command is the one you ran, with `-f` (or `--allow-destructive`) added; every refusal for want of consent exits `3`, including a destructive `schema`, `service` or `db update` without `--allow-destructive`. With `--json`, a command whose output is not a plan prints the refusal on stdout instead:
+
+```json
+{"error_code": "CONFIRMATION_REQUIRED", "message": "...", "retryable": false,
+ "next": [{"command": "pxt drop my_dir/my_table --json -f", "effect": "drop table my_dir/my_table"}]}
+```
+
+A person who answers anything but `y` at the prompt also gets exit `3`, and with `--json` a document with `error_code` `CONFIRMATION_DECLINED` and no `next`. The plan commands (`schema`, `service`, `db update`) print their plan instead, with the error document's fields at its top level: `error_code` (`CONFIRMATION_REQUIRED`, `CONFIRMATION_DECLINED`, or `DESTRUCTIVE_SCHEMA_CHANGE` without `--allow-destructive`), `message`, `retryable` and, except for `CONFIRMATION_DECLINED`, `next`; `schema update`, `schema prune` and `service prune` mark the refused operations `refused`, and `service prune`, whose output is a list, puts it under `ops`. A `schema update` or `service update` that the database blocks exits `1` the same way, with `error_code` `PLAN_BLOCKED`, and a `next:` line for each command a blocking operation names, such as `pxt db update`. An unknown command exits `2` and suggests the commands it may have meant, such as `pxt db logs` and `pxt service logs` for `pxt logs`.
+
+A request that fails ends its line with the error code, as in `pxt: 404 Directory 'nope' does not exist. [DIRECTORY_NOT_FOUND]` (a message of several lines, such as one that ends in a TOML entry to paste, gets the code on a line of its own), except a refusal only the user can lift, which prints Cloud's reason alone (see [Plan limits](#plan-limits)); with `--json`, stdout gets `{"error_code": ..., "message": ..., "retryable": ...}`. A daemon that does not start or cannot be reached gives `DAEMON_UNREACHABLE`; an answer without a code gives `HTTP_<status>` for a 4xx and `INTERNAL_ERROR` otherwise. When Pixeltable Cloud says how long to wait, as it does when busy, the `--json` document adds `retry_after` in seconds.
+
+| Exit | Meaning |
+|---|---|
+| `0` | Success, or nothing to do |
+| `1` | Error, including a usage error in `schema`, `service`, `db` and `init` |
+| `2` | A usage error elsewhere; for `diff`, `update -n` and `prune -n`, changes pending; for `db` and `service update`, a change still under way when the three-hour wait ends (`service restart`, `retry` and `stop` wait in the daemon, whose timeout exits `1`) |
+| `3` | Refused for want of consent: no `-f` without a terminal, an answer other than `y`, or a destructive `schema update`, `db update` or `service update` without `--allow-destructive` |
+| `130` | A wait stopped with Ctrl-C; the change continues in Pixeltable Cloud |
+| `143` | A wait stopped by SIGTERM, which a tool timeout sends on Linux and macOS; the change continues in Pixeltable Cloud |
 
 ## Serving
 
@@ -778,8 +833,9 @@ pxt new
 
 `pxt new` needs no account. It creates a trial organization with one database, `main`, and caches
 the trial's API key on this machine, so later commands use it without `pxt login` or an exported
-key. It prints the database's URI, the `[[pixeltable.database]]` entry for `pixeltable.toml`, the
-next commands, and a claim link. It never prints the key, and neither does `pxt new --json`.
+key. It prints the database's URI, the next commands, starting with
+`pxt db diff <uri> --add-config-entry`, and a claim link. It never prints the key, and neither does
+`pxt new --json`.
 
 Until it is claimed, the organization has 1 database and at most 2 services, each on 1 worker with up
 to 1 cpu, 2048 MB and 10 GB of disk, and 50 GB of media storage: past that, uploads stop. The server sets
@@ -829,8 +885,8 @@ already know. With grants it belongs to the organization instead, and reaches on
 granted, so a service you deploy has no more authority than its job needs.
 
 <Note>
-Keys with grants are a preview. Until they are enabled for your organization, Pixeltable Cloud
-refuses `pxt key create --grant` with "Keys with grants are not available yet".
+Until grants are enabled for your organization, Pixeltable Cloud refuses `pxt key create --grant`
+with "Keys with grants are not available yet".
 </Note>
 
 A grant is a verb on a resource, never a bare resource: a service on its own does not say whether
@@ -870,6 +926,11 @@ calling process, so it is local by definition. Two verbs differ in meaning again
 a stopped service keeps its registration: `stop` stops it and leaves it there to be started again, while
 `prune` forgets it.
 
+Against a hosted database, `update` sends the services it applies in one submission, which Pixeltable Cloud accepts or
+refuses as a whole: a refusal, such as one for the plan's service count, leaves every service as it was. Once accepted,
+each service rolls out on its own, so a failed rollout of one neither stops nor undoes the others; `pxt service list`
+shows where each one is.
+
 `pxt service stop` accepts a service address in several forms. A bare name matches the services of the
 current project, or every local service when the working directory is outside a project. `my_dir/NAME`
 stops the service under `my_dir`, including one in another project, and `/NAME` stops the service at the
@@ -886,12 +947,15 @@ pxt service stop pxt://acme:main/ingest  # the one in a hosted database
 A name that matches no service, or matches one that is already stopped, is reported as `skipped` with
 the reason (`not found` or `already stopped`), so stopping a set of services can be repeated safely.
 
-`pxt service restart` cycles a service's pods onto the database's current image and project, keeping the
-service's registration and endpoint, and accepts the same service addresses as `stop`, except that a
-bare name matches every local service of that name, whatever its project. Use it after
-`pxt db update` to move a running service onto the new project, and to pick up the current values of its
-referenced secrets. Against a local target it stops the process and starts it again on the same
-port, so callers keep their address.
+`pxt service restart` restarts a service's pods on their current code, keeping the service's
+registration and endpoint, and accepts the same service addresses as `stop`, except that a bare name
+matches every local service of that name, whatever its project. Use it to pick up the current values of
+its referenced secrets. A hosted service keeps running the code it was last updated to;
+after `pxt db update`, run `pxt service update` to move it onto the new project. Against a local target
+`restart` stops the process and starts it again on the same port, so callers keep their address.
+
+`pxt service retry pxt://acme:main/ingest` retries the failed update of a hosted service. Rerunning the
+same `pxt service update` also retries it.
 
 `pxt service logs` reads a service's log and accepts the same service addresses as `restart`. `pxt db logs` reads
 the log of a hosted database's pod:
@@ -915,10 +979,12 @@ local file instead, and `pxt service logs` reports the path of that file.
 | Command | Description |
 |---|---|
 | `pxt service diff APP my_app` | Report what `update` would change; exit `2` if anything is pending |
-| `pxt service update APP my_app` | Start the services declared by `APP`, and restart the ones whose declaration changed |
+| `pxt service update APP my_app` | Start the services declared by `APP`, including stopped ones, and restart the ones whose declaration changed |
 | `pxt service run APP my_app [SERVICE]` | Serve one of them from this process instead, until interrupted |
 | `pxt service prune APP my_app` | Stop and forget the services under the last argument that `APP` does not declare |
 | `pxt service stop NAME...` | Stop the named services; a bare name matches within the current project |
+| `pxt service restart NAME...` | Restart the named services on their current code, with the current secrets |
+| `pxt service retry NAME...` | Retry the failed update of the named hosted services |
 | `pxt service list [my_app]` | What is running at a local or hosted catalog, and where |
 | `pxt service logs NAME` | What the named service logged. Pass `my_app/NAME` or a `pxt://` path to disambiguate |
 | `pxt service check APP` | Validate the application file on its own. No catalog argument, and it reads no catalog |
@@ -929,6 +995,9 @@ Like the `schema` verbs, `diff` reports drift in its exit status: `0` in agreeme
 
 `pxt service diff --json-schema` prints the JSON Schema of that output.
 
+A dry run (`-n`) of `update` or `prune` leaves each operation's `status` null in `--json`, as `diff` does, where the
+`schema` verbs mark it `skipped`.
+
 ### Flags
 
 | Flag | Verbs | Description |
@@ -938,6 +1007,7 @@ Like the `schema` verbs, `diff` reports drift in its exit status: `0` in agreeme
 | `-f`, `--force` | `update`, `prune` | Skip the `[y/N]` prompt |
 | `-n`, `--dry-run` | `update`, `prune` | Print the intended change; do not run `update` or `prune` |
 | `--allow-destructive` | `update` | Permit changes that stop serving a route callers may be using |
+| `--keep-release` | `update` | Keep a hosted service on its current code, which must match the local project files; without it, `update` moves the service onto the database's latest code, including an image rebuilt by `pxt db build-image` |
 | `--host`, `--port` | `run` | Bind address and port (default `127.0.0.1:8000`) |
 | `--otel` | `run`, `update`, `diff` | Emit OpenTelemetry traces; see [Tracing](#tracing) |
 
@@ -997,7 +1067,7 @@ Every cloud command except `pxt logout` accepts `--json` for machine-readable ou
 
 ### Cloud configuration reference
 
-`pxt db diff` and `pxt db update` read the entry of the target database from the project configuration (`pixeltable.toml`, or `pyproject.toml` under `[tool.pixeltable]`), searched for upward from the working directory.
+`pxt db diff` and `pxt db update` read the entry of the target database from the project configuration (`pixeltable.toml`, or `pyproject.toml` under `[tool.pixeltable]`), searched for upward from the working directory. With `--add-config-entry`, either command first appends an entry with only `name` set to the target URI, unless the project configuration already has an entry for it.
 
 #### `[[pixeltable.database]]` -- what a project declares about one database
 
@@ -1022,8 +1092,11 @@ db_exporter_otlp_endpoint = 'https://otlp.example.com'
 db_exporter_otlp_protocol = 'http/protobuf'  # or 'grpc'
 
 # which project files the database gets. Glob patterns relative to the project root; everything git
-# would not ignore is uploaded by default, and the lockfile always is. Patterns use git wildmatch, so
-# a bare `*.py` matches at every depth while a leading slash anchors it: `/*.py` is the root only.
+# would not ignore is uploaded by default, the lockfile and pyproject.toml always are, and pixeltable.toml
+# never is: pxt db update sends its settings, and the pods get them as their own pixeltable.toml. A Pixeltable
+# home (PIXELTABLE_HOME) inside the project is never uploaded either. Patterns
+# use git wildmatch, so a bare `*.py` matches at every depth while a leading slash anchors it: `/*.py` is
+# the root only.
 include = ["app/**", "models/**"]
 exclude = ["__pycache__", "*.pyc", ".git", ".env", "*.egg-info", ".venv"]
 
@@ -1035,11 +1108,20 @@ python_version = '3.11'
 cpu = 2.0
 memory_mb = 4096
 disk_gb = 50
-workers = 2
+workers = 1    # Pixeltable Cloud runs a hosted database on one worker on every plan, until multi-worker databases ship
 
 # fixed when the database is created
 location = 'aws'
 region = 'us-east-1'
+
+# resource configuration of a service, keyed by its path in the database: '<directory>/<service name>', or the service
+# name alone at the database's root. A setting left out keeps the service's current value; pxt service
+# update applies a change
+[pixeltable.database.services.'search/api']
+cpu = 2.0
+memory_mb = 4096
+workers = 3
+file_cache_gb = 4.0   # each pod's local cache of media files
 ```
 
 An entry with no `name` configures the local database. A hosted database is configured by the entry whose `name` is its URI.
@@ -1052,21 +1134,26 @@ Database URIs use the form `pxt://org:db`. Valid states: `PROVISIONING`, `STARTI
 
 The URI argument is optional: when it is omitted, these commands use `db_uri` from the Pixeltable config file (see [Configuration](/platform/configuration)), so a project that sets it can run `pxt db status` and the other `db` commands with no argument.
 
+A usage error, such as an unknown verb or a URI that is not `pxt://org:db`, exits `1`: in `pxt db`, `2` means changes pending (`diff`) or a change still under way when a wait ends. A failed update names `pxt db retry` on a `next:` line, and a wait that stops names `pxt db status`.
+
 #### `pxt db update`
 
 ```bash
 pxt db update pxt://myorg:mydb
 pxt db update pxt://myorg:mydb -n      # print the plan and stop
 pxt db update pxt://myorg:mydb --allow-destructive
+pxt db update pxt://myorg:mydb --add-config-entry   # append the database's entry first
 ```
 
 | Flag | Description |
 |---|---|
+| `--add-config-entry` | Append a `[[pixeltable.database]]` entry for the URI to the project configuration, unless it is already there; also with `--dry-run` |
 | `-n`, `--dry-run` | Print the plan; do not run `update` |
 | `-f`, `--force` | Skip the confirmation |
 | `--allow-destructive` | Permit taking capacity away |
+| `--no-wait` | Return once Pixeltable Cloud accepts the update, without waiting for it to finish |
 
-`update` creates a hosted database and keeps it current afterwards. Put the database in a `[[pixeltable.database]]` entry, then run `update` against the URI in its `name`:
+`update` creates a hosted database and keeps it current afterwards. Put the database in a `[[pixeltable.database]]` entry, by hand or with `pxt db diff pxt://myorg:mydb --add-config-entry`, then run `update` against the URI in its `name`:
 
 ```toml
 # pixeltable.toml
@@ -1078,9 +1165,16 @@ name = 'pxt://myorg:mydb'
 pxt db update pxt://myorg:mydb
 ```
 
-The URI on the command line selects the entry by its `name`: an entry for another database configures that one, and a target with no entry is an error. The first run creates the database, builds the image for its environment and uploads the project files that the pods run; every later run applies whatever has changed since. The [cloud configuration reference](#cloud-configuration-reference) lists everything an entry can declare.
+The URI on the command line selects the entry by its `name`: an entry for another database configures that one, and a target without an entry is an error, unless `--add-config-entry` appends one. The first run creates the database, builds the image for its environment and uploads the project files that the pods run; every later run applies whatever has changed since. The [cloud configuration reference](#cloud-configuration-reference) lists everything an entry can declare.
 
-`update` applies a new image if dependencies changed, then uploaded project files if sources changed, then one resize for any changed CPU, memory, disk, or worker counts so the pods restart only once. Secrets are set with [`pxt secret`](#pxt-secret) rather than from the project. The media destinations and the OTLP endpoint and protocol travel with the project files, which always include the project configuration.
+`update` applies a new image if dependencies changed, then uploaded project files if sources changed, then one resize
+for any changed CPU, memory, disk, or worker counts so the pods restart only once. The settings in the project
+configuration (the entry's `vars` and `db_*` settings, and sections such as `[openai]`) reach the database without an
+upload, and a change to them restarts its pods. Secrets are set with [`pxt secret`](#pxt-secret) rather than from the
+project: `pxt db update` refuses a key such as `[openai] api_key` in the project configuration, and prints the
+`pxt secret set` command to run instead.
+
+Pixeltable Cloud applies an accepted update, start, stop, restart, retry, image build or delete even if the command exits early. While the command waits, it shows the current step, what the change is waiting for, and the last error being retried, on stderr: on a terminal as a spinner, and otherwise as a line at each change and at least once a minute. Ctrl-C or SIGTERM only stops the waiting and names `pxt db status` on a `next:` line, and `--no-wait` returns once the change is accepted; `pxt db status` shows the progress. After three hours the command stops waiting and exits with status 2. Rerunning the same `update` reports the update already accepted instead of starting another, and retries it if it failed. An update is refused if the database changed after `update` computed its plan; run it again to plan against the new state.
 
 #### `pxt db list`
 
@@ -1095,7 +1189,7 @@ pxt db list --json
 pxt db status pxt://myorg:mydb
 ```
 
-Prints the state, the resources, the project, and the pods, and marks what a pending update would change.
+Prints the state, the resources, the project, its metadata version, the current generation and its progress, and the pods. A resource or project shows its desired value next to the current one while they differ.
 
 #### `pxt db start`
 
@@ -1103,7 +1197,7 @@ Prints the state, the resources, the project, and the pods, and marks what a pen
 pxt db start pxt://myorg:mydb
 ```
 
-Wake a stopped database. Polls until `AVAILABLE`.
+Wake a stopped database. Waits until it is running, unless given `--no-wait`.
 
 #### `pxt db stop`
 
@@ -1120,23 +1214,36 @@ pxt db restart pxt://myorg:mydb
 ```
 
 Cycle the pods onto their current image and project, without rebuilding or uploading anything. Use it
-to pick up a secret set since they started. Polls until `AVAILABLE`; a stopped database is started instead.
+to pick up a secret set since they started. Waits until it is running again, unless given `--no-wait`. A
+stopped database is refused; start it instead.
+
+#### `pxt db retry`
+
+```bash
+pxt db retry pxt://myorg:mydb
+```
+
+Retry the failed current update of a database, without changing it. Rerunning the same `pxt db update`
+also retries it.
 
 #### `pxt db diff`
 
 ```bash
 pxt db diff pxt://myorg:mydb
 pxt db diff pxt://myorg:mydb --json
+pxt db diff pxt://myorg:mydb --add-config-entry   # append the database's entry first
 ```
 
-`pxt db diff` compares the hosted database to that config entry (see the [cloud configuration reference](#cloud-configuration-reference)): capacity, the Python image, and the project file archive --
+`pxt db diff` compares the hosted database to that config entry (see the [cloud configuration
+reference](#cloud-configuration-reference)): capacity, the Python image, the project file archive, and the settings --
 
 | Artifact | Contents | Replaced when |
 |---|---|---|
 | the image | the Python environment, and no project code | the lockfile, `python_version`, `system_dependencies` or the Pixeltable version changes |
 | the project archive | every selected project file | any selected file changes |
+| the settings | `vars`, `db_*` settings, and sections such as `[openai]` | any setting changes; no upload |
 
-so an edit to a source file is uploaded in seconds, and only a dependency change costs an image build. Exit status is 0 in agreement and 2 with changes pending; nothing is built, resized or set.
+so an edit to a source file is uploaded in seconds, and only a dependency change costs an image build. Exit status is 0 in agreement and 2 with changes pending; nothing is built, resized or set. With `--add-config-entry`, `diff` first appends the database's entry to the project configuration, unless it is already there, and so previews a first deployment; it changes nothing else.
 
 `pxt db diff --json-schema` prints the JSON Schema of that output.
 
@@ -1146,7 +1253,7 @@ so an edit to a source file is uploaded in seconds, and only a dependency change
 pxt db build-image pxt://myorg:mydb
 ```
 
-Builds the image from the project environment without comparing anything first, which is how you force a rebuild after a failed one; `pxt db update` rebuilds only when that environment changed. The project files are uploaded with it, unless the database already has that exact archive. Polls until the build completes or fails; the pods restart on the new image and the new sources.
+Builds the image from the project environment without comparing anything first, which is how you force a rebuild after a failed one; `pxt db update` rebuilds only when that environment changed. The project files are uploaded with it, unless the database already has that exact archive. Waits until the build completes or fails, unless given `--no-wait`; the pods restart on the new image and the new sources.
 
 When a command reports an unsupported proxy protocol version and this Pixeltable is newer than the hosted database, run this rebuild against the database URI from the failed command. What that image installs is described in [What to run after a change](/cloud#what-to-run-after-a-change).
 
@@ -1187,7 +1294,7 @@ Show the organization's name, ID, and default database.
 
 ```bash
 pxt key create NAME                       # a key that acts as you
-pxt key create NAME --grant VERB:URI      # a scoped key that belongs to the org (preview); repeatable
+pxt key create NAME --grant VERB:URI      # a scoped key that belongs to the org; repeatable
 pxt key list                              # every key in the org, and who created it
 pxt key update NAME --grant VERB:URI      # add a grant
 pxt key update NAME --revoke VERB:URI     # remove one
@@ -1203,6 +1310,46 @@ you has nothing to change.
 
 Names are unique per organization across both shapes, so `pxt key delete NAME` never has to choose
 between two keys. Any member of the organization can delete any key.
+
+### `pxt usage`
+
+```bash
+pxt usage
+pxt usage --json                 # the control plane's answer, as it is
+```
+
+Shows this month's usage of the organization your credential belongs to: the plan and the days left
+in the month (UTC), the cost so far against what the plan includes, each meter, and what the
+organization holds against its plan's limits. Any member can run it.
+
+```
+Community plan, 2026-11-01 to 2026-11-30 (UTC), 13 days left
+$18.42 of $25 used; past $25 your databases and services stop until the 1st (UTC), around November 22 at this rate
+
+METER                           QUANTITY          COST
+Compute, vCPU-hours             120.5 vCPU-hour  $4.22
+Compute, memory GiB-hours       241 GiB-hour     $4.22
+Database storage past included  0 GB-month       $0.00
+Media past included             0 GB-month       $0.00
+Egress past included            0 GB             $0.00
+
+RESOURCE                    USED / LIMIT
+Databases                   1 / 1
+Services                    2 / 2
+Media Store                 12.3 GB / 50 GB
+Largest database's storage  3.2 GB / 10 GB
+Egress this month           2.1 GB / 5 GB
+```
+
+Costs are at Pro's rates and bytes are decimal GB. Compute lags up to an hour, storage and egress
+up to a day. On Pro, the cost line ends with an estimate of what bills past the included credit.
+
+### Plan limits
+
+When Pixeltable Cloud refuses a request past your plan's limits (`PLAN_LIMIT`), for an unpaid
+subscription (`PAYMENT_REQUIRED`), or because the media store is full (`STORE_FULL`), the command
+prints the control plane's reason alone, which ends with the fix, and exits 1. A `pxt://` connection
+to a stopped database fails at once with the command that starts it.
 
 ### `pxt secret`
 
@@ -1229,7 +1376,7 @@ With `--json`, each row is an object with `key` and `scope`, plus `"overrides_or
 
 `set` and `delete` print the keys they changed as the same `KEY` and `SCOPE` rows, without `NOTE`; with `--json`, as `key` and `scope` objects. Earlier releases printed bare key names, and `--json` printed an array of strings.
 
-A running database or service uses the values from its startup. Run `pxt db restart` for the database's tables process and `pxt service restart` for each service. A database or service started afterwards reads the current value at startup.
+A running database or service uses the values from its startup. Run `pxt db restart` for the database's tables process and `pxt service restart` for each service. A database or service started afterwards reads the current value at startup. `set` and `delete` name each of these on a `next:` line, for every running database the secret reaches (one for a database secret, all of the organization's for an org secret) and every running service of those databases, including one whose database is stopped and one whose last roll failed, since it may still serve on its previous pods; a stopped one needs no restart.
 
 <Warning>
 A `[[pixeltable.database]]` entry no longer accepts `secrets`. A project config that still has

@@ -164,9 +164,16 @@ Once you've set up your dev environment, you're ready to start contributing PRs.
 5. Code review
 
     * Once you submit your PR, a Pixeltable maintainer will review it.
-    * Claude reviews your PR once when its tests first run, if you have write access to the repository. Anyone with
-        write access can request another review by commenting `claude review` on the PR. Claude reacts to that comment
-        with a thumbs-up when the review starts, and posts its summary and inline comments as one review.
+    * Claude reviews your open PR when someone with write access comments `claude review`, `agent review`, or
+        `agents review` on it; the last two also ask Grok and Muse. To name a focus, add it after a colon, a comma,
+        or a dash, or on the next line, or start it with "focus": `claude review focus on function signatures` or
+        `claude review: error paths`. Claude reacts to the comment with a thumbs-up when the review starts, and posts
+        its summary and inline comments as one review. A request while a Claude review of the PR runs starts no other.
+    * The erosion check is currently commented out in `claude-review.yml`. When it runs, on every commit it measures
+        how your PR changes code erosion and verbosity, as defined in
+        [SlopCodeBench](https://arxiv.org/abs/2603.24755), and Claude judges up to 10 functions whose complexity, not
+        counting asserts, is above 10 and grew. If Claude suggests restructuring a function, or leaves one unjudged,
+        the check posts one comment and updates it on later commits.
     * Respond to any comments on your PR. If you need to make changes, follow the workflow in Steps 3-4 above.
     * Once your PR is approved, click the green "Squash and merge" button on your PR page to squash-commit it into
         `main`.

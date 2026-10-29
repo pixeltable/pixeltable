@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import enum
 import hashlib
+import io
 import json
 import logging
 import os
 import re
+import stat
 import sys
 import sysconfig
 import tarfile
 import tempfile
+import tomllib
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, BinaryIO, Literal
@@ -24,8 +28,9 @@ from tqdm import tqdm
 
 import pixeltable
 from pixeltable import exceptions as excs
-from pixeltable.config import PROJECT_CONFIG_FILES, PYPROJECT_FILE, DatabaseConfig
+from pixeltable.config import PROJECT_CONFIG_FILE, PYPROJECT_FILE, Config, ConfigSections, DatabaseConfig
 from pixeltable.env import Env
+from pixeltable_cli.utils import project_root_error
 
 _logger = logging.getLogger('pixeltable')
 
@@ -48,9 +53,16 @@ def _resolve_patterns(project_dir: Path, patterns: list[str]) -> set[Path]:
 def _gitignore_spec(dir_path: Path) -> PathSpec | None:
     """The PathSpec for dir_path's own .gitignore, or None if it has none."""
     gitignore = dir_path / '.gitignore'
-    if not gitignore.is_file():
+    # os.path.isfile() returns False in a dir_path without search permission; Path.is_file() raises before 3.14
+    if not os.path.isfile(gitignore):
         return None
-    return PathSpec.from_lines('gitignore', gitignore.read_text().splitlines())
+    try:
+        lines = gitignore.read_text().splitlines()
+    except FileNotFoundError:
+        return None  # removed after is_file()
+    except OSError as e:
+        raise _unreadable_error(gitignore, e) from e
+    return PathSpec.from_lines('gitignore', lines)
 
 
 def _is_gitignored(path: Path, is_dir: bool, specs: list[tuple[Path, PathSpec]]) -> bool:
@@ -70,7 +82,8 @@ def _is_gitignored(path: Path, is_dir: bool, specs: list[tuple[Path, PathSpec]])
 
 def _is_venv(dir_path: Path) -> bool:
     """Whether dir_path is a Python virtual environment."""
-    return (dir_path / 'pyvenv.cfg').is_file() or (dir_path / 'conda-meta').is_dir()
+    # os.path returns False for an unreadable dir_path; Path.is_file() raises PermissionError before 3.14
+    return os.path.isfile(dir_path / 'pyvenv.cfg') or os.path.isdir(dir_path / 'conda-meta')
 
 
 def _collect_unignored_files(project_dir: Path) -> set[Path]:
@@ -88,17 +101,34 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
     reaches it, which a project that derives its version from VCS metadata needs. A virtual environment is
     skipped whether or not a .gitignore covers it, since the pod installs the packages from the lockfile.
     __pycache__ is ignored: we don't want to ship bytecode
+
+    A directory removed during the walk is skipped; one that cannot be listed raises.
     """
     files: set[Path] = set()
 
     def visit(dir_path: Path, specs: list[tuple[Path, PathSpec]]) -> None:
+        try:
+            entries: list[tuple[Path, bool]] = []
+            for entry in dir_path.iterdir():
+                try:
+                    # lstat() raises in a dir_path without search permission; Path.is_dir() returns False on 3.14
+                    is_dir = stat.S_ISDIR(entry.lstat().st_mode)
+                except FileNotFoundError:
+                    continue  # removed since dir_path was listed
+                entries.append((entry, is_dir))
+        except FileNotFoundError:
+            return
+        except OSError as e:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE,
+                f'{dir_path} cannot be listed: {e.strerror}; add it to .gitignore to leave it out of the project',
+            ) from e
         spec = _gitignore_spec(dir_path)
         if spec is not None:
             specs = [*specs, (dir_path, spec)]
-        for entry in dir_path.iterdir():
+        for entry, is_dir in entries:
             if entry.name in ('.git', '__pycache__'):
                 continue
-            is_dir = entry.is_dir() and not entry.is_symlink()
             if _is_gitignored(entry, is_dir, specs):
                 continue
             if is_dir and _is_venv(entry):
@@ -113,11 +143,23 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
 
 
 def _archive_files(project_root: Path, config: DatabaseConfig | None) -> list[Path]:
-    """The files that go into an image, and into the fingerprint.
+    """Return the files that go into the archive and the fingerprint.
 
-    Everything git would not ignore, adjusted by the entry's include/exclude patterns, plus the lockfile,
-    which declares the project's packages and is selected whatever the patterns say.
+    - the files git does not ignore, adjusted by the entry's include/exclude patterns
+    - the lockfile and pyproject.toml, whatever the patterns say
+    - never pixeltable.toml
+    - never a file in the Pixeltable home
+
+    Raises if project_root is the user's home directory, a directory above it, or the Pixeltable home.
     """
+    pixeltable_home = Config.get().home.resolve()
+    error = project_root_error(project_root, pixeltable_home)
+    if error is not None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'{project_root} cannot be a project root: {error}; remove its {PROJECT_CONFIG_FILE} (or the '
+            f'[tool.pixeltable] table of its {PYPROJECT_FILE}), then run pxt init in a directory made for the project',
+        )
     exclude = config.exclude if config is not None else None
     include = config.include if config is not None else None
     include_only = config.include_only if config is not None else None
@@ -140,9 +182,14 @@ def _archive_files(project_root: Path, config: DatabaseConfig | None) -> list[Pa
         if include is not None:
             files |= _resolve_patterns(project_root, include)
 
-    # we always include the lockfile and project config files, both are needed by the pod
-    selected = (*LOCK_FILES, *PROJECT_CONFIG_FILES)
-    files |= {project_root / name for name in selected if (project_root / name).is_file()}
+    # we always include the image inputs, which the pod needs, and the project files the lockfile installs from,
+    # which the cloud needs to build the image
+    files |= {project_root / name for name in IMAGE_INPUT_FILES if (project_root / name).is_file()}
+    files |= set(_installed_from_project(project_root))
+    files.discard(project_root / PROJECT_CONFIG_FILE)  # its settings are in the fingerprint's config
+    if pixeltable_home.is_relative_to(project_root):
+        # the Pixeltable home stores the local database and credentials, not project files
+        files = {f for f in files if not f.is_relative_to(pixeltable_home)}
     return sorted(files)
 
 
@@ -172,33 +219,115 @@ class PackagedContext:
     files: dict[str, str]
 
 
-def _member_hash(content_hash: str, *, symlink: bool) -> str:
-    return _digest({'content': content_hash, 'symlink': symlink})
+def member_hash(content_hash: str, *, symlink: bool) -> str:
+    """Return the hash a fingerprint records for one project file.
+
+    content_hash is used as given, with no further hashing: the SHA-256 hex digest of the file's bytes,
+    pyproject_hash() of its bytes for pyproject.toml, or digest() of its target path for a symlink. The output must
+    not change for the same input.
+    """
+    return digest({'content': content_hash, 'symlink': symlink})
 
 
-def _path_hash(path: Path) -> str:
+def _path_hashes(root: Path, paths: Iterable[Path]) -> dict[str, str]:
+    """Hash each of paths as _path_hash() does, keyed by its path relative to root.
+
+    A path removed since it was listed is left out; one that cannot be read raises.
+    """
+    result: dict[str, str] = {}
+    for path in paths:
+        relpath = path.relative_to(root).as_posix()
+        try:
+            result[relpath] = _path_hash(path, relpath)
+        except FileNotFoundError:
+            continue
+        except OSError as e:
+            raise _unreadable_error(path, e) from e
+    return result
+
+
+def _unreadable_error(path: Path, e: OSError) -> excs.RequestError:
+    reason = e.strerror if e.strerror is not None else e
+    return excs.RequestError(excs.ErrorCode.INVALID_STATE, f'{path} cannot be read: {reason}')
+
+
+def _path_hash(path: Path, relpath: str) -> str:
     """Read the file at path and hash it the way _add_hashed() hashes an archive member."""
     if path.is_symlink():
         # a symlink stores a path, so that path identifies it; reading through it would hash the target
-        return _member_hash(_digest(os.readlink(path)), symlink=True)
-    return _member_hash(_content_hash(path), symlink=False)
+        return member_hash(digest(os.readlink(path)), symlink=True)
+    if relpath == PYPROJECT_FILE:
+        return member_hash(pyproject_hash(path.read_bytes()), symlink=False)
+    return member_hash(_content_hash(path), symlink=False)
 
 
-def _add_hashed(tf: tarfile.TarFile, path: Path, arcname: str) -> str:
-    """Write path into tf and return the hash of the member written."""
-    info = tf.gettarinfo(path, arcname=arcname)
+def _reproducible(info: tarfile.TarInfo) -> tarfile.TarInfo:
+    """info without the metadata that differs between checkouts of the same files."""
+    info.mtime = 0
+    info.uid = info.gid = 0
+    info.uname = info.gname = ''
+    if info.isfile() or info.islnk():
+        info.mode = 0o755 if info.mode & 0o111 else 0o644
+    elif info.issym():
+        info.mode = 0o777
+    return info
+
+
+def pyproject_hash(data: bytes) -> str:
+    """Hash data, the contents of pyproject.toml, without the [tool.pixeltable] table.
+
+    The settings in that table are in the fingerprint's config. The output must not change for the same input.
+    """
+    try:
+        parsed = tomllib.loads(data.decode())
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'{PYPROJECT_FILE} is not valid TOML: {exc}'
+        ) from exc
+    tool = parsed.get('tool')
+    if isinstance(tool, dict):
+        tool.pop('pixeltable', None)
+        if len(tool) == 0:
+            del parsed['tool']  # [tool.pixeltable] alone creates the tool table
+    return hashlib.sha256(json.dumps(parsed, sort_keys=True, default=_toml_datetime_json).encode()).hexdigest()
+
+
+def _toml_datetime_json(value: datetime.date | datetime.time) -> dict[str, str]:
+    """Encode a TOML date or time for json.dumps(), tagged with its type to keep it apart from a string."""
+    return {f'toml:{type(value).__name__}': value.isoformat()}
+
+
+def _add_hashed(tf: tarfile.TarFile, path: Path, relpath: str) -> str:
+    """Write path into tf as project/relpath and return the hash of the member written."""
+    info = _reproducible(tf.gettarinfo(path, arcname=f'project/{relpath}'))
     if info.issym():
         tf.addfile(info)
-        return _member_hash(_digest(info.linkname), symlink=True)
+        return member_hash(digest(info.linkname), symlink=True)
     if info.islnk():
         # gettarinfo() writes a second path to one inode as a hard link, which extracts as a regular
         # file with the same bytes; the member itself carries no content
+        # hash first, so a file removed since it was listed raises before its member is written
+        path_hash = _path_hash(path, relpath)
         tf.addfile(info)
-        return _member_hash(_content_hash(path), symlink=False)
+        return path_hash
+    if relpath == PYPROJECT_FILE:
+        data = path.read_bytes()
+        info.size = len(data)
+        tf.addfile(info, io.BytesIO(data))
+        return member_hash(pyproject_hash(data), symlink=False)
     with path.open('rb') as raw:
         reader = _HashingReader(raw)
-        tf.addfile(info, reader)
-    return _member_hash(reader.hexdigest(), symlink=False)
+        try:
+            tf.addfile(info, reader)
+        except OSError as e:
+            # tarfile raises when the file has fewer than info.size bytes
+            if os.fstat(raw.fileno()).st_size >= info.size:
+                raise
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE,
+                f'the project changed while it was being packaged ({relpath}); run the command again',
+            ) from e
+    return member_hash(reader.hexdigest(), symlink=False)
 
 
 def create_project_archive(
@@ -245,19 +374,26 @@ def package_project_archive(
     archive_path = Path(name)
 
     max_pathlen = 40
-    with (
-        tarfile.open(archive_path, 'w:bz2') as tf,
-        tqdm(desc='Packaging project', total=len(files), unit=' files', disable=not show_progress) as bar,
-    ):
-        hashes: dict[str, str] = {}
-        for f in files:
-            relpath = f.relative_to(project_dir).as_posix()
-            abbrev_path = relpath if len(relpath) <= max_pathlen else '…' + relpath[-(max_pathlen - 1) :]
-            # refresh=False: the postfix is drawn by the following update(), which respects tqdm's redraw interval
-            bar.set_postfix_str(abbrev_path, refresh=False)
-            hashes[relpath] = _add_hashed(tf, f, f'project/{relpath}')
-            bar.update(1)
-        bar.set_postfix_str('', refresh=False)
+    try:
+        with (
+            tarfile.open(archive_path, 'w:bz2') as tf,
+            tqdm(desc='Packaging project', total=len(files), unit=' files', disable=not show_progress) as bar,
+        ):
+            hashes: dict[str, str] = {}
+            for f in files:
+                relpath = f.relative_to(project_dir).as_posix()
+                abbrev_path = relpath if len(relpath) <= max_pathlen else '...' + relpath[-(max_pathlen - 3) :]
+                # refresh=False: the postfix is drawn by the following update(), which respects tqdm's redraw interval
+                bar.set_postfix_str(abbrev_path, refresh=False)
+                try:
+                    hashes[relpath] = _add_hashed(tf, f, relpath)
+                except FileNotFoundError:
+                    pass  # removed since it was listed
+                bar.update(1)
+            bar.set_postfix_str('', refresh=False)
+    except BaseException:
+        archive_path.unlink(missing_ok=True)
+        raise
 
     _logger.info(f'Project archive created: {archive_path}')
     return PackagedContext(path=archive_path, files=hashes)
@@ -435,7 +571,15 @@ def _lock_source_files(parsed: dict[str, Any], project_dir: Path) -> list[Path]:
             if path.is_file():
                 files.append(path)
             else:
-                files.extend(f for f in sorted(path.rglob('*')) if f.is_file() and '__pycache__' not in f.parts)
+                files.extend(
+                    f
+                    for f in sorted(path.rglob('*'))
+                    if f.is_file()
+                    and '__pycache__' not in f.parts
+                    and not any(
+                        _is_venv(path / parent) for parent in f.relative_to(path).parents if parent != Path('.')
+                    )
+                )
     return files
 
 
@@ -451,14 +595,96 @@ def _lock_sources(project_dir: Path) -> list[Path]:
     return _lock_source_files(parsed, project_dir)
 
 
-def package_image_context(project_dir: Path | None = None) -> PackagedContext:
-    """Create a tarfile containing the manifests needed for an image build.
+def _installed_from_project(project_dir: Path) -> list[Path]:
+    """The project files that requirements.txt or uv.lock installs from."""
+    requirements = project_dir / 'requirements.txt'
+    local_requirements = _local_requirement_files(project_dir, requirements) if requirements.is_file() else []
+    return [*local_requirements, *_lock_sources(project_dir)]
 
-    The returned hashes are taken from the bytes written, so they describe the context rather than a
-    later reading of the project.
+
+_REQUIREMENT_PIN = re.compile(r'^pixeltable(?:\[[^\]]*\])?\s*==\s*([^\s;#]+)', re.IGNORECASE)
+_REQUIREMENT_GIT = re.compile(r'^pixeltable(?:\[[^\]]*\])?\s*@\s*git\+\S+?@([0-9a-fA-F]{7,40})', re.IGNORECASE)
+# a wheel the project carries: its filename holds its exact version
+_REQUIREMENT_WHEEL = re.compile(r'^(?:\S*/)?pixeltable-([^-\s]+)-[^\s]*\.whl(?:\s|$|;|#)', re.IGNORECASE)
+
+
+_REQUIREMENT_NAMED = re.compile(r'^pixeltable(?:\[[^\]]*\])?\s*(?:[<>=!~;@#]|$)', re.IGNORECASE)
+_COMMIT = re.compile(r'[0-9a-f]{7,40}(?![0-9a-z])')
+
+
+def _locked_pixeltable(project_dir: Path) -> tuple[str, str] | None:
+    """How the project's lockfile pins pixeltable, as the control plane reads it: ('version', V), ('git', commit),
+    or ('project', '') when the project is pixeltable itself; None when nothing pins it."""
+    lock = project_dir / 'uv.lock'
+    if lock.is_file():
+        entries = [p for p in toml.load(lock).get('package', []) if p.get('name') == 'pixeltable']
+        sources = [p.get('source') or {} for p in entries]
+        if any('.' in source.values() for source in sources):
+            return 'project', ''
+        # a git source records its commit after '#'; the version uv computed in its own checkout may differ
+        commits = {
+            str(source['git']).rpartition('#')[2].lower() for source in sources if '#' in str(source.get('git', ''))
+        }
+        if len(commits) == 1:
+            return 'git', commits.pop()
+        versions = sorted({str(p['version']) for p in entries if p.get('version')})
+        return ('version', ', '.join(versions)) if versions else None
+    requirements = project_dir / 'requirements.txt'
+    if requirements.is_file():
+        for line in requirements.read_text().splitlines():
+            stripped = line.strip()
+            if (match := _REQUIREMENT_PIN.match(stripped) or _REQUIREMENT_WHEEL.match(stripped)) is not None:
+                return 'version', match.group(1)
+            if (match := _REQUIREMENT_GIT.match(stripped)) is not None:
+                return 'git', match.group(1).lower()
+            if _REQUIREMENT_NAMED.match(stripped):
+                return None
+    return None
+
+
+def _check_locked_pixeltable(project_dir: Path) -> None:
+    """A hosted image runs the pixeltable this CLI runs: the control plane takes this CLI's metadata version as
+    the release's, and refuses a project whose lockfile pins another pixeltable."""
+    locked = _locked_pixeltable(project_dir)
+    if locked is None or locked[0] == 'project':
+        return
+    kind, value = locked
+    version = pixeltable.__version__
+    # a git build's local version segment starts with its commit; a dirty tree appends more after it
+    commit_match = _COMMIT.match(version.partition('+')[2].lower())
+    commit = commit_match.group(0) if commit_match else ''
+    if kind == 'git':
+        matches = bool(commit) and (value.startswith(commit) or commit.startswith(value))
+    else:
+        matches = value.lower() == version.lower()
+    if not matches:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'the project locks pixeltable {value}, but this pxt runs pixeltable {version}; run pxt from the '
+            'project environment, or update the lock to the pixeltable you deploy with',
+        )
+
+
+def check_hosted_pixeltable(project_dir: Path) -> None:
+    """Refuse what the control plane would refuse before anything is uploaded: a lock pinning another pixeltable,
+    or no pin while this pxt is a development build, which a hosted image cannot install."""
+    project_dir = project_dir.resolve()
+    _check_locked_pixeltable(project_dir)
+    version = pixeltable.__version__
+    if _locked_pixeltable(project_dir) is None and '+' in version:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'this pxt runs a development build of pixeltable ({version}), which a hosted image cannot install; '
+            'pin pixeltable in the project to a pushed commit, for example in requirements.txt: '
+            'pixeltable @ git+https://github.com/pixeltable/pixeltable@<full commit hash>',
+        )
+
+
+def image_input_files(project_dir: Path) -> list[Path]:
+    """The manifests an image build reads, and the project files they install from.
+
+    Raises if a manifest names something a hosted image build cannot reach, or pins another pixeltable than this one.
     """
-    if project_dir is None:
-        project_dir = Path.cwd()
     project_dir = project_dir.resolve()
     files = [project_dir / name for name in IMAGE_INPUT_FILES if (project_dir / name).is_file()]
     installed_from_project: list[Path] = _lock_sources(project_dir)
@@ -483,7 +709,21 @@ def package_image_context(project_dir: Path | None = None) -> PackagedContext:
             # pip runs in the context, so a requirement naming a path needs that file alongside the manifests
             installed_from_project.extend(_local_requirement_files(project_dir, f))
 
+    _check_locked_pixeltable(project_dir)
     files.extend(installed_from_project)
+    return files
+
+
+def package_image_context(project_dir: Path | None = None) -> PackagedContext:
+    """Create a tarfile containing the manifests needed for an image build.
+
+    The returned hashes are taken from the bytes written, so they describe the context rather than a
+    later reading of the project.
+    """
+    if project_dir is None:
+        project_dir = Path.cwd()
+    project_dir = project_dir.resolve()
+    files = image_input_files(project_dir)
 
     fd, name = tempfile.mkstemp(suffix='.tar', prefix='pxt_image_')
     os.close(fd)
@@ -492,8 +732,7 @@ def package_image_context(project_dir: Path | None = None) -> PackagedContext:
     with tarfile.open(context_path, 'w') as tf:
         for f in files:
             relpath = f.relative_to(project_dir).as_posix()
-            # project files go into project/
-            hashes[relpath] = _add_hashed(tf, f, f'project/{relpath}')
+            hashes[relpath] = _add_hashed(tf, f, relpath)
     _logger.info(f'Image context created: {context_path}')
     return PackagedContext(path=context_path, files=hashes)
 
@@ -515,7 +754,7 @@ class ProjectPart(enum.StrEnum):
 
     ARCHIVE = 'archive'
 
-    BINDINGS = 'bindings'
+    CONFIG = 'config'
 
 
 class ProjectFingerprint(pydantic.BaseModel):
@@ -537,8 +776,8 @@ class ProjectFingerprint(pydantic.BaseModel):
     # from files, which are affected by DatabaseConfig.exclude
     installed_from_project: dict[str, str] = {}
 
-    # bindings, never resolved values: a var names the source of its value
-    vars: dict[str, str]
+    # produced by Config.create_project_config(); its vars are bindings, never resolved values
+    config: ConfigSections = {}
 
     def compare(self, other: ProjectFingerprint, *, own_files_only: bool = False) -> set[ProjectPart]:
         """The parts that differ from other.
@@ -551,17 +790,17 @@ class ProjectFingerprint(pydantic.BaseModel):
         files_differ = len(self._added_or_changed(other)) > 0 if own_files_only else self.files != other.files
         if files_differ:
             parts.add(ProjectPart.ARCHIVE)
-        if self.vars != other.vars:
-            parts.add(ProjectPart.BINDINGS)
+        if self.config != other.config:
+            parts.add(ProjectPart.CONFIG)
         return parts
 
     def image_digest(self) -> str:
         """The image identity."""
-        return _digest(self._image_inputs())
+        return digest(self._image_inputs())
 
     def archive_digest(self) -> str:
         """The archive identity."""
-        return _digest(self.files)
+        return digest(self.files)
 
     def changes(self, other: ProjectFingerprint, parts: set[ProjectPart] | None = None) -> list[str]:
         """What differs from other in the given parts, one printable line each; defaults to every part."""
@@ -583,8 +822,9 @@ class ProjectFingerprint(pydantic.BaseModel):
                 lines.append('system_dependencies changed')
             if self.uv_options != other.uv_options:
                 lines.append('uv_options changed')
-        if ProjectPart.BINDINGS in parts:
-            lines += [f'var {name} changed' for name in _changed_keys(self.vars, other.vars)]
+        if ProjectPart.CONFIG in parts:
+            now, was = _settings(self.config), _settings(other.config)
+            lines += [f'{name} changed' for name in _changed_keys(now, was)]
         return lines
 
     def _added_or_changed(self, other: ProjectFingerprint) -> list[str]:
@@ -612,7 +852,11 @@ class ProjectFingerprint(pydantic.BaseModel):
         return {**manifests, **self.installed_from_project}
 
 
-def _digest(value: Any) -> str:
+def digest(value: Any) -> str:
+    """Return the SHA-256 of value's canonical JSON (sorted keys, no whitespace).
+
+    The output must not change for the same input.
+    """
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
@@ -621,25 +865,46 @@ def _changed_paths(now: dict[str, str], was: dict[str, str]) -> list[str]:
     return [f'{path} changed' for path in sorted(set(now) & set(was)) if now[path] != was[path]]
 
 
-def _changed_keys(now: dict[str, str], was: dict[str, str]) -> list[str]:
+def _changed_keys(now: dict[str, Any], was: dict[str, Any]) -> list[str]:
     return sorted({name for name in set(now) | set(was) if now.get(name) != was.get(name)})
+
+
+def _settings(config: ConfigSections) -> dict[str, Any]:
+    """Return the settings in config as a dict of setting name -> value.
+
+    A setting name is '<section>.<key>' for a section's setting, 'var <name>' for a var of the database entry, and
+    'db_<key>' for a db_* setting of the database entry.
+    """
+    result: dict[str, Any] = {}
+    for section, options in config.items():
+        for key, value in options.items():
+            if section != 'pixeltable' or key != 'database':
+                result[f'{section}.{key}'] = value
+                continue
+            for entry in value:
+                result.update({f'var {name}': binding for name, binding in entry.get('vars', {}).items()})
+                result.update({name: setting for name, setting in entry.items() if name not in ('name', 'vars')})
+    return result
 
 
 def unpacked_digest(project_dir: Path) -> str:
     """The archive digest of every file under project_dir, as ProjectFingerprint.archive_digest() computes it."""
-    files = {
-        p.relative_to(project_dir).as_posix(): _path_hash(p)
+    files = _path_hashes(
+        project_dir,
         # a symlink counts even where its target is missing: is_file() follows the link, and dropping it
         # would make a correctly unpacked project look like a different one
-        for p in project_dir.rglob('*')
-        if p.is_symlink() or p.is_file()
-    }
-    return _digest(files)
+        (p for p in project_dir.rglob('*') if p.is_symlink() or p.is_file()),
+    )
+    return digest(files)
 
 
-def project_fingerprint(project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
-    """Fingerprint the project files for project_root."""
-    return _fingerprint(_archive_files(project_root, config), project_root, config)
+def project_fingerprint(
+    project_root: Path, config: DatabaseConfig | None, *, project_config: ConfigSections | None = None
+) -> ProjectFingerprint:
+    """Fingerprint the project files for project_root, together with project_config, if given."""
+    return _fingerprint(
+        _archive_files(project_root, config), project_root, config, project_config if project_config is not None else {}
+    )
 
 
 # Where this interpreter keeps the standard library and installed packages.
@@ -656,22 +921,19 @@ def in_environment(path: Path) -> bool:
 
 
 def _content_hash(path: Path) -> str:
-    digest = hashlib.sha256()
+    hasher = hashlib.sha256()
     with path.open('rb') as f:
         # chunked reads: limit buffering
         for chunk in iter(lambda: f.read(1024 * 1024), b''):
-            digest.update(chunk)
-    return digest.hexdigest()
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 
-def _fingerprint(files: Iterable[Path], project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
-    requirements = project_root / 'requirements.txt'
-    local_requirements = _local_requirement_files(project_root, requirements) if requirements.is_file() else []
-    from_project = {
-        p.relative_to(project_root).as_posix(): _path_hash(p)
-        for p in (*local_requirements, *_lock_sources(project_root))
-    }
-    files = {path.relative_to(project_root).as_posix(): _path_hash(path) for path in files}
+def _fingerprint(
+    files: Iterable[Path], project_root: Path, config: DatabaseConfig | None, project_config: ConfigSections
+) -> ProjectFingerprint:
+    from_project = _path_hashes(project_root, _installed_from_project(project_root))
+    files = _path_hashes(project_root, files)
     declared_python = config.python_version if config is not None else None
     return ProjectFingerprint(
         files=files,
@@ -681,5 +943,5 @@ def _fingerprint(files: Iterable[Path], project_root: Path, config: DatabaseConf
         system_dependencies=(config.system_dependencies if config is not None else None) or [],
         pixeltable_version=pixeltable.__version__,
         uv_options=config.uv_options if config is not None else None,
-        vars=(config.vars if config is not None else None) or {},
+        config=project_config,
     )
