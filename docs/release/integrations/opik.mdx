@@ -95,6 +95,29 @@ pxt_otel.init(
 Pass the Opik endpoint and headers to `init()` when another OTLP exporter runs in the same process. Every OTLP exporter in the process reads `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS`, so those variables would point that exporter at Opik and would send it the Opik API key.
 </Warning>
 
+If the process already has a tracer provider, `init()` reuses it and adds no Opik exporter, so spans keep going to the existing backend. Add an OTLP span processor for Opik to that provider instead. The exporter takes the full traces URL, so include `/v1/traces` here:
+
+```python
+import os
+
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+trace.get_tracer_provider().add_span_processor(
+    BatchSpanProcessor(
+        OTLPSpanExporter(
+            endpoint='https://www.comet.com/opik/api/v1/private/otel/v1/traces',
+            headers={
+                'Authorization': os.environ['OPIK_API_KEY'],
+                'Comet-Workspace': os.environ['OPIK_WORKSPACE'],
+                'projectName': 'pixeltable-app',
+            },
+        )
+    )
+)
+```
+
 <Note>
 A `pxt_otel.init()` argument overrides the config. With the argument left unset, `endpoint` and `protocol` resolve from the database entry (`db_exporter_otlp_endpoint`, `db_exporter_otlp_protocol` in `pixeltable.toml`), then `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL`, then the `[otel]` section of `~/.pixeltable/config.toml`. `headers` resolves from `OTEL_EXPORTER_OTLP_HEADERS`, then `[otel]`. Build the header value from environment variables, and never write the key into code. `headers` is one string of comma-separated `key=value` pairs, not a Python dict. On a hosted database, run `pxt secret set pxt://<org>:<db> OTEL_EXPORTER_OTLP_HEADERS='Authorization=<api-key>,Comet-Workspace=<workspace>,projectName=pixeltable-app'`, then `pxt db restart pxt://<org>:<db>` and `pxt service restart pxt://<org>:<db>/<service>`. [Configuration](/platform/configuration).
 </Note>
