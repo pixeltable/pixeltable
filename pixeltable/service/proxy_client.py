@@ -130,6 +130,9 @@ class Transport(abc.ABC):
         """Release any transport resources."""
 
 
+_MAX_IDLE_S = 4.0  # below the proxy daemon's 5 s keep-alive, so no connection is reused as the daemon closes it
+
+
 class HttpTransport(Transport):
     """Direct HTTP to a reachable proxy daemon endpoint."""
 
@@ -138,7 +141,9 @@ class HttpTransport(Transport):
 
     def __init__(self, endpoint: str):
         self._endpoint = endpoint
-        self._http = httpx.Client(base_url=endpoint, timeout=httpx.Timeout(120.0))
+        self._http = httpx.Client(
+            base_url=endpoint, timeout=httpx.Timeout(120.0), limits=httpx.Limits(keepalive_expiry=_MAX_IDLE_S)
+        )
         # closes the pooled connections when the transport is collected without close(), as when the runtime holding
         # it is discarded
         weakref.finalize(self, self._http.close)
@@ -171,7 +176,6 @@ _CONNECT_TRIES = 2
 _HANDSHAKE_TIMEOUT = 30.0  # TLS + PXT/1.0
 _RPC_TIMEOUT = 1800.0
 _MAX_POOL_SIZE = 16  # matches the fetch_media download threadpool
-_MAX_IDLE_S = 4.0  # below the proxy daemon's 5 s keep-alive, so no connection is reused as the daemon closes it
 
 # Failures that leave the request undelivered (connect, handshake, writing it); retried with backoff.
 _TUNNEL_TRANSIENT_EXC = (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError)

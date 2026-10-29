@@ -1,6 +1,6 @@
 import base64
 import gc
-import http
+import http.server
 import io
 import json
 import math
@@ -258,6 +258,42 @@ class TestProxyDaemon:
         assert headers['Content-Length'] == '10'
         assert 'Transfer-Encoding' not in headers
         assert pieces == [b'abcd', b'efgh', b'ij']
+
+    def test_http_transport_drops_a_connection_idle_nearly_as_long_as_the_daemon_keeps_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The daemon closes a connection idle 5 s, and a request sent while that close is on its way is reset."""
+        monkeypatch.setattr(proxy_client, '_MAX_IDLE_S', 0.5)
+        ports: list[int] = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = 'HTTP/1.1'  # keeps each connection open for the next request
+
+            def do_POST(self) -> None:
+                self.rfile.read(int(self.headers['Content-Length']))
+                ports.append(self.client_address[1])
+                self.send_response(200)
+                self.send_header('Content-Length', '2')
+                self.end_headers()
+                self.wfile.write(b'ok')
+
+            def log_message(self, format: str, *args: Any) -> None:
+                pass
+
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        transport = HttpTransport(f'http://127.0.0.1:{server.server_address[1]}')
+        try:
+            assert transport.post(b'a') == b'ok'
+            assert transport.post(b'b') == b'ok'
+            time.sleep(0.6)
+            assert transport.post(b'c') == b'ok'
+        finally:
+            transport.close()
+            server.shutdown()
+            server.server_close()
+        # the second request reuses the first one's connection; the third, sent past the idle limit, gets a new one
+        assert ports[0] == ports[1] != ports[2]
 
     def test_rpc_response_goes_out_in_slices(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The daemon writes an /rpc response one slice at a time, framed by its full Content-Length."""
