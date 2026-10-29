@@ -19,6 +19,7 @@ import io
 import logging
 import mimetypes
 import os
+import time
 import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -388,20 +389,238 @@ async def _generate_videos_impl(
     return str(output_path)
 
 
+# Gemini Omni video models use the Interactions API. Veo ids, including Vertex Veo, stay on generate_videos.
+_OMNI_VIDEO_MODEL_PREFIX = 'gemini-omni'
+_OMNI_VIDEO_TIMEOUT_S = 300
+_OMNI_FILE_POLL_S = 2
+_OMNI_MIN_DURATION_S = 3
+_OMNI_MAX_DURATION_S = 10
+_OMNI_CONFIG_KEYS = frozenset({'aspect_ratio', 'resolution', 'duration', 'duration_seconds', 'delivery'})
+
+
+def _is_omni_video_model(model: str) -> bool:
+    return model.startswith(_OMNI_VIDEO_MODEL_PREFIX)
+
+
+def _omni_duration(duration: Any) -> str:
+    seconds: int | None
+    if isinstance(duration, bool):
+        seconds = None
+    elif isinstance(duration, int):
+        seconds = duration
+    elif isinstance(duration, float) and duration.is_integer():
+        seconds = int(duration)
+    elif isinstance(duration, str):
+        text = duration.strip()
+        if text.lower().endswith('s'):
+            text = text[:-1].strip()
+        try:
+            seconds = int(text)
+        except ValueError:
+            seconds = None
+    else:
+        seconds = None
+    if seconds is None or not _OMNI_MIN_DURATION_S <= seconds <= _OMNI_MAX_DURATION_S:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'Gemini Omni video duration must be a whole number of seconds from {_OMNI_MIN_DURATION_S} to '
+            f'{_OMNI_MAX_DURATION_S}, got {duration!r}.',
+        )
+    return f'{seconds}s'
+
+
+def _omni_response_format(config: dict | None) -> dict[str, Any]:
+    supplied: dict[str, Any] = {} if config is None else config
+    unknown = sorted(str(key) for key in supplied if key not in _OMNI_CONFIG_KEYS)
+    if unknown:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'Gemini Omni video generation does not accept config {unknown}. Supported keys: aspect_ratio, '
+            f'resolution, duration, duration_seconds, delivery.',
+        )
+    if 'duration' in supplied and 'duration_seconds' in supplied:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, 'Specify only one of `duration` or `duration_seconds`.'
+        )
+
+    response_format: dict[str, Any] = {'type': 'video', 'delivery': supplied.get('delivery') or 'uri'}
+    if 'aspect_ratio' in supplied:
+        response_format['aspect_ratio'] = supplied['aspect_ratio']
+    if 'resolution' in supplied:
+        response_format['resolution'] = supplied['resolution']
+    if 'duration' in supplied:
+        response_format['duration'] = _omni_duration(supplied['duration'])
+    elif 'duration_seconds' in supplied:
+        response_format['duration'] = _omni_duration(supplied['duration_seconds'])
+    return response_format
+
+
+def _pil_to_omni_image(image: PIL.Image.Image) -> dict[str, str]:
+    gemini_image = _pil_to_gemini_image(image)
+    image_bytes = gemini_image.image_bytes
+    mime_type = gemini_image.mime_type
+    assert image_bytes is not None and mime_type is not None
+    return {'type': 'image', 'data': base64.b64encode(image_bytes).decode('ascii'), 'mime_type': mime_type}
+
+
+def _omni_video_input(prompt: str | None, images: Sequence[PIL.Image.Image]) -> str | list[dict[str, str]]:
+    if len(images) == 0:
+        assert prompt is not None
+        return prompt
+    parts = [_pil_to_omni_image(image) for image in images]
+    if prompt is not None:
+        parts.append({'type': 'text', 'text': prompt})
+    return parts
+
+
+def _omni_file_name(uri: str) -> str:
+    marker = 'files/'
+    if marker not in uri:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            'Gemini Omni returned a video URI without a file id.',
+            provider='gemini',
+        )
+    file_id: list[str] = []
+    for char in uri.split(marker, 1)[1]:
+        if char.isalnum() or char in '-_':
+            file_id.append(char)
+        else:
+            break
+    if len(file_id) == 0:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            'Gemini Omni returned a video URI without a file id.',
+            provider='gemini',
+        )
+    return f'files/{"".join(file_id)}'
+
+
+def _inline_video_bytes(data: Any) -> bytes:
+    if isinstance(data, bytes):
+        video_bytes = data
+    elif isinstance(data, str):
+        try:
+            video_bytes = base64.b64decode(data)
+        except ValueError as exc:
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+                'Gemini Omni returned video data that is not valid base64.',
+                provider='gemini',
+            ) from exc
+    else:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            f'Gemini Omni returned video data of type {type(data).__name__}.',
+            provider='gemini',
+        )
+    if len(video_bytes) == 0:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, 'Gemini Omni returned an empty video.', provider='gemini'
+        )
+    return video_bytes
+
+
+def _write_video(video_bytes: bytes) -> str:
+    output_path = TempStore.create_path(extension='.mp4')
+    output_path.write_bytes(video_bytes)
+    return str(output_path)
+
+
+async def _download_omni_video(uri: str) -> bytes:
+    from google.genai import types
+
+    name = _omni_file_name(uri)
+    deadline = time.monotonic() + _OMNI_VIDEO_TIMEOUT_S
+    while True:
+        info = await _genai_client().aio.files.get(name=name)
+        if info.state == types.FileState.ACTIVE:
+            break
+        if info.state == types.FileState.FAILED:
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR, f'Gemini Omni video file {name} failed processing.', provider='gemini'
+            )
+        if time.monotonic() >= deadline:
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_TIMEOUT,
+                f'Gemini Omni video file {name} was not ready after {_OMNI_VIDEO_TIMEOUT_S} seconds.',
+                provider='gemini',
+            )
+        await asyncio.sleep(_OMNI_FILE_POLL_S)
+
+    # files.download rewrites an https URI with a lowercase-only id pattern, which drops
+    # hyphens. Pass the files/ name so the id is preserved.
+    video_bytes = await _genai_client().aio.files.download(file=name)
+    if not video_bytes:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            'Gemini Omni returned an empty video download.',
+            provider='gemini',
+        )
+    return video_bytes
+
+
+async def _generate_omni_videos(
+    model: str, prompt: str | None, images: Sequence[PIL.Image.Image], config: dict | None
+) -> str:
+    import httpx
+    from google.genai import errors as genai_errors
+
+    response_format = _omni_response_format(config)
+    timeout_error = excs.ExternalServiceError(
+        excs.ErrorCode.PROVIDER_TIMEOUT,
+        f'Video generation timed out after {_OMNI_VIDEO_TIMEOUT_S} seconds for Gemini model {model!r}.',
+        provider='gemini',
+    )
+    try:
+        interaction = await _genai_client().aio.interactions.create(
+            model=model,
+            input=_omni_video_input(prompt, images),
+            response_format=response_format,
+            timeout=_OMNI_VIDEO_TIMEOUT_S,
+        )
+    except (TimeoutError, httpx.TimeoutException) as exc:
+        raise timeout_error from exc
+    except genai_errors.ContinuationInterruptedError as exc:
+        if not isinstance(exc.__cause__, (TimeoutError, httpx.TimeoutException)):
+            raise
+        raise timeout_error from exc
+
+    output_video = getattr(interaction, 'output_video', None)
+    data = getattr(output_video, 'data', None) if output_video is not None else None
+    uri = getattr(output_video, 'uri', None) if output_video is not None else None
+    if data:
+        video_bytes = _inline_video_bytes(data)
+    elif uri:
+        video_bytes = await _download_omni_video(uri)
+    else:
+        status = getattr(interaction, 'status', None)
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            f'Gemini Omni model {model!r} did not return a video (status={status!r}).',
+            provider='gemini',
+        )
+    return _write_video(video_bytes)
+
+
 @pxt.udf(is_deterministic=False)
 async def generate_videos(
     prompt: str | None = None, image: PIL.Image.Image | None = None, *, model: str, config: dict | None = None
 ) -> pxt.Video:
     """
-    Generates videos based on a text description and configuration. For additional details, see:
+    Generates a video from a text prompt and optional images. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/video>
 
-    At least one of `prompt` or `image` must be provided. When `image` is a single image, it is used as the first
-    frame of the generated video. When `image` is a list of images, they are used as reference images to guide the
-    style or asset appearance throughout the video (Veo 3.1+). See the overloaded signature for details.
+    Models whose names start with `gemini-omni` (for example, `gemini-omni-1.1-flash`) use the Interactions API
+    (<https://ai.google.dev/gemini-api/docs/omni>). Other models, including Veo models on Vertex AI, use the
+    long-running video generation API.
+
+    At least one of `prompt` or `image` must be provided. For an Omni model, one image is an image input, and a list of
+    images (see the overloaded signature) are reference inputs. For any other model, one image is the first frame of
+    the generated video, and a list of images are reference images.
 
     Request throttling:
-    Applies the rate limit set in the config (section `veo.rate_limits`; use the model id as the key). If no rate
+    Applies the rate limit set in the config (section `gemini.rate_limits`; use the model id as the key). If no rate
     limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
@@ -409,33 +628,45 @@ async def generate_videos(
     - `pip install google-genai`
 
     Args:
-        prompt: A text description of the videos to generate.
-        image: A single image to use as the first frame of the video, or as `images` a list of up to 3 reference images
-            for Veo 3.1 (see overloaded signature).
+        prompt: A text description of the video to generate.
+        image: For an Omni model, an image input. For any other model, the first frame of the video. As `images`, a
+            list of up to 3 reference images (see the overloaded signature).
         model: The model to use.
-        config: Configuration for generation, corresponding to keyword arguments of
-            `genai.types.GenerateVideosConfig`. For details on the parameters, see:
+        config: For an Omni model, `aspect_ratio` (`'16:9'` or `'9:16'`), `resolution` (`'360p'`, `'720p'`,
+            `'1080p'`, or `'4k'`), `duration` (a whole number of seconds from 3 to 10, or a string such as `'8s'`),
+            and `delivery` (`'inline'` or `'uri'`). `duration_seconds` is accepted as an alias of `duration`.
+            Delivery defaults to `'uri'`. For any other model, keyword arguments of
+            `genai.types.GenerateVideosConfig`. For details on those parameters, see:
             <https://googleapis.github.io/python-genai/genai.html#genai.types.GenerateVideosConfig>
 
     Returns:
         The generated video.
 
     Examples:
-        Add a computed column that applies the model `veo-3.0-generate-001`
+        Add a computed column that applies the model `gemini-omni-1.1-flash`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> tbl.add_computed_column(
-        ...     response=generate_videos(tbl.prompt, model='veo-3.0-generate-001')
+        ...     response=generate_videos(tbl.prompt, model='gemini-omni-1.1-flash')
         ... )
 
-        Use reference images with Veo 3.1 to guide video generation:
+        Set the aspect ratio and resolution:
+
+        >>> tbl.add_computed_column(
+        ...     response=generate_videos(
+        ...         tbl.prompt,
+        ...         model='gemini-omni-1.1-flash',
+        ...         config={'aspect_ratio': '9:16', 'resolution': '1080p'},
+        ...     )
+        ... )
+
+        Use reference images to guide generation:
 
         >>> tbl.add_computed_column(
         ...     response=generate_videos(
         ...         tbl.prompt,
         ...         images=[tbl.ref_img1, tbl.ref_img2],
-        ...         reference_types=['asset', 'asset'],
-        ...         model='veo-3.1-generate-preview',
+        ...         model='gemini-omni-1.1-flash',
         ...     )
         ... )
     """
@@ -449,6 +680,10 @@ async def generate_videos(
         raise excs.RequestError(
             excs.ErrorCode.MISSING_REQUIRED, 'At least one of `prompt` or `image` must be provided.'
         )
+
+    if _is_omni_video_model(model):
+        images = [] if image is None else [image]
+        return await _generate_omni_videos(model, prompt, images, config)
 
     image_: types.Image | None = _pil_to_gemini_image(image) if image is not None else None
     config_ = types.GenerateVideosConfig(**config) if config else None
@@ -465,16 +700,16 @@ async def _(
     config: dict | None = None,
     reference_types: list[Literal['style', 'asset']] | None = None,
 ) -> pxt.Video:
-    """Overload that accepts a list of reference images for Veo 3.1+.
+    """Overload that accepts a list of reference images.
 
     Args:
-        prompt: A text description of the videos to generate.
-        images: A list of up to 3 reference images to guide style or asset appearance.
+        prompt: A text description of the video to generate.
+        images: A list of up to 3 reference images.
         model: The model to use.
-        config: Configuration for generation.
-        reference_types: A list of reference types corresponding to each image. Each must be one of
+        config: Configuration for generation. See `generate_videos`.
+        reference_types: For Veo models, a list of reference types corresponding to each image. Each must be one of
             `'style'` or `'asset'`. `'style'` is only supported on Vertex AI. If not provided, defaults to
-            `'asset'` for all images.
+            `'asset'` for all images. Gemini Omni models do not use this argument; the images are reference inputs.
     """
     env.Env.get().require_package('google.genai')
     from google.genai import types
@@ -502,6 +737,9 @@ async def _(
             excs.ErrorCode.INVALID_ARGUMENT,
             f'`reference_types` length ({len(reference_types)}) must match `images` length ({len(images)}).',
         )
+
+    if _is_omni_video_model(model):
+        return await _generate_omni_videos(model, prompt, images, config)
 
     reference_images = [
         types.VideoGenerationReferenceImage(image=_pil_to_gemini_image(img), reference_type=ref_type)

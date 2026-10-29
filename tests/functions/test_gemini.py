@@ -1,3 +1,4 @@
+import base64
 import logging
 import random
 import time
@@ -120,6 +121,218 @@ class TestGeminiLocal:
         )
         monkeypatch.setattr(gemini, '_genai_client', lambda: client)
         return response
+
+    def _install_video_client(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        interaction: object | None = None,
+        file_states: list[object] | None = None,
+        download_bytes: bytes = b'',
+        veo_operation: object | None = None,
+    ) -> SimpleNamespace:
+        """Points Gemini video calls at a fake client. `veo_operation` is what the Veo long-running API returns."""
+        from pixeltable.functions import gemini
+
+        if veo_operation is None:
+            generate_videos = AsyncMock(side_effect=AssertionError('long-running generate_videos was called'))
+        else:
+            generate_videos = AsyncMock(return_value=veo_operation)
+        client = SimpleNamespace(
+            aio=SimpleNamespace(
+                interactions=SimpleNamespace(create=AsyncMock(return_value=interaction)),
+                files=SimpleNamespace(
+                    get=AsyncMock(side_effect=[SimpleNamespace(state=state) for state in file_states or []]),
+                    download=AsyncMock(return_value=download_bytes),
+                ),
+                models=SimpleNamespace(generate_videos=generate_videos),
+                operations=SimpleNamespace(get=AsyncMock()),
+            )
+        )
+        monkeypatch.setattr(gemini, '_genai_client', lambda: client)
+        return client
+
+    @pytest.mark.parametrize('payload', ['data', 'uri'])
+    def test_generate_videos_omni(self, payload: str, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A text prompt returns a video file from inline base64 or from a file URI."""
+        skip_test_if_not_installed('google.genai')
+        from pixeltable.functions import gemini
+
+        video_bytes = b'omni-video-' + payload.encode()
+        if payload == 'data':
+            output_video = SimpleNamespace(data=base64.b64encode(video_bytes).decode('ascii'), uri=None)
+            file_states: list[object] | None = None
+        else:
+            output_video = SimpleNamespace(
+                data=None, uri='https://generativelanguage.googleapis.com/v1beta/files/abc-123:download?alt=media'
+            )
+            from google.genai import types
+
+            file_states = [types.FileState.PROCESSING, types.FileState.ACTIVE]
+        client = self._install_video_client(
+            monkeypatch,
+            interaction=SimpleNamespace(output_video=output_video, status='completed'),
+            file_states=file_states,
+            download_bytes=video_bytes,
+        )
+
+        result = get_runtime().run_coro(
+            gemini.generate_videos.py_fns[0](
+                'a marble rolling on a track',
+                None,
+                model='gemini-omni-1.1-flash',
+                config={'aspect_ratio': '9:16', 'resolution': '1080p', 'duration_seconds': 4},
+            )
+        )
+
+        assert Path(result).read_bytes() == video_bytes
+        create = client.aio.interactions.create
+        assert create.await_args.kwargs == {
+            'model': 'gemini-omni-1.1-flash',
+            'input': 'a marble rolling on a track',
+            'response_format': {
+                'type': 'video',
+                'aspect_ratio': '9:16',
+                'resolution': '1080p',
+                'duration': '4s',
+                'delivery': 'uri',
+            },
+            'timeout': 300,
+        }
+        assert client.aio.models.generate_videos.await_count == 0
+        if payload == 'data':
+            assert client.aio.files.download.await_count == 0
+        else:
+            assert client.aio.files.get.await_count == 2
+            assert client.aio.files.get.await_args.kwargs['name'] == 'files/abc-123'
+            assert client.aio.files.download.await_args.kwargs['file'] == 'files/abc-123'
+
+    def test_generate_videos_omni_image(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A prompt plus an image, and an image alone, are sent as Interactions image inputs."""
+        skip_test_if_not_installed('google.genai')
+        import io
+
+        from pixeltable.functions import gemini
+
+        video_bytes = b'omni-from-image'
+        image = PIL.Image.new('RGB', (8, 8), color='red')
+        client = self._install_video_client(
+            monkeypatch,
+            interaction=SimpleNamespace(
+                output_video=SimpleNamespace(data=base64.b64encode(video_bytes).decode('ascii'), uri=None),
+                status='completed',
+            ),
+        )
+        text_and_image = get_runtime().run_coro(
+            gemini.generate_videos.py_fns[0](
+                'bring this drawing to life',
+                image,
+                model='gemini-omni-1.1-flash',
+                config={'aspect_ratio': '16:9', 'resolution': '720p', 'duration': '8s', 'delivery': 'inline'},
+            )
+        )
+        create = client.aio.interactions.create
+        request = create.await_args.kwargs
+        assert Path(text_and_image).read_bytes() == video_bytes
+        assert request['response_format'] == {
+            'type': 'video',
+            'aspect_ratio': '16:9',
+            'resolution': '720p',
+            'duration': '8s',
+            'delivery': 'inline',
+        }
+        image_part, text_part = request['input']
+        assert image_part['type'] == 'image'
+        assert image_part['mime_type'] == 'image/webp'
+        assert text_part == {'type': 'text', 'text': 'bring this drawing to life'}
+        with PIL.Image.open(io.BytesIO(base64.b64decode(image_part['data']))) as decoded:
+            assert decoded.size == image.size
+
+        image_only = get_runtime().run_coro(
+            gemini.generate_videos.py_fns[0](None, image, model='gemini-omni-1.1-flash')
+        )
+        assert Path(image_only).read_bytes() == video_bytes
+        image_input = create.await_args.kwargs['input']
+        assert len(image_input) == 1
+        assert image_input[0]['type'] == 'image'
+
+    def test_generate_videos_omni_reference_images(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('google.genai')
+        from pixeltable.functions import gemini
+
+        video_bytes = b'omni-from-references'
+        images = [PIL.Image.new('RGB', (4, 4), color='blue'), PIL.Image.new('RGB', (4, 4), color='green')]
+        client = self._install_video_client(
+            monkeypatch,
+            interaction=SimpleNamespace(
+                output_video=SimpleNamespace(data=base64.b64encode(video_bytes).decode('ascii'), uri=None),
+                status='completed',
+            ),
+        )
+        result = get_runtime().run_coro(
+            gemini.generate_videos.py_fns[1](
+                'the subject from the first image walks past the object in the second',
+                images,
+                model='gemini-omni-1.1-flash',
+                reference_types=['asset', 'asset'],
+            )
+        )
+        assert Path(result).read_bytes() == video_bytes
+        request = client.aio.interactions.create.await_args.kwargs
+        assert [part['type'] for part in request['input']] == ['image', 'image', 'text']
+        assert 'reference_types' not in request
+
+    def test_generate_videos_omni_errors(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('google.genai')
+        from google.genai import types
+
+        from pixeltable.functions import gemini
+
+        generate = gemini.generate_videos.py_fns[0]
+        self._install_video_client(monkeypatch)
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='person_generation'):
+            get_runtime().run_coro(
+                generate('a cat', None, model='gemini-omni-1.1-flash', config={'person_generation': 'allow_all'})
+            )
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='duration'):
+            get_runtime().run_coro(generate('a cat', None, model='gemini-omni-1.1-flash', config={'duration': 2}))
+
+        uri = 'https://generativelanguage.googleapis.com/v1beta/files/missing1'
+        self._install_video_client(monkeypatch, interaction=SimpleNamespace(output_video=None, status='failed'))
+        with pxt_raises(pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, match='did not return a video'):
+            get_runtime().run_coro(generate('a cat', None, model='gemini-omni-1.1-flash'))
+
+        self._install_video_client(
+            monkeypatch,
+            interaction=SimpleNamespace(output_video=SimpleNamespace(data=None, uri=uri), status='completed'),
+            file_states=[types.FileState.FAILED],
+        )
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='failed processing'):
+            get_runtime().run_coro(generate('a cat', None, model='gemini-omni-1.1-flash'))
+
+    def test_generate_videos_veo_uses_long_running_api(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Veo model ids stay on generate_videos, which is the Vertex path."""
+        skip_test_if_not_installed('google.genai')
+        from pixeltable.functions import gemini
+
+        video = SimpleNamespace()
+        operation = SimpleNamespace(
+            done=True, error=None, response=SimpleNamespace(generated_videos=[SimpleNamespace(video=video)])
+        )
+        client = self._install_video_client(monkeypatch, veo_operation=operation, download_bytes=b'veo-video')
+        result = get_runtime().run_coro(
+            gemini.generate_videos.py_fns[0](
+                'a cat', None, model='veo-3.1-generate-001', config={'aspect_ratio': '16:9', 'duration_seconds': 8}
+            )
+        )
+        assert Path(result).read_bytes() == b'veo-video'
+        request = client.aio.models.generate_videos.await_args.kwargs
+        assert request['model'] == 'veo-3.1-generate-001'
+        assert request['source'].prompt == 'a cat'
+        assert request['config'].aspect_ratio == '16:9'
+        assert request['config'].duration_seconds == 8
+        assert client.aio.interactions.create.await_count == 0
+        assert client.aio.files.download.await_args.kwargs['file'] is video
 
 
 @pytest.mark.remote_api
@@ -292,7 +505,6 @@ class TestGemini:
         assert results['output'][0].size == (1024, 1024)
         assert results['output2'][0].size == (1280, 896)
 
-    @pytest.mark.skip(reason="Veo models are shut down; generate_videos() doesn't support Gemini Omni yet")
     @rerun_on_network_error(reruns_delay=30)
     def test_generate_videos(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
@@ -305,7 +517,10 @@ class TestGemini:
         )
         t.add_computed_column(
             output=generate_videos(
-                t.prompt, t.image, model='veo-3.1-fast-generate-preview', config={'duration_seconds': duration}
+                t.prompt,
+                t.image,
+                model='gemini-omni-1.1-flash',
+                config={'aspect_ratio': '16:9', 'resolution': '720p', 'duration': f'{duration}s'},
             )
         )
         prompts = [
@@ -336,7 +551,6 @@ class TestGemini:
             assert video_stream['duration_seconds'] == duration, metadata
             assert audio_stream['duration_seconds'] == duration, metadata
 
-    @pytest.mark.skip(reason="Veo models are shut down; generate_videos() doesn't support Gemini Omni yet")
     @rerun_on_network_error(reruns_delay=30)
     def test_generate_videos_reference_images(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
@@ -351,8 +565,8 @@ class TestGemini:
                 t.prompt,
                 images=[t.ref1, t.ref2],
                 reference_types=['asset', 'asset'],
-                model='veo-3.1-generate-preview',
-                config={'duration_seconds': 8},
+                model='gemini-omni-1.1-flash',
+                config={'duration': '4s'},
             )
         )
         validate_update_status(
