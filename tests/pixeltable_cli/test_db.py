@@ -246,7 +246,7 @@ class TestCloudDb:
         # taking capacity away is destructive, so it needs the flag that permits it
         create_project_config(cli, project, test_db_uri, memory_mb=running_on)
         refused = cli('db', 'update', test_db_uri, '-f', cwd=project, check=False, timeout=APPLY_TIMEOUT)
-        assert refused.returncode == EXIT_ERROR
+        assert refused.returncode == EXIT_REFUSED
         assert '--allow-destructive' in refused.stderr, refused.stderr
         assert [
             op['status']

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, Self, TypeVa
 from pixeltable import exceptions as excs, exprs, type_system as ts
 from pixeltable.catalog.globals import _POS_COLUMN_NAME, fold_identifier, fold_mapping_keys
 from pixeltable.exprs.expr import ValidationError
-from pixeltable.func.globals import resolve_symbol
+from pixeltable.func.globals import import_error_msg, resolve_symbol
 
 from .signature import Signature
 
@@ -300,6 +300,17 @@ class GeneratingFunction:
 
         return GeneratingFunctionCall(self, args, kwargs, bound_args, outputs, validation_error=None)
 
+    def create_iter(self, **kwargs: Any) -> PxtIterator[dict]:
+        """Validate kwargs and instantiate the iterator with them."""
+        kwargs_with_defaults = kwargs.copy()
+        for param_name, param in self.py_sig.parameters.items():
+            if param_name not in kwargs and param.default is not inspect.Parameter.empty:
+                kwargs_with_defaults[param_name] = param.default
+        if self._validate is not None:
+            self._validate(kwargs_with_defaults)
+
+        return self.decorated_callable(**kwargs)
+
     @classmethod
     def _retrofit(cls, iterator_cls: type['ComponentIterator']) -> 'GeneratingFunction':
         it = GeneratingFunction.__new__(GeneratingFunction)
@@ -366,9 +377,14 @@ class GeneratingFunction:
                 d,
                 f'the symbol `{fqn}` is no longer a Pixeltable iterator. (Was the `@pxt.iterator` decorator removed?)',
             )
-        except (AttributeError, ImportError):
+        except AttributeError:
             return InvalidGeneratingFunction(
                 fqn, d, f'the symbol `{fqn}` no longer exists. (Was the iterator moved or renamed?)'
+            )
+        except ImportError as e:
+            # the module is still there but cannot be imported; the error text identifies the missing dependency
+            return InvalidGeneratingFunction(
+                fqn, d, f'a module required by `{fqn}` could not be imported: {import_error_msg(e)}'
             )
 
 
@@ -387,7 +403,7 @@ class InvalidGeneratingFunction(GeneratingFunction):
             excs.ErrorCode.INVALID_CONFIGURATION, f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}'
         )
 
-    def eval(self, bound_args: dict[str, Any]) -> PxtIterator[dict]:
+    def create_iter(self, **kwargs: Any) -> PxtIterator[dict]:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION, f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}'
         )
@@ -419,7 +435,8 @@ class IteratorValidationError(ValidationError):
     def protocol_error_msg(self) -> str:
         return (
             f'The request references the iterator `{self.iterator_fqn}`, '
-            'but that iterator is not defined in the remote database.'
+            'but that iterator is not defined in the remote database.\n'
+            f'Reported error: {self.error_msg}'
         )
 
 
@@ -494,16 +511,7 @@ class GeneratingFunctionCall:
 
     def eval(self, bound_args: dict[str, Any]) -> PxtIterator[dict]:
         assert self.is_valid
-
-        # Run custom iterator validation on fully bound args
-        bound_args_with_defaults = bound_args.copy()
-        for param_name, param in self.it.py_sig.parameters.items():
-            if param_name not in bound_args and param.default is not inspect.Parameter.empty:
-                bound_args_with_defaults[param_name] = param.default
-        if self.it._validate is not None:
-            self.it._validate(bound_args_with_defaults)
-
-        return self.it.decorated_callable(**bound_args)
+        return self.it.create_iter(**bound_args)
 
     def as_dict(self) -> dict[str, Any]:
         return {
