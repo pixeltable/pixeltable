@@ -32,13 +32,13 @@ This document locks decisions relative to the pre–[#1494](https://github.com/p
 
 | Topic | Decision |
 |-------|----------|
-| KindBadge (T/V/S/R) | **Drop.** Do not combine with Lucide icons. Colored Lucide table / view / snapshot / replica icons **substitute** KindBadge as the primary kind language. |
+| KindBadge (T/V/S) | **Drop.** Do not combine with Lucide icons. Colored Lucide table / view / snapshot icons **substitute** KindBadge as the primary kind language. |
 | Sidebar `vN` | **Keep when version exists** (`version !== null`). Show `v{n}` on the right; omit when null. |
 | Catalog add / switch | Sticky switcher; one active catalog’s tree in the scroll area. |
 | Computed / iterator markers | Yellow Zap or colored `SquareFunction` in **schema** (and lineage) where kind icons do not apply — **not** KindBadge letters. Do **not** repeat these icons on data-grid column headers. |
 | Main-content type color | **Media only** (Image / Video / Audio / Document). Light `-700`/`-800` + dark `-400` for WCAG AA on tinted pills; scalars are quiet bordered pills. Collapsed COLUMNS chips reuse the same media cue. |
 | App utilities | Docs / Feedback / theme live in the **sidebar footer** above Collapse — no main-panel top utility bar. Hairline (`border-t`) separates footer from the catalog tree. |
-| Object header kind | Lucide + quiet kind word (`Table` / `View` / `Snapshot` / `Replica`) — not KindBadge letters. Same in lineage DetailPanel. |
+| Object header kind | Lucide + quiet kind word (`Table` / `View` / `Snapshot`) — not KindBadge letters. Same in lineage DetailPanel. |
 | Object header meta | Kind + name + path + **row count** only. Column breakdown stays under COLUMNS; schema/data freshness lives in **History**. |
 | COLUMNS collapse | Chevron toggles expanded schema table ↔ chip summary; panel height fits that content (never a clipped 5% strip). Table switch preserves expand/collapse and always content-fits (ignore stale drag/`autoSaveId`). |
 | Computed With modal | Pretty-printed expression + Raw toggle; Copy keeps the original string. Schema cell stays a compact one-liner. |
@@ -47,7 +47,7 @@ This document locks decisions relative to the pre–[#1494](https://github.com/p
 
 ## Visual principles
 
-1. **Color carries kind** — table, view, snapshot, replica, and folder are distinguishable without reading labels.
+1. **Color carries kind** — table, view, snapshot, and folder are distinguishable without reading labels.
 2. **Yellow = Pixeltable accent** — folders, primary CTAs, computed emphasis. Do not strip to gray “for cleanliness.”
 3. **Status is green when healthy** — connection dot stays emerald (or equivalent), not muted gray.
 4. **Density over decoration** — show `vN` when a version exists; keep error marks; avoid chip piles and dual kind cues (no icon + KindBadge).
@@ -80,7 +80,6 @@ Main content has no top utility bar; table/schema/data share one `card` surface.
 | Table | Blue table icon (left) |
 | View | Purple eye icon (left) |
 | Snapshot | Orange camera icon (left) |
-| Replica | Muted copy icon (left) |
 | Version | `v{n}` flush right when `version !== null` |
 | Errors | Warning mark when `error_count > 0` |
 

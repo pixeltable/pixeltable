@@ -34,8 +34,6 @@ function KindIcon({ kind, className = 'h-4 w-4' }: { kind: string; className?: s
       return <Eye className={`${className} text-purple-400 shrink-0`} />
     case 'snapshot':
       return <Camera className={`${className} text-orange-400 shrink-0`} />
-    case 'replica':
-      return <Copy className={`${className} text-muted-foreground shrink-0`} />
     default:
       return <Table2 className={`${className} text-blue-400 shrink-0`} />
   }
@@ -47,8 +45,6 @@ function kindWord(kind: string): string {
       return 'View'
     case 'snapshot':
       return 'Snapshot'
-    case 'replica':
-      return 'Replica'
     default:
       return 'Table'
   }
