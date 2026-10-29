@@ -104,7 +104,7 @@ After `pxt login`, create a key from the CLI:
 pxt key create my-app
 ```
 
-The CLI prints the secret once. `pxt key list` shows key names, and cannot show their secrets again. A key created without `--grant` acts as you. [Scoped service keys](/platform/cli#pxt-key) are in preview. You can also create a key under **API Keys** in the [Cloud dashboard](https://www.pixeltable.com/dashboard).
+The CLI prints the secret once. `pxt key list` shows key names, and cannot show their secrets again. A key created without `--grant` acts as you. Keys with `--grant` belong to the organization; see [Scoped service keys](/platform/cli#pxt-key). You can also create a key under **API Keys** in the [Cloud dashboard](https://www.pixeltable.com/dashboard).
 
 ### Call the hosted service
 
@@ -135,6 +135,8 @@ pxt service restart pxt://org:main/ingest
 
 The restarts let running table and service processes read the new value. You can also set secrets in the [Cloud dashboard](https://www.pixeltable.com/dashboard). [CLI secret commands](/platform/cli#pxt-secret).
 
+The secret supplies the key, not the package. For OpenAI, add `openai` to `requirements.txt` (with a `uv.lock`, run `uv add openai`), then run `pxt db update pxt://org:main` and `pxt service update app.py pxt://org:main`. A running service keeps its old image until `pxt service update` moves it.
+
 ## What the database runs
 
 A hosted database runs three things that come from your project, and they move independently.
@@ -158,7 +160,7 @@ The image gets its packages from `uv.lock` or `requirements.txt`. Without either
 |---|---|
 | A UDF body, a route, any `.py` the entry selects | `pxt db update pxt://org:main`, then `pxt service update app.py pxt://org:main` to move running services onto it |
 | A column or a table in `app.py` | `pxt db update pxt://org:main`, then `pxt schema update app.py pxt://org:main`, then `pxt service update app.py pxt://org:main` |
-| A dependency, the Python version, a system package | `pxt db update pxt://org:main`: the image rebuilds |
+| A dependency, the Python version, a system package | `pxt db update pxt://org:main`, then `pxt service update app.py pxt://org:main`: the image rebuilds |
 | A setting in `pixeltable.toml` | `pxt db update pxt://org:main`, then `pxt service update app.py pxt://org:main` |
 | `cpu`, `memory_mb`, `disk_gb`, or `workers` | `pxt db update pxt://org:main`: one resize, pods restart once |
 | A service's `cpu`, `memory_mb`, `file_cache_gb`, or `workers` | `pxt service update app.py pxt://org:main`: a `workers` change adds or removes pods, any other change restarts them |

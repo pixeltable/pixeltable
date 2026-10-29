@@ -210,7 +210,7 @@ A Pixeltable insert with `method='update'` is allowed: append-only here, current
 
 `export_sql=` cannot combine with `return_fileresponse=True`. It works with `background=True` (the SQL write runs in the worker).
 
-[`SqlExport`](https://docs.pixeltable.com/sdk/latest/pixeltable/serving/SqlExport)
+[`SqlExport`](/sdk/latest/sqlexport)
 
 <Warning>
 A connection string with an embedded password is plaintext in the application file. Pull credentials from the environment, a `.pgpass`-style file, or `pxt secret set`.
@@ -322,6 +322,10 @@ After `.collect()`, use `to_pydantic()`. After `return_rows=True`, use `model_va
 }
 ```
 
+Each router accepts at most 64 unfinished background jobs per service instance, running jobs included. Past
+that, or while a hosted instance is stopping, a submit answers 503 with `Retry-After` and the error code `JOB_REFUSED`.
+The request does not run, and the [same retry rule](#call-from-a-typescript-app-server) applies.
+
 Poll `job_url`:
 
 ```bash
@@ -350,7 +354,7 @@ does:
 | 200 `done` or `error` | the job finished; the result is kept 10 minutes, or 1 minute after the first poll that returns it |
 | 404 | the id is unknown, or the result has expired |
 | 410 | the service instance that ran the job stopped (a restart, a redeploy or a crash); the job may not have finished, or may have finished without a poll returning its result, so resubmitting an insert, update or delete can repeat a write |
-| 503 with `Retry-After` | the instance is at its limit of unfinished jobs or is shutting down, or the instance that runs the job did not answer; retry after the interval |
+| 503 with `Retry-After` | the instance that runs the job did not answer; poll again after the interval |
 
 When a hosted service redeploys or scales down, a stopping instance first finishes its running jobs, for up to
 about 5 minutes. It keeps each finished result until a poll returns it, or for 30 seconds after the job finished.
