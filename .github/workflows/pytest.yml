@@ -286,8 +286,8 @@ jobs:
       - name: Validate docstrings
         if: ${{ matrix.test-category == 'lint' }}
         run: |
-          # Install quarto and mintlify in order to build the docs
-          conda install -y -c conda-forge quarto nodejs
+          # Install quarto and mintlify in order to build the docs; mint doesn't run on Node.js 25 or later
+          conda install -y -c conda-forge quarto 'nodejs<25'
           npm install -g mint@$MINTLIFY_VERSION
           python -m pixeltable_doctools.build --no-changelog
           cd target/docs && mint broken-links
