@@ -170,7 +170,7 @@ def col_type_from_spec(column_spec: ColumnSpec) -> ts.ColumnType:
         return ts.ColumnType.normalize_type(column_spec['type'], allow_builtin_types=False)
     assert 'value' in column_spec
     # as in Column, a column's type is open
-    return column_spec['value'].col_type.opened()
+    return column_spec['value'].col_type.with_open_dicts()
 
 
 def normalize_schema(schema: Mapping[str, TypeForm | ColumnSpec | exprs.Expr]) -> dict[str, ColumnSpec]:

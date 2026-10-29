@@ -127,7 +127,7 @@ class Column:
             self.col_type = col_type
         assert self.col_type is not None
         # a column's type is open, though the type of its value expression may contain closed schemas from literals
-        self.col_type = self.col_type.opened()
+        self.col_type = self.col_type.with_open_dicts()
 
         self.stored = stored
         self.id = col_id

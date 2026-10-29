@@ -111,11 +111,11 @@ class ColumnType:
         else:
             return self.__class__(nullable=nullable)  # type: ignore[call-arg]
 
-    def opened(self) -> ColumnType:
+    def with_open_dicts(self) -> ColumnType:
         """Returns this type with every dict schema in it open."""
         return self._with_dicts_closed(False)
 
-    def closed(self) -> ColumnType:
+    def with_closed_dicts(self) -> ColumnType:
         """Returns this type with every dict schema in it closed."""
         return self._with_dicts_closed(True)
 

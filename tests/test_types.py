@@ -566,9 +566,9 @@ class TestTypes:
         assert isinstance(lit, exprs.Literal) and isinstance(lit.col_type, JsonType)
         closed_repr = "Json[{'a': Int, 'b': Json[(Json[{'c': String}, closed=True], Int)]}, closed=True]"
         assert repr(lit.col_type) == closed_repr
-        assert repr(lit.col_type.opened()) == "Json[{'a': Int, 'b': Json[(Json[{'c': String}], Int)]}]"
+        assert repr(lit.col_type.with_open_dicts()) == "Json[{'a': Int, 'b': Json[(Json[{'c': String}], Int)]}]"
 
-        # a literal stores its type opened, and infers it again when loaded
+        # a literal stores its type with open dicts, and infers it again when loaded
         d = lit.as_dict()
         assert 'closed' not in json.dumps(d)
         assert repr(exprs.Expr.from_dict(d).col_type) == closed_repr

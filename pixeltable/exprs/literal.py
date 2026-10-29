@@ -103,9 +103,9 @@ class Literal(Expr):
             encoded_val = self.val.tolist()
         else:
             encoded_val = self.val
-        # The type is stored opened, as before closed schemas existed, so that the stored form of a literal doesn't
-        # change (TableModel compares stored value expressions); _from_dict() infers it again from the value.
-        d = {'val': encoded_val, 'col_type': self.col_type.opened().as_dict(), **super()._as_dict()}
+        # The type is stored with open dicts, as before closed schemas existed, so a literal's stored form is unchanged
+        # (TableModel compares stored value expressions); _from_dict() infers the type again from the value.
+        d = {'val': encoded_val, 'col_type': self.col_type.with_open_dicts().as_dict(), **super()._as_dict()}
         if self.col_type.is_json_type():
             # Postgres JSONB does not preserve dict key order
             key_orders = _dict_key_orders(self.val)

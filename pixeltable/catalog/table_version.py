@@ -1158,7 +1158,7 @@ class TableVersion:
     def _validate_altered_value_expr(self, col: Column, new_value_expr: exprs.Expr) -> None:
         """Verify that new_value_expr can replace col's current value expression."""
         assert col.is_computed
-        if new_value_expr.col_type.opened() != col.col_type:
+        if new_value_expr.col_type.with_open_dicts() != col.col_type:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Column {col.name!r}: the new value expression has type `{new_value_expr.col_type}`, but the '
@@ -1550,7 +1550,7 @@ class TableVersion:
                 )
 
             # make sure that the value is compatible with the column type, whose dict schemas are closed on update
-            closed_type = col.col_type.closed()
+            closed_type = col.col_type.with_closed_dicts()
             value_expr: exprs.Expr
             try:
                 # check if this is a literal
@@ -1570,7 +1570,7 @@ class TableVersion:
                         f'Column {col_name!r}: value is not a recognized literal or expression: {val!r}',
                     ) from exc
                 # expression values aren't validated, so every key of the expression's type must be in the column type
-                if not closed_type.is_supertype_of(value_expr.col_type.closed(), ignore_nullable=True):
+                if not closed_type.is_supertype_of(value_expr.col_type.with_closed_dicts(), ignore_nullable=True):
                     raise excs.RequestError(
                         excs.ErrorCode.TYPE_MISMATCH,
                         f'The literal value {val!r} is not compatible with the type '
