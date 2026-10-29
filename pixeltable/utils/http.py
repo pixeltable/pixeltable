@@ -121,8 +121,12 @@ def is_retryable_error(exc: Exception) -> tuple[bool, float | None]:
         return False, None
 
     err_md = _extract_error_metadata(exc)
-    if err_md is None and hasattr(exc, 'response'):
-        err_md = _extract_error_metadata(exc.response)
+    # The status may be on the exception and the retry header on its response.
+    # A response that says nothing does not clear a final status, so the message is not consulted.
+    if (err_md is None or not err_md[0]) and hasattr(exc, 'response'):
+        response_md = _extract_error_metadata(exc.response)
+        if response_md is not None and (err_md is None or response_md[0]):
+            err_md = response_md
     if err_md is not None:
         is_retryable, retry_delay = err_md
         if is_retryable and isinstance(exc, Error) and exc.retry_after is not None and exc.retry_after >= 0:
@@ -162,7 +166,7 @@ def _coerce_http_status(value: Any) -> int | None:
 def _extract_error_metadata(obj: Any) -> tuple[bool, float | None] | None:
     """`(retryable, delay)` from an HTTP status or a retry header, or None when this object says neither.
 
-    A non-retryable status wins over a retry header.
+    A retry header makes a 5xx retryable. Any other status outside the retryable set is final.
     """
     status: int | None = None
     for attr in ('status', 'code', 'status_code', 'provider_http_status_code'):
@@ -173,7 +177,9 @@ def _extract_error_metadata(obj: Any) -> tuple[bool, float | None] | None:
 
     retry_delay = _extract_retry_delay_from_headers(obj.headers) if hasattr(obj, 'headers') else None
     if status is not None:
-        if status in _RETRIABLE_HTTP_STATUSES.values():
+        if status in _RETRIABLE_HTTP_STATUSES.values() or (
+            status >= HTTPStatus.INTERNAL_SERVER_ERROR and retry_delay is not None
+        ):
             return True, retry_delay
         return False, None
     if retry_delay is not None:

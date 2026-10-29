@@ -102,6 +102,16 @@ class TestHttpUtils:
         exc.response = types.SimpleNamespace(status=404, headers={'Retry-After': '8'})
         assert is_retryable_error(exc) == (False, None)
 
+        exc = DummyError('asset ee429ff was not found')
+        exc.status_code = 404
+        exc.response = types.SimpleNamespace(status_code=404, headers={'Retry-After': '8'})
+        assert is_retryable_error(exc) == (False, None)
+
+        exc = DummyError('gateway timed out')
+        exc.status_code = 529
+        exc.response = types.SimpleNamespace(status_code=529, headers={'x-should-retry': 'true'})
+        assert is_retryable_error(exc) == (False, None)
+
     def test_retriable_errors(self) -> None:
         exc = DummyError('dummy')
         exc.status = 429
@@ -114,6 +124,11 @@ class TestHttpUtils:
         assert is_retryable_error(exc) == (True, None)
         exc.headers = {'retryafter': '4', 'Some-Other-Header': 'value'}
         assert is_retryable_error(exc) == (True, 4)
+
+        exc = DummyError('overloaded')
+        exc.status_code = 500
+        exc.headers = {'Retry-After': '3'}
+        assert is_retryable_error(exc) == (True, 3)
 
         exc = DummyError('dummy')
         exc.code = 'too_many_requests'
@@ -138,6 +153,12 @@ class TestHttpUtils:
         exc.response.headers = {'Retry-After': '3'}
         assert is_retryable_error(exc) == (True, 3)
 
+        # status_code on the exception, Retry-After on the response: an Anthropic 529.
+        exc = DummyError('overloaded')
+        exc.status_code = 529
+        exc.response = types.SimpleNamespace(status_code=529, headers={'retry-after': '8', 'x-should-retry': 'true'})
+        assert is_retryable_error(exc) == (True, 8)
+
     def test_retriable_errors_based_on_msg(self) -> None:
         exc = DummyError('blah-blah-blah too many requests blah-blah-blah')
         assert is_retryable_error(exc) == (True, None)
@@ -151,6 +172,7 @@ class TestHttpUtils:
         exc = DummyError('429, try again in 5 seconds')
         assert is_retryable_error(exc) == (True, 5)
 
+        # Known limit: with no HTTP status, the "429" inside this asset id matches the rate-limit token.
         assert is_retryable_error(DummyError('asset ee429ff was not found'))[0] is True
 
     def test_twelvelabs_exc(self) -> None:

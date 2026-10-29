@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock
 import numpy as np
 import PIL.Image
 import pytest
-from twelvelabs.errors import NotFoundError, TooManyRequestsError
 
 import pixeltable as pxt
 from pixeltable.functions.audio import audio_splitter
@@ -288,6 +287,8 @@ class TestTwelveLabsLocal:
     def test_rate_limited_retrieve_is_polled_again(
         self, mock_embeddings: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
+        from twelvelabs.errors import TooManyRequestsError
+
         from pixeltable.functions import twelvelabs
 
         _fast_polls(monkeypatch)
@@ -305,6 +306,8 @@ class TestTwelveLabsLocal:
     def test_missing_asset_is_not_polled_again(
         self, mock_embeddings: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
+        from twelvelabs.errors import NotFoundError
+
         from pixeltable.functions import twelvelabs
 
         _fast_polls(monkeypatch, timeout=0.5)
