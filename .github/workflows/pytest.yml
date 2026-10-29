@@ -231,7 +231,7 @@ jobs:
           cd dashboard && npm install --silent && npm run build
       - name: Size the test database server for the xdist workers
         if: ${{ matrix.test-category == 'py' }}
-        run: python tool/set_test_db_max_connections.py
+        run: python tool/set_test_db_max_connections.py ${{ matrix.xdist-workers }}
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         # A timeout so that a hung test doesn't keep merge queue for hours
