@@ -14,7 +14,7 @@ import logging
 import math
 import pathlib
 import re
-from typing import TYPE_CHECKING, Any, NotRequired, Type, TypedDict, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Type, TypedDict, TypeVar, cast
 
 import numpy as np
 import PIL
@@ -678,6 +678,25 @@ def _(messages: list, model: str, model_kwargs: dict[str, Any] | None = None) ->
     )
 
 
+def _serialize_input_images(input: list) -> list:
+    """Returns a copy of `input` in which each PIL image of an `input_image` part is replaced by a PNG data URL."""
+    input = copy.deepcopy(input)
+    for item in input:
+        if not isinstance(item, dict):
+            continue
+        for content in (item.get('content'), item.get('instructions'), item.get('output')):
+            if not isinstance(content, list):
+                continue
+            for part in content:
+                if (
+                    isinstance(part, dict)
+                    and part.get('type') == 'input_image'
+                    and isinstance(part.get('image_url'), PIL.Image.Image)
+                ):
+                    part['image_url'] = _image_data_url(part['image_url'])
+    return input
+
+
 @pxt.udf(is_deterministic=False)
 async def responses(
     input: list,
@@ -711,8 +730,8 @@ async def responses(
             (for structured outputs), `previous_response_id` (for multi-turn), and `store`.
 
     Returns:
-        A dictionary containing the response and other metadata. The response text is accessible via
-        the `output_text` field for simple cases, or through the `output` list for structured access.
+        A dictionary containing the response and other metadata. The response text is in the `output` list,
+        for a simple text reply at `output[0].content[0].text`.
 
     Examples:
         Add a computed column that applies the model `gpt-4o-mini` to an existing Pixeltable column `tbl.prompt`
@@ -763,18 +782,7 @@ async def responses(
     if tool_choice is not None and not tool_choice['parallel_tool_calls']:
         model_kwargs['parallel_tool_calls'] = False
 
-    # Serialize any images in input items (Responses API uses 'input_image' type)
-    input = copy.deepcopy(input)
-    for item in input:
-        content = item.get('content') if isinstance(item, dict) else None
-        if isinstance(content, list):
-            for part in content:
-                if (
-                    isinstance(part, dict)
-                    and part.get('type') == 'input_image'
-                    and isinstance(part.get('image_url'), PIL.Image.Image)
-                ):
-                    part['image_url'] = _image_data_url(part['image_url'])
+    input = _serialize_input_images(input)
 
     resource_pool = _rate_limits_pool(model)
     rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool, OpenAIRateLimitsInfo)
@@ -1367,6 +1375,185 @@ async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> M
     return cast(ModerationCreateResponse, result.model_dump(mode='json'))
 
 
+#####################################
+# Decisions Endpoints
+
+
+class DecisionProbability(TypedDict):
+    probability: float
+    value: pxt.Json
+    label: NotRequired[str]
+
+
+class DecisionAnswer(TypedDict):
+    type: Literal['predicate', 'choice', 'score', 'refusal']
+    name: NotRequired[str | None]
+    probability: NotRequired[float]
+    choice: NotRequired[pxt.Json]
+    score: NotRequired[float]
+    confidence: NotRequired[float]
+    probabilities: NotRequired[list[DecisionProbability]]
+
+
+class DecisionInputTokensDetails(TypedDict):
+    cache_write_tokens: int
+    cached_tokens: int
+
+
+class DecisionOutputTokensDetails(TypedDict):
+    reasoning_tokens: int
+
+
+class DecisionUsage(TypedDict):
+    input_tokens: int
+    input_tokens_details: DecisionInputTokensDetails
+    output_tokens: int
+    output_tokens_details: DecisionOutputTokensDetails
+    total_tokens: int
+
+
+class DecisionResponse(TypedDict):
+    answers: list[DecisionAnswer]
+    model: str
+    usage: DecisionUsage
+
+
+@pxt.udf(is_deterministic=False)
+async def decisions(
+    input: pxt.Json, *, questions: list, model: str, model_kwargs: dict[str, Any] | None = None
+) -> DecisionResponse:
+    """
+    Answers predicate, choice, and score questions about a shared input.
+
+    Equivalent to the OpenAI `decisions` API endpoint.
+    For additional details, see: <https://developers.openai.com/api/docs/guides/decisions>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `openai.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
+
+    __Requirements:__
+
+    - `pip install 'openai>=3.32'`
+
+    Args:
+        input: A text string, or a list of messages, function calls and outputs, or custom tool calls and outputs.
+            Message `content` and tool `output` lists can contain `input_text`, `input_image`, and `input_json`
+            parts. An `input_image` part's `image_url` can be an image column, a public HTTP(S) URL, or a base64
+            data URL.
+        questions: Between 1 and 400 questions, each with a `type` of `predicate`, `choice`, or `score`, an
+            `instructions` string or list of `input_text`, `input_image`, and `input_json` parts, and an optional
+            `name`. A `choice` question lists its `choices`, and a `score` question lists its `levels`.
+        model: The model to use.
+        model_kwargs: Additional keyword args for the OpenAI `decisions` API, such as `prompt_cache_key`,
+            `prompt_cache_options`, and `safety_identifier`. For details on the available parameters, see:
+            <https://developers.openai.com/api/reference/python/resources/decisions/methods/create>
+
+    Returns:
+        A dictionary with one answer per question, in question order, plus `model` and `usage`. A predicate answer
+        has a `probability`. A choice answer has a `choice`, and a score answer has a `score`; both have a
+        `confidence` and a list of `probabilities`. The model can decline a question; that answer has the `type`
+        `refusal` and no value, and the other questions still receive answers.
+
+    Examples:
+        Add a computed column that asks whether the text in an existing Pixeltable column `tbl.review` of the
+        table `tbl` is a complaint, then read the answer's probability:
+
+        >>> questions = [
+        ...     {
+        ...         'type': 'predicate',
+        ...         'name': 'complaint',
+        ...         'instructions': 'Is the review a complaint?',
+        ...     }
+        ... ]
+        >>> tbl.add_computed_column(
+        ...     decision=decisions(
+        ...         tbl.review, questions=questions, model='gpt-6-luna'
+        ...     )
+        ... )
+        >>> tbl.select(
+        ...     tbl.review, complaint=tbl.decision.answers[0].probability
+        ... ).collect()
+
+        Ask several questions in one request:
+
+        >>> questions = [
+        ...     {
+        ...         'type': 'choice',
+        ...         'name': 'topic',
+        ...         'instructions': 'What is the review about?',
+        ...         'choices': [
+        ...             {'value': 'shipping'},
+        ...             {'value': 'quality'},
+        ...             {'value': 'price'},
+        ...         ],
+        ...     },
+        ...     {
+        ...         'type': 'score',
+        ...         'name': 'sentiment',
+        ...         'instructions': 'How positive is the review?',
+        ...         'levels': [
+        ...             {'label': 'negative'},
+        ...             {'label': 'neutral'},
+        ...             {'label': 'positive'},
+        ...         ],
+        ...     },
+        ... ]
+        >>> tbl.add_computed_column(
+        ...     decision=decisions(
+        ...         tbl.review, questions=questions, model='gpt-6-luna'
+        ...     )
+        ... )
+
+        Ask a question about an image column `tbl.image`:
+
+        >>> messages = [
+        ...     {
+        ...         'role': 'user',
+        ...         'content': [
+        ...             {'type': 'input_text', 'text': 'Product photo:'},
+        ...             {'type': 'input_image', 'image_url': tbl.image},
+        ...         ],
+        ...     }
+        ... ]
+        >>> questions = [
+        ...     {
+        ...         'type': 'predicate',
+        ...         'name': 'damaged',
+        ...         'instructions': 'Is the product damaged?',
+        ...     }
+        ... ]
+        >>> tbl.add_computed_column(
+        ...     decision=decisions(messages, questions=questions, model='gpt-6-luna')
+        ... )
+    """
+    env.Env.get().require_package('openai', [3, 32])
+
+    if not isinstance(input, (str, list)):
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            f'`input` must be a string or a list of input items, got {type(input).__name__}',
+        )
+    if not isinstance(questions, list):
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, f'`questions` must be a list, got {type(questions).__name__}'
+        )
+    if len(questions) == 0:
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, '`questions` must contain at least one question')
+    if isinstance(input, list):
+        input = _serialize_input_images(input)
+    questions = _serialize_input_images(questions)
+    if model_kwargs is None:
+        model_kwargs = {}
+
+    result = await _openai_client().decisions.create(input=input, model=model, questions=questions, **model_kwargs)
+    result_dict = result.model_dump(mode='json')
+    telemetry_schemas.record_token_usage(
+        f'{__name__}.decisions', model, result_dict.get('usage'), 'input_tokens', 'output_tokens'
+    )
+    return cast(DecisionResponse, result_dict)
+
+
 @speech.resource_pool
 @transcriptions.resource_pool
 @translations.resource_pool
@@ -1374,6 +1561,7 @@ async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> M
 @image_edits.resource_pool
 @image_variations.resource_pool
 @moderations.resource_pool
+@decisions.resource_pool
 def _(model: str) -> str:
     return f'request-rate:openai:{model}'
 
