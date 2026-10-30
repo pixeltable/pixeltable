@@ -36,7 +36,6 @@ import {
   Moon,
   Eye,
   Camera,
-  Copy,
 } from 'lucide-react'
 
 function DirectoryKindIcon({ kind }: { kind: string }) {
@@ -45,8 +44,6 @@ function DirectoryKindIcon({ kind }: { kind: string }) {
       return <Eye className="h-3.5 w-3.5 text-purple-400 shrink-0" />
     case 'snapshot':
       return <Camera className="h-3.5 w-3.5 text-orange-400 shrink-0" />
-    case 'replica':
-      return <Copy className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
     default:
       return <Table2 className="h-3.5 w-3.5 text-blue-400 shrink-0" />
   }
@@ -128,12 +125,10 @@ function DirectoryView() {
   const tableCount = objects.filter(t => t.kind === 'table').length
   const viewCount = objects.filter(t => t.kind === 'view').length
   const snapshotCount = objects.filter(t => t.kind === 'snapshot').length
-  const replicaCount = objects.filter(t => t.kind === 'replica').length
   const kindBreakdown = [
     tableCount > 0 && `${tableCount} table${tableCount === 1 ? '' : 's'}`,
     viewCount > 0 && `${viewCount} view${viewCount === 1 ? '' : 's'}`,
     snapshotCount > 0 && `${snapshotCount} snapshot${snapshotCount === 1 ? '' : 's'}`,
-    replicaCount > 0 && `${replicaCount} replica${replicaCount === 1 ? '' : 's'}`,
   ].filter(Boolean).join(' · ')
 
   return (

@@ -118,14 +118,19 @@ jobs:
       - name: Install tools and libraries
         # cmake is needed for certain CI environments where it is not preinstalled.
         run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==7.1.1=gpl*'
-      - name: Delete source tree
-        run: rm -rf pixeltable pixeltable_cli  # Ensure we use installed packages for testing, not local source tree
+      - name: Build dashboard SPA
+        # The release wheel bundles the SPA, whose build output is gitignored; tests/pixeltable_cli/test_smoke.py
+        # requests it from the daemon of the installed package
+        if: ${{ inputs.from_main }}
+        run: |
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge nodejs
+          cd dashboard && npm install --silent && npm run build
       - name: Install dependencies
         run: |
-          # Pin pixeltable to the checkout: the commit itself for main, else the latest version tag at or before it
+          # Pin pixeltable to the checkout: the source tree for main, else the latest version tag at or before it
           # (the release tag can sit past its version tag)
           if [[ '${{ inputs.from_main }}' == 'true' ]]; then
-            PXT="git+https://github.com/pixeltable/pixeltable@$(git rev-parse HEAD)"
+            PXT='.'
           else
             PXT="pixeltable==$(git describe --tags --abbrev=0 --match 'v[0-9]*' | sed 's/^v//')"
           fi
@@ -134,6 +139,8 @@ jobs:
           ./scripts/retry.sh 3 60 python -m pip install "$PXT" ${{ matrix.package-configs }}
           # PXT-1714: lift this pin when pytest-benchmark supports pytest 9.2.
           python -m pip install filelock 'pytest>=9.0.3,<9.2' pytest-xdist pytest-rerunfailures pytest-benchmark
+      - name: Delete source tree
+        run: rm -rf pixeltable pixeltable_cli  # Ensure we use installed packages for testing, not local source tree
       - name: Install spaCy model
         if: ${{ contains(matrix.package-configs, 'spacy') }}
         run: python -m spacy download en_core_web_sm

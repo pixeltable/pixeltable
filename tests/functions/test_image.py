@@ -69,8 +69,8 @@ class TestImage:
         # get_metadata() returns correct type information
         expr = t.md.bits
         assert expr.col_type.is_int_type()
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="cannot resolve 'not_an_attr'"):
-            _ = t.md.not_an_attr
+        # metadata dicts are open, so a key that the schema doesn't declare resolves to untyped Json
+        assert repr(t.md.not_an_attr.col_type) == 'Json | None'
 
     def test_return_types(self, uses_db: None) -> None:
         for nullable in (True, False):

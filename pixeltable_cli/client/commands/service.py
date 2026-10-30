@@ -1,4 +1,4 @@
-"""`pxt service {diff,update,prune,stop,list,logs,example}` - run the services an application file defines."""
+"""`pxt service {diff,update,prune,stop,list,logs,spans,example}` - run the services an application file defines."""
 
 from __future__ import annotations
 
@@ -11,7 +11,15 @@ import pydantic
 
 from ...types import GenerationReceipt, Resolution, ServiceChangeOp, ServiceInstance, ServicePlan
 from ...utils import PxtPath, project_root, split_pxt_uri
-from ..hosted import add_logs_args, await_endpoint, await_receipts, describe_receipt, exit_unless_observed, print_logs
+from ..hosted import (
+    add_logs_args,
+    await_endpoint,
+    await_receipts,
+    describe_receipt,
+    exit_unless_observed,
+    print_logs,
+    print_spans,
+)
 from ..parser import Parser
 from ..utils import (
     EXIT_CHANGES_PENDING,
@@ -110,7 +118,7 @@ Examples:
 
 Tracing:
   --otel emits OpenTelemetry traces from the services 'update' starts, and needs the instrumentation
-  package ('pip install pixeltable[otel]'). The setting belongs to the running service, not to the file:
+  package (pip install 'pixeltable[otel]'). The setting belongs to the running service, not to the file:
   a service already running without it restarts when 'update' is given the flag, and 'diff' reports that
   as a pending change.
 {_OWN_APP}{_HOSTED}{_APP_FILE}"""
@@ -130,7 +138,7 @@ Ports:
   so name the service too when the file defines more than one.
 
 Tracing:
-  --otel needs the instrumentation package ('pip install pixeltable[otel]'). The setting belongs to the
+  --otel needs the instrumentation package (pip install 'pixeltable[otel]'). The setting belongs to the
   running service, not to the file: a service already running without it restarts to pick it up, and
   dropping the flag restarts it again.
 {_OWN_APP}{_HOSTED}{_APP_FILE}"""
@@ -221,7 +229,19 @@ log a few seconds after it is written. A service running on this machine logs to
 'pxt service logs' reports the path of that file.
 """
 
-VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'restart', 'retry', 'list', 'logs', 'check', 'example')
+SPANS_EPILOG = """\
+Examples:
+  pxt service spans pxt://acme:main/my_dir/ingest   # the sampled trace spans of a hosted service in the last hour
+  pxt service spans pxt://acme:main/ingest --since 10m --tail 50
+  pxt service spans pxt://acme:main/ingest --trace 4bf92f3577b34da6a3ce929d0e0e4736
+  pxt service spans pxt://acme:main/ingest --json
+
+The spans are grouped by trace, and each span is indented under its parent. CloudWatch keeps every trace that
+contains an error or takes longer than one second, and a share of the other traces. A span appears a few seconds
+after it ends. Spans are read only from hosted services.
+"""
+
+VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'restart', 'retry', 'list', 'logs', 'spans', 'check', 'example')
 
 
 _MARKERS: dict[Resolution, str] = {
@@ -253,6 +273,7 @@ def run(argv: list[str]) -> None:
             '  retry    retry the failed update of the named hosted services\n'
             '  list     what is running locally, and where\n'
             '  logs     read the log of the named service\n'
+            '  spans    read the sampled trace spans of the named service\n'
             '  check    validate the application file on its own (takes no TARGET)\n'
             '  example  write a working application file to start from\n\n'
             'APP is a Python file defining FastAPIRouter services; TARGET is the catalog directory their\n'
@@ -315,6 +336,14 @@ def run(argv: list[str]) -> None:
         add_logs_args(ap)
         args = ap.parse_args(argv[1:])
         print_logs({'service': args.name}, args)
+        return
+
+    if verb == 'spans':
+        ap = Parser(prog='pxt service spans', epilog=SPANS_EPILOG, usage_exit_code=EXIT_ERROR)
+        ap.add_argument('name', help='service name, or TARGET/NAME to disambiguate')
+        add_logs_args(ap, spans=True)
+        args = ap.parse_args(argv[1:])
+        print_spans({'service': args.name}, args)
         return
 
     if verb == 'diff' and argv[1:] == ['--json-schema']:
@@ -597,8 +626,7 @@ def _run_foreground(
             sys.exit(EXIT_ERROR)
         service_name = next(iter(services))
     app, _, _ = create_app(app_file, service_name, target)
-    if otel:
-        instrument_app(app)
+    asgi_app = instrument_app(app) if otel else app
     n_routes = len(app.routes)
     display_host = 'localhost' if host in ('0.0.0.0', '::') else host
     url = f'http://{display_host}:{port}'
@@ -606,7 +634,7 @@ def _run_foreground(
         print(json.dumps({'status': 'started', 'host': host, 'port': port, 'url': url, 'routes': n_routes}))
     else:
         print(f'Pixeltable is running on {url}\n  Routes: {n_routes}\n  API docs at {url}/docs')
-    uvicorn.run(app, host=host, port=port, log_config=None)
+    uvicorn.run(asgi_app, host=host, port=port, log_config=None)
 
 
 def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_run: bool) -> None:
