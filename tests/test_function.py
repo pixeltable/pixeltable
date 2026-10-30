@@ -1,6 +1,5 @@
 # ruff: noqa: RUF029
 import builtins
-import importlib
 import os
 import re
 import subprocess
@@ -1792,6 +1791,10 @@ class TestFunction:
         # that path is stripped so the message stays safe to show remote callers.
         (tmp_path / 'broken_helper.py').write_text('')
         (tmp_path / 'broken_udf_mod.py').write_text('from broken_helper import missing_name\n')
+        # written before syspath_prepend() and its cache refresh: on Windows, imports can miss a module written later
+        (tmp_path / 'stored_udf_mod.py').write_text(
+            'import pixeltable as pxt\n\n@pxt.udf\ndef f(s: str) -> str:\n    return s\n'
+        )
         monkeypatch.syspath_prepend(str(tmp_path))
         d = {
             '_classpath': 'pixeltable.func.callable_function.CallableFunction',
@@ -1812,11 +1815,6 @@ class TestFunction:
         assert str(tmp_path) not in validation_error.protocol_error_msg()
 
         # the same cause on the user-visible path: a stored UDF whose module breaks warns on get_table
-        (tmp_path / 'stored_udf_mod.py').write_text(
-            'import pixeltable as pxt\n\n@pxt.udf\ndef f(s: str) -> str:\n    return s\n'
-        )
-        # tmp_path's cached listing predates this file, and on Windows its directory mtime may be unchanged
-        importlib.invalidate_caches()
         import stored_udf_mod  # type: ignore[import-not-found]
 
         t = pxt.create_table('test', {'s': pxt.String})
