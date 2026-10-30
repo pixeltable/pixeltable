@@ -18,6 +18,8 @@ class ErrorCode(enum.Enum):
     """
 
     http_status: int
+    # Tells the caller whether re-running the failed operation might succeed. Pixeltable's own internal retries follow
+    # separate rules.
     is_retryable: bool
 
     def __new__(cls, value: int, http_status: int, is_retryable: bool) -> Self:
@@ -80,11 +82,12 @@ class ErrorCode(enum.Enum):
     PROVIDER_BAD_REQUEST = 5003, 400, False
     PROVIDER_TIMEOUT = 5004, 504, True
     PROVIDER_OVERLOADED = 5005, 503, True
+    PROVIDER_UNEXPECTED_RESPONSE = 5006, 502, False
 
     # ServiceUnavailableError (6xxx)
     DATABASE_UNAVAILABLE = 6000, 503, True
     STORE_UNAVAILABLE = 6001, 503, True
-    SERVICE_BUSY = 6002, 503, True
+    JOB_REFUSED = 6002, 503, True
 
     # ConcurrencyError (7xxx)
     SERIALIZATION_FAILURE = 7000, 409, True
@@ -126,6 +129,10 @@ class Error(Exception):
     def __str__(self) -> str:
         return self.message if self.detail is None else f'{self.message}\n{self.detail}'
 
+    def __reduce__(self) -> tuple[Any, ...]:
+        """Supports copy and pickle, which would otherwise call __init__() with only the message."""
+        return _restore_error, (type(self), self.args), self.__dict__
+
     @property
     def http_status(self) -> int:
         return self.error_code.http_status
@@ -135,6 +142,8 @@ class Error(Exception):
         """
         If False, re-running the operation that caused this error without any changes is guaranteed to fail with the
         same error. If True, the error might be transient and the operation might succeed if retried.
+
+        This is guidance for the user. Pixeltable's own automatic retries follow separate rules.
         """
         return self.error_code.is_retryable
 
@@ -173,6 +182,10 @@ class Error(Exception):
         Error.__init__(err, error_code, d.get('message', ''), retry_after=d.get('retry_after'))
         err.detail = d.get('detail')
         return err
+
+
+def _restore_error(cls: type[Error], args: tuple[Any, ...]) -> Error:
+    return cls.__new__(cls, *args)
 
 
 class InternalError(Error):
@@ -248,7 +261,7 @@ class ExternalServiceError(Error):
 
 
 class ServiceUnavailableError(Error):
-    """Database, store, or other infrastructure is unreachable or at capacity."""
+    """Database, store, service instance or other infrastructure is temporarily unavailable."""
 
 
 class ConcurrencyError(Error):

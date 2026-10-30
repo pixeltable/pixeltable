@@ -25,7 +25,7 @@ rm -f "$PIXELTABLE_HOME"/logs/random-ops.log
 export PIXELTABLE_DB="random_ops"
 if [ -d "$PIXELTABLE_HOME" ]; then
     echo "Cleaning $PIXELTABLE_DB postgres DB ..."
-    POSTGRES_BIN_PATH=$(python -c 'import pixeltable_pgserver; import sys; sys.stdout.write(str(pixeltable_pgserver._commands.POSTGRES_BIN_PATH))')
+    POSTGRES_BIN_PATH=$(python -c 'import sys; from pixeltable_pgserver.utils import POSTGRES_VERSIONS, TARGET_POSTGRES_VERSION; sys.stdout.write(str(POSTGRES_VERSIONS[TARGET_POSTGRES_VERSION]))')
     PIXELTABLE_URL="postgresql://postgres:@/postgres?host=$PIXELTABLE_HOME/pgdata"
     "$POSTGRES_BIN_PATH/psql" "$PIXELTABLE_URL" -U postgres -c "DROP DATABASE IF EXISTS $PIXELTABLE_DB;"
 fi

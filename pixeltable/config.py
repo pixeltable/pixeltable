@@ -991,9 +991,14 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'temp_location': 'S3 URI for temporary storage used by Bedrock async model invocations',
         'performance_config_latency': 'Performance setting for supported models (standard or optimized)',
         'service_tier': 'Processing tier for requests (priority, default, flex, or reserved)',
+        'rate_limits': 'Per-model rate limits for Bedrock API requests',
     },
     'bfl': {'api_key': 'Black Forest Labs (BFL) API key', 'rate_limit': 'Rate limit for BFL API requests'},
-    'deepseek': {'api_key': 'Deepseek API key', 'rate_limit': 'Rate limit for Deepseek API requests'},
+    'deepseek': {
+        'api_key': 'Deepseek API key',
+        'base_url': 'Deepseek API base URL',
+        'rate_limit': 'Rate limit for Deepseek API requests',
+    },
     'fal': {'api_key': 'fal.ai API key', 'rate_limit': 'Rate limit for fal.ai API requests'},
     'fireworks': {'api_key': 'Fireworks API key', 'rate_limit': 'Rate limit for Fireworks API requests'},
     'gemini': {
