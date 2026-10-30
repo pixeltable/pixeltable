@@ -95,6 +95,13 @@ def embed_or_raise(text: str) -> pxt.Array[(4,), np.float32]:
     return np.ones(4, dtype=np.float32)
 
 
+@pxt.udf
+def provider_fails(x: int) -> int:
+    raise pxt.ExternalServiceError(
+        pxt.ErrorCode.PROVIDER_ERROR, provider='gemini', status_code=500, provider_error_code='X', retry_after=3
+    )
+
+
 class TestTable:
     # exc for a % 10 == 0
     @staticmethod
@@ -3520,6 +3527,16 @@ class TestTable:
         assert t.where(t.add1.errortype != None).count() == 10
         msgs = t.select(msg=t.add1.errormsg).collect()['msg']
         assert sum('division by zero' in msg for msg in msgs if msg is not None) == 10
+
+    def test_computed_col_error_keeps_its_fields(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(db_root.make_catalog_path('test'), {'x': pxt.Int})
+        t.add_computed_column(y=provider_fails(t.x))
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match=r'In row 0 the expression provider_fails\(x\)') as exc:
+            t.insert(x=1)
+        err = exc.value
+        assert isinstance(err, pxt.ExternalServiceError)
+        assert (err.provider, err.provider_http_status_code, err.provider_error_code) == ('gemini', 500, 'X')
+        assert err.retry_after == 3
 
     # TODO: cannot be converted: KeyboardInterrupt injection is client-process-local and does not reach the daemon
     @pytest.mark.db_roots(
