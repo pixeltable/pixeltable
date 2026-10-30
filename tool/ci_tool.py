@@ -136,7 +136,9 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
         configs.extend(MatrixConfig('standard', 'py', platform, '3.11') for platform in BASIC_PLATFORMS)
 
         configs.append(MatrixConfig('random-ops', 'random-ops', MAIN_PLATFORM, '3.11', uv_options='--no-dev'))
-        configs.append(MatrixConfig('otel', 'otel', MAIN_PLATFORM, '3.11', uv_options='--no-dev --extra otel'))
+        configs.append(
+            MatrixConfig('otel', 'otel', MAIN_PLATFORM, '3.11', uv_options='--no-dev --extra otel --extra serve')
+        )
 
         # force_all is set by the "Run on all platforms" checkbox on a workflow dispatch.
         if force_all or trigger == 'schedule':

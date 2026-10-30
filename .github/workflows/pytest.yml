@@ -252,7 +252,8 @@ jobs:
           pytest -v --strict-markers -n ${{ matrix.xdist-workers }} --dist loadgroup --basetemp="$RUNNER_TEMP/pxt-pytest" ${{ matrix.pytest-options }} $PYTEST_COVERAGE_OPTS
       - name: Run the OpenTelemetry instrumentation tests
         # The opentelemetry-instrumentation-pixeltable package is a separate distribution; the core suite does not
-        # collect its tests (testpaths in pyproject.toml). It is tested here against a minimal install + otel extra.
+        # collect its tests (testpaths in pyproject.toml). It is tested here against a minimal install + otel and serve
+        # extras.
         if: ${{ matrix.test-category == 'otel' }}
         run: |
           pytest -v --strict-markers packages/opentelemetry-instrumentation-pixeltable/tests

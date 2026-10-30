@@ -196,15 +196,14 @@ udf_errors = telemetry.counter('pixeltable.udf.errors', '{error}')
 udf_retries = telemetry.counter('pixeltable.udf.retries', '{retry}')
 # bucket layout advisory: the OTEL SDK's default histogram buckets are millisecond-scaled (5, 10, 25, ...),
 # so second-valued latencies would all land in the first bucket; these are the GenAI-semconv duration buckets
-udf_latency = telemetry.histogram(
-    'pixeltable.udf.latency',
-    's',
-    boundaries=(0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92),
-)
+_SECONDS_BOUNDARIES = (0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92)
+udf_latency = telemetry.histogram('pixeltable.udf.latency', 's', boundaries=_SECONDS_BOUNDARIES)
 udf_input_tokens = telemetry.counter('pixeltable.udf.input_tokens', '{token}')
 udf_output_tokens = telemetry.counter('pixeltable.udf.output_tokens', '{token}')
 media_fetched_bytes = telemetry.counter('pixeltable.media.fetched_bytes', 'By')
 media_saved_bytes = telemetry.counter('pixeltable.media.saved_bytes', 'By')
+# every proxy request is the same POST /rpc to the http instrumentation, so only this metric tells the methods apart
+rpc_duration = telemetry.histogram('pixeltable.rpc.duration', 's', boundaries=_SECONDS_BOUNDARIES)
 
 
 @contextlib.contextmanager

@@ -9,14 +9,17 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import math
 import threading
+import time
 from typing import Any, Literal
 
 from opentelemetry import metrics as otel_metrics, trace
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.trace import ProxyTracerProvider
+from opentelemetry.util.http import parse_excluded_urls
 
-from pixeltable import exceptions as excs, telemetry
+from pixeltable import __version__, exceptions as excs, telemetry
 from pixeltable.config import Config
 from pixeltable.env import Env
 
@@ -58,16 +61,19 @@ def init(
     Call once, before the first Pixeltable operation. Each argument overrides the matching `[otel]`
     config setting and its standard `OTEL_*` environment variable; when an argument is left as None the
     value resolves from the database's `[[pixeltable.database]]` entry where it sets one (the endpoint and
-    protocol, as `db_<key>`), then that env var, then the `[otel]` config section. Pass
+    protocol, as `db_<key>`), then that env var, then the `[otel]` config section. On the pods of a hosted
+    database, init() skips the entry's endpoint and protocol and reads them from the pod's environment. Pass
     `tracer_provider`/`meter_provider` to instrument against an SDK your application owns instead.
 
     Args:
         endpoint: OTLP collector endpoint (eg `http://localhost:4318`); resolves from the database entry's
             `db_exporter_otlp_endpoint`, then `OTEL_EXPORTER_OTLP_ENDPOINT`, then `otel.exporter_otlp_endpoint`.
-            With no endpoint configured, no `span_dump`, and no application-owned provider, instrumentation
-            stays inert and exports nothing.
+            On the pods of a hosted database, init() skips the entry's `db_exporter_otlp_endpoint`. With no
+            endpoint configured, no `span_dump`, and no application-owned provider, instrumentation stays inert and
+            exports nothing.
         protocol: OTLP transport, `http/protobuf` (default) or `grpc`; resolves from the database entry's
             `db_exporter_otlp_protocol`, then `OTEL_EXPORTER_OTLP_PROTOCOL`, then `otel.exporter_otlp_protocol`.
+            On the pods of a hosted database, init() skips the entry's `db_exporter_otlp_protocol`.
         service_name: `service.name` resource attribute (default `pixeltable`); resolves from
             `otel.service_name` / `OTEL_SERVICE_NAME`.
         headers: OTLP headers as comma-separated `key=value` pairs; resolves from
@@ -80,7 +86,8 @@ def init(
             complete even if the process dies. Works with or without an OTLP endpoint.
         metrics: force metric export on/off (by default metrics are exported only when an OTLP endpoint
             is configured).
-        logs: force log export on/off (default off; must be explicitly enabled).
+        logs: force export of the `pixeltable`, `sqlalchemy.engine`, and `uvicorn` log records on/off (default
+            off; must be explicitly enabled).
         tracer_provider: an existing TracerProvider to instrument against.
         meter_provider: an existing MeterProvider to instrument against.
 
@@ -132,6 +139,46 @@ def instrument_fastapi(app: Any, **kwargs: Any) -> None:
 
     kwargs.setdefault('tracer_provider', _state.tracer_provider)
     FastAPIInstrumentor.instrument_app(app, **kwargs)
+
+
+def _gateway_span_app(app: Any, excluded_urls: str) -> Any:
+    """Wrap an ASGI app so that the trace of a request forwarded by the Pixeltable Cloud gateway starts with a
+    `pixeltable.gateway` span, covering the time from the gateway's receipt of the request to the response.
+
+    The gateway sends the header `x-pxt-gateway-time: <unix time> <seconds since it received the request>`.
+    For example, `1760400000.250 0.012` means that the gateway received the request at 1760400000.238.
+    Requests without a valid header pass through unchanged, and so do requests to `excluded_urls`, the patterns
+    that `instrument_fastapi()` also leaves untraced.
+    """
+    # inline: the asgi instrumentation comes with the fastapi instrumentation, which this package does not require
+    from opentelemetry.instrumentation.asgi import get_host_port_url_tuple  # type: ignore[import-untyped]
+
+    tracer = trace.get_tracer('pixeltable', __version__, tracer_provider=_state.tracer_provider)
+    excluded = parse_excluded_urls(excluded_urls)
+
+    async def wrapped_app(scope: Any, receive: Any, send: Any) -> None:
+        timing = next((value for name, value in scope.get('headers', ()) if name == b'x-pxt-gateway-time'), b'')
+        try:
+            sent_at, elapsed = (float(field) for field in timing.split())
+        except ValueError:
+            sent_at = elapsed = math.nan
+        now = time.time()
+        received_at = sent_at - elapsed
+        # The gateway forwards a request within seconds of its receipt, and the pod receives it right after that.
+        # A header that is missing or malformed (nan), or whose times are minutes away from that, starts no span.
+        # For example, `1 0` would start the trace in 1970.
+        is_valid_timing = abs(now - sent_at) < 300 and elapsed >= 0 and abs(now - received_at) < 300
+        # the patterns apply to the full URL, as in the asgi instrumentation
+        if not is_valid_timing or excluded.url_disabled(get_host_port_url_tuple(scope)[2]):
+            await app(scope, receive, send)
+            return
+        # a gateway clock ahead of this pod's clock would put the start after the end of the span
+        received_ns = int(min(received_at, now) * 1e9)
+        # the http instrumentation nests its request span under a current span, ignoring any client traceparent
+        with tracer.start_as_current_span('pixeltable.gateway', start_time=received_ns, kind=trace.SpanKind.SERVER):
+            await app(scope, receive, send)
+
+    return wrapped_app
 
 
 def _instrument_sqlalchemy(**kwargs: Any) -> None:
@@ -277,7 +324,9 @@ def _setup(
         otel_metrics.set_meter_provider(mp)
     if logger_provider is not None:
         set_logger_provider(logger_provider)
-        logging.getLogger('pixeltable').addHandler(log_handler)
+        # Env sends these loggers to the log file and turns off their propagation, so each needs the handler
+        for logger_name in ('pixeltable', 'sqlalchemy.engine', 'uvicorn'):
+            logging.getLogger(logger_name).addHandler(log_handler)
     _state.owns_tracer_provider = owns_tp
     _state.owns_meter_provider = owns_mp
     _state.tracer_provider = tp
