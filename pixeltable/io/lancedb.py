@@ -1,14 +1,84 @@
 from __future__ import annotations
 
+import queue
 import shutil
+import threading
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Literal
-
-import pyarrow as pa
+from typing import Any, Generator, Iterator, Literal
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.env import Env
+from pixeltable.runtime import Runtime, get_runtime
+
+
+@contextmanager
+def _record_batches_on_thread(query: pxt.Query, batch_size_bytes: int) -> Iterator[Iterator[Any]]:
+    """Yield RecordBatches from a producer thread and close that thread's Runtime on context exit.
+
+    lancedb 0.41 reads the iterator on asyncio.to_thread workers, which never close a Runtime they create.
+    get_runtime() and Thread.start() run when the context is entered, not on first next().
+    """
+    from pixeltable.utils.arrow import to_record_batches
+
+    result_queue: queue.Queue = queue.Queue(maxsize=2)
+    stop = threading.Event()
+    caller_runtime = get_runtime()
+    sentinel = object()
+
+    def _put(item: object) -> bool:
+        while not stop.is_set():
+            try:
+                result_queue.put(item, timeout=0.1)
+                return True
+            except queue.Full:
+                pass
+        return False
+
+    def _produce_batches(thread_runtime: Runtime) -> None:
+        # query execution needs the caller's catalogs
+        thread_runtime.copy_db_context(caller_runtime)
+        batch_iter = to_record_batches(query, batch_size_bytes)
+        assert isinstance(batch_iter, Generator)
+        try:
+            for batch in batch_iter:
+                if not _put(batch):
+                    return
+            _put(sentinel)
+        finally:
+            batch_iter.close()
+
+    def run() -> None:
+        thread_runtime = get_runtime()
+        try:
+            _produce_batches(thread_runtime)
+        except BaseException as e:
+            _put(e)
+        finally:
+            thread_runtime.close()
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+
+    def batches() -> Iterator[Any]:
+        while True:
+            item = result_queue.get()
+            if item is sentinel:
+                return
+            if isinstance(item, BaseException):
+                raise item
+            yield item
+
+    try:
+        yield batches()
+    finally:
+        stop.set()
+        try:
+            result_queue.put_nowait(sentinel)
+        except queue.Full:
+            pass
+        thread.join()
 
 
 def export_lancedb(
@@ -42,8 +112,6 @@ def export_lancedb(
     Env.get().require_package('lancedb')
 
     import lancedb  # type: ignore[import-untyped]
-
-    from pixeltable.utils.arrow import to_record_batches
 
     if if_exists not in ('error', 'overwrite', 'append'):
         raise excs.RequestError(
@@ -79,16 +147,12 @@ def export_lancedb(
             # table doesn't exist
             pass
 
-        # lancedb 0.41+ prepares input on a thread-pool worker (`asyncio.to_thread`). Iterating a
-        # Pixeltable query there creates a thread-local Runtime event loop that nothing closes.
-        # Consume the query here, then pass a Table so add() does not treat RecordBatches as rows.
-        batches = list(to_record_batches(query, batch_size_bytes))
-        data = pa.Table.from_batches(batches) if batches else batches
-        if lance_tbl is None or if_exists == 'overwrite':
-            mode = 'overwrite' if lance_tbl is not None else 'create'
-            _ = db.create_table(table_name, data, mode=mode)
-        else:
-            lance_tbl.add(data)
+        with _record_batches_on_thread(query, batch_size_bytes) as batches:
+            if lance_tbl is None or if_exists == 'overwrite':
+                mode = 'overwrite' if lance_tbl is not None else 'create'
+                _ = db.create_table(table_name, batches, mode=mode)
+            else:
+                lance_tbl.add(batches)
 
     except Exception as e:
         # cleanup

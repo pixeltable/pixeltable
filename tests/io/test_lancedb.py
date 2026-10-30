@@ -122,8 +122,7 @@ class TestLanceDb:
         assert not error_db_path.exists()
 
     def test_export_leaves_no_async_resources(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
-        # lancedb 0.41 consumes create_table input on a thread-pool worker; iterating a Pixeltable query
-        # there used to leave that worker's Runtime event loop open at session teardown (PXT-1726).
+        # lancedb 0.41 consumes create_table input on a thread-pool worker.
         skip_test_if_not_installed('lance', 'lancedb')
         t = pxt.create_table(db_root.make_catalog_path('export_loop'), {'id': pxt.Int})
         t.insert([{'id': 1}])
