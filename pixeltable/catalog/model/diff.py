@@ -509,6 +509,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
             # others are not.
             default_media_validation = model.__table_spec__['media_validation'].name.lower()
             base_cols = base_query_columns(model)
+            existing_col_types = existing._get_schema()
             for col_name in sorted(model_cols & existing_cols):
                 spec = user_cols[col_name]
                 col_md = existing_md['columns'][col_name]
@@ -521,15 +522,18 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                     col_md['is_computed']
                     and not value_changed
                     and 'type' not in spec
-                    and tbl_path.get_column_md_by_name(col_name).col_type.is_supertype_of(col_type_from_spec(spec))
+                    and existing_col_types[col_name].is_supertype_of(col_type_from_spec(spec))
                 )
                 altered: list[str] = []
                 for prop in model_props.__dataclass_fields__:
                     if prop == 'value':
                         if value_changed:
                             altered.append(prop)
-                    elif prop == 'type' and keeps_type:
-                        continue
+                    elif prop == 'type':
+                        # ColumnType equality ignores key order in a Json type schema; the reprs stored in
+                        # _ColumnProperties do not, so types are compared directly here
+                        if not keeps_type and col_type_from_spec(spec) != existing_col_types[col_name]:
+                            altered.append(prop)
                     elif getattr(model_props, prop) != getattr(existing_props, prop):
                         altered.append(prop)
                 if len(altered) == 0:

@@ -1,7 +1,7 @@
 import sys
 import textwrap
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import pydantic
 
@@ -12,9 +12,12 @@ from ..utils import (
     EXIT_CHANGES_PENDING,
     EXIT_ERROR,
     EXIT_IN_AGREEMENT,
+    blocked_document,
     check_file,
     confirm_or_exit,
     post_request,
+    print_blocked,
+    print_json,
     print_json_schema,
     refuse_destructive,
 )
@@ -435,8 +438,8 @@ def _prune(app_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool, d
         _prune_output(with_drops('skipped'), as_json=as_json, verb='would drop')
         sys.exit(EXIT_CHANGES_PENDING)
 
-    def report_refusal() -> None:
-        _prune_output(with_drops('refused'), as_json=as_json, verb='would drop')
+    def report_refusal(error: dict[str, Any]) -> None:
+        _prune_output(with_drops('refused'), as_json=as_json, verb='would drop', error=error)
 
     confirm_or_exit(f'drop {len(extras)} table(s) not defined by the schema?', force, on_refusal=report_refusal)
 
@@ -446,9 +449,9 @@ def _prune(app_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool, d
     _prune_output(pruned, as_json=as_json, verb='dropped')
 
 
-def _prune_output(plan: SchemaPlan, *, as_json: bool, verb: str) -> None:
+def _prune_output(plan: SchemaPlan, *, as_json: bool, verb: str, error: dict[str, Any] | None = None) -> None:
     if as_json:
-        print(plan.model_dump_json(indent=2))
+        print_json(plan.model_dump(mode='json'), error)
         return
     for op in plan.ops:
         print(f'{verb} {op.name}')
@@ -474,10 +477,17 @@ def _update(
             {'app_file': app_file, 'catalog_dir': catalog_dir, 'allow_destructive': allow_destructive},
         )
     )
-    _update_output(applied, as_json=as_json)
-    if applied.summary.blocked_ops > 0:
-        # only pxt db update can clear a blocked op
-        sys.exit(EXIT_ERROR)
+    blocked = [op for op in applied.ops if op.severity == 'blocked']
+    if len(blocked) == 0:
+        _update_output(applied, as_json=as_json)
+        return
+    # only pxt db update can clear a blocked op
+    error = blocked_document(
+        [op.description for op in blocked], [op.details.command for op in blocked if op.details.command is not None]
+    )
+    _update_output(applied, as_json=as_json, error=error)
+    print_blocked(error)
+    sys.exit(EXIT_ERROR)
 
 
 def _decide_update(app_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool, allow_destructive: bool) -> None:
@@ -496,18 +506,18 @@ def _decide_update(app_file: str, catalog_dir: PxtPath, *, as_json: bool, force:
     if destructive == 0:
         return
 
-    def report_refusal() -> None:
+    def report_refusal(error: dict[str, Any]) -> None:
         _set_statuses(plan, destructive='refused', other='skipped')
-        _diff_output(plan, as_json=as_json)
+        _diff_output(plan, as_json=as_json, error=error)
 
     if not allow_destructive:
         refuse_destructive('pxt schema update', destructive, force=force, on_refusal=report_refusal)
     confirm_or_exit(f'apply {destructive} destructive operation(s)?', force, on_refusal=report_refusal)
 
 
-def _update_output(plan: SchemaPlan, *, as_json: bool) -> None:
+def _update_output(plan: SchemaPlan, *, as_json: bool, error: dict[str, Any] | None = None) -> None:
     if as_json:
-        print(plan.model_dump_json(indent=2))
+        print_json(plan.model_dump(mode='json'), error)
         return
     if plan.in_agreement:
         print('catalog is up to date')
@@ -550,9 +560,9 @@ def _set_statuses(plan: SchemaPlan, *, destructive: OpStatus, other: OpStatus) -
         tbl.status = destructive if any(op.destructive for op in tbl.ops) else other
 
 
-def _diff_output(plan: SchemaPlan, *, as_json: bool) -> None:
+def _diff_output(plan: SchemaPlan, *, as_json: bool, error: dict[str, Any] | None = None) -> None:
     if as_json:
-        print(plan.model_dump_json(indent=2))
+        print_json(plan.model_dump(mode='json'), error)
         return
     for line in _format_plan(plan):
         print(line)

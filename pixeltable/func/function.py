@@ -14,7 +14,7 @@ from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.config import Config
 from pixeltable.types import FunctionInfo, FunctionKind
 
-from .globals import resolve_symbol
+from .globals import import_error_msg, resolve_symbol
 from .signature import Signature
 
 if TYPE_CHECKING:
@@ -569,20 +569,25 @@ class Function(ABC):
                 return instance
             elif instance is None:
                 # we couldn't resolve the path
-                project_root = Config.get().project_root
                 detail = (
                     '(There is no configured project root; did you forget to run `pxt init` in the '
                     "project's top-level directory?)"
-                    if project_root is None
-                    else f'A module outside the project at {project_root} is only importable if it is installed.'
+                    if Config.get().project_root is None
+                    # the message is also shown to remote callers, so it must not contain the absolute path
+                    else 'A module outside the project root is only importable if it is installed.'
                 )
                 return InvalidFunction(path, d, f'{path!r} names no importable module. {detail}')
             else:
                 return InvalidFunction(
                     path, d, f'the symbol `{path}` is no longer a UDF. (Was the `@pxt.udf` decorator removed?)'
                 )
-        except (AttributeError, ImportError):
+        except AttributeError:
             return InvalidFunction(path, d, f'the symbol `{path}` no longer exists. (Was the UDF moved or renamed?)')
+        except ImportError as e:
+            # the module is still there but cannot be imported; the error text identifies the missing dependency
+            return InvalidFunction(
+                path, d, f'a module required by `{path}` could not be imported: {import_error_msg(e)}'
+            )
 
     def to_store(self) -> tuple[dict, bytes]:
         """
