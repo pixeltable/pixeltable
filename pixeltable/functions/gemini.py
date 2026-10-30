@@ -396,7 +396,7 @@ async def generate_videos(
     """
     Generate videos with Veo on Vertex AI. For Gemini Omni on the Gemini Developer API, use
     [`generate_omni_video()`][pixeltable.functions.gemini.generate_omni_video]. For additional details, see:
-    <https://cloud.google.com/vertex-ai/generative-ai/docs/video/generate-videos-from-text>
+    <https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/veo/3-1-generate>
 
     At least one of `prompt` or `image` must be provided. When `image` is a single image, it is used as the first
     frame of the generated video. When `image` is a list of images, they are used as reference images to guide the
