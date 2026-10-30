@@ -3598,6 +3598,8 @@ class TestTable:
         box = [t.box[i].astype(pxt.Int) for i in range(4)]
         t.add_computed_column(hero=t.photo.crop(box))
         t.add_computed_column(hero_w=t.hero.width)
+        t.add_computed_column(hero_md=t.hero.get_metadata())
+        t.add_computed_column(hero_a=fill_3x4(t.hero_w))
         # a zero-area box crops to an empty image
         rows = [
             {'id': 0, 'photo': img_file, 'box': [0, 0, 0, 0]},
@@ -3611,16 +3613,43 @@ class TestTable:
 
         status = t.insert(rows, on_error='ignore')
         assert status.num_rows == 2
-        assert status.num_excs == 2
-        assert set(status.cols_with_excs) == {'test_unsaveable.hero', 'test_unsaveable.hero_w'}
+        assert status.num_excs == 4
+        assert set(status.cols_with_excs) == {
+            'test_unsaveable.hero',
+            'test_unsaveable.hero_w',
+            'test_unsaveable.hero_md',
+            'test_unsaveable.hero_a',
+        }
         res = (
-            t.select(t.hero, t.hero_w, err_type=t.hero.errortype, err_msg=t.hero.errormsg, w_msg=t.hero_w.errormsg)
+            t.select(
+                t.hero,
+                t.hero_w,
+                t.hero_md,
+                t.hero_a,
+                err_type=t.hero.errortype,
+                err_msg=t.hero.errormsg,
+                w_msg=t.hero_w.errormsg,
+                md_msg=t.hero_md.errormsg,
+                a_msg=t.hero_a.errormsg,
+            )
             .order_by(t.id)
             .collect()
         )
-        assert res[0] == {'hero': None, 'hero_w': None, 'err_type': 'RequestError', 'err_msg': msg, 'w_msg': msg}
+        assert res[0] == {
+            'hero': None,
+            'hero_w': None,
+            'hero_md': None,
+            'hero_a': None,
+            'err_type': 'RequestError',
+            'err_msg': msg,
+            'w_msg': msg,
+            'md_msg': msg,
+            'a_msg': msg,
+        }
         assert res[1]['hero'].size == (100, 100)
         assert res[1]['hero_w'] == 100
+        assert res[1]['hero_md']['width'] == 100
+        assert np.array_equal(res[1]['hero_a'], np.full((3, 4), 100))
         assert res[1]['err_msg'] is None
 
         with pxt_raises(
@@ -3636,6 +3665,8 @@ class TestTable:
     def test_unsaveable_image_literal(self, uses_db: None) -> None:
         """An inserted image that cannot be saved aborts the insert or, with on_error='ignore', is a cell error."""
         t = pxt.create_table('test_unsaveable_literal', {'id': pxt.Int, 'img': pxt.Image})
+        t.add_computed_column(img_md=t.img.get_metadata())
+        t.add_computed_column(img_a=fill_3x4(t.img.width))
         rows = [{'id': 0, 'img': PIL.Image.new('RGB', (0, 0))}, {'id': 1, 'img': PIL.Image.new('RGB', (8, 8))}]
         msg = "Error while saving column 'img': cannot write empty image"
 
@@ -3643,10 +3674,16 @@ class TestTable:
             t.insert(rows)
         status = t.insert(rows, on_error='ignore')
         assert status.num_rows == 2
-        assert status.num_excs == 1
-        res = t.select(t.img, err_msg=t.img.errormsg).order_by(t.id).collect()
-        assert res[0] == {'img': None, 'err_msg': msg}
+        assert status.num_excs == 3
+        res = (
+            t.select(t.img, t.img_md, t.img_a, err_msg=t.img.errormsg, md_msg=t.img_md.errormsg, a_msg=t.img_a.errormsg)
+            .order_by(t.id)
+            .collect()
+        )
+        assert res[0] == {'img': None, 'img_md': None, 'img_a': None, 'err_msg': msg, 'md_msg': msg, 'a_msg': msg}
         assert res[1]['img'].size == (8, 8)
+        assert res[1]['img_md']['width'] == 8
+        assert np.array_equal(res[1]['img_a'], np.full((3, 4), 8))
         # neither insert leaves a partial file in the TempStore
         assert TempStore.count(t._id) == 0
 
