@@ -23,7 +23,7 @@ CMAKE_POLICY_VERSION_MINIMUM := 3.5
 
 # Dev dependency versions not handled by pyproject.toml
 UV_VERSION := 0.12.3
-FFMPEG_VERSION := 6.1.1=gpl*
+FFMPEG_VERSION := 7.1.1=gpl*
 MINTLIFY_VERSION := 4.2.506
 OTEL_PKG := packages/opentelemetry-instrumentation-pixeltable
 
@@ -94,7 +94,8 @@ endif
 	@python -m pip install -q uv==$(UV_VERSION)
 	@echo 'Installing conda packages ...'
 	@if ! which mamba >/dev/null 2>&1; then conda install -q -y -c conda-forge mamba; fi
-	@mamba install -q -y -c conda-forge libiconv 'ffmpeg==$(FFMPEG_VERSION)' quarto 'nodejs>=20' lychee 'cmake>=3.22'
+	@# mint doesn't run on Node.js 25 or later
+	@mamba install -q -y -c conda-forge libiconv 'ffmpeg==$(FFMPEG_VERSION)' quarto 'nodejs>=20,<25' lychee 'cmake>=3.22'
 	@echo 'Installing mintlify ...'
 	@if ! which mint >/dev/null 2>&1 || ! mint --version | grep -Fq '$(MINTLIFY_VERSION)'; then \
 		npm install --silent -g mint@$(MINTLIFY_VERSION); \

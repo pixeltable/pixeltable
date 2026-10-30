@@ -117,7 +117,7 @@ jobs:
           conda info
       - name: Install tools and libraries
         # cmake is needed for certain CI environments where it is not preinstalled.
-        run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
+        run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==7.1.1=gpl*'
       - name: Build dashboard SPA
         # The release wheel bundles the SPA, whose build output is gitignored; tests/pixeltable_cli/test_smoke.py
         # requests it from the daemon of the installed package
