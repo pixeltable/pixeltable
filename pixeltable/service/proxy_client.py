@@ -60,6 +60,7 @@ from . import management_client, proxy_protocol
 from .management_client import Credential, is_refusal, refusal
 from .management_protocol import GetDbRequest, GetDbResponse
 from .proxy_protocol import (
+    KEEP_ALIVE_S,
     InlinePartSink,
     MediaPath,
     PartSink,
@@ -130,7 +131,7 @@ class Transport(abc.ABC):
         """Release any transport resources."""
 
 
-_MAX_IDLE_S = 4.0  # below the proxy daemon's 5 s keep-alive, so no connection is reused as the daemon closes it
+_MAX_IDLE_S = KEEP_ALIVE_S - 1.0  # so no connection is reused as the daemon closes it
 
 
 class HttpTransport(Transport):

@@ -262,7 +262,7 @@ class TestProxyDaemon:
     def test_http_transport_drops_a_connection_idle_nearly_as_long_as_the_daemon_keeps_it(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The daemon closes a connection idle 5 s, and a request sent while that close is on its way is reset."""
+        """HttpTransport reuses a pooled connection within _MAX_IDLE_S and opens a new one after it."""
         monkeypatch.setattr(proxy_client, '_MAX_IDLE_S', 0.5)
         ports: list[int] = []
 
