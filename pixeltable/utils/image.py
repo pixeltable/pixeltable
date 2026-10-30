@@ -3,13 +3,13 @@ from io import BytesIO
 
 import PIL.Image
 
-_JPEG_MODES = frozenset(['1', 'L', 'RGB', 'RGBX', 'CMYK', 'YCbCr'])
+_JPEG_MODES = frozenset(['L', 'RGB', 'RGBX', 'CMYK', 'YCbCr'])
 # PNG round-trips these modes; it would store mode I as I;16
 PNG_MODES = frozenset(['1', 'L', 'LA', 'P', 'RGB', 'RGBA', 'I;16'])
 
 
 def default_format(img: PIL.Image.Image) -> str:
-    """Return a format that can encode img in its mode."""
+    """Return a format that can encode img in its mode, or as RGB for modes RGBX and YCbCr."""
     if img.has_transparency_data:
         return 'webp'
     if img.mode in _JPEG_MODES:

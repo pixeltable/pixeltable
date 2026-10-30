@@ -13,8 +13,6 @@ from collections import defaultdict
 from pathlib import Path
 from uuid import UUID
 
-import PIL.Image
-
 from pixeltable import env, exceptions as excs
 from pixeltable.utils.object_stores import FileDestination, ObjectPath, ObjectStoreBase, StorageObjectAddress
 
@@ -91,30 +89,17 @@ class LocalStore(ObjectStoreBase):
         return Path(path_str)
 
     @classmethod
-    def _save_binary_media_file(cls, file_data: bytes, dest_path: Path, format: str | None) -> Path:
-        """Save binary data to a file in a LocalStore. format is ignored for binary data."""
+    def _save_binary_media_file(cls, file_data: bytes, dest_path: Path) -> None:
+        """Save binary data to a file in a LocalStore."""
         assert isinstance(file_data, bytes)
-        with open(dest_path, 'wb') as f:
-            f.write(file_data)
-            f.flush()  # Ensures Python buffers are written to OS
-            os.fsync(f.fileno())  # Forces OS to write to physical storage
-        return dest_path
-
-    @classmethod
-    def _save_pil_image_file(cls, image: PIL.Image.Image, dest_path: Path, format: str | None) -> Path:
-        """Save a PIL Image to a file in a LocalStore with the specified format."""
-        if dest_path.suffix != f'.{format}':
-            dest_path = dest_path.with_name(f'{dest_path.name}.{format}')
-
         try:
             with open(dest_path, 'wb') as f:
-                image.save(f, format=format)
+                f.write(file_data)
                 f.flush()  # Ensures Python buffers are written to OS
                 os.fsync(f.fileno())  # Forces OS to write to physical storage
         except Exception:
             dest_path.unlink(missing_ok=True)
             raise
-        return dest_path
 
     def _prepare_path_raw(self, tbl_id: UUID, col_id: int, tbl_version: int, ext: str | None = None) -> Path:
         """
@@ -173,20 +158,15 @@ class LocalStore(ObjectStoreBase):
         return dest.url
 
     def save_media_object(
-        self, data: bytes | PIL.Image.Image, tbl_id: UUID, col_id: int, tbl_version: int, format: str | None
+        self, data: bytes, tbl_id: UUID, col_id: int, tbl_version: int, format: str | None
     ) -> tuple[Path, str]:
-        """Save a data object to a file in a LocalStore
+        """Save a data object to a file in a LocalStore, with format as its extension if given
         Returns:
             dest_path: Path to the saved file
             url: URL of the saved file
         """
-        dest_path = self._prepare_path_raw(tbl_id, col_id, tbl_version)
-        if isinstance(data, bytes):
-            dest_path = self._save_binary_media_file(data, dest_path, format)
-        elif isinstance(data, PIL.Image.Image):
-            dest_path = self._save_pil_image_file(data, dest_path, format)
-        else:
-            raise ValueError(f'Unsupported object type: {type(data)}')
+        dest_path = self._prepare_path_raw(tbl_id, col_id, tbl_version, None if format is None else f'.{format}')
+        self._save_binary_media_file(data, dest_path)
         return dest_path, dest_path.as_uri()
 
     def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
@@ -302,7 +282,7 @@ class TempStore:
 
     @classmethod
     def save_media_object(
-        cls, data: bytes | PIL.Image.Image, tbl_id: UUID, col_id: int, tbl_version: int, format: str | None
+        cls, data: bytes, tbl_id: UUID, col_id: int, tbl_version: int, format: str | None
     ) -> tuple[Path, str]:
         return LocalStore(cls._tmp_dir()).save_media_object(data, tbl_id, col_id, tbl_version, format)
 

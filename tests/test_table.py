@@ -1,5 +1,6 @@
 import datetime
 import enum
+import errno
 import json
 import math
 import os
@@ -3636,17 +3637,11 @@ class TestTable:
             .order_by(t.id)
             .collect()
         )
-        assert res[0] == {
-            'hero': None,
-            'hero_w': None,
-            'hero_md': None,
-            'hero_a': None,
-            'err_type': 'RequestError',
-            'err_msg': msg,
-            'w_msg': msg,
-            'md_msg': msg,
-            'a_msg': msg,
-        }
+        empty_row = res[0]
+        msgs = [empty_row.pop(key) for key in ['err_msg', 'w_msg', 'md_msg', 'a_msg']]
+        assert empty_row == {'hero': None, 'hero_w': None, 'hero_md': None, 'hero_a': None, 'err_type': 'RequestError'}
+        # Pillow 10.3 appends ' as JPEG' to the message
+        assert all(m.startswith(msg) for m in msgs)
         assert res[1]['hero'].size == (100, 100)
         assert res[1]['hero_w'] == 100
         assert res[1]['hero_md']['width'] == 100
@@ -3689,7 +3684,10 @@ class TestTable:
             .order_by(t.id)
             .collect()
         )
-        assert res[0] == {'img': None, 'img_md': None, 'img_a': None, 'err_msg': msg, 'md_msg': msg, 'a_msg': msg}
+        empty_row = res[0]
+        msgs = [empty_row.pop(key) for key in ['err_msg', 'md_msg', 'a_msg']]
+        assert empty_row == {'img': None, 'img_md': None, 'img_a': None}
+        assert all(m.startswith(msg) for m in msgs)
         assert res[1]['img'].size == (8, 8)
         assert res[1]['img_md'] == {'width': 8, 'height': 8, 'mode': 'RGB', 'bits': None, 'format': None}
         assert np.array_equal(res[1]['img_a'], np.full((3, 4), 8))
@@ -3704,22 +3702,44 @@ class TestTable:
         # no insert leaves a partial file in the TempStore
         check_temp_store_count(t, tmp_count, db_root)
 
+    @pytest.mark.db_roots('local', reason='monkeypatches os.fsync in-process')
+    def test_temp_store_write_failure(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A failed TempStore write aborts the insert or, with on_error='ignore', is a cell error."""
+        t = pxt.create_table(db_root.make_catalog_path('test_temp_write'), {'img': pxt.Image})
+        tmp_count = get_temp_store_count(t, db_root)
+
+        def fail_fsync(fd: int) -> None:
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+        monkeypatch.setattr(os, 'fsync', fail_fsync)
+        msg = "Error while saving column 'img': [Errno 28] No space left on device"
+        with pxt_raises(pxt.ErrorCode.STORE_UNAVAILABLE, match=re.escape(msg)):
+            t.insert(img=PIL.Image.new('RGB', (8, 8)))
+        status = t.insert(img=PIL.Image.new('RGB', (8, 8)), on_error='ignore')
+        assert status.num_excs == 1
+        res = t.select(t.img, err_type=t.img.errortype, err_msg=t.img.errormsg).collect()
+        assert res[0] == {'img': None, 'err_type': 'ServiceUnavailableError', 'err_msg': msg}
+        check_temp_store_count(t, tmp_count, db_root)
+
     def test_image_modes(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
         """Computed, inserted and queried images keep their mode, and their pixels when stored losslessly."""
         p = db_root.make_catalog_path
         img_file = get_image_files()[0]
         lossy_modes = {'l': 'L', 'rgb': 'RGB', 'cmyk': 'CMYK'}
-        lossless_modes = {'p': 'P', 'i': 'I', 'f': 'F', 'i16': 'I;16', 'i16b': 'I;16B', 'lab': 'LAB'}
+        lossless_modes = {'bw': '1', 'p': 'P', 'i': 'I', 'f': 'F', 'i16': 'I;16', 'i16b': 'I;16B', 'lab': 'LAB'}
         stored_modes = lossy_modes | lossless_modes
         queried_modes = stored_modes | {'pa': 'PA', 'hsv': 'HSV'}
+        # img_file is grayscale, and Pillow 10.3 cannot convert L to LAB
         with PIL.Image.open(img_file) as src:
-            expected = {col_name: src.convert(mode) for col_name, mode in queried_modes.items()}
+            rgb_src = src.convert('RGB')
+        expected = {col_name: rgb_src.convert(mode) for col_name, mode in queried_modes.items()}
 
         schema = {'img': pxt.Image} | {f'{col_name}_in': pxt.Image for col_name in stored_modes}
         t = pxt.create_table(p('test_image_modes'), schema)
+        rgb = t.img.convert('RGB')
         for col_name, mode in stored_modes.items():
-            t.add_computed_column(**{col_name: t.img.convert(mode)})
-        t.add_computed_column(j={'p': t.img.convert('P'), 'f': t.img.convert('F')})
+            t.add_computed_column(**{col_name: rgb.convert(mode)})
+        t.add_computed_column(j={'p': rgb.convert('P'), 'f': rgb.convert('F')})
         values = {f'{col_name}_in': expected[col_name] for col_name in stored_modes}
         t.insert([{'img': sample_file_server.url(img_file, db_root), **values}])
 
@@ -3734,7 +3754,7 @@ class TestTable:
             assert np.array_equal(np.asarray(row['j'][key]), np.asarray(expected[key]))
 
         # a query result is not saved, so it keeps its pixels in every mode
-        row = t.select(**{col_name: t.img.convert(mode) for col_name, mode in queried_modes.items()}).collect()[0]
+        row = t.select(**{col_name: rgb.convert(mode) for col_name, mode in queried_modes.items()}).collect()[0]
         for col_name, mode in queried_modes.items():
             assert row[col_name].mode == mode
             assert np.array_equal(np.asarray(row[col_name]), np.asarray(expected[col_name]))

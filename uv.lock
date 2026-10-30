@@ -6099,7 +6099,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.2.3" },
     { name = "pathspec", specifier = ">=0.10.2" },
     { name = "pgvector", specifier = ">=0.4.0" },
-    { name = "pillow", specifier = ">=10.1" },
+    { name = "pillow", specifier = ">=10.3" },
     { name = "pillow-heif", specifier = ">=0.15.0" },
     { name = "pixeltable-pgserver", specifier = "==0.7.1" },
     { name = "psutil", specifier = ">=5.9" },

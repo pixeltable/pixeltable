@@ -175,10 +175,16 @@ class ObjectStoreSaveNode(ExecNode):
                 self.ready_rows.extend([None] * (idx - len(self.ready_rows) + 1))
             self.ready_rows[idx] = row
 
-    def __handle_save_error(self, row: exprs.DataRow, slot_idx: int, err: excs.Error, cause: Exception) -> None:
+    def __handle_save_error(self, row: exprs.DataRow, info: exprs.ColumnSlotIdx, exc: Exception) -> None:
+        msg = f'Error while saving column {info.col.name!r}: {exc}'
+        err = (
+            exc.with_message(msg)
+            if isinstance(exc, excs.Error)
+            else excs.ServiceUnavailableError(excs.ErrorCode.STORE_UNAVAILABLE, msg)
+        )
         if not self.ctx.ignore_errors:
-            raise err from cause
-        self.row_builder.set_exc(row, slot_idx, err)
+            raise err from exc
+        self.row_builder.set_exc(row, info.slot_idx, err)
 
     def __process_completions(self, done: set[futures.Future]) -> None:
         from pixeltable.utils.local_store import TempStore
@@ -202,13 +208,7 @@ class ObjectStoreSaveNode(ExecNode):
             # add the local path/exception to the slots that reference the url
             for row, info in work_items:
                 if exc is not None:
-                    msg = f'Error while saving column {info.col.name!r}: {exc}'
-                    err = (
-                        exc.with_message(msg)
-                        if isinstance(exc, excs.Error)
-                        else excs.ServiceUnavailableError(excs.ErrorCode.STORE_UNAVAILABLE, msg)
-                    )
-                    self.__handle_save_error(row, info.slot_idx, err, exc)
+                    self.__handle_save_error(row, info, exc)
                 else:
                     row.file_urls[info.slot_idx] = new_file_url
 
@@ -244,10 +244,7 @@ class ObjectStoreSaveNode(ExecNode):
                     with telemetry.span('pixeltable.media.encode', level=telemetry.DEBUG):
                         row.file_urls[index] = row.save_media_to_temp(index, col)
                 except Exception as e:
-                    err = excs.RequestError(
-                        excs.ErrorCode.INVALID_DATA_FORMAT, f'Error while saving column {col.name!r}: {e}'
-                    )
-                    self.__handle_save_error(row, index, err, e)
+                    self.__handle_save_error(row, info, e)
                     continue
 
             url = row.file_urls[index]
