@@ -1,13 +1,22 @@
 # mypy: disable-error-code="misc"
 
 
+import warnings
+from typing import TypedDict
+
 import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
 from ..conftest import SampleFileServer
-from ..utils import pxt_raises, rerun_on_network_error, skip_test_if_no_config, skip_test_if_not_installed
+from ..utils import (
+    pxt_raises,
+    reload_catalog,
+    rerun_on_network_error,
+    skip_test_if_no_config,
+    skip_test_if_not_installed,
+)
 
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
@@ -316,20 +325,21 @@ class TestJson:
         assert rs.schema['o'] == 'Json | None'  # items() never carries key/value type information
         assert {r['id']: r['o'] for r in rs} == {1: [['a', 1], ['b', 2]], 2: [], 3: None}
 
-        # values() over a typed object schema: the common supertype of the value types for a homogeneous object,
-        # Json when the value types have no common supertype
+        # values() over a typed object schema: the result isn't typed by the declared value types, since a value of an
+        # open schema may also have keys that the schema doesn't declare. An insert rejects them, but a cast doesn't.
         tv = pxt.create_table(
             'json_values_typed',
             {
                 'homog': pxt.Json[{'a': pxt.Int, 'b': pxt.Int}] | None,
                 'hetero': pxt.Json[{'a': pxt.Int, 'b': pxt.String}] | None,
+                'raw': pxt.Json | None,
             },
         )
-        tv.insert([{'homog': {'a': 1, 'b': 2}, 'hetero': {'a': 1, 'b': 'x'}}])
-        rs = tv.select(homog=tv.homog.values(), hetero=tv.hetero.values()).collect()
-        assert rs.schema == {'homog': 'Json[(Int, ...)] | None', 'hetero': 'Json[(Json, ...)] | None'}
-        assert rs[0]['homog'] == [1, 2]
-        assert rs[0]['hetero'] == [1, 'x']
+        tv.insert([{'homog': {'a': 1, 'b': 2}, 'hetero': {'a': 1, 'b': 'x'}, 'raw': {'a': 1, 'b': 2, 'c': 'z'}}])
+        as_homog = tv.raw.astype(pxt.Json[{'a': pxt.Int, 'b': pxt.Int}] | None)
+        rs = tv.select(homog=tv.homog.values(), hetero=tv.hetero.values(), cast=as_homog.values()).collect()
+        assert rs.schema == {'homog': 'Json | None', 'hetero': 'Json | None', 'cast': 'Json | None'}
+        assert rs[0] == {'homog': [1, 2], 'hetero': [1, 'x'], 'cast': [1, 2, 'z']}
 
         # keys(), values() and items() are only defined for an object
         te = pxt.create_table('json_obj_err', {'j': pxt.Json | None})
@@ -473,6 +483,45 @@ class TestJson:
         res = t.select(m=t.da.merge(t.db)).collect()
         assert res.schema['m'] == "Json[{'a': String, 'b': String}] | None"
         assert res['m'] == [{'a': 'z', 'b': 'y'}]
+
+        # Either operand may have keys its schema doesn't declare, and the right operand wins, so the result declares
+        # a key that the right operand makes optional only if the left operand declares it too ('a' but not 'b'),
+        # and leaves undeclared a key that only the left operand declares ('c'). An insert rejects undeclared keys,
+        # but a cast doesn't (the second row).
+        class Overrides(TypedDict, total=False):
+            a: int
+            b: str
+
+        to = pxt.create_table(
+            'json_merge_opt',
+            {'id': pxt.Int, 'da': pxt.Json[{'a': pxt.Int, 'c': pxt.Int}] | None, 'db': pxt.Json | None},
+        )
+        to.insert(
+            [
+                {'id': 1, 'da': {'a': 1, 'c': 3}, 'db': {'b': 'y'}},
+                {'id': 2, 'da': {'a': 1, 'c': 3}, 'db': {'a': 2, 'c': 'x'}},
+            ]
+        )
+        res = to.select(m=to.da.merge(to.db.astype(Overrides))).order_by(to.id).collect()
+        assert res.schema['m'] == "Json[{'a': Int}] | None"
+        assert res['m'] == [{'a': 1, 'b': 'y', 'c': 3}, {'a': 2, 'c': 'x'}]
+
+        # A literal has a closed schema, so as the right operand it can't override the keys that only the left operand
+        # declares. The result is closed only if both operands are.
+        res = to.select(m=to.da.merge({'b': 'w'})).collect()
+        assert res.schema['m'] == "Json[{'a': Int, 'c': Int, 'b': String}] | None"
+        assert res['m'] == [{'a': 1, 'c': 3, 'b': 'w'}] * 2
+        res = to.select(m=pxtf.json.merge({'a': 1, 'c': 2}, {'a': 'x'})).collect()
+        assert res.schema['m'] == "Json[{'a': String, 'c': Int}, closed=True] | None"
+        assert res['m'] == [{'a': 'x', 'c': 2}] * 2
+
+        # a closed return type is stored, so a computed column that depends on one stays valid after a reload
+        to.add_computed_column(nested=to.da.merge(pxtf.json.merge({'a': 1}, {'b': 2})))
+        reload_catalog()
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', pxt.PixeltableWarning)
+            to = pxt.get_table('json_merge_opt')
+        assert to.select(to.nested).collect()['nested'] == [{'a': 1, 'b': 2, 'c': 3}] * 2
 
         # a null operand yields null; a non-null, non-object operand raises
         tn = pxt.create_table('json_merge_err', {'a': pxt.Json | None, 'b': pxt.Json | None})

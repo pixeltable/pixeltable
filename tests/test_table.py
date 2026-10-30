@@ -2395,11 +2395,62 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"missing required key: 'b'"):
             t.insert(json_col_1={'a': 'apples'})  # Missing required field
 
+        # Dict schemas are closed on insert and update: keys the schema doesn't declare are rejected
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"unexpected key: 'e'"):
+            t.insert(json_col_1={'a': 'apples', 'b': 1, 'c': 3.0, 'd': True, 'e': 'extra'})
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"unexpected key: 'z'"):
+            t.insert(json_col_2={'z': None})
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH,
+            match=r"The literal value.*is not compatible with the type.*of column 'json_col_2'",
+        ):
+            t.update({'json_col_2': {'a': 'mangoes', 'z': 1}})
+
         with pxt_raises(
             pxt.ErrorCode.TYPE_MISMATCH,
             match=r"The literal value.*is not compatible with the type.*of column 'json_col_2'",
         ):
             t.update({'json_col_2': {'a': 15}})  # Validation error on update
+
+    def test_update_json_expr(self, db_root: DatabaseRoot) -> None:
+        # An update expression's values aren't validated, so its type may declare no keys that the column's doesn't
+        class Schema(TypedDict, total=False):
+            a: str
+            b: int
+
+        t = pxt.create_table(db_root.make_catalog_path('test'), {'s': pxt.String, 'j': Schema | None})
+        t.insert(s='x')
+        t.update({'j': {'a': t.s}})  # omitting an optional key is fine
+        assert t.collect()['j'] == [{'a': 'x'}]
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"is not compatible with the type.*of column 'j'"):
+            t.update({'j': {'a': t.s, 'z': t.s}})
+
+    def test_insert_pydantic_json(self, db_root: DatabaseRoot) -> None:
+        # A nested model's values have exactly its fields, so it fits a dict schema that declares more, as optional
+        class Schema(TypedDict, total=False):
+            a: int
+            b: str
+
+        class Inner(pydantic.BaseModel):
+            a: int
+
+        class Row(pydantic.BaseModel):
+            meta: Inner
+
+        t = pxt.create_table(db_root.make_catalog_path('test'), {'meta': Schema})
+        t.insert([Row(meta=Inner(a=1))])
+        assert t.collect()['meta'] == [{'a': 1}]
+
+        # but not one whose fields the schema doesn't declare
+        class Inner2(pydantic.BaseModel):
+            a: int
+            z: int
+
+        class Row2(pydantic.BaseModel):
+            meta: Inner2
+
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"has incompatible type `Inner2` for column 'meta'"):
+            t.insert([Row2(meta=Inner2(a=1, z=2))])
 
     def test_validate_image(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
