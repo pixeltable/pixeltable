@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Mapping, TypeVar
 from uuid import UUID
 
 from pixeltable.env import Env
@@ -25,6 +25,9 @@ if TYPE_CHECKING:
     from .table import Table
     from .table_path import TablePath
     from .types import TableVersionMd
+
+
+T = TypeVar('T')
 
 
 class CatalogProxy(CatalogBase):
@@ -181,6 +184,10 @@ class CatalogProxy(CatalogBase):
             'get_dir_contents',
             {'dir_path': dir_path, 'recursive': recursive, 'with_error_counts': with_error_counts},
         )
+
+    def run_read(self, op: Callable[[], T]) -> T:
+        # each read is a request the daemon answers in a transaction of its own
+        return op()
 
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
         return self.client.send_request(

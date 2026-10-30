@@ -323,6 +323,7 @@ class Runtime:
 
         if not self.in_xact:
             assert self.session is None
+            Env.get().connect()
             try:
                 self.isolation_level = isolation_level or _XACT_ISOLATION_LEVEL
                 with (

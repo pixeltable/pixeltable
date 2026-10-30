@@ -304,6 +304,17 @@ class TestDbConnectStr:
         _reset_env(reinit=False, db_name=None)
 
 
+class TestTimeZone:
+    def test_unknown_zone_rejected(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv('PIXELTABLE_TIME_ZONE', 'Mars/Olympus_Mons')
+        reset_runtime()
+        Config.init(reinit=True)
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match="'Mars/Olympus_Mons'"):
+            Env._init_env(reinit_db=False)
+        monkeypatch.undo()
+        _reset_env(reinit=False, db_name=None)
+
+
 class TestPgdataDir:
     def test_pgdata_dir(self, uses_db: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """The embedded server runs in PIXELTABLE_PGDATA unless a config override names another directory."""

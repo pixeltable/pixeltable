@@ -375,8 +375,9 @@ class Catalog(CatalogBase):
         finally:
             self._tbl_md_read_allowed = False
 
+    @classmethod
     @contextmanager
-    def freeze(self) -> Iterator[None]:
+    def freeze(cls) -> Iterator[None]:
         """Prevent write transactions in this thread.
 
         Unaffected: reads and writes from other threads.
@@ -386,6 +387,9 @@ class Catalog(CatalogBase):
             yield
         finally:
             _frozen.reset(token)
+
+    def run_read(self, op: Callable[[], T]) -> T:
+        return retry_loop(for_write=False)(op)()
 
     @contextmanager
     def begin_xact(
