@@ -1,6 +1,6 @@
 ---
 title: 'Ecosystem'
-description: 'Built-in AI provider integrations as computed columns'
+description: 'AI provider computed columns, an Agno cookbook if you already run Agno, and observability traces'
 ---
 
 Each AI provider is a function you assign as a computed column on a `TableModel`. Create the table with `pxt schema update`. In notebooks you can still call `add_computed_column()`. Each provider page lists its API key and optional extras.
@@ -52,7 +52,7 @@ class Articles(TableModel, name='articles'):
   <Card
     title="Azure OpenAI"
     icon="microsoft"
-    href="/howto/providers/working-with-openai"
+    href="/howto/providers/working-with-openai#azure-openai"
   >
     OpenAI models via Azure
   </Card>
@@ -287,11 +287,35 @@ Platforms that host or route many models from a shared catalog.
   Import and export pandas DataFrames. Do not use pandas as the database that holds your app data.
 </Card>
 
+## Agent frameworks
+
+Already on Agno? Keep it. The cookbook stores the agent's knowledge through the `langchain-pixeltable` adapter, which creates the table and its index on first insert. Each run drops `agno_rag/docs` first, so any data already in that table is deleted. A new Pixeltable app declares its embedding index on a `TableModel` instead ([embedding indexes](/platform/embedding-indexes)).
+
+<Card
+  title="Agno"
+  icon="robot"
+  href="https://github.com/agno-agi/agno/blob/main/cookbook/07_knowledge/05_integrations/rag/local_rag_langchain_pixeltable.py"
+>
+  Local RAG: an Agno agent searches a Pixeltable embedding index through langchain-pixeltable
+</Card>
+
 ## Observability
 
 <CardGroup cols={2}>
   <Card title="Langfuse" icon="chart-line" href="/integrations/langfuse">
     Trace operations, UDF calls, and LLM generations
+  </Card>
+  <Card title="Arize Phoenix" icon="eye" href="/integrations/phoenix">
+    Trace operations, UDF calls, and LLM spans in Phoenix
+  </Card>
+  <Card title="Pydantic Logfire" icon="fire" href="/integrations/logfire">
+    Trace operations, UDF calls, and OpenAI calls in Logfire
+  </Card>
+  <Card title="SigNoz" icon="chart-area" href="/integrations/signoz">
+    Trace operations, UDF calls, and LLM spans in SigNoz
+  </Card>
+  <Card title="Opik" icon="magnifying-glass-chart" href="/integrations/opik">
+    Trace operations, UDF calls, and LLM spans in Opik
   </Card>
   <Card title="OpenTelemetry" icon="gauge" href="/platform/observability">
     Export spans and metrics from the OpenTelemetry bridge

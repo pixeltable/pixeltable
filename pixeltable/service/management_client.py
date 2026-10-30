@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import dataclasses
 import http.client
+import math
 from pathlib import Path
 from typing import Any, Final, Literal
 
@@ -271,7 +272,17 @@ def api_call(request: Any, credential: Credential | None = None) -> dict[str, An
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
             f'Management API error {resp.status_code}: {resp.text}',
+            retry_after=retry_after_seconds(resp),
             provider='pixeltable_cloud',
             status_code=resp.status_code,
         )
     return resp.json()
+
+
+def retry_after_seconds(resp: requests.Response) -> float | None:
+    """Seconds from Retry-After, or None when the header is missing or not a finite number >= 0."""
+    try:
+        seconds = float(resp.headers['Retry-After'])
+    except (KeyError, ValueError):
+        return None
+    return seconds if 0 <= seconds < math.inf else None

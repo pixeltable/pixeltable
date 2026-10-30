@@ -18,7 +18,7 @@ Hosted Cloud tables write media to their managed `pxt://org:db/buckets/home` sto
     GCS buckets with gs:// URI scheme
   </Card>
   <Card title="Azure Blob Storage" icon="microsoft">
-    Azure containers with wasb:// or abfs:// schemes
+    Azure containers with wasb[s]:// or abfs[s]:// URIs
   </Card>
   <Card title="Cloudflare R2" icon="cloudflare">
     S3-compatible storage with zero egress fees
@@ -46,7 +46,7 @@ When you configure a storage destination, Pixeltable automatically:
 |---|---|
 | Hosted Cloud tables and services | Nothing. The database already writes to `pxt://org:db/buckets/home`. |
 | Local Pixeltable against that Cloud home bucket | `pxt login` or `PIXELTABLE_API_KEY` (API Keys, then export), plus `PIXELTABLE_INPUT_MEDIA_DEST` / `PIXELTABLE_OUTPUT_MEDIA_DEST` pointing at the `pxt://org:db/buckets/home` URI. |
-| Your own S3 / GCS / Azure bucket | Provider keys in [Secrets](https://www.pixeltable.com/dashboard) or `pxt secret`, and those dest env vars pointing at `s3://`, `gs://`, or `wasbs://`. |
+| Your own S3 / GCS / Azure bucket | Provider keys in [Secrets](https://www.pixeltable.com/dashboard) or `pxt secret`, and those dest env vars pointing at `s3://`, `gs://`, `wasb[s]://`, or `abfs[s]://`. |
 
 Pixeltable reaches the home bucket with either credential: a `pxt login` session or an API key ([Signing in](/platform/cli#signing-in)). The key can also be `api_key` in the `[pixeltable]` section of the Pixeltable config file; `PIXELTABLE_API_KEY` wins when both are set, and either one outranks a `pxt login` session. Hosted pods get their own worker key from the platform; you do not set it.
 
@@ -130,7 +130,7 @@ Destinations are resolved in this order:
 
 ### Pixeltable Cloud (home bucket)
 
-A Pixeltable Cloud database comes with a managed Media Store at `pxt://org:db/buckets/home`. Hosted tables and services write there automatically. No destination, no provider account, no credentials file. Cloud is in Limited Beta: email [contact@pixeltable.com](mailto:contact@pixeltable.com) to get an account.
+A Pixeltable Cloud database comes with a managed Media Store at `pxt://org:db/buckets/home`. Hosted tables and services write there automatically. No destination, no provider account, no credentials file. To set up a Cloud database, follow [Pixeltable Cloud](/cloud).
 
 Use dest plus a credential only when a **local** Pixeltable process should write into that same bucket:
 
@@ -216,10 +216,11 @@ https://www.pixeltable.com/dashboard/{org-slug}/{db-slug}/storage/home/browse
 
 <Tabs>
   <Tab title="URI Formats">
-    Azure supports multiple URI schemes:
+    Azure accepts these URIs:
     ```
-    wasbs://container@account.blob.core.windows.net/prefix/
-    abfss://container@account.dfs.core.windows.net/prefix/
+    wasb[s]://container@account.blob.core.windows.net/prefix/
+    abfs[s]://container@account.dfs.core.windows.net/prefix/
+    https://account.blob.core.windows.net/container/prefix/
     ```
   </Tab>
   <Tab title="Authentication">

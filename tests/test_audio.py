@@ -18,6 +18,7 @@ from .utils import (
     ReloadTester,
     check_media_store_count,
     check_temp_store_count,
+    generate_tone_audio,
     get_audio_file,
     get_audio_files,
     get_temp_store_count,
@@ -133,8 +134,8 @@ class TestAudio:
         # get_metadata() returns correct type information
         expr = base_t.audio.get_metadata().streams[0].duration_seconds
         assert expr.col_type.is_float_type()
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="cannot resolve 'not_an_attr'"):
-            _ = base_t.audio.get_metadata().streams[0].not_an_attr
+        # metadata dicts are open, so a key that the schema doesn't declare resolves to untyped Json
+        assert repr(base_t.audio.get_metadata().streams[0].not_an_attr.col_type) == 'Json | None'
 
     def __has_audio(self, path: str) -> bool:
         with av.open(path) as container:
@@ -679,6 +680,23 @@ class TestAudio:
         for bad_duration in (0, -1.0):
             with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`duration` must be positive'):
                 t.select(make_expr(t.audio, bad_duration)).collect()
+
+    def __rms(self, samples: np.ndarray) -> float:
+        return float(np.sqrt(np.mean(samples.astype(np.float64) ** 2)))
+
+    @pytest.mark.db_roots('local', reason='pure UDF test')
+    def test_fade_out_start_offset(self, uses_db: None, tmp_path: Path) -> None:
+        # 2 s tones starting at 0.5 s; both Matroska files record the end time as DURATION
+        paths = [generate_tone_audio(tmp_path, extension, start_time=0.5) for extension in ('mka', 'webm')]
+        t = pxt.create_table('test_audio', {'audio': pxt.Audio | None})
+        validate_update_status(t.insert({'audio': p} for p in paths), expected_rows=len(paths))
+        t.add_computed_column(faded=t.audio.fade_out(duration=1.0))
+        for path in t.select(t.faded).collect()['faded']:
+            with av.open(path) as c:
+                sample_rate = c.streams.audio[0].rate
+                samples = np.concatenate([frame.to_ndarray().reshape(-1) for frame in c.decode(audio=0)])
+            # the end of the clip is silent; the first 0.5 s precede the fade
+            assert self.__rms(samples[-sample_rate // 20 :]) < 0.1 * self.__rms(samples[: sample_rate // 2])
 
     @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_encode_audio_errors(self, uses_db: None) -> None:

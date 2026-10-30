@@ -95,6 +95,13 @@ def embed_or_raise(text: str) -> pxt.Array[(4,), np.float32]:
     return np.ones(4, dtype=np.float32)
 
 
+@pxt.udf
+def provider_fails(x: int) -> int:
+    raise pxt.ExternalServiceError(
+        pxt.ErrorCode.PROVIDER_ERROR, provider='gemini', status_code=500, provider_error_code='X', retry_after=3
+    )
+
+
 class TestTable:
     # exc for a % 10 == 0
     @staticmethod
@@ -2388,11 +2395,62 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"missing required key: 'b'"):
             t.insert(json_col_1={'a': 'apples'})  # Missing required field
 
+        # Dict schemas are closed on insert and update: keys the schema doesn't declare are rejected
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"unexpected key: 'e'"):
+            t.insert(json_col_1={'a': 'apples', 'b': 1, 'c': 3.0, 'd': True, 'e': 'extra'})
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"unexpected key: 'z'"):
+            t.insert(json_col_2={'z': None})
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH,
+            match=r"The literal value.*is not compatible with the type.*of column 'json_col_2'",
+        ):
+            t.update({'json_col_2': {'a': 'mangoes', 'z': 1}})
+
         with pxt_raises(
             pxt.ErrorCode.TYPE_MISMATCH,
             match=r"The literal value.*is not compatible with the type.*of column 'json_col_2'",
         ):
             t.update({'json_col_2': {'a': 15}})  # Validation error on update
+
+    def test_update_json_expr(self, db_root: DatabaseRoot) -> None:
+        # An update expression's values aren't validated, so its type may declare no keys that the column's doesn't
+        class Schema(TypedDict, total=False):
+            a: str
+            b: int
+
+        t = pxt.create_table(db_root.make_catalog_path('test'), {'s': pxt.String, 'j': Schema | None})
+        t.insert(s='x')
+        t.update({'j': {'a': t.s}})  # omitting an optional key is fine
+        assert t.collect()['j'] == [{'a': 'x'}]
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"is not compatible with the type.*of column 'j'"):
+            t.update({'j': {'a': t.s, 'z': t.s}})
+
+    def test_insert_pydantic_json(self, db_root: DatabaseRoot) -> None:
+        # A nested model's values have exactly its fields, so it fits a dict schema that declares more, as optional
+        class Schema(TypedDict, total=False):
+            a: int
+            b: str
+
+        class Inner(pydantic.BaseModel):
+            a: int
+
+        class Row(pydantic.BaseModel):
+            meta: Inner
+
+        t = pxt.create_table(db_root.make_catalog_path('test'), {'meta': Schema})
+        t.insert([Row(meta=Inner(a=1))])
+        assert t.collect()['meta'] == [{'a': 1}]
+
+        # but not one whose fields the schema doesn't declare
+        class Inner2(pydantic.BaseModel):
+            a: int
+            z: int
+
+        class Row2(pydantic.BaseModel):
+            meta: Inner2
+
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"has incompatible type `Inner2` for column 'meta'"):
+            t.insert([Row2(meta=Inner2(a=1, z=2))])
 
     def test_validate_image(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
@@ -3521,6 +3579,16 @@ class TestTable:
         msgs = t.select(msg=t.add1.errormsg).collect()['msg']
         assert sum('division by zero' in msg for msg in msgs if msg is not None) == 10
 
+    def test_computed_col_error_keeps_its_fields(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(db_root.make_catalog_path('test'), {'x': pxt.Int})
+        t.add_computed_column(y=provider_fails(t.x))
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match=r'In row 0 the expression provider_fails\(x\)') as exc:
+            t.insert(x=1)
+        err = exc.value
+        assert isinstance(err, pxt.ExternalServiceError)
+        assert (err.provider, err.provider_http_status_code, err.provider_error_code) == ('gemini', 500, 'X')
+        assert err.retry_after == 3
+
     # TODO: cannot be converted: KeyboardInterrupt injection is client-process-local and does not reach the daemon
     @pytest.mark.db_roots(
         'local', reason='KeyboardInterrupt injection is client-process-local and does not reach the daemon'
@@ -3614,6 +3682,14 @@ class TestTable:
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
         _ = new_t.collect()
+
+        # an aggregate function outside a window has no value per row
+        match = 'aggregate functions are not supported in computed columns'
+        for value, stored in ((pxtf.sum(t.c2), True), (pxtf.sum(t.c2), False), (pxtf.sum(t.c2) + 1, True)):
+            with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=match):
+                t.add_computed_column(total=value, stored=stored)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=match):
+            t.alter_computed_column(c9=pxtf.sum(t.c2), recompute=False)
 
     def test_revert(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

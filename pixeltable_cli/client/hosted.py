@@ -7,7 +7,9 @@ import contextlib
 import datetime
 import hashlib
 import json
+import signal
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -30,6 +32,8 @@ from .utils import (
 RECEIPT_POLL_INTERVAL = 5.0
 RECEIPT_WAIT_TIMEOUT = 3 * 3600.0
 EXIT_INTERRUPTED = 130
+EXIT_TERMINATED = 143  # 128 + SIGTERM's 15
+_PLAIN_PROGRESS_INTERVAL = 60.0  # without a terminal, a wait prints a line at least this often; in seconds
 
 _ENDPOINT_TIMEOUT = 60.0
 _ENDPOINT_PROBE_TIMEOUT = 10.0
@@ -259,27 +263,107 @@ def print_org(org: dict[str, Any]) -> None:
 
 @contextlib.contextmanager
 def spinner(label: str | None) -> Iterator[Callable[[str], None]]:
-    """Display a transient progress spinner showing label for the duration of the block; None displays nothing.
+    """Display a transient spinner on stderr showing label for the duration of the block, on a terminal only; None
+    displays nothing.
 
     Yields a function that replaces the label.
     """
-    if label is None:
+    if label is None or not _stderr_is_a_terminal():
         yield lambda _: None
         return
 
     # imported lazily: rich is a heavy import, and a poll without a label never reaches this
+    from rich.console import Console
     from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
     with Progress(
         SpinnerColumn(),
         TextColumn('[progress.description]{task.description}'),
         TimeElapsedColumn(),
+        console=Console(stderr=True),
         transient=True,
         redirect_stdout=False,
         redirect_stderr=False,
     ) as progress:
         task = progress.add_task(label, total=None)
         yield lambda text: progress.update(task, description=text)
+
+
+def _stderr_is_a_terminal() -> bool:
+    try:
+        return sys.stderr.isatty()
+    except (AttributeError, ValueError):  # replaced by an object without isatty(), or closed
+        return False
+
+
+@contextlib.contextmanager
+def _wait_progress(label: str) -> Iterator[Callable[[str], None]]:
+    """The progress of a wait that can run for minutes, on stderr: the spinner on a terminal; otherwise a line at each
+    change of label and every _PLAIN_PROGRESS_INTERVAL seconds, from a thread of its own, so that a poll that blocks
+    does not silence it. Yields a function that replaces the label.
+    """
+    if _stderr_is_a_terminal():
+        with spinner(label) as set_spinner_label:
+            yield set_spinner_label
+        return
+
+    start = time.monotonic()
+    lock = threading.Lock()
+    shown = [label]  # the label printed last
+    stop = threading.Event()
+
+    def print_line() -> None:
+        elapsed = int(time.monotonic() - start)
+        line = f'{shown[0].removesuffix(" ...")}  {elapsed // 3600}:{elapsed // 60 % 60:02d}:{elapsed % 60:02d}'
+        print(line, file=sys.stderr, flush=True)
+
+    def set_label(text: str) -> None:
+        with lock:
+            if text != shown[0]:
+                shown[0] = text
+                print_line()
+
+    def heartbeat() -> None:
+        while not stop.wait(_PLAIN_PROGRESS_INTERVAL):
+            with lock:
+                print_line()
+
+    with lock:
+        print_line()
+    thread = threading.Thread(target=heartbeat, name='pxt-wait-progress', daemon=True)
+    thread.start()
+    try:
+        yield set_label
+    finally:
+        stop.set()
+        thread.join()
+
+
+class _Terminated(BaseException):
+    """Raised by SIGTERM during a wait, so that it stops as Ctrl-C does."""
+
+
+@contextlib.contextmanager
+def _stopped_by_user(status_command: str) -> Iterator[None]:
+    """Ctrl-C or SIGTERM during the block stops only the waiting: it says the change continues and names
+    status_command, and exits 130 or 143."""
+
+    def raise_terminated(signum: int, frame: Any) -> None:
+        raise _Terminated
+
+    try:
+        previous = signal.signal(signal.SIGTERM, raise_terminated)
+    except ValueError:  # not the main thread, which alone may set a handler
+        previous = None
+    try:
+        yield
+    except KeyboardInterrupt:
+        _exit_stopped_waiting(status_command)
+    except _Terminated:
+        _exit_stopped_waiting(status_command, EXIT_TERMINATED)
+    finally:
+        if previous is not None:
+            signal.signal(signal.SIGTERM, previous)
 
 
 def describe_receipt(receipt: GenerationReceipt) -> str:
@@ -306,14 +390,12 @@ def print_receipt(receipt: GenerationReceipt) -> None:
         print(f'  warning: {warning}')
 
 
-def await_receipts(
-    db_uri: str, receipts: list[GenerationReceipt], *, show: bool, status_command: str
-) -> list[GenerationReceipt]:
-    """Poll receipts until each settles, showing the progress of the first unsettled one, and return them.
+def await_receipts(db_uri: str, receipts: list[GenerationReceipt], *, status_command: str) -> list[GenerationReceipt]:
+    """Poll receipts until each settles, showing the progress of the first unsettled one on stderr, and return them.
 
-    Ctrl-C and RECEIPT_WAIT_TIMEOUT only stop the waiting; the change continues in Pixeltable Cloud. The timeout
-    exits with EXIT_CHANGES_PENDING. A poll that fails transiently is retried until the timeout; any other failed
-    poll exits with EXIT_ERROR.
+    Ctrl-C, SIGTERM and RECEIPT_WAIT_TIMEOUT only stop the waiting; the change continues in Pixeltable Cloud. The
+    timeout exits with EXIT_CHANGES_PENDING. A poll that fails transiently is retried until the timeout; any other
+    failed poll exits with EXIT_ERROR.
     """
     if len(receipts) == 0:
         print('pxt: Pixeltable Cloud accepted the change without a receipt to wait on', file=sys.stderr)
@@ -321,29 +403,26 @@ def await_receipts(
     current = receipts
     poll_error: RequestFailedError | None = None
     deadline = time.monotonic() + RECEIPT_WAIT_TIMEOUT
-    try:
-        with spinner(_waiting_label(current) if show else None) as set_label:
-            while not all(r.settled for r in current) and not any(r.unsuccessful for r in current):
-                if time.monotonic() >= deadline:
-                    break
-                set_label(_waiting_label(current, poll_error))
-                time.sleep(RECEIPT_POLL_INTERVAL)
-                try:
-                    resp = post_request(
-                        '/api/receipts',
-                        {'db_uri': db_uri, 'receipts': [r.model_dump(mode='json') for r in current]},
-                        raise_on_error=True,
-                    )
-                except RequestFailedError as e:
-                    if not e.transient:
-                        e.report()
-                        _exit_stopped_waiting(status_command, EXIT_ERROR)
-                    poll_error = e
-                    continue
-                poll_error = None
-                current = models.ReceiptsResponse.model_validate(resp).receipts
-    except KeyboardInterrupt:
-        _exit_stopped_waiting(status_command)
+    with _stopped_by_user(status_command), _wait_progress(_waiting_label(current)) as set_label:
+        while not all(r.settled for r in current) and not any(r.unsuccessful for r in current):
+            if time.monotonic() >= deadline:
+                break
+            set_label(_waiting_label(current, poll_error))
+            time.sleep(RECEIPT_POLL_INTERVAL)
+            try:
+                resp = post_request(
+                    '/api/receipts',
+                    {'db_uri': db_uri, 'receipts': [r.model_dump(mode='json') for r in current]},
+                    raise_on_error=True,
+                )
+            except RequestFailedError as e:
+                if not e.transient:
+                    e.report()
+                    _exit_stopped_waiting(status_command, EXIT_ERROR)
+                poll_error = e
+                continue
+            poll_error = None
+            current = models.ReceiptsResponse.model_validate(resp).receipts
     if not all(r.settled for r in current) and not any(r.unsuccessful for r in current):
         print(
             f'pxt: still in progress after {RECEIPT_WAIT_TIMEOUT / 3600:.0f}h: '
@@ -386,10 +465,10 @@ def await_endpoint(endpoint: str, *, status_command: str) -> None:
 
     A service's receipt is observed once its pod is ready, which can be moments before the gateway routes to it;
     until then the gateway answers 502. Any status from the pod itself, including 404, means the route works. Ctrl-C
-    stops the wait as it does in await_receipts().
+    and SIGTERM stop the wait as they do in await_receipts().
     """
     deadline = time.monotonic() + _ENDPOINT_TIMEOUT
-    try:
+    with _stopped_by_user(status_command):
         while True:
             try:
                 with urllib.request.urlopen(f'{endpoint}/health', timeout=_ENDPOINT_PROBE_TIMEOUT):
@@ -403,8 +482,6 @@ def await_endpoint(endpoint: str, *, status_command: str) -> None:
                 print(f'pxt: {endpoint} did not answer within {_ENDPOINT_TIMEOUT:.0f}s', file=sys.stderr)
                 sys.exit(EXIT_ERROR)
             time.sleep(RECEIPT_POLL_INTERVAL)
-    except KeyboardInterrupt:
-        _exit_stopped_waiting(status_command)
 
 
 def _exit_stopped_waiting(status_command: str, exit_code: int = EXIT_INTERRUPTED) -> NoReturn:

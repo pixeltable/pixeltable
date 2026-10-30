@@ -2,6 +2,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import socket
 import time
@@ -789,6 +790,14 @@ class TestService:
         assert r.returncode == 3
         assert 'would stop: 1 service(s)' in r.stdout
         assert 'ingest' in get_services(cli, target)
+        # with --json, the error document, whose ops are the ones refused, since the list cannot carry its fields
+        r = cli('service', 'prune', str(app_file), target, '--json', check=False)
+        assert r.returncode == 3
+        assert r.json['error_code'] == 'CONFIRMATION_REQUIRED'
+        assert [(op['name'], op['status']) for op in r.json['ops']] == [('ingest', 'refused')]
+        assert [step['command'] for step in r.json['next']] == [
+            shlex.join(next_command) for next_command in r.next_commands
+        ]
 
         r = cli('service', 'prune', str(app_file), target, '-f', '--json')
         assert [(op['name'], op['status']) for op in r.json] == [('ingest', 'applied')]
@@ -874,16 +883,24 @@ class TestService:
         assert r.returncode == 2
         assert [s['resolution'] for s in r.json['services']] == ['blocked']
         blocked = [op for s in r.json['services'] for op in s['ops'] if op['severity'] == 'blocked']
-        assert [op['details']['command'] for op in blocked] == [f'pxt schema update {app} {target}']
+        # shell-quoted, since it is run as given; a Windows path's backslashes are quoted too
+        assert [op['details']['command'] for op in blocked] == [shlex.join(['pxt', 'schema', 'update', app, target])]
         assert "'notes'" in blocked[0]['description'], blocked[0]['description']
 
         r = cli('service', 'update', app, target, '-f', '--json', check=False)
         assert r.returncode == EXIT_ERROR
         assert [s['status'] for s in r.json['services']] == ['refused']
         assert get_services(cli, target) == {}
+        # the plan carries PLAN_BLOCKED, and stdout and stderr name the same command
+        assert r.json['error_code'] == 'PLAN_BLOCKED'
+        assert (
+            r.next_commands
+            == [shlex.split(step['command']) for step in r.json['next']]
+            == [['pxt', 'schema', 'update', app, target]]
+        )
 
-        # applying the schema unblocks it
-        cli('schema', 'update', app, target)
+        # the command it names unblocks it
+        cli(*r.next_commands[0][1:])
         r = cli('service', 'diff', app, target, '--json', check=False)
         assert [s['resolution'] for s in r.json['services']] == ['create']
 
@@ -1011,10 +1028,10 @@ class TestService:
         sentences = {text.strip() for text in chunks.select(chunks.text).collect()['text']}
         rows = _post(endpoint, '/similar', needle='volcano', limit=2).json()['rows']
         assert len(rows) == 2 and {row['text'].strip() for row in rows} <= sentences, rows
-        # one_row=True refuses a query that returns more, so the limit is part of the request
-        resp = httpx.get(f'{endpoint}/similar-one', params={'needle': 'volcano', 'limit': 1}, timeout=_REQUEST_TIMEOUT)
+        # a query with limit(1) over one unnamed item returns the value itself
+        resp = httpx.get(f'{endpoint}/similar-one', params={'needle': 'volcano'}, timeout=_REQUEST_TIMEOUT)
         assert resp.status_code == 200, resp.text
-        assert resp.json()['text'].strip() in sentences, resp.json()
+        assert resp.json().strip() in sentences, resp.json()
 
     def test_custom_app(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A file supplying its own application: the router it includes is part of it, not a second service."""

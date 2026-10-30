@@ -33,6 +33,7 @@ from ..utils import (
     confirm_or_exit,
     get_request,
     post_request,
+    print_json,
     print_json_schema,
     print_next,
     refuse_destructive,
@@ -72,7 +73,7 @@ disk_gb, workers). 'diff' compares the entry against the database; 'update' appl
 Secrets are set separately, with 'pxt secret'.
 
 Pixeltable Cloud applies an accepted update, start, stop, restart, retry, image build or delete even if the
-command exits early: Ctrl-C only stops the waiting, and --no-wait returns once the change is accepted.
+command exits early: Ctrl-C or SIGTERM only stops the waiting, and --no-wait returns once the change is accepted.
 Rerunning the same update reports the change already accepted, and retries it if it failed.
 
 Exit status of diff and update: 0 in agreement, 2 changes pending, 3 refused, 1 error.
@@ -303,7 +304,7 @@ def _update(args: argparse.Namespace) -> None:
             'pxt db update',
             plan.summary.destructive,
             force=args.force,
-            on_refusal=lambda: _print_plan(plan, as_json=True) if args.json_output else None,
+            on_refusal=lambda error: _print_plan(plan, as_json=True, error=error) if args.json_output else None,
         )
     what = f'{plan.summary.ops} change(s)' if plan.exists else f'create {plan.db_uri} and apply it'
     minutes = ', which rebuilds the image and takes several minutes' if plan.summary.rebuild else ''
@@ -311,7 +312,7 @@ def _update(args: argparse.Namespace) -> None:
         f'apply {what} to {plan.db_uri}{minutes}?',
         args.force,
         # text mode printed the pending plan above; --json skipped it, so a refusal still emits it
-        on_refusal=lambda: _print_plan(plan, as_json=True) if args.json_output else None,
+        on_refusal=lambda error: _print_plan(plan, as_json=True, error=error) if args.json_output else None,
     )
 
     update = {
@@ -351,7 +352,7 @@ def _await(db_uri: str, receipts: list[GenerationReceipt], args: argparse.Namesp
     """The receipts once settled, or as accepted under --no-wait."""
     if not args.wait:
         return receipts
-    return await_receipts(db_uri, receipts, show=not args.json_output, status_command=f'pxt db status {db_uri}')
+    return await_receipts(db_uri, receipts, status_command=f'pxt db status {db_uri}')
 
 
 def _db_report(db_uri: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -377,9 +378,9 @@ _PENDING: dict[Resolution, str] = {
 }
 
 
-def _print_plan(plan: DbPlan, *, as_json: bool, applied: bool = False) -> None:
+def _print_plan(plan: DbPlan, *, as_json: bool, applied: bool = False, error: dict[str, Any] | None = None) -> None:
     if as_json:
-        print(plan.model_dump_json(indent=2))
+        print_json(plan.model_dump(mode='json'), error)
         return
     resolution = plan.resolution
     state = (plan.status or _PENDING[resolution]) if applied else _PENDING[resolution]

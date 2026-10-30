@@ -1158,7 +1158,7 @@ class TableVersion:
     def _validate_altered_value_expr(self, col: Column, new_value_expr: exprs.Expr) -> None:
         """Verify that new_value_expr can replace col's current value expression."""
         assert col.is_computed
-        if new_value_expr.col_type != col.col_type:
+        if new_value_expr.col_type.with_open_dicts() != col.col_type:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Column {col.name!r}: the new value expression has type `{new_value_expr.col_type}`, but the '
@@ -1374,7 +1374,9 @@ class TableVersion:
             with telemetry.span(
                 'pixeltable.view_load', set_current=telemetry.current_span() is not None, view=view.get().name
             ):
-                view_plan = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
+                view_plan = Planner.create_view_load_plan(
+                    view.get().path, created_at_current_version=view.get().path.get_bases()
+                )
                 status = view.get()._insert(view_plan, timestamp, print_stats=print_stats)
             result += status.to_cascade()
 
@@ -1549,11 +1551,12 @@ class TableVersion:
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col_name!r} is a media column and cannot be updated'
                 )
 
-            # make sure that the value is compatible with the column type
+            # make sure that the value is compatible with the column type, whose dict schemas are closed on update
+            closed_type = col.col_type.with_closed_dicts()
             value_expr: exprs.Expr
             try:
                 # check if this is a literal
-                value_expr = exprs.Literal(val, col_type=col.col_type)
+                value_expr = exprs.Literal(val, col_type=closed_type)
             except TypeError as exc:
                 if not allow_exprs:
                     raise excs.RequestError(
@@ -1568,7 +1571,8 @@ class TableVersion:
                         excs.ErrorCode.UNSUPPORTED_OPERATION,
                         f'Column {col_name!r}: value is not a recognized literal or expression: {val!r}',
                     ) from exc
-                if not col.col_type.is_supertype_of(value_expr.col_type, ignore_nullable=True):
+                # expression values aren't validated, so every key of the expression's type must be in the column type
+                if not closed_type.is_supertype_of(value_expr.col_type.with_closed_dicts(), ignore_nullable=True):
                     raise excs.RequestError(
                         excs.ErrorCode.TYPE_MISMATCH,
                         f'The literal value {val!r} is not compatible with the type '
@@ -1663,6 +1667,8 @@ class TableVersion:
 
         plans: insert plans to execute. If plans is not empty, the caller is expected to have already bumped self's
         version. Also if plans is not empty, this will write self's metadata in the end.
+        base_versions: the new version of each base, nearest first, or None for a base without a new version; ends
+            at the table where the update started
         base_membership_change: True if the update may have added rows to this table's base; a row appearing in the
             base is a row this view needs to add, whether or not it has a predicate of its own
         """
@@ -1718,19 +1724,34 @@ class TableVersion:
                     and len(exprs.Expr.get_refd_column_ids(view_tv.predicate.as_dict()) & changed_qids) > 0
                 )
 
+                updated_bases = [b for b, v in zip(view_tv.path.get_bases(), base_versions) if v is not None]
+                assert len(updated_bases) > 0  # the table where the update started always has a plan
+
                 view_plans: list[exec.ExecNode] = []
                 if needs_iterator_reload or (membership_change and view_tv.is_component_view):
-                    view_plans.append(Planner.create_view_load_plan(view_tv.path, propagates_insert=True))
+                    view_plans.append(
+                        Planner.create_view_load_plan(view_tv.path, created_at_current_version=updated_bases)
+                    )
                 elif membership_change:
                     # rows already in the view that still satisfy the predicate; their stored columns that aren't
                     # recomputed carry over from the row that was just soft-deleted
-                    view_plans.append(Planner.create_view_update_plan(view_tv.path, recompute_targets=recomputed_cols))
+                    view_plans.append(
+                        Planner.create_view_update_plan(
+                            view_tv.path, recompute_targets=recomputed_cols, created_at_current_version=updated_bases
+                        )
+                    )
                     # rows that satisfy the predicate now and weren't in the view; nothing to carry over
                     view_plans.append(
-                        Planner.create_view_load_plan(view_tv.path, propagates_insert=True, exclude_existing_rows=True)
+                        Planner.create_view_load_plan(
+                            view_tv.path, created_at_current_version=updated_bases, exclude_existing_rows=True
+                        )
                     )
                 elif len(recomputed_cols) > 0:
-                    view_plans.append(Planner.create_view_update_plan(view_tv.path, recompute_targets=recomputed_cols))
+                    view_plans.append(
+                        Planner.create_view_update_plan(
+                            view_tv.path, recompute_targets=recomputed_cols, created_at_current_version=updated_bases
+                        )
+                    )
 
                 if len(view_plans) > 0:
                     view_tv.bump_version(timestamp, bump_schema_version=False)
@@ -1791,7 +1812,11 @@ class TableVersion:
             del_rows = self.store_tbl.delete_rows(where_clause=sql_where_clause)
         row_counts = RowCountStats(del_rows=del_rows)  # delete
         result = UpdateStatus(row_count_stats=row_counts)
-        if del_rows > 0 and self.is_data_versioned:
+        if del_rows == 0:
+            # self.version belongs to an earlier operation, and the views would match that operation's retired rows
+            return result
+
+        if self.is_data_versioned:
             # we're creating a new version
             self.bump_version(timestamp, bump_schema_version=False)
         for view in self.mutable_views:
@@ -1799,10 +1824,10 @@ class TableVersion:
                 where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
             )
             result += status.to_cascade()
-
-        if del_rows > 0 and self.is_data_versioned:
+        if self.is_data_versioned:
             self.set_version_update_status(result)
             self._write_md(new_version=True, new_schema_version=False)
+
         return result
 
     def revert(self) -> None:

@@ -38,7 +38,7 @@ from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.process import is_pid, pid_alive
 
 from . import proxy_dispatch
-from .proxy_protocol import decode_body, iter_body_chunks
+from .proxy_protocol import KEEP_ALIVE_S, decode_body, iter_body_chunks
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -400,7 +400,14 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
     # log_config=None suppresses uvicorn's own logging setup which results in closing every handler registered so far.
     # Note: at this point, uvicorn logging has already been configured by Env.
     if host is not None or port is not None:
-        uvicorn.run(asgi_app, host=host or '127.0.0.1', port=port or 8000, log_level=log_level, log_config=None)
+        uvicorn.run(
+            asgi_app,
+            host=host or '127.0.0.1',
+            port=port or 8000,
+            log_level=log_level,
+            log_config=None,
+            timeout_keep_alive=KEEP_ALIVE_S,
+        )
         return
 
     config = Config.get()
@@ -420,7 +427,8 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
     atexit.register(lambda: lock.unlink(missing_ok=True))
     signal.signal(signal.SIGTERM, _cleanup)
 
-    uvicorn.Server(uvicorn.Config(asgi_app, log_level=log_level, log_config=None)).run(sockets=[sock])
+    uvicorn_config = uvicorn.Config(asgi_app, log_level=log_level, log_config=None, timeout_keep_alive=KEEP_ALIVE_S)
+    uvicorn.Server(uvicorn_config).run(sockets=[sock])
 
 
 def main(argv: list[str] | None = None) -> None:

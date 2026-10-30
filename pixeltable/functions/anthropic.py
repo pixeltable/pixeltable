@@ -260,10 +260,13 @@ def _(model: str) -> str:
 def _(messages: list[dict[str, str]], max_tokens: int) -> dict[str, int]:
     input_len = 0
     for message in messages:
-        if 'role' in message:
-            input_len += len(message['role'])
-        if 'content' in message:
-            input_len += len(message['content'])
+        try:
+            if 'role' in message:
+                input_len += len(message['role'])
+            if 'content' in message:
+                input_len += len(message['content'])
+        except Exception:
+            pass  # best effort: skip what can't be read
     return {'requests': 1, 'input_tokens': int(input_len / 4), 'output_tokens': max_tokens}
 
 

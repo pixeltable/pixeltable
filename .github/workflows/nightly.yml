@@ -52,11 +52,8 @@ jobs:
         python-version: ["3.11", "3.13"]
         package-configs:
           - ""
-          # Scheduled nightly checks out release and installs the latest tag. That client still
-          # imports streamablehttp_client, so it needs mcp 1.x. from_main installs this checkout.
-          # Drop the mcp 1.x leg once a release includes the mcp 2 client.
-          - "lancedb pylance '${{ inputs.from_main && 'mcp>=2' || 'mcp>=1.27.2,<2' }}' opencv-python scenedetect"
-          - "anthropic fireworks-ai 'google-genai<1.72.0' groq jina mistralai openai replicate together"
+          - "lancedb pylance mcp opencv-python scenedetect"
+          - "anthropic fireworks-ai google-genai groq jina mistralai openai replicate together"
           - "fal-client runwayml twelvelabs voyageai"
           - "huggingface-hub llama-cpp-python openai-whisper"
           - "datasets openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
@@ -112,11 +109,8 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache
           df -h
       - name: Install miniforge
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniforge-version: latest
-          activate-environment: pxt
-          conda-remove-defaults: true
+        # Remote ref, not ./: the default checkout is the release tag, which may not contain this action
+        uses: pixeltable/pixeltable/.github/actions/setup-miniforge@main
       - name: Install python
         run: |
           ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=${{ matrix.python-version }} pip
@@ -138,7 +132,8 @@ jobs:
           python -m pip install --upgrade pip
           # Retried, since a new release can take a few minutes to reach every PyPI mirror
           ./scripts/retry.sh 3 60 python -m pip install "$PXT" ${{ matrix.package-configs }}
-          python -m pip install filelock pytest pytest-xdist pytest-rerunfailures pytest-benchmark
+          # PXT-1714: lift this pin when pytest-benchmark supports pytest 9.2.
+          python -m pip install filelock 'pytest>=9.0.3,<9.2' pytest-xdist pytest-rerunfailures pytest-benchmark
       - name: Install spaCy model
         if: ${{ contains(matrix.package-configs, 'spacy') }}
         run: python -m spacy download en_core_web_sm
@@ -195,10 +190,8 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache /opt/az /opt/microsoft
           df -h
       - name: Install miniforge
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniforge-version: latest
-          conda-remove-defaults: true
+        # Remote ref, not ./: the default checkout is the release tag, which may not contain this action
+        uses: pixeltable/pixeltable/.github/actions/setup-miniforge@main
       - name: Install ollama
         run: |
           ./scripts/retry.sh 3 30 ./scripts/install-ollama.sh
