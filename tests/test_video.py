@@ -1,3 +1,4 @@
+import _thread
 import asyncio
 import math
 import os
@@ -49,6 +50,14 @@ def fail_at_pos_5(pos: int) -> int:
 @pxt.udf
 async def slow_from_pos(pos: int, first_slow_pos: int) -> int:
     if pos >= first_slow_pos:
+        await asyncio.sleep(60)
+    return pos
+
+
+@pxt.udf
+async def interrupt_at_pos(pos: int, interrupt_pos: int) -> int:
+    if pos == interrupt_pos:
+        _thread.interrupt_main()
         await asyncio.sleep(60)
     return pos
 
@@ -354,6 +363,14 @@ class TestVideo:
         assert len(frames.group_by(videos).select(pxtf.max(frames.frame.width)).limit(1).collect()) == 1
         assert open_videos() == []
 
+        @pxt.query
+        def first_frames(video: pxt.Video) -> pxt.Query:
+            return frames.where((frames.video == video) & (frames.pos < 3)).select(frames.frame)
+
+        res = videos.select(first_frames(videos.video)).collect()
+        assert [len(frame_rows) for frame_rows in res['first_frames']] == [3] * len(video_paths)
+        assert open_videos() == []
+
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='pos 5'):
             frames.select(frames.frame, fail_at_pos_5(frames.pos)).collect()
         assert open_videos() == []
@@ -389,6 +406,11 @@ class TestVideo:
                 break
 
         asyncio.run(query_from_a_running_loop())
+        assert open_videos() == []
+
+        # all_frames has one row with pos 5, so the query gets one interrupt
+        with pytest.raises(KeyboardInterrupt):
+            all_frames.select(all_frames.frame, interrupt_at_pos(all_frames.pos, 5)).collect()
         assert open_videos() == []
 
     def test_keyframes_only(self, db_root: DatabaseRoot) -> None:
