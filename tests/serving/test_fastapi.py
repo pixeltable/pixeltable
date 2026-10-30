@@ -1126,6 +1126,38 @@ class TestFastAPI:
             with pytest.raises(ValueError, match='must be an HTTPS origin'):
                 client.post('/bg', json={'id': 2})
 
+    def test_error_response_retry_after(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        p = db_root.make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter, _fastapi
+
+        t = pxt.create_table(p('items'), {'id': pxt.Int}, primary_key='id')
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/ins')
+        client = make_test_client(router)
+
+        # an error without a wait sends no Retry-After
+        assert client.post('/ins', json={'id': 1}).status_code == 200
+        duplicate = client.post('/ins', json={'id': 1})
+        assert duplicate.status_code == 422 and 'Retry-After' not in duplicate.headers, duplicate.text
+
+        # the route's work fails with a wait, as an unreachable hosted database does
+        def unreachable(*args: Any) -> None:
+            raise pxt.exceptions.ServiceUnavailableError(
+                pxt.exceptions.ErrorCode.DATABASE_UNAVAILABLE, 'down', retry_after=2.5
+            )
+
+        monkeypatch.setattr(_fastapi, '_validate_registered_schema', unreachable)
+        refused = client.post('/ins', json={'id': 2})
+        # Retry-After takes whole seconds, so a fractional wait rounds up
+        assert refused.status_code == 503 and refused.headers['Retry-After'] == '3', refused.text
+        assert refused.json()['detail'] == {
+            'error_code': 'DATABASE_UNAVAILABLE',
+            'message': 'down',
+            'retryable': True,
+            'retry_after': 2.5,
+        }
+
     @pytest.mark.db_roots(
         'local', reason='a background job computes in the router process only for an in-process catalog'
     )
@@ -1145,6 +1177,12 @@ class TestFastAPI:
         jobs = [client.post('/bg', json={'x': i, 'secs': 1.0}).json() for i in range(2)]
         refused = client.post('/bg', json={'x': 2, 'secs': 0.0})
         assert refused.status_code == 503 and refused.headers['Retry-After'] == '5', refused.text
+        assert refused.json()['detail'] == {
+            'error_code': 'JOB_REFUSED',
+            'message': 'the service instance is at its limit of 2 unfinished background jobs',
+            'retryable': True,
+            'retry_after': 5,
+        }
         pending = client.get(jobs[0]['job_url'])
         assert pending.json()['status'] == 'pending' and pending.headers['Retry-After'] == '2'
         for job in jobs:
@@ -1335,7 +1373,12 @@ class TestFastAPI:
             assert wait_until(lambda: router._draining, 5.0)
             refused = c.post('/bg', json={'x': 2, 'secs': 0.0})
             assert refused.status_code == 503 and refused.headers['Retry-After'] == '1', refused.text
-            assert refused.json()['detail'] == 'the service instance is shutting down'
+            assert refused.json()['detail'] == {
+                'error_code': 'JOB_REFUSED',
+                'message': 'the service instance is shutting down',
+                'retryable': True,
+                'retry_after': 1,
+            }
             await_background_job(c, job)
             assert wait_until(lambda: served.server.should_exit, 5.0)
 

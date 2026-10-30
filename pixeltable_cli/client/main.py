@@ -15,7 +15,7 @@ COMMANDS: dict[str, str] = {
     'count': 'count rows in a table',
     'daemon': 'control the daemon (start/stop/restart/status)',
     'dashboard': 'print and open the dashboard URL',
-    'db': 'manage hosted databases (diff/update/list/status/logs/start/stop/restart/retry/build-image/delete)',
+    'db': 'manage hosted databases (diff/update/list/status/logs/spans/start/stop/restart/retry/build-image/delete)',
     'describe': "show a table's schema and metadata",
     'drop': "drop a table or view (use 'drop-dir' for directories)",
     'drop-dir': "remove a directory (use 'drop' for tables/views)",
@@ -44,7 +44,7 @@ COMMANDS: dict[str, str] = {
     'secret': "manage an org's or a database's secrets (list/set/delete)",
     'service': (
         'run the services defined in an application file '
-        '(diff/update/run/prune/stop/restart/retry/list/logs/check/example)'
+        '(diff/update/run/prune/stop/restart/retry/list/logs/spans/check/example)'
     ),
     'shell': 'interactive REPL (avoids per-command Python startup)',
     'skills': 'install the Pixeltable skill for coding agents in this directory (install)',

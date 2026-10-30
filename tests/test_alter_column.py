@@ -277,6 +277,18 @@ class TestAlterColumn:
         assert len(t.get_versions()) == num_versions
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_alter_computed_column_dict_literal(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
+        # the type of a constant dict in the value expression has a closed schema, but the column's type is open
+        t = pxt.create_table(db_root.make_catalog_path('test_tbl'), {'s': pxt.String})
+        t.add_computed_column(x={'p': t.s, 'opts': {'k': 1}})
+        validate_update_status(t.insert(s='a'), 1)
+        reload_catalog(do_reload_catalog)
+        t.alter_computed_column(x={'p': t.s, 'opts': {'k': 2}}, recompute=False)  # type: ignore[arg-type]
+        validate_update_status(t.insert(s='b'), 1)
+        rows = t.select(t.x).order_by(t.s).collect()['x']
+        assert rows == [{'p': 'a', 'opts': {'k': 1}}, {'p': 'b', 'opts': {'k': 2}}]
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_alter_computed_column_refs(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
         t = pxt.create_table(db_root.make_catalog_path('test_tbl'), {'n': pxt.Int, 'm': pxt.Int})
         t.add_computed_column(c=t.n + t.m)

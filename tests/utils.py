@@ -57,6 +57,7 @@ from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
 if TYPE_CHECKING:
+    from botocore.exceptions import ClientError
     from pyiceberg.catalog.sql import SqlCatalog
 
 TESTS_DIR = Path(os.path.dirname(__file__))
@@ -739,7 +740,8 @@ def assert_sdk_mirrors(
         for model in sdk_models:
             for key, sdk_type in pydantic_model_fields(model).items():
                 ours_type = ours_fields[key]
-                assert ours_type.is_supertype_of(sdk_type), (
+                # model_dump() emits exactly the declared fields, so the SDK's dict schemas are closed
+                assert ours_type.is_supertype_of(sdk_type.with_closed_dicts()), (
                     f'{ours.__name__}.{key} drifted from {model.__name__}: ours={ours_type} sdk={sdk_type}'
                 )
 
@@ -935,6 +937,25 @@ def skip_test_if_no_aws_credentials() -> None:
         cl.list_buckets()
     except NoCredentialsError as exc:
         pytest.skip(str(exc).splitlines()[0])
+
+
+def aws_client_error(code: str, status: int, message: str, headers: dict[str, str] | None = None) -> 'ClientError':
+    """A botocore ClientError with the given AWS error code, HTTP status, message and response headers."""
+    from botocore.exceptions import ClientError
+
+    return ClientError(
+        {
+            'Error': {'Code': code, 'Message': message},
+            'ResponseMetadata': {
+                'RequestId': 'request-id',
+                'HostId': 'host-id',
+                'HTTPStatusCode': status,
+                'HTTPHeaders': headers or {},
+                'RetryAttempts': 0,
+            },
+        },
+        'InvokeModel',
+    )
 
 
 _S3_PYTEST_RESOURCES = 's3://pxt-test/pytest-resources'

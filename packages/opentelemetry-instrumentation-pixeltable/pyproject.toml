@@ -20,6 +20,7 @@ dependencies = [
     "pixeltable>=0.7.4",
     "opentelemetry-api>=1.39.0",
     "opentelemetry-instrumentation>=0.60b0",
+    "opentelemetry-util-http>=0.60b0",
 ]
 
 [project.urls]

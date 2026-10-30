@@ -121,6 +121,7 @@ pxt service diff   --json-schema     # JSON Schema for the --json output
 pxt service update app.py my_app     # start them, restarting what changed
 pxt service list                     # what is running, and where
 pxt service logs my_app/ingest       # what a service logged; pxt://myorg:mydb/my_app/ingest for a hosted one
+pxt service spans pxt://myorg:mydb/my_app/ingest   # the sampled trace spans of a hosted service
 
 # cloud -- signing in
 pxt new                          # a free trial database, no account needed
@@ -135,6 +136,7 @@ pxt db diff   pxt://myorg:mydb --add-config-entry   # the same, after appending 
 pxt db diff   --json-schema      # JSON Schema for the --json output
 pxt db list                      # the databases in your org
 pxt db logs   pxt://myorg:mydb   # what the database's pod logged
+pxt db spans  pxt://myorg:mydb   # the sampled trace spans of the database's pod
 
 # cloud -- secrets
 pxt secret set  pxt://myorg OPENAI_API_KEY=sk-...
@@ -411,6 +413,8 @@ Revert is irreversible. Run `pxt history my_dir/my_table` first to see what woul
 cd ~/proj
 pxt init                             # writes pixeltable.toml, making ~/proj the project root
 ```
+
+`pxt init` refuses (exit 3) your home directory, any directory above it and the Pixeltable home.
 
 That file has one entry for each database in the project:
 
@@ -901,8 +905,8 @@ already know. With grants it belongs to the organization instead, and reaches on
 granted, so a service you deploy has no more authority than its job needs.
 
 <Note>
-Keys with grants are a preview. Until they are enabled for your organization, Pixeltable Cloud
-refuses `pxt key create --grant` with "Keys with grants are not available yet".
+Until grants are enabled for your organization, Pixeltable Cloud refuses `pxt key create --grant`
+with "Keys with grants are not available yet".
 </Note>
 
 A grant is a verb on a resource, never a bare resource: a service on its own does not say whether
@@ -990,6 +994,22 @@ time. The console output contains the traceback of a service that failed to star
 gone. A line appears in the log a few seconds after it is written. A service running on this machine logs to a
 local file instead, and `pxt service logs` reports the path of that file.
 
+`pxt service spans` and `pxt db spans` read the trace spans of a hosted service or database. They take the same
+addresses as `logs`:
+
+```bash
+pxt service spans pxt://acme:main/my_dir/ingest
+pxt service spans pxt://acme:main/ingest --since 10m --tail 50
+pxt service spans pxt://acme:main/ingest --trace 4bf92f3577b34da6a3ce929d0e0e4736
+pxt db spans pxt://acme:main
+```
+
+The output groups the spans by trace and indents each span under its parent. Each line shows the start time of
+the span, its duration in milliseconds, its name, and `ERROR` if it failed. `--trace` reads the spans of one trace,
+and `--json` prints the spans as a list. Not every trace is kept: see
+[Telemetry from a hosted database](/platform/configuration#telemetry-from-a-hosted-database) for the sampling. A span
+appears a few seconds after it ends. Spans are read only from hosted services and databases.
+
 ### `pxt service` verbs
 
 | Command | Description |
@@ -1003,6 +1023,7 @@ local file instead, and `pxt service logs` reports the path of that file.
 | `pxt service retry NAME...` | Retry the failed update of the named hosted services |
 | `pxt service list [my_app]` | What is running at a local or hosted catalog, and where |
 | `pxt service logs NAME` | What the named service logged. Pass `my_app/NAME` or a `pxt://` path to disambiguate |
+| `pxt service spans NAME` | The sampled trace spans of the named hosted service |
 | `pxt service check APP` | Validate the application file on its own. No catalog argument, and it reads no catalog |
 | `pxt service example` | Write a working application file to start from |
 
@@ -1019,7 +1040,9 @@ A dry run (`-n`) of `update` or `prune` leaves each operation's `status` null in
 | Flag | Verbs | Description |
 |---|---|---|
 | `--json` | every verb except `example` | Emit machine-readable JSON |
-| `--since`, `--tail`, `--include-health` | `logs` | How far back, how many lines, whether to keep health probes |
+| `--since`, `--tail` | `logs`, `spans` | How far back, how many lines or spans |
+| `--include-health` | `logs` | Keep the health probe lines |
+| `--trace` | `spans` | Read the spans of one trace |
 | `-f`, `--force` | `update`, `prune` | Skip the `[y/N]` prompt |
 | `-n`, `--dry-run` | `update`, `prune` | Print the intended change; do not run `update` or `prune` |
 | `--allow-destructive` | `update` | Permit changes that stop serving a route callers may be using |
@@ -1031,8 +1054,13 @@ A dry run (`-n`) of `update` or `prune` leaves each operation's `status` null in
 
 `--otel` emits OpenTelemetry traces from the served application: Pixeltable's own spans, nested under the
 request spans of the FastAPI app. It needs the instrumentation package (`pip install 'pixeltable[otel]'`),
-and the endpoint and service name come from the `OTEL_*` environment variables or the `[otel]` config
-section, as they do for any Pixeltable process.
+and the endpoint and service name come from the same settings as for any Pixeltable process. The endpoint comes
+from `db_exporter_otlp_endpoint` in the database's `[[pixeltable.database]]` entry, then from
+`OTEL_EXPORTER_OTLP_ENDPOINT`, then from the `[otel]` config section (see
+[Configuration](/platform/configuration#per-database-settings)). A service on a hosted database skips the entry and
+sends its telemetry to the collector in its pod, and the collector sends it to your backends (see
+[Telemetry from a hosted database](/platform/configuration#telemetry-from-a-hosted-database)). The service name comes
+from `OTEL_SERVICE_NAME` or the `[otel]` config section.
 
 ```bash
 pxt service run app.py my_dir --otel       # traced, in this process
@@ -1103,13 +1131,14 @@ name = 'pxt://myorg:prod'           # matches the URI passed to pxt db update
 db_input_media_dest = 's3://bucket/input/'
 db_output_media_dest = 's3://bucket/output/'
 
-# the OpenTelemetry exporter; set its auth headers with pxt secret set
+# the OTLP backend that the collector in each pod sends telemetry to; set its auth headers with pxt secret set
 db_exporter_otlp_endpoint = 'https://otlp.example.com'
 db_exporter_otlp_protocol = 'http/protobuf'  # or 'grpc'
 
 # which project files the database gets. Glob patterns relative to the project root; everything git
 # would not ignore is uploaded by default, the lockfile and pyproject.toml always are, and pixeltable.toml
-# never is: pxt db update sends its settings, and the pods get them as their own pixeltable.toml. Patterns
+# never is: pxt db update sends its settings, and the pods get them as their own pixeltable.toml. A Pixeltable
+# home (PIXELTABLE_HOME) inside the project is never uploaded either. Patterns
 # use git wildmatch, so a bare `*.py` matches at every depth while a leading slash anchors it: `/*.py` is
 # the root only.
 include = ["app/**", "models/**"]
@@ -1309,7 +1338,7 @@ Show the organization's name, ID, and default database.
 
 ```bash
 pxt key create NAME                       # a key that acts as you
-pxt key create NAME --grant VERB:URI      # a scoped key that belongs to the org (preview); repeatable
+pxt key create NAME --grant VERB:URI      # a scoped key that belongs to the org; repeatable
 pxt key list                              # every key in the org, and who created it
 pxt key update NAME --grant VERB:URI      # add a grant
 pxt key update NAME --revoke VERB:URI     # remove one

@@ -60,6 +60,12 @@ class TestAnthropic:
         )
         assert len(reply['content'][0]['text']) > 0
 
+        # a message without content reaches the API, which rejects it
+        status = t.insert(input=None, on_error='ignore')
+        assert status.num_excs == 2
+        res = t.where(t.input == None).select(t.output.errormsg, t.output2.errormsg).collect()[0]
+        assert all('messages.0.content: Input should be a valid array' in msg for msg in res.values())
+
     @rerun(reruns=6, reruns_delay=8)
     def test_tool_invocations(self, uses_db: None) -> None:
         skip_test_if_not_installed('anthropic')
