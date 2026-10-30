@@ -116,8 +116,7 @@ def _serve(
         init_instrumentation()
     app, _, routers = create_app(str(project_dir / app_file), service_name, base_path)
     _add_gateway_openapi_security(app)
-    if otel:
-        instrument_app(app)
+    asgi_app = instrument_app(app) if otel else app
     report_instance_fingerprint(db_uri, service_name, fingerprint, base_path)
 
     log_level = logging.getLogger('pixeltable').getEffectiveLevel()
@@ -136,7 +135,7 @@ def _serve(
         for router in routers:
             router._configure_job_forwarding(instance_addr, api_key, root_path)
     config = uvicorn.Config(
-        app, host=host, port=port, log_level=log_level, log_config=None, root_path=root_path, proxy_headers=False
+        asgi_app, host=host, port=port, log_level=log_level, log_config=None, root_path=root_path, proxy_headers=False
     )
     _DrainingServer(config, routers, _DRAIN_S).run()
 

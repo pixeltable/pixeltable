@@ -707,6 +707,12 @@ class Config:
             return None
         return next((db for db in databases if db.name == db_name), None)
 
+    def __hosted_database(self) -> str | None:
+        """Return pxt://org:db on a hosted pod, the database the pod serves, and None anywhere else."""
+        org = self.get_string_value('org', section='pxtcloud')
+        db = self.get_string_value('db', section='pxtcloud')
+        return f'pxt://{org}:{db}' if org and db else None
+
     def create_project_config(self, db_config: DatabaseConfig | None) -> ConfigSections:
         """Create the config for db_config.
 
@@ -751,9 +757,7 @@ class Config:
 
         On a hosted pod the process reads the db entry for pxt://org:db. Anywhere else it reads the local entry.
         """
-        org = self.get_string_value('org', section='pxtcloud')
-        db = self.get_string_value('db', section='pxtcloud')
-        name = f'pxt://{org}:{db}' if org and db else LOCAL_DATABASE
+        name = self.__hosted_database() or LOCAL_DATABASE
         result: dict[str, tuple[str, Path | None]] = {}
         for config, source in (
             (self.__home_config, self.__config_file),
@@ -775,6 +779,10 @@ class Config:
             return None  # a var named like a setting is not that setting
         name = f'db_{key}'
         if name not in _DATABASE_OVERRIDE_KEYS:
+            return None
+        if name in ('db_exporter_otlp_endpoint', 'db_exporter_otlp_protocol') and self.__hosted_database() is not None:
+            # a hosted database's OTLP backend receives its telemetry from the collector in each of its pods, so the
+            # pod's own process exports to that collector, at the address set in its environment
             return None
         return self.__own_database_values('settings').get(name)
 
@@ -994,7 +1002,11 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'rate_limits': 'Per-model rate limits for Bedrock API requests',
     },
     'bfl': {'api_key': 'Black Forest Labs (BFL) API key', 'rate_limit': 'Rate limit for BFL API requests'},
-    'deepseek': {'api_key': 'Deepseek API key', 'rate_limit': 'Rate limit for Deepseek API requests'},
+    'deepseek': {
+        'api_key': 'Deepseek API key',
+        'base_url': 'Deepseek API base URL',
+        'rate_limit': 'Rate limit for Deepseek API requests',
+    },
     'fal': {'api_key': 'fal.ai API key', 'rate_limit': 'Rate limit for fal.ai API requests'},
     'fireworks': {'api_key': 'Fireworks API key', 'rate_limit': 'Rate limit for Fireworks API requests'},
     'gemini': {
