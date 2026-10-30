@@ -10,7 +10,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import DatabaseRoot, pxt_raises, skip_test_if_not_installed
+from ..utils import DatabaseRoot, open_async_resources, pxt_raises, skip_test_if_not_installed
 
 
 @pxt.udf
@@ -24,7 +24,7 @@ def udf_with_exc(i: int, val: int) -> int:
 class TestLanceDb:
     def test_export(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
         skip_test_if_not_installed('lance', 'lancedb')
-        import lancedb  # type: ignore[import-untyped]
+        import lancedb
 
         p = db_root.make_catalog_path
         n_rows = 1000
@@ -120,3 +120,28 @@ class TestLanceDb:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             pxt.io.export_lancedb(t.select(t.c_int, udf_with_exc(t.c_int, 100)), error_db_path, 'test')
         assert not error_db_path.exists()
+
+    def test_export_query_udf(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
+        """An export that calls a query UDF in every batch succeeds and leaves no event loop open."""
+        skip_test_if_not_installed('lance', 'lancedb')
+        import lancedb
+
+        p = db_root.make_catalog_path
+        n_rows = 5000
+        t = pxt.create_table(p('test_query_udf'), {'i': pxt.Int})
+        t.insert({'i': i} for i in range(n_rows))
+
+        @pxt.query
+        def rows_with_i(i: int) -> pxt.Query:
+            return t.where(t.i == i).select(t.i)
+
+        query = t.select(t.i, matches=rows_with_i(t.i))
+        db_path = tmp_path / 'test_lancedb'
+        open_before = open_async_resources()
+        pxt.io.export_lancedb(query, db_path, 'test', batch_size_bytes=1024)
+        pxt.io.export_lancedb(query, db_path, 'test', if_exists='append', batch_size_bytes=1024)
+        assert open_async_resources() == open_before
+
+        rows = lancedb.connect(str(db_path)).open_table('test').to_arrow().to_pylist()
+        expected = [{'i': i, 'matches': [i]} for i in range(n_rows)]
+        assert sorted(rows, key=lambda row: row['i']) == [row for row in expected for _ in range(2)]

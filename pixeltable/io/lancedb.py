@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import itertools
 import shutil
 from pathlib import Path
 from typing import Literal
@@ -40,7 +42,7 @@ def export_lancedb(
     Env.get().require_package('lance')
     Env.get().require_package('lancedb')
 
-    import lancedb  # type: ignore[import-untyped]
+    import lancedb
 
     from pixeltable.utils.arrow import to_record_batches
 
@@ -78,11 +80,17 @@ def export_lancedb(
             # table doesn't exist
             pass
 
-        if lance_tbl is None or if_exists == 'overwrite':
-            mode = 'overwrite' if lance_tbl is not None else 'create'
-            _ = db.create_table(table_name, to_record_batches(query, batch_size_bytes), mode=mode)
-        else:
-            lance_tbl.add(to_record_batches(query, batch_size_bytes))
+        # lancedb advances the iterator on its own threads
+        batches = to_record_batches(query, batch_size_bytes, new_thread=True)
+        with contextlib.closing(batches):
+            # pull the first batch here: the query's transaction opens on the thread of the first pull
+            first_batch = next(batches, None)
+            data = batches if first_batch is None else itertools.chain([first_batch], batches)
+            if lance_tbl is None or if_exists == 'overwrite':
+                mode = 'overwrite' if lance_tbl is not None else 'create'
+                _ = db.create_table(table_name, data, mode=mode)
+            else:
+                lance_tbl.add(data)
 
     except Exception as e:
         # cleanup

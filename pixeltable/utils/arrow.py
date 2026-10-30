@@ -1,7 +1,7 @@
 import datetime
 import io
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Mapping, cast
+from typing import TYPE_CHECKING, Any, Callable, Generator, Iterable, Iterator, Mapping, cast
 
 import numpy as np
 import PIL.Image
@@ -182,13 +182,21 @@ def _to_record_batch(
 
 
 def to_record_batches(
-    query: 'pxt.Query', batch_size_bytes: int, schema_overrides: Mapping[str, pa.DataType] | None = None
-) -> Iterator[pa.RecordBatch]:
-    # KNOWN RACE: schema is snapshotted here, outside any xact; query.cursor() below opens
+    query: 'pxt.Query',
+    batch_size_bytes: int,
+    schema_overrides: Mapping[str, pa.DataType] | None = None,
+    *,
+    new_thread: bool = False,
+) -> Generator[pa.RecordBatch, None, None]:
+    # KNOWN RACE: schema is snapshotted here, outside any xact; query._cursor() below opens
     # its own xact internally and re-resolves the schema. For SELECT * queries, a concurrent
     # schema mutation between these two reads can produce a layout mismatch.
     yield from record_batches_from_rows(
-        query.schema, query.cursor(), batch_size_bytes, schema_overrides, on_expr_eval_err=query._raise_expr_eval_err
+        query.schema,
+        query._cursor(new_thread=new_thread),
+        batch_size_bytes,
+        schema_overrides,
+        on_expr_eval_err=query._raise_expr_eval_err,
     )
 
 

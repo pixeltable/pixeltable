@@ -237,8 +237,9 @@ class ResultCursor(Iterable[Row]):
     _schema: dict[str, ColumnType]
     _columns: dict[str, int]  # column name -> position
     _closed: bool
+    _new_thread: bool  # run the query in a new thread; any thread can then advance the cursor
 
-    def __init__(self, query: Query):
+    def __init__(self, query: Query, *, new_thread: bool = False):
         self._query = query
         self._row_iterator = None
         # Known design issue: cursor construction is separated from transaction start. The
@@ -250,6 +251,7 @@ class ResultCursor(Iterable[Row]):
         self._schema = query.schema
         self._columns = {name: i for i, name in enumerate(self._schema)}
         self._closed = False
+        self._new_thread = new_thread
 
     @property
     def schema(self) -> dict[str, str]:
@@ -267,7 +269,7 @@ class ResultCursor(Iterable[Row]):
             raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'Cursor is already open.')
         if self._closed:
             raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'Cursor is closed and cannot be reopened.')
-        self._row_iterator = self._query._output_row_iterator()
+        self._row_iterator = self._query._output_row_iterator(new_thread=self._new_thread)
 
     def close(self) -> None:
         """Release the underlying database transaction and query resources.
@@ -435,7 +437,7 @@ class Query(QueryBase):
         self._resolved_limit(args)
         self._resolved_offset(args)
 
-    def _exec(self, args: dict[str, Any] | None = None) -> Iterator[exprs.DataRow]:
+    def _exec(self, args: dict[str, Any] | None = None, *, new_thread: bool = False) -> Iterator[exprs.DataRow]:
         """Run the query and yield rows.
 
         Slot indices live on the planned exprs returned by select_list_exprs(); callers that
@@ -447,7 +449,7 @@ class Query(QueryBase):
         if self._resolved_limit(args) == 0:
             return
         plan = self._ensure_plan()
-        for row in plan.exec(args):
+        for row in plan.exec(args, new_thread=new_thread):
             # stop progress output before we display anything, otherwise it'll mess up the output
             get_runtime().stop_progress()
             yield row
@@ -628,7 +630,7 @@ class Query(QueryBase):
         return self._ensure_plan().select_list_exprs
 
     def _output_row_iterator(
-        self, args: dict[str, Any] | None = None, *, media_as_urls: bool = False
+        self, args: dict[str, Any] | None = None, *, media_as_urls: bool = False, new_thread: bool = False
     ) -> Generator[list, None, None]:
         assert self._from_clause.is_local
         tbl_ids = self.referenced_tbl_ids()
@@ -637,7 +639,7 @@ class Query(QueryBase):
             try:
                 planned_exprs = self._compiled_select_list()
                 if media_as_urls:
-                    for data_row in self._exec(args=args):
+                    for data_row in self._exec(args=args, new_thread=new_thread):
                         # for a file-backed media cell, hand back its URL instead of materializing the value
                         yield [
                             data_row.file_urls[e.slot_idx]
@@ -646,7 +648,7 @@ class Query(QueryBase):
                             for e in planned_exprs
                         ]
                 else:
-                    for data_row in self._exec(args=args):
+                    for data_row in self._exec(args=args, new_thread=new_thread):
                         yield [data_row[e.slot_idx] for e in planned_exprs]
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
@@ -734,9 +736,13 @@ class Query(QueryBase):
 
         See [`ResultCursor`][pixeltable.ResultCursor] for usage examples and lifecycle details.
         """
+        return self._cursor()
+
+    def _cursor(self, *, new_thread: bool = False) -> ResultCursor:
         if not self._from_clause.is_local:
+            # a proxy cursor receives all rows up front, so any thread can advance it
             return self._exec_proxy()
-        return ResultCursor(self)
+        return ResultCursor(self, new_thread=new_thread)
 
     async def _acollect(self, args: dict[str, Any] | None = None) -> ResultSet:
         # this can only be called in the context of a running transaction
