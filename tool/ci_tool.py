@@ -72,6 +72,7 @@ ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 TRIGGERS = ('pull_request', 'merge_group', 'schedule', 'workflow_dispatch')
 
 DEFAULT_XDIST_WORKERS = 'logical'  # one worker per vCPU; -n auto would be 2 on windows-2025 (physical cores)
+LARGE_RUNNER_XDIST_WORKERS = '8'
 
 
 class MatrixConfig(NamedTuple):
@@ -146,7 +147,7 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
                     'ubuntu-large',
                     '3.11',
                     pytest_options=VERY_EXPENSIVE_PYTEST,
-                    xdist_workers='8',  # -n logical OOMs ubuntu-large; standard+ omits very_expensive tests
+                    xdist_workers=LARGE_RUNNER_XDIST_WORKERS,
                     pre_test_cmd='./scripts/log-memory.sh 15 &',
                 )
             )
@@ -155,7 +156,16 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
             configs.extend(MatrixConfig('standard', 'py', platform, '3.11') for platform in EXPENSIVE_PLATFORMS)
 
         else:
-            configs.append(MatrixConfig('standard+', 'py', 'ubuntu-large', '3.11', pytest_options=EXPENSIVE_PYTEST))
+            configs.append(
+                MatrixConfig(
+                    'standard+',
+                    'py',
+                    'ubuntu-large',
+                    '3.11',
+                    pytest_options=EXPENSIVE_PYTEST,
+                    xdist_workers=LARGE_RUNNER_XDIST_WORKERS,
+                )
+            )
             # Non-HF notebooks. HF-dependent notebooks are gated behind --include-expensive, which only the
             # scheduled run passes (see NB_TEST_OPTS in pytest.yml), so they are excluded here.
             configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.11'))
