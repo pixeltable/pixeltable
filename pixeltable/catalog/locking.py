@@ -5,22 +5,31 @@ from __future__ import annotations
 import dataclasses
 import enum
 import itertools
+import logging
 from collections import defaultdict
-from typing import TYPE_CHECKING, Collection, Iterable
+from typing import TYPE_CHECKING, Collection, Iterable, Mapping, Sequence
 from uuid import UUID
 
+import psycopg
 import sqlalchemy as sql
+import sqlalchemy.exc as sql_exc
 
+from pixeltable import telemetry
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
+from pixeltable.utils import fault_injection
+from pixeltable.utils.fault_injection import FaultLocation
 
 from .path import Path
 from .types import TableVersionKey
 
 if TYPE_CHECKING:
     from .table_path import TableVersionPath
+    from .table_version import TableVersion
     from .table_version_handle import TableVersionHandle
+
+_logger = logging.getLogger(__name__)
 
 
 def finalized_view_base_id(tbl_md: schema.TableMd) -> UUID | None:
@@ -138,23 +147,6 @@ class LockTarget:
         """Return the LOCK TABLE statement that acquires this target's lock."""
         nowait_clause = '' if wait else ' NOWAIT'
         return f'LOCK TABLE {self.store_tbl_name} IN {self.mode.sql_name} MODE{nowait_clause}'
-
-
-@dataclasses.dataclass(frozen=True)
-class LockSet:
-    """Everything a transaction locks, in acquisition order: store tables first, then `dirs` rows."""
-
-    # tables, sorted by store table name, one entry per table
-    tbl_targets: tuple[LockTarget, ...] = ()
-    # dirs, sorted by directory path
-    dir_ids: tuple[UUID, ...] = ()
-    # whether to wait for locks that are not immediately available; if False, raise LockNotAvailableError.
-    # Applies to every lock in the set: True if any table requires waiting.
-    wait: bool = True
-
-    def __post_init__(self) -> None:
-        names = [t.store_tbl_name for t in self.tbl_targets]
-        assert names == sorted(set(names)), names
 
 
 class LockRequest:
@@ -281,6 +273,219 @@ def lookup_dir_path(dir_id: UUID) -> Path:
     return Path.parse('/'.join(names), allow_empty_path=True)
 
 
+@dataclasses.dataclass(eq=False)
+class XactLocks:
+    """The locks of one transaction attempt: the targets resolved for a LockRequest, then the acquired locks."""
+
+    request: LockRequest = dataclasses.field(repr=False)
+    # table id -> strongest required target
+    tbl_targets: dict[UUID, LockTarget] = dataclasses.field(default_factory=dict)
+    # directory id -> local catalog path; paths determine directory lock order
+    dirs: dict[UUID, Path] = dataclasses.field(default_factory=dict)
+    any_data_versioned: bool = False
+    is_acquired: bool = False
+    # directories locked in this transaction, including those locked after acquire()
+    locked_dir_ids: set[UUID] = dataclasses.field(default_factory=set)
+
+    @classmethod
+    def from_cache(cls, request: LockRequest, tbl_versions: Mapping[TableVersionKey, TableVersion]) -> XactLocks | None:
+        """Build a tentative lock set from cached metadata, without querying the store.
+
+        Return None if required metadata is missing. Cached metadata may be stale, so validate the set after locking.
+        Include each target's bases for read and, when `lock_mutable_tree` is True, each write target's mutable views.
+        Apply the request's `op_class` to write targets and their affected views. Catalog paths are not supported.
+        """
+        assert len(request.write_paths) == 0, request.write_paths
+        op_class = request.op_class
+        locks = cls(request)
+        for tvps, target_op_class in ((request.read_tvps, TblOpClass.DATA_READ), (request.write_tvps, op_class)):
+            for tvp in tvps:
+                if not locks._add_path_from_cache(tvp.tbl_keys, target_op_class, tbl_versions):
+                    return None
+        write_tbl_keys = (TableVersionKey(tbl_id, None) for tbl_id in request.write_tbl_ids)
+        for tbl_keys, target_op_class in ((request.read_tbl_keys, TblOpClass.DATA_READ), (write_tbl_keys, op_class)):
+            for key in tbl_keys:
+                if not locks._add_ancestors_from_cache(key, target_op_class, tbl_versions):
+                    return None
+        if request.lock_mutable_tree:
+            for write_tbl_id in request.mutable_write_tbl_ids():
+                if not locks.add_mutable_tree_from_cache(write_tbl_id, tbl_versions):
+                    return None
+        return locks
+
+    @classmethod
+    def from_store(cls, request: LockRequest) -> XactLocks:
+        """Build a lock set from stored metadata in the current transaction.
+
+        Read raw `tables` rows without constructing TableVersion instances, so pending operations do not prevent
+        lock-set discovery. Targets named by id or TableVersionPath include tables pending drop; catalog-path
+        lookups include only visible tables.
+
+        Apply the request's `op_class` to write targets and the views or subtrees affected by their writes. Lock other
+        tables, including ancestors, for read. If a table has several roles, use the strongest required mode.
+        """
+        assert get_runtime().in_xact
+        return _LockSetBuilder(request).build()
+
+    def _add_path_from_cache(
+        self,
+        tbl_path: Sequence[TableVersionKey],
+        target_op_class: TblOpClass,
+        tbl_versions: Mapping[TableVersionKey, TableVersion],
+    ) -> bool:
+        """Add cached lock targets for a path.
+
+        Return False if any metadata is missing or uninitialized. `tbl_path` lists the leaf before its bases.
+        Apply `target_op_class` to a mutable leaf and take read locks on all other entries. A pure snapshot's path
+        starts with a pinned version of its base because the snapshot has no store table of its own.
+        """
+        for i, key in enumerate(tbl_path):
+            tv = tbl_versions.get(key)
+            if tv is None or not tv.is_initialized:
+                return False
+            assert tv.is_view == (i < len(tbl_path) - 1), (i, tbl_path)
+            op_class = target_op_class if i == 0 and key.effective_version is None else TblOpClass.DATA_READ
+            self._add_tv(tv, op_class)
+        return True
+
+    def _add_ancestors_from_cache(
+        self, key: TableVersionKey, target_op_class: TblOpClass, tbl_versions: Mapping[TableVersionKey, TableVersion]
+    ) -> bool:
+        """Add cached lock targets for `key` and its bases.
+
+        Return False if any metadata is missing or uninitialized. `target_op_class` applies to the named table;
+        its bases receive read locks.
+        """
+        # Can't use TableVersion.path because it's unset on snapshots.
+        keys: list[TableVersionKey] = []
+        current_key = key
+        while True:
+            tv = tbl_versions.get(current_key)
+            if tv is None or not tv.is_initialized:
+                return False
+            keys.append(current_key)
+            if tv.base is None:
+                return self._add_path_from_cache(keys, target_op_class, tbl_versions)
+            current_key = tv.base.key
+
+    def add_mutable_tree_from_cache(self, tbl_id: UUID, tbl_versions: Mapping[TableVersionKey, TableVersion]) -> bool:
+        """Add cached lock targets for a table and all its mutable views, recursively.
+
+        Apply the request's `op_class` to every target. Return False if any metadata is missing or uninitialized.
+        """
+        remaining_tbl_ids = [tbl_id]
+        while len(remaining_tbl_ids) > 0:
+            tv = tbl_versions.get(TableVersionKey(remaining_tbl_ids.pop(), None))
+            if tv is None or not tv.is_initialized:
+                return False
+            self._add_tv(tv, self.request.op_class)
+            remaining_tbl_ids.extend(view.id for view in tv.mutable_views)
+        return True
+
+    def _add_tv(self, tv: TableVersion, op_class: TblOpClass) -> None:
+        target = LockTarget(
+            tbl_id=tv.id,
+            store_tbl_name=get_store_tbl_name(tv.id, is_view=tv.is_view),
+            mode=op_class.tbl_lock_mode(tv.is_data_versioned),
+        )
+        self.add_tbl(target, is_data_versioned=tv.is_data_versioned)
+
+    def add_tbl(self, target: LockTarget, *, is_data_versioned: bool) -> None:
+        assert not self.is_acquired
+        current_target = self.tbl_targets.get(target.tbl_id)
+        if current_target is None or target.mode.is_at_least(current_target.mode):
+            self.tbl_targets[target.tbl_id] = target
+        self.any_data_versioned |= is_data_versioned
+
+    def add_dir(self, dir_id: UUID, path: Path) -> None:
+        assert not self.is_acquired
+        self.dirs.setdefault(dir_id, path)
+
+    # whether to wait for locks that are not immediately available; if False, raise LockNotAvailableError.
+    # Applies to every lock in the set: True if any table requires waiting.
+    @property
+    def wait(self) -> bool:
+        return self.request.op_class.should_wait(self.any_data_versioned)
+
+    @telemetry.spanned('pixeltable.catalog.acquire_locks', level=telemetry.DEBUG)
+    def acquire(self) -> None:
+        """Lock store tables before directory rows.
+
+        Store tables are locked in the lock set's order, sorted by store table name. Maintaining a total order of lock
+        acquisition ensures no deadlocks. LOCK TABLE leaves the transaction's snapshot unset. The first directory
+        UPDATE establishes it, so directory locks must come after all store table locks.
+
+        Raises:
+            LockNotAvailableError: a NOWAIT lock could not be acquired.
+            StaleLockSetError: a named store table no longer exists.
+        """
+        assert get_runtime().in_xact
+        # a store table is locked once per transaction, no lock is ever upgraded
+        assert not self.is_acquired
+        op_class = self.request.op_class
+        targets = sorted(self.tbl_targets.values(), key=lambda t: t.store_tbl_name)
+        if len(targets) > 0:
+            fault_injection.process_fault(FaultLocation.CATALOG_BEFORE_TBL_LOCK, op_class=op_class)
+            # Send the LOCK TABLE statements in one request, separated by semicolons. psycopg executes them in order.
+            stmt = '; '.join(t.lock_stmt(wait=self.wait) for t in targets)
+            try:
+                get_runtime().conn.exec_driver_sql(stmt)
+            except sql_exc.DBAPIError as e:
+                _logger.debug(f'{stmt} failed: {e}')
+                if isinstance(e.orig, psycopg.errors.LockNotAvailable):
+                    assert not self.wait
+                    raise LockNotAvailableError from e
+                if isinstance(e.orig, psycopg.errors.UndefinedTable):
+                    # A missing store table means the lock set is stale.
+                    raise StaleLockSetError from e
+                raise
+            fault_injection.process_fault(FaultLocation.CATALOG_AFTER_TBL_LOCK, op_class=op_class)
+        self.is_acquired = True
+
+        for dir_id, _ in sorted(self.dirs.items(), key=lambda item: item[1]):
+            self.lock_dir(dir_id=dir_id)
+
+    @telemetry.spanned('pixeltable.catalog.acquire_dir_xlock', level=telemetry.DEBUG)
+    def lock_dir(
+        self, *, parent_id: UUID | None = None, dir_id: UUID | None = None, dir_name: str | None = None
+    ) -> None:
+        """Lock a directory row by updating its dummy column.
+
+        Use `dir_id` when supplied. Otherwise, match `parent_id` and `dir_name`, filtering by the environment's user
+        when set. A None parent id is valid for the root directory.
+        """
+        # only one of two ways of identifying a directory is allowed
+        assert (dir_name is None) != (dir_id is None)
+        assert not (parent_id is not None and dir_name is None)
+        user = Env.get().user
+        q = sql.update(schema.Dir).values(lock_dummy=1)
+        if dir_id is not None:
+            q = q.where(schema.Dir.id == dir_id)
+        else:
+            q = q.where(schema.Dir.parent_id == parent_id)
+            if dir_name is not None:
+                q = q.where(schema.Dir.md['name'].astext == dir_name)
+            if user is not None:
+                q = q.where(schema.Dir.md['user'].astext == user)
+        result = get_runtime().conn.execute(q.returning(schema.Dir.id))
+        self.locked_dir_ids.update(row.id for row in result)
+
+    def is_tbl_locked(self, tbl_id: UUID, mode: TblLockMode) -> bool:
+        """Return whether this transaction holds the requested mode or stronger on the table's store table."""
+        target = self.tbl_targets.get(tbl_id)
+        return self.is_acquired and target is not None and target.mode.is_at_least(mode)
+
+    def is_dir_locked(self, dir_id: UUID) -> bool:
+        """Return whether this transaction holds the given directory row lock."""
+        return dir_id in self.locked_dir_ids
+
+    def covers(self, other: XactLocks) -> bool:
+        """Return whether the acquired locks include every lock that `other` requires."""
+        return all(self.is_tbl_locked(t.tbl_id, t.mode) for t in other.tbl_targets.values()) and all(
+            self.is_dir_locked(dir_id) for dir_id in other.dirs
+        )
+
+
 class _LockSetBuilder:
     """Collects a LockRequest's lock requirements from stored metadata."""
 
@@ -291,8 +496,8 @@ class _LockSetBuilder:
     tbl_id_to_op_classes: defaultdict[UUID, set[TblOpClass]]
     # table id -> (store table name, is_data_versioned), for existing tables with physical storage
     store_tbls: dict[UUID, tuple[str, bool]]
-    # Directory id -> local catalog path. Paths determine directory lock order.
-    dirs_to_lock: dict[UUID, Path]
+    # the lock set being built; directories go here directly
+    locks: XactLocks
     # table ids that we already looked up, including those that did not exist in the store
     visited_tbl_ids: set[UUID]
     # table id -> its parent dir id
@@ -305,12 +510,12 @@ class _LockSetBuilder:
         self.conn = get_runtime().conn
         self.tbl_id_to_op_classes = defaultdict(set)
         self.store_tbls = {}
-        self.dirs_to_lock = {}
+        self.locks = XactLocks(request)
         self.visited_tbl_ids = set()
         self.tbl_dirs = {}
         self.finalized_view_bases = {}
 
-    def build(self) -> LockSet:
+    def build(self) -> XactLocks:
         self._add_request_targets()
         path_tbl_ids = self._add_write_paths()
         if self.request.lock_mutable_tree:
@@ -323,7 +528,8 @@ class _LockSetBuilder:
         if self.request.op_class is TblOpClass.FINALIZE:
             self._add_finalized_view_bases()
         self._add_view_dirs(path_tree_ids)
-        return self._lock_set()
+        self._add_tbls()
+        return self.locks
 
     def _add_request_targets(self) -> None:
         # A write path locks its leaf for write if it is a live table, and everything else for read.
@@ -353,12 +559,12 @@ class _LockSetBuilder:
                 continue
 
             # Lock the parent even when the target does not exist, so concurrent creators cannot claim the same name.
-            self.dirs_to_lock.setdefault(parent.id, path.parent)
+            self.locks.add_dir(parent.id, path.parent)
 
             # If path points at a directory, add it to the lock set
             dir = lookup_dir_md(path)
             if dir is not None:
-                self.dirs_to_lock.setdefault(dir.id, path)
+                self.locks.add_dir(dir.id, path)
                 if self.request.lock_path_subtree:
                     write_path_tbl_ids |= self._add_dir_subtree(dir.id, path)
                 continue
@@ -373,8 +579,8 @@ class _LockSetBuilder:
         return write_path_tbl_ids
 
     def _add_dir_subtree(self, dir_id: UUID, dir_path: Path) -> set[UUID]:
-        """Add the directory subtree to dirs_to_lock and return the ids of its visible tables."""
-        self.dirs_to_lock[dir_id] = dir_path
+        """Add the directory subtree to the lock set and return the ids of its visible tables."""
+        self.locks.add_dir(dir_id, dir_path)
         tbl_q = sql.select(schema.Table.id).where(active_tbl_clause(dir_id=dir_id))
         tbl_ids = set(self.conn.execute(tbl_q).scalars())
 
@@ -453,40 +659,12 @@ class _LockSetBuilder:
             # Views outside the target directory subtree also need their parent directories locked.
             dir_id = self.tbl_dirs.get(tbl_id)
             if dir_id is not None:
-                self.dirs_to_lock.setdefault(dir_id, lookup_dir_path(dir_id))
+                self.locks.add_dir(dir_id, lookup_dir_path(dir_id))
 
-    def _lock_set(self) -> LockSet:
-        sorted_tbl_targets = tuple(
-            LockTarget(
-                tbl_id=tbl_id,
-                store_tbl_name=store_tbl_name,
-                mode=TblLockMode.strongest_of(
-                    op_class.tbl_lock_mode(is_data_versioned) for op_class in self.tbl_id_to_op_classes[tbl_id]
-                ),
+    def _add_tbls(self) -> None:
+        for tbl_id, (store_tbl_name, is_data_versioned) in self.store_tbls.items():
+            mode = TblLockMode.strongest_of(
+                op_class.tbl_lock_mode(is_data_versioned) for op_class in self.tbl_id_to_op_classes[tbl_id]
             )
-            for tbl_id, (store_tbl_name, is_data_versioned) in sorted(
-                self.store_tbls.items(), key=lambda item: item[1][0]
-            )
-        )
-        sorted_dir_ids = tuple(dir_id for dir_id, _ in sorted(self.dirs_to_lock.items(), key=lambda item: item[1]))
-        return LockSet(
-            tbl_targets=sorted_tbl_targets,
-            dir_ids=sorted_dir_ids,
-            wait=self.request.op_class.should_wait(
-                any(is_data_versioned for _, is_data_versioned in self.store_tbls.values())
-            ),
-        )
-
-
-def resolve_lock_set_from_store(request: LockRequest) -> LockSet:
-    """Build a lock set from stored metadata in the current transaction.
-
-    Read raw `tables` rows without constructing TableVersion instances, so pending operations do not prevent
-    lock-set discovery. Targets named by id or TableVersionPath include tables pending drop; catalog-path
-    lookups include only visible tables.
-
-    Apply the request's `op_class` to write targets and the views or subtrees affected by their writes. Lock other
-    tables, including ancestors, for read. If a table has several roles, use the strongest required mode.
-    """
-    assert get_runtime().in_xact
-    return _LockSetBuilder(request).build()
+            target = LockTarget(tbl_id=tbl_id, store_tbl_name=store_tbl_name, mode=mode)
+            self.locks.add_tbl(target, is_data_versioned=is_data_versioned)

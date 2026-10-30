@@ -104,14 +104,14 @@ operation's transaction would establish its snapshot before locking. Catalog the
 lock set before opening the transaction:
 
 1. Build the set before opening the operation's transaction (`_resolve_lock_set()`).
-2. Open the transaction and lock store tables, then directory rows (`_acquire_locks()`).
+2. Open the transaction and lock store tables, then directory rows (`XactLocks.acquire()`).
 3. Refresh metadata and check for pending operations (`_refresh_md_cache()`). Pending operations abort this attempt.
 4. Check that the held locks cover the refreshed targets (`_validate_lock_set()`). Retry if they do not.
 5. Run the caller's operation.
 
 Use cached `TableVersion` metadata when available. It supplies store table names, bases, mutable views, and each
 table's versioning. On a cache miss, read raw `tables` rows in a separate metadata transaction
-(`resolve_lock_set_from_store()`).
+(`XactLocks.from_store()`).
 
 Catalog paths always require a store read because Catalog does not cache directory structure or path resolution.
 Both cached and stored results can become stale before lock acquisition.
@@ -208,8 +208,8 @@ the table finishes the pending work. There is no background process responsible 
 
 The implementation checks key locking requirements:
 
-- A lock set asserts that its store tables are sorted by name, one entry per table. `_acquire_locks()` asserts
-  that none of them is already locked.
+- `XactLocks.acquire()` locks each store table once, sorted by name, and asserts that it runs only once per
+  transaction attempt.
 - `_assert_tbl_record_write_locked()` requires `EXCLUSIVE` or stronger on the store table for a table metadata
   write. A new table and a pure snapshot are exempt: instead, they require a lock on the parent directory.
 - `StoreBase` calls `assert_rows_write_locked()` before writing store rows.
