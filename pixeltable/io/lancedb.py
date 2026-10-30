@@ -4,6 +4,8 @@ import shutil
 from pathlib import Path
 from typing import Literal
 
+import pyarrow as pa
+
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.env import Env
@@ -19,8 +21,7 @@ def export_lancedb(
     """
     Exports a Query's data to a LanceDB table.
 
-    This utilizes LanceDB's streaming interface for efficient table creation, via a sequence of in-memory pyarrow
-    `RecordBatches`, the size of which can be controlled with the `batch_size_bytes` parameter.
+    This writes the Query as in-memory pyarrow `RecordBatches`. `batch_size_bytes` caps the size of each batch.
 
     __Requirements:__
 
@@ -78,11 +79,16 @@ def export_lancedb(
             # table doesn't exist
             pass
 
+        # lancedb 0.41+ prepares input on a thread-pool worker (`asyncio.to_thread`). Iterating a
+        # Pixeltable query there creates a thread-local Runtime event loop that nothing closes.
+        # Consume the query here, then pass a Table so add() does not treat RecordBatches as rows.
+        batches = list(to_record_batches(query, batch_size_bytes))
+        data = pa.Table.from_batches(batches) if batches else batches
         if lance_tbl is None or if_exists == 'overwrite':
             mode = 'overwrite' if lance_tbl is not None else 'create'
-            _ = db.create_table(table_name, to_record_batches(query, batch_size_bytes), mode=mode)
+            _ = db.create_table(table_name, data, mode=mode)
         else:
-            lance_tbl.add(to_record_batches(query, batch_size_bytes))
+            lance_tbl.add(data)
 
     except Exception as e:
         # cleanup
