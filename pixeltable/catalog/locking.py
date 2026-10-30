@@ -279,13 +279,13 @@ class XactLocks:
 
     request: LockRequest = dataclasses.field(repr=False)
     # table id -> strongest required target
-    tbl_targets: dict[UUID, LockTarget] = dataclasses.field(default_factory=dict)
+    _tbl_targets: dict[UUID, LockTarget] = dataclasses.field(default_factory=dict, init=False)
     # directory id -> local catalog path; paths determine directory lock order
-    dirs: dict[UUID, Path] = dataclasses.field(default_factory=dict)
-    any_data_versioned: bool = False
-    is_acquired: bool = False
+    _dirs: dict[UUID, Path] = dataclasses.field(default_factory=dict, init=False)
+    _any_data_versioned: bool = dataclasses.field(default=False, init=False)
+    _is_acquired: bool = dataclasses.field(default=False, init=False)
     # directories locked in this transaction, including those locked after acquire()
-    locked_dir_ids: set[UUID] = dataclasses.field(default_factory=set)
+    _locked_dir_ids: set[UUID] = dataclasses.field(default_factory=set, init=False)
 
     @classmethod
     def from_cache(cls, request: LockRequest, tbl_versions: Mapping[TableVersionKey, TableVersion]) -> XactLocks | None:
@@ -391,21 +391,21 @@ class XactLocks:
         self.add_tbl(target, is_data_versioned=tv.is_data_versioned)
 
     def add_tbl(self, target: LockTarget, *, is_data_versioned: bool) -> None:
-        assert not self.is_acquired
-        current_target = self.tbl_targets.get(target.tbl_id)
+        assert not self._is_acquired
+        current_target = self._tbl_targets.get(target.tbl_id)
         if current_target is None or target.mode.is_at_least(current_target.mode):
-            self.tbl_targets[target.tbl_id] = target
-        self.any_data_versioned |= is_data_versioned
+            self._tbl_targets[target.tbl_id] = target
+        self._any_data_versioned |= is_data_versioned
 
     def add_dir(self, dir_id: UUID, path: Path) -> None:
-        assert not self.is_acquired
-        self.dirs.setdefault(dir_id, path)
+        assert not self._is_acquired
+        self._dirs.setdefault(dir_id, path)
 
     # whether to wait for locks that are not immediately available; if False, raise LockNotAvailableError.
     # Applies to every lock in the set: True if any table requires waiting.
     @property
     def wait(self) -> bool:
-        return self.request.op_class.should_wait(self.any_data_versioned)
+        return self.request.op_class.should_wait(self._any_data_versioned)
 
     @telemetry.spanned('pixeltable.catalog.acquire_locks', level=telemetry.DEBUG)
     def acquire(self) -> None:
@@ -421,9 +421,9 @@ class XactLocks:
         """
         assert get_runtime().in_xact
         # a store table is locked once per transaction, no lock is ever upgraded
-        assert not self.is_acquired
+        assert not self._is_acquired
         op_class = self.request.op_class
-        targets = sorted(self.tbl_targets.values(), key=lambda t: t.store_tbl_name)
+        targets = sorted(self._tbl_targets.values(), key=lambda t: t.store_tbl_name)
         if len(targets) > 0:
             fault_injection.process_fault(FaultLocation.CATALOG_BEFORE_TBL_LOCK, op_class=op_class)
             # Send the LOCK TABLE statements in one request, separated by semicolons. psycopg executes them in order.
@@ -440,9 +440,9 @@ class XactLocks:
                     raise StaleLockSetError from e
                 raise
             fault_injection.process_fault(FaultLocation.CATALOG_AFTER_TBL_LOCK, op_class=op_class)
-        self.is_acquired = True
+        self._is_acquired = True
 
-        for dir_id, _ in sorted(self.dirs.items(), key=lambda item: item[1]):
+        for dir_id, _ in sorted(self._dirs.items(), key=lambda item: item[1]):
             self.lock_dir(dir_id=dir_id)
 
     @telemetry.spanned('pixeltable.catalog.acquire_dir_xlock', level=telemetry.DEBUG)
@@ -468,21 +468,21 @@ class XactLocks:
             if user is not None:
                 q = q.where(schema.Dir.md['user'].astext == user)
         result = get_runtime().conn.execute(q.returning(schema.Dir.id))
-        self.locked_dir_ids.update(row.id for row in result)
+        self._locked_dir_ids.update(row.id for row in result)
 
     def is_tbl_locked(self, tbl_id: UUID, mode: TblLockMode) -> bool:
         """Return whether this transaction holds the requested mode or stronger on the table's store table."""
-        target = self.tbl_targets.get(tbl_id)
-        return self.is_acquired and target is not None and target.mode.is_at_least(mode)
+        target = self._tbl_targets.get(tbl_id)
+        return self._is_acquired and target is not None and target.mode.is_at_least(mode)
 
     def is_dir_locked(self, dir_id: UUID) -> bool:
         """Return whether this transaction holds the given directory row lock."""
-        return dir_id in self.locked_dir_ids
+        return dir_id in self._locked_dir_ids
 
     def covers(self, other: XactLocks) -> bool:
         """Return whether the acquired locks include every lock that `other` requires."""
-        return all(self.is_tbl_locked(t.tbl_id, t.mode) for t in other.tbl_targets.values()) and all(
-            self.is_dir_locked(dir_id) for dir_id in other.dirs
+        return all(self.is_tbl_locked(t.tbl_id, t.mode) for t in other._tbl_targets.values()) and all(
+            self.is_dir_locked(dir_id) for dir_id in other._dirs
         )
 
 
