@@ -2,7 +2,7 @@
 
 import signal
 import sys
-import time
+import threading
 from typing import Any, Callable
 
 import pytest
@@ -58,9 +58,17 @@ class TestProgressWithoutATerminal:
         monkeypatch.setattr(hosted, '_PLAIN_PROGRESS_INTERVAL', 0.05)
         building = _receipt(ResourcePhase.BLOCKED, 'the image build')
         done = _receipt().model_copy(update={'outcome': ReceiptOutcome.OBSERVED})
+        printed = threading.Semaphore(0)
+
+        def counted_print(*args: Any, **kwargs: Any) -> None:
+            print(*args, **kwargs)
+            printed.release()
+
+        monkeypatch.setattr(hosted, 'print', counted_print, raising=False)
 
         def slow() -> GenerationReceipt:
-            time.sleep(0.5)
+            # blocks for the first label and 3 repeats, not a set time: a loaded runner can starve the heartbeat thread
+            assert all(printed.acquire(timeout=10) for _ in range(4)), 'the wait went silent during a blocking poll'
             return building
 
         _serve(monkeypatch, [slow, lambda: done])
