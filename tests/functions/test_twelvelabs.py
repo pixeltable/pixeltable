@@ -29,18 +29,41 @@ pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 @pytest.fixture
-def mock_embeddings(init_env: None, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+def mock_client(init_env: None, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     skip_test_if_not_installed('twelvelabs')
     from pixeltable.functions import twelvelabs
 
-    create = AsyncMock(return_value=SimpleNamespace(data=[SimpleNamespace(embedding=[0.5] * 512)]))
+    data = [SimpleNamespace(embedding=[0.5] * 512)]
     client = SimpleNamespace(
-        embed=SimpleNamespace(v_2=SimpleNamespace(create=create)),
+        embed=SimpleNamespace(
+            v_2=SimpleNamespace(
+                create=AsyncMock(return_value=SimpleNamespace(data=data)),
+                tasks=SimpleNamespace(
+                    create=AsyncMock(return_value=SimpleNamespace(id='test-task')),
+                    retrieve=AsyncMock(return_value=SimpleNamespace(status='ready', data=data, error=None)),
+                ),
+            )
+        ),
         multipart_upload=SimpleNamespace(upload_file=AsyncMock(return_value=SimpleNamespace(asset_id='test-asset'))),
-        assets=SimpleNamespace(delete=AsyncMock()),
+        assets=SimpleNamespace(
+            retrieve=AsyncMock(return_value=SimpleNamespace(status='ready', error=None)), delete=AsyncMock()
+        ),
     )
     monkeypatch.setattr(twelvelabs, '_twelvelabs_client', lambda: client)
-    return create
+    monkeypatch.setattr(twelvelabs, '_POLL_INTERVAL_SECS', 0.0)
+    return client
+
+
+@pytest.fixture
+def mock_embeddings(mock_client: SimpleNamespace) -> AsyncMock:
+    return mock_client.embed.v_2.create
+
+
+def write_media(path: Path, size: int) -> str:
+    with path.open('wb') as fp:
+        fp.write(b'media')
+        fp.truncate(size)
+    return str(path)
 
 
 class TestTwelveLabsClient:
@@ -121,39 +144,128 @@ class TestTwelveLabsLocal:
                 assert request[input_type].embedding_option == ['audio']
 
     @pytest.mark.parametrize('input_type', ['audio', 'video'])
-    @pytest.mark.parametrize('duration', [30.01, 60.0, None])
-    def test_media_duration(
-        self,
-        mock_embeddings: AsyncMock,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
-        input_type: str,
-        duration: float | None,
+    def test_unknown_duration(
+        self, mock_embeddings: AsyncMock, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, input_type: str
     ) -> None:
         from pixeltable.functions import twelvelabs
 
-        media = tmp_path / 'media'
-        media.write_bytes(b'media')
-        monkeypatch.setattr(twelvelabs.av_utils, f'get_{input_type}_duration', lambda _: duration)
-        if duration is None:
-            code, message = pxt.ErrorCode.INVALID_DATA_FORMAT, f'Cannot determine {input_type} duration'
-        else:
-            code, message = pxt.ErrorCode.INVALID_ARGUMENT, 'at most 30 seconds'
-        with pxt_raises(code, match=message) as exc_info:
-            asyncio.run(twelvelabs.embed.py_fns[2 if input_type == 'audio' else 3](str(media), model_name='marengo3.5'))
+        media = write_media(tmp_path / 'media', 5)
+        monkeypatch.setattr(twelvelabs.av_utils, f'get_{input_type}_duration', lambda _: None)
+        with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=f'Cannot determine {input_type} duration') as exc_info:
+            asyncio.run(twelvelabs.embed.py_fns[2 if input_type == 'audio' else 3](media, model_name='marengo3.5'))
         assert str(tmp_path) not in str(exc_info.value)
         mock_embeddings.assert_not_called()
 
     @pytest.mark.parametrize('input_type', ['audio', 'video'])
-    def test_media_size(self, mock_embeddings: AsyncMock, tmp_path: Path, input_type: str) -> None:
+    @pytest.mark.parametrize(
+        ('size', 'duration'),
+        [
+            (5, 30.01),
+            # a duration of None would raise if it were probed
+            (32 * 10**6 + 1, None),
+            (36 * 10**6 + 1, None),
+        ],
+    )
+    def test_embed_task(
+        self,
+        mock_client: SimpleNamespace,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        input_type: str,
+        size: int,
+        duration: float | None,
+    ) -> None:
         from pixeltable.functions import twelvelabs
 
-        media = tmp_path / 'media'
-        with media.open('wb') as fp:
-            fp.truncate(32 * 2**20 + 1)
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='at most 32 MB'):
-            asyncio.run(twelvelabs.embed.py_fns[2 if input_type == 'audio' else 3](str(media), model_name='marengo3.5'))
-        mock_embeddings.assert_not_called()
+        media = write_media(tmp_path / 'media', size)
+        monkeypatch.setattr(twelvelabs.av_utils, f'get_{input_type}_duration', lambda _: duration)
+        vector = asyncio.run(twelvelabs.embed.py_fns[2 if input_type == 'audio' else 3](media, model_name='marengo3.5'))
+        assert vector.shape == (512,)
+        mock_client.embed.v_2.create.assert_not_called()
+        tasks = mock_client.embed.v_2.tasks
+        request = tasks.create.call_args.kwargs
+        assert request['input_type'] == input_type
+        assert request['model_name'] == 'marengo3.5'
+        assert request['embedding_dimension'] == 512
+        encoded = request[input_type].dict()
+        assert encoded['embedding_scope'] == ['asset']
+        assert encoded['embedding_option'] == ['audio' if input_type == 'audio' else 'visual']
+        if size > 36 * 10**6:
+            assert encoded['media_source'] == {'asset_id': 'test-asset'}
+            mock_client.assets.delete.assert_awaited_once_with('test-asset')
+        else:
+            assert b64decode(encoded['media_source']['base64_string']) == Path(media).read_bytes()
+            mock_client.multipart_upload.upload_file.assert_not_called()
+        tasks.retrieve.assert_awaited_once_with('test-task')
+
+    @pytest.mark.parametrize('model_name', ['marengo3.0', 'marengo3.5'])
+    def test_asset_ready(self, mock_client: SimpleNamespace, tmp_path: Path, model_name: str) -> None:
+        from pixeltable.functions import twelvelabs
+
+        v2 = mock_client.embed.v_2
+        create = v2.create if model_name == 'marengo3.0' else v2.tasks.create
+        statuses = ['processing', 'processing', 'ready']
+
+        # the asset is used only once it is ready
+        def retrieve(asset_id: str) -> SimpleNamespace:
+            assert asset_id == 'test-asset'
+            create.assert_not_called()
+            return SimpleNamespace(status=statuses.pop(0), error=None)
+
+        mock_client.assets.retrieve.side_effect = retrieve
+        media = write_media(tmp_path / 'media', 36 * 10**6 + 1)
+        vector = asyncio.run(twelvelabs.embed.py_fns[3](media, model_name=model_name))
+        assert vector.shape == (512,)
+        assert statuses == []
+        assert create.call_args.kwargs['video'].media_source.asset_id == 'test-asset'
+        mock_client.assets.delete.assert_awaited_once_with('test-asset')
+
+    @pytest.mark.parametrize('stage', ['asset', 'embedding task'])
+    def test_poll_failed(self, mock_client: SimpleNamespace, tmp_path: Path, stage: str) -> None:
+        from pixeltable.functions import twelvelabs
+
+        failed = SimpleNamespace(status='failed', data=None, error=SimpleNamespace(message='corrupt file'))
+        if stage == 'asset':
+            mock_client.assets.retrieve.return_value = failed
+        else:
+            mock_client.embed.v_2.tasks.retrieve.return_value = failed
+        media = write_media(tmp_path / 'media', 36 * 10**6 + 1)
+        test_id = 'test-asset' if stage == 'asset' else 'test-task'
+        with pxt_raises(pxt.ErrorCode.PROVIDER_BAD_REQUEST, match=f'TwelveLabs {stage} {test_id} failed: corrupt file'):
+            asyncio.run(twelvelabs.embed.py_fns[3](media, model_name='marengo3.5'))
+        assert mock_client.embed.v_2.tasks.create.await_count == (0 if stage == 'asset' else 1)
+        mock_client.assets.delete.assert_awaited_once_with('test-asset')
+
+    def test_poll_timeout(self, mock_client: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pixeltable.functions import twelvelabs
+
+        monkeypatch.setattr(twelvelabs, '_POLL_TIMEOUT_SECS', 0.01)
+        mock_client.embed.v_2.tasks.retrieve.return_value = SimpleNamespace(status='processing', data=None, error=None)
+        audio = get_audio_files()[0]  # 60 seconds
+        with pxt_raises(
+            pxt.ErrorCode.PROVIDER_TIMEOUT, match='embedding task test-task was not ready after 0.01 seconds'
+        ):
+            asyncio.run(twelvelabs.embed.py_fns[2](audio, model_name='marengo3.5'))
+
+    def test_poll_errors(self, mock_client: SimpleNamespace) -> None:
+        from twelvelabs.errors import NotFoundError, TooManyRequestsError
+
+        from pixeltable.functions import twelvelabs
+
+        tasks = mock_client.embed.v_2.tasks
+        ready = tasks.retrieve.return_value
+        audio = get_audio_files()[0]  # 60 seconds
+
+        # a rate-limited retrieve is polled again
+        tasks.retrieve.side_effect = [TooManyRequestsError(body=None), ready]
+        vector = asyncio.run(twelvelabs.embed.py_fns[2](audio, model_name='marengo3.5'))
+        assert vector.shape == (512,)
+        assert tasks.retrieve.await_count == 2
+
+        # any other error is final
+        tasks.retrieve.side_effect = [NotFoundError(body=None), ready]
+        with pytest.raises(NotFoundError):
+            asyncio.run(twelvelabs.embed.py_fns[2](audio, model_name='marengo3.5'))
 
     @pytest.mark.parametrize('input_type', ['audio', 'video'])
     @pytest.mark.parametrize('options', [{'start_sec': 0.0}, {'end_sec': 5.0}, {'embedding_option': ['audio']}])
@@ -175,17 +287,17 @@ class TestTwelveLabsLocal:
             asyncio.run(twelvelabs.embed.py_fns[0](text='test', model_name='marengo3.5'))
 
     @pytest.mark.parametrize('model_name', ['marengo3.0', 'marengo3.5'])
-    def test_long_audio(self, mock_embeddings: AsyncMock, model_name: str) -> None:
+    def test_long_audio(self, mock_client: SimpleNamespace, model_name: str) -> None:
         from pixeltable.functions import twelvelabs
 
         audio = get_audio_files()[0]  # 60 seconds
-        if model_name == 'marengo3.5':
-            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'at most 30 seconds; got 60\.00 seconds'):
-                asyncio.run(twelvelabs.embed.py_fns[2](audio, model_name=model_name))
-            mock_embeddings.assert_not_called()
-        else:
-            vector = asyncio.run(twelvelabs.embed.py_fns[2](audio, model_name=model_name))
-            assert vector.shape == (512,)
+        vector = asyncio.run(twelvelabs.embed.py_fns[2](audio, model_name=model_name))
+        assert vector.shape == (512,)
+        # Marengo 3.5 embeds audio over 30 seconds with an embedding task
+        v2 = mock_client.embed.v_2
+        assert (v2.create.await_count, v2.tasks.create.await_count) == (
+            (1, 0) if model_name == 'marengo3.0' else (0, 1)
+        )
 
     def test_sdk_version(self, mock_embeddings: AsyncMock, monkeypatch: pytest.MonkeyPatch) -> None:
         from pixeltable.functions import twelvelabs
@@ -303,7 +415,18 @@ class TestTwelveLabs:
         res = v.select(embedding=v.video_segment.embedding()).collect()
         assert res['embedding'][0].shape == (512,)
 
-    @pytest.mark.skip(reason='feature broken: PXT-1234')
+    def test_embed_long_audio(self, uses_db: None, model_name: str) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        skip_test_if_no_client('twelvelabs')
+        from pixeltable.functions.twelvelabs import embed
+
+        # 60 seconds, unsplit: Marengo 3.5 embeds it with an embedding task
+        t = pxt.create_table('long_audio_tbl', {'audio': pxt.Audio | None})
+        validate_update_status(t.insert(audio=get_audio_files()[0]), expected_rows=1)
+        t.add_embedding_index(t.audio, embedding=embed.using(model_name=model_name))
+        res = t.select(embedding=t.audio.embedding()).collect()
+        assert res['embedding'][0].shape == (512,)
+
     def test_embed_large_media(self, uses_db: None, model_name: str) -> None:
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')
@@ -311,7 +434,11 @@ class TestTwelveLabs:
 
         # Test that large media files that require multipart upload can be embedded successfully
         t = pxt.create_table('large_media_tbl', {'video': pxt.Video | None})
-        t.insert(video='s3://pxt-test/pytest-resources/large_videos/6mb.mp4')
+        videos = ['s3://pxt-test/pytest-resources/large_videos/6mb.mp4']
+        if model_name == 'marengo3.5':
+            # over 36 * 10**6 bytes: uploaded for an embedding task
+            videos.append('s3://pxt-test/pytest-resources/large_videos/35mb.mp4')
+        validate_update_status(t.insert({'video': v} for v in videos), expected_rows=len(videos))
         t.add_embedding_index(t.video, embedding=embed.using(model_name=model_name))
         res = t.select(embedding=t.video.embedding()).collect()
-        assert res['embedding'][0].shape == (512,)
+        assert all(e.shape == (512,) for e in res['embedding'])
