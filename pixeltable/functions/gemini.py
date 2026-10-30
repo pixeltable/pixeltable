@@ -580,6 +580,7 @@ async def generate_omni_video(
             excs.ErrorCode.MISSING_REQUIRED, 'At least one of `prompt` or `images` must be provided.'
         )
     client = _genai_client()
+    # TODO support both?
     if client.vertexai:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, 'Gemini Omni video generation requires the Gemini Developer API.'
