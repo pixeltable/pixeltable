@@ -351,17 +351,21 @@ class ExprEvalNode(ExecNode):
             for task in active_tasks:
                 if not task.done():
                     task.cancel()
-            _ = await asyncio.gather(*active_tasks, return_exceptions=True)
+            try:
+                # a cancellation of this await must not skip the cleanup below
+                _ = await asyncio.gather(*active_tasks, return_exceptions=True)
+            finally:
+                for row in self._span_rows:
+                    if row.span is not None:
+                        telemetry.span_end(row.span, exc=self.error)
+                        row.span = None
+                self._span_rows = []
 
-            for row in self._span_rows:
-                if row.span is not None:
-                    telemetry.span_end(row.span, exc=self.error)
-                    row.span = None
-            self._span_rows = []
-
-            # expr cleanup
-            exprs.Expr.release_list(self.eval_ctx.all_exprs)
-            await self.input_iter.aclose()
+                # expr cleanup
+                try:
+                    exprs.Expr.release_list(self.eval_ctx.all_exprs)
+                finally:
+                    await self.input_iter.aclose()
 
     def dispatch_exc(
         self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType, exec_ctx: ExprEvalCtx

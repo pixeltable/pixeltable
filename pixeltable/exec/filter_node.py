@@ -48,8 +48,6 @@ class FilterNode(ExecNode):
 
         async with contextlib.aclosing(aiter(self.input)) as input_iter:
             async for batch in input_iter:
-                if limit_reached:
-                    break
                 output_batch = DataRowBatch(self.row_builder)
                 for row in batch:
                     # a predicate whose evaluation failed (recorded under ignore_errors) counts as not passing
@@ -65,3 +63,5 @@ class FilterNode(ExecNode):
                         break
                 if len(output_batch) > 0:
                     yield output_batch
+                if limit_reached:
+                    break

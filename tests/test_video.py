@@ -39,6 +39,20 @@ from .utils import (
 )
 
 
+@pxt.udf
+def fail_at_pos_5(pos: int) -> int:
+    if pos == 5:
+        raise ValueError('pos 5')
+    return pos
+
+
+@pxt.udf
+async def slow_from_pos(pos: int, first_slow_pos: int) -> int:
+    if pos >= first_slow_pos:
+        await asyncio.sleep(60)
+    return pos
+
+
 class TestVideo:
     def _validate_videos(self, videos: list[str]) -> None:
         t = pxt.create_table('validated_videos', schema={'v': pxt.Video | None}, if_exists='ignore')
@@ -312,7 +326,7 @@ class TestVideo:
 
     @pytest.mark.db_roots('local', reason='checks the open files of this process; a proxy query runs in the server')
     def test_frame_view_open_files(self, uses_db: None) -> None:
-        """Queries over the unstored frame column leave no video file open, including queries that stop early."""
+        """Queries and computed columns over frames leave no video file open, also when they stop early or fail."""
         video_paths = get_video_files(extension='.mp4')
         videos = pxt.create_table('videos', {'video': pxt.Video})
         frames = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, fps=1))
@@ -340,6 +354,17 @@ class TestVideo:
         assert len(frames.group_by(videos).select(pxtf.max(frames.frame.width)).limit(1).collect()) == 1
         assert open_videos() == []
 
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='pos 5'):
+            frames.select(frames.frame, fail_at_pos_5(frames.pos)).collect()
+        assert open_videos() == []
+
+        validate_update_status(frames.add_computed_column(width=frames.frame.width), expected_rows=num_frames)
+        assert open_videos() == []
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='pos 5'):
+            frames.add_computed_column(x=fail_at_pos_5(frames.pos) + frames.frame.width, on_error='abort')
+        assert open_videos() == []
+
         with frames.select(frames.frame).cursor() as cursor:
             for _ in cursor:
                 break
@@ -349,12 +374,18 @@ class TestVideo:
             break
         assert open_videos() == []
 
-        # with all frames, the cursor below stops while the query is still producing rows
-        all_frames = pxt.create_view('all_frames', videos, iterator=frame_iterator(videos.video))
+        # with all frames of a video, a cursor stops while the query is still producing rows
+        one_video = pxt.create_table('one_video', {'video': pxt.Video})
+        one_video.insert(video=video_paths[0])
+        all_frames = pxt.create_view('all_frames', one_video, iterator=frame_iterator(one_video.video))
 
         async def query_from_a_running_loop() -> None:  # noqa: RUF029
             assert len(frames.select(frames.frame).collect()) == num_frames
             for _ in all_frames.select(all_frames.frame).cursor():
+                break
+            # the first batch completes; the cursor stops while the next one waits for slow_from_pos()
+            first_slow_pos = pxt.exec.ExprEvalNode.BATCH_SIZE
+            for _ in all_frames.select(all_frames.frame, slow_from_pos(all_frames.pos, first_slow_pos)).cursor():
                 break
 
         asyncio.run(query_from_a_running_loop())

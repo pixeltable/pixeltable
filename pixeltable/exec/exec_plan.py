@@ -155,8 +155,8 @@ class ExecPlan:
         except BaseException:
             self._is_executing = False
             raise
-        with self, contextlib.closing(iter(self.exec_root)) as batches:
-            for batch in batches:
+        with self:
+            for batch in self.exec_root:
                 yield from batch
 
     async def aexec(self, args: dict[str, Any]) -> AsyncGenerator[exprs.DataRow, None]:
