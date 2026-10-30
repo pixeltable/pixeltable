@@ -23,7 +23,6 @@ import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Literal, Sequence, TypeVar, cast
-from urllib.parse import urlsplit
 
 import numpy as np
 import PIL.Image
@@ -621,10 +620,8 @@ async def generate_omni_video(
                 output_path.write_bytes(base64.b64decode(video.data))
             else:
                 assert video.uri is not None
-                # Pass the file name: the SDK's URI parser truncates file ids containing hyphens.
-                name = 'files/' + urlsplit(video.uri).path.rsplit('/', 1)[-1].removesuffix(':download')
-                await _poll_until_active(client.aio, [types.File(name=name)], ['generated video'])
-                await client.aio.files.download(file=name, destination=output_path)
+                await _poll_until_active(client.aio, [types.File(name=video.uri)], ['generated video'])
+                await client.aio.files.download(file=video.uri, destination=output_path)
             return str(output_path)
     except TimeoutError as exc:
         raise excs.ExternalServiceError(
