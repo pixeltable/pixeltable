@@ -174,9 +174,9 @@ lock.
 For tables with physical storage, a committed `tables` row must have a corresponding store table, and a
 committed store table must have its metadata row.
 
-Create the store table and its indexes in the transaction that inserts its metadata. Drop the store table in
-the transaction that deletes its metadata. Postgres DDL is transactional, so rollback removes both changes. A missing
-store table therefore means the tentative lock set is stale.
+Create the store table in the transaction that inserts its metadata. Drop the store table in the transaction that
+deletes its metadata. Postgres DDL is transactional, so rollback removes both changes. A missing store table therefore
+means the tentative lock set is stale.
 
 ## 7. Pending operations between transactions
 
