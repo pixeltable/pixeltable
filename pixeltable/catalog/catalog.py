@@ -168,7 +168,8 @@ def _retry_loop(request: LockRequest) -> Callable[[Callable[..., T]], Callable[.
             cat = get_runtime().catalog
             # a retry loop is reentrant
             if cat._in_retry_loop:
-                # TODO: restore _check_write_locks()'s check that the enclosing transaction holds all required locks.
+                # TODO(PXT-1278): restore _check_write_locks()'s check that the enclosing transaction holds all
+                # required locks.
                 return op(*args, **kwargs)
             num_retries = 0
             while True:
@@ -481,7 +482,8 @@ class Catalog(CatalogBase):
         if for_write and _frozen.get():
             raise ProhibitedWriteError()
         if get_runtime().in_xact:
-            # TODO: restore _check_write_locks()'s check that the enclosing transaction holds all required locks.
+            # TODO(PXT-1278): restore _check_write_locks()'s check that the enclosing transaction holds all
+            # required locks.
             yield get_runtime().conn
             return
 
