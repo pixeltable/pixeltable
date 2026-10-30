@@ -218,6 +218,8 @@ jobs:
             # conda-forge's Python 3.15 on Windows keeps its headers in include\python, a directory setuptools never
             # searches, so C extensions built from sdists fail to compile. cl.exe adds the options in CL to every
             # command line.
+            # TODO: Remove CL once setuptools takes the include directory from sysconfig on Windows
+            # (conda-forge/python-feedstock#860 has the layout change).
             export CL="/I\"$(python -c 'import sysconfig; print(sysconfig.get_path("include"))')\""
           fi
           ./scripts/retry.sh 3 60 uv sync --active ${{ matrix.uv-options }}
