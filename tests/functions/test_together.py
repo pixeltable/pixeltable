@@ -65,7 +65,7 @@ class TestTogether:
                     'top_p': 0.9,
                     'top_k': 40,
                     'repetition_penalty': 1.1,
-                    'logprobs': True,  # Chat rejects an integer here, unlike completions and Together's API docs
+                    'logprobs': True,
                     'n': 3,
                     'response_format': {'type': 'json_object'},
                 },
