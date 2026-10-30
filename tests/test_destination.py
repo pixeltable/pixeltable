@@ -489,7 +489,9 @@ class TestDestination:
         self._fail_local_puts(monkeypatch)
 
         rows = [{'img': get_image_files()[0]}]
-        with pytest.raises(OSError, match='injected put failure'):
+        with pxt_raises(
+            pxt.ErrorCode.STORE_UNAVAILABLE, match="Error while saving column 'img_rot': injected put failure"
+        ):
             t.insert(rows)
 
         status = t.insert(rows, on_error='ignore')

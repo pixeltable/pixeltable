@@ -23,6 +23,7 @@ from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
 from pixeltable.functions.video import legacy_frame_iterator
 from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.local_store import TempStore
 
 from .conftest import SampleFileServer
 from .utils import (
@@ -3588,6 +3589,89 @@ class TestTable:
         assert isinstance(err, pxt.ExternalServiceError)
         assert (err.provider, err.provider_http_status_code, err.provider_error_code) == ('gemini', 500, 'X')
         assert err.retry_after == 3
+
+    def test_unsaveable_image(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
+        """A computed image that cannot be saved aborts the operation or, with on_error='ignore', is a cell error."""
+        p = db_root.make_catalog_path
+        img_file = sample_file_server.url(get_image_files()[0], db_root)
+        t = pxt.create_table(p('test_unsaveable'), {'id': pxt.Int, 'photo': pxt.Image, 'box': pxt.Json})
+        box = [t.box[i].astype(pxt.Int) for i in range(4)]
+        t.add_computed_column(hero=t.photo.crop(box))
+        t.add_computed_column(hero_w=t.hero.width)
+        # a zero-area box crops to an empty image
+        rows = [
+            {'id': 0, 'photo': img_file, 'box': [0, 0, 0, 0]},
+            {'id': 1, 'photo': img_file, 'box': [0, 0, 100, 100]},
+        ]
+        msg = "Error while saving column 'hero': cannot write empty image"
+
+        with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=msg):
+            t.insert(rows)
+        assert t.count() == 0
+
+        status = t.insert(rows, on_error='ignore')
+        assert status.num_rows == 2
+        assert status.num_excs == 2
+        assert set(status.cols_with_excs) == {'test_unsaveable.hero', 'test_unsaveable.hero_w'}
+        res = (
+            t.select(t.hero, t.hero_w, err_type=t.hero.errortype, err_msg=t.hero.errormsg, w_msg=t.hero_w.errormsg)
+            .order_by(t.id)
+            .collect()
+        )
+        assert res[0] == {'hero': None, 'hero_w': None, 'err_type': 'RequestError', 'err_msg': msg, 'w_msg': msg}
+        assert res[1]['hero'].size == (100, 100)
+        assert res[1]['hero_w'] == 100
+        assert res[1]['err_msg'] is None
+
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Error while saving column 'hero2': cannot write empty image"
+        ):
+            t.add_computed_column(hero2=t.photo.crop(box))
+        status = t.add_computed_column(hero2=t.photo.crop(box), on_error='ignore')
+        assert status.num_excs == 1
+        assert status.cols_with_excs == ['test_unsaveable.hero2']
+        assert t.where(t.hero2.errormsg != None).select(t.id).collect()['id'] == [0]
+
+    @pytest.mark.db_roots('local', reason='the proxy client encodes an in-memory image before sending it')
+    def test_unsaveable_image_literal(self, uses_db: None) -> None:
+        """An inserted image that cannot be saved aborts the insert or, with on_error='ignore', is a cell error."""
+        t = pxt.create_table('test_unsaveable_literal', {'id': pxt.Int, 'img': pxt.Image})
+        rows = [{'id': 0, 'img': PIL.Image.new('RGB', (0, 0))}, {'id': 1, 'img': PIL.Image.new('RGB', (8, 8))}]
+        msg = "Error while saving column 'img': cannot write empty image"
+
+        with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=msg):
+            t.insert(rows)
+        status = t.insert(rows, on_error='ignore')
+        assert status.num_rows == 2
+        assert status.num_excs == 1
+        res = t.select(t.img, err_msg=t.img.errormsg).order_by(t.id).collect()
+        assert res[0] == {'img': None, 'err_msg': msg}
+        assert res[1]['img'].size == (8, 8)
+        # neither insert leaves a partial file in the TempStore
+        assert TempStore.count(t._id) == 0
+
+    def test_image_modes(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
+        """A stored image keeps its mode; one stored in a lossless format also keeps its pixels."""
+        p = db_root.make_catalog_path
+        img_file = get_image_files()[0]
+        t = pxt.create_table(p('test_image_modes'), {'img': pxt.Image})
+        lossy_modes = {'l': 'L', 'rgb': 'RGB', 'cmyk': 'CMYK'}
+        lossless_modes = {'p': 'P', 'i': 'I', 'f': 'F', 'i16': 'I;16', 'i16b': 'I;16B', 'lab': 'LAB'}
+        for col_name, mode in (lossy_modes | lossless_modes).items():
+            t.add_computed_column(**{col_name: t.img.convert(mode)})
+        t.add_computed_column(j={'p': t.img.convert('P'), 'f': t.img.convert('F')})
+        t.insert(img=sample_file_server.url(img_file, db_root))
+
+        row = t.select().collect()[0]
+        with PIL.Image.open(img_file) as src:
+            for col_name, mode in lossy_modes.items():
+                assert row[col_name].mode == mode
+            for col_name, mode in lossless_modes.items():
+                assert row[col_name].mode == mode
+                assert np.array_equal(np.asarray(row[col_name]), np.asarray(src.convert(mode)))
+            for key, mode in [('p', 'P'), ('f', 'F')]:
+                assert row['j'][key].mode == mode
+                assert np.array_equal(np.asarray(row['j'][key]), np.asarray(src.convert(mode)))
 
     # TODO: cannot be converted: KeyboardInterrupt injection is client-process-local and does not reach the daemon
     @pytest.mark.db_roots(

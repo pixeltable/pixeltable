@@ -106,10 +106,14 @@ class LocalStore(ObjectStoreBase):
         if dest_path.suffix != f'.{format}':
             dest_path = dest_path.with_name(f'{dest_path.name}.{format}')
 
-        with open(dest_path, 'wb') as f:
-            image.save(f, format=format)
-            f.flush()  # Ensures Python buffers are written to OS
-            os.fsync(f.fileno())  # Forces OS to write to physical storage
+        try:
+            with open(dest_path, 'wb') as f:
+                image.save(f, format=format)
+                f.flush()  # Ensures Python buffers are written to OS
+                os.fsync(f.fileno())  # Forces OS to write to physical storage
+        except Exception:
+            dest_path.unlink(missing_ok=True)
+            raise
         return dest_path
 
     def _prepare_path_raw(self, tbl_id: UUID, col_id: int, tbl_version: int, ext: str | None = None) -> Path:

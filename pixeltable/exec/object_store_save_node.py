@@ -8,7 +8,7 @@ from concurrent import futures
 from pathlib import Path
 from typing import AsyncIterator, Iterator, NamedTuple
 
-from pixeltable import exprs, telemetry, telemetry_schemas
+from pixeltable import exceptions as excs, exprs, telemetry, telemetry_schemas
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectPath, ObjectStoreBase, StorageTarget
 from pixeltable.utils.progress_reporter import ProgressReporter
 
@@ -140,7 +140,7 @@ class ObjectStoreSaveNode(ExecNode):
                 # Wait for enough completions to enable more queueing or if we're done
                 while self.queued_work > self.QUEUE_DEPTH_LOW_WATER or (self.input_finished and self.queued_work > 0):
                     done, _ = futures.wait(self.in_flight_requests, return_when=futures.FIRST_COMPLETED)
-                    self.__process_completions(done, ignore_errors=self.ctx.ignore_errors)
+                    self.__process_completions(done)
 
                 # Emit results to meet batch size requirements or empty the in-flight row queue
                 if self.__has_ready_batch() or (
@@ -175,7 +175,12 @@ class ObjectStoreSaveNode(ExecNode):
                 self.ready_rows.extend([None] * (idx - len(self.ready_rows) + 1))
             self.ready_rows[idx] = row
 
-    def __process_completions(self, done: set[futures.Future], ignore_errors: bool) -> None:
+    def __handle_save_error(self, row: exprs.DataRow, slot_idx: int, err: excs.Error, cause: Exception) -> None:
+        if not self.ctx.ignore_errors:
+            raise err from cause
+        self.row_builder.set_exc(row, slot_idx, err)
+
+    def __process_completions(self, done: set[futures.Future]) -> None:
         from pixeltable.utils.local_store import TempStore
 
         num_objects = 0
@@ -185,9 +190,6 @@ class ObjectStoreSaveNode(ExecNode):
         for f in done:
             work_designator = self.in_flight_requests.pop(f)
             new_file_url, exc = f.result()
-            if exc is not None and not ignore_errors:
-                raise exc
-
             work_items = self.in_flight_work.pop(work_designator)
             if exc is None:
                 assert new_file_url is not None
@@ -200,7 +202,13 @@ class ObjectStoreSaveNode(ExecNode):
             # add the local path/exception to the slots that reference the url
             for row, info in work_items:
                 if exc is not None:
-                    self.row_builder.set_exc(row, info.slot_idx, exc)
+                    msg = f'Error while saving column {info.col.name!r}: {exc}'
+                    err = (
+                        exc.with_message(msg)
+                        if isinstance(exc, excs.Error)
+                        else excs.ServiceUnavailableError(excs.ErrorCode.STORE_UNAVAILABLE, msg)
+                    )
+                    self.__handle_save_error(row, info.slot_idx, err, exc)
                 else:
                     row.file_urls[info.slot_idx] = new_file_url
 
@@ -232,8 +240,15 @@ class ObjectStoreSaveNode(ExecNode):
             col, index = info
             # we may need to store this imagehave yet to store this image
             if row.prepare_col_val_for_save(index, col):
-                with telemetry.span('pixeltable.media.encode', level=telemetry.DEBUG):
-                    row.file_urls[index] = row.save_media_to_temp(index, col)
+                try:
+                    with telemetry.span('pixeltable.media.encode', level=telemetry.DEBUG):
+                        row.file_urls[index] = row.save_media_to_temp(index, col)
+                except Exception as e:
+                    err = excs.RequestError(
+                        excs.ErrorCode.INVALID_DATA_FORMAT, f'Error while saving column {col.name!r}: {e}'
+                    )
+                    self.__handle_save_error(row, index, err, e)
+                    continue
 
             url = row.file_urls[index]
             if url is None:

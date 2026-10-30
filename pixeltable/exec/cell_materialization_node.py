@@ -267,11 +267,12 @@ class CellMaterializationNode(ExecNode):
 
     def _write_inlined_image(self, img: PIL.Image.Image) -> InlinedObjectMd:
         """Write a PIL image to buffered_writer and return: index into chunks, start offset, end offset"""
-        # the encoded size isn't known up front; the uncompressed size approximates it
-        self.init_writer(img.width * img.height * len(img.getbands()))
+        # encoded separately: a TIFF stores offsets relative to the start of its stream
+        data = image_utils.to_bytes(img)
+        self.init_writer(len(data))
         url_idx = len(self.chunks) - 1
         start = self.buffered_writer.tell()
-        img.save(self.buffered_writer, format=image_utils.default_format(img))
+        self.buffered_writer.write(data)
         end = self.buffered_writer.tell()
         self._flush_buffer()
         return InlinedObjectMd(type=ts.ColumnType.Type.IMAGE.name, url_idx=url_idx, img_start=start, img_end=end)
