@@ -1,6 +1,6 @@
 // API response types
 
-export type TableKind = 'table' | 'view' | 'snapshot' | 'replica';
+export type TableKind = 'table' | 'view' | 'snapshot';
 
 export interface DirectoryNode {
   name: string;
@@ -59,7 +59,6 @@ export interface TableMetadata {
   path: string;
   columns: Record<string, ColumnInfo>;
   indexes: Record<string, IndexInfo>;
-  is_replica: boolean;
   is_view: boolean;
   is_snapshot: boolean;
   version: number | null;
@@ -68,7 +67,7 @@ export interface TableMetadata {
   comment: string | null;
   custom_metadata: unknown;
   media_validation: 'on_read' | 'on_write';
-  kind: 'table' | 'view' | 'snapshot' | 'replica';
+  kind: 'table' | 'view' | 'snapshot';
   base: string | null;
   iterator_call: string | null;
   row_count: number;
