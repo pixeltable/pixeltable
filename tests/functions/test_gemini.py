@@ -15,6 +15,7 @@ import pixeltable.type_system as ts
 from pixeltable.runtime import get_runtime, reset_runtime
 
 from ..utils import (
+    DatabaseRoot,
     ensure_s3_pytest_resources_access,
     get_audio_files,
     get_image_files,
@@ -292,84 +293,54 @@ class TestGemini:
         assert results['output'][0].size == (1024, 1024)
         assert results['output2'][0].size == (1280, 896)
 
-    @pytest.mark.skip(reason="Veo models are shut down; generate_videos() doesn't support Gemini Omni yet")
-    @rerun_on_network_error(reruns_delay=30)
-    def test_generate_videos(self, uses_db: None) -> None:
+    @pytest.mark.very_expensive
+    @pytest.mark.parametrize(
+        ('with_images', 'delivery', 'aspect_ratio', 'resolution', 'width', 'height'),
+        [(False, 'inline', '16:9', '360p', 640, 360), (True, 'uri', '9:16', '720p', 720, 1280)],
+        ids=['text-inline', 'reference-images-uri'],
+    )
+    def test_generate_omni_video(
+        self,
+        db_root: DatabaseRoot,
+        with_images: bool,
+        delivery: str,
+        aspect_ratio: str,
+        resolution: str,
+        width: int,
+        height: int,
+    ) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
-        from pixeltable.functions.gemini import generate_videos
-
-        duration = 4
-        t = pxt.create_table(
-            'test_tbl', {'prompt': pxt.String | None, 'image': pxt.Image | None, 'video': pxt.Video | None}
-        )
-        t.add_computed_column(
-            output=generate_videos(
-                t.prompt, t.image, model='veo-3.1-fast-generate-preview', config={'duration_seconds': duration}
-            )
-        )
-        prompts = [
-            {'prompt': 'A giant pixel floating over the open ocean in a sea of data to the sound of ambient music'},
-            {
-                'prompt': 'Giraffes are foraging in a lush savannah as the leaves sway in the wind',
-                'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000025.jpg',
-            },
-        ]
-
-        t.add_computed_column(metadata=t.output.get_metadata())
-        validate_update_status(t.insert(prompts), expected_rows=len(prompts))
-
-        results = t.collect()
-        for i in range(len(results)):
-            file_path = results['output'][i]
-            print(f'Generated video: {file_path}')
-            metadata = results['metadata'][i]
-            print(f'Generated video metadata: {metadata}')
-            assert Path(file_path).exists()
-
-            # Validate metadata
-            streams = metadata['streams']
-            video_stream = next(s for s in streams if s['type'] == 'video')
-            audio_stream = next(s for s in streams if s['type'] == 'audio')
-            assert len(streams) == 2, metadata
-            assert video_stream['height'] == 720, metadata
-            assert video_stream['duration_seconds'] == duration, metadata
-            assert audio_stream['duration_seconds'] == duration, metadata
-
-    @pytest.mark.skip(reason="Veo models are shut down; generate_videos() doesn't support Gemini Omni yet")
-    @rerun_on_network_error(reruns_delay=30)
-    def test_generate_videos_reference_images(self, uses_db: None) -> None:
-        skip_test_if_not_installed('google.genai')
-        skip_test_if_no_client('gemini')
-        from pixeltable.functions.gemini import generate_videos
+        from pixeltable.functions.gemini import generate_omni_video
 
         t = pxt.create_table(
-            'test_tbl', {'prompt': pxt.String | None, 'ref1': pxt.Image | None, 'ref2': pxt.Image | None}
+            db_root.make_catalog_path('test_tbl'),
+            {'prompt': pxt.String | None, 'ref1': pxt.Image | None, 'ref2': pxt.Image | None},
         )
         t.add_computed_column(
-            output=generate_videos(
+            output=generate_omni_video(
                 t.prompt,
-                images=[t.ref1, t.ref2],
-                reference_types=['asset', 'asset'],
-                model='veo-3.1-generate-preview',
-                config={'duration_seconds': 8},
+                images=[t.ref1, t.ref2] if with_images else None,
+                model='gemini-omni-1.1-flash',
+                config={'aspect_ratio': aspect_ratio, 'resolution': resolution, 'delivery': delivery},
             )
         )
-        validate_update_status(
-            t.insert(
-                [
-                    {
-                        'prompt': 'A woman wearing the dress walks confidently through a sun-drenched lagoon',
-                        'ref1': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000025.jpg',
-                        'ref2': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',
-                    }
-                ]
-            ),
-            expected_rows=1,
-        )
-        results = t.collect()
-        file_path = results['output'][0]
-        assert Path(file_path).exists()
+        t.add_computed_column(metadata=t.output.get_metadata())
+        row = {'prompt': 'A gentle breeze moves through a sunny landscape. Slow cinematic camera pan.'}
+        if with_images:
+            row.update(
+                ref1=str(Path('docs/resources/images/000000000025.jpg').resolve()),
+                ref2=str(Path('docs/resources/images/000000000030.jpg').resolve()),
+            )
+        validate_update_status(t.insert([row]), expected_rows=1)
+        result = t.collect()[0]
+        assert Path(result['output']).is_file()
+        streams = result['metadata']['streams']
+        video_stream = next(s for s in streams if s['type'] == 'video')
+        assert video_stream['width'] == width
+        assert video_stream['height'] == height
+        assert video_stream['duration_seconds'] > 0
+        assert any(s['type'] == 'audio' for s in streams)
 
     def test_generate_speech(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')

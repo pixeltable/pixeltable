@@ -423,6 +423,7 @@
           <outline text="udf|pixeltable.functions.gemini.embed_content" />
           <outline text="udf|pixeltable.functions.gemini.generate_content" />
           <outline text="udf|pixeltable.functions.gemini.generate_images" />
+          <outline text="udf|pixeltable.functions.gemini.generate_omni_video" />
           <outline text="udf|pixeltable.functions.gemini.generate_videos" />
           <outline text="udf|pixeltable.functions.gemini.generate_speech" />
           <outline text="udf|pixeltable.functions.gemini.transcribe" />

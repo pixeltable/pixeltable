@@ -22,7 +22,8 @@ import os
 import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Literal, Sequence, TypeVar
+from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Literal, Sequence, TypeVar, cast
+from urllib.parse import urlsplit
 
 import numpy as np
 import PIL.Image
@@ -393,15 +394,16 @@ async def generate_videos(
     prompt: str | None = None, image: PIL.Image.Image | None = None, *, model: str, config: dict | None = None
 ) -> pxt.Video:
     """
-    Generates videos based on a text description and configuration. For additional details, see:
-    <https://ai.google.dev/gemini-api/docs/video>
+    Generate videos with Veo on Vertex AI. For Gemini Omni on the Gemini Developer API, use
+    [`generate_omni_video()`][pixeltable.functions.gemini.generate_omni_video]. For additional details, see:
+    <https://cloud.google.com/vertex-ai/generative-ai/docs/video/generate-videos-from-text>
 
     At least one of `prompt` or `image` must be provided. When `image` is a single image, it is used as the first
     frame of the generated video. When `image` is a list of images, they are used as reference images to guide the
     style or asset appearance throughout the video (Veo 3.1+). See the overloaded signature for details.
 
     Request throttling:
-    Applies the rate limit set in the config (section `veo.rate_limits`; use the model id as the key). If no rate
+    Applies the rate limit set in the config (section `gemini.rate_limits`; use the model id as the key). If no rate
     limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
@@ -421,11 +423,11 @@ async def generate_videos(
         The generated video.
 
     Examples:
-        Add a computed column that applies the model `veo-3.0-generate-001`
+        Add a computed column that applies the Vertex AI model `veo-3.1-generate-001`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> tbl.add_computed_column(
-        ...     response=generate_videos(tbl.prompt, model='veo-3.0-generate-001')
+        ...     response=generate_videos(tbl.prompt, model='veo-3.1-generate-001')
         ... )
 
         Use reference images with Veo 3.1 to guide video generation:
@@ -435,7 +437,7 @@ async def generate_videos(
         ...         tbl.prompt,
         ...         images=[tbl.ref_img1, tbl.ref_img2],
         ...         reference_types=['asset', 'asset'],
-        ...         model='veo-3.1-generate-preview',
+        ...         model='veo-3.1-generate-001',
         ...     )
         ... )
     """
@@ -515,6 +517,123 @@ async def _(
 
 
 @generate_videos.resource_pool
+def _(model: str) -> str:
+    return f'rate-limits:gemini:{model}'
+
+
+@pxt.udf(is_deterministic=False)
+async def generate_omni_video(
+    prompt: str | None = None, images: list[PIL.Image.Image] | None = None, *, model: str, config: dict | None = None
+) -> pxt.Video:
+    """
+    Generate a video with Gemini Omni through the Interactions API. For additional details, see:
+    <https://ai.google.dev/gemini-api/docs/omni>
+
+    Requires the Gemini Developer API (Google AI Studio credentials). At least one of `prompt` or `images`
+    must be provided. Images guide the generated video according to the prompt.
+
+    Request throttling:
+    Applies the rate limit set in the config (section `gemini.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
+
+    __Requirements:__
+
+    - `pip install 'google-genai>=2.22'`
+
+    Args:
+        prompt: A text description of the video to generate.
+        images: Optional reference images to send with the prompt.
+        model: The model to use, such as `'gemini-omni-1.1-flash'`.
+        config: Fields of the Interactions API video `response_format`. For example,
+            `{'aspect_ratio': '9:16', 'resolution': '1080p'}`. `type` is set to `'video'` automatically.
+            `delivery` defaults to `'uri'`; `'inline'` returns base64 data instead. Both are saved as a local video.
+
+    Returns:
+        The generated video.
+
+    Examples:
+        Generate a video from each prompt in an existing table:
+
+        >>> tbl.add_computed_column(
+        ...     video=generate_omni_video(tbl.prompt, model='gemini-omni-1.1-flash')
+        ... )
+
+        Animate reference images and set the output aspect ratio and resolution:
+
+        >>> tbl.add_computed_column(
+        ...     video=generate_omni_video(
+        ...         tbl.prompt,
+        ...         images=[tbl.image],
+        ...         model='gemini-omni-1.1-flash',
+        ...         config={'aspect_ratio': '9:16', 'resolution': '1080p'},
+        ...     )
+        ... )
+    """
+    env.Env.get().require_package('google.genai', min_version=[2, 22])
+    from google.genai import types
+
+    resource_pool_id = f'rate-limits:gemini:{model}'
+    env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
+
+    if prompt is None and not images:
+        raise excs.RequestError(
+            excs.ErrorCode.MISSING_REQUIRED, 'At least one of `prompt` or `images` must be provided.'
+        )
+    client = _genai_client()
+    if client.vertexai:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, 'Gemini Omni video generation requires the Gemini Developer API.'
+        )
+
+    contents: list[dict[str, str]] = []
+    if prompt is not None:
+        contents.append({'type': 'text', 'text': prompt})
+    for image in images or []:
+        image_ = _pil_to_gemini_image(image)
+        assert image_.image_bytes is not None and image_.mime_type is not None
+        contents.append(
+            {
+                'type': 'image',
+                'data': base64.b64encode(image_.image_bytes).decode('ascii'),
+                'mime_type': image_.mime_type,
+            }
+        )
+
+    try:
+        async with asyncio.timeout(300):
+            # create() also supports streams; this request returns a complete interaction.
+            interaction = cast(
+                'genai.interactions.Interaction',
+                await client.aio.interactions.create(
+                    model=model, input=contents, response_format={'delivery': 'uri', **(config or {}), 'type': 'video'}
+                ),
+            )
+            video = interaction.output_video
+            if video is None or not (video.data or video.uri):
+                raise excs.ExternalServiceError(
+                    excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+                    f'Gemini Omni returned no video (status={interaction.status!r}, errors={interaction.errors!r}).',
+                    provider='gemini',
+                )
+            output_path = TempStore.create_path(extension='.mp4')
+            if video.data:
+                output_path.write_bytes(base64.b64decode(video.data))
+            else:
+                assert video.uri is not None
+                # Pass the file name: the SDK's URI parser truncates file ids containing hyphens.
+                name = 'files/' + urlsplit(video.uri).path.rsplit('/', 1)[-1].removesuffix(':download')
+                await _poll_until_active(client.aio, [types.File(name=name)], ['generated video'])
+                await client.aio.files.download(file=name, destination=output_path)
+            return str(output_path)
+    except TimeoutError as exc:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_TIMEOUT,
+            f'Video generation timed out after 300 seconds for Gemini model {model!r}.',
+            provider='gemini',
+        ) from exc
+
+
+@generate_omni_video.resource_pool
 def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'
 
