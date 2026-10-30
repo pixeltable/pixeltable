@@ -226,8 +226,7 @@ async def _gemini_file_uploads(files: list[str]) -> AsyncIterator[list['genai.ty
                     )
                 tasks.append(client.aio.files.upload(file=file, config={'mime_type': mime_type}))
             uploaded = await asyncio.gather(*tasks)
-            # poll till server finished uploading files (state is ACTIVE)
-            await _poll_until_active(async_client=client.aio, uploaded=uploaded, files=files)
+            await _poll_until_active(client.aio, uploaded)
 
         yield uploaded
 
@@ -620,7 +619,7 @@ async def generate_omni_video(
                 output_path.write_bytes(base64.b64decode(video.data))
             else:
                 assert video.uri is not None
-                await _poll_until_active(client.aio, [types.File(name=video.uri)], ['generated video'])
+                await _poll_until_active(client.aio, [types.File(name=video.uri)])
                 await client.aio.files.download(file=video.uri, destination=output_path)
             return str(output_path)
     except TimeoutError as exc:
@@ -1069,23 +1068,16 @@ def _is_processing(remote_files: list['genai.types.File']) -> bool:
 
 
 def _handle_polling_timeout(retry_state: RetryCallState) -> None:
-    """Triggered when timeout is reached."""
+    """Report files that have not finished server-side processing."""
     from google.genai import types
 
     remote_files: list[types.File] = retry_state.outcome.result()
 
-    # Extract files from the keyword arguments
-    files: list[str] = retry_state.kwargs.get('files', [])
-    stuck_details = []
-    for i, file in enumerate(remote_files):
-        if file.state != types.FileState.ACTIVE:
-            local_path = files[i] if i < len(files) else 'Unknown path'
-            stuck_details.append(f'{local_path} (ID: {file.name}, State: {file.state.name})')
-
-    detail_str = '\n- '.join(stuck_details)
+    pending = [file for file in remote_files if file.state != types.FileState.ACTIVE]
+    detail_str = '\n- '.join(f'{file.name} (state={file.state})' for file in pending)
     raise excs.ExternalServiceError(
         excs.ErrorCode.PROVIDER_TIMEOUT,
-        f'Timeout: failed to upload {len(stuck_details)}/{len(remote_files)} file(s):\n- {detail_str}',
+        f'Timed out waiting for Gemini to process {len(pending)}/{len(remote_files)} file(s):\n- {detail_str}',
         provider='gemini',
     )
 
@@ -1097,19 +1089,16 @@ def _handle_polling_timeout(retry_state: RetryCallState) -> None:
     retry_error_callback=_handle_polling_timeout,
 )
 async def _poll_until_active(
-    async_client: 'genai.client.AsyncClient', uploaded: list['genai.types.File'], files: list[str]
+    async_client: 'genai.client.AsyncClient', files: list['genai.types.File']
 ) -> list['genai.types.File']:
+    """Wait for uploaded or generated files to finish server-side processing and become active."""
     from google.genai import types
 
-    # Collect statuses for all uploaded files
-    remote_files = await asyncio.gather(*[async_client.files.get(name=f.name) for f in uploaded])
-    for i, file in enumerate(remote_files):
+    remote_files = await asyncio.gather(*[async_client.files.get(name=f.name) for f in files])
+    for file in remote_files:
         if file.state == types.FileState.FAILED:
-            # Fail immediately
             raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_ERROR,
-                f'Server processing failed for {files[i]} ({file.name})',
-                provider='gemini',
+                excs.ErrorCode.PROVIDER_ERROR, f'Gemini file processing failed for {file.name}.', provider='gemini'
             )
     return remote_files
 
