@@ -659,6 +659,7 @@ class StoreBase:
             set of column ids that have exceptions, row count stats, updated rows (if return_rows)
         """
         assert not self.tbl_version.get().is_data_versioned
+        get_runtime().catalog.assert_rows_write_locked(self.tbl_version.get())
         num_excs = 0
         num_rows = 0
         cols_with_excs: set[int] = set()
