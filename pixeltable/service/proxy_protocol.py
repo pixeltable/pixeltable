@@ -986,6 +986,9 @@ def decode_body(body: bytes) -> tuple[bytes, list[bytes]]:
 # On macOS a socket write of more than INT_MAX bytes fails, so bodies are written in slices of this size.
 _BODY_CHUNK_SIZE = 16 * 2**20
 
+# How long the proxy daemon keeps an idle connection open; clients stop reusing one before then.
+KEEP_ALIVE_S = 5
+
 
 def iter_body_chunks(body: bytes) -> Iterator[memoryview]:
     """Slice an encoded body, without copying it, for writing to the socket one slice at a time."""

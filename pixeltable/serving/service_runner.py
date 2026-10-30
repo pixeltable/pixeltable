@@ -29,8 +29,7 @@ def _serve(app_file: str, service_name: str, base_path: str, otel: bool, port: i
         # before the first Pixeltable operation, so that loading the file is traced too
         init_instrumentation()
     app, spec, _ = create_app(app_file, service_name, base_path)
-    if otel:
-        instrument_app(app)
+    asgi_app = instrument_app(app) if otel else app
 
     sock = bind_service_port(service_name, port)
     port = sock.getsockname()[1]
@@ -61,7 +60,7 @@ def _serve(app_file: str, service_name: str, base_path: str, otel: bool, port: i
 
     log_level = logging.getLogger('pixeltable').getEffectiveLevel()
     # log_config=None keeps uvicorn from replacing the logging Env has already set up
-    uvicorn.Server(uvicorn.Config(app, log_level=log_level, log_config=None)).run(sockets=[sock])
+    uvicorn.Server(uvicorn.Config(asgi_app, log_level=log_level, log_config=None)).run(sockets=[sock])
 
 
 if __name__ == '__main__':

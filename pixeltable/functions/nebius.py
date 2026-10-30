@@ -6,12 +6,10 @@ them, you must first `pip install openai` and configure your Nebius Token Factor
 setting the `NEBIUS_API_KEY` environment variable or `nebius.api_key` in the Pixeltable config file.
 """
 
-import copy
 import json
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import PIL.Image
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
@@ -19,7 +17,8 @@ from pixeltable import env, exceptions as excs
 from pixeltable.func import Batch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
-from pixeltable.utils.image import to_base64
+
+from .openai import _encode_chat_images
 
 if TYPE_CHECKING:
     import openai
@@ -103,6 +102,8 @@ async def chat_completions(
         >>> tbl.add_computed_column(
         ...     response=chat_completions(messages, model='openbmb/MiniCPM-V-4_5')
         ... )
+
+        The `'image_url'` field also accepts the API's `{'url': ...}` form, such as `{'url': tbl.image}`.
     """
     env.Env.get().require_package('openai')
 
@@ -126,19 +127,7 @@ async def chat_completions(
             model_kwargs['extra_body'] = {}
         model_kwargs['extra_body']['parallel_tool_calls'] = False
 
-    # Serialize any images in `messages`
-    messages = copy.deepcopy(messages)
-    for message in messages:
-        content = message.get('content')
-        if isinstance(content, list):
-            for part in content:
-                if (
-                    isinstance(part, dict)
-                    and part.get('type') == 'image_url'
-                    and isinstance(part.get('image_url'), PIL.Image.Image)
-                ):
-                    b64_encoded_image = to_base64(part['image_url'], format='png')
-                    part['image_url'] = {'url': f'data:image/png;base64,{b64_encoded_image}'}
+    messages = _encode_chat_images(messages)
 
     result = await _nebius_client().chat.completions.with_raw_response.create(
         messages=messages, model=model, **model_kwargs
