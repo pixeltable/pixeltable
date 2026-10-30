@@ -1732,6 +1732,59 @@ class TestFunction:
         # reload_and_validate_table(validation_error=return_type_error.format(return_type='Array | None'))
 
     @pytest.mark.db_roots(
+        'local',
+        reason='patches a UDF signature in the client process across catalog reloads; not visible to the daemon',
+    )
+    def test_typed_dict_return_type_evolution(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """
+        A computed column stays valid when the TypedDict return type of its UDF gains an optional key (as when a
+        provider SDK adds a field to a response): dict schemas are open, so the stored return type is still a
+        supertype of the one in the code.
+        """
+        udf = udf_with_typed_dict_result
+        stored_type = ts.JsonType(ts.JsonType.TypeSchema({'label': ts.StringType()}))
+        t = pxt.create_table('test', {'label': pxt.String})
+        with monkeypatch.context() as m:
+            # create the column with the return type that the UDF had before it gained the 'score' key
+            m.setattr(udf.signature, 'return_type', stored_type)
+            t.add_computed_column(result=udf(t.label))
+        assert t.result.col_type.matches(stored_type)
+
+        reload_catalog()
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', pxt.PixeltableWarning)
+            t = pxt.get_table('test')
+        assert t.result.col_type.matches(stored_type)
+        t.insert(label='a')
+        res = t.select(t.result, score=t.result.score).collect()
+        assert res['result'] == [{'label': 'a', 'score': 0.5}]
+        assert res['score'] == [0.5]
+
+    def test_typed_dict_param_literals(self, db_root: DatabaseRoot) -> None:
+        # a literal default that omits an optional key conforms to the parameter type
+        @pxt.udf(_force_stored=True)
+        def transform(x: int, options: TypedDictOptions = {'offset': 1}) -> int:  # noqa: B006
+            return x * options.get('scale', 1) + options['offset']
+
+        t = pxt.create_table(db_root.make_catalog_path('test'), {'x': pxt.Int})
+        t.insert(x=2)
+        assert t.select(out=transform(t.x)).collect()['out'] == [3]
+
+        # so does a literal passed to .using(), including one with keys that the parameter type doesn't declare
+        assert t.select(out=transform.using(options={'offset': 5})(t.x)).collect()['out'] == [7]
+        scaled = transform.using(options={'offset': 5, 'scale': 3, 'note': 'x'})
+        assert t.select(out=scaled(t.x)).collect()['out'] == [11]
+
+        # a literal that lacks a required key does not
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="Expected type .* for parameter 'options'"):
+            transform.using(options={'scale': 3})
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Default value for parameter 'options'"):
+
+            @pxt.udf
+            def bad_default(x: int, options: TypedDictOptions = {'scale': 3}) -> int:  # type: ignore[typeddict-item]  # noqa: B006
+                return x
+
+    @pytest.mark.db_roots(
         'local', reason='patches a client-process-local UDF to raise on catalog load; not visible to the daemon'
     )
     def test_udf_import_error(self, uses_db: None) -> None:
@@ -1799,6 +1852,10 @@ class TestFunction:
         # that path is stripped so the message stays safe to show remote callers.
         (tmp_path / 'broken_helper.py').write_text('')
         (tmp_path / 'broken_udf_mod.py').write_text('from broken_helper import missing_name\n')
+        # written before syspath_prepend() and its cache refresh: on Windows, imports can miss a module written later
+        (tmp_path / 'stored_udf_mod.py').write_text(
+            'import pixeltable as pxt\n\n@pxt.udf\ndef f(s: str) -> str:\n    return s\n'
+        )
         monkeypatch.syspath_prepend(str(tmp_path))
         d = {
             '_classpath': 'pixeltable.func.callable_function.CallableFunction',
@@ -1819,9 +1876,6 @@ class TestFunction:
         assert str(tmp_path) not in validation_error.protocol_error_msg()
 
         # the same cause on the user-visible path: a stored UDF whose module breaks warns on get_table
-        (tmp_path / 'stored_udf_mod.py').write_text(
-            'import pixeltable as pxt\n\n@pxt.udf\ndef f(s: str) -> str:\n    return s\n'
-        )
         import stored_udf_mod  # type: ignore[import-not-found]
 
         t = pxt.create_table('test', {'s': pxt.String})
@@ -2248,6 +2302,22 @@ def _(content: list[str]) -> dict[str, int]:
 @pxt.udf
 def udf6(name: str) -> str:
     return ''
+
+
+class TypedDictResult(typing.TypedDict):
+    label: str
+    score: typing.NotRequired[float]
+
+
+# Used by TestFunction.test_typed_dict_return_type_evolution, which patches its return type.
+@pxt.udf
+def udf_with_typed_dict_result(label: str) -> TypedDictResult:
+    return {'label': label, 'score': 0.5}
+
+
+class TypedDictOptions(typing.TypedDict):
+    offset: int
+    scale: typing.NotRequired[int]
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:test-sync')

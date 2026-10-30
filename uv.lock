@@ -5433,6 +5433,7 @@ source = { editable = "packages/opentelemetry-instrumentation-pixeltable" }
 dependencies = [
     { name = "opentelemetry-api" },
     { name = "opentelemetry-instrumentation" },
+    { name = "opentelemetry-util-http" },
     { name = "pixeltable" },
 ]
 
@@ -5440,6 +5441,7 @@ dependencies = [
 requires-dist = [
     { name = "opentelemetry-api", specifier = ">=1.39.0" },
     { name = "opentelemetry-instrumentation", specifier = ">=0.60b0" },
+    { name = "opentelemetry-util-http", specifier = ">=0.60b0" },
     { name = "pixeltable", editable = "." },
 ]
 
