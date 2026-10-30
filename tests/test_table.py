@@ -23,7 +23,6 @@ from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
 from pixeltable.functions.video import legacy_frame_iterator
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.local_store import TempStore
 
 from .conftest import SampleFileServer
 from .utils import (
@@ -35,12 +34,14 @@ from .utils import (
     assert_resultset_eq,
     assert_table_metadata_eq,
     check_media_store_count,
+    check_temp_store_count,
     create_table_data,
     create_test_tbl,
     get_audio_files,
     get_documents,
     get_image_files,
     get_multimedia_commons_video_uris,
+    get_temp_store_count,
     get_video_files,
     make_tbl,
     pxt_raises,
@@ -3651,6 +3652,8 @@ class TestTable:
         assert res[1]['hero_md']['width'] == 100
         assert np.array_equal(res[1]['hero_a'], np.full((3, 4), 100))
         assert res[1]['err_msg'] is None
+        # an empty image can't be saved, but a query returns it
+        assert t.where(t.id == 0).select(img=t.photo.crop(box)).collect()[0]['img'].size == (0, 0)
 
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Error while saving column 'hero2': cannot write empty image"
@@ -3661,20 +3664,26 @@ class TestTable:
         assert status.cols_with_excs == ['test_unsaveable.hero2']
         assert t.where(t.hero2.errormsg != None).select(t.id).collect()['id'] == [0]
 
-    @pytest.mark.db_roots('local', reason='the proxy client encodes an in-memory image before sending it')
-    def test_unsaveable_image_literal(self, uses_db: None) -> None:
+    def test_unsaveable_image_literal(self, db_root: DatabaseRoot) -> None:
         """An inserted image that cannot be saved aborts the insert or, with on_error='ignore', is a cell error."""
-        t = pxt.create_table('test_unsaveable_literal', {'id': pxt.Int, 'img': pxt.Image})
+        t = pxt.create_table(db_root.make_catalog_path('test_unsaveable_literal'), {'id': pxt.Int, 'img': pxt.Image})
         t.add_computed_column(img_md=t.img.get_metadata())
         t.add_computed_column(img_a=fill_3x4(t.img.width))
-        rows = [{'id': 0, 'img': PIL.Image.new('RGB', (0, 0))}, {'id': 1, 'img': PIL.Image.new('RGB', (8, 8))}]
+        rows = [
+            {'id': 0, 'img': PIL.Image.new('RGB', (0, 0))},
+            {'id': 1, 'img': PIL.Image.new('RGB', (8, 8))},
+            {'id': 2, 'img': PIL.Image.new('HSV', (8, 8))},
+        ]
         msg = "Error while saving column 'img': cannot write empty image"
+        hsv_msg = "Error while saving column 'img': cannot write mode HSV as TIFF"
+        tmp_count = get_temp_store_count(t, db_root)
 
-        with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=msg):
-            t.insert(rows)
+        for row, row_msg in [(rows[0], msg), (rows[2], hsv_msg)]:
+            with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=row_msg):
+                t.insert([row])
         status = t.insert(rows, on_error='ignore')
-        assert status.num_rows == 2
-        assert status.num_excs == 3
+        assert status.num_rows == 3
+        assert status.num_excs == 6
         res = (
             t.select(t.img, t.img_md, t.img_a, err_msg=t.img.errormsg, md_msg=t.img_md.errormsg, a_msg=t.img_a.errormsg)
             .order_by(t.id)
@@ -3682,33 +3691,54 @@ class TestTable:
         )
         assert res[0] == {'img': None, 'img_md': None, 'img_a': None, 'err_msg': msg, 'md_msg': msg, 'a_msg': msg}
         assert res[1]['img'].size == (8, 8)
-        assert res[1]['img_md']['width'] == 8
+        assert res[1]['img_md'] == {'width': 8, 'height': 8, 'mode': 'RGB', 'bits': None, 'format': None}
         assert np.array_equal(res[1]['img_a'], np.full((3, 4), 8))
-        # neither insert leaves a partial file in the TempStore
-        assert TempStore.count(t._id) == 0
+        assert res[2] == {
+            'img': None,
+            'img_md': None,
+            'img_a': None,
+            'err_msg': hsv_msg,
+            'md_msg': hsv_msg,
+            'a_msg': hsv_msg,
+        }
+        # no insert leaves a partial file in the TempStore
+        check_temp_store_count(t, tmp_count, db_root)
 
     def test_image_modes(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
-        """A stored image keeps its mode; one stored in a lossless format also keeps its pixels."""
+        """Computed, inserted and queried images keep their mode, and their pixels when stored losslessly."""
         p = db_root.make_catalog_path
         img_file = get_image_files()[0]
-        t = pxt.create_table(p('test_image_modes'), {'img': pxt.Image})
         lossy_modes = {'l': 'L', 'rgb': 'RGB', 'cmyk': 'CMYK'}
         lossless_modes = {'p': 'P', 'i': 'I', 'f': 'F', 'i16': 'I;16', 'i16b': 'I;16B', 'lab': 'LAB'}
-        for col_name, mode in (lossy_modes | lossless_modes).items():
+        stored_modes = lossy_modes | lossless_modes
+        queried_modes = stored_modes | {'pa': 'PA', 'hsv': 'HSV'}
+        with PIL.Image.open(img_file) as src:
+            expected = {col_name: src.convert(mode) for col_name, mode in queried_modes.items()}
+
+        schema = {'img': pxt.Image} | {f'{col_name}_in': pxt.Image for col_name in stored_modes}
+        t = pxt.create_table(p('test_image_modes'), schema)
+        for col_name, mode in stored_modes.items():
             t.add_computed_column(**{col_name: t.img.convert(mode)})
         t.add_computed_column(j={'p': t.img.convert('P'), 'f': t.img.convert('F')})
-        t.insert(img=sample_file_server.url(img_file, db_root))
+        values = {f'{col_name}_in': expected[col_name] for col_name in stored_modes}
+        t.insert([{'img': sample_file_server.url(img_file, db_root), **values}])
 
         row = t.select().collect()[0]
-        with PIL.Image.open(img_file) as src:
-            for col_name, mode in lossy_modes.items():
-                assert row[col_name].mode == mode
-            for col_name, mode in lossless_modes.items():
-                assert row[col_name].mode == mode
-                assert np.array_equal(np.asarray(row[col_name]), np.asarray(src.convert(mode)))
-            for key, mode in [('p', 'P'), ('f', 'F')]:
-                assert row['j'][key].mode == mode
-                assert np.array_equal(np.asarray(row['j'][key]), np.asarray(src.convert(mode)))
+        for col_name, mode in stored_modes.items():
+            for img in [row[col_name], row[f'{col_name}_in']]:
+                assert img.mode == mode
+                if col_name in lossless_modes:
+                    assert np.array_equal(np.asarray(img), np.asarray(expected[col_name]))
+        for key in ['p', 'f']:
+            assert row['j'][key].mode == expected[key].mode
+            assert np.array_equal(np.asarray(row['j'][key]), np.asarray(expected[key]))
+
+        # a query result is not saved, so it keeps its pixels in every mode
+        row = t.select(**{col_name: t.img.convert(mode) for col_name, mode in queried_modes.items()}).collect()[0]
+        for col_name, mode in queried_modes.items():
+            assert row[col_name].mode == mode
+            assert np.array_equal(np.asarray(row[col_name]), np.asarray(expected[col_name]))
+            assert row[col_name].getpalette() == expected[col_name].getpalette()
 
     # TODO: cannot be converted: KeyboardInterrupt injection is client-process-local and does not reach the daemon
     @pytest.mark.db_roots(

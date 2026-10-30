@@ -4,7 +4,8 @@ from io import BytesIO
 import PIL.Image
 
 _JPEG_MODES = frozenset(['1', 'L', 'RGB', 'RGBX', 'CMYK', 'YCbCr'])
-_PNG_MODES = frozenset(['P', 'I;16'])
+# PNG round-trips these modes; it would store mode I as I;16
+PNG_MODES = frozenset(['1', 'L', 'LA', 'P', 'RGB', 'RGBA', 'I;16'])
 
 
 def default_format(img: PIL.Image.Image) -> str:
@@ -13,8 +14,7 @@ def default_format(img: PIL.Image.Image) -> str:
         return 'webp'
     if img.mode in _JPEG_MODES:
         return 'jpeg'
-    # PNG and TIFF keep the mode; PNG would store mode I as I;16
-    if img.mode in _PNG_MODES:
+    if img.mode in PNG_MODES:
         return 'png'
     return 'tiff'
 
