@@ -3726,22 +3726,41 @@ class TestTable:
         p = db_root.make_catalog_path
         img_file = get_image_files()[0]
         lossy_modes = {'l': 'L', 'rgb': 'RGB', 'cmyk': 'CMYK'}
-        lossless_modes = {'bw': '1', 'p': 'P', 'i': 'I', 'f': 'F', 'i16': 'I;16', 'i16b': 'I;16B', 'lab': 'LAB'}
+        lossless_modes = {
+            'bw': '1',
+            'la': 'LA',
+            'p': 'P',
+            'pa': 'PA',
+            'i': 'I',
+            'f': 'F',
+            'i16': 'I;16',
+            'i16b': 'I;16B',
+            'lab': 'LAB',
+        }
         stored_modes = lossy_modes | lossless_modes
-        queried_modes = stored_modes | {'pa': 'PA', 'hsv': 'HSV'}
+        queried_modes = stored_modes | {'hsv': 'HSV'}
         # img_file is grayscale, and Pillow 10.3 cannot convert L to LAB
         with PIL.Image.open(img_file) as src:
             rgb_src = src.convert('RGB')
         expected = {col_name: rgb_src.convert(mode) for col_name, mode in queried_modes.items()}
+        transparent = {'l_t': expected['l'].copy(), 'rgb_t': expected['rgb'].copy(), 'p_t': expected['p'].copy()}
+        for img in transparent.values():
+            img.info['transparency'] = img.getpixel((0, 0))
+        transparent['p_alpha'] = expected['p'].copy()
+        transparent['p_alpha'].info['transparency'] = bytes(range(256))  # an alpha value per palette entry
 
-        schema = {'img': pxt.Image} | {f'{col_name}_in': pxt.Image for col_name in stored_modes}
+        schema = (
+            {'img': pxt.Image}
+            | {f'{col_name}_in': pxt.Image for col_name in stored_modes}
+            | dict.fromkeys(transparent, pxt.Image)
+        )
         t = pxt.create_table(p('test_image_modes'), schema)
         rgb = t.img.convert('RGB')
         for col_name, mode in stored_modes.items():
             t.add_computed_column(**{col_name: rgb.convert(mode)})
-        t.add_computed_column(j={'p': rgb.convert('P'), 'f': rgb.convert('F')})
+        t.add_computed_column(j={'p': rgb.convert('P'), 'f': rgb.convert('F'), 'la': rgb.convert('LA')})
         values = {f'{col_name}_in': expected[col_name] for col_name in stored_modes}
-        t.insert([{'img': sample_file_server.url(img_file, db_root), **values}])
+        t.insert([{'img': sample_file_server.url(img_file, db_root), **values, **transparent}])
 
         row = t.select().collect()[0]
         for col_name, mode in stored_modes.items():
@@ -3749,9 +3768,12 @@ class TestTable:
                 assert img.mode == mode
                 if col_name in lossless_modes:
                     assert np.array_equal(np.asarray(img), np.asarray(expected[col_name]))
-        for key in ['p', 'f']:
+        for key in ['p', 'f', 'la']:
             assert row['j'][key].mode == expected[key].mode
             assert np.array_equal(np.asarray(row['j'][key]), np.asarray(expected[key]))
+        for col_name, img in transparent.items():
+            assert row[col_name].mode == img.mode
+            assert np.array_equal(np.asarray(row[col_name].convert('RGBA')), np.asarray(img.convert('RGBA')))
 
         # a query result is not saved, so it keeps its pixels in every mode
         row = t.select(**{col_name: rgb.convert(mode) for col_name, mode in queried_modes.items()}).collect()[0]
