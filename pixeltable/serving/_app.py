@@ -52,7 +52,7 @@ def create_app(
 
 
 _OTEL_NOT_INSTALLED = (
-    "OpenTelemetry tracing requires the instrumentation package; install: `pip install -U 'pixeltable[otel]'`"
+    "OpenTelemetry tracing requires the instrumentation package; install: `pip install 'pixeltable[otel]'`"
 )
 
 

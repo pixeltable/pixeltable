@@ -7,7 +7,7 @@ its own.
 ```bash
 pip install opentelemetry-instrumentation-pixeltable
 # or, to also pull in the OpenTelemetry SDK and OTLP exporters that init() needs:
-pip install -U 'pixeltable[otel]'
+pip install 'pixeltable[otel]'
 ```
 
 ## Attach to an existing OpenTelemetry SDK
