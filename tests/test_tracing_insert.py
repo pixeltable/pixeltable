@@ -353,8 +353,10 @@ class TestInsertTracing:
         finally:
             SubscriberRegistry.get().unsubscribe(sub)
 
-    def test_op_spans(self, uses_db: None) -> None:
-        t = pxt.create_table('tracing_ops', {'c': pxt.Int | None, 's': pxt.String})
+    def test_op_spans(self, uses_db: None, is_data_versioned: bool) -> None:
+        t = pxt.create_table(
+            'tracing_ops', {'c': pxt.Int | None, 's': pxt.String}, _is_data_versioned=is_data_versioned
+        )
         t.add_computed_column(inc=pxtf.math.abs(t.c))
 
         sub = RecordingSubscriber()

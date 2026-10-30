@@ -1168,26 +1168,26 @@ class TestTableModel:
             view_from_query2.order_by(view_from_query2.id, view_from_query2.pos).collect(),
         )
 
-    def test_update_all_creates_queried_table(self, db_root: DatabaseRoot) -> None:
+    def test_update_all_creates_queried_table(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """The table a @pxt.query reads is created by the same update_all() that adds or alters its calling column."""
         p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
-        class Asks(TableModel, name='asks'):
+        class Asks(TableModel, name='asks', _is_data_versioned=is_data_versioned):
             question: pxt.String
 
         TableModel.update_all(p(''))
 
         TableModel2 = pxt.model_base()
 
-        class Docs(TableModel2, name='docs'):
+        class Docs(TableModel2, name='docs', _is_data_versioned=is_data_versioned):
             body: pxt.String
 
         @pxt.query
         def find(q: str) -> pxt.Query:
             return Docs.where(Docs.body.startswith(q)).select(body=Docs.body).limit(3)  # type: ignore[arg-type]
 
-        class Asks2(TableModel2, name='asks'):
+        class Asks2(TableModel2, name='asks', _is_data_versioned=is_data_versioned):
             question: pxt.String
             hits = find(question)
 
@@ -1206,17 +1206,17 @@ class TestTableModel:
         reload_catalog()
         TableModel3 = pxt.model_base()
 
-        class Docs3(TableModel3, name='docs'):
+        class Docs3(TableModel3, name='docs', _is_data_versioned=is_data_versioned):
             body: pxt.String
 
-        class Archive(TableModel3, name='archive'):
+        class Archive(TableModel3, name='archive', _is_data_versioned=is_data_versioned):
             body: pxt.String
 
         @pxt.query
         def find_archived(q: str) -> pxt.Query:
             return Archive.where(Archive.body.startswith(q)).select(body=Archive.body).limit(3)  # type: ignore[arg-type]
 
-        class Asks3(TableModel3, name='asks'):
+        class Asks3(TableModel3, name='asks', _is_data_versioned=is_data_versioned):
             question: pxt.String
             hits = find_archived(question)
 
@@ -2701,11 +2701,11 @@ class TestTableModel:
         assert [r['from_two'] for r in rows] == [['gamma'], ['gamma']]
         assert [r['match_count'] for r in rows] == [3, 1]
 
-    def test_update_all_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
+    def test_update_all_query_udf_over_model(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """`update_all()` binds query udfs over models in both altered and newly added computed columns."""
         TableModel = pxt.model_base()
 
-        class Docs(TableModel, name='docs'):
+        class Docs(TableModel, name='docs', _is_data_versioned=is_data_versioned):
             doc_id: pxt.Int
             title: pxt.String
 
@@ -2713,7 +2713,7 @@ class TestTableModel:
         def titles_after(cutoff: int) -> pxt.Query:
             return Docs.where(Docs.doc_id > cutoff).order_by(Docs.doc_id).select(Docs.title)  # type: ignore[arg-type]
 
-        class Probe(TableModel, name='probe'):
+        class Probe(TableModel, name='probe', _is_data_versioned=is_data_versioned):
             cutoff: pxt.Int
             matches = titles_after(cutoff)
 
@@ -2727,7 +2727,7 @@ class TestTableModel:
         # Table docs is unchanged; probe.matches is altered and a new column from_zero is added
         TableModelV2 = pxt.model_base()
 
-        class DocsV2(TableModelV2, name='docs'):
+        class DocsV2(TableModelV2, name='docs', _is_data_versioned=is_data_versioned):
             doc_id: pxt.Int
             title: pxt.String
 
@@ -2735,7 +2735,7 @@ class TestTableModel:
         def titles_after_v2(cutoff: int) -> pxt.Query:
             return DocsV2.where(DocsV2.doc_id > cutoff).order_by(DocsV2.doc_id).select(DocsV2.title)  # type: ignore[arg-type]
 
-        class ProbeV2(TableModelV2, name='probe'):
+        class ProbeV2(TableModelV2, name='probe', _is_data_versioned=is_data_versioned):
             cutoff: pxt.Int
             matches = titles_after_v2(cutoff + 1)
             from_zero = titles_after_v2(0)
@@ -2828,11 +2828,11 @@ class TestTableModel:
             [{'topic': 'cats', 'titles': ['a', 'b']}, {'topic': 'cows', 'titles': []}]
         ]
 
-    def test_update_all_nested_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
+    def test_update_all_nested_query_udf_over_model(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """`update_all()` creates every model a new column queries, including through a nested query udf."""
         TableModel = pxt.model_base()
 
-        class Probe(TableModel, name='probe'):
+        class Probe(TableModel, name='probe', _is_data_versioned=is_data_versioned):
             topic: pxt.String
 
         target = db_root.make_catalog_path('qudf_nested_update')
@@ -2843,7 +2843,7 @@ class TestTableModel:
         reload_catalog()
         TableModelV2 = pxt.model_base()
 
-        class Docs(TableModelV2, name='docs'):
+        class Docs(TableModelV2, name='docs', _is_data_versioned=is_data_versioned):
             topic: pxt.String
             title: pxt.String
 
@@ -2851,14 +2851,14 @@ class TestTableModel:
         def titles_for(topic: str) -> pxt.Query:
             return Docs.where(Docs.topic == topic).select(Docs.title)  # type: ignore[arg-type]
 
-        class Topics(TableModelV2, name='topics'):
+        class Topics(TableModelV2, name='topics', _is_data_versioned=is_data_versioned):
             topic: pxt.String
 
         @pxt.query
         def topic_titles(topic: str) -> pxt.Query:
             return Topics.where(Topics.topic == topic).select(titles=titles_for(Topics.topic))  # type: ignore[arg-type]
 
-        class ProbeV2(TableModelV2, name='probe'):
+        class ProbeV2(TableModelV2, name='probe', _is_data_versioned=is_data_versioned):
             topic: pxt.String
             matches = topic_titles(topic)
 
@@ -3157,39 +3157,42 @@ class TestTableModel:
                     EmbeddingIndex(b, embedding=dummy_embedding.using(n=512), name='idx'),
                 ]
 
-    def test_update_all_altered_computed_column(self, db_root: DatabaseRoot) -> None:
+    def test_update_all_altered_computed_column(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """`update_all()` replaces a computed column's value expression without recomputing its stored values."""
         p = db_root.make_catalog_path
         root = p('')
 
         TableModel = pxt.model_base()
 
-        class ExampleTable(TableModel, name='test_table'):
+        class ExampleTable(TableModel, name='test_table', _is_data_versioned=is_data_versioned):
             id: pxt.Int
             extra: pxt.Int
             doubled = id * 2 + extra
             u = Column(value=id * 3, stored=False)
 
-        class ExampleView(TableModel, name='test_view', base=ExampleTable):
-            vc1 = ExampleTable.doubled + 1
+        if is_data_versioned:
+
+            class ExampleView(TableModel, name='test_view', base=ExampleTable):
+                vc1 = ExampleTable.doubled + 1
 
         TableModel.create_all(root)
         t = pxt.get_table(p('test_table'))
-        v = pxt.get_table(p('test_view'))
         t.insert([{'id': 1, 'extra': 0}, {'id': 2, 'extra': 0}])
         assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [2, 4]
 
         # test_table.doubled expression changes, but with the same dependencies
         AlteredModel = pxt.model_base()
 
-        class AlteredTable(AlteredModel, name='test_table'):
+        class AlteredTable(AlteredModel, name='test_table', _is_data_versioned=is_data_versioned):
             id: pxt.Int
             extra: pxt.Int
             doubled = id * 100 + extra
             u = Column(value=id * 3, stored=False)
 
-        class AlteredView(AlteredModel, name='test_view', base=AlteredTable):
-            vc1 = AlteredTable.doubled + 1
+        if is_data_versioned:
+
+            class AlteredView(AlteredModel, name='test_view', base=AlteredTable):
+                vc1 = AlteredTable.doubled + 1
 
         diffs = AlteredModel.get_model_diff(root)
         assert diffs['test_table'].resolution == 'update_additive'
@@ -3207,8 +3210,9 @@ class TestTableModel:
 
         t.recompute_columns('doubled')
         assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [100, 200]
-        v = pxt.get_table(p('test_view'))
-        assert v.select(v.vc1).order_by(v.id).collect()['vc1'] == [101, 201]
+        if is_data_versioned:
+            v = pxt.get_table(p('test_view'))
+            assert v.select(v.vc1).order_by(v.id).collect()['vc1'] == [101, 201]
 
         # one change set that
         # 1. adds bonus = id * 1000
@@ -3216,7 +3220,7 @@ class TestTableModel:
         # 3. adds s = u + 1, which has to be populated from u's new expression
         WidenedModel = pxt.model_base()
 
-        class WidenedTable(WidenedModel, name='test_table'):
+        class WidenedTable(WidenedModel, name='test_table', _is_data_versioned=is_data_versioned):
             id: pxt.Int
             extra: pxt.Int
             bonus = id * 1000
@@ -3224,8 +3228,10 @@ class TestTableModel:
             u = Column(value=bonus * 7, stored=False)
             s = u + 1  # type: ignore[operator]
 
-        class WidenedView(WidenedModel, name='test_view', base=WidenedTable):
-            vc1 = WidenedTable.doubled + 1
+        if is_data_versioned:
+
+            class WidenedView(WidenedModel, name='test_view', base=WidenedTable):
+                vc1 = WidenedTable.doubled + 1
 
         diff = WidenedModel.get_model_diff(root)['test_table']
         assert diff.resolution == 'update_additive'
@@ -3250,12 +3256,14 @@ class TestTableModel:
         # 3. drops u and s
         NarrowedModel = pxt.model_base()
 
-        class NarrowedTable(NarrowedModel, name='test_table'):
+        class NarrowedTable(NarrowedModel, name='test_table', _is_data_versioned=is_data_versioned):
             id: pxt.Int
             doubled = id * 100
 
-        class NarrowedView(NarrowedModel, name='test_view', base=NarrowedTable):
-            vc1 = NarrowedTable.doubled + 1
+        if is_data_versioned:
+
+            class NarrowedView(NarrowedModel, name='test_view', base=NarrowedTable):
+                vc1 = NarrowedTable.doubled + 1
 
         diff = NarrowedModel.get_model_diff(root)['test_table']
         assert diff.resolution == 'update_destructive'
@@ -3274,20 +3282,20 @@ class TestTableModel:
         t.recompute_columns('doubled')
         assert t.select(t.doubled).order_by(t.id).collect()['doubled'] == [100, 200]
 
-    def test_update_all_altered_query_udf_body(self, db_root: DatabaseRoot) -> None:
+    def test_update_all_altered_query_udf_body(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """`update_all()` alters a computed column whose query UDF keeps its name and arguments but changes its body."""
         p = db_root.make_catalog_path
         QueryModel = pxt.model_base()
 
-        class Docs(QueryModel, name='docs'):
+        class Docs(QueryModel, name='docs', _is_data_versioned=is_data_versioned):
             doc_id: pxt.Int
             title: pxt.String
 
         @pxt.query
         def titles_after(cutoff: int) -> pxt.Query:
-            return Docs.where(Docs.doc_id > cutoff).select(Docs.title)  # type: ignore[arg-type]
+            return Docs.where(Docs.doc_id > cutoff).order_by(Docs.doc_id).select(Docs.title)  # type: ignore[arg-type]
 
-        class Probe(QueryModel, name='probe'):
+        class Probe(QueryModel, name='probe', _is_data_versioned=is_data_versioned):
             cutoff: pxt.Int
             matches = titles_after(cutoff)
 
@@ -3302,7 +3310,7 @@ class TestTableModel:
         reload_catalog()
         AlteredQueryModel = pxt.model_base()
 
-        class AlteredDocs(AlteredQueryModel, name='docs'):
+        class AlteredDocs(AlteredQueryModel, name='docs', _is_data_versioned=is_data_versioned):
             doc_id: pxt.Int
             title: pxt.String
 
@@ -3312,7 +3320,7 @@ class TestTableModel:
             return AlteredDocs.where(AlteredDocs.doc_id < cutoff).select(AlteredDocs.title)  # type: ignore[arg-type]
 
         # Updated model. The only difference is matches' underlying query
-        class AlteredProbe(AlteredQueryModel, name='probe'):
+        class AlteredProbe(AlteredQueryModel, name='probe', _is_data_versioned=is_data_versioned):
             cutoff: pxt.Int
             matches = titles_after(cutoff)
 
@@ -3446,13 +3454,15 @@ class TestTableModel:
         assert_type_eq(customers.total.col_type, pxt.Float | None)
         assert customers.order_by(customers.customer).select(customers.total).collect()['total'] == [3.5, None]
 
-    def test_update_all_altered_columns_reversed_dependency(self, db_root: DatabaseRoot) -> None:
+    def test_update_all_altered_columns_reversed_dependency(
+        self, db_root: DatabaseRoot, is_data_versioned: bool
+    ) -> None:
         p = db_root.make_catalog_path
         root = p('')
 
         TableModel = pxt.model_base()
 
-        class ExampleTable(TableModel, name='test_table'):
+        class ExampleTable(TableModel, name='test_table', _is_data_versioned=is_data_versioned):
             x: pxt.Int
             c1 = x * 2
             c2 = c1 + 1
@@ -3467,7 +3477,7 @@ class TestTableModel:
         # (2) without (1) would create a cycle, but together they should work
         SwapModel = pxt.model_base()
 
-        class SwapTable(SwapModel, name='test_table'):
+        class SwapTable(SwapModel, name='test_table', _is_data_versioned=is_data_versioned):
             x: pxt.Int
             c2 = x * 5
             c1 = c2 + 1

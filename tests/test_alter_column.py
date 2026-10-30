@@ -205,28 +205,26 @@ class TestAlterColumn:
         validate_update_status(t.insert(n=3), 1)
         assert t.select(t.c).where(t.n == 3).collect()['c'] == [30]
 
-        if not is_data_versioned:
-            # TODO(PXT-1101): an operational table has no recompute path yet
-            return
-
         num_versions = len(t.get_versions())
         t.alter_computed_column(c=t.n * 100)
         reload_catalog(do_reload_catalog)
         assert t.select(t.c).order_by(t.n).collect()['c'] == [100, 200, 300]
         # the alteration and the recompute are in the same version
         assert len(t.get_versions()) == num_versions + 1
-
-        # and a single revert undoes both
-        t.revert()
-        reload_catalog(do_reload_catalog)
-        assert t.select(t.c).order_by(t.n).collect()['c'] == [2, 4, 30]
-        validate_update_status(t.insert(n=6), 1)
-        assert t.select(t.c).where(t.n == 6).collect()['c'] == [60]
+        version = t.get_versions()[0]
+        assert (version['inserts'], version['updates'], version['errors']) == (0, 3, 0)
 
         # altering to the same expression is a no-op, and creates no version
-        num_versions = len(t.get_versions())
-        t.alter_computed_column(c=t.n * 10)
-        assert len(t.get_versions()) == num_versions
+        t.alter_computed_column(c=t.n * 100)
+        assert len(t.get_versions()) == num_versions + 1
+
+        if is_data_versioned:
+            # a single revert undoes both the alteration and the recompute
+            t.revert()
+            reload_catalog(do_reload_catalog)
+            assert t.select(t.c).order_by(t.n).collect()['c'] == [2, 4, 30]
+            validate_update_status(t.insert(n=6), 1)
+            assert t.select(t.c).where(t.n == 6).collect()['c'] == [60]
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_alter_computed_column_dict_literal(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
@@ -241,8 +239,12 @@ class TestAlterColumn:
         assert rows == [{'p': 'a', 'opts': {'k': 1}}, {'p': 'b', 'opts': {'k': 2}}]
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_alter_computed_column_refs(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
-        t = pxt.create_table(db_root.make_catalog_path('test_tbl'), {'n': pxt.Int, 'm': pxt.Int})
+    def test_alter_computed_column_refs(
+        self, db_root: DatabaseRoot, do_reload_catalog: bool, is_data_versioned: bool
+    ) -> None:
+        t = pxt.create_table(
+            db_root.make_catalog_path('test_tbl'), {'n': pxt.Int, 'm': pxt.Int}, _is_data_versioned=is_data_versioned
+        )
         t.add_computed_column(c=t.n + t.m)
         validate_update_status(t.insert(n=1, m=5), 1)
         assert t.select(t.c).collect()['c'] == [6]
@@ -281,47 +283,61 @@ class TestAlterColumn:
         assert t.columns() == ['n', 'c']
 
     @pytest.mark.parametrize('cascade', [False, True], ids=['no_cascade', 'cascade'])
-    def test_alter_computed_column_cascade(self, db_root: DatabaseRoot, cascade: bool) -> None:
-        t = pxt.create_table(db_root.make_catalog_path('test_tbl'), {'n': pxt.Int})
+    def test_alter_computed_column_cascade(self, db_root: DatabaseRoot, cascade: bool, is_data_versioned: bool) -> None:
+        t = pxt.create_table(
+            db_root.make_catalog_path('test_tbl'), {'n': pxt.Int}, _is_data_versioned=is_data_versioned
+        )
         t.add_computed_column(c=t.n * 2)
         t.add_btree_index('c')
         t.add_computed_column(d=t.c + 1)
-        # a view whose additional column depend on t.d
-        v = pxt.create_view(db_root.make_catalog_path('test_view'), t, additional_columns={'e': t.d * 10})
-        # a view whose filter depends on t.c
-        filtered_v = pxt.create_view(db_root.make_catalog_path('filter_view'), t.where(t.c > 50))
-        validate_update_status(t.insert(n=1), 1 + 1)
-        assert filtered_v.count() == 0
+        # TODO(PXT-1277): View support for operational tables
+        if is_data_versioned:
+            # a view whose additional column depend on t.d
+            v = pxt.create_view(db_root.make_catalog_path('test_view'), t, additional_columns={'e': t.d * 10})
+            # a view whose filter depends on t.c
+            filtered_v = pxt.create_view(db_root.make_catalog_path('filter_view'), t.where(t.c > 50))
+        validate_update_status(t.insert(n=1), 1 + 1 if is_data_versioned else 1)
+        if is_data_versioned:
+            assert filtered_v.count() == 0
 
         status = t.alter_computed_column(c=t.n * 100, cascade=cascade)
         if cascade:
-            assert set(status.updated_cols) == {'test_tbl.c', 'test_tbl.d', 'test_view.e'}
-            # the row satisfies the filter now, so it joins the view
-            assert filtered_v.count() == 1
+            view_cols = {'test_view.e'} if is_data_versioned else set()
+            assert set(status.updated_cols) == {'test_tbl.c', 'test_tbl.d'} | view_cols
+            if is_data_versioned:
+                # the row satisfies the filter now, so it joins the view
+                assert filtered_v.count() == 1
         else:
             assert set(status.updated_cols) == {'test_tbl.c'}
             # the dependents keep the values computed from the previous version of c
             assert t.select(t.c, t.d).collect()[0] == {'c': 100, 'd': 3}
-            assert v.select(v.e).collect()['e'] == [30]
-            # the views aren't revisited at all, so the filter's membership is stale as well
-            assert filtered_v.count() == 0
+            if is_data_versioned:
+                assert v.select(v.e).collect()['e'] == [30]
+                # the views aren't revisited at all, so the filter's membership is stale as well
+                assert filtered_v.count() == 0
             # recomputing them explicitly brings them in sync
-            validate_update_status(t.recompute_columns('d'), 2)
-            validate_update_status(t.recompute_columns('c'), 3)
-            assert filtered_v.count() == 1
+            validate_update_status(t.recompute_columns('d'), 2 if is_data_versioned else 1)
+            validate_update_status(t.recompute_columns('c'), 3 if is_data_versioned else 1)
+            if is_data_versioned:
+                assert filtered_v.count() == 1
 
         # verify that the computed columns of t and of both views are now up to date with their deps
         assert t.select(t.c, t.d).collect()[0] == {'c': 100, 'd': 101}
-        assert v.select(v.e).collect()['e'] == [1010]
-        assert filtered_v.select(filtered_v.c, filtered_v.d).collect()[0] == {'c': 100, 'd': 101}
+        if is_data_versioned:
+            assert v.select(v.e).collect()['e'] == [1010]
+            assert filtered_v.select(filtered_v.c, filtered_v.d).collect()[0] == {'c': 100, 'd': 101}
 
         # the B-tree has the correct values
         assert t.where(t.c == 100).count() == 1
         assert t.where(t.c == 2).count() == 0
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_alter_computed_column_unstored(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
-        t = pxt.create_table(db_root.make_catalog_path('test_tbl'), {'n': pxt.Int})
+    def test_alter_computed_column_unstored(
+        self, db_root: DatabaseRoot, do_reload_catalog: bool, is_data_versioned: bool
+    ) -> None:
+        t = pxt.create_table(
+            db_root.make_catalog_path('test_tbl'), {'n': pxt.Int}, _is_data_versioned=is_data_versioned
+        )
         t.add_computed_column(u=t.n * 2, stored=False)
         t.add_computed_column(s=t.u + 1)
         validate_update_status(t.insert(n=1), 1)

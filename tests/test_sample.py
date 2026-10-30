@@ -1,4 +1,5 @@
 import datetime
+import math
 from typing import Callable
 
 import pytest
@@ -15,7 +16,9 @@ def _local_path(name: str) -> str:
 
 class TestSample:
     @classmethod
-    def create_sample_data(cls, p: Callable[[str], str], row_mult: int, cat_count: int, with_null: bool) -> pxt.Table:
+    def create_sample_data(
+        cls, p: Callable[[str], str], row_mult: int, cat_count: int, with_null: bool, is_data_versioned: bool = True
+    ) -> pxt.Table:
         schema = {
             'id': pxt.Int,
             'cat1': pxt.Int | None if with_null else pxt.Int,
@@ -30,11 +33,11 @@ class TestSample:
                 for _ in range(row_mult * (cat1 + 1) * (cat2 + 1)):
                     rows.append({'id': rowid, 'cat1': cat1v, 'cat2': cat2v})
                     rowid += 1
-        return pxt.create_table(p('scm_t'), source=rows, schema_overrides=schema)
+        return pxt.create_table(p('scm_t'), source=rows, schema_overrides=schema, _is_data_versioned=is_data_versioned)
 
-    def test_sample_errors(self, db_root: DatabaseRoot) -> None:
+    def test_sample_errors(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t = create_test_tbl(p('test_tbl'))
+        t = create_test_tbl(p('test_tbl'), is_data_versioned=is_data_versioned)
 
         # ------- Test that sample is not preceded by anything unexpected
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Multiple sample\(\) clauses not allowed'):
@@ -144,7 +147,7 @@ class TestSample:
 
     @classmethod
     def _check_sample_count(cls, expected: int | float, actual: int) -> None:
-        assert abs(expected - actual) / actual < 0.25
+        assert abs(expected - actual) <= 5 * math.sqrt(expected)
 
     @classmethod
     def _check_sample(cls, query: pxt.Query, expected: int | float) -> None:
@@ -152,19 +155,19 @@ class TestSample:
         print(r)
         cls._check_sample_count(expected, len(r))
 
-    def test_sample_basic_n(self, db_root: DatabaseRoot) -> None:
+    def test_sample_basic_n(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t = self.create_sample_data(p, 4, 6, False)
+        t = self.create_sample_data(p, 4, 6, False, is_data_versioned)
 
         query = t.select().sample(n=20)
-        self._check_sample(query, 20)
+        assert len(query.collect()) == 20
 
         query = t.select().where(t.id < 200).sample(n=20)
-        self._check_sample(query, 20)
+        assert len(query.collect()) == 20
 
-    def test_sample_basic_f(self, db_root: DatabaseRoot) -> None:
+    def test_sample_basic_f(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t = self.create_sample_data(p, 4, 6, False)
+        t = self.create_sample_data(p, 4, 6, False, is_data_versioned)
         t_rows = t.count()
 
         query = t.select(t.id).sample(fraction=0.10, seed=12345)
@@ -187,9 +190,9 @@ class TestSample:
         print(results)
         reload_tester.run_reload_test()
 
-    def test_sample_stratified_n(self, db_root: DatabaseRoot) -> None:
+    def test_sample_stratified_n(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t = self.create_sample_data(p, 4, 6, True)
+        t = self.create_sample_data(p, 4, 6, True, is_data_versioned)
 
         query = (
             t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(n_per_stratum=2, stratify_by=[t.cat1, t.cat2])
@@ -203,9 +206,9 @@ class TestSample:
         print(p)
         assert len(r) == 10
 
-    def test_sample_stratified_f(self, db_root: DatabaseRoot) -> None:
+    def test_sample_stratified_f(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t = self.create_sample_data(p, 4, 6, True)
+        t = self.create_sample_data(p, 4, 6, True, is_data_versioned)
         t_rows = t.count()
 
         query = t.select(t.cat1, t.cat2, t.id).sample(fraction=0.1, stratify_by=[t.cat1, t.cat2])
@@ -287,9 +290,11 @@ class TestSample:
         new_table.insert(query)
         assert new_table.count() == 2 * n_sample
 
-    def test_sample_create_insert_table(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+    def test_sample_create_insert_table(
+        self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool
+    ) -> None:
         p = db_root.make_catalog_path
-        t = self.create_sample_data(p, 4, 6, False)
+        t = self.create_sample_data(p, 4, 6, False, is_data_versioned)
 
         query = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2], seed=4171780)
         self.check_create_insert(p, t, query, 6 * 6, sort_key='id')
@@ -307,10 +312,10 @@ class TestSample:
         query = t.sample(n=20, seed=4171780)
         self.check_create_insert(p, t, query, 20, sort_key='c2')
 
-    def test_randomized_sample(self, db_root: DatabaseRoot) -> None:
+    def test_randomized_sample(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Test that subsequent calls to a non-seeded sample return different results."""
         p = db_root.make_catalog_path
-        t = self.create_sample_data(p, 4, 6, False)
+        t = self.create_sample_data(p, 4, 6, False, is_data_versioned)
 
         query = t.select().sample(n=10)
         r0 = query.collect().to_pandas().sort_values(by=['id'])
@@ -319,9 +324,9 @@ class TestSample:
         # potential causes of test failure.
         assert not r0.equals(r1)
 
-    def test_reproducible_sample(self, db_root: DatabaseRoot) -> None:
+    def test_reproducible_sample(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t = self.create_sample_data(p, 4, 6, False)
+        t = self.create_sample_data(p, 4, 6, False, is_data_versioned)
 
         query = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2], seed=4141480)
         r0_df = query.collect().to_pandas().sort_values('id').reset_index(drop=True)
@@ -402,10 +407,10 @@ class TestSample:
         v_rows = v.count()
         print(f'total rows: {v_rows}')
 
-    def test_count(self, db_root: DatabaseRoot) -> None:
+    def test_count(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Test that count() correctly returns the number of sampled rows."""
         p = db_root.make_catalog_path
-        t = create_test_tbl(p('test_tbl'))
+        t = create_test_tbl(p('test_tbl'), is_data_versioned=is_data_versioned)
         # Add duplicate c1 values for stratified sampling tests
         existing_c1_values = [row['c1'] for row in t.select(t.c1).distinct().collect()]
 

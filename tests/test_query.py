@@ -38,14 +38,24 @@ class TestQuery:
     def is_even_py(x: int) -> bool:
         return x % 2 == 0
 
-    def create_join_tbls(self, num_rows: int, p: Callable[[str], str]) -> tuple[pxt.Table, pxt.Table, pxt.Table]:
-        t1 = pxt.create_table(p(f't1_{num_rows}'), {'id': pxt.Int | None, 'i': pxt.Int | None, 'a': pxt.Array | None})
+    def create_join_tbls(
+        self, num_rows: int, p: Callable[[str], str], is_data_versioned: bool = True
+    ) -> tuple[pxt.Table, pxt.Table, pxt.Table]:
+        t1 = pxt.create_table(
+            p(f't1_{num_rows}'),
+            {'id': pxt.Int | None, 'i': pxt.Int | None, 'a': pxt.Array | None},
+            _is_data_versioned=is_data_versioned,
+        )
         validate_update_status(
             t1.insert({'id': i, 'i': i, 'a': np.ones((100, 100), dtype=np.int64) * i} for i in range(num_rows)),
             expected_rows=num_rows,
         )
 
-        t2 = pxt.create_table(p(f't2_{num_rows}'), {'id': pxt.Int | None, 'f': pxt.Float | None, 'a': pxt.Array | None})
+        t2 = pxt.create_table(
+            p(f't2_{num_rows}'),
+            {'id': pxt.Int | None, 'f': pxt.Float | None, 'a': pxt.Array | None},
+            _is_data_versioned=is_data_versioned,
+        )
         # t2 has matching ids
         validate_update_status(
             t2.insert(
@@ -59,7 +69,9 @@ class TestQuery:
         # - column i with a different type
         # - only 10% of the ids overlap with t1 and t2
         t3 = pxt.create_table(
-            p(f't3_{num_rows}'), {'id': pxt.Int | None, 'i': pxt.String | None, 'f': pxt.Float | None}
+            p(f't3_{num_rows}'),
+            {'id': pxt.Int | None, 'i': pxt.String | None, 'f': pxt.Float | None},
+            _is_data_versioned=is_data_versioned,
         )
         validate_update_status(
             t3.insert({'id': i, 'i': str(i), 'f': float(num_rows - i)} for i in range(0, 10 * num_rows, 10)),
@@ -159,10 +171,10 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'where\(\) clause already specified'):
             _ = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
 
-    def test_join(self, db_root: DatabaseRoot) -> None:
+    def test_join(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         num_rows = 100 if db_root.is_cloud else 1000
-        t1, t2, t3 = self.create_join_tbls(num_rows, p)
+        t1, t2, t3 = self.create_join_tbls(num_rows, p, is_data_versioned)
         # inner join
         query = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f, out=t1.i + t2.f).order_by(t2.f)
         pd_df = query.collect().to_pandas()
@@ -214,7 +226,7 @@ class TestQuery:
 
         # cross join
         num_cj_rows = num_rows // 10
-        small_t1, small_t2, _ = self.create_join_tbls(num_cj_rows, p)
+        small_t1, small_t2, _ = self.create_join_tbls(num_cj_rows, p, is_data_versioned)
         query = small_t1.join(small_t2, how='cross').select(small_t1.i, small_t2.f, out=small_t1.i + small_t2.f)
         res = query.collect()
         # TODO: verify result
@@ -427,10 +439,10 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be used with sample'):
             _ = t.sample(n=10).limit(5)
 
-    def test_limit_joins(self, db_root: DatabaseRoot) -> None:
+    def test_limit_joins(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         num_rows = 100
-        t1, t2, _ = self.create_join_tbls(num_rows, p)
+        t1, t2, _ = self.create_join_tbls(num_rows, p, is_data_versioned)
 
         # inner join + limit: only n rows returned, ordering preserved
         res = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f).order_by(t1.i).limit(10).collect()
@@ -443,7 +455,7 @@ class TestQuery:
         assert [row['i'] for row in res] == list(range(10, 15))
 
         # cross join + limit: caps total output (10 * 10 = 100 → 25)
-        small1, small2, _ = self.create_join_tbls(10, p)
+        small1, small2, _ = self.create_join_tbls(10, p, is_data_versioned)
         res = small1.join(small2, how='cross').select(small1.i, small2.f).limit(25).collect()
         assert len(res) == 25
 
@@ -485,7 +497,7 @@ class TestQuery:
         def value(self) -> int:
             return 0
 
-    def test_limit_0(self, test_tbl: pxt.Table) -> None:
+    def test_limit_0(self, test_tbl: pxt.Table, is_data_versioned: bool) -> None:
         t = test_tbl
 
         def check(query: pxt.Query, expected_cols: list[str]) -> None:
@@ -605,7 +617,7 @@ class TestQuery:
         ):
             _ = t.limit(5, offset=5).count()
 
-    def test_count_with_group_by(self, test_tbl: pxt.Table) -> None:
+    def test_count_with_group_by(self, test_tbl: pxt.Table, is_data_versioned: bool) -> None:
         """Test that count() works with group_by()."""
         t = test_tbl
         # Count with group_by should return the number of groups
@@ -620,12 +632,12 @@ class TestQuery:
         distinct_c1_filtered = len(t.where(t.c2 < 10).select(t.c1).distinct().collect())
         assert cnt == distinct_c1_filtered
 
-    def test_count_join(self, db_root: DatabaseRoot) -> None:
+    def test_count_join(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Tests for join...count queries"""
         # TODO(PXT-1108): when the join+where bug is fixed, add some queries with where().
         p = db_root.make_catalog_path
         num_rows = 100
-        t1, t2, t3 = self.create_join_tbls(num_rows, p)
+        t1, t2, t3 = self.create_join_tbls(num_rows, p, is_data_versioned)
 
         # Inner join + count. Note: t1 and t2 have matching ids.
         cnt = t1.join(t2, on=(t1.id == t2.id), how='inner').count()
@@ -1000,7 +1012,7 @@ class TestQuery:
             _ = t.select(t.annotations[0]).to_coco_dataset()
         assert 'missing key "image"' in str(exc_info.value).lower()
 
-    def test_distinct(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+    def test_distinct(self, db_root: DatabaseRoot, reload_tester: ReloadTester, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         schema: dict[str, Any] = {
             'c1': pxt.String | None,
@@ -1009,7 +1021,7 @@ class TestQuery:
             'c4': pxt.Timestamp | None,
             'c5': pxt.Json | None,
         }
-        t = pxt.create_table(p('test_distinct'), schema)
+        t = pxt.create_table(p('test_distinct'), schema, _is_data_versioned=is_data_versioned)
         results = t.distinct().collect()
         assert len(results) == 0
         rows = [
@@ -1100,10 +1112,12 @@ class TestQuery:
         assert 'c3' in results.schema
         assert 'c4' in results.schema
 
-    def test_distinct_non_sql_groupable(self, db_root: DatabaseRoot) -> None:
+    def test_distinct_non_sql_groupable(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """distinct() must not silently return duplicates when a select item cannot be grouped in SQL."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('test_distinct_json'), {'n': pxt.Int, 'info': pxt.Json})
+        t = pxt.create_table(
+            p('test_distinct_json'), {'n': pxt.Int, 'info': pxt.Json}, _is_data_versioned=is_data_versioned
+        )
         validate_update_status(
             t.insert(
                 [

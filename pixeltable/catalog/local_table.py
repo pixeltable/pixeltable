@@ -845,9 +845,6 @@ class LocalTable(Table):
             self._verify_computed_col_value(col.name, new_value_expr)
 
             tv = self._tbl_version.get()
-            if recompute:
-                assert tv.is_data_versioned, 'TODO: implement recompute for operational tables [PXT-1101]'
-
             result = tv.alter_computed_column(col, new_value_expr, recompute=recompute, cascade=cascade)
             FileCache.get().emit_eviction_warnings()
             return result

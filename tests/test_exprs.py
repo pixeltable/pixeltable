@@ -1877,9 +1877,9 @@ class TestExprs:
         ).collect()
         assert all(json.loads(res['dumped_py'][i]) == res['json_col'][i] for i in range(len(res)))
 
-    def test_agg(self, db_root: DatabaseRoot) -> None:
+    def test_agg(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t = create_scalars_tbl(1000, path=p('scalars_tbl'))
+        t = create_scalars_tbl(1000, path=p('scalars_tbl'), is_data_versioned=is_data_versioned)
         df = t.select().collect().to_pandas()
 
         def series_to_list(series: pd.Series) -> list[int | None]:
