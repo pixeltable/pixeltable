@@ -14,7 +14,7 @@ from pixeltable.utils.progress_reporter import ProgressReporter
 
 from ..data_row_batch import DataRowBatch
 from ..exec_node import ExecNode
-from .evaluators import FnCallEvaluator, NestedRowList
+from .evaluators import FnCallEvaluator, JsonMapperDispatcher, NestedRowList
 from .globals import ExprEvalCtx, Scheduler
 from .row_buffer import RowBuffer
 from .schedulers import SCHEDULERS
@@ -224,14 +224,24 @@ class ExprEvalNode(ExecNode):
             f'#input={self.num_input_rows} #output={self.num_output_rows}'
         )
 
+    @classmethod
+    def _resource_pools(cls, eval_ctx: ExprEvalCtx) -> set[str]:
+        """The resource pools of every FunctionCall in eval_ctx, including the calls a JsonMapper runs per element.
+
+        A mapper's target is evaluated in a nested context of its own, so those calls reach the same dispatcher
+        and need their schedulers registered here too.
+        """
+        pools: set[str] = set()
+        for evaluator in eval_ctx.slot_evaluators.values():
+            if isinstance(evaluator, FnCallEvaluator):
+                if evaluator.fn_call.resource_pool is not None:
+                    pools.add(evaluator.fn_call.resource_pool)
+            elif isinstance(evaluator, JsonMapperDispatcher):
+                pools |= cls._resource_pools(evaluator.nested_eval_ctx)
+        return pools
+
     def _init_schedulers(self) -> None:
-        resource_pools = {
-            eval.fn_call.resource_pool
-            for eval in self.eval_ctx.slot_evaluators.values()
-            if isinstance(eval, FnCallEvaluator)
-        }
-        resource_pools = {pool for pool in resource_pools if pool is not None}
-        for pool_name in resource_pools:
+        for pool_name in self._resource_pools(self.eval_ctx):
             for scheduler in SCHEDULERS:
                 if scheduler.matches(pool_name):
                     self.schedulers[pool_name] = scheduler(pool_name, self)
