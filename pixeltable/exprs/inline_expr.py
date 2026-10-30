@@ -212,4 +212,8 @@ class InlineDict(Expr):
     def as_literal(self) -> Literal | None:
         if not all(isinstance(comp, Literal) for comp in self.components):
             return None
-        return Literal(dict(zip(self.keys, (c.as_literal().val for c in self.components))), self.col_type)
+        # a literal has exactly the keys it declares, so its schema is closed
+        type_schema = ts.JsonType.TypeSchema(
+            type_spec={key: c.col_type for key, c in zip(self.keys, self.components)}, closed=True
+        )
+        return Literal(dict(zip(self.keys, (c.as_literal().val for c in self.components))), ts.JsonType(type_schema))

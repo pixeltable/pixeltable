@@ -310,6 +310,42 @@ class TestProxyDaemon:
         proxy_daemon.main([])
         assert served == [(False, None, None)]
 
+    def test_serve_without_otel_packages(
+        self, init_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+    ) -> None:
+        """An OTLP endpoint without the otel packages leaves the daemon serving, without telemetry. A span dump file
+        alone turns telemetry on."""
+        pytest.importorskip('fastapi')
+        uvicorn = pytest.importorskip('uvicorn')
+        from starlette.testclient import TestClient
+
+        monkeypatch.setenv('OTEL_EXPORTER_OTLP_ENDPOINT', 'http://localhost:4318')
+        # _serve() sets this variable, and monkeypatch removes it again after the test
+        monkeypatch.setenv('PIXELTABLE_PROXY_DAEMON', '1')
+        monkeypatch.setattr(
+            Env.get(), 'is_installed_package', lambda package_name: not package_name.startswith('opentelemetry')
+        )
+        served_apps: list[Any] = []
+        monkeypatch.setattr(uvicorn, 'run', lambda app, **kwargs: served_apps.append(app))
+
+        proxy_daemon._serve(host='127.0.0.1', port=8000)
+        (served_app,) = served_apps
+        assert TestClient(served_app).get('/health').status_code == 200
+
+        # a span dump file with no endpoint starts the instrumentation, which is what the `pxt db spans` hint for a
+        # local database asks for
+        from pixeltable.serving import _app
+
+        monkeypatch.delenv('OTEL_EXPORTER_OTLP_ENDPOINT')
+        monkeypatch.setenv('OTEL_SPAN_DUMP', str(tmp_path / 'spans.jsonl'))
+        monkeypatch.setattr(Env.get(), 'is_installed_package', lambda package_name: True)
+        initialized: list[bool] = []
+        monkeypatch.setattr(_app, 'init_instrumentation', lambda: initialized.append(True))
+        monkeypatch.setattr(_app, 'instrument_app', lambda app: app)
+        served_apps.clear()
+        proxy_daemon._serve(host='127.0.0.1', port=8000)
+        assert initialized == [True] and len(served_apps) == 1
+
     def test_collect_remote_keys(self) -> None:
         file_tag = {'$pxt': 'file', 'name': 'a.png', 'v': 'uploads/r/0.png'}
         args = {

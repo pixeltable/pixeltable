@@ -27,6 +27,17 @@ def resolve_symbol(symbol_path: str) -> object | None:
     return obj
 
 
+def import_error_msg(e: ImportError) -> str:
+    """
+    str(e) minus the module's file path, which CPython appends to "cannot import name" errors; the result is
+    safe to show to remote callers.
+    """
+    msg = str(e)
+    if e.path is not None:
+        msg = msg.replace(f'({e.path})', '').replace(e.path, '').strip()
+    return msg
+
+
 def validate_symbol_path(fn_path: str) -> None:
     path_elems = fn_path.split('.')
     fn_name = path_elems[-1]

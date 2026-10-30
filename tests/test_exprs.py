@@ -192,6 +192,33 @@ class TestExprs:
         _ = t.where(t.c1n != None).collect()
         print(_)
 
+    def test_bool_literal_operators(self, test_tbl: pxt.Table) -> None:
+        # Regression test for PXT-1659: a bool literal on either side of & / | wraps into an expr instead of
+        # raising TypeError.
+        t = test_tbl
+        for e in (t.c4 & True, True & t.c4, t.c4 | False, False | t.c4, (t.c2 > 0) & True, True & (t.c2 > 0)):
+            assert e.col_type.is_bool_type(), e
+
+        rows = t.select(t.c2, a=t.c4 & True, b=True & t.c4, c=t.c4 | False, d=False | t.c4).order_by(t.c2).collect()
+        assert all(r['a'] == r['b'] == r['c'] == r['d'] == (r['c2'] % 2 == 1) for r in rows)
+
+        with pytest.raises(TypeError, match='needs to be an expression that returns a boolean'):
+            _ = t.c4 & 5
+        with pytest.raises(TypeError, match='needs to be an expression that returns a boolean'):
+            _ = t.c4 | 'x'
+
+        # a non-bool column must fail at construction too, in both operand orders (t.c2 is Int)
+        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+            _ = t.c2 & True
+        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+            _ = True & t.c2
+        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+            _ = t.c2 | False
+        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+            _ = False | t.c2
+        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+            _ = t.c2 & t.c4
+
     def test_exception_handling(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
@@ -964,6 +991,10 @@ class TestExprs:
             # dict resolution applied to heterogeneous tuple
             (t.col.f5[:].f5a, pxt.Json[(int | None, str | None, float | None, ...)] | None),
             (t.col.f4['*'].f4b, pxt.Json[[str | None]] | None),  # special '*' operator
+            # dict schemas are open, so a key that the schema doesn't declare resolves to untyped Json
+            (t.col.not_a_field, pxt.Json | None),
+            (t.col.f2.not_a_field[3].f1, pxt.Json | None),
+            (t.col.f4['*'].not_a_field, pxt.Json[[pxt.Json | None]] | None),
             (
                 t.col.f4.f4a,
                 pxt.Json[[int | None]] | None,
@@ -981,7 +1012,6 @@ class TestExprs:
             (t.col.f1, 'cannot_be_a_field', "'cannot_be_a_field'"),  # field access on primitive type
             (t.col.f1, 3, '[3]'),  # index access on primitive type
             (t.col.f1, slice(3, 10), '[3:10]'),  # slice access on primitive type
-            (t.col, 'not_a_field', "'not_a_field'"),  # invalid field name in dict
             (t.col, 3, '[3]'),  # index access on dict
             (t.col, slice(3, 10), '[3:10]'),  # slice access on dict
             (t.col.f2.f2b, 'not_an_index', "'not_an_index'"),  # field access on tuple

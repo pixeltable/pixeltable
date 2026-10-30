@@ -14,7 +14,7 @@ import logging
 import math
 import pathlib
 import re
-from typing import TYPE_CHECKING, Any, NotRequired, Type, TypedDict, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Type, TypedDict, TypeVar, cast
 
 import numpy as np
 import PIL
@@ -360,7 +360,7 @@ def _create_audio_response(cls: type[_AudioResponseT], result: Any, response_for
             out = {'vtt': result}
         else:
             raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_ERROR,
+                excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
                 f'Unexpected string response from audio API (response_format={response_format!r})',
                 provider='openai',
             )
@@ -505,26 +505,53 @@ def _token_count_for_image(image: PIL.Image.Image) -> int:
     )
 
 
+def _image_data_url(img: PIL.Image.Image) -> str:
+    return f'data:image/png;base64,{to_base64(img, format="png")}'
+
+
+def _encode_chat_images(messages: list) -> list:
+    messages = copy.deepcopy(messages)
+    for message in messages:
+        content = message.get('content') if isinstance(message, dict) else None
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict) or part.get('type') != 'image_url':
+                continue
+            image_url = part.get('image_url')
+            if isinstance(image_url, PIL.Image.Image):
+                part['image_url'] = {'url': _image_data_url(image_url)}
+            elif isinstance(image_url, dict) and isinstance(image_url.get('url'), PIL.Image.Image):
+                image_url['url'] = _image_data_url(image_url['url'])
+    return messages
+
+
 def _messages_resource_estimate(
     messages: list, max_completion_tokens: int, text_type: str, image_type: str
 ) -> dict[str, int]:
     num_tokens = 0.0
     for message in messages:
         num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
-        for key, value in message.items():
-            if isinstance(value, str):
-                num_tokens += len(value) / 4
-            elif isinstance(value, list):
-                for part in value:
-                    if isinstance(part, dict):
-                        if part.get('type') == text_type:
-                            assert isinstance(part.get('text'), str)
-                            num_tokens += len(part['text']) / 4
-                        elif part.get('type') == image_type:
-                            assert isinstance(part.get('image_url'), PIL.Image.Image)
-                            num_tokens += _token_count_for_image(part['image_url'])
-            if key == 'name':  # if there's a name, the role is omitted
-                num_tokens -= 1  # role is always required and always 1 token
+        try:
+            for key, value in message.items():
+                if isinstance(value, str):
+                    num_tokens += len(value) / 4
+                elif isinstance(value, list):
+                    for part in value:
+                        if isinstance(part, dict):
+                            if part.get('type') == text_type and isinstance(part.get('text'), str):
+                                num_tokens += len(part['text']) / 4
+                            elif part.get('type') == image_type:
+                                image = part.get('image_url')
+                                if isinstance(image, dict):
+                                    image = image.get('url')
+                                # an image URL counts 0 tokens: the image size is unknown without fetching it
+                                if isinstance(image, PIL.Image.Image):
+                                    num_tokens += _token_count_for_image(image)
+                if key == 'name':  # if there's a name, the role is omitted
+                    num_tokens -= 1  # role is always required and always 1 token
+        except Exception:
+            pass  # best effort: skip what can't be read
 
     num_tokens += 2  # every reply is primed with <im_start>assistant
     return {'requests': 1, 'tokens': int(num_tokens) + max_completion_tokens}
@@ -590,6 +617,9 @@ async def chat_completions(
         ... tbl.add_computed_column(
         ...     response=chat_completions(messages, model='gpt-4o-mini')
         ... )
+
+        The `'image_url'` field also accepts the API's `{'url': ...}` form. Its `'url'` can be an image or a URL
+        string, such as `tbl.image.fileurl`; OpenAI fetches a URL itself, so it has to be publicly accessible.
     """
     model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
@@ -608,19 +638,7 @@ async def chat_completions(
     if tool_choice is not None and not tool_choice['parallel_tool_calls']:
         model_kwargs['parallel_tool_calls'] = False
 
-    # Serialize any images in `messages`
-    messages = copy.deepcopy(messages)
-    for message in messages:
-        content = message.get('content')
-        if isinstance(content, list):
-            for part in content:
-                if (
-                    isinstance(part, dict)
-                    and part.get('type') == 'image_url'
-                    and isinstance(part.get('image_url'), PIL.Image.Image)
-                ):
-                    b64_encoded_image = to_base64(part['image_url'], format='png')
-                    part['image_url'] = {'url': f'data:image/png;base64,{b64_encoded_image}'}
+    messages = _encode_chat_images(messages)
 
     # make sure the pool info exists prior to making the request
     resource_pool = _rate_limits_pool(model)
@@ -659,6 +677,25 @@ def _(messages: list, model: str, model_kwargs: dict[str, Any] | None = None) ->
     )
 
 
+def _serialize_input_images(input: list) -> list:
+    """Returns a copy of `input` in which each PIL image of an `input_image` part is replaced by a PNG data URL."""
+    input = copy.deepcopy(input)
+    for item in input:
+        if not isinstance(item, dict):
+            continue
+        for content in (item.get('content'), item.get('instructions'), item.get('output')):
+            if not isinstance(content, list):
+                continue
+            for part in content:
+                if (
+                    isinstance(part, dict)
+                    and part.get('type') == 'input_image'
+                    and isinstance(part.get('image_url'), PIL.Image.Image)
+                ):
+                    part['image_url'] = _image_data_url(part['image_url'])
+    return input
+
+
 @pxt.udf(is_deterministic=False)
 async def responses(
     input: list,
@@ -692,8 +729,8 @@ async def responses(
             (for structured outputs), `previous_response_id` (for multi-turn), and `store`.
 
     Returns:
-        A dictionary containing the response and other metadata. The response text is accessible via
-        the `output_text` field for simple cases, or through the `output` list for structured access.
+        A dictionary containing the response and other metadata. The response text is in the `output` list,
+        for a simple text reply at `output[0].content[0].text`.
 
     Examples:
         Add a computed column that applies the model `gpt-4o-mini` to an existing Pixeltable column `tbl.prompt`
@@ -721,6 +758,9 @@ async def responses(
         ...     }
         ... ]
         ... tbl.add_computed_column(response=responses(messages, model='gpt-4o-mini'))
+
+        The `image_url` field also accepts a URL string, such as `tbl.image.fileurl`; OpenAI fetches it itself, so it
+        has to be publicly accessible.
     """
     model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
@@ -740,19 +780,7 @@ async def responses(
     if tool_choice is not None and not tool_choice['parallel_tool_calls']:
         model_kwargs['parallel_tool_calls'] = False
 
-    # Serialize any images in input items (Responses API uses 'input_image' type)
-    input = copy.deepcopy(input)
-    for item in input:
-        content = item.get('content') if isinstance(item, dict) else None
-        if isinstance(content, list):
-            for part in content:
-                if (
-                    isinstance(part, dict)
-                    and part.get('type') == 'input_image'
-                    and isinstance(part.get('image_url'), PIL.Image.Image)
-                ):
-                    b64_encoded_image = to_base64(part['image_url'], format='png')
-                    part['image_url'] = f'data:image/png;base64,{b64_encoded_image}'
+    input = _serialize_input_images(input)
 
     resource_pool = _rate_limits_pool(model)
     rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool, OpenAIRateLimitsInfo)
@@ -961,13 +989,15 @@ def _decode_image_response(result: dict) -> dict:
     data = result.get('data')
     if data is None or len(data) == 0:
         raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR, 'No image content in the response.', provider='openai'
+            excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, 'No image content in the response.', provider='openai'
         )
     for i in range(len(data)):
         b64_str = data[i].get('b64_json')
         if b64_str is None:
             raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_ERROR, 'Image content is missing in the response.', provider='openai'
+                excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+                'Image content is missing in the response.',
+                provider='openai',
             )
         b64_bytes = base64.b64decode(b64_str)
         img = PIL.Image.open(io.BytesIO(b64_bytes))
@@ -1345,6 +1375,185 @@ async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> M
     return cast(ModerationCreateResponse, result.model_dump(mode='json'))
 
 
+#####################################
+# Decisions Endpoints
+
+
+class DecisionProbability(TypedDict):
+    probability: float
+    value: pxt.Json
+    label: NotRequired[str]
+
+
+class DecisionAnswer(TypedDict):
+    type: Literal['predicate', 'choice', 'score', 'refusal']
+    name: NotRequired[str | None]
+    probability: NotRequired[float]
+    choice: NotRequired[pxt.Json]
+    score: NotRequired[float]
+    confidence: NotRequired[float]
+    probabilities: NotRequired[list[DecisionProbability]]
+
+
+class DecisionInputTokensDetails(TypedDict):
+    cache_write_tokens: int
+    cached_tokens: int
+
+
+class DecisionOutputTokensDetails(TypedDict):
+    reasoning_tokens: int
+
+
+class DecisionUsage(TypedDict):
+    input_tokens: int
+    input_tokens_details: DecisionInputTokensDetails
+    output_tokens: int
+    output_tokens_details: DecisionOutputTokensDetails
+    total_tokens: int
+
+
+class DecisionResponse(TypedDict):
+    answers: list[DecisionAnswer]
+    model: str
+    usage: DecisionUsage
+
+
+@pxt.udf(is_deterministic=False)
+async def decisions(
+    input: pxt.Json, *, questions: list, model: str, model_kwargs: dict[str, Any] | None = None
+) -> DecisionResponse:
+    """
+    Answers predicate, choice, and score questions about a shared input.
+
+    Equivalent to the OpenAI `decisions` API endpoint.
+    For additional details, see: <https://developers.openai.com/api/docs/guides/decisions>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `openai.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
+
+    __Requirements:__
+
+    - `pip install 'openai>=3.32'`
+
+    Args:
+        input: A text string, or a list of messages, function calls and outputs, or custom tool calls and outputs.
+            Message `content` and tool `output` lists can contain `input_text`, `input_image`, and `input_json`
+            parts. An `input_image` part's `image_url` can be an image column, a public HTTP(S) URL, or a base64
+            data URL.
+        questions: Between 1 and 400 questions, each with a `type` of `predicate`, `choice`, or `score`, an
+            `instructions` string or list of `input_text`, `input_image`, and `input_json` parts, and an optional
+            `name`. A `choice` question lists its `choices`, and a `score` question lists its `levels`.
+        model: The model to use.
+        model_kwargs: Additional keyword args for the OpenAI `decisions` API, such as `prompt_cache_key`,
+            `prompt_cache_options`, and `safety_identifier`. For details on the available parameters, see:
+            <https://developers.openai.com/api/reference/python/resources/decisions/methods/create>
+
+    Returns:
+        A dictionary with one answer per question, in question order, plus `model` and `usage`. A predicate answer
+        has a `probability`. A choice answer has a `choice`, and a score answer has a `score`; both have a
+        `confidence` and a list of `probabilities`. The model can decline a question; that answer has the `type`
+        `refusal` and no value, and the other questions still receive answers.
+
+    Examples:
+        Add a computed column that asks whether the text in an existing Pixeltable column `tbl.review` of the
+        table `tbl` is a complaint, then read the answer's probability:
+
+        >>> questions = [
+        ...     {
+        ...         'type': 'predicate',
+        ...         'name': 'complaint',
+        ...         'instructions': 'Is the review a complaint?',
+        ...     }
+        ... ]
+        >>> tbl.add_computed_column(
+        ...     decision=decisions(
+        ...         tbl.review, questions=questions, model='gpt-6-luna'
+        ...     )
+        ... )
+        >>> tbl.select(
+        ...     tbl.review, complaint=tbl.decision.answers[0].probability
+        ... ).collect()
+
+        Ask several questions in one request:
+
+        >>> questions = [
+        ...     {
+        ...         'type': 'choice',
+        ...         'name': 'topic',
+        ...         'instructions': 'What is the review about?',
+        ...         'choices': [
+        ...             {'value': 'shipping'},
+        ...             {'value': 'quality'},
+        ...             {'value': 'price'},
+        ...         ],
+        ...     },
+        ...     {
+        ...         'type': 'score',
+        ...         'name': 'sentiment',
+        ...         'instructions': 'How positive is the review?',
+        ...         'levels': [
+        ...             {'label': 'negative'},
+        ...             {'label': 'neutral'},
+        ...             {'label': 'positive'},
+        ...         ],
+        ...     },
+        ... ]
+        >>> tbl.add_computed_column(
+        ...     decision=decisions(
+        ...         tbl.review, questions=questions, model='gpt-6-luna'
+        ...     )
+        ... )
+
+        Ask a question about an image column `tbl.image`:
+
+        >>> messages = [
+        ...     {
+        ...         'role': 'user',
+        ...         'content': [
+        ...             {'type': 'input_text', 'text': 'Product photo:'},
+        ...             {'type': 'input_image', 'image_url': tbl.image},
+        ...         ],
+        ...     }
+        ... ]
+        >>> questions = [
+        ...     {
+        ...         'type': 'predicate',
+        ...         'name': 'damaged',
+        ...         'instructions': 'Is the product damaged?',
+        ...     }
+        ... ]
+        >>> tbl.add_computed_column(
+        ...     decision=decisions(messages, questions=questions, model='gpt-6-luna')
+        ... )
+    """
+    env.Env.get().require_package('openai', [3, 32])
+
+    if not isinstance(input, (str, list)):
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            f'`input` must be a string or a list of input items, got {type(input).__name__}',
+        )
+    if not isinstance(questions, list):
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, f'`questions` must be a list, got {type(questions).__name__}'
+        )
+    if len(questions) == 0:
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, '`questions` must contain at least one question')
+    if isinstance(input, list):
+        input = _serialize_input_images(input)
+    questions = _serialize_input_images(questions)
+    if model_kwargs is None:
+        model_kwargs = {}
+
+    result = await _openai_client().decisions.create(input=input, model=model, questions=questions, **model_kwargs)
+    result_dict = result.model_dump(mode='json')
+    telemetry_schemas.record_token_usage(
+        f'{__name__}.decisions', model, result_dict.get('usage'), 'input_tokens', 'output_tokens'
+    )
+    return cast(DecisionResponse, result_dict)
+
+
 @speech.resource_pool
 @transcriptions.resource_pool
 @translations.resource_pool
@@ -1352,6 +1561,7 @@ async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> M
 @image_edits.resource_pool
 @image_variations.resource_pool
 @moderations.resource_pool
+@decisions.resource_pool
 def _(model: str) -> str:
     return f'request-rate:openai:{model}'
 

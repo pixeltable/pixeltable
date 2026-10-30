@@ -18,13 +18,13 @@ if TYPE_CHECKING:
 
 
 @env.register_client('deepseek', credential_param='api_key')
-def _(api_key: str) -> 'openai.AsyncOpenAI':
+def _(api_key: str, base_url: str = 'https://api.deepseek.com') -> 'openai.AsyncOpenAI':
     import httpx2
     import openai
 
     return openai.AsyncOpenAI(
         api_key=api_key,
-        base_url='https://api.deepseek.com',
+        base_url=base_url,
         http_client=httpx2.AsyncClient(limits=httpx2.Limits(max_keepalive_connections=100, max_connections=500)),
     )
 
@@ -50,6 +50,10 @@ async def chat_completions(
 
     Deepseek uses the OpenAI SDK, so you will need to install the `openai` package to use this UDF.
 
+    Thinking mode is on by default: the model generates reasoning before the answer and returns it in
+    `choices[0].message.reasoning_content`. To turn thinking off, pass
+    `model_kwargs={'extra_body': {'thinking': {'type': 'disabled'}}}`.
+
     Request throttling:
     Applies the rate limit set in the config (section `deepseek`, key `rate_limit`). If no rate
     limit is configured, uses a default of 600 RPM.
@@ -70,7 +74,7 @@ async def chat_completions(
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `deepseek-v4-flash` to an existing Pixeltable column `tbl.prompt`
+        Add a computed column that applies the model `deepseek-flash` to an existing Pixeltable column `tbl.prompt`
         of the table `tbl`:
 
         >>> messages = [
@@ -78,7 +82,17 @@ async def chat_completions(
         ...     {'role': 'user', 'content': tbl.prompt},
         ... ]
         >>> tbl.add_computed_column(
-        ...     response=chat_completions(messages, model='deepseek-v4-flash')
+        ...     response=chat_completions(messages, model='deepseek-flash')
+        ... )
+
+        The same, with thinking disabled:
+
+        >>> tbl.add_computed_column(
+        ...     response=chat_completions(
+        ...         messages,
+        ...         model='deepseek-flash',
+        ...         model_kwargs={'extra_body': {'thinking': {'type': 'disabled'}}},
+        ...     )
         ... )
     """
     model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
