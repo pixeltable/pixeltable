@@ -44,6 +44,8 @@ _logger = logging.getLogger(__name__)
 # Max raw file size (bytes) for inline data; larger files use the Files API.
 GEMINI_INLINE_LIMIT_BYTES = 4 * 2**20
 
+_VIDEO_GENERATION_TIMEOUT_SECONDS = 300
+
 # Placeholder key used in first pass for large file uploads.
 _UPLOAD_PLACEHOLDER_KEY = '__google_genai_upload_ref__'
 
@@ -364,11 +366,11 @@ async def _generate_videos_impl(
     operation = await _genai_client().aio.models.generate_videos(model=model, source=source, config=config)
 
     try:
-        operation = await asyncio.wait_for(_poll_gemini_operation(operation), timeout=300)
+        operation = await asyncio.wait_for(_poll_gemini_operation(operation), timeout=_VIDEO_GENERATION_TIMEOUT_SECONDS)
     except asyncio.TimeoutError as exc:
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_TIMEOUT,
-            f'Video generation timed out after 300 seconds for Gemini model {model!r}.',
+            f'Video generation timed out after {_VIDEO_GENERATION_TIMEOUT_SECONDS} seconds for Gemini model {model!r}.',
             provider='gemini',
         ) from exc
 
@@ -599,7 +601,7 @@ async def generate_omni_video(
         )
 
     try:
-        async with asyncio.timeout(300):
+        async with asyncio.timeout(_VIDEO_GENERATION_TIMEOUT_SECONDS):
             # create() also supports streams; this request returns a complete interaction.
             interaction = cast(
                 'genai.interactions.Interaction',
@@ -625,7 +627,7 @@ async def generate_omni_video(
     except TimeoutError as exc:
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_TIMEOUT,
-            f'Video generation timed out after 300 seconds for Gemini model {model!r}.',
+            f'Video generation timed out after {_VIDEO_GENERATION_TIMEOUT_SECONDS} seconds for Gemini model {model!r}.',
             provider='gemini',
         ) from exc
 
