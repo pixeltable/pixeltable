@@ -227,7 +227,7 @@ jobs:
         # so CI has to produce it before the test job runs.
         if: ${{ matrix.test-category == 'py' }}
         run: |
-          conda install -y -c conda-forge nodejs
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge nodejs
           cd dashboard && npm install --silent && npm run build
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
@@ -243,12 +243,13 @@ jobs:
         # (including tests with the 'remote_api' marker that are not also marked 'expensive') will run on all matrix
         # configurations.
         # --basetemp pins pytest's temp root dir so that the Archive step below works on all platforms
-        # -n logical: one worker per vCPU (with psutil, -n auto counts physical cores: 2 on windows-2025)
+        # -n comes from the matrix
         run: |
           echo 'Running tests with options: ${{ matrix.pytest-options }}'
+          echo 'xdist workers             : ${{ matrix.xdist-workers }}'
           echo 'Extra pre-test command    : ${{ matrix.pre-test-cmd }}'
           ${{ matrix.pre-test-cmd }}
-          pytest -v --strict-markers -n logical --dist loadgroup --basetemp="$RUNNER_TEMP/pxt-pytest" ${{ matrix.pytest-options }} $PYTEST_COVERAGE_OPTS
+          pytest -v --strict-markers -n ${{ matrix.xdist-workers }} --dist loadgroup --basetemp="$RUNNER_TEMP/pxt-pytest" ${{ matrix.pytest-options }} $PYTEST_COVERAGE_OPTS
       - name: Run the OpenTelemetry instrumentation tests
         # The opentelemetry-instrumentation-pixeltable package is a separate distribution; the core suite does not
         # collect its tests (testpaths in pyproject.toml). It is tested here against a minimal install + otel extra.
@@ -287,7 +288,9 @@ jobs:
         if: ${{ matrix.test-category == 'lint' }}
         run: |
           # Install quarto and mintlify in order to build the docs; mint doesn't run on Node.js 25 or later
-          conda install -y -c conda-forge quarto 'nodejs<25'
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge quarto 'nodejs<25'
+          # retry.sh runs conda in its own shell, so reactivate here for quarto's activation script (QUARTO_DENO etc.)
+          conda activate pxt
           npm install -g mint@$MINTLIFY_VERSION
           python -m pixeltable_doctools.build --no-changelog
           cd target/docs && mint broken-links

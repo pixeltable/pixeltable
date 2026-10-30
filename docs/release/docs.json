@@ -333,6 +333,7 @@
               "integrations/langfuse",
               "integrations/phoenix",
               "integrations/logfire",
+              "integrations/opik",
               "integrations/signoz"
             ]
           },

@@ -71,6 +71,8 @@ ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 # The GitHub event names that pytest.yml is triggered on
 TRIGGERS = ('pull_request', 'merge_group', 'schedule', 'workflow_dispatch')
 
+DEFAULT_XDIST_WORKERS = 'logical'  # one worker per vCPU; -n auto would be 2 on windows-2025 (physical cores)
+
 
 class MatrixConfig(NamedTuple):
     display_name_prefix: str
@@ -79,6 +81,7 @@ class MatrixConfig(NamedTuple):
     python_version: str
     uv_options: str = ''
     pytest_options: str = DEFAULT_PYTEST
+    xdist_workers: str = DEFAULT_XDIST_WORKERS
     pre_test_cmd: str = ''  # Extra bash command to be run just before tests
 
     @property
@@ -94,6 +97,7 @@ class MatrixConfig(NamedTuple):
             'python-version': self.python_version,
             'uv-options': self.uv_options,
             'pytest-options': self.pytest_options,
+            'xdist-workers': self.xdist_workers,
             'pre-test-cmd': self.pre_test_cmd,
         }
 
@@ -142,7 +146,7 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
                     'ubuntu-large',
                     '3.11',
                     pytest_options=VERY_EXPENSIVE_PYTEST,
-                    # this configuration's runner has been shutting down mid-run; log memory to see whether it runs out
+                    xdist_workers='8',  # -n logical OOMs ubuntu-large; standard+ omits very_expensive tests
                     pre_test_cmd='./scripts/log-memory.sh 15 &',
                 )
             )
