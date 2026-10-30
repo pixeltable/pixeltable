@@ -471,6 +471,10 @@
           <outline text="udf|pixeltable.functions.openai.decisions" />
           <outline text="func|pixeltable.functions.openai.invoke_tools" />
         </outline>
+        <outline text="module|pixeltable.functions.openllm">
+          <outline text="udf|pixeltable.functions.openllm.chat_completions" />
+          <outline text="udf|pixeltable.functions.openllm.responses" />
+        </outline>
         <outline text="module|pixeltable.functions.openrouter">
           <outline text="udf|pixeltable.functions.openrouter.chat_completions" />
         </outline>
