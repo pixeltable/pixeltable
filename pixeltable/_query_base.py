@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import builtins
 import copy
+import dataclasses
 import itertools
 from abc import ABC
-from typing import Any, Self, Sequence, cast, overload
+from typing import Any, Callable, Self, Sequence, cast, overload
 from uuid import UUID
 
 import pandas as pd
@@ -295,6 +296,34 @@ class QueryBase(ABC):
             sample_clause=copy.deepcopy(self.sample_clause),
         )
 
+    @classmethod
+    def _from_query(
+        cls, source: QueryBase, *, from_clause: FromClause, substitution_fn: Callable[[exprs.Expr], exprs.Expr]
+    ) -> Self:
+        # join predicates belong to from_clause
+        assert len(source._from_clause.join_clauses) == 0
+        return cls(
+            from_clause=from_clause,
+            select_list=None
+            if source.select_list is None
+            else [(substitution_fn(e), n) for e, n in source.select_list],
+            where_clause=None if source.where_clause is None else substitution_fn(source.where_clause),
+            group_by_clause=None
+            if source.group_by_clause is None
+            else [substitution_fn(e) for e in source.group_by_clause],
+            grouping_tbl_key=source.grouping_tbl_key,
+            order_by_clause=None
+            if source.order_by_clause is None
+            else [(substitution_fn(e), asc) for e, asc in source.order_by_clause],
+            limit=None if source.limit_val is None else substitution_fn(source.limit_val),
+            offset=None if source.offset_val is None else substitution_fn(source.offset_val),
+            sample_clause=None
+            if source.sample_clause is None
+            else dataclasses.replace(
+                source.sample_clause, stratify_exprs=[substitution_fn(e) for e in source.sample_clause.stratify_exprs]
+            ),
+        )
+
     def referenced_tbl_ids(self) -> set[UUID]:
         """Returns the IDs of all tables referenced by this query.
 
@@ -430,6 +459,7 @@ class QueryBase(ABC):
             expr = exprs.Expr.from_object(raw_expr)
             if expr is None:
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression: {raw_expr}')
+            expr.check_method_refs()
             if expr.col_type.is_invalid_type() and not (isinstance(expr, exprs.Literal) and expr.val is None):
                 raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid type: {raw_expr}')
             if len(self._from_clause.tbls) == 1 and self._from_clause.is_local:
@@ -507,6 +537,7 @@ class QueryBase(ABC):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_EXPRESSION, f'where() expects a Pixeltable expression; got: {pred}'
             )
+        pred.check_method_refs()
         if not pred.col_type.is_bool_type():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -533,6 +564,7 @@ class QueryBase(ABC):
         if isinstance(on, exprs.ColumnRef):
             on = [on]
         elif isinstance(on, exprs.Expr):
+            on.check_method_refs()
             if not on.is_bound_by(joined_tbls):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -773,6 +805,7 @@ class QueryBase(ABC):
                 break
             if not isinstance(item, exprs.Expr):
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression in group_by(): {item}')
+            item.check_method_refs()
         if grouping_tbl_key is None:
             # no Table item was found, so every item passed the Expr check above
             group_by_clause = cast('list[exprs.Expr]', list(grouping_items))
@@ -853,6 +886,7 @@ class QueryBase(ABC):
         for e in expr_list:
             if not isinstance(e, exprs.Expr):
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression in order_by(): {e}')
+            e.check_method_refs()
         order_by_clause = self.order_by_clause if self.order_by_clause is not None else []
         order_by_clause.extend((e.copy(), asc) for e in expr_list)
         return type(self)(
@@ -1025,6 +1059,7 @@ class QueryBase(ABC):
             for expr in stratify_by:
                 if expr is None or not isinstance(expr, exprs.Expr):
                     raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression: {expr}')
+                expr.check_method_refs()
                 if not expr.col_type.is_scalar_type():
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_ARGUMENT,

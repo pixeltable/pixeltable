@@ -1141,6 +1141,7 @@ class TestErrors:
             ['pxt', 'recompute', p('cli_errs/bad'), 'b', '--errors-only', '-f'],
             ['pxt', 'recompute', p('cli_errs/bad'), 'c', '--errors-only', '-f'],
         ]
+        assert ': 1 row updated' in cli('recompute', p('cli_errs/bad'), 'b', '--errors-only', '-f').stdout
 
         # --col filters to one stored computed column: an existing column with errors comes back,
         # and asking for the other computed column also returns its errors.

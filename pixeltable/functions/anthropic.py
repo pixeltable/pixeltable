@@ -188,8 +188,7 @@ async def messages(
         ...     response=messages(msgs, model='claude-3-5-sonnet-20241022')
         ... )
     """
-    if model_kwargs is None:
-        model_kwargs = {}
+    model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
     if tools is not None:
         # Reformat `tools` into Anthropic format

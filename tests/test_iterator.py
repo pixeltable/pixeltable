@@ -153,6 +153,14 @@ def _(bound_args: dict[str, Any]) -> dict[str, type] | None:
     return None
 
 
+@pxt.iterator
+def pop_iterator(x: int, opts: dict, items: list) -> Iterator[MyRow]:
+    n = opts['nested'].pop('n', None)
+    item = items.pop() if len(items) > 0 else None
+    for i in range(x):
+        yield MyRow(icol=i, scol=f'{n}:{item}', acol=None)
+
+
 class TestIterator:
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_iterator(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
@@ -230,6 +238,18 @@ class TestIterator:
         }
         # the shadowing columns hold the innermost iterator's values, not the shadowed ones
         assert all(r['scol'] == f'string {r["icol"]}' for r in vv.collect())
+
+    def test_iterator_modifies_args(self, db_root: DatabaseRoot) -> None:
+        """An iterator that modifies a constant argument doesn't change that argument for other input rows."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'input': pxt.Int})
+        t.insert([{'input': 1}, {'input': 1}])
+        v1 = pxt.create_view(p('view1'), t, iterator=pop_iterator(t.input, opts={'nested': {'n': 3}}, items=[4]))
+        # the nested dict is constant, the dict that contains it is not
+        it = pop_iterator(t.input, opts={'x': t.input, 'nested': {'n': 3}}, items=[4])
+        v2 = pxt.create_view(p('view2'), t, iterator=it)
+        t.insert([{'input': 1}])
+        assert all([r['scol'] for r in v.collect()] == ['3:4'] * 3 for v in (v1, v2))
 
     @pytest.mark.db_roots('local', reason='validates the @pxt.iterator decorator on client-process-local classes')
     def test_iterator_errors(self, uses_db: None) -> None:
