@@ -1,49 +1,112 @@
 ---
-title: 'Why Pixeltable?'
-description: 'What Pixeltable replaces in a multimodal AI stack, why we built it, and when to use something else.'
+title: 'The backend agents build with'
+sidebarTitle: 'Why Pixeltable?'
+description: 'Multimodal database, orchestration, and serving in one file, by the co-creators of Apache Parquet and Impala.'
 ---
 
-Pixeltable is an open-source Python library for AI apps that work on video, images, audio and documents. A table holds references to your files next to ordinary columns: a path or URL you insert stays where it is, and files you upload or Pixeltable produces go to its media store, on local disk or in your own bucket ([Cloud storage](/integrations/cloud-storage)). The work you want done on them, like sampling frames, transcribing audio, calling a model or embedding the result, is a column too. Insert a row and Pixeltable runs that work, stores what it produces and indexes it, with no embed-and-upsert job to run. The whole backend, from tables to HTTP routes, sits in one Python file, `app.py`.
+Pixeltable is an open-source multimodal database you use from Python. You declare tables, computed columns and HTTP routes in one file, `app.py`. Insert a row and Pixeltable runs the model calls, stores the results and updates the indexes, with no scripts to keep files, results and embeddings in sync.
+
+```bash
+pip install 'pixeltable[serve]'
+```
+
+[Quickstart](/overview/quick-start) · [How it works](/overview/how-it-works) · [Pixeltable Cloud](/cloud)
 
 ## The stack it replaces
 
-Take a video search app. Users upload videos, each one gets transcribed and summarized, and you can search the summaries. Built the usual way, that's:
+Take a video search app: users upload videos, each one gets transcribed and summarized, and you search the summaries.
 
-- an S3 bucket for the videos, and a Postgres table for their keys and metadata
-- a queue or an Airflow DAG that picks up new uploads, extracts the audio, and calls Whisper and then an LLM
-- a job that embeds the summaries and writes them to a vector database
-- a FastAPI app that takes uploads, queries Postgres and the vector database, and merges the results
-- the scripts in between that keep all of it in sync
+| Job | Usually | In `app.py` |
+|---|---|---|
+| Store the videos and their metadata | An S3 bucket and a Postgres table | A table with a `video: pxt.Video` column |
+| Run the model steps | A queue or an Airflow DAG that extracts the audio, then calls Whisper and an LLM | Computed columns `audio`, `transcript` and `summary`, each reading the one before |
+| Search the summaries | A job that embeds them into a vector database | `pxt.EmbeddingIndex(summary, ...)` in the table's `__indexes__` |
+| Serve uploads and search | A FastAPI app over Postgres and the vector database | A `FastAPIRouter` with an insert route and a search route |
+| Keep it all consistent | Scripts in between | Nothing to write: inserting a row runs everything that depends on it |
 
 Each piece is fine on its own. The trouble is the joints. A video gets deleted from the bucket and its row stays behind. The DAG reruns every video because it can't tell which ones changed, unless you write that bookkeeping yourself. The vector database keeps serving embeddings of last week's summaries. And the first time you want to try a better prompt, you write a backfill script and hope it touches the right rows.
 
 In most of these projects, the plumbing is most of the code, and it's where most of the bugs are.
 
-## The same app in Pixeltable
+## What it looks like
 
-Each of those systems becomes a few lines of `app.py`:
+This is the whole backend for that app:
 
-| Before | In `app.py` |
-|---|---|
-| The bucket and the metadata table | A table with a `video: pxt.Video` column |
-| The DAG steps | Computed columns: `audio`, then `transcript`, then `summary`, each one reading the one before |
-| The embedding job and the vector database | `pxt.EmbeddingIndex(summary, ...)` in the table's `__indexes__` |
-| The FastAPI app | A `FastAPIRouter` with an insert route and a search route |
-| The sync scripts | Nothing to write. Inserting a row runs everything that depends on it |
+<CodeGroup>
+```python app.py
+import pixeltable as pxt
+from pixeltable.functions import openai
+from pixeltable.functions.video import extract_audio
+from pixeltable.serving import FastAPIRouter
 
-The full file is in the [README](https://github.com/pixeltable/pixeltable#what-it-looks-like). Two commands run it: `pxt schema update app.py my_app` creates the table and its index, and `pxt service update app.py my_app` starts the service. The [Quickstart](/overview/quick-start) walks through both with a smaller file.
+TableModel = pxt.model_base()
+embed = openai.embeddings.using(model='text-embedding-3-small')
+
+
+class Videos(TableModel, name='videos'):
+    video: pxt.Video  # the only column you insert; the rest run on insert
+
+    audio = extract_audio(video, format='mp3')
+    transcript = openai.transcriptions(audio, model='whisper-1')
+    summary = openai.chat_completions(
+        model='gpt-4o-mini',
+        messages=[
+            {'role': 'system', 'content': 'Summarize this video in two sentences.'},
+            {'role': 'user', 'content': transcript.text},
+        ],
+    ).choices[0].message.content.astype(pxt.String)
+
+    __indexes__ = [pxt.EmbeddingIndex(summary, embedding=embed)]
+
+
+@pxt.query
+def search(query: str):
+    sim = Videos.summary.similarity(string=query)
+    return Videos.order_by(sim, asc=False).limit(3).select(Videos.video, Videos.summary)
+
+
+api = FastAPIRouter(name='video-api')
+api.add_insert_route(Videos, path='/videos', uploadfile_inputs=[Videos.video], outputs=[Videos.summary])
+api.add_query_route(path='/search', query=search)
+```
+
+```bash Run it
+pip install 'pixeltable[serve]' openai
+export OPENAI_API_KEY=sk-...        # set this before the first pxt command
+pxt init                            # makes this folder a project
+pxt schema update app.py my_app     # creates the table and its index
+pxt service update app.py my_app    # starts the service and prints its URL
+```
+
+```bash Call it
+curl -F video=@talk.mp4 http://127.0.0.1:PORT/videos
+# {"summary": "..."}
+curl -X POST http://127.0.0.1:PORT/search -H 'Content-Type: application/json' -d '{"query": "pricing"}'
+# {"rows": [{"video": "...", "summary": "..."}]}
+```
+</CodeGroup>
+
+Replace `PORT` with the port that `pxt service update` printed. If the local daemon was already running when you exported the key, run `pxt daemon restart` first. The [Quickstart](/overview/quick-start) walks through the same steps with an app that needs no API key.
 
 ## What a change costs
 
 Every computed column refers to the columns it reads, so Pixeltable knows what to run and, after a change, what to rerun. That's the part you'd otherwise build by hand.
 
-New uploads only cost new work, and a better prompt reruns only the summaries, not the transcripts you already paid for. Prompt changes, failed model calls and table versions all follow the same bookkeeping. [When computed columns run](/overview/how-it-works#when-computed-columns-run) has the details.
-
-The same `app.py` runs on [Pixeltable Cloud](/cloud). `pxt db update` uploads the project to a hosted database, then the same two commands take its `pxt://` URI in place of `my_app`, so moving isn't a rewrite.
+<CardGroup cols={3}>
+  <Card title="New rows only" icon="plus" href="/overview/how-it-works#when-computed-columns-run">
+    Upload 100 more videos and only those 100 get processed.
+  </Card>
+  <Card title="A better prompt" icon="pen" href="/overview/how-it-works#when-computed-columns-run">
+    `pxt recompute` redoes the summaries and their index. The transcripts you already paid for stay.
+  </Card>
+  <Card title="Failures and versions" icon="rotate-left" href="/overview/how-it-works#when-computed-columns-run">
+    With `on_error='ignore'`, a failed model call stays on its row for a targeted rerun. `pxt revert` undoes the last change to a table.
+  </Card>
+</CardGroup>
 
 ## Why we built it
 
-We're database people: Pixeltable comes from the creators of Apache Parquet and Impala. When we looked at multimodal AI projects, we kept finding the same thing. The models were the interesting part, and the team spent most of its time on data plumbing.
+We're database people. When we looked at multimodal AI projects, we kept finding the same thing. The models were the interesting part, and the team spent most of its time on data plumbing.
 
 Lovable and Bolt made web apps something one person can build, by putting a small surface over a hard problem. We wanted that for developers working with video, images, audio and documents, so we moved the work into the database. The engine tracks what depends on what, so it works out which rows to recompute. The first version of an app and its tenth revision are the same kind of work: edit `app.py`, run `pxt schema update`, then `pxt service update`.
 
@@ -58,8 +121,6 @@ If you don't want a schema, Pixeltable is the wrong tool. Every column has a typ
 It isn't a no-code builder either. You write Python, and Pixeltable is the data layer under your app. The frontend is up to you, whether that's Lovable or your own React code calling the routes from its server.
 
 It won't pick your model or tell you whether the answers are any good. Video files are still big and model APIs still fail. What Pixeltable does is keep track of what ran and what needs to run again.
-
-And if your current stack works and the glue isn't costing you much, keep it.
 
 If you try Pixeltable and leave, your data comes with you. Media can live in your own bucket ([Cloud storage](/integrations/cloud-storage)), and `pxt.io.export_sql()` or `pxt.io.export_parquet()` copies a table out whenever you want.
 
@@ -81,13 +142,14 @@ Coming from Pinecone, Postgres, LangGraph or Airflow? [Migrate](/howto/coming-fr
 
 ## Next
 
-<CardGroup cols={2}>
+<CardGroup cols={3}>
   <Card title="Quickstart" icon="bolt" href="/overview/quick-start">
     From an empty folder to a POST that returns computed columns, on your machine.
   </Card>
   <Card title="Pixeltable Cloud" icon="cloud" href="/cloud">
-    The same `app.py` on a hosted database, from `pxt login` to a running service.
+    `pxt db update` puts the same `app.py` on a hosted database. The guide goes from `pxt login` to a running service.
+  </Card>
+  <Card title="10-minute tour" icon="book-open" href="/overview/ten-minute-tour">
+    The same tables from a notebook, with no CLI and no HTTP server.
   </Card>
 </CardGroup>
-
-Rather start in a notebook? The [10-minute tour](/overview/ten-minute-tour) needs no CLI.
