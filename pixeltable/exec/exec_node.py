@@ -167,6 +167,7 @@ class ExecNode(abc.ABC):
         # benefits)
         result_queue: queue.Queue = queue.Queue(maxsize=2)
         producer_task: asyncio.Task | None = None  # set before the first put()
+        consumer_stopped = threading.Event()
         caller_runtime = get_runtime()
         # carry the ambient instrumentation span across the thread boundary so spans reported on the
         # worker thread nest under it
@@ -181,6 +182,9 @@ class ExecNode(abc.ABC):
             async def produce() -> None:
                 nonlocal producer_task
                 producer_task = asyncio.current_task()
+                # the consumer sets consumer_stopped and then reads producer_task, possibly before the assignment above
+                if consumer_stopped.is_set():
+                    return
                 async with contextlib.aclosing(aiter(self)) as batches:
                     async for batch in batches:
                         result_queue.put(batch)
@@ -212,6 +216,7 @@ class ExecNode(abc.ABC):
             # item isn't final if the consumer stopped early: it closed this generator at the yield, or an exception
             # (eg, KeyboardInterrupt) interrupted get()
             if not is_final(item):
+                consumer_stopped.set()
                 if producer_task is not None:
                     # don't wait for the producer's current batch (eg, slow UDF calls); cancelling also runs the nodes'
                     # cleanup right away
