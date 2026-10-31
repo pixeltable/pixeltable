@@ -394,9 +394,11 @@ async def generate_videos(
     prompt: str | None = None, image: PIL.Image.Image | None = None, *, model: str, config: dict | None = None
 ) -> pxt.Video:
     """
-    Generate videos with Veo on Vertex AI. For Gemini Omni on the Gemini Developer API, use
-    [`generate_omni_video()`][pixeltable.functions.gemini.generate_omni_video]. For additional details, see:
-    <https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/veo/3-1-generate>
+    Generate videos through the Veo API.
+
+    Veo models in the Gemini Developer API have been shut down, and this function does not support downloading
+    Vertex AI results. For video generation through the Gemini Developer API, use
+    [`generate_omni_video()`][pixeltable.functions.gemini.generate_omni_video].
 
     At least one of `prompt` or `image` must be provided. When `image` is a single image, it is used as the first
     frame of the generated video. When `image` is a list of images, they are used as reference images to guide the
@@ -422,24 +424,6 @@ async def generate_videos(
     Returns:
         The generated video.
 
-    Examples:
-        Add a computed column that applies the Vertex AI model `veo-3.1-generate-001`
-        to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
-
-        >>> tbl.add_computed_column(
-        ...     response=generate_videos(tbl.prompt, model='veo-3.1-generate-001')
-        ... )
-
-        Use reference images with Veo 3.1 to guide video generation:
-
-        >>> tbl.add_computed_column(
-        ...     response=generate_videos(
-        ...         tbl.prompt,
-        ...         images=[tbl.ref_img1, tbl.ref_img2],
-        ...         reference_types=['asset', 'asset'],
-        ...         model='veo-3.1-generate-001',
-        ...     )
-        ... )
     """
     env.Env.get().require_package('google.genai')
     from google.genai import types
@@ -468,6 +452,8 @@ async def _(
     reference_types: list[Literal['style', 'asset']] | None = None,
 ) -> pxt.Video:
     """Overload that accepts a list of reference images for Veo 3.1+.
+
+    See [`generate_videos()`][pixeltable.functions.gemini.generate_videos] for current provider limitations.
 
     Args:
         prompt: A text description of the videos to generate.
