@@ -580,10 +580,11 @@ async def generate_omni_video(
             excs.ErrorCode.MISSING_REQUIRED, 'At least one of `prompt` or `images` must be provided.'
         )
     client = _genai_client()
-    # TODO support both?
     if client.vertexai:
         raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, 'Gemini Omni video generation requires the Gemini Developer API.'
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            'Gemini Omni video generation is not supported through Vertex AI. Please contact '
+            'us at https://github.com/pixeltable/pixeltable/issues if you need this feature.',
         )
 
     contents: list[dict[str, str]] = []
