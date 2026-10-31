@@ -228,7 +228,7 @@ async def _gemini_file_uploads(files: list[str]) -> AsyncIterator[list['genai.ty
                     )
                 tasks.append(client.aio.files.upload(file=file, config={'mime_type': mime_type}))
             uploaded = await asyncio.gather(*tasks)
-            await _poll_until_active(client.aio, uploaded)
+            await _poll_until_active(client.aio, uploaded, labels=files)
 
         yield uploaded
 
@@ -532,10 +532,6 @@ async def generate_omni_video(
     Requires the Gemini Developer API (Google AI Studio credentials). At least one of `prompt` or `images`
     must be provided. Images guide the generated video according to the prompt.
 
-    Request throttling:
-    Applies the rate limit set in the config (section `gemini.rate_limits`; use the model id as the key). If no rate
-    limit is configured, uses a default of 600 RPM.
-
     __Requirements:__
 
     - `pip install 'google-genai>=2.22'`
@@ -583,8 +579,9 @@ async def generate_omni_video(
     if client.vertexai:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            'Gemini Omni video generation is not supported through Vertex AI. Please contact '
-            'us at https://github.com/pixeltable/pixeltable/issues if you need this feature.',
+            'generate_omni_video() currently supports only the Gemini Developer API. '
+            'Unset GOOGLE_GENAI_USE_VERTEXAI and set GEMINI_API_KEY or GOOGLE_API_KEY to use it. '
+            'If you need Vertex AI support, please open an issue at https://github.com/pixeltable/pixeltable/issues.',
         )
 
     contents: list[dict[str, str]] = []
@@ -1076,11 +1073,17 @@ def _handle_polling_timeout(retry_state: RetryCallState) -> None:
 
     remote_files: list[types.File] = retry_state.outcome.result()
 
-    pending = [file for file in remote_files if file.state != types.FileState.ACTIVE]
-    detail_str = '\n- '.join(f'{file.name} (state={file.state})' for file in pending)
+    labels: list[str] | None = retry_state.kwargs.get('labels')
+    pending_details = []
+    for i, file in enumerate(remote_files):
+        if file.state != types.FileState.ACTIVE:
+            label = f'{labels[i]} (ID: {file.name})' if labels is not None else file.name
+            state = file.state.name if file.state is not None else 'UNKNOWN'
+            pending_details.append(f'{label} (state={state})')
+    detail_str = '\n- '.join(pending_details)
     raise excs.ExternalServiceError(
         excs.ErrorCode.PROVIDER_TIMEOUT,
-        f'Timed out waiting for Gemini to process {len(pending)}/{len(remote_files)} file(s):\n- {detail_str}',
+        f'Timed out waiting for Gemini to process {len(pending_details)}/{len(remote_files)} file(s):\n- {detail_str}',
         provider='gemini',
     )
 
@@ -1092,16 +1095,18 @@ def _handle_polling_timeout(retry_state: RetryCallState) -> None:
     retry_error_callback=_handle_polling_timeout,
 )
 async def _poll_until_active(
-    async_client: 'genai.client.AsyncClient', files: list['genai.types.File']
+    async_client: 'genai.client.AsyncClient', files: list['genai.types.File'], *, labels: list[str] | None = None
 ) -> list['genai.types.File']:
-    """Wait for uploaded or generated files to finish server-side processing and become active."""
+    """Wait for uploaded or generated files to become active, using optional input labels in errors."""
     from google.genai import types
 
+    assert labels is None or len(labels) == len(files)
     remote_files = await asyncio.gather(*[async_client.files.get(name=f.name) for f in files])
-    for file in remote_files:
+    for i, file in enumerate(remote_files):
         if file.state == types.FileState.FAILED:
+            label = f'{labels[i]} (ID: {file.name})' if labels is not None else file.name
             raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_ERROR, f'Gemini file processing failed for {file.name}.', provider='gemini'
+                excs.ErrorCode.PROVIDER_ERROR, f'Gemini file processing failed for {label}.', provider='gemini'
             )
     return remote_files
 
