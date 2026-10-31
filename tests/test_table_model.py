@@ -989,6 +989,8 @@ class TestTableModel:
             assert schema_from_tbl_md(mtbl.get_metadata()) == schema_from_tbl_md(atbl.get_metadata())
             assert_resultset_eq(mtbl.order_by(mtbl.value).collect(), atbl.order_by(atbl.value).collect())
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_view_model_index_on_iterator_column(self, db_root: DatabaseRoot) -> None:
         """An embedding index in a view model can name a column produced by the view's iterator."""
         skip_test_if_not_installed('spacy')
@@ -1302,6 +1304,8 @@ class TestTableModel:
         Asks2.insert(question='alpha')
         assert Asks2.table.select(Asks2.hits).collect()['hits'] == [[{'body': 'alpha'}]]
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_update_all_query_reads_added_column(self, db_root: DatabaseRoot) -> None:
         """A @pxt.query reads a column that the same update_all() adds to the queried table."""
         p = db_root.make_catalog_path
