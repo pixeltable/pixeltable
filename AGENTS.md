@@ -21,6 +21,8 @@ of longer guides; Codex and Claude do not automatically apply Copilot's path-spe
 | Dashboard or dashboard-facing server APIs | `dashboard/DESIGN.md` and `dashboard/ARCHITECTURE.md` |
 | Environment setup or PR workflow | `CONTRIBUTING.md` and `Makefile` |
 
+When asked to review with structure-review, follow `.claude/skills/structure-review/SKILL.md`.
+
 ## Development
 
 - Keep changes surgical and preserve unrelated work. Read affected call sites and existing tests before adding abstractions.

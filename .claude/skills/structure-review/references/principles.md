@@ -1,8 +1,9 @@
 # Principles
 
-This file applies Marcel's guidelines in [effective-coding-practices.md](effective-coding-practices.md) to
+This file applies the guidelines in [effective-coding-practices.md](effective-coding-practices.md) to
 Pixeltable reviews. The central act comes first, then the three lenses, then the supporting checks. The
-examples are his own review comments, with the PR number. They illustrate a principle and do not limit it.
+examples are review comments from Pixeltable PRs, with the PR number. They illustrate a principle and do
+not limit it.
 
 ## The central act: articulate each abstraction
 
@@ -11,7 +12,7 @@ responsibilities, and stated in a few crisp sentences. If it cannot be stated, t
 and the code needs rework rather than polish. Use the statement to check the name, the ownership of the
 state, the comment and the fit of new requirements. Moved code gets the same test in its new home.
 
-Marcel's words:
+Examples:
 - "I'm finding the logic of this function hard to follow. I'm not sure it really stands on its own (=
   should be a function; a function is an abstraction; can you cleanly articulate what this one does?)."
   (#1472)
@@ -45,7 +46,7 @@ Signs of stacking:
 The same lens applies to a fix: fix the cause once, where it originates, rather than patching each
 symptom or each caller.
 
-Marcel's words:
+Examples:
 - "I don't think this flag makes sense. If both column and parameter have json typing information, it
   should be checked by is_supertype_of()." (#1215)
 - "It looks like the whole purpose of this subclass is to override _http from the base class. Instead,
@@ -94,7 +95,7 @@ Beyond the catalog:
   or runs a transaction.
 - Readability beats a lint rule.
 
-Marcel's words:
+Examples:
 - "I don't think there is any real use case for this and would prefer not to have it, simply to reduce
   complexity. Saying "it might be useful in the future" is not a use case." (#682)
 - "Instead of providing 3 fields from the ProxyRequest structure, just pass the request itself." (#1545)
@@ -153,7 +154,7 @@ without reading the body of each called function. Reading difficulty is a findin
   - explicit comparisons (`is not None`, `len(x) > 0`).
 - **Prose** is plain. Run the checks in [prose.md](prose.md).
 
-Marcel's words:
+Examples:
 - "Is that basically a resource delay (or resource refill delay)? (Ie, a good name would describe what it
   is, not what the caller does with it.)" (#912)
 - "Please make an effort to conform to existing naming conventions and avoid gratuitous terminology
