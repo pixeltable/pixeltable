@@ -1,5 +1,5 @@
 ---
-description: Review a pull request with the articulate-the-abstraction, challenge-the-design, blast-radius, and walk-the-job skills and return the review as JSON
+description: Review a pull request with the structure-review, challenge-the-design, blast-radius, and walk-the-job skills and return the review as JSON
 argument-hint: <PR URL> [--pr-head <dir>] [--focus <topic>]
 allowed-tools: Read, Grep, Glob, Bash(gh pr view:*), Bash(gh pr diff:*), Bash(gh pr checks:*)
 ---
@@ -15,8 +15,7 @@ person who asked for the review wants examined, in their words.
 Four skills in `.claude/skills/` define the review. Each pass in "Steps" applies one of them: it reads that skill's
 `SKILL.md` and every reference file the skill lists.
 
-- `articulate-the-abstraction`: abstractions, simplicity, clarity, and the codebase's conventions, built from Marcel
-  Kornacker's coding guidelines and review comments.
+- `structure-review`: abstractions, simplicity, clarity, and the codebase's conventions.
 - `challenge-the-design`: whether the problem and the design are justified, and what to delete while every guarantee
   holds.
 - `blast-radius`: what the change breaks outside the diff, and the one fact it is safe because of.
@@ -29,8 +28,7 @@ This command adds what running unattended in CI requires. Where a skill disagree
 - Nothing runs here except `gh`, so trace source instead of running it. blast-radius proves a fact at most to its step
   3, "You showed the bad case can't happen", and marks the rest unproven. walk-the-job reads the product's words from
   its docs, examples, CLI help, error messages, and source, and says that it read the source.
-- Skip the skills' pointers to skills that are not here: blast-radius's `how`, `why`, `arena`, and `unslop`, and
-  articulate-the-abstraction's pointer to `review-the-change`, which step 3 replaces.
+- Skip the skills' pointers to skills that are not here: blast-radius's `how`, `why`, `arena`, and `unslop`.
 - The posted review follows "Review" and "Writing" below instead of the skills' output formats, posting steps, and
   suggested states. It omits the reviewed scope, the verification limits, and the record of what was checked.
 - No one is available to answer questions. Put each question you would ask in the review's Questions section.
@@ -76,7 +74,7 @@ Create a todo list before you start.
    or a regenerated lockfile. Otherwise return:
    - the requirement in one or two sentences, and the person or caller it serves, each labeled as stated or inferred;
    - the base and head SHAs;
-   - the files to review, sorted into core and peripheral files as articulate-the-abstraction defines them, and for
+   - the files to review, sorted into core and peripheral files as structure-review defines them, and for
      each, the line ranges that `gh pr diff` shows at the head. Skip lockfiles, generated files, vendored code,
      minified bundles, and test snapshots;
    - the diff hunks, verbatim, of each changed file that the `--pr-head` directory lacks, such as a `CLAUDE.md`, an
@@ -93,9 +91,9 @@ Create a todo list before you start.
    disprove it, and keeps, narrows, or drops it. It returns the survivors with their location, trigger or disputed
    premise, evidence, impact, and smallest useful correction, each labeled as a verified defect, a design objection,
    or a maintenance suggestion, and attributed against the base. It also returns the questions it could not settle.
-   - **articulate-the-abstraction, abstractions and names** (opus): its workflow steps 2 and 3, the abstraction pass
+   - **structure-review, abstractions and names** (opus): its workflow steps 2 and 3, the abstraction pass
      and the naming sweep, on the core files.
-   - **articulate-the-abstraction, line pass** (sonnet): its workflow step 4 on the core files, with the smells,
+   - **structure-review, line pass** (sonnet): its workflow step 4 on the core files, with the smells,
      limitations, deleted lines, prose, and supporting checks including the tests, then the peripheral files for the
      supporting checks only.
    - **challenge-the-design** (opus): its parts 1, 2, 3, and 5 across the whole PR, including the forced-deletion
@@ -112,12 +110,12 @@ Create a todo list before you start.
      Every other pass also checks the focus first within its own skill.
 
 3. **Cross-check** (an opus agent with every surviving finding and the output of step 1). Apply
-   articulate-the-abstraction's workflow step 5, "Verify each finding", to each finding again, without trusting the
+   structure-review's workflow step 5, "Verify each finding", to each finding again, without trusting the
    pass that found it. Run walk-the-job's `critic` on the walk, if there is one, and challenge-the-design's final
    challenge of the review on the design objections. Merge duplicates across passes. When passes conflict, prefer the
    change that removes more while every guarantee holds, and keep the smaller fix as a fallback. Drop a finding that
    an earlier `## Claude review` already lists, unless the code it cites has changed since. Then calibrate with
-   articulate-the-abstraction's step 6: keep every substantive finding and cut the noise. Keep each finding, narrow
+   structure-review's step 6: keep every substantive finding and cut the noise. Keep each finding, narrow
    it, turn it into a question, or drop it.
 
 4. **Write the review** yourself, in the form that "Review" and "Writing" describe. Open with challenge-the-design's
@@ -153,7 +151,7 @@ Create a todo list before you start.
 
 ## Writing
 
-Write inline comments in the voice that articulate-the-abstraction's "Voice" section describes: about the code,
+Write inline comments in the voice that structure-review's "Voice" section describes: about the code,
 problem first, with the replacement when you have one. Keep them within this subset of ASD-STE100 Simplified Technical
 English, which also applies to the body:
 

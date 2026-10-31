@@ -1,26 +1,26 @@
 ---
-name: articulate-the-abstraction
+name: structure-review
 description: >
-  Review a Pixeltable pull request, branch or diff the way Marcel Kornacker reviews it. The review asks what
+  Review a PR, branch, commit range or local diff in pixeltable or pixeltable-cloud. The review asks what
   the change will cost its future readers: can each class and function be stated as a crisp abstraction,
   does the change evolve abstractions rather than shoehorn requirements into them, is the code free of the
   classic smells, and can a reader new to the code follow it. Then ownership, semantics, API shape, failure
-  paths, errors, tests and docs. Produces short inline comments plus a summary, as a draft for him to post.
-  Built from his coding guidelines and about 1,900 of his review comments on pixeltable/pixeltable
-  (2023-09 to 2026-10). Use when Marcel asks for a review of a PR, branch, commit range or local diff in
-  pixeltable or pixeltable-cloud.
+  paths, errors, tests and docs. Produces short inline comments plus a summary, as a draft for the user to
+  post. Use only when asked to review with structure-review.
+argument-hint: '[PR number or URL | branch | commit range]'
+allowed-tools: Bash(gh pr view *) Bash(gh pr diff *) Bash(gh api graphql *) Bash(git fetch *)
 ---
 
-# Marcel review
+# Structure review
 
-Review a change against Marcel's standard and hand him a draft review to post. Before the first review in
-a session, read the reference files:
+Review a change and hand the user a draft review to post. Before the first review in a session, read the
+reference files:
 
-- [references/effective-coding-practices.md](references/effective-coding-practices.md): Marcel's own
-  coding guidelines. Everything else builds on them; read them in full.
+- [references/effective-coding-practices.md](references/effective-coding-practices.md): the coding
+  guidelines. Everything else builds on them; read them in full.
 - [references/principles.md](references/principles.md): the central act, the three lenses and the
-  supporting checks, with his review comments as examples.
-- [references/pixeltable-rules.md](references/pixeltable-rules.md): codebase conventions he enforces.
+  supporting checks, with review comments as examples.
+- [references/pixeltable-rules.md](references/pixeltable-rules.md): codebase conventions.
 - [references/prose.md](references/prose.md): checks for comments, docstrings and error messages; they also
   apply to your own review.
 
@@ -34,9 +34,10 @@ lowers that cost.
 ## Scope and authority
 
 - A review authorizes reading and drafting. Edit no code, push nothing, and post nothing on GitHub until
-  Marcel asks for it.
-- Never switch branches or run `git checkout` in Marcel's checkout; it has uncommitted work. Read a PR head
-  with `gh` or from a separate worktree.
+  the user asks for it.
+- Never switch branches or run `git checkout` in the user's checkout; it may have uncommitted work. Read a
+  PR head without checking it out: `git fetch <remote> pull/<n>/head` from the base repository's remote,
+  then `git show <sha>:<path>` and `git grep <pattern> <sha>`.
 - This standard is broader than the "Code Review Rules" in the repo's `AGENTS.md`: it covers design,
   names, comments, tests and docs, and it asks for small fixes next to the change. Formatting and mypy
   errors still belong to CI.
@@ -134,29 +135,27 @@ Read the peripheral files last, and only for the supporting checks.
 ### 5. Verify each finding
 
 - Check every claim in the current code before you write it: find the caller, the guard or the existing
-  helper. Cite the mechanism the way Marcel does ("See Catalog.get_table() for the expected pattern
-  (retry_loop(), etc.)."). Never cite a helper without finding it in the current code.
-- For a suspected defect, establish the trigger, the path and the impact. For a deep correctness question
-  (concurrency, transactions, hosted behavior), apply parts 3 and 5 and `references/critic.md` of the
-  repo's `.claude/skills/review-the-change` skill.
+  helper. Cite the mechanism ("See Catalog.get_table() for the expected pattern (retry_loop(), etc.).").
+  Never cite a helper without finding it in the current code.
+- For a suspected defect, establish the trigger, the path and the impact.
 - Ask a question only when you cannot determine the intent from the code. Otherwise state the problem.
 - Drop a finding that fails these checks.
 
 ### 6. Calibrate
 
 - **Completeness.** Every substantive finding belongs in the review: a verified defect, a shape or design
-  problem, a missing test for new behavior, a misleading name, comment or docstring. Marcel's own reviews
-  set the floor for what to catch, not the ceiling; a real problem he might have missed still belongs in
-  the review.
+  problem, a missing test for new behavior, a misleading name, comment or docstring. The examples in the
+  references set the floor for what to catch, not the ceiling; report a real problem even when no example
+  covers it.
 - **Noise.** Cut what adds nothing: a repeat of an earlier comment (mark the first one "(here and
   elsewhere)"), a style nit in a peripheral file, a remark with no consequence. An unverified suspicion
   becomes a question or goes under Limits.
 - **Overall comments** are for points that span the change; everything else goes inline.
 - **State.** The state follows the findings:
   - CHANGES_REQUESTED when something has to change and needs another look before merge: a verified defect
-    with real impact, a design that needs another round, new behavior without CI-runnable tests, generated
-    prose throughout the PR, or a revert of deliberate earlier work (ask not to merge until it is
-    discussed).
+    with real impact, a design that needs another round, new behavior without CI-runnable tests, failed
+    [prose checks](references/prose.md) throughout the PR, or a revert of deliberate earlier work (ask not
+    to merge until it is discussed).
   - APPROVED, with the open items listed, when everything left is small enough for the author to fix
     without another review.
   - COMMENTED for a partial pass.
@@ -182,15 +181,15 @@ Use the format below.
 
 ## Voice
 
-A review is a collaboration, not a debate. Write inline comments the way Marcel writes them:
+A review is a collaboration, not a debate. Write inline comments this way:
 
 - About the code, never the author. Propose ("Let's ...", "How about ...?") rather than argue.
-- Short: his median is 10 words, and most stay under 20. One point per comment.
+- Short: a median of 10 words, and most under 20. One point per comment.
 - The problem first, then a one-clause reason when it is not obvious: "Remove comment, the superclass
   already contains a comment, and this doesn't add anything."
 - Give the replacement when you have one: the name ("load_tbl_at_version?"), the code, or the existing
   helper ("We already have a QColumnId.").
-- His usual openers: "Why not ...?", "Missing: ...", "Leave todo: ...", "Let's ...", "Do we need ...?",
+- Usual openers: "Why not ...?", "Missing: ...", "Leave todo: ...", "Let's ...", "Do we need ...?",
   "Same here.", "While you're here, ...". Mark a repeated issue once with "(here and elsewhere)".
 - Reading difficulty is a finding, stated in the first person: "I didn't understand what this did before
   reading the code."
@@ -215,7 +214,7 @@ Suggested state: <APPROVED | CHANGES_REQUESTED | COMMENTED>: <the blocking reaso
 ### Inline comments
 
 `<path>:<line>`
-<comment in Marcel's voice>
+<comment in the voice described above>
 
 ### Limits
 
@@ -227,6 +226,7 @@ section, except Limits. Add a suggestion block only when committing it resolves 
 
 ## Posting
 
-Only when Marcel asks. Post one review with `gh api repos/<owner>/<repo>/pulls/<n>/reviews`: `commit_id`
-set to the head SHA, `event` set to his chosen state, the overall comments as `body`, and one entry in
-`comments` (`path`, `line`, `side: RIGHT`, `body`) per inline comment. Give him the review URL afterwards.
+Only when the user asks. Post one review with `gh api repos/<owner>/<repo>/pulls/<n>/reviews`: `commit_id`
+set to the head SHA, `event` set to the user's chosen state, the overall comments as `body`, and one entry
+in `comments` (`path`, `line`, `side: RIGHT`, `body`) per inline comment. Give the user the review URL
+afterwards.

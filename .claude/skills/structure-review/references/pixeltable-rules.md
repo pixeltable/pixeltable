@@ -1,6 +1,6 @@
 # Pixeltable rules
 
-Conventions Marcel enforces in the Pixeltable code, grouped by area, with the PR where he stated each one.
+Pixeltable code conventions, grouped by area, each with its source PR.
 They reflect the code as of 2026-10. Before you cite a helper, file or test directory in a review, confirm
 it still exists; when the code has moved on, apply the principle behind the rule instead.
 

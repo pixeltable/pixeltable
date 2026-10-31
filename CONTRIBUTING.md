@@ -169,6 +169,9 @@ Once you've set up your dev environment, you're ready to start contributing PRs.
         or a dash, or on the next line, or start it with "focus": `claude review focus on function signatures` or
         `claude review: error paths`. Claude reacts to the comment with a thumbs-up when the review starts, and posts
         its summary and inline comments as one review. A request while a Claude review of the PR runs starts no other.
+    * To have your coding agent review a PR or branch, ask it to "review <PR or branch> with structure-review", or
+        run `/structure-review <PR or branch>` in Claude Code. The agent drafts the review and posts nothing unless
+        you ask. Reviewing a PR requires the GitHub CLI, authenticated with `gh auth login`.
     * The erosion check is currently commented out in `claude-review.yml`. When it runs, on every commit it measures
         how your PR changes code erosion and verbosity, as defined in
         [SlopCodeBench](https://arxiv.org/abs/2603.24755), and Claude judges up to 10 functions whose complexity, not
