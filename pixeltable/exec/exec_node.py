@@ -184,6 +184,9 @@ class ExecNode(abc.ABC):
                 async with contextlib.aclosing(aiter(self)) as batches:
                     async for batch in batches:
                         result_queue.put(batch)
+                        # a plan that never awaits doesn't see the cancellation
+                        if consumer_stopped.is_set():
+                            return
 
             # asyncio.Runner gives this thread the same loop teardown that asyncio.run() performs
             with asyncio.Runner() as runner:
