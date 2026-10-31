@@ -1217,7 +1217,7 @@ class JsonType(ColumnType):
         if isinstance(val, pydantic.BaseModel):
             val = val.model_dump()
         if not self.__is_valid_json_literal(val):
-            raise TypeError(f'That literal is not a valid Pixeltable JSON object: {val}')
+            raise TypeError(f'That literal is not a valid Pixeltable JSON object: {val!s}')
         if self.type_schema is not None:
             self.type_schema.validate_literal(val)
 

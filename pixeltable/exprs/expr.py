@@ -470,6 +470,24 @@ class Expr(abc.ABC):
                     'For details, see: https://docs.pixeltable.com/platform/udfs-in-pixeltable',
                 )
 
+    def check_method_refs(self, error_prefix: str = '') -> None:
+        """Raise if this expr contains an uncalled method reference."""
+        from .method_ref import MethodRef
+
+        method_ref = next(self.subexprs(MethodRef), None)
+        if method_ref is None:
+            return
+        json_hint = (
+            f', or use {method_ref.base_expr!s}[{method_ref.method_name!r}] for the JSON field'
+            if method_ref.base_expr.col_type.is_json_type()
+            else ''
+        )
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_EXPRESSION,
+            f'{error_prefix}{method_ref!s} is the method {method_ref.method_name}(); '
+            f'call it to get a value{json_hint}.',
+        )
+
     def _has_relative_path(self) -> bool:
         return any(c._has_relative_path() for c in self.components)
 

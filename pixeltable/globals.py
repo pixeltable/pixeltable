@@ -17,6 +17,7 @@ from pixeltable.catalog import DirEntry, TablePath
 from pixeltable.catalog.globals import OnErrorParam, fold_identifier
 from pixeltable.catalog.model.definition import bind_query_templates
 from pixeltable.catalog.model.query import ModelQuery
+from pixeltable.catalog.model.resolution import resolve_query_calls
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, RowDataTableDataConduit, TableDataConduit
@@ -1181,7 +1182,8 @@ def eval_udf(fn: pxt.Function, /, *args: Any, **kwargs: Any) -> Any:
                 f'eval_udf(): {fn.name}() is declared over the model `{model_cls.__name__}`, which is not bound to '
                 'a table; call `bind_all()` on its TableModel base first',
             )
-        call = bind_query_templates(call, catalog_dir)
+        # bind_query_templates() leaves the column names unresolved
+        call = resolve_query_calls(bind_query_templates(call, catalog_dir))
     return call.eval_without_row()
 
 

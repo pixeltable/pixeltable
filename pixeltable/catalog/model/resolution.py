@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, Mapping, NamedTuple, TypedDict
 from uuid import UUID
 
+import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exprs, func, index
 from pixeltable.types import ColumnSpec
 
@@ -12,9 +13,8 @@ from ..globals import MediaValidation, fold_mapping_keys
 from ..table_version_handle import TableVersionHandle
 
 if TYPE_CHECKING:
-    import pixeltable as pxt
+    from pixeltable._query_base import QueryBase
 
-if TYPE_CHECKING:
     from .definition import IndexDefinition
 
 
@@ -67,7 +67,9 @@ def prepare_model(
         )
         subst_args = [arg.substitute(base_tbl_subst_dict) for arg in iterator.args]
         subst_kwargs = {k: v.substitute(base_tbl_subst_dict) for k, v in iterator.kwargs.items()}
-        subst_bound_args = {k: v.substitute(base_tbl_subst_dict) for k, v in iterator.bound_args.items()}
+        # a **kwargs parameter binds to a dict of Exprs, not to an Expr;
+        # this mirrors GeneratingFunctionCall.from_dict()
+        subst_bound_args = iterator.it.bind_to_signature(subst_args, subst_kwargs)
         iterator = func.GeneratingFunctionCall(
             iterator.it, subst_args, subst_kwargs, subst_bound_args, iterator.outputs, iterator.validation_error
         )
@@ -118,7 +120,8 @@ def prepare_model(
     for name, spec in columns.items():
         subst_spec = spec.copy()
         if 'value' in subst_spec:
-            subst_spec['value'] = subst_spec['value'].substitute(subst_dict)
+            subst_spec['value'] = resolve_query_calls(subst_spec['value'].substitute(subst_dict))
+            _check_query_columns(subst_spec['value'], name, display_name)
             # whatever is still a ColumnRefByName has to name a column of this table that precedes this one, so that
             # it has a value by the time this column is computed
             unresolved = [
@@ -236,7 +239,10 @@ class ModelUpdates(NamedTuple):
 def resolve_model_value_expr(
     tbl_path: catalog.TablePath, value_expr: exprs.Expr, origin: Literal['base_query', 'model_body']
 ) -> exprs.Expr:
-    """Replace model column names with catalog column references visible at the declaration site."""
+    """Replace model column names with catalog column references visible at the declaration site.
+
+    A ColumnRefByName in the template query of a QueryTemplateFunction call becomes a ColumnRef to that query's table.
+    """
     reference_path = tbl_path.base if origin == 'base_query' else tbl_path
     assert reference_path is not None
 
@@ -250,7 +256,7 @@ def resolve_model_value_expr(
             )
             for col in reference_path.columns()
         )
-        return value_expr.substitute(subst)
+        return resolve_query_calls(value_expr.substitute(subst))
 
     assert isinstance(reference_path, catalog.TableMdPath)
 
@@ -267,7 +273,69 @@ def resolve_model_value_expr(
         for col_md in reference_path.column_md()
         if col_md.name is not None
     )
-    return value_expr.substitute(subst)
+    return resolve_query_calls(value_expr.substitute(subst))
+
+
+def resolve_query_calls(value_expr: exprs.Expr) -> exprs.Expr:
+    """Apply resolve_query_columns() to the template queries of value_expr's QueryTemplateFunction calls."""
+
+    def resolved_query(template_query: QueryBase) -> pxt.Query | None:
+        if not isinstance(template_query, pxt.Query) or not _is_unresolved(template_query):
+            return None
+        return resolve_query_columns(template_query)
+
+    return func.substitute_template_queries(value_expr, resolved_query)
+
+
+def resolve_query_columns(query: pxt.Query) -> pxt.Query:
+    """Replace each ColumnRefByName in query's clauses with a ColumnRef to the column of that name in query's table.
+
+    For a local table, this first clears the cached column metadata of the query's table path.
+    """
+    tbl_path = query._from_clause._first_tbl
+    if query._from_clause.is_local:
+        # the TableVersionPath's cached ColumnVersionMds don't include columns added to its TableVersion after caching
+        query._first_tbl.clear_cached_md()
+    subst = exprs.ExprDict[exprs.Expr](
+        (exprs.ColumnRefByName(col_md.name), exprs.ColumnRef(col_md, tbl_path.is_validate_on_read(col_md)))
+        for col_md in tbl_path.column_md()
+        if col_md.name is not None
+    )
+    return pxt.Query._from_query(
+        query, from_clause=query._from_clause, substitution_fn=lambda e: resolve_query_calls(e.copy().substitute(subst))
+    )
+
+
+def _is_unresolved(query: pxt.Query) -> bool:
+    """Returns True if it contains ColumnRefByName instances."""
+    return exprs.Expr.list_contains(
+        query._component_exprs(),
+        filter=lambda e: isinstance(e, exprs.ColumnRefByName)
+        or (
+            isinstance(e, exprs.FunctionCall)
+            and isinstance(e.fn, func.QueryTemplateFunction)
+            and isinstance(e.fn.template_query, pxt.Query)
+            and _is_unresolved(e.fn.template_query)
+        ),
+    )
+
+
+def _check_query_columns(value_expr: exprs.Expr, col_name: str, display_name: str) -> None:
+    """Raise an error for a ColumnRefByName left in a template query of value_expr's QueryTemplateFunction calls."""
+    for fn_call in value_expr.subexprs(exprs.FunctionCall):
+        fn = fn_call.fn
+        if not isinstance(fn, func.QueryTemplateFunction) or not isinstance(fn.template_query, pxt.Query):
+            continue
+        query = fn.template_query
+        names = sorted({ref.name for e in query._component_exprs() for ref in e.subexprs(exprs.ColumnRefByName)})
+        if len(names) > 0:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'Column {col_name!r} in {display_name} calls `{fn.name}()`, whose query references columns '
+                f'that are not in table {query._from_clause._first_tbl.tbl_name()!r}: {names}',
+            )
+        for e in query._component_exprs():
+            _check_query_columns(e, col_name, display_name)
 
 
 def prepare_model_updates(
@@ -306,6 +374,7 @@ def prepare_model_updates(
         resolved_spec = spec.copy()
         if 'value' in resolved_spec:
             resolved_spec['value'] = resolve_model_value_expr(tvp, resolved_spec['value'], origin)
+            _check_query_columns(resolved_spec['value'], name, display_name)
             # whatever is still a ColumnRefByName has to name a column that precedes this one in resolved_cols:
             # anything else is either outside the model's scope or would be evaluated before it has a value
             unresolved = [
@@ -346,6 +415,7 @@ def prepare_model_updates(
         if 'value' not in spec:
             continue
         resolved = resolve_model_value_expr(tvp, spec['value'], origin)
+        _check_query_columns(resolved, name, display_name)
         unresolved_names: list[str] = [
             ref.name for ref in resolved.subexprs(exprs.ColumnRefByName) if ref.name not in new_columns
         ]

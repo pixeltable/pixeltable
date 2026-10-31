@@ -3103,11 +3103,21 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not a recognized'):
             t.update({'c3': lambda c3: math.sqrt(c3)})
 
+        # uncalled method
+        c1_vals = t.order_by(t.c2).select(t.c1).collect()['c1']
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'c1\.upper is the method upper\(\)'):
+            t.update({'c1': t.c1.upper})
+        assert t.order_by(t.c2).select(t.c1).collect()['c1'] == c1_vals
+
         # non-Predicate filter
         with pxt_raises(
             pxt.ErrorCode.INVALID_EXPRESSION, match=r'`where` argument must be a valid Pixeltable expression'
         ):
             t.update({'c3': 1.0}, where=lambda c2: c2 == 10)  # type: ignore[arg-type]
+
+        # uncalled method in filter
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'c1\.upper is the method upper\(\)'):
+            t.update({'c3': 1.0}, where=t.c1.upper == 'a')
 
         img_t = small_img_tbl
 
@@ -3483,6 +3493,10 @@ class TestTable:
             pxt.ErrorCode.INVALID_EXPRESSION, match=r'`where` argument must be a valid Pixeltable expression; got'
         ):
             t.delete(where=lambda c2: c2 == 10)  # type: ignore[arg-type]
+
+        # uncalled method in filter
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'c1\.upper is the method upper\(\)'):
+            t.delete(where=t.c1.upper == 'a')
 
         img_t = small_img_tbl
 
@@ -4132,6 +4146,34 @@ class TestTable:
             raise RuntimeError(f'Error in recompute_udf for value {i}')
         return str(i + TestTable.recompute_udf_increment)
 
+    def test_recompute_keeps_input_error(self, db_root: DatabaseRoot) -> None:
+        """A recompute passes on an input cell's stored error to the cells computed from it, as the insert did."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'img': pxt.Image, 'b': pxt.Int | None, 'note': pxt.String | None})
+        t.add_computed_column(w=t.img.width)
+        t.add_computed_column(w1=t.w + 1)  # computed in SQL
+        t.add_computed_column(mode=t.img.mode)
+        t.add_computed_column(upper_mode=t.mode.upper())  # computed in SQL
+        t.add_computed_column(md=t.img.get_metadata())  # a Json column
+        t.insert([{'img': get_image_files(include_bad_image=True)[0]}], on_error='ignore')
+        col_names = ['img', 'w', 'w1', 'mode', 'upper_mode', 'md']
+        errors = t.select(*(t[name].errortype for name in col_names), *(t[name].errormsg for name in col_names))
+        inserted = errors.collect()[0]
+        assert inserted['img_errortype'] is not None
+        assert all(inserted[f'{name}_errortype'] == inserted['img_errortype'] for name in col_names)
+        assert all(inserted[f'{name}_errormsg'] == inserted['img_errormsg'] for name in col_names)
+
+        for name in col_names[1:]:
+            for errors_only in (False, True):
+                status = t.recompute_columns(name, errors_only=errors_only, cascade=False)
+                assert (status.num_excs, status.cols_with_excs) == (1, [f'tbl.{name}'])
+                assert errors.collect()[0] == inserted
+
+        # an update passes it on as well; errormsg is a value, not the error
+        status = t.update({'b': t.w + 1, 'note': t.img.errormsg})
+        assert (status.num_excs, status.cols_with_excs) == (1, ['tbl.b'])
+        assert t.select(t.b, t.note).collect()[0] == {'b': None, 'note': inserted['img_errormsg']}
+
     # TODO: cannot be converted because the UDF reads client-process-local class attributes the daemon cannot see
     @pytest.mark.db_roots('local', reason='UDF reads client-process-local class attributes the daemon cannot see')
     def test_recompute_column(self, uses_db: None) -> None:
@@ -4241,6 +4283,8 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="not bound by table 'recompute_test'"):
             y = pxt.create_table('other_table', {'i': pxt.Int | None})
             t.recompute_columns('i1', where=y.i == 0)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r's\.upper is the method upper\(\)'):
+            t.recompute_columns('i1', where=t.s.upper == 'a')
 
     def __test_drop_column_if_not_exists(self, t: pxt.Table, non_existing_col: str | ColumnRef) -> None:
         """Test the if_not_exists parameter of drop_column API"""

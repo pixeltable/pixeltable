@@ -7,10 +7,11 @@ import sqlalchemy as sql
 
 import pixeltable.type_system as ts
 from pixeltable import catalog
+from pixeltable.row import CellError
 
 from .column_ref import ColumnRef
 from .column_ref_by_name import ColumnRefByName
-from .data_row import DataRow
+from .data_row import DataRow, StoredError
 from .expr import Expr
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
@@ -85,8 +86,10 @@ class ColumnPropertyRef(Expr):
         return None
 
     @classmethod
-    def create_cellmd_exc(cls, exc: Exception) -> dict[str, str]:
+    def create_cellmd_exc(cls, exc: Exception) -> CellError:
         """Create a cellmd value from an exception."""
+        if isinstance(exc, StoredError):
+            return {'errortype': exc.errortype, 'errormsg': exc.errormsg}
         return {'errortype': type(exc).__name__, 'errormsg': str(exc)}
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

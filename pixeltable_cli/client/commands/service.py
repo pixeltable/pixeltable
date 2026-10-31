@@ -118,7 +118,7 @@ Examples:
 
 Tracing:
   --otel emits OpenTelemetry traces from the services 'update' starts, and needs the instrumentation
-  package ('pip install pixeltable[otel]'). The setting belongs to the running service, not to the file:
+  package (pip install 'pixeltable[otel]'). The setting belongs to the running service, not to the file:
   a service already running without it restarts when 'update' is given the flag, and 'diff' reports that
   as a pending change.
 {_OWN_APP}{_HOSTED}{_APP_FILE}"""
@@ -138,7 +138,7 @@ Ports:
   so name the service too when the file defines more than one.
 
 Tracing:
-  --otel needs the instrumentation package ('pip install pixeltable[otel]'). The setting belongs to the
+  --otel needs the instrumentation package (pip install 'pixeltable[otel]'). The setting belongs to the
   running service, not to the file: a service already running without it restarts to pick it up, and
   dropping the flag restarts it again.
 {_OWN_APP}{_HOSTED}{_APP_FILE}"""

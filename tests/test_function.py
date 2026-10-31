@@ -22,6 +22,7 @@ import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable import env, func
 from pixeltable.func import Batch, Function
+from pixeltable.utils.app_module import load_app_module
 
 from .utils import (
     SAMPLE_IMAGE_URL,
@@ -106,6 +107,48 @@ def _(image: PIL.Image.Image) -> str:
 @pxt.udf
 async def shout(text: str) -> str:
     return text.upper()
+
+
+@pxt.udf
+def pop_max_tokens(prompt: str, model_kwargs: dict) -> str:
+    return f'{prompt}:{model_kwargs.pop("max_tokens", None)}'
+
+
+@pxt.udf(batch_size=2)
+def pop_max_tokens_batched(prompt: Batch[str], model_kwargs: dict) -> Batch[str]:
+    max_tokens = model_kwargs.pop('max_tokens', None)
+    return [f'{p}:{max_tokens}' for p in prompt]
+
+
+@pxt.udf
+def modify_args(opts: dict, items: list, arr: pxt.Array[pxt.Int, (2,)], img: PIL.Image.Image) -> str:
+    result = f'{opts["nested"].pop("n", None)}:{items.pop() if len(items) > 0 else None}:{arr[0]}:{img.width}'
+    arr[0] += 1
+    img.thumbnail((img.width // 2, img.height // 2))
+    return result
+
+
+@pxt.udf
+def pop_embedding(text: str, opts: dict) -> pxt.Array[pxt.Float, (2,)]:
+    return np.array([opts.pop('n', 0), 1.0], dtype=np.float32)
+
+
+@pxt.udf
+def count_rows(path: str) -> int:
+    return pxt.get_table(path).count()
+
+
+@pxt.uda(allows_window=True, requires_order_by=False)
+class pop_n(pxt.Aggregator):
+    def __init__(self, opts: dict) -> None:
+        self.init_n = opts.pop('n', None)
+        self.update_n = None
+
+    def update(self, val: int, extra: dict) -> None:
+        self.update_n = extra.pop('n', None)
+
+    def value(self) -> str:
+        return f'{self.init_n}:{self.update_n}'
 
 
 T = typing.TypeVar('T')
@@ -823,6 +866,170 @@ class TestFunction:
             neg.add_computed_column(c=head(neg.n), on_error='abort')
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'offset'"):
             neg.add_computed_column(c=skipped(neg.n), on_error='abort')
+
+    def test_udf_modifies_args(self, db_root: DatabaseRoot) -> None:
+        """A udf or uda that modifies a constant argument doesn't change that argument for other rows or groups."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'prompt': pxt.String, 'grp': pxt.Int})
+        t.add_computed_column(out=pop_max_tokens(t.prompt, model_kwargs={'max_tokens': 5}))
+        # an equal constant in another call of the same row
+        t.add_computed_column(upper_out=pop_max_tokens(t.prompt.upper(), model_kwargs={'max_tokens': 5}))
+        t.insert([{'prompt': 'a', 'grp': 0}, {'prompt': 'b', 'grp': 0}, {'prompt': 'c', 'grp': 1}])
+        t.insert([{'prompt': 'd', 'grp': 1}])
+        res = t.order_by(t.prompt).collect()
+        assert [r['out'] for r in res] == ['a:5', 'b:5', 'c:5', 'd:5']
+        assert [r['upper_out'] for r in res] == ['A:5', 'B:5', 'C:5', 'D:5']
+
+        res = t.order_by(t.prompt).select(out=pop_max_tokens(t.prompt, model_kwargs={'max_tokens': 7})).collect()
+        assert [r['out'] for r in res] == ['a:7', 'b:7', 'c:7', 'd:7']
+
+        res = (
+            t.order_by(t.prompt).select(out=pop_max_tokens_batched(t.prompt, model_kwargs={'max_tokens': 3})).collect()
+        )
+        assert [r['out'] for r in res] == ['a:3', 'b:3', 'c:3', 'd:3']
+
+        # a list, an array, an image, and a dict nested in a dict that isn't constant
+        img = PIL.Image.new('RGB', (64, 64))
+        res = (
+            t.order_by(t.prompt)
+            .select(out=modify_args({'p': t.prompt, 'nested': {'n': 1}}, [2], np.zeros(2, dtype=np.int64), img))
+            .collect()
+        )
+        assert [r['out'] for r in res] == ['1:2:0:64'] * 4
+        assert img.size == (64, 64)
+
+        res = t.group_by(t.grp).order_by(t.grp).select(out=pop_n(t.grp, extra={'n': 2}, opts={'n': 1})).collect()
+        assert [r['out'] for r in res] == ['1:2', '1:2']
+
+        res = t.select(out=pop_n(t.grp, extra={'n': 2}, opts={'n': 1}, group_by=t.grp, order_by=t.prompt)).collect()
+        assert [r['out'] for r in res] == ['1:2', '1:2', '1:2', '1:2']
+
+        # an embedding udf with an argument bound by using()
+        t.add_embedding_index('prompt', embedding=pop_embedding.using(opts={'n': 3}))
+        sim = t.prompt.similarity(string='a')
+        # running the same query multiple times still returns the correct result
+        for _ in range(2):
+            assert t.order_by(sim, asc=False).limit(4).select(sim=sim).collect()['sim'] == pytest.approx([1.0] * 4)
+
+    @pytest.mark.db_roots('local', reason="the udf runs on the proxy daemon, where the client's path doesn't resolve")
+    def test_udf_calls_get_table(self, db_root: DatabaseRoot) -> None:
+        """A udf that calls pxt.get_table() fails with an error that points to @pxt.query."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'x': pxt.Int})
+        t.insert([{'x': 1}])
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Use a @pxt\.query UDF'):
+            t.select(count_rows(p('tbl'))).collect()
+
+        u = pxt.create_table(p('tbl2'), {'x': pxt.Int})
+        u.add_computed_column(n=count_rows(p('tbl')))
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Use a @pxt\.query UDF'):
+            u.insert([{'x': 1}])
+
+    @pytest.mark.db_roots('local', reason='loads an application file in process')
+    def test_table_loads_after_failed_import_is_fixed(self, uses_db: None, project_env: pathlib.Path) -> None:
+        """A table that uses a udf loads again once a module that failed to import partway is fixed."""
+        source = dedent(
+            """
+            import pixeltable as pxt
+
+
+            @pxt.udf
+            def double(x: int) -> int:
+                return 2 * x
+            """
+        )
+        app_file = project_env / 'double_app.py'
+        app_file.write_text(source, encoding='utf-8')
+        module = load_app_module(str(app_file), subject='application file')
+        t = pxt.create_table('nums', {'x': pxt.Int})
+        t.add_computed_column(y=module.double(t.x))
+
+        # the module raises after defining the udf
+        app_file.write_text(source + 'undefined_name\n', encoding='utf-8')
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='NameError'):
+            load_app_module(str(app_file), subject='application file')
+        # loading the table imports the module again
+        reload_catalog()
+        with pytest.raises(NameError, match='undefined_name'):
+            pxt.get_table('nums')
+
+        app_file.write_text(source, encoding='utf-8')
+        load_app_module(str(app_file), subject='application file')
+        reload_catalog()
+        t = pxt.get_table('nums')
+        t.insert([{'x': 2}])
+        assert t.select(t.y).collect()['y'] == [4]
+
+    @pytest.mark.db_roots('local', reason='loads application files in process')
+    def test_import_rollback(self, uses_db: None, project_env: pathlib.Path) -> None:
+        """Loading a table keeps the udfs of each module that imported successfully, also when another import fails."""
+        shout_source = dedent(
+            """
+            import pixeltable as pxt
+
+
+            @pxt.udf(is_method=True)
+            def shout(s: str) -> str:
+                return s.upper()
+            """
+        )
+        # a udf nested in a class, next to a method udf
+        (project_env / 'nested_app.py').write_text(
+            shout_source
+            + dedent(
+                """
+
+                class Ops:
+                    @pxt.udf
+                    def double(x: int) -> int:
+                        return 2 * x
+                """
+            ),
+            encoding='utf-8',
+        )
+        # a module that imports a method udf from a helper module
+        (project_env / 'helper_udfs.py').write_text(shout_source.replace('shout', 'whisper'), encoding='utf-8')
+        app_source = dedent(
+            """
+            import pixeltable as pxt
+            import helper_udfs
+
+
+            @pxt.udf
+            def triple(x: int) -> int:
+                return 3 * x
+            """
+        )
+        app_file = project_env / 'helper_app.py'
+        app_file.write_text(app_source, encoding='utf-8')
+        other_file = project_env / 'other_app.py'
+        other_file.write_text('import pixeltable as pxt\n', encoding='utf-8')
+
+        nested = load_app_module(str(project_env / 'nested_app.py'), subject='application file')
+        t = pxt.create_table('nums', {'x': pxt.Int, 's': pxt.String})
+        t.add_computed_column(y=nested.Ops.double(t.x))
+        app = load_app_module(str(app_file), subject='application file')
+        u = pxt.create_table('more_nums', {'x': pxt.Int, 's': pxt.String})
+        u.add_computed_column(y=app.triple(u.x))
+
+        # loading other_app unloads the other project modules, so the next table load imports them again
+        load_app_module(str(other_file), subject='application file')
+        reload_catalog()
+        t = pxt.get_table('nums')
+        t.insert([{'x': 2, 's': 'a'}])
+        assert list(t.select(t.y, t.s.shout()).collect()) == [{'y': 4, 'shout': 'A'}]
+
+        # helper_app raises after importing helper_udfs, which stays imported
+        app_file.write_text(app_source + 'undefined_name\n', encoding='utf-8')
+        load_app_module(str(other_file), subject='application file')
+        reload_catalog()
+        with pytest.raises(NameError, match='undefined_name'):
+            pxt.get_table('more_nums')
+        app_file.write_text(app_source, encoding='utf-8')
+        reload_catalog()
+        u = pxt.get_table('more_nums')
+        u.insert([{'x': 2, 's': 'B'}])
+        assert list(u.select(u.y, u.s.whisper()).collect()) == [{'y': 6, 'whisper': 'B'}]
 
     def test_query_param_in_aggregate(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

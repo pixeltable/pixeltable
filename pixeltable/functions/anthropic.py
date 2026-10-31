@@ -273,8 +273,7 @@ async def messages(
         ...     text=tbl.response.content.filter(lambda b: b.type == 'text')[0].text
         ... )
     """
-    if model_kwargs is None:
-        model_kwargs = {}
+    model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
     if tools is not None:
         # Reformat `tools` into Anthropic format
