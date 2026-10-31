@@ -12,6 +12,7 @@ import os
 import random
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -159,6 +160,17 @@ def error(error: bool) -> bool:
     if error:
         raise AssertionError()
     return False
+
+
+@pxt.udf
+async def sigint_at_pos(pos: int, interrupt_pos: int) -> int:
+    if pos == interrupt_pos:
+        main_thread_id = threading.main_thread().ident
+        assert main_thread_id is not None
+        # unlike _thread.interrupt_main(), a signal also interrupts the main thread's blocking waits
+        signal.pthread_kill(main_thread_id, signal.SIGINT)
+        await asyncio.sleep(60)
+    return pos
 
 
 def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:

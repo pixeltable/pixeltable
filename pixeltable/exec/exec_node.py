@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import contextlib
 import queue
+import signal
 import threading
-from types import TracebackType
-from typing import Any, AsyncIterator, Iterable, Iterator, Self, TypeVar
+from types import FrameType, TracebackType
+from typing import Any, AsyncGenerator, Generator, Iterable, Iterator, Self, TypeVar
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -26,6 +28,15 @@ class ExecNode(abc.ABC):
     2. init_bindings() assumes the immutable structure is complete and sets bind_sources/vars
     3. bind_params()/iter() can then be called repeatedly to execute the same plan with different parameters
     4. _open() initializes per-iteration execution state
+
+    Closing: an iteration can stop before its last batch (eg, a cursor loop that breaks), and its cleanup (eg,
+    ColumnRef.release()) has to run right then, not at garbage collection.
+    - __aiter__() returns an async generator, which Python doesn't close when its last reference goes away: it
+      hands the generator to the event loop, which closes it later, if at all. Callers must therefore close it with
+      aclose(), also after an early stop, and an implementation that iterates over self.input must close
+      aiter(self.input) the same way, eg, with contextlib.aclosing().
+    - __iter__() returns a generator, which CPython closes as soon as its last reference goes away, eg, when the for
+      loop over it exits. Callers don't close it explicitly.
 
     Not thread-safe.
     """
@@ -108,27 +119,71 @@ class ExecNode(abc.ABC):
                 row[v.slot_idx] = val
 
     @abc.abstractmethod
-    def __aiter__(self) -> AsyncIterator[DataRowBatch]: ...
+    def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:  # noqa: PYI058
+        """Yield this node's output batches.
 
-    def __iter__(self) -> Iterator[DataRowBatch]:
-        try:
-            running = asyncio.get_running_loop()
-        except RuntimeError:
-            running = None
+        Callers must close the generator with aclose(); see the class docstring.
+        """
 
-        if running is None:
+    def __iter__(self) -> Generator[DataRowBatch, None, None]:
+        if asyncio._get_running_loop() is None:
             # if we don't already have a running loop, we can run the async iterator directly and avoid the extra
             # overhead introduced by _thread_iter()
             loop = get_runtime().event_loop
             aiter = self.__aiter__()
+            step: asyncio.Future[DataRowBatch] | None = None
             try:
                 while True:
-                    batch: DataRowBatch = loop.run_until_complete(aiter.__anext__())
-                    yield batch
+                    # wrap the next step in a Task, which the finally block can cancel
+                    step = asyncio.ensure_future(aiter.__anext__(), loop=loop)
+                    yield self._run_step(loop, step)
             except StopAsyncIteration:
                 pass
+            finally:
+                # skip the cleanup where run_until_complete() raises:
+                # - the loop is closed: Runtime.close() has already closed aiter
+                # - another loop is running in this thread (eg, async code closes this generator): the runtime loop's
+                #   async generator finalizer schedules aiter.aclose() once aiter is garbage-collected
+                if not loop.is_closed() and asyncio._get_running_loop() is None:
+                    if step is not None and not step.done():
+                        # an exception (eg, KeyboardInterrupt) left run_until_complete() while step was still running,
+                        # and aclose() raises for a generator in the middle of __anext__(): cancel step and wait first
+                        step.cancel()
+                        loop.run_until_complete(asyncio.wait([step]))
+                    loop.run_until_complete(aiter.aclose())
         else:
             yield from self._thread_iter()
+
+    def _run_step(self, loop: asyncio.AbstractEventLoop, step: asyncio.Future[DataRowBatch]) -> DataRowBatch:
+        """Run step on loop; if SIGINT arrives, cancel step and raise KeyboardInterrupt once it has finished.
+
+        Like asyncio.Runner, this keeps KeyboardInterrupt out of tasks: one raised inside a task can leave a stop()
+        call queued in loop, which then stops the cleanup in __iter__().
+        """
+        if threading.current_thread() is not threading.main_thread() or (
+            signal.getsignal(signal.SIGINT) is not signal.default_int_handler
+        ):
+            return loop.run_until_complete(step)
+
+        interrupted = False
+
+        def on_sigint(signum: int, frame: FrameType | None) -> None:
+            nonlocal interrupted
+            if interrupted:
+                raise KeyboardInterrupt
+            interrupted = True
+            step.cancel()
+            # wake up the loop if it waits in select()
+            loop.call_soon_threadsafe(lambda: None)
+
+        signal.signal(signal.SIGINT, on_sigint)
+        try:
+            loop.run_until_complete(asyncio.wait([step]))
+        finally:
+            signal.signal(signal.SIGINT, signal.default_int_handler)
+        if interrupted:
+            raise KeyboardInterrupt
+        return step.result()
 
     _THREAD_QUEUE_SENTINEL = object()
 
@@ -138,6 +193,8 @@ class ExecNode(abc.ABC):
         # consumption (but buffering more than that would simply increase memory consumption without additional
         # benefits)
         result_queue: queue.Queue = queue.Queue(maxsize=2)
+        producer_task: asyncio.Task | None = None  # set before the first put()
+        consumer_stopped = threading.Event()
         caller_runtime = get_runtime()
         # carry the ambient instrumentation span across the thread boundary so spans reported on the
         # worker thread nest under it
@@ -150,8 +207,17 @@ class ExecNode(abc.ABC):
             hooks_token = telemetry.restore_context(hooks_ctx)
 
             async def produce() -> None:
-                async for batch in aiter(self):
-                    result_queue.put(batch)
+                nonlocal producer_task
+                producer_task = asyncio.current_task()
+                # the consumer sets consumer_stopped and then reads producer_task, possibly before the assignment above
+                if consumer_stopped.is_set():
+                    return
+                async with contextlib.aclosing(aiter(self)) as batches:
+                    async for batch in batches:
+                        result_queue.put(batch)
+                        # a plan that never awaits doesn't see the cancellation
+                        if consumer_stopped.is_set():
+                            return
 
             # asyncio.Runner gives this thread the same loop teardown that asyncio.run() performs
             with asyncio.Runner() as runner:
@@ -165,17 +231,32 @@ class ExecNode(abc.ABC):
                     runner.run(thread_runtime.close_clients())
                     telemetry.exit_context(hooks_token)
 
+        def is_final(item: Any) -> bool:
+            return item is ExecNode._THREAD_QUEUE_SENTINEL or isinstance(item, BaseException)
+
         thread = threading.Thread(target=run, daemon=True)
         thread.start()
+        item: Any = None
         try:
-            while True:
-                item = result_queue.get()
-                if item is ExecNode._THREAD_QUEUE_SENTINEL:
-                    break
-                if isinstance(item, BaseException):
-                    raise item
+            while not is_final(item := result_queue.get()):
                 yield item
+            if isinstance(item, BaseException):
+                raise item
         finally:
+            # item isn't final if the consumer stopped early: it closed this generator at the yield, or an exception
+            # (eg, KeyboardInterrupt) interrupted get()
+            if not is_final(item):
+                consumer_stopped.set()
+                if producer_task is not None:
+                    # don't wait for the producer's current batch (eg, slow UDF calls); cancelling also runs the nodes'
+                    # cleanup right away
+                    try:
+                        producer_task.get_loop().call_soon_threadsafe(producer_task.cancel)
+                    except RuntimeError:
+                        pass  # the producer finished and closed its loop; its final item is in the queue
+                # a cancellation can't interrupt a blocking put(), so drain the queue up to the producer's final item
+                while not is_final(item):
+                    item = result_queue.get()
             thread.join(timeout=30)
 
     def __enter__(self) -> Self:

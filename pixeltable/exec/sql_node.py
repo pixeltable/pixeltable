@@ -2,7 +2,7 @@ import logging
 import random
 import warnings
 from decimal import Decimal
-from typing import TYPE_CHECKING, AsyncIterator, Iterable, NamedTuple, Sequence
+from typing import TYPE_CHECKING, AsyncGenerator, Iterable, NamedTuple, Sequence
 from uuid import UUID
 
 import numpy as np
@@ -449,7 +449,7 @@ class SqlNode(ExecNode):
         except Exception as e:
             _logger.warning(f'EXPLAIN failed with error: {e}')
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         # run the query; do this here rather than in _open(), exceptions are only expected during iteration
         with warnings.catch_warnings(record=True) as w:
             if self._stmt is None:

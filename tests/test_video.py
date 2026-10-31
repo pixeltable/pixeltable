@@ -1,3 +1,6 @@
+import _thread
+import asyncio
+import contextlib
 import math
 import os
 import platform
@@ -6,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable, Literal
 
 import PIL.Image
+import psutil
 import pytest
 
 import pixeltable as pxt
@@ -32,9 +36,33 @@ from .utils import (
     pxt_raises,
     reload_catalog,
     rerun_on_network_error,
+    sigint_at_pos,
     skip_test_if_not_installed,
     validate_update_status,
 )
+
+
+@pxt.udf
+def fail_at_pos_5(pos: int) -> int:
+    if pos == 5:
+        raise ValueError('pos 5')
+    return pos
+
+
+@pxt.udf
+async def slow_from_pos(pos: int, first_slow_pos: int) -> int:
+    if pos >= first_slow_pos:
+        await asyncio.sleep(60)
+    return pos
+
+
+@pxt.udf
+async def interrupt_at_pos(pos: int, interrupt_pos: int, num_interrupts: int = 1) -> int:
+    if pos == interrupt_pos:
+        for _ in range(num_interrupts):
+            _thread.interrupt_main()
+        await asyncio.sleep(60)
+    return pos
 
 
 class TestVideo:
@@ -275,8 +303,6 @@ class TestVideo:
         Loads the first 20 frames of a video with various fps and num_frames settings, then queries for frames at
         specific positions and checks that the output is pixel-identical.
         """
-        if platform.system() == 'Windows' and db_root.id == 'proxy':
-            pytest.skip('PXT-1715: dropping a video table with an open media file hangs the proxy daemon on Windows')
         # It's important to run this test for all videos and for many kwargs combinations, since there are so many
         # edge cases when working with video data.
         p = db_root.make_catalog_path
@@ -309,6 +335,102 @@ class TestVideo:
                         assert isinstance(selected_frame, PIL.Image.Image)
                         # Ensure we get the bitmap-identical frame
                         assert selected_frame == frames[pos]
+
+    @pytest.mark.db_roots('local', reason='checks the open files of this process; a proxy query runs in the server')
+    def test_frame_view_open_files(self, uses_db: None) -> None:
+        """Queries and computed columns over frames leave no video file open, also when they stop early or fail."""
+        video_paths = get_video_files(extension='.mp4')
+        videos = pxt.create_table('videos', {'video': pxt.Video})
+        frames = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, fps=1))
+        videos.insert({'video': path} for path in video_paths)
+        resolved_paths = {Path(path).resolve() for path in video_paths}
+
+        def open_videos() -> list[str]:
+            return [f.path for f in psutil.Process().open_files() if Path(f.path).resolve() in resolved_paths]
+
+        assert len(frames.where(frames.pos == 3).select(frames.frame).collect()) == len(video_paths)
+        assert open_videos() == []
+
+        num_frames = frames.count()
+        assert len(frames.select(frames.frame).collect()) == num_frames
+        assert open_videos() == []
+
+        query = frames.select(frames.frame)
+        query.collect()
+        query.collect()
+        assert open_videos() == []
+
+        assert len(frames.where(frames.frame.width > 0).select(frames.frame).limit(2).collect()) == 2
+        assert open_videos() == []
+
+        assert len(frames.group_by(videos).select(pxtf.max(frames.frame.width)).limit(1).collect()) == 1
+        assert open_videos() == []
+
+        @pxt.query
+        def first_frames(video: pxt.Video) -> pxt.Query:
+            return frames.where((frames.video == video) & (frames.pos < 3)).select(frames.frame)
+
+        res = videos.select(first_frames(videos.video)).collect()
+        assert [len(frame_rows) for frame_rows in res['first_frames']] == [3] * len(video_paths)
+        assert open_videos() == []
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='pos 5'):
+            frames.select(frames.frame, fail_at_pos_5(frames.pos)).collect()
+        assert open_videos() == []
+
+        validate_update_status(frames.add_computed_column(width=frames.frame.width), expected_rows=num_frames)
+        assert open_videos() == []
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='pos 5'):
+            frames.add_computed_column(x=fail_at_pos_5(frames.pos) + frames.frame.width, on_error='abort')
+        assert open_videos() == []
+
+        with frames.select(frames.frame).cursor() as cursor:
+            for _ in cursor:
+                break
+        assert open_videos() == []
+
+        for _ in frames.select(frames.frame).cursor():
+            break
+        assert open_videos() == []
+
+        # with all frames of a video, a cursor stops while the query is still producing rows
+        one_video = pxt.create_table('one_video', {'video': pxt.Video})
+        one_video.insert(video=video_paths[0])
+        all_frames = pxt.create_view('all_frames', one_video, iterator=frame_iterator(one_video.video))
+
+        async def query_from_a_running_loop() -> None:  # noqa: RUF029
+            assert len(frames.select(frames.frame).collect()) == num_frames
+            for _ in all_frames.select(all_frames.frame).cursor():
+                break
+            # the first batch completes; the cursor stops while the next one waits for slow_from_pos()
+            first_slow_pos = pxt.exec.ExprEvalNode.BATCH_SIZE
+            for _ in all_frames.select(all_frames.frame, slow_from_pos(all_frames.pos, first_slow_pos)).cursor():
+                break
+
+        asyncio.run(query_from_a_running_loop())
+        assert open_videos() == []
+
+        # all_frames has one row with each pos, so each query gets one interrupt: in the first batch or a later one
+        for interrupt_pos in (5, 3 * pxt.exec.ExprEvalNode.BATCH_SIZE):
+            with pytest.raises(KeyboardInterrupt):
+                all_frames.select(all_frames.frame, interrupt_at_pos(all_frames.pos, interrupt_pos)).collect()
+            assert open_videos() == []
+
+        # a second Ctrl-C while the query stops
+        with pytest.raises(KeyboardInterrupt):
+            all_frames.select(all_frames.frame, interrupt_at_pos(all_frames.pos, 5, num_interrupts=2)).collect()
+        assert open_videos() == []
+
+        if platform.system() != 'Windows':  # signal.pthread_kill() is POSIX only
+
+            async def collect_from_a_running_loop() -> None:  # noqa: RUF029
+                all_frames.select(all_frames.frame, sigint_at_pos(all_frames.pos, 5)).collect()
+
+            # asyncio.run() would turn the first SIGINT into a cancellation of its main task
+            with contextlib.closing(asyncio.new_event_loop()) as loop, pytest.raises(KeyboardInterrupt):
+                loop.run_until_complete(collect_from_a_running_loop())
+            assert open_videos() == []
 
     def test_keyframes_only(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

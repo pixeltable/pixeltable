@@ -4,7 +4,7 @@ import asyncio
 import logging
 import traceback
 from types import TracebackType
-from typing import AsyncIterator, Iterable
+from typing import AsyncGenerator, Iterable
 
 import numpy as np
 
@@ -54,7 +54,7 @@ class ExprEvalNode(ExecNode):
     error: Exception | None  # exception that needs to be propagated
     completed_rows: asyncio.Queue[exprs.DataRow]  # rows that have completed evaluation
     completed_event: asyncio.Event  # set when completed_rows is non-empty
-    input_iter: AsyncIterator[DataRowBatch]
+    input_iter: AsyncGenerator[DataRowBatch, None]
     current_input_batch: DataRowBatch | None  # batch from which we're currently consuming rows
     input_row_idx: int  # next row to consume from current_input_batch
     next_input_batch: DataRowBatch | None  # read-ahead input batch
@@ -241,7 +241,7 @@ class ExprEvalNode(ExecNode):
                     excs.ErrorCode.INTERNAL_ERROR, f'No scheduler found for resource pool {pool_name}'
                 )
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         """
         Main event loop
 
@@ -351,16 +351,21 @@ class ExprEvalNode(ExecNode):
             for task in active_tasks:
                 if not task.done():
                     task.cancel()
-            _ = await asyncio.gather(*active_tasks, return_exceptions=True)
+            try:
+                # a cancellation of this await must not skip the cleanup below
+                _ = await asyncio.gather(*active_tasks, return_exceptions=True)
+            finally:
+                for row in self._span_rows:
+                    if row.span is not None:
+                        telemetry.span_end(row.span, exc=self.error)
+                        row.span = None
+                self._span_rows = []
 
-            for row in self._span_rows:
-                if row.span is not None:
-                    telemetry.span_end(row.span, exc=self.error)
-                    row.span = None
-            self._span_rows = []
-
-            # expr cleanup
-            exprs.Expr.release_list(self.eval_ctx.all_exprs)
+                # expr cleanup
+                try:
+                    exprs.Expr.release_list(self.eval_ctx.all_exprs)
+                finally:
+                    await self.input_iter.aclose()
 
     def dispatch_exc(
         self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType, exec_ctx: ExprEvalCtx

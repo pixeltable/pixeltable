@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import itertools
 import logging
 from collections import deque
 from concurrent import futures
 from pathlib import Path
-from typing import AsyncIterator, Iterator
+from typing import AsyncGenerator, AsyncIterator, Iterator
 from uuid import UUID
 
 from pixeltable import exceptions as excs, exprs, telemetry, telemetry_schemas
@@ -95,37 +96,40 @@ class CachePrefetchNode(ExecNode):
             self.input_finished = True
             return None
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        input_iter = aiter(self.input)
-        with futures.ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
-            while True:
-                # Create work to fill the queue to the high water mark ... ?without overrunning the in-flight row limit.
-                while not self.input_finished and self.queued_work < self.QUEUE_DEPTH_HIGH_WATER:
-                    input_batch = await self.get_input_batch(input_iter)
-                    if input_batch is not None:
-                        self.__process_input_batch(input_batch, executor)
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
+        async with contextlib.aclosing(aiter(self.input)) as input_iter:
+            with futures.ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
+                while True:
+                    # Create work to fill the queue to the high water mark,
+                    # without overrunning the in-flight row limit.
+                    while not self.input_finished and self.queued_work < self.QUEUE_DEPTH_HIGH_WATER:
+                        input_batch = await self.get_input_batch(input_iter)
+                        if input_batch is not None:
+                            self.__process_input_batch(input_batch, executor)
 
-                # Wait for enough completions to enable more queueing or if we're done
-                while self.queued_work > self.QUEUE_DEPTH_LOW_WATER or (self.input_finished and self.queued_work > 0):
-                    done, _ = futures.wait(self.in_flight_requests, return_when=futures.FIRST_COMPLETED)
-                    self.__process_completions(done, ignore_errors=self.ctx.ignore_errors)
+                    # Wait for enough completions to enable more queueing or if we're done
+                    while self.queued_work > self.QUEUE_DEPTH_LOW_WATER or (
+                        self.input_finished and self.queued_work > 0
+                    ):
+                        done, _ = futures.wait(self.in_flight_requests, return_when=futures.FIRST_COMPLETED)
+                        self.__process_completions(done, ignore_errors=self.ctx.ignore_errors)
 
-                # Emit results to meet batch size requirements or empty the in-flight row queue
-                if self.__has_ready_batch() or (
-                    len(self.ready_rows) > 0 and self.input_finished and self.queued_work == 0
-                ):
-                    # create DataRowBatch from the first BATCH_SIZE ready rows
-                    batch = DataRowBatch(self.row_builder)
-                    rows = [self.ready_rows.popleft() for _ in range(min(self.BATCH_SIZE, len(self.ready_rows)))]
-                    for row in rows:
-                        assert row is not None
-                        batch.add_row(row)
-                    self.num_returned_rows += len(rows)
-                    _logger.debug(f'returning {len(rows)} rows')
-                    yield batch
+                    # Emit results to meet batch size requirements or empty the in-flight row queue
+                    if self.__has_ready_batch() or (
+                        len(self.ready_rows) > 0 and self.input_finished and self.queued_work == 0
+                    ):
+                        # create DataRowBatch from the first BATCH_SIZE ready rows
+                        batch = DataRowBatch(self.row_builder)
+                        rows = [self.ready_rows.popleft() for _ in range(min(self.BATCH_SIZE, len(self.ready_rows)))]
+                        for row in rows:
+                            assert row is not None
+                            batch.add_row(row)
+                        self.num_returned_rows += len(rows)
+                        _logger.debug(f'returning {len(rows)} rows')
+                        yield batch
 
-                if self.input_finished and self.queued_work == 0 and len(self.ready_rows) == 0:
-                    return
+                    if self.input_finished and self.queued_work == 0 and len(self.ready_rows) == 0:
+                        return
 
     def __has_ready_batch(self) -> bool:
         """True if there are >= BATCH_SIZES entries in ready_rows and the first BATCH_SIZE ones are all non-None"""

@@ -3,6 +3,7 @@ import enum
 import json
 import math
 import os
+import platform
 import random
 import re
 import uuid
@@ -46,6 +47,7 @@ from .utils import (
     read_data_file,
     reload_catalog,
     rerun_on_network_error,
+    sigint_at_pos,
     skip_test_if_not_installed,
     stock_price,
     validate_repr,
@@ -3619,6 +3621,13 @@ class TestTable:
         assert results[0] == {'c1': 999}
         assert len(results.schema) == 1
         assert results.schema.get('cc1') is None
+
+        # Ctrl-C in a later batch
+        if platform.system() != 'Windows':  # signal.pthread_kill() is POSIX only
+            with pytest.raises(KeyboardInterrupt):
+                t.add_computed_column(cc1=sigint_at_pos(t.c1, 3 * pxt.exec.ExprEvalNode.BATCH_SIZE), on_error='ignore')
+            assert 'cc1' not in t.columns()
+            assert t.count() == 1000
 
     def _test_computed_img_cols(self, t: pxt.Table, stores_img_col: bool, db_root: DatabaseRoot) -> None:
         # over the proxy, img (inserted from local file paths) is shipped and persisted in the daemon media store,
