@@ -4,9 +4,7 @@ import contextlib
 import math
 import os
 import platform
-import signal
 import subprocess
-import threading
 from pathlib import Path
 from typing import Any, Callable, Literal
 
@@ -38,6 +36,7 @@ from .utils import (
     pxt_raises,
     reload_catalog,
     rerun_on_network_error,
+    sigint_at_pos,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -58,20 +57,10 @@ async def slow_from_pos(pos: int, first_slow_pos: int) -> int:
 
 
 @pxt.udf
-async def interrupt_at_pos(pos: int, interrupt_pos: int) -> int:
+async def interrupt_at_pos(pos: int, interrupt_pos: int, num_interrupts: int = 1) -> int:
     if pos == interrupt_pos:
-        _thread.interrupt_main()
-        await asyncio.sleep(60)
-    return pos
-
-
-@pxt.udf
-async def sigint_at_pos(pos: int, interrupt_pos: int) -> int:
-    if pos == interrupt_pos:
-        main_thread_id = threading.main_thread().ident
-        assert main_thread_id is not None
-        # unlike _thread.interrupt_main(), a signal also interrupts the main thread's blocking waits
-        signal.pthread_kill(main_thread_id, signal.SIGINT)
+        for _ in range(num_interrupts):
+            _thread.interrupt_main()
         await asyncio.sleep(60)
     return pos
 
@@ -422,9 +411,15 @@ class TestVideo:
         asyncio.run(query_from_a_running_loop())
         assert open_videos() == []
 
-        # all_frames has one row with pos 5, so the query gets one interrupt
+        # all_frames has one row with each pos, so each query gets one interrupt: in the first batch or a later one
+        for interrupt_pos in (5, 3 * pxt.exec.ExprEvalNode.BATCH_SIZE):
+            with pytest.raises(KeyboardInterrupt):
+                all_frames.select(all_frames.frame, interrupt_at_pos(all_frames.pos, interrupt_pos)).collect()
+            assert open_videos() == []
+
+        # a second Ctrl-C while the query stops
         with pytest.raises(KeyboardInterrupt):
-            all_frames.select(all_frames.frame, interrupt_at_pos(all_frames.pos, 5)).collect()
+            all_frames.select(all_frames.frame, interrupt_at_pos(all_frames.pos, 5, num_interrupts=2)).collect()
         assert open_videos() == []
 
         if platform.system() != 'Windows':  # signal.pthread_kill() is POSIX only

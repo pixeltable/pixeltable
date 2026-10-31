@@ -4,8 +4,9 @@ import abc
 import asyncio
 import contextlib
 import queue
+import signal
 import threading
-from types import TracebackType
+from types import FrameType, TracebackType
 from typing import Any, AsyncGenerator, Generator, Iterable, Iterator, Self, TypeVar
 
 import pixeltable.exceptions as excs
@@ -135,8 +136,7 @@ class ExecNode(abc.ABC):
                 while True:
                     # wrap the next step in a Task, which the finally block can cancel
                     step = asyncio.ensure_future(aiter.__anext__(), loop=loop)
-                    batch: DataRowBatch = loop.run_until_complete(step)
-                    yield batch
+                    yield self._run_step(loop, step)
             except StopAsyncIteration:
                 pass
             finally:
@@ -153,6 +153,37 @@ class ExecNode(abc.ABC):
                     loop.run_until_complete(aiter.aclose())
         else:
             yield from self._thread_iter()
+
+    def _run_step(self, loop: asyncio.AbstractEventLoop, step: asyncio.Future[DataRowBatch]) -> DataRowBatch:
+        """Run step on loop; if SIGINT arrives, cancel step and raise KeyboardInterrupt once it has finished.
+
+        Like asyncio.Runner, this keeps KeyboardInterrupt out of tasks: one raised inside a task can leave a stop()
+        call queued in loop, which then stops the cleanup in __iter__().
+        """
+        if threading.current_thread() is not threading.main_thread() or (
+            signal.getsignal(signal.SIGINT) is not signal.default_int_handler
+        ):
+            return loop.run_until_complete(step)
+
+        interrupted = False
+
+        def on_sigint(signum: int, frame: FrameType | None) -> None:
+            nonlocal interrupted
+            if interrupted:
+                raise KeyboardInterrupt
+            interrupted = True
+            step.cancel()
+            # wake up the loop if it waits in select()
+            loop.call_soon_threadsafe(lambda: None)
+
+        signal.signal(signal.SIGINT, on_sigint)
+        try:
+            loop.run_until_complete(asyncio.wait([step]))
+        finally:
+            signal.signal(signal.SIGINT, signal.default_int_handler)
+        if interrupted:
+            raise KeyboardInterrupt
+        return step.result()
 
     _THREAD_QUEUE_SENTINEL = object()
 

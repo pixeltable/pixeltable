@@ -1,9 +1,6 @@
 import datetime
 import io
 import platform
-import signal
-import threading
-import time
 from pathlib import Path
 from typing import Any
 
@@ -14,24 +11,13 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import DatabaseRoot, open_async_resources, pxt_raises, skip_test_if_not_installed
+from ..utils import DatabaseRoot, open_async_resources, pxt_raises, sigint_at_pos, skip_test_if_not_installed
 
 
 @pxt.udf
 def udf_with_exc(i: int, val: int) -> int:
     if i == val:
         raise ValueError(f'Error for row {i}')
-    return i
-
-
-@pxt.udf
-def sigint_at(i: int, val: int) -> int:
-    if i == val:
-        main_thread_id = threading.main_thread().ident
-        assert main_thread_id is not None
-        signal.pthread_kill(main_thread_id, signal.SIGINT)
-        # lancedb waits for the next batch while the main thread handles the signal
-        time.sleep(1)
     return i
 
 
@@ -130,6 +116,10 @@ class TestLanceDb:
         pxt.io.export_lancedb(t, db_path, 'test', if_exists='append', batch_size_bytes=1024)
         validate_data('test', sorted(list(query.collect()) + list(t.collect()), key=lambda r: r['row_id']))
 
+        # lancedb fails while the query is still producing batches
+        with pytest.raises(ValueError, match="field 'k' does not exist"):
+            pxt.io.export_lancedb(t.select(k=t.row_id), db_path, 'test', if_exists='append', batch_size_bytes=1024)
+
         # error during export
         error_db_path = tmp_path / 'error_db'
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
@@ -173,5 +163,5 @@ class TestLanceDb:
         t.insert({'i': i} for i in range(5000))
         open_before = open_async_resources()
         with pytest.raises(KeyboardInterrupt):
-            pxt.io.export_lancedb(t.select(t.i, j=sigint_at(t.i, 3000)), tmp_path / 'db', 'test', batch_size_bytes=1024)
+            pxt.io.export_lancedb(t.select(t.i, j=sigint_at_pos(t.i, 3000)), tmp_path / 'db', 'test')
         assert open_async_resources() == open_before

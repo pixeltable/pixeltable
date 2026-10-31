@@ -3,20 +3,18 @@ from __future__ import annotations
 import contextlib
 import queue
 import shutil
-import threading
+from concurrent import futures
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable import telemetry
 from pixeltable.env import Env
-from pixeltable.runtime import get_runtime
 
 if TYPE_CHECKING:
     import pyarrow as pa
 
-_SENTINEL = object()
+_END = object()
 
 
 def export_lancedb(
@@ -86,13 +84,11 @@ def export_lancedb(
             # table doesn't exist
             pass
 
-        # lancedb advances the iterator on its own threads
-        with contextlib.closing(_ThreadedRecordBatches(query, batch_size_bytes)) as batches:
-            if lance_tbl is None or if_exists == 'overwrite':
-                mode = 'overwrite' if lance_tbl is not None else 'create'
-                _ = db.create_table(table_name, batches, mode=mode)
-            else:
-                lance_tbl.add(batches)
+        if lance_tbl is None or if_exists == 'overwrite':
+            mode = 'overwrite' if lance_tbl is not None else 'create'
+            _write_batches(query, batch_size_bytes, lambda batches: db.create_table(table_name, batches, mode=mode))
+        else:
+            _write_batches(query, batch_size_bytes, lance_tbl.add)
 
     except Exception as e:
         # cleanup
@@ -101,66 +97,38 @@ def export_lancedb(
         raise e
 
 
-class _ThreadedRecordBatches:
-    """Iterator over a query's record batches, computed on a new thread.
+def _write_batches(query: pxt.Query, batch_size_bytes: int, write: Callable[[Iterator[pa.RecordBatch]], Any]) -> None:
+    """Compute the query's record batches and pass an iterator over them to write(), which runs on a new thread.
 
-    Any thread can advance or close the iterator, also while another thread is advancing it.
+    lancedb advances the iterator on its own threads, so the query runs on the calling thread instead.
     """
+    from pixeltable.utils.arrow import to_record_batches
 
-    _queue: queue.Queue
-    _stop: threading.Event
-    _thread: threading.Thread
+    # maxsize=2: overlap computing the next batch with lancedb's processing of the current one
+    batches: queue.Queue = queue.Queue(maxsize=2)
 
-    def __init__(self, query: pxt.Query, batch_size_bytes: int):
-        # maxsize=2: overlap computing the next batch with the consumer's processing of the current one
-        self._queue = queue.Queue(maxsize=2)
-        self._stop = threading.Event()
-        hooks_ctx = telemetry.capture_context()
-        self._thread = threading.Thread(target=self._produce, args=(query, batch_size_bytes, hooks_ctx), daemon=True)
-        self._thread.start()
+    def queued_batches() -> Iterator[pa.RecordBatch]:
+        while (batch := batches.get()) is not _END:
+            if batch is None:
+                raise RuntimeError('export_lancedb() stopped')
+            yield batch
 
-    def _produce(self, query: pxt.Query, batch_size_bytes: int, hooks_ctx: telemetry.CtxSnapshot | None) -> None:
-        from pixeltable.utils.arrow import to_record_batches
+    def drain(_: futures.Future) -> None:
+        # write() no longer reads the queue; unblock put()
+        with contextlib.suppress(queue.Empty):
+            while True:
+                batches.get_nowait()
 
-        hooks_token = telemetry.restore_context(hooks_ctx)
+    with futures.ThreadPoolExecutor(max_workers=1) as executor:
+        writer = executor.submit(write, queued_batches())
+        writer.add_done_callback(drain)
         try:
             for batch in to_record_batches(query, batch_size_bytes):
-                self._queue.put(batch)
-                if self._stop.is_set():
+                if writer.done():
                     break
-            self._queue.put(_SENTINEL)
-        except BaseException as e:
-            self._queue.put(e)
-        finally:
-            # the query created this thread's event loop and clients
-            get_runtime().close()
-            telemetry.exit_context(hooks_token)
-
-    def __iter__(self) -> Self:
-        return self
-
-    def __next__(self) -> pa.RecordBatch:
-        item = self._get()
-        if item is _SENTINEL:
-            raise StopIteration
-        if isinstance(item, BaseException):
-            raise item
-        return item
-
-    def close(self) -> None:
-        """Stop the query after its current batch, and wait for its thread to finish."""
-        self._stop.set()
-        # the producer can be blocked in put(), so drain the queue up to its final item
-        while not self._is_final(self._get()):
-            pass
-        self._thread.join(timeout=30)
-
-    def _get(self) -> Any:
-        item = self._queue.get()
-        if self._is_final(item):
-            # leave the final item for the other readers
-            self._queue.put(item)
-        return item
-
-    def _is_final(self, item: Any) -> bool:
-        return item is _SENTINEL or isinstance(item, BaseException)
+                batches.put(batch)
+            batches.put(_END)
+        except BaseException:
+            batches.put(None)  # makes write() fail
+            raise
+        writer.result()
