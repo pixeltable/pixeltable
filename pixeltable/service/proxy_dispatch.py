@@ -22,10 +22,11 @@ import sqlalchemy as sql
 
 from pixeltable import exceptions as excs, telemetry, telemetry_schemas
 from pixeltable._query import Query
-from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_loop
+from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_loop, table_copy
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
+from pixeltable.metadata import VERSION as MD_SCHEMA_VERSION
 from pixeltable.row import RowBatch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.local_store import TempStore
@@ -350,6 +351,21 @@ def _get_table_by_id(request: ProxyRequest) -> list | None:
     return load()
 
 
+def _create_table_from_md(request: ProxyRequest) -> list:
+    # md is written as received, so it must be of this database's metadata version
+    if request.schema_version != MD_SCHEMA_VERSION:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'Cannot create a table from metadata of version {request.schema_version} in a database of metadata '
+            f'version {MD_SCHEMA_VERSION}; use the Pixeltable version that the database runs.',
+        )
+    kwargs = _deserialize_args(request)
+    cat = get_runtime().catalog
+    tbl = cat.create_table_from_md(**kwargs)
+    with cat.begin_xact(for_write=False):
+        return cat.read_md_for_export(tbl)
+
+
 def _catalog_method(request: ProxyRequest) -> Any:
     """Generic handler for catalog methods whose return value is directly serializable."""
     method = getattr(get_runtime().catalog, request.method)
@@ -481,6 +497,20 @@ def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
     return tbl.insert(
         build(), on_error=kwargs['on_error'], print_stats=kwargs['print_stats'], return_rows=kwargs['return_rows']
     )
+
+
+def _load_store_rows(request: ProxyRequest, tbl: LocalTable) -> Any:
+    if not isinstance(tbl, InsertableTable):
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Store rows can only be loaded into a base table')
+    kwargs = _deserialize_args(request)
+    # the files must be ones that this request uploaded: a path that a caller names must not reach the daemon's own
+    # files
+    uploaded = request._uploaded_names.keys()
+    if kwargs['rows_file'] not in uploaded or not uploaded >= set(kwargs['new_media'].values()):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, 'load_store_rows(): the rows and media files must be uploaded files'
+        )
+    return table_copy.load_store_rows(tbl, **kwargs)
 
 
 def _compute(request: ProxyRequest, tbl: LocalTable) -> Any:
@@ -660,6 +690,7 @@ _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
     ('CatalogBase', 'get_dir_contents'): _catalog_method,
     ('CatalogBase', 'create_dir'): _catalog_method,
     ('CatalogBase', 'drop_dir'): _catalog_method,
+    ('CatalogBase', 'create_table_from_md'): _create_table_from_md,
     ('Query', 'collect'): _query_collect,
     ('Query', 'count'): _query_count,
 }
@@ -674,6 +705,7 @@ _MUTATION_METHODS: frozenset[str] = frozenset(
         'insert_hf_dataset',
         'insert_sql_source',
         'insert_query',
+        'load_store_rows',
         'update',
         'delete',
         'batch_update',
@@ -709,6 +741,7 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'insert_sql_source'): _insert_sql_source,
     ('Table', 'insert_query'): _insert_query,
     ('Table', 'compute'): _compute,
+    ('Table', 'load_store_rows'): _load_store_rows,
     ('Table', 'update'): _update,
     ('Table', 'delete'): _delete,
     ('Table', 'batch_update'): _batch_update,

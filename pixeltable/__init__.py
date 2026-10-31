@@ -55,6 +55,7 @@ from .globals import (
     TableNode,
     TreeNode,
     array,
+    copy_table,
     create_dir,
     create_snapshot,
     create_table,

@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from .path import Path
     from .table import Table
     from .table_path import TablePath
+    from .types import TableVersionMd
 
 
 class CatalogBase(abc.ABC):
@@ -100,3 +101,8 @@ class CatalogBase(abc.ABC):
 
     @abc.abstractmethod
     def drop_dir(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None: ...
+
+    @abc.abstractmethod
+    def create_table_from_md(self, path: Path, md: list[TableVersionMd]) -> Table:
+        """Create a base table at path with the metadata and history of another one, and an empty store table; see
+        Catalog.create_table_from_md()."""

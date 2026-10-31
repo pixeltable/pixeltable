@@ -191,3 +191,7 @@ class CatalogProxy(CatalogBase):
         self.client.send_request(
             'CatalogBase', 'drop_dir', {'path': path, 'if_not_exists': if_not_exists, 'force': force}
         )
+
+    def create_table_from_md(self, path: Path, md: list[TableVersionMd]) -> Table:
+        new_md = self.client.send_request('CatalogBase', 'create_table_from_md', {'path': path, 'md': md})
+        return self._make_table(new_md, is_anon_snapshot=False)

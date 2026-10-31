@@ -24,6 +24,7 @@
           <outline text="func|pixeltable.home" />
           <outline text="func|pixeltable.ls" />
           <outline text="func|pixeltable.move" />
+          <outline text="func|pixeltable.copy_table" />
           <outline text="func|pixeltable.init" />
           <outline text="func|pixeltable.list_dirs" />
           <outline text="func|pixeltable.list_functions" />

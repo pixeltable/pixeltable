@@ -40,7 +40,7 @@ from .schema_object import SchemaObject
 from .table_path import TablePath, TableVersionPath
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
-from .tbl_ops import DeleteTableMdOp, OpStatus, TableOp
+from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, DeleteTableMdOp, OpStatus, TableOp, TableOpsBuilder
 from .types import QColumnId, TableVersionKey, TableVersionMd
 from .update_status import UpdateStatus
 from .view import View
@@ -1701,6 +1701,62 @@ class Catalog(CatalogBase):
             return self.get_table_by_id(tbl_id)
 
         return get_tbl_fn(), is_created
+
+    def create_table_from_md(self, path: Path, md: list[TableVersionMd]) -> LocalTable:
+        """
+        Creates a base table at path from md, the metadata of every version of another base table (as returned by
+        collect_tbl_history()). The new table has a new id, the history of md and an empty store table.
+        """
+        from .table_copy import check_computed_columns, md_for_copy
+
+        tbl_id = uuid4()
+        tbl_md, version_mds, schema_version_mds = md_for_copy(md, tbl_id, path.name)
+        tbl_md.pending_stmt = schema.TableStatement.CREATE_TABLE
+        ops = (
+            TableOpsBuilder(str(tbl_id), tbl_version=tbl_md.current_version)
+            .add(CreateTableMdOp)
+            .add(CreateStoreTableOp)
+            .build()
+        )
+
+        @retry_loop(for_write=True)
+        def create_fn() -> None:
+            self._handle_path_collision(path, InsertableTable, False, IfExistsParam.ERROR)
+            dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+            assert dir is not None
+            current_version_md = next(m for m in version_mds if m.version == tbl_md.current_version)
+            current_schema_version_md = next(
+                m for m in schema_version_mds if m.schema_version == tbl_md.current_schema_version
+            )
+            self.write_tbl_md(tbl_id, dir._id, tbl_md, current_version_md, current_schema_version_md)
+            for version_md in version_mds:
+                if version_md is not current_version_md:
+                    self.write_tbl_md(tbl_id, None, None, version_md, None)
+            for schema_version_md in schema_version_mds:
+                if schema_version_md is not current_schema_version_md:
+                    self.write_tbl_md(tbl_id, None, None, None, schema_version_md)
+            try:
+                with warnings.catch_warnings():
+                    # a computed column that cannot be evaluated refuses the copy, rather than warning
+                    warnings.simplefilter('ignore', excs.PixeltableWarning)
+                    tv = self._get_tbl_version(TableVersionKey(tbl_id, None))
+                check_computed_columns(tv, md[0].tbl_md.name)
+            finally:
+                self._clear_tv_cache(TableVersionKey(tbl_id, None))
+            # write_tbl_md() refuses to add a version to a table with pending ops, so the ops come last
+            self.write_tbl_md(tbl_id, None, tbl_md, None, None, ops)
+
+        self._roll_forward_ids.clear()
+        create_fn()
+        self._roll_forward()
+
+        @retry_loop(read_tbl_ids=[tbl_id])
+        def get_tbl_fn() -> LocalTable:
+            tbl = self.get_table_by_id(tbl_id)
+            assert tbl is not None
+            return tbl
+
+        return get_tbl_fn()
 
     def create_view(
         self,
