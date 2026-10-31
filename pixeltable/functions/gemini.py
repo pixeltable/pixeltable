@@ -524,7 +524,7 @@ async def generate_omni_video(
 
     Args:
         prompt: A text description of the video to generate.
-        images: Optional reference images to send with the prompt.
+        images: Optional reference images to send with the prompt. Elements must not be NULL.
         model: The model to use, such as `'gemini-omni-1.1-flash'`.
         config: Fields of the Interactions API video `response_format`. For example,
             `{'aspect_ratio': '9:16', 'resolution': '1080p'}`. `type` is set to `'video'` automatically.
@@ -561,6 +561,9 @@ async def generate_omni_video(
         raise excs.RequestError(
             excs.ErrorCode.MISSING_REQUIRED, 'At least one of `prompt` or `images` must be provided.'
         )
+    for i, image in enumerate(images or []):
+        if image is None:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'`images[{i}]` must not be NULL.')
     client = _genai_client()
     if client.vertexai:
         raise excs.RequestError(
