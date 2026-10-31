@@ -106,7 +106,6 @@ class CellMaterializationNode(ExecNode):
             for row in batch:
                 for col, slot_idx in self.output_col_info.items():
                     if row.has_exc(slot_idx):
-                        self._set_error_cell(row, col, row.get_exc(slot_idx))
                         continue
 
                     val = row[slot_idx]
@@ -161,11 +160,6 @@ class CellMaterializationNode(ExecNode):
             self.executor.shutdown(wait=True)
             self.executor = None
 
-    def _set_error_cell(self, row: exprs.DataRow, col: catalog.Column, exc: Exception) -> None:
-        # Nulls in JSONB columns need to be stored as sql.sql.null(), otherwise it stores a json 'null'
-        row.cell_vals[col.id] = sql.sql.null() if col.col_type.is_json_type() else None
-        row.cell_md[col.id] = exprs.CellMd(**exprs.ColumnPropertyRef.create_cellmd_exc(exc))
-
     def _materialize_json_cell(self, row: exprs.DataRow, col: catalog.Column, slot_idx: int, val: Any) -> None:
         if not self._json_has_inlined_objs(val):
             row.cell_vals[col.id] = val
@@ -181,7 +175,6 @@ class CellMaterializationNode(ExecNode):
             if not self.ctx.ignore_errors:
                 raise err from e
             self.row_builder.set_exc(row, slot_idx, err)
-            self._set_error_cell(row, col, err)
             return
         row.cell_vals[col.id] = self._rewrite_json(val)
         row.cell_md[col.id] = exprs.CellMd(file_urls=[chunk.url for chunk in self.chunks])

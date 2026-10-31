@@ -10,9 +10,9 @@ PNG_MODES = frozenset(['1', 'L', 'LA', 'P', 'RGB', 'RGBA', 'I;16'])
 
 
 def default_format(img: PIL.Image.Image) -> str:
-    """Return a format that can encode img in its mode, or as RGB for modes RGBX, YCbCr and RGBa."""
+    """Return a format that can encode img in its mode; RGBX and YCbCr images come back as RGB, RGBa images as RGBA."""
     if img.mode in _WEBP_MODES:
-        # WebP drops a fully opaque alpha channel, so such an RGBA image comes back as RGB
+        # WebP drops a fully opaque alpha channel, so such an image comes back as RGB
         return 'webp'
     if img.mode in _JPEG_MODES and not img.has_transparency_data:
         return 'jpeg'
