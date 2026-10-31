@@ -231,6 +231,7 @@ class View(LocalTable):
 
         iterator_args_expr: exprs.Expr = InlineDict(iterator_call.bound_args) if iterator_call is not None else None
         if iterator_args_expr is not None:
+            iterator_args_expr.check_method_refs()
             iterator_args_expr.validate_storable("A view's iterator arguments")
         base_version_path: TablePath = base
         # if this is a snapshot, we need to retarget all exprs to the snapshot tbl versions

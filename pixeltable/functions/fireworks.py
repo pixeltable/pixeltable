@@ -67,8 +67,7 @@ async def chat_completions(
         ...     )
         ... )
     """
-    if model_kwargs is None:
-        model_kwargs = {}
+    model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
     if 'timeout' not in model_kwargs:
         model_kwargs['timeout'] = Config.get().get_int_value('timeout', section='fireworks') or 600

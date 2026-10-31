@@ -7,7 +7,7 @@ description: 'HTTP routes for insert, compute, update, delete, and query, plus u
 Install FastAPI and uvicorn first:
 
 ```bash
-pip install 'pixeltable[serve]'
+pip install -U 'pixeltable[serve]'
 ```
 
 How the process starts is on [Self-hosting](/howto/deployment/overview). This page covers the route API once you have chosen which process serves it. A local service exposes FastAPI's interactive docs at `/docs` and its OpenAPI schema at `/openapi.json`. `pxt service update` assigns a local port; look up the endpoint by catalog path and service name rather than assuming port 8000. For the [Quickstart](/overview/quick-start)'s `my_app/ingest` example:

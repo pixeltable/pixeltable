@@ -1015,6 +1015,15 @@ class TestTableModel:
         model_sim = ExampleViewModel.text.similarity(string='one')
         model_search = ExampleViewModel.order_by(model_sim, asc=False).select(ExampleViewModel.text)
 
+        @pxt.query
+        def search(q: str) -> pxt.Query:
+            sim = ExampleViewModel.text.similarity(string=q)
+            return ExampleViewModel.order_by(sim, asc=False).select(ExampleViewModel.text)
+
+        class Searches(TableModel, name='searches'):
+            q: pxt.String
+            hits = search(q)
+
         TableModel.create_all(p(''))
         # 'one'/'zero' make dummy_embedding deterministic, so the order these rank in is fixed
         ExampleTableModel.insert([{'id': 1, 'doc_text': 'one sentence. zero sentence.'}])
@@ -1030,6 +1039,8 @@ class TestTableModel:
             'one sentence.',
             'zero sentence.',
         ]
+        Searches.insert(q='one')
+        assert Searches.table.select(Searches.hits).collect()['hits'] == [['one sentence.', 'zero sentence.']]
 
     def test_view_model_iterator_column_shadows_base(self, db_root: DatabaseRoot) -> None:
         """An iterator output shadows a base column of the same name, so the model's text is the chunk text
@@ -1168,6 +1179,24 @@ class TestTableModel:
             view_from_query2.order_by(view_from_query2.id, view_from_query2.pos).collect(),
         )
 
+    def test_view_model_with_kwargs_iterator(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Trips(TableModel, name='trips'):
+            id: pxt.Int
+            codes: pxt.Json[[str]] | None
+
+        class TripCodes(TableModel, name='trip_codes', base=Trips, iterator=pxtf.json.list_iterator(code=Trips.codes)):
+            lower_code = code.lower()  # type: ignore[name-defined]
+
+        TableModel.update_all(p(''))
+        Trips.insert([{'id': 1, 'codes': ['A', 'B']}, {'id': 2, 'codes': ['C']}])
+        res = TripCodes.table.order_by(TripCodes.id, TripCodes.pos).collect()
+        assert res['code'] == ['A', 'B', 'C']
+        assert res['lower_code'] == ['a', 'b', 'c']
+        assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(p('')).values())
+
     # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
     @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_update_all_creates_queried_table(self, db_root: DatabaseRoot) -> None:
@@ -1272,6 +1301,203 @@ class TestTableModel:
         assert Docs2.table.select(Docs2.title).collect()['title'] == ['A']
         Asks2.insert(question='alpha')
         assert Asks2.table.select(Asks2.hits).collect()['hits'] == [[{'body': 'alpha'}]]
+
+    def test_update_all_query_reads_added_column(self, db_root: DatabaseRoot) -> None:
+        """A @pxt.query reads a column that the same update_all() adds to the queried table."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            body: pxt.String
+
+        @pxt.query
+        def find(q: str) -> pxt.Query:
+            return Docs.where(Docs.body == q).select(body=Docs.body)  # type: ignore[arg-type]
+
+        class Asks(TableModel, name='asks'):
+            question: pxt.String
+            hits = find(question)
+
+        TableModel.update_all(p(''))
+        Docs.insert(body='alpha')
+        Asks.insert(question='alpha')
+
+        TableModel2 = pxt.model_base()
+
+        class Docs2(TableModel2, name='docs'):
+            body: pxt.String
+            title = body.upper()
+
+        @pxt.query
+        def find_by_title(q: str) -> pxt.Query:
+            return Docs2.where(Docs2.title == q).select(body=Docs2.body)  # type: ignore[arg-type]
+
+        @pxt.query
+        def find_title(q: str) -> pxt.Query:
+            return Docs2.where(Docs2.body == q).select(title=Docs2.title)  # type: ignore[arg-type]
+
+        @pxt.query
+        def find_titles_of(q: str) -> pxt.Query:
+            return Docs2.where(Docs2.body == q).select(found=find_title(Docs2.body))  # type: ignore[arg-type]
+
+        @pxt.query
+        def first_title(q: str) -> pxt.Query:
+            return Docs2.where(Docs2.body == q).select(Docs2.title).limit(1)  # type: ignore[arg-type]
+
+        class Asks2(TableModel2, name='asks'):
+            question: pxt.String
+            hits = find_by_title(question)  # altered
+            titles = find_title(question)  # added, and backfilled
+            nested_titles = find_titles_of(question)  # added, and backfilled
+            hits_by_title = find_by_title(first_title(question))  # a query call as the argument of another
+
+        TableModel2.update_all(p(''))
+        res = Asks2.table.select(Asks2.titles, Asks2.nested_titles, Asks2.hits_by_title).collect()
+        assert res['titles'] == [[{'title': 'ALPHA'}]]
+        assert res['nested_titles'] == [[{'found': [{'title': 'ALPHA'}]}]]
+        assert res['hits_by_title'] == [[{'body': 'alpha'}]]
+        Asks2.insert(question='ALPHA')
+        res = {row['question']: (row['hits'], row['titles'], row['nested_titles']) for row in Asks2.table.collect()}
+        assert res == {
+            'alpha': ([{'body': 'alpha'}], [{'title': 'ALPHA'}], [{'found': [{'title': 'ALPHA'}]}]),
+            'ALPHA': ([{'body': 'alpha'}], [], []),
+        }
+
+    def test_query_reads_missing_column(self, db_root: DatabaseRoot) -> None:
+        """A @pxt.query reads a column missing from the queried table."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            body: pxt.String
+
+        class Asks(TableModel, name='asks'):
+            question: pxt.String
+
+        TableModel.update_all(p(''))
+
+        # declares title for 'docs', but no update_all() applies it
+        OtherModel = pxt.model_base()
+
+        class OtherDocs(OtherModel, name='docs'):
+            body: pxt.String
+            title: pxt.String | None
+
+        @pxt.query
+        def find_title(q: str) -> pxt.Query:
+            return OtherDocs.where(OtherDocs.body == q).select(title=OtherDocs.title)  # type: ignore[arg-type]
+
+        # added to an existing table
+        TableModel2 = pxt.model_base()
+
+        class Asks2(TableModel2, name='asks'):
+            question: pxt.String
+            titles = find_title(question)
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA,
+            match=r"Column 'titles' in Table 'asks' calls `find_title\(\)`, whose query references columns that are "
+            r"not in table 'docs': \['title'\]",
+        ):
+            TableModel2.update_all(p(''))
+
+        # called from another query, whose own columns all exist
+        TableModel4 = pxt.model_base()
+
+        class Docs4(TableModel4, name='docs'):
+            body: pxt.String
+
+        @pxt.query
+        def find_titles_of(q: str) -> pxt.Query:
+            return Docs4.where(Docs4.body == q).select(found=find_title(Docs4.body))  # type: ignore[arg-type]
+
+        class Asks4(TableModel4, name='asks'):
+            question: pxt.String
+            nested_titles = find_titles_of(question)
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA,
+            match=r"Column 'nested_titles' in Table 'asks' calls `find_title\(\)`, whose query references columns "
+            r"that are not in table 'docs': \['title'\]",
+        ):
+            TableModel4.update_all(p(''))
+
+        # created with a new table
+        TableModel3 = pxt.model_base()
+
+        class Notes(TableModel3, name='notes'):
+            question: pxt.String
+            titles = find_title(question)
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA,
+            match=r"Column 'titles' in model `Notes` calls `find_title\(\)`, whose query references columns that are "
+            r"not in table 'docs': \['title'\]",
+        ):
+            TableModel3.update_all(p(''))
+        assert pxt.get_table(p('notes'), if_not_exists='ignore') is None
+
+    @pytest.mark.skip(reason='PXT-1709: join() of two bound models raises AttributeError')
+    def test_bound_model_join(self, db_root: DatabaseRoot) -> None:
+        """join() on a bound model accepts another bound model."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            id: pxt.Int
+            body: pxt.String
+
+        class Tags(TableModel, name='tags'):
+            doc_id: pxt.Int
+            tag: pxt.String
+
+        TableModel.update_all(p(''))
+        Docs.insert(id=1, body='alpha')
+        Tags.insert(doc_id=1, tag='greek')
+        res = Docs.join(Tags, on=Docs.id == Tags.doc_id).select(Docs.body, Tags.tag).collect()  # type: ignore[arg-type]
+        assert list(res) == [{'body': 'alpha', 'tag': 'greek'}]
+
+    @pytest.mark.skip(reason='PXT-1710: ModelQuery called in a joined Query is never bound')
+    def test_joined_query_calls_model_query(self, db_root: DatabaseRoot) -> None:
+        """A @pxt.query over joined tables calls a @pxt.query over an unbound model."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            id: pxt.Int
+            body: pxt.String
+
+        class Tags(TableModel, name='tags'):
+            doc_id: pxt.Int
+            tag: pxt.String
+
+        TableModel.update_all(p(''))
+        Docs.insert(id=1, body='alpha')
+        Tags.insert(doc_id=1, tag='greek')
+
+        TableModel2 = pxt.model_base()
+
+        class Docs2(TableModel2, name='docs'):
+            id: pxt.Int
+            body: pxt.String
+
+        @pxt.query
+        def find_body(i: int) -> pxt.Query:
+            return Docs2.where(Docs2.id == i).select(Docs2.body)  # type: ignore[arg-type]
+
+        docs, tags = pxt.get_table(p('docs')), pxt.get_table(p('tags'))
+
+        @pxt.query
+        def tagged_bodies(tag: str) -> pxt.Query:
+            return docs.join(tags, on=docs.id == tags.doc_id).where(tags.tag == tag).select(found=find_body(docs.id))
+
+        class Asks(TableModel2, name='asks'):
+            tag: pxt.String
+            bodies = tagged_bodies(tag)
+
+        TableModel2.update_all(p(''))
+        Asks.insert(tag='greek')
+        assert Asks.table.select(Asks.bodies).collect()['bodies'] == [[{'found': ['alpha']}]]
 
     def test_diff_all(self, db_root: DatabaseRoot) -> None:
         """diff_all() reports added/dropped columns and an iterator mismatch against already-created tables."""
