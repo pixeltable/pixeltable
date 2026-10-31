@@ -8,9 +8,13 @@ from typing import Literal
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+from pixeltable import telemetry
 from pixeltable.env import Env
 
 
+# the first pull makes the cursor's span current on the caller's thread, but a lancedb thread ends it;
+# set_current=True restores the current span when the export ends
+@telemetry.spanned('pixeltable.export_lancedb', set_current=True)
 def export_lancedb(
     table_or_query: pxt.Table | pxt.Query,
     db_uri: Path,

@@ -159,7 +159,8 @@ class ExecNode(abc.ABC):
     def thread_iter(self) -> Iterator[DataRowBatch]:
         """Run the async iterator in a new thread with a dedicated event loop, connected via a queue.
 
-        Any thread can advance the returned iterator.
+        The new thread uses the database context of the thread that makes the first pull. After the first pull, any
+        thread can advance the returned iterator.
         """
         # maxsize=2: we want a minimal amount of buffering to allow for some overlap between plan execution and result
         # consumption (but buffering more than that would simply increase memory consumption without additional

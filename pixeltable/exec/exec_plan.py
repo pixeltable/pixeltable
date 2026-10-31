@@ -146,7 +146,8 @@ class ExecPlan:
         that drive the plan from an async context should use aexec() instead so concurrent
         iterations of the same cached plan don't interleave on shared ExecNode state.
 
-        With new_thread=True, any thread can advance the returned iterator.
+        With new_thread=True, any thread can advance the returned iterator after the first pull; the first pull still
+        needs to run on the thread with the transaction.
         """
         # acquire the in-use guard before binding so a concurrent re-entry can't overwrite our
         # bound_args; bind before __enter__ so SqlNode._open()'s per-execute bindparam additions

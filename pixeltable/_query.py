@@ -237,7 +237,8 @@ class ResultCursor(Iterable[Row]):
     _schema: dict[str, ColumnType]
     _columns: dict[str, int]  # column name -> position
     _closed: bool
-    _new_thread: bool  # run the query in a new thread; any thread can then advance the cursor
+    # run the query in a new thread; the first pull opens the transaction, after which any thread can advance the cursor
+    _new_thread: bool
 
     def __init__(self, query: Query, *, new_thread: bool = False):
         self._query = query
