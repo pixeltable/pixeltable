@@ -489,10 +489,11 @@ class TestDestination:
         self._fail_local_puts(monkeypatch)
 
         rows = [{'img': get_image_files()[0]}]
-        with pxt_raises(
-            pxt.ErrorCode.STORE_UNAVAILABLE, match="Error while saving column 'img_rot': injected put failure"
-        ):
+        msg = "Error while saving column 'img_rot': OSError"
+        with pxt_raises(pxt.ErrorCode.STORE_UNAVAILABLE, match=re.escape(msg)) as exc_info:
             t.insert(rows)
+        assert exc_info.value.message == msg
+        assert exc_info.value.detail == 'injected put failure'
 
         status = t.insert(rows, on_error='ignore')
         assert status.num_rows == 1
@@ -501,7 +502,7 @@ class TestDestination:
 
         res = t.select(msg=t.img_rot.errormsg, url=t.img_rot.fileurl).collect()
         assert len(res) == 1
-        assert 'injected put failure' in res[0]['msg']
+        assert res[0]['msg'] == f'{msg}\ninjected put failure'
         assert res[0]['url'] is None
         assert ObjectOps.count(t._id, dest=dest_uri) == 0
         assert TempStore.count(t._id) == 0

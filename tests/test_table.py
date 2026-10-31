@@ -3651,11 +3651,17 @@ class TestTable:
             .order_by(t.id)
             .collect()
         )
-        empty_row = res[0]
-        msgs = [empty_row.pop(key) for key in ['err_msg', 'w_msg', 'md_msg', 'a_msg']]
-        assert empty_row == {'hero': None, 'hero_w': None, 'hero_md': None, 'hero_a': None, 'err_type': 'RequestError'}
-        # Pillow 10.3 appends ' as JPEG' to the message
-        assert all(m.startswith(msg) for m in msgs)
+        assert res[0] == {
+            'hero': None,
+            'hero_w': None,
+            'hero_md': None,
+            'hero_a': None,
+            'err_type': 'RequestError',
+            'err_msg': msg,
+            'w_msg': msg,
+            'md_msg': msg,
+            'a_msg': msg,
+        }
         assert res[1]['hero'].size == (100, 100)
         assert res[1]['hero_w'] == 100
         assert res[1]['hero_md']['width'] == 100
@@ -3696,10 +3702,7 @@ class TestTable:
         assert status.num_excs == 2
         assert set(status.cols_with_excs) == {'test_unsaveable_json.j', 'test_unsaveable_json.j_id'}
         res = t.select(t.j, t.j_id, j_msg=t.j.errormsg, id_msg=t.j_id.errormsg).order_by(t.id).collect()
-        empty_row = res[0]
-        msgs = [empty_row.pop(key) for key in ['j_msg', 'id_msg']]
-        assert empty_row == {'j': None, 'j_id': None}
-        assert all(m.startswith(msg) for m in msgs)
+        assert res[0] == {'j': None, 'j_id': None, 'j_msg': msg, 'id_msg': msg}
         assert res[1]['j']['hero'].size == (100, 100)
         assert res[1]['j_id'] == 1
         assert res[1]['j_msg'] is None
@@ -3722,26 +3725,25 @@ class TestTable:
             {'id': 0, 'img': PIL.Image.new('RGB', (0, 0))},
             {'id': 1, 'img': PIL.Image.new('RGB', (8, 8))},
             {'id': 2, 'img': PIL.Image.new('HSV', (8, 8))},
+            {'id': 3, 'img': PIL.Image.new('RGBA', (0, 0))},
         ]
         msg = "Error while saving column 'img': cannot write empty image"
         hsv_msg = "Error while saving column 'img': cannot write mode HSV as TIFF"
         tmp_count = get_temp_store_count(t, db_root)
 
-        for row, row_msg in [(rows[0], msg), (rows[2], hsv_msg)]:
+        for row, row_msg in [(rows[0], msg), (rows[2], hsv_msg), (rows[3], msg)]:
             with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=row_msg):
                 t.insert([row])
         status = t.insert(rows, on_error='ignore')
-        assert status.num_rows == 3
-        assert status.num_excs == 6
+        assert status.num_rows == 4
+        assert status.num_excs == 9
         res = (
             t.select(t.img, t.img_md, t.img_a, err_msg=t.img.errormsg, md_msg=t.img_md.errormsg, a_msg=t.img_a.errormsg)
             .order_by(t.id)
             .collect()
         )
-        empty_row = res[0]
-        msgs = [empty_row.pop(key) for key in ['err_msg', 'md_msg', 'a_msg']]
-        assert empty_row == {'img': None, 'img_md': None, 'img_a': None}
-        assert all(m.startswith(msg) for m in msgs)
+        assert res[0] == {'img': None, 'img_md': None, 'img_a': None, 'err_msg': msg, 'md_msg': msg, 'a_msg': msg}
+        assert res[3] == res[0]
         assert res[1]['img'].size == (8, 8)
         assert res[1]['img_md'] == {'width': 8, 'height': 8, 'mode': 'RGB', 'bits': None, 'format': None}
         assert np.array_equal(res[1]['img_a'], np.full((3, 4), 8))
@@ -3766,13 +3768,16 @@ class TestTable:
             raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
 
         monkeypatch.setattr(os, 'fsync', fail_fsync)
-        msg = "Error while saving column 'img': [Errno 28] No space left on device"
-        with pxt_raises(pxt.ErrorCode.STORE_UNAVAILABLE, match=re.escape(msg)):
+        msg = "Error while saving column 'img': No space left on device"
+        detail = '[Errno 28] No space left on device'
+        with pxt_raises(pxt.ErrorCode.STORE_UNAVAILABLE, match=re.escape(msg)) as exc_info:
             t.insert(img=PIL.Image.new('RGB', (8, 8)))
+        assert exc_info.value.message == msg
+        assert exc_info.value.detail == detail
         status = t.insert(img=PIL.Image.new('RGB', (8, 8)), on_error='ignore')
         assert status.num_excs == 1
         res = t.select(t.img, err_type=t.img.errortype, err_msg=t.img.errormsg).collect()
-        assert res[0] == {'img': None, 'err_type': 'ServiceUnavailableError', 'err_msg': msg}
+        assert res[0] == {'img': None, 'err_type': 'ServiceUnavailableError', 'err_msg': f'{msg}\n{detail}'}
         check_temp_store_count(t, tmp_count, db_root)
 
     def test_image_modes(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:

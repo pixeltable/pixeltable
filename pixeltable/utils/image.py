@@ -29,6 +29,10 @@ def to_bytes(image: PIL.Image.Image | str, format: str | None = None) -> bytes:
     if isinstance(image, str):
         with open(image, 'rb') as f:
             return f.read()
+    if image.width == 0 or image.height == 0:
+        # Pillow's error for an empty image depends on the format and version, e.g. MemoryError for WebP in Pillow 12;
+        # we want a more informative error here
+        raise ValueError('cannot write empty image')
     buffer = BytesIO()
     image.save(buffer, format=format or default_format(image))
     return buffer.getvalue()

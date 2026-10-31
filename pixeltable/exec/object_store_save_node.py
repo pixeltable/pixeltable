@@ -176,12 +176,14 @@ class ObjectStoreSaveNode(ExecNode):
             self.ready_rows[idx] = row
 
     def __handle_save_error(self, row: exprs.DataRow, info: exprs.ColumnSlotIdx, exc: Exception) -> None:
-        msg = f'Error while saving column {info.col.name!r}: {exc}'
-        err = (
-            exc.with_message(msg)
-            if isinstance(exc, excs.Error)
-            else excs.ServiceUnavailableError(excs.ErrorCode.STORE_UNAVAILABLE, msg)
-        )
+        msg = f'Error while saving column {info.col.name!r}'
+        if isinstance(exc, excs.Error):
+            err = exc.with_message(f'{msg}: {exc.message}')
+        else:
+            # str(exc) can contain file paths, which belong in detail rather than in the message
+            reason = exc.strerror if isinstance(exc, OSError) and exc.strerror is not None else type(exc).__name__
+            err = excs.ServiceUnavailableError(excs.ErrorCode.STORE_UNAVAILABLE, f'{msg}: {reason}')
+            err.detail = str(exc)
         if not self.ctx.ignore_errors:
             raise err from exc
         self.row_builder.set_exc(row, info.slot_idx, err)
