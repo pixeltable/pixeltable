@@ -28,6 +28,7 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import TablePathKey, TableVersionKey
 from pixeltable.catalog.path import Path as CatalogPath
+from pixeltable.catalog.update_status import RowCountStats
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.service import proxy_client, proxy_daemon, proxy_dispatch, proxy_protocol
@@ -258,6 +259,14 @@ class TestProxyDaemon:
         assert decoded['reserved'] == result['reserved']
         assert decoded['id'] == tbl_id
         assert decoded['data'] == b'abc'
+
+    def test_update_status_from_older_server(self) -> None:
+        """An UpdateStatus decodes when its RowCountStats contains an unknown field."""
+        sink = proxy_protocol.InlinePartSink()
+        status = pxt.UpdateStatus(row_count_stats=RowCountStats(ins_rows=2))
+        wire = proxy_protocol.serialize_args({'status': status}, sink)['status']
+        wire['v']['row_count_stats']['computed_values'] = 0
+        assert proxy_protocol.deserialize_value(wire, sink.binary_parts) == status
 
     def test_iter_body_chunks(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A body is sliced, without copying, into pieces of at most _BODY_CHUNK_SIZE bytes."""

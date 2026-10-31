@@ -164,7 +164,7 @@ class CellMaterializationNode(ExecNode):
     def _set_error_cell(self, row: exprs.DataRow, col: catalog.Column, exc: Exception) -> None:
         # Nulls in JSONB columns need to be stored as sql.sql.null(), otherwise it stores a json 'null'
         row.cell_vals[col.id] = sql.sql.null() if col.col_type.is_json_type() else None
-        row.cell_md[col.id] = exprs.CellMd(errortype=type(exc).__name__, errormsg=str(exc))
+        row.cell_md[col.id] = exprs.CellMd(**exprs.ColumnPropertyRef.create_cellmd_exc(exc))
 
     def _materialize_json_cell(self, row: exprs.DataRow, col: catalog.Column, slot_idx: int, val: Any) -> None:
         if not self._json_has_inlined_objs(val):

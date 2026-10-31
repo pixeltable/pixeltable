@@ -18,8 +18,6 @@ class RowCountStats:
     del_rows: int = 0  # rows deleted
     upd_rows: int = 0  # rows updated
     num_excs: int = 0  # total number of exceptions
-    # TODO: disambiguate what this means: # of slots computed or # of columns computed?
-    computed_values: int = 0  # number of computed values (e.g., computed columns) affected by the operation
 
     @property
     def num_rows(self) -> int:
@@ -31,11 +29,7 @@ class RowCountStats:
         This is used when an insert operation is treated as an update.
         """
         return RowCountStats(
-            ins_rows=0,
-            del_rows=self.del_rows,
-            upd_rows=self.upd_rows + self.ins_rows,
-            num_excs=self.num_excs,
-            computed_values=self.computed_values,
+            ins_rows=0, del_rows=self.del_rows, upd_rows=self.upd_rows + self.ins_rows, num_excs=self.num_excs
         )
 
     def __add__(self, other: 'RowCountStats') -> 'RowCountStats':
@@ -47,7 +41,6 @@ class RowCountStats:
             del_rows=self.del_rows + other.del_rows,
             upd_rows=self.upd_rows + other.upd_rows,
             num_excs=self.num_excs + other.num_excs,
-            computed_values=self.computed_values + other.computed_values,
         )
 
 
@@ -81,11 +74,6 @@ class UpdateStatus:
     def num_excs(self) -> int:
         """Total number of exceptions encountered (including cascaded changes)."""
         return self.row_count_stats.num_excs + self.cascade_row_count_stats.num_excs
-
-    @property
-    def num_computed_values(self) -> int:
-        """Total number of computed values affected (including cascaded changes)."""
-        return self.row_count_stats.computed_values + self.cascade_row_count_stats.computed_values
 
     def insert_to_update(self) -> 'UpdateStatus':
         """
@@ -166,8 +154,6 @@ class UpdateStatus:
             messages.append(f'{self.__cnt_str(stats.del_rows, "row")} deleted')
         if stats.upd_rows > 0:
             messages.append(f'{self.__cnt_str(stats.upd_rows, "row")} updated')
-        if stats.computed_values > 0:
-            messages.append(f'{self.__cnt_str(stats.computed_values, "value")} computed')
         if stats.num_excs > 0:
             messages.append(self.__cnt_str(stats.num_excs, 'exception'))
         p.text(', '.join(messages) + '.' if len(messages) > 0 else 'No rows affected.')

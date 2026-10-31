@@ -185,6 +185,10 @@ class TestComponentView:
             _ = pxt.create_view(p('test_view'), video_t, iterator=frame_iterator(1, fps=1))
         assert 'argument type Int does not match parameter type Video' in str(excinfo.value)
 
+        # uncalled method
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'video\.reverse is the method reverse\(\)'):
+            _ = pxt.create_view(p('test_view'), video_t, iterator=frame_iterator(video_t.video.reverse, fps=1))
+
         # create frame view
         view_t = pxt.create_view(p('test_view'), video_t, iterator=legacy_frame_iterator(video_t.video, fps=1))
         # computed column that references a column from the base

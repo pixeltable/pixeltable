@@ -17,7 +17,7 @@ fi
 conda activate pxt
 
 # Runtime media deps (subset of what `make install` would install).
-mamba install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*'
+mamba install -q -y -c conda-forge libiconv 'ffmpeg==7.1.1=gpl*'
 
 # Install uv at the version pinned in the Makefile.
 python -m pip install -qU pip
