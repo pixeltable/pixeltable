@@ -9,6 +9,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
+from pixeltable import catalog
 from pixeltable.catalog import table_copy
 from pixeltable.catalog.catalog_proxy import CatalogProxy
 from pixeltable.catalog.table_proxy import TableProxy
@@ -200,13 +201,14 @@ class TestCopyTable:
         with pxt_raises(pxt.ErrorCode.DIRECTORY_NOT_FOUND, match='does not exist'):
             pxt.copy_table('src', p('no_dir/dst'))
 
-        # a computed column that references another table, which the destination doesn't have
+        # a computed column that references another table, which the destination doesn't have, through a @pxt.query
+        # that is not the root of its expression
         @pxt.query
         def lookup(n: int) -> pxt.Query:
-            return t.where(t.id == n).select(t.img)
+            return t.where(t.id == n).select(t.id)
 
         t2 = pxt.create_table('src2', {'n': pxt.Int})
-        t2.add_computed_column(r=lookup(t2.n))
+        t2.add_computed_column(r=lookup(t2.n)[0])
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"computed column 'r' references table 'src'"):
             pxt.copy_table('src2', p('dst'))
 
@@ -247,6 +249,28 @@ class TestCopyTable:
             pxt.copy_table('src', p('dst'))
         assert pxt.get_table(p('dst')).columns() == ['other']
         assert _temporary_copies(db_root) == []
+
+    def test_copy_table_tmp_path_exists(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A copy refuses a temporary path that names an existing table, and leaves that table as it is."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table('src', {'id': pxt.Int})
+        t.insert([{'id': 1}])
+
+        get_table = CatalogProxy.get_table
+        occupied: list[str] = []
+
+        def occupy_tmp_path(self: CatalogProxy, path: catalog.Path, *args: Any) -> Any:
+            if '_copy_' in path.name and len(occupied) == 0:
+                pxt.create_table(str(path), {'other': pxt.String})
+                occupied.append(str(path))
+            return get_table(self, path, *args)
+
+        monkeypatch.setattr(CatalogProxy, 'get_table', occupy_tmp_path)
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
+            pxt.copy_table('src', p('dst'))
+        assert len(occupied) == 1
+        assert pxt.get_table(occupied[0]).columns() == ['other']
+        assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
 
     def test_load_store_rows_takes_only_uploaded_files(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """The destination refuses a rows or media file that a request names by a path of the destination's own."""

@@ -337,7 +337,10 @@ def _export_table(tbl: InsertableTable, tmp_dir: FsPath) -> _TableExport:
         tv = tbl._tbl_version.get()
         # the destination cannot resolve a reference to another local table, such as a @pxt.query UDF's
         for col in tv.cols_by_id.values():
-            other_ids = set() if col.value_expr is None else col.value_expr.tbl_ids() - {tbl._id}
+            if col.value_expr is None:
+                continue
+            # FunctionCall.tbl_ids() adds a @pxt.query's tables only for the call itself, so visit every subexpr
+            other_ids = {tbl_id for e in col.value_expr.subexprs() for tbl_id in e.tbl_ids()} - {tbl._id}
             if len(other_ids) > 0:
                 other_id = next(iter(other_ids))
                 other = cat.get_table_by_id(other_id)
@@ -383,6 +386,9 @@ def copy_table(tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path)
 
         # the copy is filled under a temporary name, so that dest_path only ever names a complete copy
         tmp_path = dest_path.parent.append(f'{dest_path.name}_copy_{uuid.uuid4().hex[:8]}')
+        # a failed copy drops tmp_path, so it must not name a table that this copy didn't create
+        if dest_catalog.get_table(tmp_path, IfNotExistsParam.IGNORE) is not None:
+            raise excs.AlreadyExistsError(excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {tmp_path!r} already exists.')
         try:
             # inside the try: the destination may have created the table even if its response is lost
             copy = dest_catalog.create_table_from_md(tmp_path, export.md)
