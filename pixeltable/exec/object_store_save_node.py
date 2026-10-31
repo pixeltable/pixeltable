@@ -132,8 +132,8 @@ class ObjectStoreSaveNode(ExecNode):
         async with contextlib.aclosing(aiter(self.input)) as input_iter:
             with futures.ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
                 while True:
-                    # Create work to fill the queue to the high water mark ...
-                    # ?without overrunning the in-flight row limit.
+                    # Create work to fill the queue to the high water mark,
+                    # without overrunning the in-flight row limit.
                     while not self.input_finished and self.queued_work < self.QUEUE_DEPTH_HIGH_WATER:
                         input_batch = await self.get_input_batch(input_iter)
                         if input_batch is not None:

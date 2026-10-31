@@ -127,7 +127,7 @@ class ExecNode(abc.ABC):
     def __iter__(self) -> Generator[DataRowBatch, None, None]:
         if asyncio._get_running_loop() is None:
             # if we don't already have a running loop, we can run the async iterator directly and avoid the extra
-            # overhead introduced by thread_iter()
+            # overhead introduced by _thread_iter()
             loop = get_runtime().event_loop
             aiter = self.__aiter__()
             step: asyncio.Future[DataRowBatch] | None = None
@@ -152,16 +152,12 @@ class ExecNode(abc.ABC):
                         loop.run_until_complete(asyncio.wait([step]))
                     loop.run_until_complete(aiter.aclose())
         else:
-            yield from self.thread_iter()
+            yield from self._thread_iter()
 
     _THREAD_QUEUE_SENTINEL = object()
 
-    def thread_iter(self) -> Iterator[DataRowBatch]:
-        """Run the async iterator in a new thread with a dedicated event loop, connected via a queue.
-
-        The new thread uses the database context of the thread that makes the first pull. After the first pull, any
-        thread can advance the returned iterator.
-        """
+    def _thread_iter(self) -> Iterator[DataRowBatch]:
+        """Run the async iterator in a separate thread with a dedicated event loop, connected via a queue."""
         # maxsize=2: we want a minimal amount of buffering to allow for some overlap between plan execution and result
         # consumption (but buffering more than that would simply increase memory consumption without additional
         # benefits)

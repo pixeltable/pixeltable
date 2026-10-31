@@ -139,15 +139,12 @@ class ExecPlan:
     def __iter__(self) -> Iterator[DataRowBatch]:
         return iter(self.exec_root)
 
-    def exec(self, args: dict[str, Any], *, new_thread: bool = False) -> Iterator[exprs.DataRow]:
+    def exec(self, args: dict[str, Any]) -> Iterator[exprs.DataRow]:
         """Bind args, open the plan, and yield rows. Synchronous path.
 
         The per-thread sync conn already serializes SQL execution; no asyncio lock here. Callers
         that drive the plan from an async context should use aexec() instead so concurrent
         iterations of the same cached plan don't interleave on shared ExecNode state.
-
-        With new_thread=True, any thread can advance the returned iterator after the first pull; the first pull still
-        needs to run on the thread with the transaction.
         """
         # acquire the in-use guard before binding so a concurrent re-entry can't overwrite our
         # bound_args; bind before __enter__ so SqlNode._open()'s per-execute bindparam additions
@@ -160,7 +157,7 @@ class ExecPlan:
             raise
         with self:
             # only the for loop references the batch iterator, so the iterator closes before __exit__()
-            for batch in self.exec_root.thread_iter() if new_thread else self.exec_root:
+            for batch in self.exec_root:
                 yield from batch
 
     async def aexec(self, args: dict[str, Any]) -> AsyncGenerator[exprs.DataRow, None]:

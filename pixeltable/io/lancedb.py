@@ -1,20 +1,24 @@
 from __future__ import annotations
 
 import contextlib
-import itertools
+import queue
 import shutil
+import threading
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import telemetry
 from pixeltable.env import Env
+from pixeltable.runtime import get_runtime
+
+if TYPE_CHECKING:
+    import pyarrow as pa
+
+_SENTINEL = object()
 
 
-# the first pull makes the cursor's span current on the caller's thread, but a lancedb thread ends it;
-# set_current=True restores the current span when the export ends
-@telemetry.spanned('pixeltable.export_lancedb', set_current=True)
 def export_lancedb(
     table_or_query: pxt.Table | pxt.Query,
     db_uri: Path,
@@ -47,8 +51,6 @@ def export_lancedb(
     Env.get().require_package('lancedb')
 
     import lancedb
-
-    from pixeltable.utils.arrow import to_record_batches
 
     if if_exists not in ('error', 'overwrite', 'append'):
         raise excs.RequestError(
@@ -85,19 +87,80 @@ def export_lancedb(
             pass
 
         # lancedb advances the iterator on its own threads
-        batches = to_record_batches(query, batch_size_bytes, new_thread=True)
-        with contextlib.closing(batches):
-            # pull the first batch here: the query's transaction opens on the thread of the first pull
-            first_batch = next(batches, None)
-            data = batches if first_batch is None else itertools.chain([first_batch], batches)
+        with contextlib.closing(_ThreadedRecordBatches(query, batch_size_bytes)) as batches:
             if lance_tbl is None or if_exists == 'overwrite':
                 mode = 'overwrite' if lance_tbl is not None else 'create'
-                _ = db.create_table(table_name, data, mode=mode)
+                _ = db.create_table(table_name, batches, mode=mode)
             else:
-                lance_tbl.add(data)
+                lance_tbl.add(batches)
 
     except Exception as e:
         # cleanup
         if not db_exists:
             shutil.rmtree(db_uri)
         raise e
+
+
+class _ThreadedRecordBatches:
+    """Iterator over a query's record batches, computed on a new thread.
+
+    Any thread can advance or close the iterator, also while another thread is advancing it.
+    """
+
+    _queue: queue.Queue
+    _stop: threading.Event
+    _thread: threading.Thread
+
+    def __init__(self, query: pxt.Query, batch_size_bytes: int):
+        # maxsize=2: overlap computing the next batch with the consumer's processing of the current one
+        self._queue = queue.Queue(maxsize=2)
+        self._stop = threading.Event()
+        hooks_ctx = telemetry.capture_context()
+        self._thread = threading.Thread(target=self._produce, args=(query, batch_size_bytes, hooks_ctx), daemon=True)
+        self._thread.start()
+
+    def _produce(self, query: pxt.Query, batch_size_bytes: int, hooks_ctx: telemetry.CtxSnapshot | None) -> None:
+        from pixeltable.utils.arrow import to_record_batches
+
+        hooks_token = telemetry.restore_context(hooks_ctx)
+        try:
+            for batch in to_record_batches(query, batch_size_bytes):
+                self._queue.put(batch)
+                if self._stop.is_set():
+                    break
+            self._queue.put(_SENTINEL)
+        except BaseException as e:
+            self._queue.put(e)
+        finally:
+            # the query created this thread's event loop and clients
+            get_runtime().close()
+            telemetry.exit_context(hooks_token)
+
+    def __iter__(self) -> Self:
+        return self
+
+    def __next__(self) -> pa.RecordBatch:
+        item = self._get()
+        if item is _SENTINEL:
+            raise StopIteration
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+    def close(self) -> None:
+        """Stop the query after its current batch, and wait for its thread to finish."""
+        self._stop.set()
+        # the producer can be blocked in put(), so drain the queue up to its final item
+        while not self._is_final(self._get()):
+            pass
+        self._thread.join(timeout=30)
+
+    def _get(self) -> Any:
+        item = self._queue.get()
+        if self._is_final(item):
+            # leave the final item for the other readers
+            self._queue.put(item)
+        return item
+
+    def _is_final(self, item: Any) -> bool:
+        return item is _SENTINEL or isinstance(item, BaseException)

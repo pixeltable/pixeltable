@@ -1,5 +1,9 @@
 import datetime
 import io
+import platform
+import signal
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +21,17 @@ from ..utils import DatabaseRoot, open_async_resources, pxt_raises, skip_test_if
 def udf_with_exc(i: int, val: int) -> int:
     if i == val:
         raise ValueError(f'Error for row {i}')
+    return i
+
+
+@pxt.udf
+def sigint_at(i: int, val: int) -> int:
+    if i == val:
+        main_thread_id = threading.main_thread().ident
+        assert main_thread_id is not None
+        signal.pthread_kill(main_thread_id, signal.SIGINT)
+        # lancedb waits for the next batch while the main thread handles the signal
+        time.sleep(1)
     return i
 
 
@@ -145,3 +160,18 @@ class TestLanceDb:
         rows = lancedb.connect(str(db_path)).open_table('test').to_arrow().to_pylist()
         expected = [{'i': i, 'matches': [i]} for i in range(n_rows)]
         assert sorted(rows, key=lambda row: row['i']) == [row for row in expected for _ in range(2)]
+
+    @pytest.mark.skipif(platform.system() == 'Windows', reason='signal.pthread_kill() is POSIX only')
+    @pytest.mark.db_roots(
+        'local', reason='the UDF signals the main thread of this process; a proxy query runs in the server'
+    )
+    def test_export_interrupt(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
+        """Ctrl-C during an export raises KeyboardInterrupt and stops the query."""
+        skip_test_if_not_installed('lance', 'lancedb')
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_interrupt'), {'i': pxt.Int})
+        t.insert({'i': i} for i in range(5000))
+        open_before = open_async_resources()
+        with pytest.raises(KeyboardInterrupt):
+            pxt.io.export_lancedb(t.select(t.i, j=sigint_at(t.i, 3000)), tmp_path / 'db', 'test', batch_size_bytes=1024)
+        assert open_async_resources() == open_before
