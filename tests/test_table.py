@@ -3659,6 +3659,46 @@ class TestTable:
         assert status.cols_with_excs == ['test_unsaveable.hero2']
         assert t.where(t.hero2.errormsg != None).select(t.id).collect()['id'] == [0]
 
+    def test_unsaveable_image_in_json(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
+        """An image in JSON that cannot be saved aborts the operation or, with on_error='ignore', is a cell error."""
+        p = db_root.make_catalog_path
+        img_file = sample_file_server.url(get_image_files()[0], db_root)
+        t = pxt.create_table(p('test_unsaveable_json'), {'id': pxt.Int, 'photo': pxt.Image, 'box': pxt.Json})
+        box = [t.box[i].astype(pxt.Int) for i in range(4)]
+        t.add_computed_column(j={'hero': t.photo.crop(box), 'id': t.id})
+        t.add_computed_column(j_id=t.j['id'])
+        rows = [
+            {'id': 0, 'photo': img_file, 'box': [0, 0, 0, 0]},
+            {'id': 1, 'photo': img_file, 'box': [0, 0, 100, 100]},
+        ]
+        msg = "Error while saving column 'j': cannot write empty image"
+
+        with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=msg):
+            t.insert(rows)
+        assert t.count() == 0
+
+        status = t.insert(rows, on_error='ignore')
+        assert status.num_rows == 2
+        assert status.num_excs == 2
+        assert set(status.cols_with_excs) == {'test_unsaveable_json.j', 'test_unsaveable_json.j_id'}
+        res = t.select(t.j, t.j_id, j_msg=t.j.errormsg, id_msg=t.j_id.errormsg).order_by(t.id).collect()
+        empty_row = res[0]
+        msgs = [empty_row.pop(key) for key in ['j_msg', 'id_msg']]
+        assert empty_row == {'j': None, 'j_id': None}
+        assert all(m.startswith(msg) for m in msgs)
+        assert res[1]['j']['hero'].size == (100, 100)
+        assert res[1]['j_id'] == 1
+        assert res[1]['j_msg'] is None
+
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Error while saving column 'j2': cannot write empty image"
+        ):
+            t.add_computed_column(j2={'hero': t.photo.crop(box)})
+        status = t.add_computed_column(j2={'hero': t.photo.crop(box)}, on_error='ignore')
+        assert status.num_excs == 1
+        assert status.cols_with_excs == ['test_unsaveable_json.j2']
+        assert t.where(t.j2.errormsg != None).select(t.id).collect()['id'] == [0]
+
     def test_unsaveable_image_literal(self, db_root: DatabaseRoot) -> None:
         """An inserted image that cannot be saved aborts the insert or, with on_error='ignore', is a cell error."""
         t = pxt.create_table(db_root.make_catalog_path('test_unsaveable_literal'), {'id': pxt.Int, 'img': pxt.Image})
