@@ -621,8 +621,7 @@ async def chat_completions(
         The `'image_url'` field also accepts the API's `{'url': ...}` form. Its `'url'` can be an image or a URL
         string, such as `tbl.image.fileurl`; OpenAI fetches a URL itself, so it has to be publicly accessible.
     """
-    if model_kwargs is None:
-        model_kwargs = {}
+    model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
     if tools is not None:
         model_kwargs['tools'] = [{'type': 'function', 'function': tool} for tool in tools]
@@ -763,8 +762,7 @@ async def responses(
         The `image_url` field also accepts a URL string, such as `tbl.image.fileurl`; OpenAI fetches it itself, so it
         has to be publicly accessible.
     """
-    if model_kwargs is None:
-        model_kwargs = {}
+    model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
     # In Responses API, functions use internally-tagged polymorphism (flat structure)
     if tools is not None:

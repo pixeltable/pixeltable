@@ -121,6 +121,8 @@ class TestSample:
             _ = t.select().sample(n=10, stratify_by=[123])
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='Invalid type'):
             _ = t.select().sample(n=10, stratify_by=[t.c6])
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'c1\.upper is the method upper\(\)'):
+            _ = t.select().sample(n=10, stratify_by=[t.c1.upper])
 
         # String, Int, Float, Bool, Timestamp types
         _ = t.select().sample(n=10, seed=27, stratify_by=[t.c1, t.c2, t.c3, t.c4, t.c5])

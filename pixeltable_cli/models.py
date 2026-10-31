@@ -222,7 +222,6 @@ class RecomputeResponse(BaseModel):
     path: str
     columns: list[str]  # <table>.<column> for each recomputed column, and for each dependent that cascaded
     num_rows: int
-    num_computed_values: int
     num_excs: int
     cols_with_excs: list[str]
 

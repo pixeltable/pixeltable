@@ -108,7 +108,7 @@ class CellMaterializationNode(ExecNode):
                             # otherwise it stores a json 'null'
                             row.cell_vals[col.id] = sql.sql.null() if col.col_type.is_json_type() else None
                             exc = row.get_exc(slot_idx)
-                            row.cell_md[col.id] = exprs.CellMd(errortype=type(exc).__name__, errormsg=str(exc))
+                            row.cell_md[col.id] = exprs.CellMd(**exprs.ColumnPropertyRef.create_cellmd_exc(exc))
                             continue
 
                         val = row[slot_idx]

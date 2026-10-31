@@ -300,6 +300,8 @@ class TestVideo:
         Loads the first 20 frames of a video with various fps and num_frames settings, then queries for frames at
         specific positions and checks that the output is pixel-identical.
         """
+        if platform.system() == 'Windows' and db_root.id == 'proxy':
+            pytest.skip('PXT-1715: dropping a video table with an open media file hangs the proxy daemon on Windows')
         # It's important to run this test for all videos and for many kwargs combinations, since there are so many
         # edge cases when working with video data.
         p = db_root.make_catalog_path

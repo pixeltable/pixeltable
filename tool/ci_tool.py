@@ -128,7 +128,7 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
             MatrixConfig('slim', 'py', platform, '3.11', pytest_options=slim_pytest) for platform in ALL_PLATFORMS
         )
         # Also exercise the newest supported Python on the main platform
-        configs.append(MatrixConfig('slim', 'py', MAIN_PLATFORM, '3.14', pytest_options=slim_pytest))
+        configs.append(MatrixConfig('slim', 'py', MAIN_PLATFORM, '3.15', pytest_options=slim_pytest))
 
     else:
         # A non-PR trigger: merge queue, workflow dispatch, or schedule.
@@ -172,14 +172,14 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
             # scheduled run passes (see NB_TEST_OPTS in pytest.yml), so they are excluded here.
             configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.11'))
 
-        # Standard test suite on main & basic platforms on Python 3.14
-        configs.extend(MatrixConfig('standard', 'py', platform, '3.14') for platform in ALL_PLATFORMS)
+        # Standard test suite on main & basic platforms on Python 3.15
+        configs.extend(MatrixConfig('standard', 'py', platform, '3.15') for platform in ALL_PLATFORMS)
 
         # Standard test suite on Ubuntu on intermediate Python versions
-        configs.extend(MatrixConfig('standard', 'py', MAIN_PLATFORM, py) for py in ('3.11', '3.12', '3.13'))
+        configs.extend(MatrixConfig('standard', 'py', MAIN_PLATFORM, py) for py in ('3.12', '3.13', '3.14'))
 
-        # Minimal tests on Python 3.14
-        configs.append(MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.14', uv_options='--no-dev'))
+        # Minimal tests on Python 3.15
+        configs.append(MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.15', uv_options='--no-dev'))
 
         # Minimal tests on alternative platforms (we don't run the standard suite on these, since dev dependencies
         # can be hit-or-miss)

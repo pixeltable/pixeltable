@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import inspect
 import sys
 from dataclasses import dataclass
@@ -389,8 +390,14 @@ class FunctionCall(Expr):
         Init agg state
         """
         assert self.is_agg_fn_call
+        self.aggregator = self._create_aggregator()
+
+    def _create_aggregator(self) -> func.Aggregator:
         assert isinstance(self.fn, func.AggregateFunction)
-        self.aggregator = self.fn.agg_class(**self.agg_init_args)
+        if self.fn.is_builtin:
+            return self.fn.agg_class(**self.agg_init_args)
+        # all aggregator instances share the Literal values in agg_init_args; non-builtins might modify them
+        return self.fn.agg_class(**copy.deepcopy(self.agg_init_args))
 
     @property
     def bound_args(self) -> dict[str, Expr]:
@@ -465,7 +472,7 @@ class FunctionCall(Expr):
         args: list[Any] = []
         parameters_by_pos = self.fn.signature.parameters_by_pos
         for idx in self.arg_idxs:
-            val = data_row[self.components[idx].slot_idx]
+            val = self._arg_val(data_row, idx)
             if (
                 val is None
                 and parameters_by_pos[idx].kind
@@ -482,7 +489,7 @@ class FunctionCall(Expr):
         for param_name, idx in self.kwarg_idxs.items():
             if param_name in init_param_names:
                 continue
-            val = data_row[self.components[idx].slot_idx]
+            val = self._arg_val(data_row, idx)
             if (
                 val is None
                 and parameters[param_name].kind
@@ -493,6 +500,13 @@ class FunctionCall(Expr):
             kwargs[param_name] = val
 
         return args, kwargs
+
+    def _arg_val(self, data_row: DataRow, component_idx: int) -> Any:
+        component = self.components[component_idx]
+        if isinstance(component, Literal) and not self.fn.is_builtin:
+            # a non-builtin function might modify its argument, and all rows and calls share a Literal's val
+            return component.defensive_copy()
+        return data_row[component.slot_idx]
 
     def get_param_values(self, param_names: Sequence[str], data_rows: list[DataRow]) -> list[dict[str, Any]]:
         """
@@ -546,18 +560,17 @@ class FunctionCall(Expr):
 
         if self.is_window_fn_call:
             assert isinstance(self.fn, func.AggregateFunction)
-            agg_cls = self.fn.agg_class
             if self.has_group_by():
                 if self.current_partition_vals is None:
                     self.current_partition_vals = [None] * len(self.group_by)
                 partition_vals = [data_row[e.slot_idx] for e in self.group_by]
                 if partition_vals != self.current_partition_vals:
                     # new partition
-                    self.aggregator = agg_cls(**self.agg_init_args)
+                    self.aggregator = self._create_aggregator()
                     self.current_partition_vals = partition_vals
             elif self.aggregator is None:
-                self.aggregator = agg_cls(**self.agg_init_args)
-            self.aggregator.update(*args)
+                self.aggregator = self._create_aggregator()
+            self.aggregator.update(*args, **kwargs)
             data_row[self.slot_idx] = self.aggregator.value()
         else:
             data_row[self.slot_idx] = self.fn.exec(args, kwargs)
