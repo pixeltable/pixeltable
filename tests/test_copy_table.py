@@ -209,8 +209,19 @@ class TestCopyTable:
 
         t2 = pxt.create_table('src2', {'n': pxt.Int})
         t2.add_computed_column(r=lookup(t2.n)[0])
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"computed column 'r' references table 'src'"):
-            pxt.copy_table('src2', p('dst'))
+        # ... or through a @pxt.query that the where clause of another @pxt.query calls
+        t3 = pxt.create_table('src3', {'n': pxt.Int})
+
+        @pxt.query
+        def outer(n: int) -> pxt.Query:
+            return t3.where(lookup(t3.n)[0] == n).select(t3.n)
+
+        t3.add_computed_column(r=outer(t3.n))
+        for src in ('src2', 'src3'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"computed column 'r' references table 'src'"):
+                pxt.copy_table(src, p('dst'))
+            assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
+            assert _temporary_copies(db_root) == []
 
         # a referenced local media file that no longer exists
         img_path = tmp_path / 'img.jpg'

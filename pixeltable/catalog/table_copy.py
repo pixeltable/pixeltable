@@ -28,7 +28,7 @@ import pyarrow.parquet as pq
 import sqlalchemy as sql
 from sqlalchemy.dialects.postgresql import JSONB
 
-from pixeltable import exceptions as excs, func, type_system as ts
+from pixeltable import exceptions as excs, exprs, func, type_system as ts
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -329,6 +329,20 @@ class _TableExport:
         self._writer = None
 
 
+def _referenced_tbl_ids(expr: exprs.Expr) -> set[uuid.UUID]:
+    """The ids of the tables that expr references, including through a @pxt.query at any depth."""
+    # Expr.tbl_ids() adds a @pxt.query's tables only for the call itself, and Query.referenced_tbl_ids() calls it
+    # only on clause roots, so visit every subexpr of expr and of each template query
+    ids: set[uuid.UUID] = set()
+    for e in expr.subexprs():
+        ids |= e.tbl_ids()
+        if isinstance(e, exprs.FunctionCall) and isinstance(e.fn, func.QueryTemplateFunction):
+            assert e.fn.template_query is not None
+            for clause_expr in e.fn.template_query._component_exprs():
+                ids |= _referenced_tbl_ids(clause_expr)
+    return ids
+
+
 def _export_table(tbl: InsertableTable, tmp_dir: FsPath) -> _TableExport:
     cat = get_runtime().catalog
     # a single REPEATABLE READ transaction makes the metadata and the rows a snapshot of the same table state
@@ -339,8 +353,7 @@ def _export_table(tbl: InsertableTable, tmp_dir: FsPath) -> _TableExport:
         for col in tv.cols_by_id.values():
             if col.value_expr is None:
                 continue
-            # FunctionCall.tbl_ids() adds a @pxt.query's tables only for the call itself, so visit every subexpr
-            other_ids = {tbl_id for e in col.value_expr.subexprs() for tbl_id in e.tbl_ids()} - {tbl._id}
+            other_ids = _referenced_tbl_ids(col.value_expr) - {tbl._id}
             if len(other_ids) > 0:
                 other_id = next(iter(other_ids))
                 other = cat.get_table_by_id(other_id)
