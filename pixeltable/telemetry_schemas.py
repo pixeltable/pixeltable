@@ -186,6 +186,7 @@ class ModelLoadAttrs(Attrs, total=False):
     size_bytes: int
 
 
+lock_set_restarts = telemetry.counter('pixeltable.catalog.lock_set_restarts', '{restart}')
 rows_written = telemetry.counter('pixeltable.rows.written', '{row}')
 cells_computed = telemetry.counter('pixeltable.cells.computed', '{cell}')
 cells_errors = telemetry.counter('pixeltable.cells.errors', '{error}')

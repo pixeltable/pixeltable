@@ -198,6 +198,8 @@ class TestIndex:
 
         t.drop_embedding_index(column='img')
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_query(self, db_root: DatabaseRoot, local_embed: pxt.Function, is_data_versioned: bool) -> None:
         # def test_query(self, uses_db: None, local_embed: pxt.Function) -> None:
         p = db_root.make_catalog_path

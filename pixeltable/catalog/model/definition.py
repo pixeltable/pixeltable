@@ -549,7 +549,7 @@ class TableModelMeta(type):
                         f'`model_base()` as `{cls_name}`.',
                     )
 
-            # A view is always of the same kind as its base. Operational views aren't supported yet.
+            # A view always has the same versioning as its base. Operational views aren't supported yet.
             if base is not None and not _is_data_versioned:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'{display_name}: operational views are not supported yet.'
@@ -557,7 +557,7 @@ class TableModelMeta(type):
             if base is not None and not base.model_cls.__table_spec__['is_data_versioned']:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'{display_name}: the base table and the view have mismatching is_data_versioned',
+                    f'{display_name}: the view and its base table must have the same `_is_data_versioned` value',
                 )
 
             # Validate iterator

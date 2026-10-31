@@ -5,7 +5,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable.env import Env
 
-from .utils import DatabaseRoot, make_tbl, pxt_raises, reload_catalog
+from .utils import DatabaseRoot, create_table_data, make_tbl, pxt_raises, reload_catalog
 
 
 @pxt.udf
@@ -298,6 +298,16 @@ class TestDirs:
         # new client: force loading from store
         reload_catalog()
         assert pxt.list_tables(p('dir2')) == [p('dir2/dir1/sub1/t2')]
+
+        # move a pure snapshot to another directory
+        t2 = pxt.get_table(p('dir2/dir1/sub1/t2'))
+        t2.insert(create_table_data(t2, num_rows=3))
+        pxt.create_snapshot(p('dir2/dir1/s1'), t2)
+        t2.insert(create_table_data(t2, num_rows=2))
+        pxt.move(p('dir2/dir1/s1'), p('dir2/sub1/s2'))
+        assert pxt.list_tables(p('dir2/sub1')) == [p('dir2/sub1/s2')]
+        reload_catalog()
+        assert pxt.get_table(p('dir2/sub1/s2')).count() == 3
 
     def test_case_insensitive_paths(self, db_root: DatabaseRoot) -> None:
         """Directory and table paths fold, so a path resolves under any casing and the folded form is stored."""
