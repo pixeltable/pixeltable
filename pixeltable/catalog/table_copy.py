@@ -335,6 +335,18 @@ def _export_table(tbl: InsertableTable, tmp_dir: FsPath) -> _TableExport:
     with cat.begin_xact(for_write=False, read_tbl_ids=[tbl._id], isolation_level='REPEATABLE READ') as conn:
         md = cat._collect_tbl_history(tbl._id, None)
         tv = tbl._tbl_version.get()
+        # the destination cannot resolve a reference to another local table, such as a @pxt.query UDF's
+        for col in tv.cols_by_id.values():
+            other_ids = set() if col.value_expr is None else col.value_expr.tbl_ids() - {tbl._id}
+            if len(other_ids) > 0:
+                other_id = next(iter(other_ids))
+                other = cat.get_table_by_id(other_id)
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot copy {tbl._display_str()}: the computed column {col.name!r} references '
+                    f'{other._display_str() if other is not None else other_id}; only a table whose computed '
+                    'columns reference no other table can be copied',
+                )
         store = tv.store_tbl
         export = _TableExport(md, store.sa_tbl, tmp_dir)
         # ordering by version means that the first row to reference a media file is from the earliest version that
@@ -371,9 +383,10 @@ def copy_table(tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path)
 
         # the copy is filled under a temporary name, so that dest_path only ever names a complete copy
         tmp_path = dest_path.parent.append(f'{dest_path.name}_copy_{uuid.uuid4().hex[:8]}')
-        copy = dest_catalog.create_table_from_md(tmp_path, export.md)
-        assert isinstance(copy, TableProxy)
         try:
+            # inside the try: the destination may have created the table even if its response is lost
+            copy = dest_catalog.create_table_from_md(tmp_path, export.md)
+            assert isinstance(copy, TableProxy)
             uploaded: dict[str, str] = {}  # local url -> its url in the destination
             num_rows = 0
             for i, chunk in enumerate(export.chunks):
@@ -384,6 +397,7 @@ def copy_table(tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path)
                         'rows_file': LocalFile(str(chunk.rows_file)),
                         'new_media': {url: LocalFile(path) for url, path in chunk.new_media.items()},
                         'prev_media': {url: uploaded[url] for url in chunk.prev_media},
+                        'num_prev_rows': num_rows,
                     },
                 )
                 uploaded.update(result['placed_media'])
@@ -408,13 +422,14 @@ def copy_table(tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path)
 
 
 def load_store_rows(
-    tbl: InsertableTable, rows_file: str, new_media: dict[str, str], prev_media: dict[str, str]
+    tbl: InsertableTable, rows_file: str, new_media: dict[str, str], prev_media: dict[str, str], num_prev_rows: int
 ) -> dict[str, Any]:
     """Insert the store rows in the Parquet file rows_file into tbl, a copy that create_table_from_md() created.
 
     Args:
         new_media: url -> local path of each media file that these rows are the first to reference
         prev_media: url -> stored url of each media file that an earlier call stored and these rows reference
+        num_prev_rows: the number of rows that earlier calls inserted
 
     Returns:
         {'placed_media': url -> stored url for each url in new_media, 'num_rows': the number of inserted rows}
@@ -427,7 +442,17 @@ def load_store_rows(
 
     @retry_loop(for_write=True, write_tbl_ids=[tbl._id])
     def insert() -> int:
-        return _insert_rows(tbl._tbl_version.get(), md, rows_file, prev_media | placed_media)
+        tv = tbl._tbl_version.get()
+        # the client retries a request that gets a 5xx, so this call may repeat one that committed
+        stmt = sql.select(sql.func.count()).select_from(tv.store_tbl.sa_tbl)
+        num_rows = get_runtime().conn.execute(stmt).scalar_one()
+        if num_rows != num_prev_rows:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE,
+                f'load_store_rows(): {tv.name!r} holds {num_rows} rows, not the {num_prev_rows} rows of the earlier '
+                'calls; a call was repeated or skipped',
+            )
+        return _insert_rows(tv, md, rows_file, prev_media | placed_media)
 
     return {'placed_media': placed_media, 'num_rows': insert()}
 
@@ -501,8 +526,32 @@ def _place_media(
         return {url: future.result() for url, future in futures.items()}
 
 
+def _local_media_dirs(tv: TableVersion, cols: list[_StoreColumn]) -> list[FsPath]:
+    """The local directories, resolved, in which _place_media() stores the media files of tv."""
+    dests = {_media_destination(tv, col) for col in cols if col.is_media} | {Env.get().cell_materialization_dest}
+    addrs = [ObjectPath.parse_object_storage_addr(dest or str(Env.get().media_dir), False) for dest in dests]
+    return [
+        (addr.to_path / ObjectPath.table_prefix(tv.id)).resolve()
+        for addr in addrs
+        if addr.storage_target == StorageTarget.LOCAL_STORE
+    ]
+
+
+def _check_stored_url(tv: TableVersion, url: str, local_media_dirs: list[FsPath]) -> str:
+    # the destination reads a local file that a cell names, so a caller must not name one of the destination's own
+    # files, such as a credential
+    path = parse_local_file_path(url)
+    if path is not None and not any(d in path.resolve().parents for d in local_media_dirs):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'load_store_rows(): {url!r} is not a media file of {tv.name!r}'
+        )
+    return url
+
+
 def _insert_rows(tv: TableVersion, md: list[TableVersionMd], rows_file: str, media_urls: dict[str, str]) -> int:
     """Insert the store rows in rows_file into the store table of tv, rewriting each media url in media_urls.
+
+    Every local media url that the rows end up with must name a file in a media directory of tv.
 
     Returns:
         the number of inserted rows
@@ -517,6 +566,7 @@ def _insert_rows(tv: TableVersion, md: list[TableVersionMd], rows_file: str, med
     cols = _store_columns(md)
     media_cols = {col.store_name for col in cols if col.is_media}
     cellmd_cols = {col.cellmd_store_name for col in cols if col.stores_cellmd}
+    local_media_dirs = _local_media_dirs(tv, cols)
 
     conn = get_runtime().conn
     num_rows = 0
@@ -527,9 +577,12 @@ def _insert_rows(tv: TableVersion, md: list[TableVersionMd], rows_file: str, med
             for name, val in row.items():
                 store_val = _from_arrow_value(val, sa_tbl.columns[name].type)
                 if name in media_cols and val is not None:
-                    store_val = media_urls.get(store_val, store_val)
+                    store_val = _check_stored_url(tv, media_urls.get(store_val, store_val), local_media_dirs)
                 elif name in cellmd_cols and val is not None and 'file_urls' in store_val:
-                    store_val['file_urls'] = [media_urls.get(url, url) for url in store_val['file_urls']]
+                    store_val['file_urls'] = [
+                        _check_stored_url(tv, media_urls.get(url, url), local_media_dirs)
+                        for url in store_val['file_urls']
+                    ]
                 store_row[name] = store_val
             store_rows.append(store_row)
         conn.execute(sql.insert(sa_tbl), store_rows)

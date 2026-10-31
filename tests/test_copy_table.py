@@ -200,6 +200,16 @@ class TestCopyTable:
         with pxt_raises(pxt.ErrorCode.DIRECTORY_NOT_FOUND, match='does not exist'):
             pxt.copy_table('src', p('no_dir/dst'))
 
+        # a computed column that references another table, which the destination doesn't have
+        @pxt.query
+        def lookup(n: int) -> pxt.Query:
+            return t.where(t.id == n).select(t.img)
+
+        t2 = pxt.create_table('src2', {'n': pxt.Int})
+        t2.add_computed_column(r=lookup(t2.n))
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"computed column 'r' references table 'src'"):
+            pxt.copy_table('src2', p('dst'))
+
         # a referenced local media file that no longer exists
         img_path = tmp_path / 'img.jpg'
         shutil.copy(get_image_files()[0], img_path)
@@ -247,8 +257,56 @@ class TestCopyTable:
         rows_file = tmp_path / 'rows.parquet'
         rows_file.write_bytes(b'rows')
         for args in (
-            {'rows_file': daemon_file, 'new_media': {}, 'prev_media': {}},
-            {'rows_file': LocalFile(str(rows_file)), 'new_media': {'file:///img.jpg': daemon_file}, 'prev_media': {}},
+            {'rows_file': daemon_file, 'new_media': {}, 'prev_media': {}, 'num_prev_rows': 0},
+            {
+                'rows_file': LocalFile(str(rows_file)),
+                'new_media': {'file:///img.jpg': daemon_file},
+                'prev_media': {},
+                'num_prev_rows': 0,
+            },
         ):
             with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be uploaded files'):
                 t._dispatch('load_store_rows', args)
+
+    @pytest.mark.parametrize('tampered_arg', ['new_media', 'prev_media'])
+    def test_load_store_rows_refuses_local_urls(
+        self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch, tampered_arg: str
+    ) -> None:
+        """The destination refuses a row that names one of the destination's own files as its media."""
+        p = db_root.make_catalog_path
+        # the first chunk ends at the row that uploads the file, so the second chunk references it as prev_media
+        monkeypatch.setattr(table_copy, '_MAX_CHUNK_MEDIA_BYTES', 1)
+        img_file = get_image_files()[0]
+        dispatch = TableProxy._dispatch
+
+        def tamper(self: TableProxy, method: str, args: dict[str, Any]) -> Any:
+            if method == 'load_store_rows' and len(args[tampered_arg]) > 0:
+                # the local proxy daemon shares this machine's filesystem, so img_file is one of the daemon's own files
+                tampered = {} if tampered_arg == 'new_media' else dict.fromkeys(args['prev_media'], img_file)
+                args = {**args, tampered_arg: tampered}
+            return dispatch(self, method, args)
+
+        monkeypatch.setattr(TableProxy, '_dispatch', tamper)
+        t = pxt.create_table('src', {'img': pxt.Image})
+        t.insert([{'img': img_file}, {'img': img_file}])
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='is not a media file of'):
+            pxt.copy_table('src', p('dst'))
+        assert _temporary_copies(db_root) == []
+
+    def test_load_store_rows_repeated(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A chunk that is loaded again, as when the client retries a request that committed, is refused."""
+        p = db_root.make_catalog_path
+        dispatch = TableProxy._dispatch
+
+        def load_twice(self: TableProxy, method: str, args: dict[str, Any]) -> Any:
+            if method == 'load_store_rows':
+                dispatch(self, method, args)
+            return dispatch(self, method, args)
+
+        monkeypatch.setattr(TableProxy, '_dispatch', load_twice)
+        t = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
+        t.insert({'id': i, 'img': f} for i, f in enumerate(get_image_files()[:3]))
+        with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='a call was repeated or skipped'):
+            pxt.copy_table('src', p('dst'))
+        assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
+        assert _temporary_copies(db_root) == []
