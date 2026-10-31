@@ -11,7 +11,14 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import DatabaseRoot, get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
+from ..utils import (
+    DatabaseRoot,
+    assert_type_eq,
+    get_audio_files,
+    get_documents,
+    get_video_files,
+    skip_test_if_not_installed,
+)
 from .conftest import PxtRunner
 
 # A minimal schema, for the cases that assert on an error message rather than on what Pixeltable can express.
@@ -905,6 +912,91 @@ class TestSchema:
         (project_dir / 'proj1' / 'helpers.py').write_text("TAG = 'edited'\n")
         assert_in_agreement(cli, str(project_dir / 'proj1' / 'app.py'), p('proj1'))
 
+    @pytest.mark.db_roots(
+        'local', reason='a remote database gets udfs from a deploy, and this test rewrites its udfs while running'
+    )
+    def test_udf_return_type_change(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
+        """A narrower udf return type leaves the udf's columns unchanged; an incompatible one alters them."""
+        p = db_root.make_catalog_path
+        target = p('udf_types')
+        declaration = dedent(
+            """
+            from __future__ import annotations
+
+            from typing import TypedDict
+
+            import pixeltable as pxt
+            import pixeltable.functions as pxtf
+
+
+            class ChatBlock(TypedDict):
+                type: str
+                text: str
+
+
+            class ChatResponse(TypedDict):
+                content: list[ChatBlock]
+
+
+            @pxt.udf
+            def chat_response(prompt: str) -> dict:
+                return {'content': [{'type': 'text', 'text': prompt}]}
+
+
+            @pxt.udf
+            def word_count(text: str) -> int:
+                return len(text.split())
+
+
+            TableModel = pxt.model_base()
+
+
+            class Chats(TableModel, name='chats'):
+                id = pxt.Column(type=pxt.Int, primary_key=True)
+                prompt: pxt.String
+                response = chat_response(prompt)
+                text = response.content[0].text
+                # a JSON literal can have a return_type key too
+                extra = response.get('extra', {'return_type': {'kind': 'none'}})
+
+
+            class Docs(TableModel, name='docs'):
+                id = pxt.Column(type=pxt.Int, primary_key=True)
+                body: pxt.String
+                words = pxtf.json.dumps(word_count(body))
+            """
+        )
+        schema_file = project_dir / 'app.py'
+        schema_file.write_text(declaration, encoding='utf-8')
+        cli('schema', 'update', str(schema_file), target)
+        chats = pxt.get_table(f'{target}/chats')
+        chats.insert([{'id': 1, 'prompt': 'a'}])
+
+        # chat_response() declares its return type and upper-cases the text; word_count() returns a String
+        schema_file.write_text(
+            declaration.replace('-> dict:', '-> ChatResponse:')
+            .replace("'text': prompt}", "'text': prompt.upper()}")
+            .replace('-> int:', '-> str:')
+            .replace('return len(text.split())', 'return str(len(text.split()))'),
+            encoding='utf-8',
+        )
+        r = cli('schema', 'diff', str(schema_file), target, '--json', check=False)
+        assert r.returncode == 2
+        tables = {t['path']: t for t in r.json['tables']}
+        assert tables[f'{target}/chats']['resolution'] == 'up_to_date'
+        # the type of words stays String, and the diff still alters it
+        assert [(op['op'], op['name']) for op in tables[f'{target}/docs']['ops']] == [('alter', 'words')]
+
+        cli('schema', 'update', str(schema_file), target)
+        assert_in_agreement(cli, str(schema_file), target)
+        chats = pxt.get_table(f'{target}/chats')
+        chats.insert([{'id': 2, 'prompt': 'b'}])
+        # the recompute runs the new chat_response() on both rows
+        cli('recompute', f'{target}/chats', 'response', '-f')
+        assert_type_eq(chats.response.col_type, pxt.Json)
+        assert_type_eq(chats.text.col_type, pxt.Json | None)
+        assert chats.order_by(chats.id).select(chats.text).collect()['text'] == ['A', 'B']
+
     @pytest.mark.db_roots('local', reason='check reads no catalog, so the other roots add nothing')
     def test_check(
         self,
@@ -922,6 +1014,34 @@ class TestSchema:
         report = cli('schema', 'check', apps('basic.py'), '--json').json
         assert (report['valid'], report['errors'], report['warnings']) == (True, [], [])
         assert report['file'] == apps('basic.py')
+
+        # computed columns that reference no column
+        constants = project_dir / 'constants.py'
+        constants.write_text(
+            dedent(
+                """
+                import pixeltable as pxt
+                import pixeltable.functions as pxtf
+
+                TableModel = pxt.model_base()
+
+
+                class Docs(TableModel, name='docs'):
+                    title: pxt.String
+                    label = str(title)
+                    untitled = title is None
+                    shout = pxtf.string.upper('hi')
+                    key = pxtf.uuid.uuid4()
+                    created_at = pxtf.timestamp.now()
+                    upper = pxtf.string.upper(title)
+                """
+            ),
+            encoding='utf-8',
+        )
+        report = cli('schema', 'check', str(constants), '--json').json
+        assert report['valid'], report
+        flagged = [warning.split(' references no column')[0] for warning in report['warnings']]
+        assert flagged == ['Docs.label', 'Docs.untitled', 'Docs.shout'], report
 
         # a file that modifies the catalog while importing
         ddl = project_dir / 'ddl.py'

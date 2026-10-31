@@ -236,7 +236,7 @@ class ExecNode(abc.ABC):
             val = self.bound_args[e._bind_name]
         else:
             raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'{role}: unsupported expression for {role!r}: {e}'
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'{role}: unsupported expression for {role!r}: {e!s}'
             )
         if val < 0:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{role!r} parameter must be >= 0')

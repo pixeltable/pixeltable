@@ -3642,6 +3642,110 @@ class TestTableModel:
         assert t.select(t.derived, t.derived2).collect()[0] == {'derived': 2, 'derived2': True}
         assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(root).values())
 
+    def test_update_all_widened_column(self, db_root: DatabaseRoot) -> None:
+        """`update_all()` makes a data column nullable in place."""
+        p = db_root.make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        class Notes(TableModel, name='notes'):
+            id = Column(type=pxt.Int, primary_key=True)
+            note: pxt.String
+            label: pxt.String
+            extra: pxt.String
+            meta: pxt.Json
+            shout = pxtf.string.upper(label)
+            kind = meta.kind
+
+        TableModel.create_all(root)
+        t = pxt.get_table(p('notes'))
+        t.insert([{'id': 1, 'note': 'a', 'label': 'x', 'extra': 'e', 'meta': {'kind': 'k1'}}])
+
+        WidenedModel = pxt.model_base()
+
+        class WidenedNotes(WidenedModel, name='notes'):
+            id = Column(type=pxt.Int, primary_key=True)
+            note: pxt.String | None
+            label: pxt.String
+            extra: pxt.String
+            meta: pxt.Json | None
+            shout = pxtf.string.upper(label)
+            kind = meta.kind
+            loud = pxtf.string.upper(note)
+
+        diff = WidenedModel.get_model_diff(root)['notes']
+        assert diff.resolution == 'update_additive'
+        assert {(op.op, op.name, op.severity) for op in diff.ops} == {
+            ('alter', 'note', 'additive'),
+            ('alter', 'meta', 'additive'),
+            ('add', 'loud', 'additive'),
+        }
+        assert "'note': String -> String | None" in '\n'.join(format_diff('notes', diff))
+        WidenedModel.update_all(root)
+        assert all(d.resolution == 'up_to_date' for d in WidenedModel.get_model_diff(root).values())
+        t = pxt.get_table(p('notes'))
+        assert_type_eq(t.note.col_type, pxt.String | None)
+        assert_type_eq(t.loud.col_type, pxt.String | None)
+        t.insert(
+            [
+                {'id': 2, 'note': None, 'label': 'y', 'extra': 'f', 'meta': {'kind': 'k2'}},
+                {'id': 3, 'note': 'c', 'label': 'z', 'extra': 'g', 'meta': None},
+            ]
+        )
+        res = t.order_by(t.id).select(t.loud, t.kind).collect()
+        assert res['loud'] == ['A', None, 'C']
+        # kind existed before meta became nullable, and is still computed for new rows
+        assert res['kind'] == ['k1', 'k2', None]
+
+        # a non-nullable column of the table depends on label: unsupported, and the diff lists that column
+        BlockedModel = pxt.model_base()
+
+        class BlockedNotes(BlockedModel, name='notes'):
+            id = Column(type=pxt.Int, primary_key=True)
+            note: pxt.String | None
+            label: pxt.String | None
+            extra: pxt.String
+            meta: pxt.Json | None
+            shout = pxtf.string.upper(label)
+            kind = meta.kind
+            loud = pxtf.string.upper(note)
+
+        diff = BlockedModel.get_model_diff(root)['notes']
+        assert diff.resolution == 'unsupported'
+        (label_op,) = [op for op in diff.ops if op.name == 'label']
+        assert (
+            label_op.description
+            == "column 'label' cannot become nullable: non-nullable columns depend on it: notes.shout"
+        )
+
+        # a non-nullable column of a view outside the models depends on extra: unsupported, and the update changes
+        # nothing
+        v = pxt.create_view(p('notes_view'), t)
+        v.add_computed_column(extra_len=pxtf.string.len(v.extra))
+
+        ViewBlockedModel = pxt.model_base()
+
+        class ViewBlockedNotes(ViewBlockedModel, name='notes'):
+            id = Column(type=pxt.Int, primary_key=True)
+            note: pxt.String | None
+            label: pxt.String
+            extra: pxt.String | None
+            meta: pxt.Json | None
+            shout = pxtf.string.upper(label)
+            kind = meta.kind
+            loud = pxtf.string.upper(note)
+
+        diff = ViewBlockedModel.get_model_diff(root)['notes']
+        assert diff.resolution == 'unsupported'
+        (extra_op,) = [op for op in diff.ops if op.name == 'extra']
+        assert extra_op.description == (
+            "column 'extra' cannot become nullable: non-nullable columns depend on it: notes_view.extra_len"
+        )
+        with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match='cannot be updated'):
+            ViewBlockedModel.update_all(root)
+        assert_type_eq(pxt.get_table(p('notes')).extra.col_type, pxt.String)
+
     def test_update_all_aggregate_query_column(self, db_root: DatabaseRoot) -> None:
         """A column of one model that aggregates over another model's rows, via an ungrouped `@pxt.query`."""
         p = db_root.make_catalog_path
@@ -3671,6 +3775,27 @@ class TestTableModel:
         customers.insert([{'customer': 'a'}, {'customer': 'b'}])
         assert_type_eq(customers.total.col_type, pxt.Float | None)
         assert customers.order_by(customers.customer).select(customers.total).collect()['total'] == [3.5, None]
+
+    def test_eval_udf_model_query(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        class Notes(TableModel, name='notes'):
+            id = Column(type=pxt.Int, primary_key=True)
+            label: pxt.String
+
+        @pxt.query
+        def labels_after(id: int) -> pxt.Query:
+            return Notes.where(Notes.id > id).order_by(Notes.id).select(Notes.label)  # type: ignore[arg-type, operator]
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'call `bind_all\(\)`'):
+            pxt.eval_udf(labels_after, 0)
+
+        TableModel.create_all(root)
+        pxt.get_table(p('notes')).insert([{'id': 1, 'label': 'a'}, {'id': 2, 'label': 'b'}, {'id': 3, 'label': 'c'}])
+        assert pxt.eval_udf(labels_after, 1) == ['b', 'c']
 
     def test_update_all_altered_columns_reversed_dependency(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

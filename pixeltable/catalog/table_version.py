@@ -59,6 +59,9 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
+# bind parameters per key lookup statement; Postgres allows at most 65535, and the from clause binds some as well
+_KEY_LOOKUP_BIND_PARAMS = 10_000
+
 
 def _plan_node_names(plan: 'exec.ExecNode') -> list[str]:
     """Node class names in plan-chain order (consumer first), for PlanAttrs.nodes."""
@@ -1120,31 +1123,28 @@ class TableVersion:
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
     def alter_column(self, col: Column, type_: ts.ColumnType) -> None:
-        """Alter the type of a column. Currently only supports widening a value column to nullable."""
-        assert self.is_mutable
-        assert not col.is_computed
-        assert not col.is_pk
-        if type_ == col.col_type:
-            # no-op
-            return
-
-        valid_change = type_.matches(col.col_type) and not col.col_type.nullable and type_.nullable
-        if not valid_change:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Column {col.name!r} type cannot be changed from {col.col_type} to {type_}',
-            )
-
-        # alter column type from required to nullable
+        """Change the type of a data column as a new schema version."""
         old_type = col.col_type
-        col.col_type = type_
-        self._schema_version_md.columns[col.id].col_type = type_.as_dict()
+        self.alter_col_type_in_version(col, type_)
         self.bump_version(bump_schema_version=True)
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(
             f'Altered column {col.name!r} type from {old_type} to {type_} in table {self.name}, new version: '
             f'{self.version}'
         )
+
+    def alter_col_type_in_version(self, col: Column, type_: ts.ColumnType) -> None:
+        """Change the type of a data column within the current schema version, without writing the metadata."""
+        assert self.is_mutable
+        assert not col.is_computed and not col.is_pk
+        # the only supported change makes the column nullable
+        assert not col.col_type.nullable and type_ == col.col_type.copy(nullable=True)
+        cat = get_runtime().catalog
+        cat.mark_modified_tv(self.handle)
+        # the expressions that reference col keep its old type
+        cat.invalidate_after_xact(self)
+        col.col_type = type_
+        self._schema_version_md.columns[col.id].col_type = type_.as_dict()
 
     def _alter_value_expr_in_version(self, col: Column, new_value_expr: exprs.Expr) -> None:
         """Replace a computed column's value expression within the current schema version."""
@@ -1278,8 +1278,8 @@ class TableVersion:
         get_runtime().catalog.record_column_dependencies(self)
         self.path.clear_cached_md()
         _logger.info(
-            f'Altered value expression of column {col.name!r} in table {self.name} from {old_value_expr} to '
-            f'{new_value_expr}, new version: {self.version}'
+            f'Altered value expression of column {col.name!r} in table {self.name} from {old_value_expr!s} to '
+            f'{new_value_expr!s}, new version: {self.version}'
         )
 
         if not recompute:
@@ -1482,6 +1482,37 @@ class TableVersion:
                 )
                 result += insert_status.to_cascade()
         return result
+
+    def insert_new_rows(self, batch: list[dict[Column, exprs.Expr]], return_rows: bool) -> UpdateStatus:
+        """Insert the rows of batch whose primary key is not in the table, leaving the existing rows untouched.
+
+        Each row of batch maps Columns, including all primary key columns, to Literals.
+        """
+        from pixeltable.exec import SqlNode
+
+        pk_cols = self.primary_key_columns()
+        key_vals = [tuple(row[col].val for col in pk_cols) for row in batch]
+        sa_key_cols = [col.sa_col for col in pk_cols]
+        # the lookup binds one parameter per key column per key
+        keys_per_lookup = _KEY_LOOKUP_BIND_PARAMS // len(pk_cols)
+        existing: set[tuple] = set()
+        for start in range(0, len(key_vals), keys_per_lookup):
+            stmt = sql.select(*sa_key_cols).where(
+                sql.tuple_(*sa_key_cols).in_(key_vals[start : start + keys_per_lookup])
+            )
+            # restricts the lookup to the rows visible at the current version
+            stmt = SqlNode.create_from_clause(self.path, stmt)
+            existing.update(tuple(row) for row in get_runtime().conn.execute(stmt))
+        new_rows: list[dict[str, Any]] = []
+        for key, row in zip(key_vals, batch):
+            if key in existing:
+                continue
+            # keep only the first row of a repeated key
+            existing.add(key)
+            new_rows.append({col.name: val_expr.val for col, val_expr in row.items()})
+        if len(new_rows) == 0:
+            return UpdateStatus(rows=[] if return_rows else None)
+        return self.insert(new_rows, None, print_stats=False, fail_on_exception=False, return_rows=return_rows)
 
     def _update_rows(self, plan: 'exec.ExecNode', set_cols: list[Column], return_rows: bool) -> UpdateStatus:
         assert not self.is_data_versioned
@@ -1780,7 +1811,7 @@ class TableVersion:
         # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
         if analysis_info.filter is not None:
             raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter}'
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter!s}'
             )
 
     def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:

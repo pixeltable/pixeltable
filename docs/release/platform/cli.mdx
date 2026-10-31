@@ -100,6 +100,10 @@ pxt pwd                            # print it
 pxt init                             # mark the current directory as a project root
 pxt skills install                   # give coding agents the Pixeltable skill
 
+# functions
+pxt functions --on Json              # what you can call on a Json expression
+pxt functions --search detect        # functions whose path or docstring contains "detect"
+
 # declarative schemas
 pxt schema check  app.py          # validate the file on its own, with no target
 pxt schema diff   app.py my_app   # what 'update' would change (exit 2 = drift)
@@ -442,6 +446,20 @@ A recorded path is how a later process -- the daemon, a serving worker, a hosted
 pxt schema check app.py           # exit 0 valid, 1 invalid
 pxt service check app.py --json
 ```
+
+## Functions
+
+`pxt functions` lists the functions, aggregates and iterators of Pixeltable or of a module, one per line, with how to call each one and the first paragraph of its docstring. It needs no daemon or catalog.
+
+```bash
+pxt functions --on Json              # the methods and properties of Json expressions
+pxt functions --search detect        # the functions whose path or docstring contains "detect"
+pxt functions video --kind iterator  # the iterators in pixeltable.functions.video, with their output columns
+pxt functions app                    # the UDFs of app.py in the current directory
+pxt functions --on Image --json      # the same records, machine-readable
+```
+
+`pxt.list_functions()` takes the same filters in Python.
 
 ## Coding agents
 

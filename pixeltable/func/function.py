@@ -6,12 +6,13 @@ import itertools
 import typing
 from abc import ABC, abstractmethod
 from copy import copy
-from typing import TYPE_CHECKING, Any, Callable, Self, Sequence, cast
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Self, Sequence, cast
 
 import sqlalchemy as sql
 
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.config import Config
+from pixeltable.types import FunctionInfo, FunctionKind
 
 from .globals import import_error_msg, resolve_symbol
 from .signature import Signature
@@ -30,6 +31,7 @@ class Function(ABC):
     via the member self_path.
     """
 
+    kind: ClassVar[FunctionKind] = 'udf'
     signatures: list[Signature]
     self_path: str | None
     is_method: bool
@@ -133,6 +135,28 @@ class Function(ABC):
         if docstring is None:
             return display
         return f'{display}\n\n{docstring}'
+
+    def info(self, path: str) -> FunctionInfo:
+        """Describe this function, with path as its import path."""
+        returns = self.signatures[0].return_str(pretty_print_json=True)
+        if self._conditional_return_type is not None:
+            returns += ' (depends on the arguments)'
+        return function_info(
+            path, self.name, self.kind, f'{self._call_str(path)} -> {returns}', self.signatures, self.comment()
+        )
+
+    def _call_str(self, path: str) -> str:
+        """Format a call with the first signature, without its return type."""
+        sig = self.signatures[0]
+        if self.is_method or self.is_property:
+            receiver_type = sig.parameters_by_pos[0].col_type
+            assert receiver_type is not None
+            # as Python's docs write str.upper()
+            receiver = f'pxt.{receiver_type.type_name()}'
+            if self.is_property:
+                return f'{receiver}.{self.name}'
+            return f'{receiver}.{self.name}({sig.params_str(with_defaults=True, as_method=True)})'
+        return f'{path}({sig.params_str(with_defaults=True)})'
 
     @property
     def _resolved_fns(self) -> list[Self]:
@@ -608,3 +632,25 @@ class InvalidFunction(Function):
     @property
     def is_async(self) -> bool:
         return False
+
+
+def function_info(
+    path: str,
+    name: str,
+    kind: FunctionKind,
+    call: str,
+    signatures: Sequence[Signature],
+    doc: str | None,
+    outputs: dict[str, str] | None = None,
+) -> FunctionInfo:
+    """Return the FunctionInfo of a function or iterator, with the `pixeltable.functions.` prefix removed from call."""
+    return FunctionInfo(
+        path=path,
+        name=name,
+        kind=kind,
+        call=call.removeprefix('pixeltable.functions.'),
+        signatures=[sig._to_str(pretty_print_json=True, with_defaults=True) for sig in signatures],
+        summary=None if doc is None else ' '.join(doc.split('\n\n', 1)[0].split()),
+        doc=doc,
+        outputs=outputs,
+    )

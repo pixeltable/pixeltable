@@ -193,7 +193,7 @@ class ResultSet:
             else:
                 col_name = self._col_names[index[1]]
             return self._rows[index[0]][col_name]
-        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Bad index: {index}')
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Bad index: {index!s}')
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
         return (self._row_to_dict(i) for i in range(len(self)))

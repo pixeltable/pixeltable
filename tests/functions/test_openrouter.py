@@ -78,7 +78,7 @@ class TestOpenRouter:
         # Test with transforms
         t.add_computed_column(
             summary=chat_completions(
-                messages=[{'role': 'user', 'content': f'Summarize: {t.text}'}],
+                messages=[{'role': 'user', 'content': 'Summarize: ' + t.text}],
                 model='openai/gpt-5.4-mini',
                 transforms=['middle-out'],
             )

@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import abc
+import dataclasses
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence, overload
 
 import pandas as pd
 from typing_extensions import TypeForm
 
 from pixeltable import exceptions as excs
+from pixeltable.runtime import get_runtime
 
-from .globals import is_valid_identifier
+from .globals import IfNotExistsParam, is_valid_identifier
+from .path import Path as CatalogPath
 from .schema_object import SchemaObject
 
 if TYPE_CHECKING:
@@ -78,6 +81,36 @@ class Table(SchemaObject):
         Returns:
             A list of view paths.
         """
+
+    def _non_nullable_dependents(self, col_name: str) -> list[str]:
+        """Return the qualified names of the non-nullable computed columns of this table and its views that reference
+        its column col_name directly.
+        """
+        # TODO: return only the dependents whose value expression becomes nullable when col_name becomes nullable
+        tbl_name = self.get_metadata()['name']
+        own_path = self._path()
+        # list_views() returns paths within this table's catalog
+        view_paths = [
+            dataclasses.replace(CatalogPath.parse(path), org=own_path.org, db=own_path.db) for path in self.list_views()
+        ]
+        tbls: list[Table] = [self]
+        for path in view_paths:
+            view = get_runtime().get_catalog(path).get_table(path, IfNotExistsParam.ERROR)
+            assert view is not None
+            tbls.append(view)
+        dependents: set[str] = set()
+        for tbl in tbls:
+            md = tbl.get_metadata()
+            if md['is_snapshot']:
+                continue
+            for name, col_md in md['columns'].items():
+                if (tbl_name, col_name) not in {tuple(dep) for dep in col_md['depends_on'] or []}:
+                    continue
+                col_version_md = tbl._tbl_path.get_column_md_by_name(name)
+                assert col_version_md is not None
+                if not col_version_md.col_type.nullable:
+                    dependents.add(f'{col_md["defined_in"]}.{name}')
+        return sorted(dependents)
 
     def select(self, *items: Any, **named_items: Any) -> 'Query':
         """Select columns or expressions from this table.
@@ -442,16 +475,16 @@ class Table(SchemaObject):
     def alter_column(self, column: str | ColumnRef, *, type_: TypeForm) -> None:
         """Alter the type of a column.
 
-        Currently, the only supported change is widening a non-computed column from non-nullable to
-        nullable.
+        The only supported change makes a non-computed column nullable. It fails if a non-nullable computed column of
+        this table or of one of its views references the column.
 
         Args:
             column: The name or reference of the column to alter.
             type_: The new type for the column.
 
         Raises:
-            Error: If the column does not exist, is a computed column, if `type_` is not a supported widening of the
-            current type, or if the change cannot be performed for any other reason.
+            Error: If the column does not exist, is a computed or primary key column, if `type_` is not the column's
+            type made nullable, or if a non-nullable computed column references the column.
 
         Examples:
             Make a previously non-nullable column nullable:
@@ -1118,22 +1151,27 @@ class Table(SchemaObject):
         rows: Iterable[dict[str, Any]],
         cascade: bool = True,
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
+        if_exists: Literal['update', 'ignore'] = 'update',
         return_rows: bool = False,
     ) -> UpdateStatus:
-        """Update rows in this table.
+        """Update or insert rows of this table, matching them by primary key.
 
         Args:
             rows: an Iterable of dictionaries containing values for the updated columns plus values for the primary key
                   columns.
             cascade: if True, also update all computed columns that transitively depend on the updated columns.
-            if_not_exists: Specifies the behavior if a row to update does not exist:
+            if_not_exists: Specifies the behavior if a row does not exist:
 
                 - `'error'`: Raise an error.
                 - `'ignore'`: Skip the row silently.
                 - `'insert'`: Insert the row.
+            if_exists: Specifies the behavior if a row already exists:
 
+                - `'update'`: Update the row.
+                - `'ignore'`: Leave the row and its computed columns untouched. This requires `if_not_exists='insert'`,
+                    and the rows may then contain media values, as in `insert()`.
             return_rows: If `True`, populate `UpdateStatus.rows` with one dict per affected row, mapping column
-                names to their new stored values. Rows newly inserted via `if_not_exists='insert'` are included.
+                names to their new stored values. Newly inserted rows are included.
                 If `False` (default), `UpdateStatus.rows` is `None`.
 
         Examples:
@@ -1155,6 +1193,18 @@ class Table(SchemaObject):
             ...         {'id': 1, 'name': 'Alice', 'age': 30},
             ...         {'id': 3, 'name': 'Bob', 'age': 40},
             ...     ],
+            ...     if_not_exists='insert',
+            ... )
+
+            Load a batch that may repeat rows loaded before: insert the new ids, and leave the existing rows and their
+            computed columns untouched:
+
+            >>> tbl.batch_update(
+            ...     [
+            ...         {'id': 1, 'name': 'Alice', 'age': 30},
+            ...         {'id': 4, 'name': 'Carol', 'age': 50},
+            ...     ],
+            ...     if_exists='ignore',
             ...     if_not_exists='insert',
             ... )
         """

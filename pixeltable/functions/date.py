@@ -8,12 +8,13 @@ Usage example:
 >>> t.select(t.date_col.year, t.date_col.weekday()).collect()
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import TypedDict
 
 import sqlalchemy as sql
 
 import pixeltable as pxt
+from pixeltable.env import Env
 from pixeltable.utils.code import local_public_names
 
 _SQL_ZERO = sql.literal(0)
@@ -86,6 +87,47 @@ def make_date(year: int, month: int, day: int) -> date:
 @make_date.to_sql
 def _(year: sql.ColumnElement, month: sql.ColumnElement, day: sql.ColumnElement) -> sql.ColumnElement:
     return sql.func.make_date(year.cast(sql.Integer), month.cast(sql.Integer), day.cast(sql.Integer))
+
+
+@pxt.udf(is_deterministic=False)
+def today() -> date:
+    """
+    Return the current date in the default time zone.
+
+    A query, or a computed column with `stored=False`, evaluates it when the query runs. A stored computed column
+    records the date of the insert, and a recompute replaces it with the date of the recompute.
+
+    Examples:
+        The tasks that are due today:
+
+        >>> t.where(t.due_date == pxtf.date.today()).collect()
+    """
+    return datetime.now().astimezone(Env.get().default_time_zone).date()
+
+
+@today.to_sql
+def _() -> sql.ColumnElement:
+    return sql.cast(sql.func.now(), sql.Date)
+
+
+@pxt.udf
+def strptime(date_string: str, format: str) -> date:
+    """
+    Parse a date from date_string according to format.
+
+    Equivalent to `datetime.strptime(date_string, format).date()`; see
+    [`datetime.strptime()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.strptime). For an
+    ISO 8601 string, `astype(pxt.Date)` is enough.
+
+    Args:
+        date_string: The string to parse.
+        format: The format of date_string. For a complete list of formatting directives, see
+            [`strftime()` and `strptime()` Behavior](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior).
+
+    Examples:
+        >>> t.add_computed_column(picked_on=pxtf.date.strptime(t.picked, '%d.%m.%Y'))
+    """
+    return datetime.strptime(date_string, format).date()
 
 
 @pxt.udf(is_method=True)

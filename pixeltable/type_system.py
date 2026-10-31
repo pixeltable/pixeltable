@@ -196,10 +196,18 @@ class ColumnType:
 
     def _to_base_str(self) -> str:
         """
-        String representation of this type, disregarding nullability. Default implementation is to camel-case
-        the type name; subclasses may override.
+        String representation of this type, disregarding nullability. Default implementation is type_name();
+        subclasses may override.
         """
+        return self.type_name()
+
+    def type_name(self) -> str:
+        """Return the name of this type without its parameters, such as `Json` for `Json[{'a': Int}]`."""
         return self._type.name[0] + self._type.name[1:].lower()
+
+    def pretty_str(self) -> str:
+        """Format this type for documentation, such as `pxt.String | None`."""
+        return f'pxt.{self}'
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, ColumnType) and self.matches(other) and self.nullable == other.nullable
@@ -989,7 +997,7 @@ class UUIDType(ColumnType):
     def print_value(self, val: Any) -> str:
         return f"'{val}'"
 
-    def _to_base_str(self) -> str:
+    def type_name(self) -> str:
         return 'UUID'
 
     def _validate_literal(self, val: Any) -> None:
@@ -1029,6 +1037,9 @@ class JsonType(ColumnType):
         super().__init__(self.Type.JSON, nullable=nullable)
         self.type_schema = type_schema
         self.pretty_print_name = pretty_print_name
+
+    def pretty_str(self) -> str:
+        return super().pretty_str() if self.pretty_print_name is None else self.pretty_print_name
 
     @classmethod
     def from_json_type_arg(cls, json_type_arg: Any) -> JsonType:
@@ -1206,7 +1217,7 @@ class JsonType(ColumnType):
         if isinstance(val, pydantic.BaseModel):
             val = val.model_dump()
         if not self.__is_valid_json_literal(val):
-            raise TypeError(f'That literal is not a valid Pixeltable JSON object: {val}')
+            raise TypeError(f'That literal is not a valid Pixeltable JSON object: {val!s}')
         if self.type_schema is not None:
             self.type_schema.validate_literal(val)
 

@@ -263,6 +263,59 @@ def _(
     )
 
 
+@pxt.udf(is_deterministic=False)
+def now() -> datetime.datetime:
+    """
+    Return the current time in the default time zone.
+
+    A query, or a computed column with `stored=False`, evaluates it when the query runs. A stored computed column
+    records the time of the insert, and a recompute replaces it with the time of the recompute.
+
+    Equivalent to [`datetime.now()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.now), with
+    the default time zone as `tz`.
+
+    Examples:
+        The tickets that are past due:
+
+        >>> t.where(t.due_at < pxtf.timestamp.now()).collect()
+
+        A column that stays current, in a table model:
+
+        >>> overdue = pxt.Column(value=due_at < pxtf.timestamp.now(), stored=False)
+    """
+    return datetime.datetime.now().astimezone(Env.get().default_time_zone)
+
+
+@now.to_sql
+def _() -> sql.ColumnElement:
+    return sql.func.now()
+
+
+@pxt.udf
+def strptime(date_string: str, format: str) -> datetime.datetime:
+    """
+    Parse a timestamp from date_string according to format. A timestamp without a time zone is in the default time
+    zone.
+
+    Equivalent to [`datetime.strptime()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.strptime).
+    For an ISO 8601 string, `astype(pxt.Timestamp)` is enough.
+
+    Args:
+        date_string: The string to parse.
+        format: The format of date_string. For a complete list of formatting directives, see
+            [`strftime()` and `strptime()` Behavior](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior).
+
+    Examples:
+        >>> t.add_computed_column(
+        ...     received_at=pxtf.timestamp.strptime(t.received, '%d/%m/%Y %H:%M')
+        ... )
+    """
+    result = datetime.datetime.strptime(date_string, format)
+    if result.tzinfo is None:
+        return result.replace(tzinfo=Env.get().default_time_zone)
+    return result
+
+
 # @pxt.udf
 # def date(self: datetime.datetime) -> datetime.datetime:
 #     """

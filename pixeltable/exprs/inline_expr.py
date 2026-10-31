@@ -59,7 +59,7 @@ class InlineArray(Expr):
 
         super().__init__(col_type)
         self.components.extend(exprs)
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def __repr__(self) -> str:
         elem_strs = [str(expr) for expr in self.components]
@@ -108,7 +108,7 @@ class InlineList(Expr):
         type_schema = ts.JsonType.TypeSchema(type_spec=[expr.col_type for expr in exprs])
         super().__init__(ts.JsonType(type_schema))
         self.components.extend(exprs)
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def __repr__(self) -> str:
         elem_strs = [str(expr) for expr in self.components]
@@ -160,10 +160,10 @@ class InlineDict(Expr):
         type_schema = ts.JsonType.TypeSchema(type_spec={key: expr.col_type for key, expr in zip(self.keys, exprs)})
         super().__init__(ts.JsonType(type_schema))
         self.components.extend(exprs)
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def __repr__(self) -> str:
-        item_strs = [f"'{key}': {expr}" for key, expr in zip(self.keys, self.components)]
+        item_strs = [f"'{key}': {expr!s}" for key, expr in zip(self.keys, self.components)]
         return '{' + ', '.join(item_strs) + '}'
 
     def _equals(self, other: InlineDict) -> bool:

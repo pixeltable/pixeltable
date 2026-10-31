@@ -17,10 +17,10 @@ class IsNull(Expr):
     def __init__(self, e: Expr):
         super().__init__(ts.BoolType())
         self.components = [e]
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def __repr__(self) -> str:
-        return f'{self.components[0]} == None'
+        return f'{self.components[0]!s} == None'
 
     def _equals(self, other: IsNull) -> bool:
         return True

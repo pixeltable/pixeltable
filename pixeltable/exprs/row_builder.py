@@ -38,7 +38,7 @@ class ExecProfile:
             calls_per_row = self.eval_count[i] / num_rows
             multiple_str = f'({calls_per_row}x)' if calls_per_row > 1 else ''
             Env.get().console_logger.info(
-                f'{self.row_builder.unique_exprs[i]}: {utils.print_perf_counter_delta(per_call_time)} {multiple_str}'
+                f'{self.row_builder.unique_exprs[i]!s}: {utils.print_perf_counter_delta(per_call_time)} {multiple_str}'
             )
 
 
@@ -413,7 +413,7 @@ class RowBuilder:
                 # don't resolve dependencies outside of target_scope
                 continue
             for d in expr.dependencies():
-                assert d.slot_idx is not None, f'{expr}, {d}'
+                assert d.slot_idx is not None, f'{expr!s}, {d!s}'
                 if d.slot_idx in excluded_slot_idxs:
                     continue
                 dependencies[expr.slot_idx].add(d.slot_idx)
@@ -537,7 +537,7 @@ class RowBuilder:
                 if not ignore_errors:
                     input_vals = [data_row[d.slot_idx] for d in expr.dependencies()]
                     raise excs.ExprEvalError(
-                        expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0
+                        expr, f'expression {expr!s}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0
                     ) from exc
 
     def create_output_rows(self, *, table_rows: list[list[Any]], has_pk: bool) -> list[dict[str, Any]]:

@@ -81,7 +81,8 @@ class Expr(abc.ABC):
     # - set by the subclass's __init__()
     # - produced by _create_id()
     # - not expected to survive a serialize()/deserialize() roundtrip
-    id: int | None
+    # - underscored: an attribute named id would hide the JSON key id, as in t.reply.id
+    _expr_id: int | None
 
     # whether col_type contributes to the id; a subclass sets this to False if two of its instances that compare
     # equal can differ in col_type
@@ -98,7 +99,7 @@ class Expr(abc.ABC):
     def __init__(self, col_type: ts.ColumnType):
         self.col_type = col_type
         self.components = []
-        self.id = None
+        self._expr_id = None
         self.slot_idx = None
 
     def dependencies(self) -> list[Expr]:
@@ -138,7 +139,7 @@ class Expr(abc.ABC):
         return '\n'.join(buf)
 
     def _expr_tree_r(self, indent: int, buf: list[str]) -> None:
-        buf.append(f'{" " * indent}{type(self).__name__}: {self}'.replace('\n', '\\n'))
+        buf.append(f'{" " * indent}{type(self).__name__}: {self!s}'.replace('\n', '\\n'))
         for c in self.components:
             c._expr_tree_r(indent + 2, buf)
 
@@ -215,13 +216,13 @@ class Expr(abc.ABC):
             # but different types being considered the same expression, e.g. str(int(4)) == "4"
             hasher.update(repr(self.col_type).encode('utf-8'))
         for expr in self.components:
-            hasher.update(str(expr.id).encode('utf-8'))
+            hasher.update(str(expr._expr_id).encode('utf-8'))
         # truncate to machine's word size
         return int(hasher.hexdigest(), 16) & sys.maxsize
 
     def __hash__(self) -> int:
-        assert self.id is not None
-        return self.id
+        assert self._expr_id is not None
+        return self._expr_id
 
     @classmethod
     def list_equals(cls, a: list[Expr], b: list[Expr]) -> bool:
@@ -270,7 +271,7 @@ class Expr(abc.ABC):
         for i in range(len(self.components)):
             self.components[i] = self.components[i].substitute(spec)
         result = self.maybe_literal()
-        result.id = result._create_id()
+        result._expr_id = result._create_id()
         return result
 
     @classmethod
@@ -477,13 +478,14 @@ class Expr(abc.ABC):
         if method_ref is None:
             return
         json_hint = (
-            f', or use {method_ref.base_expr}[{method_ref.method_name!r}] for the JSON field'
+            f', or use {method_ref.base_expr!s}[{method_ref.method_name!r}] for the JSON field'
             if method_ref.base_expr.col_type.is_json_type()
             else ''
         )
         raise excs.RequestError(
             excs.ErrorCode.INVALID_EXPRESSION,
-            f'{error_prefix}{method_ref} is the method {method_ref.method_name}(); call it to get a value{json_hint}.',
+            f'{error_prefix}{method_ref!s} is the method {method_ref.method_name}(); '
+            f'call it to get a value{json_hint}.',
         )
 
     def _has_relative_path(self) -> bool:
@@ -605,6 +607,22 @@ class Expr(abc.ABC):
         Not called if sql_expr() != None (exception: Literal).
         """
 
+    def eval_without_row(self) -> Any:
+        """Evaluate this expression, which references no column, and return its value, or raise the exception of a
+        failed evaluation."""
+        from pixeltable.exprs import ColumnRef, RowBuilder
+
+        assert not self.contains_(cls=ColumnRef)
+        row_builder = RowBuilder(output_exprs=[self], columns=[], input_exprs=[])
+        row = row_builder.make_row()
+        row_builder.eval(row, ctx=row_builder.default_eval_ctx, ignore_errors=True)
+        slot_idx = row_builder.get_output_exprs()[0].slot_idx
+        if row.has_exc(slot_idx):
+            exc = row.get_exc(slot_idx)
+            assert exc is not None
+            raise exc
+        return row[slot_idx]
+
     def prepare(self, args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         """
         Create execution state. Called before each iteration begins.
@@ -716,8 +734,14 @@ class Expr(abc.ABC):
         """
         Return a new expression that casts this expression to a different type.
 
-        This represents a type _cast_, not a type _coercion_, so it will not mutate the underlying data; it simply
-        changes the static type given by the expression.
+        Some casts also convert the value:
+
+        - Bool to Int or Float: `False` and `True` become 0 and 1.
+        - Int to Float.
+        - String to Timestamp or Date: an ISO 8601 string is parsed, and a timestamp without a time zone is in the
+          default time zone. For other formats, use [`timestamp.strptime()`][pixeltable.functions.timestamp.strptime]
+          or [`date.strptime()`][pixeltable.functions.date.strptime].
+        - String to Image: the string is a file path or URL.
 
         Args:
             new_type: The type to cast to.
@@ -729,7 +753,8 @@ class Expr(abc.ABC):
 
             This will assume that all values in `t.json_col` are _actually_ strings, and it will result in an error
             at runtime if there are values in `t.json_col` that are not strings. It will _not_ convert those values to
-            a string representation. (For that, use the [`dumps()`][pixeltable.functions.json.dumps] UDF instead.)
+            a string representation. (For that, use the [`dumps()`][pixeltable.functions.json.dumps] UDF instead, and
+            [`loads()`][pixeltable.functions.json.loads] to parse a JSON string.)
         """
         from pixeltable.exprs import TypeCast
 
@@ -810,20 +835,28 @@ class Expr(abc.ABC):
             f'Pixeltable expressions cannot be used in conjunction with Python boolean operators (and/or/not)\n{self!r}'
         )
 
+    def __format__(self, format_spec: str) -> NoReturn:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            'An f-string or str.format() on a Pixeltable expression produces one constant string, not a value per '
+            "row. Build the string with + ('Hello ' + t.name) or pxtf.string.format() "
+            f"(pxtf.string.format('Hello {{0}}', t.name)): {self!s}",
+        )
+
     def __iter__(self) -> NoReturn:
         # without this, iteration falls back to __getitem__(0), __getitem__(1), ..., which never terminates for
         # json/array columns (every index yields another expression)
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             'Pixeltable expressions are not iterable. Iteration over data is expressed as a query '
-            f'(e.g. t.select(...).collect()) or a view with an iterator: {self}',
+            f'(e.g. t.select(...).collect()) or a view with an iterator: {self!s}',
         )
 
     def __len__(self) -> NoReturn:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'len() of a Pixeltable expression is undefined; string and json columns support .len(), '
-            f'row counts are t.count(): {self}',
+            f'row counts are t.count(): {self!s}',
         )
 
     def __lt__(self, other: object) -> 'exprs.Comparison':

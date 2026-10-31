@@ -66,15 +66,15 @@ class JsonMapper(Expr):
         self.op = op
         self.asc = asc
         self.components.append(JsonMapperDispatch(src_expr, target_expr, op))
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def __repr__(self) -> str:
         if self.op == JsonMapper.Operator.FILTER:
-            return f'{self._src_expr}.filter(lambda R: {self._target_expr})'
+            return f'{self._src_expr!s}.filter(lambda R: {self._target_expr!s})'
         if self.op == JsonMapper.Operator.SORT:
             asc_repr = '' if self.asc else ', asc=False'
-            return f'{self._src_expr}.sort(lambda R: {self._target_expr}{asc_repr})'
-        return f'{self._src_expr}.map(lambda R: {self._target_expr})'
+            return f'{self._src_expr!s}.sort(lambda R: {self._target_expr!s}{asc_repr})'
+        return f'{self._src_expr!s}.map(lambda R: {self._target_expr!s})'
 
     @property
     def _src_expr(self) -> Expr:
@@ -167,7 +167,7 @@ class JsonMapperDispatch(Expr):
         # Intentionally create the id now, before adding the scope anchor; this ensures that JsonMapperDispatch
         # instances will be recognized as equal so long as they have the same src, target and op.
         # TODO: Might this cause problems after certain substitutions?
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
         scope_anchor = ObjectRef(self.target_expr_scope, self)
         self.components.append(scope_anchor)

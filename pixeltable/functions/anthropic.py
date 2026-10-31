@@ -8,7 +8,7 @@ the [Working with Anthropic](https://docs.pixeltable.com/howto/providers/working
 import datetime
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Iterable, cast
+from typing import TYPE_CHECKING, Any, Iterable, NotRequired, Required, TypedDict, cast
 
 import pixeltable as pxt
 from pixeltable import env, exprs, telemetry_schemas
@@ -143,6 +143,84 @@ class AnthropicRateLimitsInfo(env.RateLimitsInfo):
         return super().get_retry_delay(exc, attempt)
 
 
+# Mirrors of the Pydantic models in anthropic.types; the response JSON of the messages API has the same keys.
+
+
+class Usage(TypedDict):
+    """The token counts of a message."""
+
+    input_tokens: int
+    output_tokens: int
+    cache_creation_input_tokens: NotRequired[int | None]
+    cache_read_input_tokens: NotRequired[int | None]
+    cache_creation: NotRequired[dict[str, Any] | None]
+    """The cache creation tokens by TTL."""
+    inference_geo: NotRequired[str | None]
+    """The geographic region where inference ran."""
+    output_tokens_details: NotRequired[dict[str, Any] | None]
+    """The output tokens by category; `output_tokens` is the billed total."""
+    server_tool_use: NotRequired[dict[str, Any] | None]
+    """The number of server tool requests."""
+    service_tier: NotRequired[str | None]
+    """The service tier: `'priority'`, `'standard'` or `'batch'`."""
+
+
+class ContentBlock(TypedDict, total=False):
+    """The fields of all content block types; a block's `type` determines its fields."""
+
+    type: Required[str]
+    """The block type: `'text'`, `'thinking'`, `'redacted_thinking'`, `'tool_use'`, `'server_tool_use'`,
+    `'container_upload'`, or a tool result such as `'web_search_tool_result'`."""
+    text: str
+    """The generated text, in a `'text'` block."""
+    citations: list[dict[str, Any]] | None
+    """The text's citations, in a `'text'` block."""
+    thinking: str
+    """Claude's thinking, in a `'thinking'` block."""
+    signature: str
+    """The opaque signature of a `'thinking'` block."""
+    data: str
+    """The encrypted contents of a `'redacted_thinking'` block."""
+    id: str
+    """The tool use id, in a `'tool_use'` or `'server_tool_use'` block."""
+    name: str
+    """The tool name, in a tool use block."""
+    input: dict[str, Any]
+    """The tool input, in a tool use block."""
+    caller: dict[str, Any] | None
+    """The tool's invoker, in a tool use block or a web search or web fetch result block."""
+    toolset_name: str | None
+    """The tool's toolset family, in a `'tool_use'` block."""
+    tool_use_id: str
+    """The tool use id, in a tool result block."""
+    content: pxt.Json
+    """The result, in a tool result block."""
+    file_id: str
+    """The uploaded file's id, in a `'container_upload'` block."""
+
+
+class Message(TypedDict):
+    """A response of the Anthropic messages API."""
+
+    id: str
+    type: str
+    """Always `'message'`."""
+    role: str
+    """Always `'assistant'`."""
+    model: str
+    content: list[ContentBlock]
+    stop_reason: str | None
+    """Why generation stopped: `'end_turn'`, `'max_tokens'`, `'stop_sequence'`, `'tool_use'`, `'pause_turn'`,
+    `'refusal'` or `'model_context_window_exceeded'`."""
+    stop_sequence: str | None
+    """The custom stop sequence that ended generation."""
+    usage: Usage
+    container: NotRequired[dict[str, Any] | None]
+    """The code execution tool's container."""
+    stop_details: NotRequired[dict[str, Any] | None]
+    """The details of a refusal."""
+
+
 @pxt.udf(is_deterministic=False)
 async def messages(
     messages: list[dict[str, str]],
@@ -153,7 +231,7 @@ async def messages(
     tools: list[dict[str, Any]] | None = None,
     tool_choice: dict[str, Any] | None = None,
     _runtime_ctx: env.RuntimeCtx | None = None,
-) -> dict:
+) -> Message:
     """
     Create a Message.
 
@@ -177,7 +255,8 @@ async def messages(
         tool_choice: An optional tool choice configuration.
 
     Returns:
-        A dictionary containing the response and other metadata.
+        The Anthropic `Message` object as a dictionary. With thinking enabled, the first content block is a
+        `'thinking'` block.
 
     Examples:
         Add a computed column that applies the model `claude-3-5-sonnet-20241022`
@@ -186,6 +265,12 @@ async def messages(
         >>> msgs = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(
         ...     response=messages(msgs, model='claude-3-5-sonnet-20241022')
+        ... )
+
+        Add a computed column with the generated text, from the `'text'` content block:
+
+        >>> tbl.add_computed_column(
+        ...     text=tbl.response.content.filter(lambda b: b.type == 'text')[0].text
         ... )
     """
     model_kwargs = {} if model_kwargs is None else dict(model_kwargs)

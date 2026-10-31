@@ -61,6 +61,7 @@ from .globals import (
     create_view,
     drop_dir,
     drop_table,
+    eval_udf,
     get_dir_contents,
     get_dir_tree,
     get_table,
@@ -92,6 +93,7 @@ from .type_system import (
     Timestamp,
     Video,
 )
+from .types import FunctionInfo, FunctionKind, FunctionList
 
 # This import must go last to avoid circular imports.
 from . import functions, io, iterators  # isort: skip

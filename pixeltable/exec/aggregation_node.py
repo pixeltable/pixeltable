@@ -69,7 +69,7 @@ class AggregationNode(ExecNode):
                 fn_call.reset_agg()
             except Exception as exc:
                 _, _, exc_tb = sys.exc_info()
-                expr_msg = f'init() function of the aggregate {fn_call}'
+                expr_msg = f'init() function of the aggregate {fn_call!s}'
                 raise excs.ExprEvalError(fn_call, expr_msg, exc, exc_tb, [], row_num) from exc
 
     def _update_agg_state(self, row: exprs.DataRow, row_num: int) -> None:
@@ -78,7 +78,7 @@ class AggregationNode(ExecNode):
                 fn_call.update(row)
             except Exception as exc:
                 _, _, exc_tb = sys.exc_info()
-                expr_msg = f'update() function of the aggregate {fn_call}'
+                expr_msg = f'update() function of the aggregate {fn_call!s}'
                 input_vals = [row[d.slot_idx] for d in fn_call.dependencies()]
                 raise excs.ExprEvalError(fn_call, expr_msg, exc, exc_tb, input_vals, row_num) from exc
 

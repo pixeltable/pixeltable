@@ -502,6 +502,7 @@ def _batch_update(request: ProxyRequest, tbl: LocalTable) -> Any:
         cascade=kwargs['cascade'],
         if_not_exists=kwargs['if_not_exists'],
         return_rows=kwargs['return_rows'],
+        if_exists=kwargs['if_exists'],
     )
 
 

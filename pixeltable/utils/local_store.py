@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import shutil
+import tempfile
 import urllib.parse
 import urllib.request
 import uuid
@@ -16,6 +17,7 @@ from uuid import UUID
 import PIL.Image
 
 from pixeltable import env, exceptions as excs
+from pixeltable.config import Config
 from pixeltable.utils.object_stores import FileDestination, ObjectPath, ObjectStoreBase, StorageObjectAddress
 
 _logger = logging.getLogger(__name__)
@@ -291,6 +293,17 @@ class TempStore:
     @classmethod
     def contains_path(cls, file_path: Path | str) -> bool:
         return Path(file_path).is_relative_to(env.Env.get().tmp_dir)
+
+    @classmethod
+    def in_system_temp_dir(cls, file_path: Path) -> bool:
+        """Return True if file_path lies in a system temp directory and outside the Pixeltable home.
+
+        The home is excluded because it may itself lie in a temp directory.
+        """
+        resolved = file_path.resolve()
+        if resolved.is_relative_to(Config.get().home.resolve()):
+            return False
+        return any(resolved.is_relative_to(Path(d).resolve()) for d in (tempfile.gettempdir(), '/tmp', '/var/tmp'))
 
     @classmethod
     def resolve_url(cls, file_url: str | None) -> Path | None:

@@ -255,8 +255,12 @@ class ObjectStoreSaveNode(ExecNode):
                 # The url does not point to a local file, do not attempt to copy/move it
                 continue
 
-            if destination is None and not TempStore.contains_path(src_path):
-                # Do not copy local file URLs to the LocalStore
+            if (
+                destination is None
+                and not TempStore.contains_path(src_path)
+                and not TempStore.in_system_temp_dir(src_path)
+            ):
+                # Do not copy local file URLs to the LocalStore, unless the OS may clean up the file
                 continue
 
             file_size = src_path.stat().st_size

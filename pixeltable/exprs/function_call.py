@@ -229,7 +229,7 @@ class FunctionCall(Expr):
         self.aggregator = None
         self.current_partition_vals = None
 
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def _create_rowid_refs(self, tbl: catalog.Table) -> list[Expr]:
         path = tbl._tbl_path
@@ -295,14 +295,14 @@ class FunctionCall(Expr):
             subst = self.fn.instantiate(self.args, self.kwargs)
             return subst.display_str(inline)
         if self.is_method_call:
-            return f'{self.components[0]}.{self.fn.display_name}({self._print_args(1, inline)})'
+            return f'{self.components[0]!s}.{self.fn.display_name}({self._print_args(1, inline)})'
         else:
             fn_name = self.fn.display_name or 'anonymous_fn'
             return f'{fn_name}({self._print_args()})'
 
     def _print_args(self, start_idx: int = 0, inline: bool = True) -> str:
         arg_strs = [str(self.components[idx]) for idx in self.arg_idxs[start_idx:]]
-        arg_strs.extend(f'{name}={self.components[idx]}' for name, idx in self.kwarg_idxs.items())
+        arg_strs.extend(f'{name}={self.components[idx]!s}' for name, idx in self.kwarg_idxs.items())
         if len(self.order_by) > 0:
             assert isinstance(self.fn, func.AggregateFunction)
             if self.fn.requires_order_by:
@@ -366,6 +366,9 @@ class FunctionCall(Expr):
 
         # we currently can't translate aggregate functions with grouping and/or ordering to SQL
         if self.has_group_by() or len(self.order_by) > 0:
+            return None
+        # CachePrefetchNode downloads files only for media ColumnRefs; a media result from SQL would have no local file
+        if self.col_type.is_media_type():
             return None
 
         # try to construct args and kwargs to call self.fn._to_sql()
@@ -473,11 +476,13 @@ class FunctionCall(Expr):
         parameters_by_pos = self.fn.signature.parameters_by_pos
         for idx in self.arg_idxs:
             val = self._arg_val(data_row, idx)
+            # a position past the parameter list belongs to a *args parameter
+            param = parameters_by_pos[idx] if idx < len(parameters_by_pos) else None
             if (
                 val is None
-                and parameters_by_pos[idx].kind
-                in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-                and not parameters_by_pos[idx].col_type.nullable
+                and param is not None
+                and param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                and not param.col_type.nullable
             ):
                 return None
             args.append(val)
@@ -490,11 +495,13 @@ class FunctionCall(Expr):
             if param_name in init_param_names:
                 continue
             val = self._arg_val(data_row, idx)
+            # a name outside the parameter list belongs to a **kwargs parameter
+            param = parameters.get(param_name)
             if (
                 val is None
-                and parameters[param_name].kind
-                in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-                and not parameters[param_name].col_type.nullable
+                and param is not None
+                and param.kind in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                and not param.col_type.nullable
             ):
                 return None
             kwargs[param_name] = val
@@ -503,9 +510,10 @@ class FunctionCall(Expr):
 
     def _arg_val(self, data_row: DataRow, component_idx: int) -> Any:
         component = self.components[component_idx]
-        if isinstance(component, Literal) and not self.fn.is_builtin:
+        if isinstance(component, Literal) and component.has_mutable_val and not self.fn.is_builtin:
             # a non-builtin function might modify its argument, and all rows and calls share a Literal's val
             return component.defensive_copy()
+        # the data row loads the image at an image Literal's file path
         return data_row[component.slot_idx]
 
     def get_param_values(self, param_names: Sequence[str], data_rows: list[DataRow]) -> list[dict[str, Any]]:

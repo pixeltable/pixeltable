@@ -248,7 +248,7 @@ class QueryBase(ABC):
             return None
         if not isinstance(v_expr, exprs.Literal):
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} parameter must be a constant; got: {v_expr}'
+                excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} parameter must be a constant; got: {v_expr!s}'
             )
         if range is not None:
             if range[0] is not None and not (v_expr.val >= range[0]):
@@ -461,7 +461,7 @@ class QueryBase(ABC):
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression: {raw_expr}')
             expr.check_method_refs()
             if expr.col_type.is_invalid_type() and not (isinstance(expr, exprs.Literal) and expr.val is None):
-                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid type: {raw_expr}')
+                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid type: {raw_expr!s}')
             if len(self._from_clause.tbls) == 1 and self._from_clause.is_local:
                 # Select expressions need to be retargeted in order to handle snapshots correctly, as in expressions
                 # such as `snapshot.select(base_tbl.col)`
@@ -477,7 +477,7 @@ class QueryBase(ABC):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f"That expression cannot be evaluated in the context of this query's tables "
-                    f'({", ".join(tbl.tbl_name() for tbl in self._from_clause.tbls)}): {expr}',
+                    f'({", ".join(tbl.tbl_name() for tbl in self._from_clause.tbls)}): {expr!s}',
                 )
             select_list.append((expr, name))
 
@@ -568,12 +568,12 @@ class QueryBase(ABC):
             if not on.is_bound_by(joined_tbls):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'`on` expression cannot be evaluated in the context of the joined tables: {on}',
+                    f'`on` expression cannot be evaluated in the context of the joined tables: {on!s}',
                 )
             if not on.col_type.is_bool_type():
                 raise excs.RequestError(
                     excs.ErrorCode.TYPE_MISMATCH,
-                    f'`on` expects an expression of type `Bool`, but got one of type `{on.col_type}`: {on}',
+                    f'`on` expects an expression of type `Bool`, but got one of type `{on.col_type}`: {on!s}',
                 )
             return on
         elif not isinstance(on, Sequence) or len(on) == 0:
@@ -591,7 +591,7 @@ class QueryBase(ABC):
             if not col_ref.is_bound_by(joined_tbls):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'`on` expression cannot be evaluated in the context of the joined tables: {col_ref}',
+                    f'`on` expression cannot be evaluated in the context of the joined tables: {col_ref!s}',
                 )
             col_refs.append(col_ref)
 
@@ -936,7 +936,7 @@ class QueryBase(ABC):
         if not isinstance(limit_expr, (exprs.Literal, exprs.Variable)):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
-                f'limit(): parameter must be an int constant or query parameter; got: {n}',
+                f'limit(): parameter must be an int constant or query parameter; got: {n!s}',
             )
         offset_expr = None
         if offset is not None:
@@ -944,7 +944,7 @@ class QueryBase(ABC):
             if not isinstance(offset_expr, (exprs.Literal, exprs.Variable)):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
-                    f'offset: parameter must be an int constant or query parameter; got: {offset}',
+                    f'offset: parameter must be an int constant or query parameter; got: {offset!s}',
                 )
 
         return type(self)(
@@ -1069,7 +1069,7 @@ class QueryBase(ABC):
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION,
                         f"That expression cannot be evaluated in the context of this query's tables "
-                        f'({",".join(tbl.tbl_name() for tbl in self._from_clause.tbls)}): {expr}',
+                        f'({",".join(tbl.tbl_name() for tbl in self._from_clause.tbls)}): {expr!s}',
                     )
                 stratify_exprs.append(expr)
 

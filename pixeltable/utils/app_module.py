@@ -200,7 +200,16 @@ def validate_models(models: dict[str, model.TableModelMeta], base_path: str) -> 
 def check_report(file: str, bases: list[model.TableModelMeta]) -> CheckReport:
     """What checking a file on its own reports: whether it is valid, and what to fix or to know about."""
     errors = check_udf_references(bases)
-    return CheckReport(file=file, valid=len(errors) == 0, errors=errors, warnings=shadowed_project_modules())
+    warnings = [
+        f'{cls.__name__}.{name} references no column, so every row computes it from the same inputs: {value!s}. '
+        'Python code in a model body, such as str(), % or `is None`, runs once, at class definition. '
+        'Use == None instead of `is None`, and + or pxtf.string.format() instead of str() or %.'
+        for base in bases
+        for cls in base.defined_models()
+        for name, value in cls.constant_columns().items()
+    ]
+    warnings.extend(shadowed_project_modules())
+    return CheckReport(file=file, valid=len(errors) == 0, errors=errors, warnings=warnings)
 
 
 def check_udf_references(bases: list[model.TableModelMeta]) -> list[str]:

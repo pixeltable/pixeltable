@@ -14,11 +14,15 @@ from pixeltable.config import Config
 from ..conftest import SampleFileServer
 from ..utils import (
     SAMPLE_IMAGE_FILE_PATH,
+    assert_sdk_mirrors,
+    assert_type_eq,
+    pydantic_model_fields,
     pxt_raises,
     rerun,
     rerun_on_network_error,
     skip_test_if_no_client,
     skip_test_if_not_installed,
+    typed_dict_fields,
     validate_update_status,
 )
 from .tool_utils import run_tool_invocations_test, server_state, stock_price, weather
@@ -155,6 +159,10 @@ class TestOpenai:
         assert len(result['chat_output_2'][0]['choices'][0]['message']['content']) > 0
         assert len(result['chat_output_3'][0]['choices'][0]['message']['content']) > 0
         assert len(result['chat_output_4'][0]['choices'][0]['message']['content']) > 0
+        t.add_computed_column(chat_text=t.chat_output.choices[0].message.content)
+        assert t.select(t.chat_text).collect()['chat_text'] == [
+            result['chat_output'][0]['choices'][0]['message']['content']
+        ]
 
         # When OpenAI gets a request with `response_format` equal to `json_object`, but the prompt does not
         # contain the string "json", it refuses the request.
@@ -204,6 +212,8 @@ class TestOpenai:
         result = t.collect()
         assert 'proton' in result['resp_output'][0]['output'][0]['content'][0]['text'].lower()
         assert 'proton' in result['resp_output_2'][0]['output'][0]['content'][0]['text'].lower()
+        t.add_computed_column(resp_text=t.resp_output.output_text)
+        assert 'proton' in t.select(t.resp_text).collect()['resp_text'][0].lower()
 
     @rerun(reruns=6, reruns_delay=8)
     def test_responses_tool_invocations(self, uses_db: None) -> None:
@@ -944,27 +954,103 @@ class TestOpenaiTypedDictAdherence:
         """JSON-schema view of ct with optional/required info stripped at every nested level."""
         return self._strip_required(ct.to_json_schema())
 
-    def _td_fields(self, t: type) -> tuple[dict[str, ts.ColumnType], frozenset[str]]:
-        """Resolve a TypedDict to (field_types, optional_keys). Optional keys are meaningful at the top level."""
-        jt = ts.JsonType.from_python_type(t)
-        assert isinstance(jt, ts.JsonType), t
-        assert jt.type_schema is not None and isinstance(jt.type_schema.type_spec, dict), t
-        return jt.type_schema.type_spec, jt.type_schema.optional_keys
+    def test_typed_paths(self, uses_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        from pixeltable.functions.openai import chat_completions, responses
 
-    def _pydantic_fields(self, model: type) -> dict[str, ts.ColumnType]:
-        """Per-field JsonType conversion of a Pydantic model. Fields whose annotation can't be converted to
-        a Pixeltable type are omitted (callers must declare them in overrides)."""
-        import pydantic
+        # on an empty table, adding the columns calls no API
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        msgs = [{'role': 'user', 'content': t.input}]
+        t.add_computed_column(chat=chat_completions(msgs, model='gpt-4o-mini'))
+        t.add_computed_column(resp=responses(msgs, model='gpt-4o-mini'))
+        t.add_computed_column(chat_text=t.chat.choices[0].message.content)
+        t.add_computed_column(tool_name=t.chat.choices[0].message.tool_calls[0].function.name)
+        t.add_computed_column(resp_text=t.resp.output_text)
+        t.add_computed_column(item_text=t.resp.output.filter(lambda item: item.type == 'message')[0].content[0].text)
+        for col in (t.chat_text, t.tool_name, t.resp_text, t.item_text):
+            assert_type_eq(col.col_type, pxt.String | None)
 
-        assert issubclass(model, pydantic.BaseModel)
-        out: dict[str, ts.ColumnType] = {}
-        for name, info in model.model_fields.items():
-            try:
-                ct = ts.ColumnType.normalize_type(info.annotation)
-            except Exception:
-                continue
-            out[name] = ct
-        return out
+    def test_chat_completion(self) -> None:
+        skip_test_if_not_installed('openai')
+        from openai.types import completion_usage
+        from openai.types.chat import (
+            chat_completion,
+            chat_completion_audio,
+            chat_completion_message,
+            chat_completion_message_custom_tool_call,
+            chat_completion_message_function_tool_call,
+            chat_completion_token_logprob,
+        )
+
+        from pixeltable.functions import openai as pxt_openai
+
+        function_tool_call = chat_completion_message_function_tool_call
+        custom_tool_call = chat_completion_message_custom_tool_call
+        assert_sdk_mirrors(
+            [
+                (pxt_openai.ChatCompletion, [chat_completion.ChatCompletion]),
+                (pxt_openai.ChatCompletionChoice, [chat_completion.Choice]),
+                (pxt_openai.ChatCompletionChoiceLogprobs, [chat_completion.ChoiceLogprobs]),
+                (pxt_openai.ChatCompletionMessage, [chat_completion_message.ChatCompletionMessage]),
+                (pxt_openai.ChatCompletionAnnotation, [chat_completion_message.Annotation]),
+                (pxt_openai.ChatCompletionURLCitation, [chat_completion_message.AnnotationURLCitation]),
+                (pxt_openai.ChatCompletionAudio, [chat_completion_audio.ChatCompletionAudio]),
+                (
+                    pxt_openai.ChatCompletionFunctionCall,
+                    [chat_completion_message.FunctionCall, function_tool_call.Function],
+                ),
+                (pxt_openai.ChatCompletionCustomToolCall, [custom_tool_call.Custom]),
+                (
+                    pxt_openai.ChatCompletionToolCall,
+                    [
+                        function_tool_call.ChatCompletionMessageFunctionToolCall,
+                        custom_tool_call.ChatCompletionMessageCustomToolCall,
+                    ],
+                ),
+                (pxt_openai.ChatCompletionTokenLogprob, [chat_completion_token_logprob.ChatCompletionTokenLogprob]),
+                (pxt_openai.ChatCompletionTopLogprob, [chat_completion_token_logprob.TopLogprob]),
+                (pxt_openai.CompletionUsage, [completion_usage.CompletionUsage]),
+                (pxt_openai.CompletionTokensDetails, [completion_usage.CompletionTokensDetails]),
+                (pxt_openai.PromptTokensDetails, [completion_usage.PromptTokensDetails]),
+            ]
+        )
+
+    def test_response(self) -> None:
+        skip_test_if_not_installed('openai')
+        import typing
+
+        from openai.types.responses import (
+            response,
+            response_output_item,
+            response_output_refusal,
+            response_output_text,
+            response_reasoning_item,
+            response_usage,
+        )
+
+        from pixeltable.functions import openai as pxt_openai
+
+        # ResponseOutputItem is an Annotated union
+        output_items = list(typing.get_args(typing.get_args(response_output_item.ResponseOutputItem)[0]))
+        assert_sdk_mirrors(
+            [
+                (pxt_openai.Response, [response.Response]),
+                (pxt_openai.ResponseOutputItem, output_items),
+                (
+                    pxt_openai.ResponseOutputContent,
+                    [
+                        response_output_text.ResponseOutputText,
+                        response_output_refusal.ResponseOutputRefusal,
+                        response_reasoning_item.Content,
+                    ],
+                ),
+                (pxt_openai.ResponseSummary, [response_reasoning_item.Summary]),
+                (pxt_openai.ResponseUsage, [response_usage.ResponseUsage]),
+                (pxt_openai.ResponseInputTokensDetails, [response_usage.InputTokensDetails]),
+                (pxt_openai.ResponseOutputTokensDetails, [response_usage.OutputTokensDetails]),
+            ],
+            synth=frozenset({'output_text'}),
+        )
 
     def test_exact_mirror_types(self) -> None:
         """JsonType equality for TypedDicts that are exact mirrors of an SDK Pydantic model."""
@@ -1017,10 +1103,10 @@ class TestOpenaiTypedDictAdherence:
 
         from pixeltable.functions.openai import TranscriptionResponse
 
-        ours_fields, ours_optional = self._td_fields(TranscriptionResponse)
+        ours_fields, ours_optional = typed_dict_fields(TranscriptionResponse)
         sdk_fields: dict[str, ts.ColumnType] = {}
         for model in (Transcription, TranscriptionVerbose):
-            sdk_fields.update(self._pydantic_fields(model))
+            sdk_fields.update(pydantic_model_fields(model))
 
         synth = {'srt', 'vtt'}  # fields we add that the SDK does not have
         overrides = {'usage'}  # fields we deliberately re-type (kept as dict); not convertible anyway
@@ -1054,10 +1140,10 @@ class TestOpenaiTypedDictAdherence:
 
         from pixeltable.functions.openai import TranslationResponse
 
-        ours_fields, ours_optional = self._td_fields(TranslationResponse)
+        ours_fields, ours_optional = typed_dict_fields(TranslationResponse)
         sdk_fields: dict[str, ts.ColumnType] = {}
         for model in (Translation, TranslationVerbose):
-            sdk_fields.update(self._pydantic_fields(model))
+            sdk_fields.update(pydantic_model_fields(model))
 
         synth = {'srt', 'vtt'}
 
@@ -1079,8 +1165,8 @@ class TestOpenaiTypedDictAdherence:
 
         from pixeltable.functions.openai import DecisionResponse
 
-        ours_fields, ours_optional = self._td_fields(DecisionResponse)
-        sdk_fields = self._pydantic_fields(Decision)
+        ours_fields, ours_optional = typed_dict_fields(DecisionResponse)
+        sdk_fields = pydantic_model_fields(Decision)
         assert set(ours_fields) == set(Decision.model_fields)
         assert not ours_optional
         for name in set(ours_fields) - {'answers'}:
@@ -1102,13 +1188,13 @@ class TestOpenaiTypedDictAdherence:
             sdk_decision.AnswerAnswerResourceScore,
             sdk_decision.AnswerAnswerResourceRefusal,
         )
-        ours_fields, ours_optional = self._td_fields(DecisionAnswer)
+        ours_fields, ours_optional = typed_dict_fields(DecisionAnswer)
         assert set(ours_fields) == set().union(*(v.model_fields for v in variants))
         assert ours_optional == frozenset(ours_fields) - {'type'}
         # `type` is a Literal in each variant; `choice` is a str or bool; `probabilities` differ per variant
         overrides = {'type', 'choice', 'probabilities'}
         for variant in variants:
-            for name, sdk_type in self._pydantic_fields(variant).items():
+            for name, sdk_type in pydantic_model_fields(variant).items():
                 if name in overrides:
                     continue
                 assert self._normalize(ours_fields[name]) == self._normalize(sdk_type), (
@@ -1120,7 +1206,7 @@ class TestOpenaiTypedDictAdherence:
             sdk_decision.AnswerAnswerResourceChoiceProbability,
             sdk_decision.AnswerAnswerResourceScoreProbability,
         )
-        ours_fields, ours_optional = self._td_fields(DecisionProbability)
+        ours_fields, ours_optional = typed_dict_fields(DecisionProbability)
         assert set(ours_fields) == set().union(*(v.model_fields for v in probability_variants))
         assert ours_optional == {'label'}
 
@@ -1132,15 +1218,15 @@ class TestOpenaiTypedDictAdherence:
 
         from pixeltable.functions.openai import ImagesResponse
 
-        ours_fields, ours_optional = self._td_fields(ImagesResponse)
-        sdk_fields = self._pydantic_fields(SdkImagesResponse)
+        ours_fields, ours_optional = typed_dict_fields(ImagesResponse)
+        sdk_fields = pydantic_model_fields(SdkImagesResponse)
 
         overrides = {'data'}  # we re-type and guarantee non-null
         # openai 3.24 no longer declares size; a missing key reads as null, which size allows
         dropped_by_sdk = {'size'} - set(sdk_fields)
         # declared by newer SDKs only, so a response from an older one lacks them
         added_by_sdk = {'safety_identifier'}  # openai>=3.33
-        # whether this SDK declares them comes from its raw fields, since _pydantic_fields() drops a field whose
+        # whether this SDK declares them comes from its raw fields, since pydantic_model_fields() drops a field whose
         # annotation it can't convert, and that must fail the comparison below
         absent_from_sdk = added_by_sdk - set(SdkImagesResponse.model_fields)
         assert set(ours_fields) - dropped_by_sdk - absent_from_sdk == set(sdk_fields), (

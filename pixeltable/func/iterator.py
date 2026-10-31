@@ -7,13 +7,15 @@ import typing
 from dataclasses import dataclass
 from textwrap import dedent
 from types import MethodType
-from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, Self, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Generic, Iterator, Self, TypeVar, overload
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
 from pixeltable.catalog.globals import _POS_COLUMN_NAME, fold_identifier, fold_mapping_keys
 from pixeltable.exprs.expr import ValidationError
 from pixeltable.func.globals import import_error_msg, resolve_symbol
+from pixeltable.types import FunctionInfo, FunctionKind
 
+from .function import function_info
 from .signature import Signature
 
 if TYPE_CHECKING:
@@ -98,6 +100,7 @@ class GeneratingFunction:
     corresponding GeneratingFunction represents a one-to-many expansion of *columns* of inputs.
     """
 
+    kind: ClassVar[FunctionKind] = 'iterator'
     decorated_callable: Callable
     unstored_cols: list[str]
     fqn: str
@@ -134,6 +137,24 @@ class GeneratingFunction:
     def name(self) -> str:
         """The unqualified name, which is the last component of fqn."""
         return self.fqn.rsplit('.', 1)[-1]
+
+    def comment(self) -> str | None:
+        # not inspect.getdoc(), which falls back to a base class's docstring
+        own_doc = self.decorated_callable.__doc__
+        return None if own_doc is None else inspect.cleandoc(own_doc)
+
+    def info(self, path: str) -> FunctionInfo:
+        """Describe this iterator, with path as its import path."""
+        output_schema = self.fixed_output_schema
+        outputs: dict[str, str] | None
+        if output_schema is None:
+            outputs = None
+            returns = '(columns depend on the arguments)'
+        else:
+            outputs = {name: t.pretty_str() for name, t in output_schema.items()}
+            returns = '{' + ', '.join(f'{name}: {t}' for name, t in outputs.items()) + '}'
+        call = f'{path}({self.signature.params_str(with_defaults=True)}) -> {returns}'
+        return function_info(path, self.name, self.kind, call, [self.signature], self.comment(), outputs)
 
     def _infer_properties(self) -> None:
         self.py_sig = inspect.signature(self.decorated_callable, eval_str=True)
@@ -241,6 +262,11 @@ class GeneratingFunction:
                     f'in function `{iter_fn.__module__}.{iter_fn.__qualname__}()`.',
                 )
             self._default_output_schema[name] = col_type
+
+    @property
+    def fixed_output_schema(self) -> dict[str, ts.ColumnType] | None:
+        """The output columns of every call; None if they depend on the arguments."""
+        return self._default_output_schema if self._conditional_output_schema is None else None
 
     def call_output_schema(self, bound_args: dict[str, exprs.Expr]) -> dict[str, ts.ColumnType]:
         if self._conditional_output_schema is None:

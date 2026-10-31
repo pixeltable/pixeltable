@@ -1515,6 +1515,50 @@ class TestExprs:
         assert len(errormsgs) == t.count() // 2
         assert all('Expected non-None value' in msg for msg in errormsgs), errormsgs
 
+    def test_astype_bool(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        assert t.c4.astype(pxt.Int).col_type == ts.IntType(nullable=False)
+
+        res = (
+            t.select(
+                col=t.c4.astype(pxt.Int),
+                pred=(t.c2 % 2 == 1).astype(pxt.Int),
+                udf=_is_odd(t.c2).astype(pxt.Int),
+                as_float=t.c4.astype(pxt.Float),
+            )
+            .order_by(t.c2)
+            .collect()
+        )
+        expected = [i % 2 for i in range(t.count())]
+        assert res['col'] == res['pred'] == res['udf'] == expected
+        assert all(type(val) is int for val in res['col'] + res['pred'] + res['udf'])
+        assert res['as_float'] == [float(val) for val in expected]
+
+        assert t.select(n=pxtf.sum(t.c4.astype(pxt.Int))).collect()['n'] == [50]
+        assert t.where(t.c4.astype(pxt.Int) == 1).count() == 50
+
+        validate_update_status(t.add_column(c4n=pxt.Bool | None))
+        t.where(t.c2 < 10).update({'c4n': t.c4})
+        validate_update_status(t.add_computed_column(c4n_as_int=t.c4n.astype(pxt.Int | None)))
+        assert t.c4n_as_int.col_type == ts.IntType(nullable=True)
+        res = t.select(t.c4n_as_int).order_by(t.c2).limit(12).collect()
+        assert res['c4n_as_int'] == [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, None, None]
+
+    def test_format_expr(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        match = r'An f-string or str\.format\(\) on a Pixeltable expression produces one constant string'
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+            _ = f'Hello {t.c1}'
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+            _ = 'Hello {}'.format(t.c1)
+        assert str(t.c2 + 1) == 'c2 + 1'
+
+        # the forms the error message suggests
+        res = (
+            t.select(plus='Hello ' + t.c1, fmt=pxtf.string.format('Hello {0}', t.c1)).order_by(t.c2).limit(2).collect()
+        )
+        assert res['plus'] == res['fmt'] == ['Hello test string 0', 'Hello test string 1']
+
     @pytest.mark.db_roots('local', reason='resolves images from client-local filesystem paths the daemon cannot see')
     def test_astype_str_to_img(self, uses_db: None) -> None:
         img_files = get_image_files()
@@ -1785,7 +1829,7 @@ class TestExprs:
         # would use that index. So these exressions should be equivalent.
         sim1 = t1.img.similarity(string='red truck')
         sim2 = t1.img.similarity(string='red truck', idx='img_idx0')
-        assert sim1.id == sim2.id
+        assert sim1._expr_id == sim2._expr_id
         assert sim1.serialize() == sim2.serialize()
 
         # Test repr
@@ -1798,7 +1842,7 @@ class TestExprs:
         ):
             sim1 = t1.img.similarity('red truck')
             sim2 = t1.img.similarity('red truck', idx='img_idx0')
-            assert sim1.id == sim2.id
+            assert sim1._expr_id == sim2._expr_id
             assert sim1.serialize() == sim2.serialize()
 
         t2 = multi_idx_img_tbl
@@ -1807,7 +1851,7 @@ class TestExprs:
         # So similarity expressions using different indexes should differ.
         sim1 = t2.img.similarity(string='red truck', idx='img_idx1')
         sim2 = t2.img.similarity(string='red truck', idx='img_idx2')
-        assert sim1.id != sim2.id
+        assert sim1._expr_id != sim2._expr_id
         assert sim1.serialize() != sim2.serialize()
 
         # Test repr
@@ -1821,8 +1865,8 @@ class TestExprs:
         skip_test_if_not_installed('transformers')
         d: dict[int, exprs.Expr] = {}
         for e in test_tbl_exprs + img_tbl_exprs + multi_img_tbl_exprs:
-            assert e.id is not None
-            d[e.id] = e
+            assert e._expr_id is not None
+            d[e._expr_id] = e
         assert len(d) == len(test_tbl_exprs) + len(img_tbl_exprs) + len(multi_img_tbl_exprs)
 
     @pytest.mark.db_roots('local', reason='TODO: convert')
@@ -2371,12 +2415,17 @@ class TestExprs:
         """JSON path components are data, not identifiers, so column name folding does not apply."""
         p = db_root.make_catalog_path
         t = pxt.create_table(p('t'), {'JsonCol': pxt.Json | None})
-        t.insert([{'jsoncol': {'someField': 1, 'somefield': 2}}])
+        t.insert([{'jsoncol': {'someField': 1, 'somefield': 2, 'id': 'msg_0', 'usage': {'id': 7}}}])
 
         res = t.select(exact=t.JSONCOL.someField, lowered=t.JSONCOL.somefield, uppered=t.JSONCOL.SOMEFIELD).collect()
         assert res['exact'] == [1]
         assert res['lowered'] == [2]
         assert res['uppered'] == [None]
+
+        # a key named like an expression attribute is still a field
+        res = t.select(top=t.JsonCol.id, nested=t.JsonCol.usage.id).collect()
+        assert res['top'] == ['msg_0']
+        assert res['nested'] == [7]
 
         t.insert([{'jsoncol': {'café': 1}}])
         res = t.select(t.JsonCol['café']).collect()
@@ -2403,6 +2452,11 @@ def _add_one(x: int) -> int:
 @pxt.udf
 def _add_two(x: int, y: int) -> int:
     return x + y
+
+
+@pxt.udf
+def _is_odd(x: int) -> bool:
+    return x % 2 == 1
 
 
 @pytest.mark.db_roots('local', reason='exercises expr-eval slot GC internals')
