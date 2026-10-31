@@ -293,7 +293,6 @@ class TestGemini:
         assert results['output'][0].size == (1024, 1024)
         assert results['output2'][0].size == (1280, 896)
 
-    @pytest.mark.very_expensive
     @pytest.mark.parametrize(
         ('with_images', 'delivery', 'aspect_ratio', 'resolution', 'width', 'height'),
         [(False, 'inline', '16:9', '360p', 640, 360), (True, 'uri', '9:16', '720p', 720, 1280)],
