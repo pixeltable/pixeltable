@@ -697,7 +697,17 @@ class RowBuilder:
         table_row: list[Any] = list(pk) if pk is not None else []
         # Nulls in JSONB columns need to be stored as sql.sql.null(), otherwise it stores a json 'null'
         for col, slot_idx in self.table_columns.items():
-            if col.id in data_row.cell_vals:
+            # a slot exception takes precedence over a materialized value (they can get generated out-of-order)
+            if slot_idx is not None and data_row.has_exc(slot_idx):
+                exc = data_row.get_exc(slot_idx)
+                num_excs += 1
+                if cols_with_excs is not None:
+                    cols_with_excs.add(col.id)
+                table_row.append(sql.sql.null() if col.col_type.is_json_type() else None)
+                if col.stores_cellmd:
+                    # exceptions get stored in the errortype/-msg properties of the cellmd column
+                    table_row.append(ColumnPropertyRef.create_cellmd_exc(exc))
+            elif col.id in data_row.cell_vals:
                 table_row.append(data_row.cell_vals[col.id])
                 if col.stores_cellmd:
                     if data_row.cell_md[col.id] is None:
@@ -707,21 +717,6 @@ class RowBuilder:
                         md = dataclasses.asdict(data_row.cell_md[col.id], dict_factory=non_none_dict_factory)
                         assert len(md) > 0
                         table_row.append(md)
-                if slot_idx is not None and data_row.has_exc(slot_idx):
-                    num_excs += 1
-                    if cols_with_excs is not None:
-                        cols_with_excs.add(col.id)
-                continue
-
-            if data_row.has_exc(slot_idx):
-                exc = data_row.get_exc(slot_idx)
-                num_excs += 1
-                if cols_with_excs is not None:
-                    cols_with_excs.add(col.id)
-                table_row.append(sql.sql.null() if col.col_type.is_json_type() else None)
-                if col.stores_cellmd:
-                    # exceptions get stored in the errortype/-msg properties of the cellmd column
-                    table_row.append(ColumnPropertyRef.create_cellmd_exc(exc))
             else:
                 val = data_row.get_stored_val(slot_idx, col.sa_col_type)
                 table_row.append(val)

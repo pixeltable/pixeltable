@@ -130,9 +130,16 @@ class TestProxyDaemon:
         src = tmp_path / 'cat.png'
         PIL.Image.new('RGB', (8, 6), color=(1, 2, 3)).save(src, format='PNG')
         mem_img = PIL.Image.new('RGB', (4, 4), color=(9, 8, 7))
+        f_img = PIL.Image.new('F', (4, 4), color=1.5)  # PNG cannot encode mode F
         return {
             'rows': [
-                {'img_file': proxy_protocol.LocalFile(str(src)), 'img': mem_img, 'data': b'abc', 'arr': np.arange(3)}
+                {
+                    'img_file': proxy_protocol.LocalFile(str(src)),
+                    'img': mem_img,
+                    'data': b'abc',
+                    'arr': np.arange(3),
+                    'f_img': f_img,
+                }
             ]
         }
 
@@ -144,10 +151,22 @@ class TestProxyDaemon:
 
         # media parts go out of band as object keys (names/formats preserved); small scalars stay inline
         assert row['img_file'] == {'$pxt': 'file', 'name': 'cat.png', 'v': 'uploads/req/0.png'}
-        assert row['img'] == {'$pxt': 'image', 'format': 'PNG', 'v': 'uploads/req/1.png'}
+        assert row['img'] == {'$pxt': 'image', 'format': None, 'v': 'uploads/req/1.png'}
         assert row['data'] == {'$pxt': 'bytes', 'v': 0}
         assert row['arr'] == {'$pxt': 'ndarray', 'v': 1}
-        assert proxy_protocol.collect_remote_keys(wire) == [('uploads/req/0.png', None), ('uploads/req/1.png', None)]
+        assert row['f_img'] == {
+            '$pxt': 'rawimage',
+            'format': None,
+            'mode': 'F',
+            'size': [4, 4],
+            'palette': None,
+            'v': 'uploads/req/2.bin',
+        }
+        assert proxy_protocol.collect_remote_keys(wire) == [
+            ('uploads/req/0.png', None),
+            ('uploads/req/1.png', None),
+            ('uploads/req/2.bin', None),
+        ]
 
         # deserializing resolves each key through a remote_parts map of pre-downloaded local paths
         remote_parts: dict[tuple[str, str | None], str] = {}
@@ -164,6 +183,8 @@ class TestProxyDaemon:
         assert out_row['img'].size == (4, 4)
         assert out_row['data'] == b'abc'
         assert np.array_equal(out_row['arr'], np.arange(3))
+        assert out_row['f_img'].mode == 'F'
+        assert np.array_equal(np.asarray(out_row['f_img']), np.full((4, 4), 1.5, dtype=np.float32))
 
         # a remote key without a remote_parts map cannot be localized
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='has no access to uploaded objects'):
@@ -176,10 +197,11 @@ class TestProxyDaemon:
         wire = proxy_protocol.serialize_args(args, sink)
         row = wire['rows'][0]
         assert row['img_file'] == {'$pxt': 'file', 'name': 'cat.png', 'v': 0}
-        assert row['img'] == {'$pxt': 'image', 'format': 'PNG', 'v': 1}
+        assert row['img'] == {'$pxt': 'image', 'format': None, 'v': 1}
         assert row['data'] == {'$pxt': 'bytes', 'v': 2}
         assert row['arr'] == {'$pxt': 'ndarray', 'v': 3}
-        assert len(sink.binary_parts) == 4
+        assert row['f_img']['v'] == 4
+        assert len(sink.binary_parts) == 5
         assert sink.binary_parts[0] == (tmp_path / 'cat.png').read_bytes()
         assert sink.binary_parts[2] == b'abc'
         assert proxy_protocol.collect_remote_keys(wire) == []
@@ -843,9 +865,9 @@ class TestProxyDaemon:
         sink = PxtArchivePartSink('org1', 'db1')
         wire = proxy_protocol.serialize_args(args, sink)
         parts = proxy_protocol.collect_remote_keys(wire)
-        assert len(parts) == 4
+        assert len(parts) == 5
         assert all(member is not None for _, member in parts)
-        assert len(objects) == 4
+        assert len(objects) == 5
 
         request = proxy_protocol.ProxyRequest(class_name='CatalogBase', method='echo_test', args=wire)
         request._binary_parts = sink.binary_parts
@@ -859,6 +881,8 @@ class TestProxyDaemon:
         assert np.array_equal(row['arr'], np.arange(3))
         assert row['blob'] == b'z' * 1024
         assert np.array_equal(row['big_arr'], big_arr)
+        assert row['f_img'].mode == 'F'
+        assert np.array_equal(np.asarray(row['f_img']), np.full((4, 4), 1.5, dtype=np.float32))
         for path_str in request._remote_parts.values():
             pathlib.Path(path_str).unlink()
 

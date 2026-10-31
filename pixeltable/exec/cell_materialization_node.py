@@ -15,7 +15,7 @@ import sqlalchemy as sql
 
 import pixeltable.type_system as ts
 import pixeltable.utils.image as image_utils
-from pixeltable import catalog, exprs
+from pixeltable import catalog, exceptions as excs, exprs
 from pixeltable.env import Env
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectStoreBase
@@ -62,6 +62,10 @@ class CellMaterializationNode(ExecNode):
         path: Path  # local file being written
         dest: FileDestination | None  # if not None, path is in the TempStore and gets uploaded to dest
 
+    @dataclasses.dataclass
+    class EncodedImage:
+        data: bytes  # an inlined image after image_utils.to_bytes()
+
     output_col_info: dict[catalog.Column, int]  # value: slot idx
     dest: str | None  # destination of the chunks; None: the local media dir
     store: ObjectStoreBase | None  # store for dest, created when the first chunk is opened
@@ -102,10 +106,6 @@ class CellMaterializationNode(ExecNode):
             for row in batch:
                 for col, slot_idx in self.output_col_info.items():
                     if row.has_exc(slot_idx):
-                        # Nulls in JSONB columns need to be stored as sql.sql.null(), otherwise it stores a json 'null'
-                        row.cell_vals[col.id] = sql.sql.null() if col.col_type.is_json_type() else None
-                        exc = row.get_exc(slot_idx)
-                        row.cell_md[col.id] = exprs.CellMd(**exprs.ColumnPropertyRef.create_cellmd_exc(exc))
                         continue
 
                     val = row[slot_idx]
@@ -115,7 +115,7 @@ class CellMaterializationNode(ExecNode):
                         continue
 
                     if col.col_type.is_json_type():
-                        self._materialize_json_cell(row, col, val)
+                        self._materialize_json_cell(row, col, slot_idx, val)
                     elif col.col_type.is_array_type():
                         assert isinstance(val, np.ndarray)
                         self._materialize_array_cell(row, col, val)
@@ -160,13 +160,24 @@ class CellMaterializationNode(ExecNode):
             self.executor.shutdown(wait=True)
             self.executor = None
 
-    def _materialize_json_cell(self, row: exprs.DataRow, col: catalog.Column, val: Any) -> None:
-        if self._json_has_inlined_objs(val):
-            row.cell_vals[col.id] = self._rewrite_json(val)
-            row.cell_md[col.id] = exprs.CellMd(file_urls=[chunk.url for chunk in self.chunks])
-        else:
+    def _materialize_json_cell(self, row: exprs.DataRow, col: catalog.Column, slot_idx: int, val: Any) -> None:
+        if not self._json_has_inlined_objs(val):
             row.cell_vals[col.id] = val
             row.cell_md[col.id] = None
+            return
+
+        # Encode the images before writing anything to the chunk file: the try then excludes chunk I/O errors, and a
+        # failed cell leaves nothing in the file
+        try:
+            val = self._encode_images(val)
+        except Exception as e:
+            err = excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, f'Error while saving column {col.name!r}: {e}')
+            if not self.ctx.ignore_errors:
+                raise err from e
+            self.row_builder.set_exc(row, slot_idx, err)
+            return
+        row.cell_vals[col.id] = self._rewrite_json(val)
+        row.cell_md[col.id] = exprs.CellMd(file_urls=[chunk.url for chunk in self.chunks])
 
     def _materialize_array_cell(self, row: exprs.DataRow, col: catalog.Column, val: np.ndarray) -> None:
         if col.has_sa_vector_type():
@@ -225,6 +236,16 @@ class CellMaterializationNode(ExecNode):
             return any(self._json_has_inlined_objs(v) for v in element.values())
         return isinstance(element, (np.ndarray, PIL.Image.Image, bytes))
 
+    def _encode_images(self, element: Any) -> Any:
+        """Return a copy of a JSON structure with each PIL image replaced by an EncodedImage."""
+        if isinstance(element, list):
+            return [self._encode_images(v) for v in element]
+        if isinstance(element, dict):
+            return {k: self._encode_images(v) for k, v in element.items()}
+        if isinstance(element, PIL.Image.Image):
+            return self.EncodedImage(image_utils.to_bytes(element))
+        return element
+
     def _rewrite_json(self, element: Any) -> Any:
         """Recursively rewrites a JSON structure by writing any inlined arrays or images to self.buffered_writer."""
         if isinstance(element, list):
@@ -234,8 +255,8 @@ class CellMaterializationNode(ExecNode):
         if isinstance(element, np.ndarray):
             obj_md = self._write_inlined_array(element)
             return {INLINED_OBJECT_MD_KEY: obj_md.as_dict()}
-        if isinstance(element, PIL.Image.Image):
-            obj_md = self._write_inlined_image(element)
+        if isinstance(element, self.EncodedImage):
+            obj_md = self._write_inlined_image(element.data)
             return {INLINED_OBJECT_MD_KEY: obj_md.as_dict()}
         if isinstance(element, bytes):
             obj_md = self._write_inlined_bytes(element)
@@ -265,13 +286,12 @@ class CellMaterializationNode(ExecNode):
             array_md=exprs.ArrayMd(start=start, end=end, is_bool=is_bool_array, shape=shape),
         )
 
-    def _write_inlined_image(self, img: PIL.Image.Image) -> InlinedObjectMd:
-        """Write a PIL image to buffered_writer and return: index into chunks, start offset, end offset"""
-        # the encoded size isn't known up front; the uncompressed size approximates it
-        self.init_writer(img.width * img.height * len(img.getbands()))
+    def _write_inlined_image(self, data: bytes) -> InlinedObjectMd:
+        """Write an encoded image to buffered_writer and return: index into chunks, start offset, end offset"""
+        self.init_writer(len(data))
         url_idx = len(self.chunks) - 1
         start = self.buffered_writer.tell()
-        img.save(self.buffered_writer, format=image_utils.default_format(img))
+        self.buffered_writer.write(data)
         end = self.buffered_writer.tell()
         self._flush_buffer()
         return InlinedObjectMd(type=ts.ColumnType.Type.IMAGE.name, url_idx=url_idx, img_start=start, img_end=end)
