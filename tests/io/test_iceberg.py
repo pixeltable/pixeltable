@@ -190,9 +190,11 @@ class TestIceberg:
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
             pxt.io.export_iceberg(t, catalog, 'pxt.if_exists')
 
-        # Replace: drops + recreates, ends with same row count
+        # Replace: drops + recreates, ends with same row count and leaves no temp table.
         pxt.io.export_iceberg(t.where(t.c_int < 3), catalog, 'pxt.if_exists', if_exists='replace')
         assert catalog.load_table('pxt.if_exists').scan().to_arrow().num_rows == 3
+        leftover = [name for _, name in catalog.list_tables('pxt') if name.startswith('if_exists__pxt_tmp_')]
+        assert leftover == []
 
         # Append: doubles the row count
         pxt.io.export_iceberg(t.where(t.c_int < 3), catalog, 'pxt.if_exists', if_exists='append')
@@ -247,6 +249,57 @@ class TestIceberg:
             pxt.io.export_iceberg(t, catalog, 'pxt.faults', if_exists='append')
         fault.assert_count(1)
         assert catalog.load_table('pxt.faults').scan().to_arrow().num_rows == 5
+
+    @pytest.mark.db_roots('local', reason='Uses a local SQLite Iceberg catalog and does not need a hosted database.')
+    @pytest.mark.parametrize(('target_exists', 'fail_stage'), [(False, 'rename'), (True, 'drop'), (True, 'rename')])
+    def test_replace_swap_failure_preserves_temp(
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path, target_exists: bool, fail_stage: str
+    ) -> None:
+        """A failed catalog swap must not let cleanup remove the completed export."""
+        skip_test_if_not_installed('pyiceberg')
+        p = db_root.make_catalog_path
+
+        t = pxt.create_table(p('test_iceberg_swap_failure'), {'c_int': pxt.Int | None, 'c_string': pxt.String | None})
+        expected_rows = [{'c_int': i, 'c_string': f'row_{i}'} for i in range(3)]
+        t.insert(expected_rows)
+
+        catalog = TestIceberg._catalog(tmp_path)
+        if target_exists:
+            pxt.io.export_iceberg(t.where(t.c_int == 0), catalog, 'pxt.swap_failure')
+            assert catalog.load_table('pxt.swap_failure').scan().to_arrow().num_rows == 1
+
+        class FailingCatalog:
+            def __init__(self, inner: Any):
+                self._inner = inner
+
+            def __getattr__(self, name: str) -> Any:
+                return getattr(self._inner, name)
+
+            def drop_table(self, identifier: str, *args: Any, **kwargs: Any) -> Any:
+                result = self._inner.drop_table(identifier, *args, **kwargs)
+                if fail_stage == 'drop' and identifier == 'pxt.swap_failure':
+                    raise OSError('synthetic failure after dropping target')
+                return result
+
+            def rename_table(self, *args: Any, **kwargs: Any) -> None:
+                if fail_stage == 'rename':
+                    raise OSError('synthetic rename failure')
+                self._inner.rename_table(*args, **kwargs)
+
+        catalog_with_failure: Any = FailingCatalog(catalog)
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match='failed to write') as failure:
+            pxt.io.export_iceberg(t, catalog_with_failure, 'pxt.swap_failure', if_exists='replace')
+
+        from pyiceberg.exceptions import NoSuchTableError
+
+        with pytest.raises(NoSuchTableError):
+            catalog.load_table('pxt.swap_failure')
+
+        temp_names = [name for _, name in catalog.list_tables('pxt') if name.startswith('swap_failure__pxt_tmp_')]
+        assert len(temp_names) == 1
+        assert temp_names[0] in failure.value.message
+        temp_rows = catalog.load_table(f'pxt.{temp_names[0]}').scan().to_arrow().to_pylist()
+        assert sorted(temp_rows, key=lambda row: row['c_int']) == expected_rows
 
     def test_append_schema_mismatch(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Appending a query whose schema doesn't match the existing Iceberg table should raise."""

@@ -175,9 +175,12 @@ def export_iceberg(
     # original untouched. Drop-then-rename is two catalog calls and not truly atomic; a crash
     # between them leaves the original gone but the data preserved under the temp name.
     temp_name = f'{table_name}__pxt_tmp_{uuid.uuid4().hex[:8]}'
+    temp_created = False
+    preserve_temp = False
 
     try:
         temp_tbl = catalog.create_table(temp_name, schema=arrow_schema)
+        temp_created = True
         fault_injection.process_fault(FaultLocation.IO_EXPORT_ICEBERG_WRITE_TEMP)
 
         with temp_tbl.transaction() as tx:
@@ -186,20 +189,35 @@ def export_iceberg(
 
         fault_injection.process_fault(FaultLocation.IO_EXPORT_ICEBERG_BEFORE_SWAP)
 
+        # Once the swap starts, keep the completed temp table if either catalog call fails.
+        # Catalog drop/rename are not transactional, so cleanup could otherwise delete the
+        # only remaining copy of the exported data. Mark it before dropping the old target.
+        preserve_temp = True
         if existing_tbl is not None:
             catalog.drop_table(table_name)
         catalog.rename_table(temp_name, table_name)
+        preserve_temp = False
 
-    except excs.Error:
+    except excs.Error as e:
+        if preserve_temp:
+            e.args = (
+                f'{e.message}; the catalog swap may be incomplete. Inspect {table_name!r} and temporary identifier '
+                f'{temp_name!r} before retrying.',
+            )
         raise
     except Exception as e:
-        raise excs.InternalError(
-            excs.ErrorCode.INTERNAL_ERROR, f'export_iceberg(): failed to write Iceberg table {table_name!r}: {e}'
-        ) from e
+        message = f'export_iceberg(): failed to write Iceberg table {table_name!r}: {e}'
+        if preserve_temp:
+            message += (
+                f'; the catalog swap may be incomplete. Inspect {table_name!r} and temporary identifier '
+                f'{temp_name!r} before retrying.'
+            )
+        raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, message) from e
     finally:
-        # Drop temp if it still exists; covers mid-stream errors and BaseException paths
-        # like KeyboardInterrupt. On success, rename consumed temp_name, so swallow NoSuchTableError.
-        try:
-            catalog.drop_table(temp_name)
-        except NoSuchTableError:
-            pass
+        # Clean up only a temp table we know this call created and only before the swap starts.
+        # Once drop/rename begins, a failure must leave the temp untouched for recovery.
+        if temp_created and not preserve_temp:
+            try:
+                catalog.drop_table(temp_name)
+            except NoSuchTableError:
+                pass
