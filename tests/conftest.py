@@ -43,6 +43,7 @@ from .utils import (
     TESTS_DIR,
     DatabaseRoot,
     DbRootId,
+    RecordingSubscriber,
     ReloadTester,
     cloud_env_configured,
     create_all_datatypes_tbl,
@@ -50,6 +51,7 @@ from .utils import (
     create_test_tbl,
     local_embedding,
     new_db_uri,
+    record_telemetry,
     reload_catalog,
     skip_test_if_not_installed,
     validate_async_teardown,
@@ -175,6 +177,13 @@ _CHECKOUT_HASH = hashlib.sha256(str(pathlib.Path(__file__).resolve().parents[1])
 def _worker_db_name(worker_id: int | str) -> str:
     """The db name used by both the pytest process and its proxy daemon."""
     return f'test_{_CHECKOUT_HASH}_{worker_id}'
+
+
+@pytest.fixture
+def telemetry_recorder() -> Iterator[RecordingSubscriber]:
+    """Record the telemetry emitted during the whole test; use record_telemetry() to record only part of it."""
+    with record_telemetry() as s:
+        yield s
 
 
 @pytest.fixture
