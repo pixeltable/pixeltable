@@ -40,7 +40,6 @@ from .tbl_ops import (
     CreateTableVersionOp,
     DeleteTableMdOp,
     DeleteTableMediaFilesOp,
-    DropStoreTableOp,
     TableOp,
     TableOpsBuilder,
 )
@@ -316,21 +315,15 @@ class TableVersion:
         )
 
     def drop_ops(self) -> tuple[list[TableOp], bool]:
-        """Returns a tuple of drop table ops, and a boolean that indicates whether a new table and schema
-        versions were created."""
+        """Return the drop operations, and whether versions were advanced."""
         new_version = self.is_mutable and self.is_data_versioned
         if new_version:
             self.bump_version(bump_schema_version=True)
-        mutable_base_tbl_id: str | None = None
-        # if this is a mutable view of a mutable base, advance the base's view_sn in the end
-        if self.is_view and self.is_mutable and self.path.base.is_mutable():
-            mutable_base_tbl_id = str(self.path.base.tbl_id)
         id_str = str(self.id)
         ops = (
             TableOpsBuilder(id_str, tbl_version=self._tbl_md.current_version)
             .add(DeleteTableMediaFilesOp)
-            .add(DropStoreTableOp, is_view=self.is_view)
-            .add(DeleteTableMdOp, mutable_base_tbl_id=mutable_base_tbl_id)
+            .add(DeleteTableMdOp, is_view=self.is_view)
             .build()
         )
         return ops, new_version
