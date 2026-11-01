@@ -2,6 +2,7 @@
 config-resolution helpers, and the identity fingerprint. Stdlib-only so the client side can import without
 pulling in pxt or pydantic."""
 
+import contextlib
 import hashlib
 import importlib.metadata
 import os
@@ -261,11 +262,13 @@ def _packages_fingerprint() -> str:
     for site_dir in dirs:
         try:
             with os.scandir(site_dir) as entries:
-                metadata_dirs.extend(
-                    f'{e.name} {e.stat().st_mtime_ns}' for e in entries if e.name.endswith(('.dist-info', '.egg-info'))
-                )
+                metadata_entries = [e for e in entries if e.name.endswith(('.dist-info', '.egg-info'))]
         except OSError:
             continue
+        for e in metadata_entries:
+            # an entry removed since the scan, or a dangling symlink, has no mtime
+            with contextlib.suppress(OSError):
+                metadata_dirs.append(f'{e.name} {e.stat().st_mtime_ns}')
     return value_fingerprint('\n'.join(sorted(metadata_dirs)))
 
 

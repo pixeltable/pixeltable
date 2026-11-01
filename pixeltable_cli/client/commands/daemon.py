@@ -10,6 +10,7 @@ from pixeltable_cli.client.utils import (
     ensure_running,
     fetch_health,
     kill_and_wait,
+    plural,
     port_is_open,
     read_pidfile,
 )
@@ -77,7 +78,8 @@ def _stop(force: bool, ok_if_absent: bool = False) -> None:
     in_flight = health.get('in_flight', []) if health is not None else []
     if len(in_flight) > 0 and not force:
         print(
-            f'pxt: the daemon is serving {len(in_flight)} request(s): {describe_in_flight_requests(in_flight)}.\n'
+            f'pxt: the daemon is serving {plural(len(in_flight), "request")}: '
+            f'{describe_in_flight_requests(in_flight)}.\n'
             'Wait for it to finish, or use --force.',
             file=sys.stderr,
         )

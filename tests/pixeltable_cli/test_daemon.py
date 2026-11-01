@@ -137,6 +137,13 @@ class TestDaemon:
         _install_metadata(user_site / 'legacypkg-1.0.egg-info')
         pid = _replacement_pid(daemon_port, project, user_env, pid)
 
+        if sys.platform != 'win32':  # creating a symlink on Windows needs a privilege
+            # a dangling metadata symlink does not restart the daemon, and does not hide an install beside it
+            (user_site / 'brokenpkg-1.0.dist-info').symlink_to(tmp_path / 'gone', target_is_directory=True)
+            assert _pxt_health(daemon_port, cwd=project, env_overrides=user_env)['pid'] == pid
+            _install_metadata(user_site / 'fakepkg-3.0.dist-info')
+            pid = _replacement_pid(daemon_port, project, user_env, pid)
+
         assert _pxt_health(daemon_port, cwd=project, env_overrides=user_env)['pid'] == pid
 
     def test_replace_older_release_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:

@@ -296,7 +296,7 @@ class DaemonBusyError(RuntimeError):
 
 
 def describe_in_flight_requests(in_flight_requests: list[Any]) -> str:
-    """Describe each request in in_flight by method, path and age."""
+    """Describe each request in in_flight_requests by method, path and age."""
     now = time.time()
     return ', '.join(
         f'{r["method"]} {r["path"]} ({now - r["started_at"]:.0f}s)' for r in in_flight_requests if isinstance(r, dict)
@@ -305,8 +305,7 @@ def describe_in_flight_requests(in_flight_requests: list[Any]) -> str:
 
 def _restart_if_mismatched(health: dict[str, Any]) -> None:
     """Replace the daemon that reported health if it belongs to another install, environment or project."""
-    client_identity = identity()
-    diff = _identity_diff(client_identity, health)
+    diff = _identity_diff(identity(), health)
     if _serves_another_project(health):
         diff = [*diff, 'project_root']
     if len(diff) == 0:
@@ -315,7 +314,7 @@ def _restart_if_mismatched(health: dict[str, Any]) -> None:
     if len(in_flight) > 0:
         raise DaemonBusyError(
             f'the daemon differs in {", ".join(diff)} and has to restart, but it is serving '
-            f'{len(in_flight)} request(s): {describe_in_flight_requests(in_flight)}.\n'
+            f'{plural(len(in_flight), "request")}: {describe_in_flight_requests(in_flight)}.\n'
             'Wait for them to finish, or run `pxt daemon restart -f`.'
         )
     # Identity mismatch: the daemon was launched against a different install or env snapshot than the
@@ -334,7 +333,8 @@ def _restart_if_mismatched(health: dict[str, Any]) -> None:
     if new_health.get('pid') == reported_pid:
         reason = f'new daemon kept the killed PID {reported_pid}'
     else:
-        new_diff = _identity_diff(client_identity, new_health)
+        # call identity() again: an install can finish during the restart
+        new_diff = _identity_diff(identity(), new_health)
         if _serves_another_project(new_health):
             new_diff = [*new_diff, 'project_root']
         if len(new_diff) > 0:
