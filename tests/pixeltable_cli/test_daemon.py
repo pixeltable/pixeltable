@@ -20,7 +20,7 @@ import psutil
 import pytest
 
 from pixeltable_cli.server import http_server
-from pixeltable_cli.utils import pidfile_path
+from pixeltable_cli.utils import pidfile_path, working_dirs_path
 
 _HEALTH_TIMEOUT_SECS = 180.0
 
@@ -48,6 +48,20 @@ def _pxt_health(port: int, cwd: pathlib.Path, env_overrides: dict[str, str] | No
     )
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout)
+
+
+def _pxt(port: int, cwd: pathlib.Path, env_overrides: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
+    """Run pxt with args against the daemon on port."""
+    return subprocess.run(
+        ['pxt', *args],
+        env={**os.environ, 'PXT_PORT': str(port), **env_overrides},
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+        stdin=subprocess.DEVNULL,
+        timeout=_HEALTH_TIMEOUT_SECS,
+    )
 
 
 def _replacement_pid(port: int, cwd: pathlib.Path, env_overrides: dict[str, str], pid: int) -> int:
@@ -229,29 +243,37 @@ class TestDaemon:
         (no_fastapi / 'fastapi.py').write_text(
             "raise ModuleNotFoundError(\"No module named 'fastapi'\", name='fastapi')\n", encoding='utf-8'
         )
-        env = {**os.environ, 'PXT_PORT': str(daemon_port), 'PYTHONPATH': str(no_fastapi)}
+        env = {'PYTHONPATH': str(no_fastapi)}
 
-        def pxt(*args: str) -> subprocess.CompletedProcess[str]:
-            return subprocess.run(
-                ['pxt', *args],
-                env=env,
-                cwd=project,
-                capture_output=True,
-                text=True,
-                check=False,
-                stdin=subprocess.DEVNULL,
-                timeout=_HEALTH_TIMEOUT_SECS,
-            )
-
-        assert pxt('service', 'example', '--out', 'app.py').returncode == 0
-        r = pxt('schema', 'update', 'app.py', 'no_fastapi')
+        assert _pxt(daemon_port, project, env, 'service', 'example', '--out', 'app.py').returncode == 0
+        r = _pxt(daemon_port, project, env, 'schema', 'update', 'app.py', 'no_fastapi')
         assert r.returncode == 0, r.stderr
 
-        r = pxt('service', 'update', '-f', 'app.py', 'no_fastapi')
+        r = _pxt(daemon_port, project, env, 'service', 'update', '-f', 'app.py', 'no_fastapi')
         assert r.returncode == 1
         assert "pip install 'pixeltable[serve]'" in r.stderr
         assert '[UNSUPPORTED_OPERATION]' in r.stderr
         assert 'Traceback' not in r.stderr
+
+    def test_restart_keeps_working_dir(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """A replaced daemon keeps the working directory set with pxt cd, unless it serves another project."""
+        project = tmp_path / 'project'
+        _create_pxt_project(project)
+        other_project = tmp_path / 'other_project'
+        _create_pxt_project(other_project)
+        drift_env = {'PIXELTABLE_TEST_DRIFT': '1'}
+        assert _pxt(daemon_port, project, {}, 'service', 'example', '--out', 'app.py').returncode == 0
+        r = _pxt(daemon_port, project, {}, 'schema', 'update', 'app.py', 'restart_wd')
+        assert r.returncode == 0, r.stderr
+        r = _pxt(daemon_port, project, {}, 'cd', 'restart_wd')
+        assert r.returncode == 0, r.stderr
+        pid = _pxt_health(daemon_port, cwd=project)['pid']
+
+        _replacement_pid(daemon_port, project, drift_env, pid)
+        assert 'restart_wd' in _pxt(daemon_port, project, drift_env, 'pwd').stdout
+
+        assert _pxt(daemon_port, other_project, drift_env, 'pwd').stdout == '(no working directory)\n'
+        assert _pxt(daemon_port, project, drift_env, 'pwd').stdout == '(no working directory)\n'
 
     def test_replace_hung_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
         project = tmp_path / 'project'
@@ -332,6 +354,16 @@ class TestDaemon:
         pathlib.Path(pidfile_path(daemon_port)).write_text(pidfile_content, encoding='utf-8')
 
         assert _pxt_health(daemon_port, cwd=project)['project_root'] == str(project)
+
+    @pytest.mark.parametrize('content', ['not json', '{"working_dirs": []}'])
+    def test_unusable_working_dirs_file(self, daemon_port: int, tmp_path: pathlib.Path, content: str) -> None:
+        """The daemon starts without working directories when their file is unusable."""
+        project = tmp_path / 'project'
+        _create_pxt_project(project)
+
+        pathlib.Path(working_dirs_path(daemon_port)).write_text(content, encoding='utf-8')
+
+        assert _pxt(daemon_port, project, {}, 'pwd').stdout == '(no working directory)\n'
 
 
 def _request_daemon(

@@ -63,6 +63,11 @@ def pidfile_path(port: int | None = None) -> str:
     return os.path.join(_resolve_pixeltable_home(), f'pxt-daemon-{port if port is not None else get_port()}.pid')
 
 
+def working_dirs_path(port: int) -> str:
+    """Path of the file in which the daemon on port saves the working directories set with `pxt cd`."""
+    return os.path.join(_resolve_pixeltable_home(), f'pxt-daemon-{port}-working-dirs.json')
+
+
 class PxtUriParts(NamedTuple):
     """The components of a pxt://<org>[:<db>][/<path>] URI.
 

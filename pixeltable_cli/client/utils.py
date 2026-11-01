@@ -63,6 +63,19 @@ def session_key() -> str:
     proc = psutil.Process(os.getppid())
     if _IS_WINDOWS:
         proc = proc.parent() or proc
+    return _process_key(proc)
+
+
+def session_is_live(session: str) -> bool:
+    """Whether session, a session_key() value, identifies a running shell."""
+    pid, _, _ = session.partition(':')
+    try:
+        return _process_key(psutil.Process(int(pid))) == session
+    except (ValueError, psutil.Error):
+        return False
+
+
+def _process_key(proc: psutil.Process) -> str:
     return f'{proc.pid}:{proc.create_time()}'
 
 
