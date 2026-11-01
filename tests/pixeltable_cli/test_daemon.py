@@ -227,6 +227,7 @@ class TestDaemon:
             assert error['retryable'] is True
             assert 'POST /api/service/check' in error['message']
             assert 'pxt daemon restart -f' in error['message']
+            assert 'pixeltable_env' not in error['message']
             assert psutil.pid_exists(pid)
         finally:
             release.touch()
@@ -364,6 +365,19 @@ class TestDaemon:
         pathlib.Path(working_dirs_path(daemon_port)).write_text(content, encoding='utf-8')
 
         assert _pxt(daemon_port, project, {}, 'pwd').stdout == '(no working directory)\n'
+
+    def test_unwritable_working_dirs_file(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """The daemon starts, and pxt cd works, when the working directories' file cannot be written."""
+        project = tmp_path / 'project'
+        _create_pxt_project(project)
+        working_dirs_file = pathlib.Path(working_dirs_path(daemon_port))
+        working_dirs_file.mkdir()
+        try:
+            r = _pxt(daemon_port, project, {}, 'cd')
+            assert r.returncode == 0, r.stderr
+            assert _pxt(daemon_port, project, {}, 'pwd').stdout == '(no working directory)\n'
+        finally:
+            shutil.rmtree(working_dirs_file)
 
 
 def _request_daemon(

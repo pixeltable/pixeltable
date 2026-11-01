@@ -85,10 +85,10 @@ class DaemonState:
         except (OSError, pydantic.ValidationError):
             _logger.warning('ignoring the working directories saved in %s', path, exc_info=True)
         with self._lock:
+            self._wd = wd
             self._wd_file = path
             self._project_root = project_root
-            self._save_wd(wd)
-            self._wd = wd
+            self._save_wd()
 
     def get_wd(self, session: str | None) -> str | None:
         """The working directory of the given session, if it set one."""
@@ -99,24 +99,26 @@ class DaemonState:
 
     def set_wd(self, session: str, uri: str) -> None:
         with self._lock:
-            wd = {**self._wd, session: uri}
-            self._save_wd(wd)
-            self._wd = wd
+            self._wd[session] = uri
+            self._save_wd()
 
     def clear_wd(self, session: str) -> None:
         with self._lock:
-            wd = {s: uri for s, uri in self._wd.items() if s != session}
-            self._save_wd(wd)
-            self._wd = wd
+            self._wd.pop(session, None)
+            self._save_wd()
 
-    def _save_wd(self, wd: dict[str, str]) -> None:
-        """Write wd to _wd_file. Call it with _lock acquired."""
+    def _save_wd(self) -> None:
+        """Write _wd to _wd_file. Call it with _lock acquired."""
         if self._wd_file is None:
             return
         tmp = f'{self._wd_file}.tmp'
-        saved = _SavedWorkingDirs(project_root=self._project_root, working_dirs=wd)
-        pathlib.Path(tmp).write_text(saved.model_dump_json(), encoding='utf-8')
-        os.replace(tmp, self._wd_file)
+        saved = _SavedWorkingDirs(project_root=self._project_root, working_dirs=self._wd)
+        try:
+            pathlib.Path(tmp).write_text(saved.model_dump_json(), encoding='utf-8')
+            os.replace(tmp, self._wd_file)
+        except OSError:
+            # the working directories still apply until the daemon restarts
+            _logger.warning('cannot save the working directories to %s', self._wd_file, exc_info=True)
 
     def begin_request(self, method: Method, path: str) -> int:
         """Register a request as in flight and return the id that end_request() takes."""

@@ -326,9 +326,9 @@ def _restart_if_mismatched(health: dict[str, Any]) -> None:
     in_flight = health.get('in_flight', [])
     if len(in_flight) > 0:
         raise DaemonBusyError(
-            f'the daemon differs in {", ".join(diff)} and has to restart, but it is serving '
-            f'{plural(len(in_flight), "request")}: {describe_in_flight_requests(in_flight)}.\n'
-            'Wait for them to finish, or run `pxt daemon restart -f`.'
+            f'the daemon has to restart, but it is serving {plural(len(in_flight), "request")}: '
+            f'{describe_in_flight_requests(in_flight)}.\n'
+            'Retry when the daemon is idle, or run `pxt daemon restart -f`, which stops every request in progress.'
         )
     # Identity mismatch: the daemon was launched against a different install or env snapshot than the
     # client now sees (eg, after pip install -U pixeltable, or after installing another package). Restart it
