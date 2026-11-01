@@ -5,8 +5,11 @@ import errno
 import json
 import os
 import pathlib
+import shutil
+import site
 import subprocess
 import sys
+import sysconfig
 import threading
 import time
 import urllib.error
@@ -20,6 +23,8 @@ from pixeltable_cli.server import http_server
 from pixeltable_cli.utils import pidfile_path
 
 _HEALTH_TIMEOUT_SECS = 180.0
+
+_OLDER_RELEASE_DAEMON = pathlib.Path(__file__).with_name('older_release_daemon.py')
 
 
 def _create_pxt_project(root: pathlib.Path) -> None:
@@ -43,6 +48,23 @@ def _pxt_health(port: int, cwd: pathlib.Path, env_overrides: dict[str, str] | No
     )
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout)
+
+
+def _replacement_pid(port: int, cwd: pathlib.Path, env_overrides: dict[str, str], pid: int) -> int:
+    """Run `pxt health`, check that a new daemon replaced the one with pid, and return the new daemon's pid."""
+    health = _pxt_health(port, cwd=cwd, env_overrides=env_overrides)
+    assert health['pid'] != pid
+    assert psutil.pid_exists(health['pid'])
+    assert not psutil.pid_exists(pid)
+    return health['pid']
+
+
+def _install_metadata(path: pathlib.Path) -> None:
+    """Write the metadata directory at path the way an installer does, for the distribution and version in its name."""
+    name, version = path.stem.split('-')
+    path.mkdir(parents=True)
+    metadata_file = 'METADATA' if path.suffix == '.dist-info' else 'PKG-INFO'
+    (path / metadata_file).write_text(f'Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n', encoding='utf-8')
 
 
 class TestDaemon:
@@ -79,6 +101,150 @@ class TestDaemon:
         assert health2['pid'] != health1['pid']
         assert psutil.pid_exists(health2['pid'])
         assert not psutil.pid_exists(health1['pid'])
+
+    @pytest.mark.skipif(site.ENABLE_USER_SITE is not True, reason='a venv disables the user site directory')
+    def test_replace_daemon_after_install(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """An install, reinstall, upgrade or uninstall replaces the daemon; an unchanged install keeps it."""
+        project = tmp_path / 'project'
+        _create_pxt_project(project)
+        userbase = tmp_path / 'userbase'
+        user_env = {'PYTHONUSERBASE': str(userbase)}
+        # the target of pip install --user
+        scheme = sysconfig.get_preferred_scheme('user')
+        user_site = pathlib.Path(sysconfig.get_path('purelib', scheme, vars={'userbase': str(userbase)}))
+        v1 = user_site / 'fakepkg-1.0.dist-info'
+        v2 = user_site / 'fakepkg-2.0.dist-info'
+        pid = _pxt_health(daemon_port, cwd=project, env_overrides=user_env)['pid']
+
+        _install_metadata(v1)
+        pid = _replacement_pid(daemon_port, project, user_env, pid)
+
+        # reinstall at the same version
+        shutil.rmtree(v1)
+        _install_metadata(v1)
+        pid = _replacement_pid(daemon_port, project, user_env, pid)
+
+        # upgrade
+        shutil.rmtree(v1)
+        _install_metadata(v2)
+        pid = _replacement_pid(daemon_port, project, user_env, pid)
+
+        # uninstall
+        shutil.rmtree(v2)
+        pid = _replacement_pid(daemon_port, project, user_env, pid)
+
+        # a setup.py install, which writes .egg-info
+        _install_metadata(user_site / 'legacypkg-1.0.egg-info')
+        pid = _replacement_pid(daemon_port, project, user_env, pid)
+
+        assert _pxt_health(daemon_port, cwd=project, env_overrides=user_env)['pid'] == pid
+
+    def test_replace_older_release_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """A daemon from an older release, which reports fewer identity fields, is replaced."""
+        project = tmp_path / 'project'
+        _create_pxt_project(project)
+        older_daemon = subprocess.Popen(
+            [sys.executable, str(_OLDER_RELEASE_DAEMON), str(daemon_port), str(project)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        try:
+            assert older_daemon.stdout is not None
+            assert older_daemon.stdout.readline() == 'ready\n'
+
+            health = _pxt_health(daemon_port, cwd=project)
+            older_daemon.wait(timeout=60)
+            assert health['pid'] != older_daemon.pid
+            assert psutil.pid_exists(health['pid'])
+        finally:
+            if older_daemon.poll() is None:
+                older_daemon.kill()
+
+    def test_keep_busy_mismatched_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """A client does not replace a mismatched daemon that is serving a request, and replaces it afterwards."""
+        project = tmp_path / 'project'
+        _create_pxt_project(project)
+        release = project / 'release'
+        # an application file whose import waits for release
+        (project / 'app.py').write_text(
+            f'import pathlib, time\nwhile not pathlib.Path({str(release)!r}).exists():\n    time.sleep(0.05)\n',
+            encoding='utf-8',
+        )
+        env = {**os.environ, 'PXT_PORT': str(daemon_port)}
+        drift_env = {'PIXELTABLE_TEST_DRIFT': '1'}
+        pid = _pxt_health(daemon_port, cwd=project)['pid']
+
+        service_check = subprocess.Popen(
+            ['pxt', 'service', 'check', 'app.py'],
+            env=env,
+            cwd=project,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            deadline = time.monotonic() + _HEALTH_TIMEOUT_SECS
+            while len(_pxt_health(daemon_port, cwd=project)['in_flight']) == 0:
+                assert time.monotonic() < deadline, 'pxt service check never reached the daemon'
+                time.sleep(0.1)
+
+            r = subprocess.run(
+                ['pxt', 'ls', '/', '--json'],
+                env={**env, **drift_env},
+                cwd=project,
+                capture_output=True,
+                text=True,
+                check=False,
+                stdin=subprocess.DEVNULL,
+                timeout=_HEALTH_TIMEOUT_SECS,
+            )
+            assert r.returncode == 1
+            error = json.loads(r.stdout)
+            assert error['error_code'] == 'DAEMON_BUSY'
+            assert error['retryable'] is True
+            assert 'POST /api/service/check' in error['message']
+            assert 'pxt daemon restart -f' in error['message']
+            assert psutil.pid_exists(pid)
+        finally:
+            release.touch()
+            service_check.wait(timeout=_HEALTH_TIMEOUT_SECS)
+
+        _replacement_pid(daemon_port, project, drift_env, pid)
+
+    def test_service_without_fastapi(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """Without fastapi, pxt schema update succeeds, and pxt service update prints the install command."""
+        project = tmp_path / 'project'
+        _create_pxt_project(project)
+        no_fastapi = tmp_path / 'no_fastapi'
+        no_fastapi.mkdir()
+        (no_fastapi / 'fastapi.py').write_text(
+            "raise ModuleNotFoundError(\"No module named 'fastapi'\", name='fastapi')\n", encoding='utf-8'
+        )
+        env = {**os.environ, 'PXT_PORT': str(daemon_port), 'PYTHONPATH': str(no_fastapi)}
+
+        def pxt(*args: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ['pxt', *args],
+                env=env,
+                cwd=project,
+                capture_output=True,
+                text=True,
+                check=False,
+                stdin=subprocess.DEVNULL,
+                timeout=_HEALTH_TIMEOUT_SECS,
+            )
+
+        assert pxt('service', 'example', '--out', 'app.py').returncode == 0
+        r = pxt('schema', 'update', 'app.py', 'no_fastapi')
+        assert r.returncode == 0, r.stderr
+
+        r = pxt('service', 'update', '-f', 'app.py', 'no_fastapi')
+        assert r.returncode == 1
+        assert "pip install 'pixeltable[serve]'" in r.stderr
+        assert '[UNSUPPORTED_OPERATION]' in r.stderr
+        assert 'Traceback' not in r.stderr
 
     def test_replace_hung_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
         project = tmp_path / 'project'

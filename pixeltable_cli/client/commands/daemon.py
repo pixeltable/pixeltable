@@ -3,10 +3,16 @@ from __future__ import annotations
 import json
 import os
 import sys
-import time
 from typing import Any
 
-from pixeltable_cli.client.utils import ensure_running, fetch_health, kill_and_wait, port_is_open, read_pidfile
+from pixeltable_cli.client.utils import (
+    describe_in_flight_requests,
+    ensure_running,
+    fetch_health,
+    kill_and_wait,
+    port_is_open,
+    read_pidfile,
+)
 from pixeltable_cli.utils import get_port, pidfile_path
 
 from ..parser import Parser
@@ -70,12 +76,8 @@ def _stop(force: bool, ok_if_absent: bool = False) -> None:
 
     in_flight = health.get('in_flight', []) if health is not None else []
     if len(in_flight) > 0 and not force:
-        now = time.time()
-        running = ', '.join(
-            f'{r["method"]} {r["path"]} ({now - r["started_at"]:.0f}s)' for r in in_flight if isinstance(r, dict)
-        )
         print(
-            f'pxt: the daemon is serving {len(in_flight)} request(s): {running}.\n'
+            f'pxt: the daemon is serving {len(in_flight)} request(s): {describe_in_flight_requests(in_flight)}.\n'
             'Wait for it to finish, or use --force.',
             file=sys.stderr,
         )

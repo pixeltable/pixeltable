@@ -57,6 +57,7 @@ class HealthResponse(BaseModel):
     pixeltable_pgdata: str
     pixeltable_config_file: str
     project_root: str | None = None
+    packages_fingerprint: str
 
     # requests being served right now, oldest first
     in_flight: list[InFlightRequest] = Field(default_factory=list)

@@ -6,6 +6,7 @@ import hashlib
 import importlib.metadata
 import os
 import re
+import site
 import sys
 import tomllib
 from pathlib import Path
@@ -231,6 +232,7 @@ _IDENTITY_KEYS: tuple[str, ...] = (
     'pixeltable_pgdata',
     'pixeltable_config_file',
     'pixeltable_env',
+    'packages_fingerprint',
 )
 
 
@@ -248,6 +250,23 @@ def _pxt_install_dir() -> str | None:
     except importlib.metadata.PackageNotFoundError:
         return None
     return str(Path(str(dist.locate_file('pixeltable'))).resolve())
+
+
+def _packages_fingerprint() -> str:
+    """Hash the name and mtime of each distribution's metadata directory in the site-packages directories."""
+    dirs = set(site.getsitepackages())
+    if site.ENABLE_USER_SITE is True:
+        dirs.add(site.getusersitepackages())
+    metadata_dirs: list[str] = []
+    for site_dir in dirs:
+        try:
+            with os.scandir(site_dir) as entries:
+                metadata_dirs.extend(
+                    f'{e.name} {e.stat().st_mtime_ns}' for e in entries if e.name.endswith(('.dist-info', '.egg-info'))
+                )
+        except OSError:
+            continue
+    return value_fingerprint('\n'.join(sorted(metadata_dirs)))
 
 
 # Env-var keys whose values may contain credentials and must not be returned verbatim
@@ -305,4 +324,5 @@ def identity() -> dict[str, Any]:
         'pixeltable_pgdata': _resolve_pixeltable_pgdata(home),
         'pixeltable_config_file': _resolve_pixeltable_config_file(home),
         'pixeltable_env': _snapshot_pixeltable_env(),
+        'packages_fingerprint': _packages_fingerprint(),
     }
