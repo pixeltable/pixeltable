@@ -107,6 +107,13 @@ def _busy_daemon(port: int, project: pathlib.Path, env_overrides: dict[str, str]
         service_check.wait(timeout=_HEALTH_TIMEOUT_SECS)
 
 
+def _create_catalog_dir(port: int, project: pathlib.Path, name: str) -> None:
+    """Create the catalog directory name with the example application's table in it."""
+    assert _pxt(port, project, {}, 'service', 'example', '--out', 'app.py').returncode == 0
+    r = _pxt(port, project, {}, 'schema', 'update', 'app.py', name)
+    assert r.returncode == 0, r.stderr
+
+
 def _install_metadata(path: pathlib.Path) -> None:
     """Write the metadata directory at path the way an installer does, for the distribution and version in its name."""
     name, version = path.stem.split('-')
@@ -263,9 +270,7 @@ class TestDaemon:
         other_project = tmp_path / 'other_project'
         _create_pxt_project(other_project)
         drift_env = {'PIXELTABLE_TEST_DRIFT': '1'}
-        assert _pxt(daemon_port, project, {}, 'service', 'example', '--out', 'app.py').returncode == 0
-        r = _pxt(daemon_port, project, {}, 'schema', 'update', 'app.py', 'restart_wd')
-        assert r.returncode == 0, r.stderr
+        _create_catalog_dir(daemon_port, project, 'restart_wd')
         r = _pxt(daemon_port, project, {}, 'cd', 'restart_wd')
         assert r.returncode == 0, r.stderr
         pid = _pxt_health(daemon_port, cwd=project)['pid']
@@ -373,6 +378,11 @@ class TestDaemon:
         working_dirs_file = pathlib.Path(working_dirs_path(daemon_port))
         working_dirs_file.mkdir()
         try:
+            _create_catalog_dir(daemon_port, project, 'unwritable_wd')
+            r = _pxt(daemon_port, project, {}, 'cd', 'unwritable_wd')
+            assert r.returncode == 0, r.stderr
+            assert 'unwritable_wd' in _pxt(daemon_port, project, {}, 'pwd').stdout
+
             r = _pxt(daemon_port, project, {}, 'cd')
             assert r.returncode == 0, r.stderr
             assert _pxt(daemon_port, project, {}, 'pwd').stdout == '(no working directory)\n'
