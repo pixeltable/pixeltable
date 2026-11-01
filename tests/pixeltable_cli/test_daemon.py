@@ -14,7 +14,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import Any, Iterator
 
 import psutil
 import pytest
@@ -73,6 +73,40 @@ def _replacement_pid(port: int, cwd: pathlib.Path, env_overrides: dict[str, str]
     return health['pid']
 
 
+def _user_site(userbase: pathlib.Path) -> pathlib.Path:
+    """The target directory of pip install --user when PYTHONUSERBASE is userbase."""
+    scheme = sysconfig.get_preferred_scheme('user')
+    return pathlib.Path(sysconfig.get_path('purelib', scheme, vars={'userbase': str(userbase)}))
+
+
+@contextlib.contextmanager
+def _busy_daemon(port: int, project: pathlib.Path, env_overrides: dict[str, str]) -> Iterator[None]:
+    """Keep the daemon on port serving a request until the block exits."""
+    release = project / 'release'
+    # an application file whose import waits for release
+    (project / 'app.py').write_text(
+        f'import pathlib, time\nwhile not pathlib.Path({str(release)!r}).exists():\n    time.sleep(0.05)\n',
+        encoding='utf-8',
+    )
+    service_check = subprocess.Popen(
+        ['pxt', 'service', 'check', 'app.py'],
+        env={**os.environ, 'PXT_PORT': str(port), **env_overrides},
+        cwd=project,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + _HEALTH_TIMEOUT_SECS
+        while len(_pxt_health(port, cwd=project, env_overrides=env_overrides)['in_flight']) == 0:
+            assert time.monotonic() < deadline, 'pxt service check never reached the daemon'
+            time.sleep(0.1)
+        yield
+    finally:
+        release.touch()
+        service_check.wait(timeout=_HEALTH_TIMEOUT_SECS)
+
+
 def _install_metadata(path: pathlib.Path) -> None:
     """Write the metadata directory at path the way an installer does, for the distribution and version in its name."""
     name, version = path.stem.split('-')
@@ -123,9 +157,7 @@ class TestDaemon:
         _create_pxt_project(project)
         userbase = tmp_path / 'userbase'
         user_env = {'PYTHONUSERBASE': str(userbase)}
-        # the target of pip install --user
-        scheme = sysconfig.get_preferred_scheme('user')
-        user_site = pathlib.Path(sysconfig.get_path('purelib', scheme, vars={'userbase': str(userbase)}))
+        user_site = _user_site(userbase)
         v1 = user_site / 'fakepkg-1.0.dist-info'
         v2 = user_site / 'fakepkg-2.0.dist-info'
         pid = _pxt_health(daemon_port, cwd=project, env_overrides=user_env)['pid']
@@ -187,40 +219,11 @@ class TestDaemon:
         """A client does not replace a mismatched daemon that is serving a request, and replaces it afterwards."""
         project = tmp_path / 'project'
         _create_pxt_project(project)
-        release = project / 'release'
-        # an application file whose import waits for release
-        (project / 'app.py').write_text(
-            f'import pathlib, time\nwhile not pathlib.Path({str(release)!r}).exists():\n    time.sleep(0.05)\n',
-            encoding='utf-8',
-        )
-        env = {**os.environ, 'PXT_PORT': str(daemon_port)}
         drift_env = {'PIXELTABLE_TEST_DRIFT': '1'}
         pid = _pxt_health(daemon_port, cwd=project)['pid']
 
-        service_check = subprocess.Popen(
-            ['pxt', 'service', 'check', 'app.py'],
-            env=env,
-            cwd=project,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        try:
-            deadline = time.monotonic() + _HEALTH_TIMEOUT_SECS
-            while len(_pxt_health(daemon_port, cwd=project)['in_flight']) == 0:
-                assert time.monotonic() < deadline, 'pxt service check never reached the daemon'
-                time.sleep(0.1)
-
-            r = subprocess.run(
-                ['pxt', 'ls', '/', '--json'],
-                env={**env, **drift_env},
-                cwd=project,
-                capture_output=True,
-                text=True,
-                check=False,
-                stdin=subprocess.DEVNULL,
-                timeout=_HEALTH_TIMEOUT_SECS,
-            )
+        with _busy_daemon(daemon_port, project, {}):
+            r = _pxt(daemon_port, project, drift_env, 'ls', '/', '--json')
             assert r.returncode == 1
             error = json.loads(r.stdout)
             assert error['error_code'] == 'DAEMON_BUSY'
@@ -229,9 +232,6 @@ class TestDaemon:
             assert 'pxt daemon restart -f' in error['message']
             assert 'pixeltable_env' not in error['message']
             assert psutil.pid_exists(pid)
-        finally:
-            release.touch()
-            service_check.wait(timeout=_HEALTH_TIMEOUT_SECS)
 
         _replacement_pid(daemon_port, project, drift_env, pid)
 
