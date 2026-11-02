@@ -1137,8 +1137,8 @@ class TestOpenaiTypedDictAdherence:
         ours_fields, ours_optional = self._td_fields(ImagesResponse)
         sdk_fields = self._pydantic_fields(SdkImagesResponse)
 
-        # data: re-typed to a non-null list of images. size: str | Literal[...] | None is not a ColumnType;
-        # str | None is the mirror.
+        # data: re-typed to a non-null list of images.
+        # size: _pydantic_fields() drops its str | Literal[...] | None annotation; str | None is the mirror.
         overrides = {'data', 'size'}
         # declared by newer SDKs only, so a response from an older one lacks them
         added_by_sdk = {'safety_identifier'}  # openai>=3.33
@@ -1151,6 +1151,8 @@ class TestOpenaiTypedDictAdherence:
         assert sdk_unconverted <= overrides, (
             f'Unhandled SDK fields (not convertible and not in overrides): {sdk_unconverted - overrides}'
         )
+        # size is skipped in the loop below, so pin its mirror type here
+        assert self._normalize(ours_fields['size']) == self._normalize(ts.ColumnType.normalize_type(str | None))
         for name, sdk_type in sdk_fields.items():
             if name in overrides:
                 continue
