@@ -498,6 +498,8 @@ class ModalScheduler(Scheduler):
     TODO: move the telemetry, result and exception handling of _exec() into Scheduler, for all schedulers
     """
 
+    _POOL_PREFIX = 'modal:'
+
     pool: ModalPool
 
     def __init__(self, resource_pool: str, dispatcher: Dispatcher):
@@ -505,16 +507,21 @@ class ModalScheduler(Scheduler):
         env.Env.get().require_package('modal')
         from .modal_app import ModalPool  # modal is an optional package
 
-        udf_path = resource_pool.removeprefix('modal:')
+        udf_path = resource_pool.removeprefix(self._POOL_PREFIX)
         self.pool = env.Env.get().get_resource_pool_info(
-            resource_pool, lambda: ModalPool(udf_path, env.Env.get().udf_resources()[udf_path])
+            resource_pool, lambda: ModalPool(udf_path, env.Env.get().udf_resources()[udf_path].timeout_seconds)
         )
         loop_task = asyncio.create_task(self._main_loop())
         self.dispatcher.register_task(loop_task)
 
     @classmethod
+    def get_resource_pool(cls, udf_path: str) -> str:
+        """Return the resource pool of the calls to the UDF at udf_path."""
+        return f'{cls._POOL_PREFIX}{udf_path}'
+
+    @classmethod
     def matches(cls, resource_pool: str) -> bool:
-        return resource_pool.startswith('modal:')
+        return resource_pool.startswith(cls._POOL_PREFIX)
 
     async def _main_loop(self) -> None:
         # a failed deploy fails the query; a failed call fails only its rows

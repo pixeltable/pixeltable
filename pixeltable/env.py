@@ -161,6 +161,8 @@ class Env:
 
     _resource_pool_info: dict[str, Any]
     _resource_pool_lock: threading.Lock
+    # the last result of udf_resources(), with the config setting that produced it
+    _udf_resources_cache: tuple[dict[str, Any], dict[str, UdfResources]] | None
     _dbms: Dbms | None
 
     @classmethod
@@ -232,6 +234,7 @@ class Env:
 
         self._resource_pool_info = {}
         self._resource_pool_lock = threading.Lock()
+        self._udf_resources_cache = None
         self._dbms = None
 
         # Maps a table's id to the catalog uri it belongs to ('' for the in-process catalog). Populated whenever
@@ -1044,6 +1047,9 @@ class Env:
         setting = config.get_value('udf_resources', dict)
         if setting is None:
             return {}
+        cache = self._udf_resources_cache
+        if cache is not None and cache[0] == setting:
+            return cache[1]
         source = config.describe_setting('pixeltable', 'udf_resources')
         try:
             entries = _UDF_RESOURCES_ADAPTER.validate_python(setting)
@@ -1080,6 +1086,7 @@ class Env:
                 )
             configured_paths[fn.self_path] = path
             result[fn.self_path] = resources
+        self._udf_resources_cache = (setting, result)
         return result
 
     @property

@@ -1,4 +1,7 @@
-"""The resources of hosted databases and services, shared by the project config, the requests and the stored records."""
+"""The resources of hosted databases and services, and of the Modal containers that run UDF calls.
+
+The resources of databases and services are shared by the project config, the requests and the stored records.
+"""
 
 from __future__ import annotations
 

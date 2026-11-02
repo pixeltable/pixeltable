@@ -11,6 +11,7 @@ from typing import Any, Callable, Iterator, cast
 from pixeltable import env, exceptions as excs, exprs, func, telemetry, telemetry_schemas
 
 from .globals import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
+from .schedulers import ModalScheduler
 
 _logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ class FnCallEvaluator(Evaluator):
     fn_call: exprs.FunctionCall
     fn: func.CallableFunction
     scalar_py_fn: Callable | None  # only set for non-batching CallableFunctions
-    # 'modal:<udf path>' for a UDF in udf_resources, else fn_call.resource_pool
+    # ModalScheduler's pool for a UDF in udf_resources, else fn_call.resource_pool
     resource_pool: str | None
 
     # only set if fn.is_batched
@@ -80,7 +81,7 @@ class FnCallEvaluator(Evaluator):
         self.fn = cast(func.CallableFunction, fn_call.fn)
         self_path = self.fn.self_path
         if self_path is not None and self_path in env.Env.get().udf_resources():
-            self.resource_pool = f'modal:{self_path}'
+            self.resource_pool = ModalScheduler.get_resource_pool(self_path)
         else:
             self.resource_pool = fn_call.resource_pool
         if fn_call.resource_pool is not None and not self.fn.is_async:
