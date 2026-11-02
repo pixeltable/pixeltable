@@ -889,6 +889,7 @@ class Env:
         self.__register_package('mcp')
         self.__register_package('mistralai')
         self.__register_package('mistune')
+        self.__register_package('modal')
         self.__register_package('ollama')
         self.__register_package('openai')
         self.__register_package('openpyxl')

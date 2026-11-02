@@ -9,7 +9,6 @@ import sys
 from typing import Any, Callable, Iterator, cast
 
 from pixeltable import env, exceptions as excs, exprs, func, telemetry, telemetry_schemas
-from pixeltable.service.resources import UdfResources
 
 from .globals import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
 
@@ -56,6 +55,7 @@ class DefaultExprEvaluator(Evaluator):
 class FnCallEvaluator(Evaluator):
     """
     Evaluates function calls:
+    - with a resource pool: each batch, or each row of a non-batched function, goes to the pool's scheduler
     - batched functions (sync and async): one task per batch
     - async functions: one task per row
     - the rest: one task per set of rows handed to schedule()
@@ -67,7 +67,8 @@ class FnCallEvaluator(Evaluator):
     fn_call: exprs.FunctionCall
     fn: func.CallableFunction
     scalar_py_fn: Callable | None  # only set for non-batching CallableFunctions
-    udf_resources: UdfResources | None
+    # 'modal:<udf path>' for a UDF in udf_resources, else fn_call.resource_pool
+    resource_pool: str | None
 
     # only set if fn.is_batched
     call_args_queue: asyncio.Queue[FnCallArgs] | None  # FnCallArgs waiting for execution
@@ -78,7 +79,10 @@ class FnCallEvaluator(Evaluator):
         self.fn_call = fn_call
         self.fn = cast(func.CallableFunction, fn_call.fn)
         self_path = self.fn.self_path
-        self.udf_resources = env.Env.get().udf_resources().get(self_path) if self_path is not None else None
+        if self_path is not None and self_path in env.Env.get().udf_resources():
+            self.resource_pool = f'modal:{self_path}'
+        else:
+            self.resource_pool = fn_call.resource_pool
         if fn_call.resource_pool is not None and not self.fn.is_async:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
@@ -166,29 +170,29 @@ class FnCallEvaluator(Evaluator):
                 # turn call_args_batch into a single batched FnCallArgs
                 _logger.debug(f'Creating batch of size {len(call_args_batch)} for slot {slot_idx}')
                 batched_call_args = self._create_batch_call_args(call_args_batch)
-                if self.fn_call.resource_pool is not None:
-                    # hand the call off to the resource pool's scheduler
-                    scheduler = self.dispatcher.schedulers[self.fn_call.resource_pool]
-                    scheduler.submit(batched_call_args, self.eval_ctx)
-                else:
-                    task = asyncio.create_task(self.eval_batch(batched_call_args))
-                    self.dispatcher.register_task(task)
+                self._submit_batch(batched_call_args)
+
+        elif self.resource_pool is not None:
+            scheduler = self.dispatcher.schedulers[self.resource_pool]
+            for item in rows_call_args:
+                scheduler.submit(item, self.eval_ctx)
 
         elif self.fn.is_async:
-            if self.fn_call.resource_pool is not None:
-                # hand the call off to the resource pool's scheduler
-                scheduler = self.dispatcher.schedulers[self.fn_call.resource_pool]
-                for item in rows_call_args:
-                    scheduler.submit(item, self.eval_ctx)
-            else:
-                # create one task per call
-                for item in rows_call_args:
-                    task = asyncio.create_task(self.eval_async(item))
-                    self.dispatcher.register_task(task)
+            # create one task per call
+            for item in rows_call_args:
+                task = asyncio.create_task(self.eval_async(item))
+                self.dispatcher.register_task(task)
 
         else:
             # create a single task for all rows
             task = asyncio.create_task(self.eval(rows_call_args))
+            self.dispatcher.register_task(task)
+
+    def _submit_batch(self, batched_call_args: FnCallArgs) -> None:
+        if self.resource_pool is not None:
+            self.dispatcher.schedulers[self.resource_pool].submit(batched_call_args, self.eval_ctx)
+        else:
+            task = asyncio.create_task(self.eval_batch(batched_call_args))
             self.dispatcher.register_task(task)
 
     def _queued_call_args_iter(self) -> Iterator[FnCallArgs]:
@@ -287,13 +291,11 @@ class FnCallEvaluator(Evaluator):
         )
 
     def _close(self) -> None:
-        """Create a task for the incomplete batch of queued FnCallArgs, if any"""
+        """Submit the incomplete batch of queued FnCallArgs, if any"""
         _logger.debug(f'FnCallEvaluator.close(): slot_idx={self.fn_call.slot_idx}')
         if self.call_args_queue is None or self.call_args_queue.empty():
             return
-        batched_call_args = self._create_batch_call_args(list(self._queued_call_args_iter()))
-        task = asyncio.create_task(self.eval_batch(batched_call_args))
-        self.dispatcher.register_task(task)
+        self._submit_batch(self._create_batch_call_args(list(self._queued_call_args_iter())))
 
 
 class NestedRowList:

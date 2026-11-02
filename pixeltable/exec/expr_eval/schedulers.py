@@ -7,7 +7,7 @@ import logging
 import math
 import sys
 import time
-from typing import Any, Collection
+from typing import TYPE_CHECKING, Any, Collection
 
 from pixeltable import env, exceptions as excs, func, telemetry, telemetry_schemas
 from pixeltable.config import Config
@@ -17,9 +17,12 @@ from pixeltable.utils.http import exponential_backoff, is_retryable_error
 
 from .globals import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
 
+if TYPE_CHECKING:
+    from .modal_app import ModalPool
+
 _logger = logging.getLogger(__name__)
 
-__all__ = ['RateLimitsScheduler', 'RequestRateScheduler']
+__all__ = ['ModalScheduler', 'RateLimitsScheduler', 'RequestRateScheduler']
 
 _RETRYABLE_PXT_ERROR_CODES = frozenset(
     (excs.ErrorCode.PROVIDER_ERROR, excs.ErrorCode.RATE_LIMITED, excs.ErrorCode.PROVIDER_OVERLOADED)
@@ -488,5 +491,71 @@ class RequestRateScheduler(Scheduler):
             return exponential_backoff(num_retries, max_delay=self.MAX_RETRY_DELAY)
 
 
+class ModalScheduler(Scheduler):
+    """
+    Scheduler for the calls of a UDF in udf_resources, which run in the UDF's Modal containers.
+
+    TODO: move the telemetry, result and exception handling of _exec() into Scheduler, for all schedulers
+    """
+
+    pool: ModalPool
+
+    def __init__(self, resource_pool: str, dispatcher: Dispatcher):
+        super().__init__(resource_pool, dispatcher)
+        env.Env.get().require_package('modal')
+        from .modal_app import ModalPool  # modal is an optional package
+
+        udf_path = resource_pool.removeprefix('modal:')
+        self.pool = env.Env.get().get_resource_pool_info(
+            resource_pool, lambda: ModalPool(udf_path, env.Env.get().udf_resources()[udf_path])
+        )
+        loop_task = asyncio.create_task(self._main_loop())
+        self.dispatcher.register_task(loop_task)
+
+    @classmethod
+    def matches(cls, resource_pool: str) -> bool:
+        return resource_pool.startswith('modal:')
+
+    async def _main_loop(self) -> None:
+        # a failed deploy fails the query; a failed call fails only its rows
+        await self.pool.connect()
+        while True:
+            item = await self.queue.get()
+            task = asyncio.create_task(self._exec(item.request, item.exec_ctx))
+            self.dispatcher.register_task(task)
+
+    async def _exec(self, request: FnCallArgs, exec_ctx: ExprEvalCtx) -> None:
+        slot_idx = request.fn_call.slot_idx
+        try:
+            with (
+                telemetry.span(
+                    f'pixeltable.udf.{request.pxt_fn.display_name}',
+                    level=telemetry.DEBUG,
+                    set_current=telemetry.current_span() is not None,
+                    **telemetry_schemas.UdfCallAttrs(
+                        udf_path=request.pxt_fn.self_path,
+                        column=self.dispatcher.col_names.get(slot_idx),
+                        batch_size=len(request.rows) if request.is_batched else None,
+                        resource_pool=self.resource_pool,
+                    ),
+                ),
+                telemetry_schemas.udf_call(request.pxt_fn),
+            ):
+                response = await self.pool.call(request)
+                if response.error is not None:
+                    raise response.error
+        except Exception as exc:
+            _, _, exc_tb = sys.exc_info()
+            for row in request.rows:
+                row.set_exc(slot_idx, exc)
+            self.dispatcher.dispatch_exc(request.rows, slot_idx, exc_tb, exec_ctx)
+            return
+
+        assert response.values is not None and len(response.values) == len(request.rows)
+        for row, value in zip(request.rows, response.values):
+            row[slot_idx] = value
+        self.dispatcher.dispatch(request.rows, exec_ctx)
+
+
 # all concrete Scheduler subclasses that implement matches()
-SCHEDULERS = [RateLimitsScheduler, RequestRateScheduler]
+SCHEDULERS: list[type[Scheduler]] = [RateLimitsScheduler, RequestRateScheduler, ModalScheduler]

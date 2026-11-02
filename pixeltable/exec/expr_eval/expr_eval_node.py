@@ -226,9 +226,7 @@ class ExprEvalNode(ExecNode):
 
     def _init_schedulers(self) -> None:
         resource_pools = {
-            eval.fn_call.resource_pool
-            for eval in self.eval_ctx.slot_evaluators.values()
-            if isinstance(eval, FnCallEvaluator)
+            eval.resource_pool for eval in self.eval_ctx.slot_evaluators.values() if isinstance(eval, FnCallEvaluator)
         }
         resource_pools = {pool for pool in resource_pools if pool is not None}
         for pool_name in resource_pools:

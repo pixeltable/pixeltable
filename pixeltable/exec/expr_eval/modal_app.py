@@ -1,6 +1,8 @@
 """The Modal App that runs the calls to the UDFs configured in udf_resources."""
 
+import asyncio
 import dataclasses
+import functools
 import hashlib
 import json
 import logging
@@ -10,6 +12,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -22,7 +25,10 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.func.globals import resolve_symbol
 from pixeltable.service import proxy_protocol
+from pixeltable.service.resources import UdfResources
 from pixeltable.utils.local_store import TempStore
+
+from .globals import FnCallArgs
 
 _logger = logging.getLogger('pixeltable')
 
@@ -169,8 +175,58 @@ class ModalServer:
             TempStore.clear()
 
 
+class ModalPool:
+    """The process's handle on the Modal containers that run one UDF's calls."""
+
+    udf_path: str
+    resources: UdfResources
+    # set by connect()
+    server: modal.cls.Obj | None
+
+    def __init__(self, udf_path: str, resources: UdfResources) -> None:
+        self.udf_path = udf_path
+        self.resources = resources
+        self.server = None
+
+    async def connect(self) -> None:
+        """Look up the pool's ModalServer, deploying the App at the process's first call."""
+        if self.server is None:
+            # a deploy takes seconds to minutes and calls Modal's blocking API
+            app_name = await asyncio.to_thread(ensure_app)
+            cls = modal.Cls.from_name(app_name, 'ModalServer')
+            # Modal counts physical cores, each with 2 vCPUs
+            cpu = None if self.resources.cpu is None else self.resources.cpu / 2
+            self.server = cls.with_options(
+                cpu=cpu, memory=self.resources.memory_mb, gpu=self.resources.gpu, timeout=self.resources.timeout_seconds
+            )(udf_path=self.udf_path)
+
+    async def call(self, call_args: FnCallArgs) -> UdfCallResponse:
+        """Run call_args in the pool's containers."""
+        assert self.server is not None
+        request = UdfCallRequest(
+            call_args.pxt_fn.signature, call_args.args, call_args.kwargs, call_args.batch_args, call_args.batch_kwargs
+        )
+        start = time.monotonic()
+        response = UdfCallResponse.decode(await self.server.run.remote.aio(request.encode()))
+        _logger.debug(
+            f'Modal call of {self.udf_path}: {len(call_args.rows)} rows in {time.monotonic() - start:.2f}s, '
+            f'UDF {response.duration_seconds:.2f}s, container {response.task_id}'
+        )
+        return response
+
+
+_deploy_lock = threading.Lock()
+
+
 def ensure_app() -> str:
-    """Deploy the Modal App of the current project and return its name."""
+    """Deploy the Modal App of the current project at the process's first call, and return its name."""
+    # functools.cache would let two threads deploy at the same time
+    with _deploy_lock:
+        return _deploy_app()
+
+
+@functools.cache
+def _deploy_app() -> str:
     project_root = Config.get().project_root
     if project_root is None or not (project_root / 'uv.lock').is_file():
         raise excs.RequestError(
