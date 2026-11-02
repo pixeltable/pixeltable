@@ -54,7 +54,7 @@ def run(argv: list[str]) -> None:
     elif args.action == 'stop':
         _stop(force=args.force)
         # a stop clears the working directories set with pxt cd; a restart keeps them
-        with contextlib.suppress(FileNotFoundError):
+        with contextlib.suppress(OSError):
             os.remove(working_dirs_path(get_port()))
     elif args.action == 'restart':
         _stop(force=args.force, ok_if_absent=True)

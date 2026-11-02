@@ -358,7 +358,7 @@ class TestDaemon:
         assert _pxt(daemon_port, project, {}, 'pwd').stdout == '(no working directory)\n'
 
     def test_unwritable_working_dirs_file(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
-        """The daemon starts, and pxt cd works, when the working directories' file cannot be written."""
+        """The daemon, pxt cd and pxt daemon stop work when the working directories' file cannot be written."""
         project = tmp_path / 'project'
         _create_pxt_project(project)
         working_dirs_file = pathlib.Path(working_dirs_path(daemon_port))
@@ -372,6 +372,9 @@ class TestDaemon:
             r = _pxt(daemon_port, project, {}, 'cd')
             assert r.returncode == 0, r.stderr
             assert _pxt(daemon_port, project, {}, 'pwd').stdout == '(no working directory)\n'
+
+            r = _pxt(daemon_port, project, {}, 'daemon', 'stop')
+            assert r.returncode == 0, r.stderr
         finally:
             shutil.rmtree(working_dirs_file)
 
