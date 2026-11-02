@@ -1,0 +1,227 @@
+"""The Modal App that runs the calls to the UDFs configured in udf_resources."""
+
+import dataclasses
+import hashlib
+import json
+import logging
+import os
+import pickle
+import re
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+from typing import Any
+
+import modal
+from typing_extensions import Self
+
+from pixeltable import exceptions as excs, func, type_system as ts
+from pixeltable.config import Config
+from pixeltable.env import Env
+from pixeltable.func.globals import resolve_symbol
+from pixeltable.service import proxy_protocol
+from pixeltable.utils.local_store import TempStore
+
+_logger = logging.getLogger('pixeltable')
+
+
+@dataclasses.dataclass(frozen=True)
+class UdfCallRequest:
+    """The arguments of a ModalServer.run() call, shaped as in FnCallArgs."""
+
+    # selects the overload of the server's UDF
+    signature: func.Signature
+    args: list[Any] | None = None
+    kwargs: dict[str, Any] | None = None
+    batch_args: list[list[Any]] | None = None
+    batch_kwargs: dict[str, list[Any]] | None = None
+
+    def encode(self) -> bytes:
+        params = self.signature.parameters
+        params_by_pos = self.signature.parameters_by_pos
+        encode_media = proxy_protocol.encode_media_files
+        wire: dict[str, Any] = {'signature': self.signature.as_dict()}
+        if self.batch_args is not None:
+            assert self.batch_kwargs is not None
+            wire['batch_args'] = [
+                [encode_media(val, params_by_pos[i].col_type) for val in vals] for i, vals in enumerate(self.batch_args)
+            ]
+            wire['batch_kwargs'] = {
+                name: [encode_media(val, params[name].col_type) for val in vals]
+                for name, vals in self.batch_kwargs.items()
+            }
+        else:
+            assert self.args is not None and self.kwargs is not None
+            wire['args'] = [encode_media(val, params_by_pos[i].col_type) for i, val in enumerate(self.args)]
+            wire['kwargs'] = {name: encode_media(val, params[name].col_type) for name, val in self.kwargs.items()}
+        return _encode_body(wire)
+
+    @classmethod
+    def decode(cls, body: bytes) -> Self:
+        wire = _decode_body(body)
+        return cls(
+            func.Signature.from_dict(wire['signature']),
+            wire.get('args'),
+            wire.get('kwargs'),
+            wire.get('batch_args'),
+            wire.get('batch_kwargs'),
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class UdfCallResponse:
+    """The result of a ModalServer.run() call."""
+
+    # one per row; None if error is set
+    values: list[Any] | None
+    # the UDF's exception, which fails every row
+    error: Exception | None
+    # run time of the UDF
+    duration_seconds: float
+    # the Modal container that ran the call
+    task_id: str | None
+
+    def encode(self, return_type: ts.ColumnType) -> bytes:
+        values = self.values
+        if values is not None:
+            values = [proxy_protocol.encode_media_files(val, return_type) for val in values]
+        return _encode_body(
+            {
+                'values': values,
+                'error': None if self.error is None else self._pickled_error(self.error),
+                'duration_seconds': self.duration_seconds,
+                'task_id': self.task_id,
+            }
+        )
+
+    @classmethod
+    def decode(cls, body: bytes) -> Self:
+        wire = _decode_body(body)
+        error = None if wire['error'] is None else pickle.loads(wire['error'])
+        return cls(wire['values'], error, wire['duration_seconds'], wire['task_id'])
+
+    def _pickled_error(self, error: Exception) -> bytes:
+        """Pickle error, or a RuntimeError with its type and message if error does not survive pickling."""
+        try:
+            data = pickle.dumps(error)
+            pickle.loads(data)
+        except Exception:
+            data = pickle.dumps(RuntimeError(f'{type(error).__name__}: {error}'))
+        return data
+
+
+def _encode_body(wire: dict[str, Any]) -> bytes:
+    sink = proxy_protocol.InlinePartSink()
+    head = json.dumps(proxy_protocol.serialize_args(wire, sink), separators=(',', ':')).encode()
+    return proxy_protocol.encode_body(head, sink.binary_parts)
+
+
+def _decode_body(body: bytes) -> dict[str, Any]:
+    head, parts = proxy_protocol.decode_body(body)
+    return proxy_protocol.deserialize_value(json.loads(head), parts)
+
+
+class ModalServer:
+    """Runs the calls to one UDF in a Modal container."""
+
+    # Modal reads the parameter type from the annotation, so this module has no 'from __future__ import annotations'
+    udf_path: str = modal.parameter()
+    overloads: list[func.CallableFunction]
+    task_id: str | None
+
+    @modal.enter()
+    def start(self) -> None:
+        Env.init_without_db()
+        fn = resolve_symbol(self.udf_path)
+        assert isinstance(fn, func.CallableFunction)
+        self.overloads = fn._resolved_fns
+        self.task_id = os.environ.get('MODAL_TASK_ID')
+
+    @modal.method()
+    def run(self, request_body: bytes) -> bytes:
+        """Run the UdfCallRequest in request_body and return the encoded UdfCallResponse."""
+        try:
+            request = UdfCallRequest.decode(request_body)
+            fn = next((overload for overload in self.overloads if overload.signature == request.signature), None)
+            if fn is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_STATE,
+                    f"The Modal App's version of {self.udf_path!r} has no signature {request.signature}",
+                )
+            start = time.monotonic()
+            values: list[Any] | None = None
+            error: Exception | None = None
+            try:
+                if request.batch_args is not None:
+                    assert request.batch_kwargs is not None
+                    values = fn.exec_batch(request.batch_args, request.batch_kwargs)
+                else:
+                    assert request.args is not None and request.kwargs is not None
+                    values = [fn.py_fn(*request.args, **request.kwargs)]
+            except Exception as exc:
+                error = exc
+            response = UdfCallResponse(values, error, time.monotonic() - start, self.task_id)
+            return response.encode(fn.signature.get_return_type())
+        finally:
+            # a container runs one input at a time, so the temp store contains only this call's files
+            TempStore.clear()
+
+
+def ensure_app() -> str:
+    """Deploy the Modal App of the current project and return its name."""
+    project_root = Config.get().project_root
+    if project_root is None or not (project_root / 'uv.lock').is_file():
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            'Running UDFs on Modal requires a project with a uv.lock, which supplies the packages of the Modal image',
+        )
+    Env.get().require_binary('uv')
+    export = subprocess.run(
+        [
+            'uv',
+            'export',
+            '--frozen',
+            '--no-hashes',
+            '--no-emit-workspace',  # local paths
+            '--no-emit-package',
+            'pixeltable',  # comes from add_local_python_source()
+            '--no-emit-package',
+            'modal',  # Modal adds its own client
+        ],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if export.returncode != 0:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'uv export failed in {project_root}:\n{export.stderr}'
+        )
+
+    # tells apart projects with the same directory name
+    root_hash = hashlib.sha256(str(project_root).encode()).hexdigest()[:8]
+    # Modal App names allow letters, digits, '-', '_' and '.'
+    name = f'pxt-udf-{re.sub(r"[^a-zA-Z0-9_.-]", "-", project_root.name)[:40]}-{root_hash}'
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        requirements = Path(tmp_dir) / 'requirements.txt'
+        requirements.write_text(export.stdout, encoding='utf-8')
+        image = (
+            modal.Image.debian_slim(python_version=f'{sys.version_info.major}.{sys.version_info.minor}')
+            .apt_install('ffmpeg', 'git')
+            # the export pins every package; resolving it again would drop the project's uv overrides
+            .uv_pip_install(requirements=[str(requirements)], extra_options='--no-deps')
+            .env({'HF_HOME': '/cache/hf'})
+            .add_local_python_source('pixeltable', 'pixeltable_cli')
+        )
+        hf_cache = modal.Volume.from_name('pxt-hf-cache', create_if_missing=True)
+        app = modal.App(name)
+        app.cls(image=image, serialized=True, volumes={'/cache': hf_cache})(ModalServer)
+        _logger.info(f'Deploying Modal App {name!r}')
+        start = time.monotonic()
+        # 'recreate' stops the previous deploy's containers, which would otherwise keep running its pixeltable source
+        app.deploy(name=name, strategy='recreate')
+    _logger.info(f'Deployed Modal App {name!r} in {time.monotonic() - start:.1f}s')
+    return name

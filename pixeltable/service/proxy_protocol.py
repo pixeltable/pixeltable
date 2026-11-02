@@ -26,6 +26,7 @@ from uuid import UUID, uuid4
 
 import numpy as np
 import PIL.Image
+import PIL.ImageFile
 from pydantic import BaseModel, PrivateAttr
 
 from pixeltable import exceptions as excs, exprs, func, type_system as ts
@@ -386,6 +387,8 @@ class LocalFile:
     """A reference to a local file so _serialize()/_deserialize() can handle it correctly."""
 
     path: str
+    # the receiver gets the file as a PIL image instead of its path
+    as_image: bool = False
 
 
 @dataclasses.dataclass
@@ -544,7 +547,10 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
     if isinstance(obj, LocalFile):
         # carry the original file name so the receiver can restore it in error messages (its temp copy uses an
         # opaque name) and preserve the extension for media-type detection
-        return {_TAG: 'file', 'name': pathlib.Path(obj.path).name, **_ref_fields(sink.add_media_file(obj.path))}
+        file_tag = {_TAG: 'file', 'name': pathlib.Path(obj.path).name, **_ref_fields(sink.add_media_file(obj.path))}
+        if obj.as_image:
+            file_tag['image'] = True
+        return file_tag
     if isinstance(obj, MediaPath):
         return {_TAG: 'mediapath', 'v': obj.path}
     if isinstance(obj, list):
@@ -675,6 +681,8 @@ def _deserialize(
             # record the original file name so an error can reference it rather than the temp path
             if uploaded_names is not None:
                 uploaded_names[dest_str] = obj['name']
+            if obj.get('image', False):
+                return PIL.Image.open(dest_str)
             return dest_str
         if tag == 'mediapath':
             # persisted daemon media; the client localizes it from the daemon's /media endpoint (see ProxyClient)
@@ -834,6 +842,30 @@ def encode_local_path(value: Any) -> Any:
         # path can't be resolved by the client
         # TODO: send the url and have the client fetch it directly?
         return LocalFile(str(path))
+    return value
+
+
+def encode_media_files(value: Any, col_type: ts.ColumnType | None) -> Any:
+    """Wrap the local media files in value, a value of col_type, as LocalFile references.
+
+    For an image opened from a file, the file itself is sent, so any changes to the image since it was opened are lost.
+    """
+    if value is None or col_type is None:
+        return value
+    if col_type.is_image_type() and isinstance(value, PIL.ImageFile.ImageFile) and value.filename != '':
+        return LocalFile(os.fsdecode(value.filename), as_image=True)
+    if col_type.is_media_type() and isinstance(value, str):
+        path = parse_local_file_path(value)
+        return value if path is None else LocalFile(str(path))
+    if isinstance(col_type, ts.JsonType) and col_type.type_schema is not None:
+        spec = col_type.type_schema.type_spec
+        if isinstance(spec, list) and isinstance(value, list):
+            variadic_type = col_type.type_schema.variadic_type
+            return [
+                encode_media_files(elem, spec[i] if i < len(spec) else variadic_type) for i, elem in enumerate(value)
+            ]
+        if isinstance(spec, dict) and isinstance(value, dict):
+            return {key: encode_media_files(elem, spec.get(key)) for key, elem in value.items()}
     return value
 
 

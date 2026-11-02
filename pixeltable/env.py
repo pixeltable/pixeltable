@@ -191,6 +191,17 @@ class Env:
             # This prevents the environment from being left in a broken state.
             cls.__initializing = False
 
+    @classmethod
+    def init_without_db(cls) -> None:
+        """Initialize the Env without a database, providing TempStore and require_package() for UDF calls."""
+        with cls._init_lock:
+            assert cls._instance is None
+            env = Env()
+            env._tmp_dir = Config.get().home / 'tmp'
+            env._tmp_dir.mkdir(exist_ok=True)
+            env.__register_packages()
+            cls._instance = env
+
     def __init__(self) -> None:
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
 
