@@ -1198,7 +1198,8 @@ def adjust_brightness(
     output_path = str(TempStore.create_path(extension='.mp4'))
     # Clamp to 0-255: min(val*factor, 255)
     lut_expr = f"'min(val*{factor},255)'"
-    cmd = ['-i', str(video), '-vf', f'lutrgb=r={lut_expr}:g={lut_expr}:b={lut_expr}', '-c:a', 'copy']
+    # c0, c1 and c2 are lutrgb's r, g and b. conda-forge's linux-aarch64 builds of ffmpeg 7.1.1 lack the g option.
+    cmd = ['-i', str(video), '-vf', f'lutrgb=c0={lut_expr}:c1={lut_expr}:c2={lut_expr}', '-c:a', 'copy']
     return av_utils.run_ffmpeg_cmdline(
         cmd, output_path, encode_video=True, video_encoder=video_encoder, video_encoder_args=video_encoder_args
     )

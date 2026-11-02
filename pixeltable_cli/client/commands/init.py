@@ -4,6 +4,8 @@ import json
 import pathlib
 import sys
 
+from pixeltable_cli.utils import _resolve_pixeltable_home, project_root_error
+
 from ..parser import Parser
 from ..project_config import find_project_config, write_project_config
 from ..utils import EXIT_ERROR, EXIT_REFUSED
@@ -36,7 +38,8 @@ The project root:
 Exit codes:
   0  the directory is a project root
   1  error: the project configuration could not be written
-  3  refused: a project root already sits above this directory"""
+  3  refused: a project root already sits above this directory, or the project root would be your home
+     directory, a directory above it, or the Pixeltable home"""
 
 # the shared set has no name for this one: init reports whether the directory is a project root
 EXIT_OK = 0
@@ -53,6 +56,23 @@ def run(argv: list[str]) -> None:
     except RuntimeError as e:
         print(f'pxt init: {e}', file=sys.stderr)
         sys.exit(EXIT_ERROR)
+    project_root = (root if existing is None else existing.parent).resolve()
+    error = project_root_error(project_root, pathlib.Path(_resolve_pixeltable_home()))
+    if error is not None:
+        if existing is None:
+            print(
+                f'pxt init: {root} cannot be a project root: {error}.\n'
+                'Make a directory for the project, and run pxt init there.',
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f'pxt init: {existing} makes {existing.parent} a project root, but {error}.\n'
+                f'Remove the project configuration from {existing}, then run pxt init in a directory made for '
+                'the project.',
+                file=sys.stderr,
+            )
+        sys.exit(EXIT_REFUSED)
     if existing is not None and existing.parent == root:
         _report(root, existing, created=False, as_json=args.as_json)
         return

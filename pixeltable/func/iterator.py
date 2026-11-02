@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, Self, TypeVa
 from pixeltable import exceptions as excs, exprs, type_system as ts
 from pixeltable.catalog.globals import _POS_COLUMN_NAME, fold_identifier, fold_mapping_keys
 from pixeltable.exprs.expr import ValidationError
-from pixeltable.func.globals import resolve_symbol
+from pixeltable.func.globals import import_error_msg, resolve_symbol
 
 from .signature import Signature
 
@@ -377,9 +377,14 @@ class GeneratingFunction:
                 d,
                 f'the symbol `{fqn}` is no longer a Pixeltable iterator. (Was the `@pxt.iterator` decorator removed?)',
             )
-        except (AttributeError, ImportError):
+        except AttributeError:
             return InvalidGeneratingFunction(
                 fqn, d, f'the symbol `{fqn}` no longer exists. (Was the iterator moved or renamed?)'
+            )
+        except ImportError as e:
+            # the module is still there but cannot be imported; the error text identifies the missing dependency
+            return InvalidGeneratingFunction(
+                fqn, d, f'a module required by `{fqn}` could not be imported: {import_error_msg(e)}'
             )
 
 
@@ -430,7 +435,8 @@ class IteratorValidationError(ValidationError):
     def protocol_error_msg(self) -> str:
         return (
             f'The request references the iterator `{self.iterator_fqn}`, '
-            'but that iterator is not defined in the remote database.'
+            'but that iterator is not defined in the remote database.\n'
+            f'Reported error: {self.error_msg}'
         )
 
 

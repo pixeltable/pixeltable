@@ -8,6 +8,15 @@ Insert a document. The iterator explodes it into chunks. The embedding index sta
 
 Create the tables with `pxt schema update app.py my_app`, then open them with `t = pxt.get_table('my_app.docs')`. Cookbooks on this topic use `pxt.create_table()` so you can run cells without a project. An app puts the same columns on a `TableModel` in `app.py` and creates the tables with `pxt schema update`.
 
+This file uses `sentence_transformer` and `document_splitter(..., separators='token_limit')`, so install those packages before `pxt schema update`. `sentence-transformers` pulls in PyTorch. On a machine without a GPU, install the CPU wheel first, or pip fetches a CUDA build that can be several gigabytes:
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install sentence-transformers tiktoken
+```
+
+Skip the torch line if you already have a GPU build of PyTorch.
+
 ```python
 import pixeltable as pxt
 import pixeltable.functions as pxtf
@@ -57,12 +66,35 @@ pxt schema update app.py my_app
 pxt service update app.py my_app
 ```
 
-```python
-docs = pxt.get_table('my_app.docs')
-docs.insert([{'document': 'report.pdf'}])
+`pxt service list` prints the service URL. POST `/docs` as multipart form data. The field name is `document`, the column in `uploadfile_inputs`. Point `curl` at a PDF, HTML, or `.txt` file on your machine. This page does not ship a sample file:
+
+```bash
+# Set URL to the rag service URL from pxt service list
+export URL=<rag-service-url>
+curl -F document=@handbook.pdf $URL/docs
 ```
 
-`pxt service list` prints the URL. POST `/docs` to insert. POST `/search` with `{"query_text": "..."}` to rank chunks.
+Search is JSON on `/search`:
+
+```bash
+curl -X POST $URL/search \
+  -H 'Content-Type: application/json' \
+  -d '{"query_text": "handbook"}'
+```
+
+From Python, insert the same local path (or a URL Pixeltable can fetch):
+
+```python
+docs = pxt.get_table('my_app.docs')
+docs.insert([{'document': 'handbook.pdf'}])
+```
+
+PDF, HTML, and XML use packages Pixeltable already installs (`pypdfium2`, `beautifulsoup4`, `lxml`), and `.txt` needs none. The other extensions need the packages in this table. Without them, or for an extension not in the table, the insert returns HTTP 422 `INVALID_DATA_FORMAT`:
+
+| Extension | Extra packages |
+| --- | --- |
+| `.md` | `pip install mistune` |
+| `.docx`, `.pptx`, `.xlsx` | `pip install mistune 'markitdown[pptx,docx,xlsx]'` |
 
 On Cloud, sign in with `pxt login`, or set `PIXELTABLE_API_KEY`. `pxt org create` provisions `main`. Then run `pxt db update`, `pxt schema update`, and `pxt service update` against `pxt://org:main`. [Pixeltable Cloud](/cloud).
 

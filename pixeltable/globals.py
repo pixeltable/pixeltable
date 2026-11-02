@@ -278,8 +278,8 @@ def create_table(
         if isinstance(tbl, catalog.InsertableTable):
             if isinstance(data_source, QueryTableDataConduit):
                 query = data_source.pxt_query
-                with get_runtime().catalog.begin_xact(
-                    for_write=True, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True
+                with get_runtime().catalog.begin_data_write_xact(
+                    read_tbl_keys=query.referenced_tbl_keys(), tvps=[tbl._tbl_version_path]
                 ):
                     tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
             elif not is_direct_query:

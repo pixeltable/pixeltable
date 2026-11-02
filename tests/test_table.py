@@ -95,6 +95,13 @@ def embed_or_raise(text: str) -> pxt.Array[(4,), np.float32]:
     return np.ones(4, dtype=np.float32)
 
 
+@pxt.udf
+def provider_fails(x: int) -> int:
+    raise pxt.ExternalServiceError(
+        pxt.ErrorCode.PROVIDER_ERROR, provider='gemini', status_code=500, provider_error_code='X', retry_after=3
+    )
+
+
 class TestTable:
     # exc for a % 10 == 0
     @staticmethod
@@ -2388,11 +2395,62 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"missing required key: 'b'"):
             t.insert(json_col_1={'a': 'apples'})  # Missing required field
 
+        # Dict schemas are closed on insert and update: keys the schema doesn't declare are rejected
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"unexpected key: 'e'"):
+            t.insert(json_col_1={'a': 'apples', 'b': 1, 'c': 3.0, 'd': True, 'e': 'extra'})
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"unexpected key: 'z'"):
+            t.insert(json_col_2={'z': None})
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH,
+            match=r"The literal value.*is not compatible with the type.*of column 'json_col_2'",
+        ):
+            t.update({'json_col_2': {'a': 'mangoes', 'z': 1}})
+
         with pxt_raises(
             pxt.ErrorCode.TYPE_MISMATCH,
             match=r"The literal value.*is not compatible with the type.*of column 'json_col_2'",
         ):
             t.update({'json_col_2': {'a': 15}})  # Validation error on update
+
+    def test_update_json_expr(self, db_root: DatabaseRoot) -> None:
+        # An update expression's values aren't validated, so its type may declare no keys that the column's doesn't
+        class Schema(TypedDict, total=False):
+            a: str
+            b: int
+
+        t = pxt.create_table(db_root.make_catalog_path('test'), {'s': pxt.String, 'j': Schema | None})
+        t.insert(s='x')
+        t.update({'j': {'a': t.s}})  # omitting an optional key is fine
+        assert t.collect()['j'] == [{'a': 'x'}]
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"is not compatible with the type.*of column 'j'"):
+            t.update({'j': {'a': t.s, 'z': t.s}})
+
+    def test_insert_pydantic_json(self, db_root: DatabaseRoot) -> None:
+        # A nested model's values have exactly its fields, so it fits a dict schema that declares more, as optional
+        class Schema(TypedDict, total=False):
+            a: int
+            b: str
+
+        class Inner(pydantic.BaseModel):
+            a: int
+
+        class Row(pydantic.BaseModel):
+            meta: Inner
+
+        t = pxt.create_table(db_root.make_catalog_path('test'), {'meta': Schema})
+        t.insert([Row(meta=Inner(a=1))])
+        assert t.collect()['meta'] == [{'a': 1}]
+
+        # but not one whose fields the schema doesn't declare
+        class Inner2(pydantic.BaseModel):
+            a: int
+            z: int
+
+        class Row2(pydantic.BaseModel):
+            meta: Inner2
+
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"has incompatible type `Inner2` for column 'meta'"):
+            t.insert([Row2(meta=Inner2(a=1, z=2))])
 
     def test_validate_image(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
@@ -3017,11 +3075,21 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not a recognized'):
             t.update({'c3': lambda c3: math.sqrt(c3)})
 
+        # uncalled method
+        c1_vals = t.order_by(t.c2).select(t.c1).collect()['c1']
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'c1\.upper is the method upper\(\)'):
+            t.update({'c1': t.c1.upper})
+        assert t.order_by(t.c2).select(t.c1).collect()['c1'] == c1_vals
+
         # non-Predicate filter
         with pxt_raises(
             pxt.ErrorCode.INVALID_EXPRESSION, match=r'`where` argument must be a valid Pixeltable expression'
         ):
             t.update({'c3': 1.0}, where=lambda c2: c2 == 10)  # type: ignore[arg-type]
+
+        # uncalled method in filter
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'c1\.upper is the method upper\(\)'):
+            t.update({'c3': 1.0}, where=t.c1.upper == 'a')
 
         img_t = small_img_tbl
 
@@ -3291,6 +3359,10 @@ class TestTable:
         ):
             t.delete(where=lambda c2: c2 == 10)  # type: ignore[arg-type]
 
+        # uncalled method in filter
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'c1\.upper is the method upper\(\)'):
+            t.delete(where=t.c1.upper == 'a')
+
         img_t = small_img_tbl
 
         # filter not expressible in SQL
@@ -3520,6 +3592,16 @@ class TestTable:
         assert t.where(t.add1.errortype != None).count() == 10
         msgs = t.select(msg=t.add1.errormsg).collect()['msg']
         assert sum('division by zero' in msg for msg in msgs if msg is not None) == 10
+
+    def test_computed_col_error_keeps_its_fields(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(db_root.make_catalog_path('test'), {'x': pxt.Int})
+        t.add_computed_column(y=provider_fails(t.x))
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match=r'In row 0 the expression provider_fails\(x\)') as exc:
+            t.insert(x=1)
+        err = exc.value
+        assert isinstance(err, pxt.ExternalServiceError)
+        assert (err.provider, err.provider_http_status_code, err.provider_error_code) == ('gemini', 500, 'X')
+        assert err.retry_after == 3
 
     # TODO: cannot be converted: KeyboardInterrupt injection is client-process-local and does not reach the daemon
     @pytest.mark.db_roots(
@@ -3929,6 +4011,34 @@ class TestTable:
             raise RuntimeError(f'Error in recompute_udf for value {i}')
         return str(i + TestTable.recompute_udf_increment)
 
+    def test_recompute_keeps_input_error(self, db_root: DatabaseRoot) -> None:
+        """A recompute passes on an input cell's stored error to the cells computed from it, as the insert did."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'img': pxt.Image, 'b': pxt.Int | None, 'note': pxt.String | None})
+        t.add_computed_column(w=t.img.width)
+        t.add_computed_column(w1=t.w + 1)  # computed in SQL
+        t.add_computed_column(mode=t.img.mode)
+        t.add_computed_column(upper_mode=t.mode.upper())  # computed in SQL
+        t.add_computed_column(md=t.img.get_metadata())  # a Json column
+        t.insert([{'img': get_image_files(include_bad_image=True)[0]}], on_error='ignore')
+        col_names = ['img', 'w', 'w1', 'mode', 'upper_mode', 'md']
+        errors = t.select(*(t[name].errortype for name in col_names), *(t[name].errormsg for name in col_names))
+        inserted = errors.collect()[0]
+        assert inserted['img_errortype'] is not None
+        assert all(inserted[f'{name}_errortype'] == inserted['img_errortype'] for name in col_names)
+        assert all(inserted[f'{name}_errormsg'] == inserted['img_errormsg'] for name in col_names)
+
+        for name in col_names[1:]:
+            for errors_only in (False, True):
+                status = t.recompute_columns(name, errors_only=errors_only, cascade=False)
+                assert (status.num_excs, status.cols_with_excs) == (1, [f'tbl.{name}'])
+                assert errors.collect()[0] == inserted
+
+        # an update passes it on as well; errormsg is a value, not the error
+        status = t.update({'b': t.w + 1, 'note': t.img.errormsg})
+        assert (status.num_excs, status.cols_with_excs) == (1, ['tbl.b'])
+        assert t.select(t.b, t.note).collect()[0] == {'b': None, 'note': inserted['img_errormsg']}
+
     # TODO: cannot be converted because the UDF reads client-process-local class attributes the daemon cannot see
     @pytest.mark.db_roots('local', reason='UDF reads client-process-local class attributes the daemon cannot see')
     def test_recompute_column(self, uses_db: None) -> None:
@@ -4038,6 +4148,8 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="not bound by table 'recompute_test'"):
             y = pxt.create_table('other_table', {'i': pxt.Int | None})
             t.recompute_columns('i1', where=y.i == 0)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r's\.upper is the method upper\(\)'):
+            t.recompute_columns('i1', where=t.s.upper == 'a')
 
     def __test_drop_column_if_not_exists(self, t: pxt.Table, non_existing_col: str | ColumnRef) -> None:
         """Test the if_not_exists parameter of drop_column API"""

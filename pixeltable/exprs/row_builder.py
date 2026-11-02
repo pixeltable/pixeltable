@@ -622,6 +622,8 @@ class RowBuilder:
         fixed on the first call); index values and per-cell error info go into each Row's
         index_values/errors instead of the column namespace.
         """
+        from pixeltable.exprs.column_property_ref import ColumnPropertyRef
+
         if self.row_batch_output_map is None:
             assert self.row_batch_col_types is None
             self.row_batch_output_map = []
@@ -663,7 +665,7 @@ class RowBuilder:
                     exc = data_row.get_exc(slot_idx)
                     assert exc is not None
                     val = None
-                    row_errors[display_name] = {'errortype': type(exc).__name__, 'errormsg': str(exc)}
+                    row_errors[display_name] = ColumnPropertyRef.create_cellmd_exc(exc)
                 elif col.id in data_row.cell_vals:
                     val = data_row.cell_vals[col.id]
                 elif col.col_type.is_array_type():

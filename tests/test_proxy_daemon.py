@@ -28,6 +28,7 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import TablePathKey, TableVersionKey
 from pixeltable.catalog.path import Path as CatalogPath
+from pixeltable.catalog.update_status import RowCountStats
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.service import proxy_client, proxy_daemon, proxy_dispatch, proxy_protocol
@@ -237,6 +238,14 @@ class TestProxyDaemon:
         assert decoded['id'] == tbl_id
         assert decoded['data'] == b'abc'
 
+    def test_update_status_from_older_server(self) -> None:
+        """An UpdateStatus decodes when its RowCountStats contains an unknown field."""
+        sink = proxy_protocol.InlinePartSink()
+        status = pxt.UpdateStatus(row_count_stats=RowCountStats(ins_rows=2))
+        wire = proxy_protocol.serialize_args({'status': status}, sink)['status']
+        wire['v']['row_count_stats']['computed_values'] = 0
+        assert proxy_protocol.deserialize_value(wire, sink.binary_parts) == status
+
     def test_iter_body_chunks(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A body is sliced, without copying, into pieces of at most _BODY_CHUNK_SIZE bytes."""
         monkeypatch.setattr(proxy_protocol, '_BODY_CHUNK_SIZE', 4)
@@ -300,6 +309,42 @@ class TestProxyDaemon:
         served.clear()
         proxy_daemon.main([])
         assert served == [(False, None, None)]
+
+    def test_serve_without_otel_packages(
+        self, init_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+    ) -> None:
+        """An OTLP endpoint without the otel packages leaves the daemon serving, without telemetry. A span dump file
+        alone turns telemetry on."""
+        pytest.importorskip('fastapi')
+        uvicorn = pytest.importorskip('uvicorn')
+        from starlette.testclient import TestClient
+
+        monkeypatch.setenv('OTEL_EXPORTER_OTLP_ENDPOINT', 'http://localhost:4318')
+        # _serve() sets this variable, and monkeypatch removes it again after the test
+        monkeypatch.setenv('PIXELTABLE_PROXY_DAEMON', '1')
+        monkeypatch.setattr(
+            Env.get(), 'is_installed_package', lambda package_name: not package_name.startswith('opentelemetry')
+        )
+        served_apps: list[Any] = []
+        monkeypatch.setattr(uvicorn, 'run', lambda app, **kwargs: served_apps.append(app))
+
+        proxy_daemon._serve(host='127.0.0.1', port=8000)
+        (served_app,) = served_apps
+        assert TestClient(served_app).get('/health').status_code == 200
+
+        # a span dump file with no endpoint starts the instrumentation, which is what the `pxt db spans` hint for a
+        # local database asks for
+        from pixeltable.serving import _app
+
+        monkeypatch.delenv('OTEL_EXPORTER_OTLP_ENDPOINT')
+        monkeypatch.setenv('OTEL_SPAN_DUMP', str(tmp_path / 'spans.jsonl'))
+        monkeypatch.setattr(Env.get(), 'is_installed_package', lambda package_name: True)
+        initialized: list[bool] = []
+        monkeypatch.setattr(_app, 'init_instrumentation', lambda: initialized.append(True))
+        monkeypatch.setattr(_app, 'instrument_app', lambda app: app)
+        served_apps.clear()
+        proxy_daemon._serve(host='127.0.0.1', port=8000)
+        assert initialized == [True] and len(served_apps) == 1
 
     def test_collect_remote_keys(self) -> None:
         file_tag = {'$pxt': 'file', 'name': 'a.png', 'v': 'uploads/r/0.png'}

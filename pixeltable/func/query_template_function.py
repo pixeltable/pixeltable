@@ -10,6 +10,7 @@ from .function import Function
 from .signature import Signature
 
 if TYPE_CHECKING:
+    from pixeltable._query import Query
     from pixeltable._query_base import QueryBase
 
 
@@ -169,6 +170,36 @@ class QueryTemplateFunction(Function):
             # template_query references a table or column that no longer exists
             return func.InvalidFunction(d['name'], d, f'the @pxt.query UDF {d["name"]!r} cannot be loaded: {e}')
         return cls(template_query, list(sig.parameters.values()), return_type=sig.return_type, name=d['name'])
+
+
+def substitute_template_queries(e: exprs.Expr, substitution_fn: Callable[[QueryBase], Query | None]) -> exprs.Expr:
+    """Replace the template query of each QueryTemplateFunction call in e with substitution_fn(template query).
+
+    A call stays unchanged where substitution_fn returns None.
+    """
+    subst = exprs.ExprDict[exprs.Expr]()
+    for fn_call in e.subexprs(exprs.FunctionCall):
+        fn = fn_call.fn
+        if not isinstance(fn, QueryTemplateFunction):
+            continue
+        assert fn.template_query is not None
+        template_query = substitution_fn(fn.template_query)
+        if template_query is None:
+            continue
+        assert fn_call.group_by_start_idx == fn_call.group_by_stop_idx  # a query udf doesn't allow window fns
+        new_fn = QueryTemplateFunction(
+            template_query,
+            list(fn.signature.parameters.values()),
+            path=fn.self_path,
+            name=fn.self_name,
+            comment=fn.comment(),
+        )
+        # we need to substitute the FunctionCall itself, not just the Function instance; substitute() won't descend
+        # into that replacement, so its args get the replacements of their nested calls (subexprs() yields those first)
+        args = [arg.copy().substitute(subst) for arg in fn_call.args]
+        kwargs = {name: arg.copy().substitute(subst) for name, arg in fn_call.kwargs.items()}
+        subst[fn_call] = new_fn(*args, **kwargs)
+    return e.substitute(subst)
 
 
 @overload

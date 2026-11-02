@@ -126,6 +126,8 @@ class Column:
         if col_type is not None:
             self.col_type = col_type
         assert self.col_type is not None
+        # a column's type is open, though the type of its value expression may contain closed schemas from literals
+        self.col_type = self.col_type.with_open_dicts()
 
         self.stored = stored
         self.id = col_id
@@ -240,16 +242,13 @@ class Column:
         elif isinstance(spec, dict):
             stored = spec.get('stored', True)
             cls._validate_column_spec(name, spec)
-            value_expr = spec.get('value')
-            if value_expr is not None and isinstance(value_expr, exprs.Expr):
+            if spec.get('value') is not None:
+                value_expr = exprs.Expr.from_object(spec['value'])
+                assert value_expr is not None, type(spec['value'])
                 # create copy so we can modify it
                 value_expr = value_expr.copy()
                 value_expr.bind_rel_paths()
                 sa_col_type = value_expr.col_type.to_sa_type() if stored else None
-            elif value_expr is not None and stored:
-                expr = exprs.Expr.from_object(value_expr)
-                assert expr is not None, type(value_expr)
-                sa_col_type = expr.col_type.to_sa_type()
             if 'type' in spec:
                 col_type = ts.ColumnType.normalize_type(spec['type'], allow_builtin_types=False)
                 sa_col_type = col_type.to_sa_type() if stored else None
@@ -511,6 +510,7 @@ class Column:
 
     def check_value_expr(self) -> None:
         assert self._value_expr is not None
+        self._value_expr.check_method_refs(f'Column {self.name!r}: ')
         self._value_expr.validate_storable(f'Computed column {self.name!r}')
         for e in self._value_expr.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
             if e.is_cellmd_prop():

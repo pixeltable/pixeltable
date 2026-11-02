@@ -4,6 +4,7 @@ import logging
 import multiprocessing
 import os
 import re
+import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -17,10 +18,14 @@ from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from opentelemetry.trace import ProxyTracerProvider
+from opentelemetry.trace import ProxyTracerProvider, StatusCode
 
 import pixeltable as pxt
 from pixeltable import telemetry, telemetry_schemas
+from pixeltable.catalog import IfExistsParam, Path as CatalogPath
+from pixeltable.service import proxy_daemon, proxy_dispatch
+from pixeltable.service.proxy_protocol import InlinePartSink, ProxyRequest, encode_body, serialize_args
+from pixeltable.serving._app import instrument_app
 from pixeltable.telemetry import SubscriberRegistry
 
 
@@ -108,6 +113,10 @@ def test_logs_require_explicit_opt_in(tmp_path: Path) -> None:
 def check_logs_can_be_enabled_explicitly() -> None:
     pxt_otel.init(logs=True)
     assert _sdk._state.logger_provider is not None
+    # Env stops these loggers from propagating to the root logger, so each one carries the export handler
+    for logger_name in ('pixeltable', 'sqlalchemy.engine', 'uvicorn'):
+        handlers = logging.getLogger(logger_name).handlers
+        assert any(type(handler).__name__ == 'LoggingHandler' for handler in handlers), logger_name
 
 
 def test_logs_can_be_enabled_explicitly(tmp_path: Path) -> None:
@@ -302,10 +311,12 @@ class TestBridge:
     """In-process bridge correctness with in-memory exporters (no global providers touched)."""
 
     @pytest.fixture
-    def span_exporter(self) -> Iterator[Any]:
+    def span_exporter(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
         span_exporter = InMemorySpanExporter()
         tracer_provider = TracerProvider()
         tracer_provider.add_span_processor(SimpleSpanProcessor(span_exporter))
+        # the provider that init() would have built, which instrument_app() wires into the http instrumentation
+        monkeypatch.setattr(_sdk._state, 'tracer_provider', tracer_provider)
         instrumentor = PixeltableInstrumentor()
         instrumentor.instrument(tracer_provider=tracer_provider)
         yield span_exporter
@@ -339,6 +350,111 @@ class TestBridge:
         (event,) = span.events
         assert event.name == 'pixeltable.cell.error'
         assert dict(event.attributes) == {'pxt.column': 'c', 'pxt.count': 2}
+
+    def test_daemon_request_spans(self, span_exporter: Any) -> None:
+        pytest.importorskip('opentelemetry.instrumentation.fastapi')
+        from fastapi.testclient import TestClient
+
+        app = instrument_app(proxy_daemon._build_app())
+        args = {'path': CatalogPath.parse('otel_rpc'), 'if_exists': IfExistsParam.ERROR, 'parents': False}
+        request = ProxyRequest(
+            class_name='CatalogBase', method='create_dir', args=serialize_args(args, InlinePartSink())
+        )
+        body = encode_body(request.model_dump_json().encode(), [])
+        client_traceparent = f'00-{"a" * 32}-{"b" * 16}-01'
+        sent_at = time.time()
+        try:
+            # the context manager also sends the lifespan scope, which has no headers, through the gateway wrapper
+            with TestClient(app) as client:
+                assert client.get('/health').status_code == 200
+                assert client.get('/health', headers={'x-pxt-gateway-time': f'{sent_at} 0.25'}).status_code == 200
+                # the first call creates the directory and the other eight fail on it
+                assert client.post('/rpc', content=body).status_code == 200
+                assert client.post('/rpc', content=body).status_code == 200
+                gateway_headers = {'x-pxt-gateway-time': f'{sent_at} 0.25', 'traceparent': client_traceparent}
+                assert client.post('/rpc', content=body, headers=gateway_headers).status_code == 200
+                # a malformed gateway header, or one whose times are far from this pod's clock, counts as no header
+                for timing in ('nope', 'nan 0', 'inf 0', '1 0', f'{sent_at + 3600} 0', f'{sent_at - 299} 299'):
+                    assert client.post('/rpc', content=body, headers={'x-pxt-gateway-time': timing}).status_code == 200
+        finally:
+            pxt.drop_dir('otel_rpc', force=True)
+
+        spans = span_exporter.get_finished_spans()
+        span_ids = {s.context.span_id: s for s in spans}
+        # the health probes stay out of the traces, also when they come through the gateway
+        assert not any('/health' in s.name for s in spans)
+        assert [s.name for s in spans].count('pixeltable.gateway') == 1
+        # a request exports no span per ASGI message
+        assert not any(s.name.endswith((' http send', ' http receive')) for s in spans)
+        rpc_spans = sorted((s for s in spans if s.name == 'pixeltable.rpc'), key=lambda s: s.start_time)
+        assert [s.attributes['pxt.method'] for s in rpc_spans] == ['CatalogBase.create_dir'] * 9
+        # a failed call marks its span, so that tail sampling keeps the trace
+        assert [s.status.status_code for s in rpc_spans] == [StatusCode.UNSET] + [StatusCode.ERROR] * 8
+        request_spans = [span_ids[s.parent.span_id] for s in rpc_spans]
+        assert {s.name for s in request_spans} == {'POST /rpc'}
+        # catalog work of the call nests under its rpc span
+        assert any(s.parent is not None and s.parent.span_id == rpc_spans[0].context.span_id for s in spans)
+        # without a valid gateway header, the request span is the root of its trace
+        assert all(request_spans[i].parent is None for i in (0, 1, 3, 4, 5, 6, 7, 8))
+        # with it, the trace starts when the gateway received the request, and the client's traceparent is ignored
+        gateway_span = span_ids[request_spans[2].parent.span_id]
+        assert gateway_span.name == 'pixeltable.gateway' and gateway_span.parent is None
+        assert gateway_span.start_time == int((sent_at - 0.25) * 1e9)
+        assert gateway_span.end_time >= request_spans[2].end_time
+        assert f'{gateway_span.context.trace_id:032x}' != 'a' * 32
+
+    def test_serving_route_spans(self, span_exporter: Any) -> None:
+        pytest.importorskip('opentelemetry.instrumentation.fastapi')
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir('otel_serving', if_exists='replace_force')
+        t = pxt.create_table('otel_serving.docs', {'id': pxt.Int})
+        t.insert([{'id': 1}])
+
+        @pxt.query
+        def lookup(min_id: int) -> pxt.Query:
+            return t.where(t.id >= min_id).select(t.id)
+
+        router = FastAPIRouter()
+        router.add_query_route(path='/lookup', query=lookup)
+        router.add_insert_route(t, path='/bg', background=True)
+        app = FastAPI()
+        app.include_router(router)
+        try:
+            with TestClient(instrument_app(app)) as client:
+                assert client.post('/lookup', json={'min_id': 1}).status_code == 200
+                job = client.post('/bg', json={'id': 2}).json()
+                deadline = time.time() + 30.0
+                while client.get(job['job_url']).json()['status'] == 'pending' and time.time() < deadline:
+                    time.sleep(0.05)
+        finally:
+            pxt.drop_dir('otel_serving', force=True)
+
+        spans = span_exporter.get_finished_spans()
+        by_id = {s.context.span_id: s for s in spans}
+        by_name = {s.name: s for s in spans}
+        route_spans = {s.attributes['pxt.route']: s for s in spans if s.name == 'pixeltable.route'}
+        # each route's work runs in a route span under its request span
+        assert set(route_spans) == {'POST /lookup', 'POST /bg'}
+        assert by_id[route_spans['POST /lookup'].parent.span_id].name == 'POST /lookup'
+        # the query route's collect nests under its route span and carries the table and row count
+        collect = by_name['pixeltable.collect']
+        assert collect.parent.span_id == route_spans['POST /lookup'].context.span_id
+        assert collect.attributes['pxt.tables'] == ('docs',)
+        assert collect.attributes['pxt.rows'] == 1
+        # the insert route checks the table's schema before the insert, and that check's catalog work nests under it
+        insert = by_name['pixeltable.insert']
+        check = by_name['pixeltable.route.check_schema']
+        bg_route = route_spans['POST /bg']
+        assert insert.parent.span_id == bg_route.context.span_id
+        assert check.parent.span_id == bg_route.context.span_id
+        assert check.end_time <= insert.start_time
+        assert any(s.parent is not None and s.parent.span_id == check.context.span_id for s in spans)
+        # the background insert runs on a worker thread, in the trace of the request that queued it
+        assert insert.context.trace_id == by_name['POST /bg'].context.trace_id
 
     @pytest.fixture
     def metric_reader(self) -> Iterator[Any]:
@@ -382,6 +498,27 @@ class TestBridge:
         metric = self._metric(metric_reader, 'pixeltable.test.latency_bounded')
         (point,) = metric.data.data_points
         assert list(point.explicit_bounds) == [0.1, 1.0, 10.0]
+
+    def test_daemon_request_metrics(self, metric_reader: Any) -> None:
+        args = {'path': CatalogPath.parse('otel_rpc'), 'if_exists': IfExistsParam.ERROR, 'parents': False}
+        request = ProxyRequest(
+            class_name='CatalogBase', method='create_dir', args=serialize_args(args, InlinePartSink())
+        )
+        try:
+            proxy_dispatch.handle(request.model_dump_json(), [])
+            # a client with another protocol version gets an error response, which counts as a failed call
+            proxy_dispatch.handle(request.model_copy(update={'protocol_version': 0}).model_dump_json(), [])
+            # a method that the client makes up is recorded as 'unsupported'
+            proxy_dispatch.handle(request.model_copy(update={'method': 'no_such_method'}).model_dump_json(), [])
+        finally:
+            pxt.drop_dir('otel_rpc', force=True)
+        metric = self._metric(metric_reader, 'pixeltable.rpc.duration')
+        counts = {(p.attributes['pxt.method'], p.attributes['pxt.error']): p.count for p in metric.data.data_points}
+        assert counts == {
+            ('CatalogBase.create_dir', False): 1,
+            ('CatalogBase.create_dir', True): 1,
+            ('unsupported', True): 1,
+        }
 
     def test_metrics_end_to_end(self, metric_reader: Any) -> None:
         pxt.create_dir('otel_metrics_smoke', if_exists='replace_force')
