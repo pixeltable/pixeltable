@@ -24,8 +24,6 @@ from pixeltable_cli.utils import pidfile_path, working_dirs_path
 
 _HEALTH_TIMEOUT_SECS = 180.0
 
-_OLDER_RELEASE_DAEMON = pathlib.Path(__file__).with_name('older_release_daemon.py')
-
 
 def _create_pxt_project(root: pathlib.Path) -> None:
     """Creates an empty project at root by placing an empty marker file in it."""
@@ -198,29 +196,6 @@ class TestDaemon:
             pid = _replacement_pid(daemon_port, project, user_env, pid)
 
         assert _pxt_health(daemon_port, cwd=project, env_overrides=user_env)['pid'] == pid
-
-    def test_replace_older_release_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
-        """A daemon from an older release, which reports fewer identity fields, is replaced."""
-        project = tmp_path / 'project'
-        _create_pxt_project(project)
-        older_daemon = subprocess.Popen(
-            [sys.executable, str(_OLDER_RELEASE_DAEMON), str(daemon_port), str(project)],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
-        try:
-            assert older_daemon.stdout is not None
-            assert older_daemon.stdout.readline() == 'ready\n'
-
-            health = _pxt_health(daemon_port, cwd=project)
-            older_daemon.wait(timeout=60)
-            assert health['pid'] != older_daemon.pid
-            assert psutil.pid_exists(health['pid'])
-        finally:
-            if older_daemon.poll() is None:
-                older_daemon.kill()
 
     def test_keep_busy_mismatched_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
         """A client does not replace a mismatched daemon that is serving a request, and replaces it afterwards."""

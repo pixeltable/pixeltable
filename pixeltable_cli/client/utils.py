@@ -110,10 +110,12 @@ def fetch_health(timeout: float = 0.3) -> dict[str, Any] | None:
     except (urllib.error.URLError, urllib.error.HTTPError, OSError, http.client.HTTPException, json.JSONDecodeError):
         return None
     # Verify this is actually our daemon and not some other service on the same port that
-    # happens to return a JSON object with an ok=true field.
+    # happens to return a JSON object with an ok=true field. Require both the pxt service
+    # marker and the full set of identity fields the mismatch / kill logic relies on.
     if not isinstance(body, dict) or body.get('service') != 'pxt' or not body.get('ok'):
         return None
-    if 'pid' not in body or 'started_at' not in body:
+    required = ('pid', 'started_at', *_IDENTITY_KEYS)
+    if not all(k in body for k in required):
         return None
     return body
 
