@@ -1,6 +1,13 @@
 # ruff: noqa: F401
 
-from .catalog import Catalog, ProhibitedWriteError, retry_loop, retrying_read
+from .catalog import (
+    Catalog,
+    ProhibitedWriteError,
+    retry_data_read_loop,
+    retry_md_read_loop,
+    retry_md_write_loop,
+    retrying_read,
+)
 from .catalog_base import CatalogBase
 from .catalog_proxy import CatalogProxy
 from .column import Column

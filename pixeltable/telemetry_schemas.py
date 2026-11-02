@@ -40,7 +40,6 @@ class OpAttrs(Attrs, total=False):
     new_path: str
     version: int
     num_rows: int
-    num_computed_values: int
     num_excs: int
     updated_cols: list[str]
     cols_with_excs: list[str]
@@ -50,7 +49,6 @@ def op_attrs_from_update_status(status: UpdateStatus) -> OpAttrs:
     """The OpAttrs end attributes carried by an operation's UpdateStatus."""
     return OpAttrs(
         num_rows=status.row_count_stats.num_rows,
-        num_computed_values=status.num_computed_values,
         num_excs=status.num_excs,
         updated_cols=status.updated_cols,
         cols_with_excs=status.cols_with_excs,
@@ -188,6 +186,7 @@ class ModelLoadAttrs(Attrs, total=False):
     size_bytes: int
 
 
+lock_set_restarts = telemetry.counter('pixeltable.catalog.lock_set_restarts', '{restart}')
 rows_written = telemetry.counter('pixeltable.rows.written', '{row}')
 cells_computed = telemetry.counter('pixeltable.cells.computed', '{cell}')
 cells_errors = telemetry.counter('pixeltable.cells.errors', '{error}')

@@ -121,7 +121,10 @@ class InlineList(Expr):
         return None
 
     def eval(self, data_row: DataRow, _: RowBuilder) -> None:
-        data_row[self.slot_idx] = [data_row[el.slot_idx] for el in self.components]
+        # a function that receives this list might modify an element, and all rows share a Literal's val
+        data_row[self.slot_idx] = [
+            el.defensive_copy() if isinstance(el, Literal) else data_row[el.slot_idx] for el in self.components
+        ]
 
     def _as_dict(self) -> dict:
         return super()._as_dict()
@@ -175,7 +178,11 @@ class InlineDict(Expr):
 
     def eval(self, data_row: DataRow, _: RowBuilder) -> None:
         assert len(self.keys) == len(self.components)
-        data_row[self.slot_idx] = {key: data_row[expr.slot_idx] for key, expr in zip(self.keys, self.components)}
+        # a function that receives this dict might modify a value, and all rows share a Literal's val
+        data_row[self.slot_idx] = {
+            key: expr.defensive_copy() if isinstance(expr, Literal) else data_row[expr.slot_idx]
+            for key, expr in zip(self.keys, self.components)
+        }
 
     def to_kwargs(self) -> dict[str, Any]:
         """Deconstructs this expression into a dictionary by recursively unwrapping all Literals,

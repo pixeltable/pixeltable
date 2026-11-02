@@ -348,6 +348,8 @@ class TestOpenai:
         assert res[0]['output'] is None
         assert res[0]['tool_calls'] == {'server_state': ['Running (0x4171780)']}
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     @pytest.mark.parametrize('as_retrieval_udf', [False, True])
     def test_query_as_tool(self, as_retrieval_udf: bool, uses_db: None) -> None:
         skip_test_if_not_installed('openai')

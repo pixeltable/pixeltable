@@ -367,7 +367,7 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
             'The proxy daemon requires the serve dependencies (fastapi, uvicorn). '
-            'Install them with: pip install pixeltable[serve]',
+            "Install them with: pip install 'pixeltable[serve]'",
         ) from e
     # inline: pixeltable.serving loads fastapi, which a client importing this module for read_port_lock() lacks
     from pixeltable.serving._app import init_instrumentation, instrument_app

@@ -9,15 +9,15 @@ name: tests
 #
 # On PR updates, additionally:
 #   - The 'slim' subset of the unit tests (SLIM_TESTS in tool/ci_tool.py) with Python 3.11 on ubuntu-24.04,
-#     macos-15, and windows-2025 runners, plus with Python 3.14 on ubuntu-24.04.
+#     macos-15, and windows-2025 runners, plus with Python 3.15 on ubuntu-24.04.
 #
 # In merge queue, instead of the slim tests:
 #   - The full unit test suite with Python 3.11 on macos-15 and windows-2025 runners.
 #   - The unit test suite including expensive tests, with Python 3.11 on ubuntu-large.
 #   - Random ops, and the OpenTelemetry instrumentation tests.
-#   - Python 3.14 on ubuntu-24.04, macos-15, and windows-2025 runners.
-#   - Python 3.11, 3.12, and 3.13 on ubuntu-24.04.
-#   - Minimal Pixeltable with Python 3.14 on ubuntu-24.04.
+#   - Python 3.15 on ubuntu-24.04, macos-15, and windows-2025 runners.
+#   - Python 3.12, 3.13, and 3.14 on ubuntu-24.04.
+#   - Minimal Pixeltable with Python 3.15 on ubuntu-24.04.
 #   - Minimal Pixeltable with Python 3.11 on ubuntu-24.04-arm and macos-15-intel.
 #   - Minimal Pixeltable with an S3 media destination (only when AWS credentials are available).
 #   - Notebook tests, excluding Hugging Face-dependent notebooks.
@@ -183,7 +183,7 @@ jobs:
           conda info
       - name: Install tools and libraries
         # cmake is needed for certain CI environments where it is not preinstalled.
-        run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
+        run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==7.1.1=gpl*'
       - name: Install ollama
         if: ${{ matrix.uv-options == '' && startsWith(matrix.os, 'ubuntu') && matrix.python-version == '3.11' }}
         run: |
@@ -214,6 +214,14 @@ jobs:
         # Retry 3 times to be resilient against transient connectivity issues.
         run: |
           export VIRTUAL_ENV="$CONDA_PREFIX"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            # conda-forge's Python 3.15 on Windows keeps its headers in include\python, a directory setuptools never
+            # searches, so C extensions built from sdists fail to compile. cl.exe adds the options in CL to every
+            # command line.
+            # TODO: Remove CL once setuptools takes the include directory from sysconfig on Windows
+            # (conda-forge/python-feedstock#860 has the layout change).
+            export CL="/I\"$(python -c 'import sysconfig; print(sysconfig.get_path("include"))')\""
+          fi
           ./scripts/retry.sh 3 60 uv sync --active ${{ matrix.uv-options }}
       - name: Clean the uv cache
         # Skipped on Windows: deleting ~70k cached files takes minutes there, and Windows runners don't need the space.
@@ -288,8 +296,8 @@ jobs:
       - name: Validate docstrings
         if: ${{ matrix.test-category == 'lint' }}
         run: |
-          # Install quarto and mintlify in order to build the docs
-          ./scripts/retry.sh 3 30 conda install -y -c conda-forge quarto nodejs
+          # Install quarto and mintlify in order to build the docs; mint doesn't run on Node.js 25 or later
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge quarto 'nodejs<25'
           # retry.sh runs conda in its own shell, so reactivate here for quarto's activation script (QUARTO_DENO etc.)
           conda activate pxt
           npm install -g mint@$MINTLIFY_VERSION

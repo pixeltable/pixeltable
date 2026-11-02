@@ -1141,6 +1141,7 @@ class TestErrors:
             ['pxt', 'recompute', p('cli_errs/bad'), 'b', '--errors-only', '-f'],
             ['pxt', 'recompute', p('cli_errs/bad'), 'c', '--errors-only', '-f'],
         ]
+        assert ': 1 row updated' in cli('recompute', p('cli_errs/bad'), 'b', '--errors-only', '-f').stdout
 
         # --col filters to one stored computed column: an existing column with errors comes back,
         # and asking for the other computed column also returns its errors.
@@ -1714,12 +1715,15 @@ class TestCli:
         assert r.returncode == 2
         assert 'unknown command' in r.stderr
         assert 'did you mean' not in r.stderr
+        assert 'on Python' in r.stderr
 
         # a misspelled command, and a verb typed without its command
         for typed, expected in (('dorp', ['drop']), ('logs', ['db logs', 'service logs'])):
             r = cli(typed, check=False)
             assert r.returncode == 2
-            suggested = [line.removeprefix('did you mean: pxt ') for line in r.stderr.splitlines()[1:]]
+            suggested = [
+                line.removeprefix('did you mean: pxt ') for line in r.stderr.splitlines() if 'did you mean' in line
+            ]
             assert suggested == expected
             # each suggestion is a command pxt has
             for suggestion in suggested:

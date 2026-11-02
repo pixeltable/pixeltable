@@ -38,7 +38,7 @@ class TestConcurrentOps:
 
     @pytest.mark.parametrize('num_threads,rows_per_thread', [(4, 100)])
     def test_concurrent_insert_and_select(
-        self, db_root: DatabaseRoot, num_threads: int, rows_per_thread: int, is_data_versioned: bool
+        self, db_root: DatabaseRoot, is_data_versioned: bool, num_threads: int, rows_per_thread: int
     ) -> None:
         """Verify that concurrent inserts and selects from multiple threads work correctly."""
         p = db_root.make_catalog_path

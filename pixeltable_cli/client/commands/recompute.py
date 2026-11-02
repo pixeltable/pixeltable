@@ -71,9 +71,6 @@ def run(argv: list[str]) -> None:
     if args.as_json:
         print(resp.model_dump_json(indent=2))
         return
-    print(
-        f'recomputed {", ".join(resp.columns)} on {resp.path}: '
-        f'{plural(resp.num_rows, "row")}, {plural(resp.num_computed_values, "computed value")}'
-    )
+    print(f'recomputed {", ".join(resp.columns)} on {resp.path}: {plural(resp.num_rows, "row")} updated')
     if resp.num_excs > 0:
         print(f'{plural(resp.num_excs, "error")} in {", ".join(resp.cols_with_excs)}')

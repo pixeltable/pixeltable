@@ -74,7 +74,7 @@ api.add_query_route(path='/search', query=search)
 ```
 
 ```bash
-pip install 'pixeltable[serve]' openai
+pip install -U 'pixeltable[serve]' openai
 # the first pxt command starts a local daemon that runs Pixeltable's Postgres and reads your environment once
 export OPENAI_API_KEY=sk-...        # set it first, or run pxt daemon restart after
 pxt init                            # makes this folder a project
@@ -154,7 +154,7 @@ Codespaces.
 ## Install
 
 ```bash
-pip install 'pixeltable[serve]'
+pip install -U 'pixeltable[serve]'
 ```
 
 Python 3.11 or later. The [quickstart](https://docs.pixeltable.com/overview/quick-start) goes from an empty folder

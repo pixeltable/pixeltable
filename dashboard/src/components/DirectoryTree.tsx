@@ -7,7 +7,6 @@ import {
   Table2,
   Eye,
   Camera,
-  Copy,
   ChevronRight,
   ChevronDown,
   Search,
@@ -34,8 +33,6 @@ function getNodeIcon(type: string, isOpen: boolean = false) {
       return <Eye className="h-3.5 w-3.5 text-purple-400 shrink-0" />
     case 'snapshot':
       return <Camera className="h-3.5 w-3.5 text-orange-400 shrink-0" />
-    case 'replica':
-      return <Copy className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
     default:
       return <Table2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
   }

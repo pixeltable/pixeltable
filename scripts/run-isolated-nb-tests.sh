@@ -40,7 +40,7 @@ for nb in "$TEST_PATH"/*.ipynb; do
     conda info
 
     echo "Installing ffmpeg ..."
-    conda install -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*'
+    conda install -y -c conda-forge libiconv 'ffmpeg==7.1.1=gpl*'
 
     echo "Installing pytest ..."
     pip install -qU pip

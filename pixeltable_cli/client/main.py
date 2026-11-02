@@ -79,6 +79,8 @@ def dispatch(cmd: str, argv: list[str]) -> None:
         print(f'pxt: unknown command: {cmd}', file=sys.stderr)
         for suggestion in _suggestions(cmd):
             print(f'did you mean: pxt {suggestion}', file=sys.stderr)
+        version = importlib.metadata.version('pixeltable')
+        print(f'running pxt {version} on Python {sys.version.split()[0]}', file=sys.stderr)
         sys.exit(2)
     from pixeltable_cli.client import utils
 
