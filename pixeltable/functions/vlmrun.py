@@ -606,7 +606,7 @@ async def generate_image(
         model=model,
         model_kwargs=model_kwargs,
     )
-    return _load_image(path)
+    return await asyncio.to_thread(_load_image, path)
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:vlmrun')
@@ -648,7 +648,7 @@ async def annotate_image(
         model=model,
         model_kwargs=model_kwargs,
     )
-    return _load_image(path)
+    return await asyncio.to_thread(_load_image, path)
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:vlmrun')
