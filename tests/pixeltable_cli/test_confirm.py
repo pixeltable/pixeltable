@@ -1,0 +1,124 @@
+"""A confirmation is asked at a terminal and refused without one, naming the command that confirms it."""
+
+import io
+import json
+import sys
+
+import pytest
+
+from pixeltable_cli.client import utils
+
+
+class _Unanswerable:
+    """A stdin that fails the test if pxt reads an answer from it."""
+
+    def readline(self) -> str:
+        raise AssertionError('pxt waited on a prompt')
+
+
+class TestConfirmation:
+    def test_without_a_terminal_the_refusal_names_the_command(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(utils, 'stdin_is_a_tty', lambda: False)
+        monkeypatch.setattr(sys, 'stdin', _Unanswerable())
+        monkeypatch.setattr(utils, 'invocation', ['drop', 't'])
+
+        with pytest.raises(SystemExit) as exc:
+            utils.confirm_or_exit('drop table t?', force=False)
+
+        assert exc.value.code == utils.EXIT_REFUSED
+        refusal = capsys.readouterr().err
+        assert 'no TTY for confirmation' in refusal
+        assert 'next: pxt drop t -f  # drop table t' in refusal
+
+    def test_force_proceeds_without_a_terminal(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(utils, 'stdin_is_a_tty', lambda: False)
+        monkeypatch.setattr(sys, 'stdin', _Unanswerable())
+        utils.confirm_or_exit('drop table t?', force=True)
+
+    def test_whoever_is_at_a_terminal_is_asked(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # a coding agent running pxt in a terminal is asked too, as gh, Vercel and Railway ask it
+        monkeypatch.setenv('CLAUDECODE', '1')
+        monkeypatch.setattr(utils, 'stdin_is_a_tty', lambda: True)
+        monkeypatch.setattr(sys, 'stdin', io.StringIO('y\n'))
+        utils.confirm_or_exit('drop table t?', force=False)
+
+    def test_an_answer_other_than_yes_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(utils, 'stdin_is_a_tty', lambda: True)
+        monkeypatch.setattr(sys, 'stdin', io.StringIO('n\n'))
+        with pytest.raises(SystemExit) as exc:
+            utils.confirm_or_exit('drop table t?', force=False)
+        assert exc.value.code == utils.EXIT_REFUSED
+
+    def test_a_declined_json_command_prints_a_document(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A person's no names no command to get past it, unlike a refusal without a terminal."""
+        monkeypatch.setattr(utils, 'stdin_is_a_tty', lambda: True)
+        monkeypatch.setattr(sys, 'stdin', io.StringIO('n\n'))
+        monkeypatch.setattr(utils, 'invocation', ['drop', 't', '--json'])
+        with pytest.raises(SystemExit) as exc:
+            utils.confirm_or_exit('drop table t?', force=False)
+        assert exc.value.code == utils.EXIT_REFUSED
+        captured = capsys.readouterr()
+        assert json.loads(captured.out) == {
+            'error_code': 'CONFIRMATION_DECLINED',
+            'message': 'declined: drop table t?',
+            'retryable': False,
+        }
+        assert 'next:' not in captured.err
+
+    def test_a_declined_plan_is_printed_by_its_command(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(utils, 'stdin_is_a_tty', lambda: True)
+        monkeypatch.setattr(sys, 'stdin', io.StringIO('n\n'))
+        monkeypatch.setattr(utils, 'invocation', ['schema', 'update', 'app.py', '--json'])
+        with pytest.raises(SystemExit):
+            utils.confirm_or_exit(
+                'apply 2 changes?', force=False, on_refusal=lambda error: utils.print_json({'plan': 'refused'}, error)
+            )
+        # the plan command's document, with the error document's fields at its top level
+        assert json.loads(capsys.readouterr().out) == {
+            'plan': 'refused',
+            'error_code': 'CONFIRMATION_DECLINED',
+            'message': 'declined: apply 2 changes?',
+            'retryable': False,
+        }
+
+    def test_a_destructive_refusal_names_the_flag(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(utils, 'stdin_is_a_tty', lambda: False)
+        monkeypatch.setattr(utils, 'invocation', ['db', 'update', 'pxt://acme:main', '--json'])
+        with pytest.raises(SystemExit) as exc:
+            utils.refuse_destructive(
+                'pxt db update', 2, force=False, on_refusal=lambda error: utils.print_json({'plan': 1}, error)
+            )
+        assert exc.value.code == utils.EXIT_REFUSED
+        doc = json.loads(capsys.readouterr().out)
+        assert doc['plan'] == 1
+        assert doc['error_code'] == 'DESTRUCTIVE_SCHEMA_CHANGE'
+        assert doc['next'] == [
+            {
+                'command': 'pxt db update pxt://acme:main --json --allow-destructive -f',
+                'effect': 'applies 2 destructive operation(s)',
+            }
+        ]
+
+
+class TestRefusal:
+    def test_the_next_line_says_what_the_command_does(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The question names what the rerun does; the sentence after it is left out."""
+        monkeypatch.setattr(utils, 'stdin_is_a_tty', lambda: False)
+        monkeypatch.setattr(utils, 'invocation', ['db', 'delete', 'pxt://acme:gone'])
+        with pytest.raises(SystemExit):
+            utils.confirm_or_exit('delete pxt://acme:gone? This is irreversible.', force=False)
+        assert 'next: pxt db delete pxt://acme:gone -f  # delete pxt://acme:gone\n' in capsys.readouterr().err
+
+    def test_flags_go_before_the_option_terminator(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(utils, 'invocation', ['drop', '--', '-odd name'])
+        assert utils.rerun_command('-f') == "pxt drop -f -- '-odd name'"

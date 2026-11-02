@@ -49,7 +49,7 @@ class TestTogether:
         t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         messages = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(
-            output=chat_completions(messages=messages, model='openai/gpt-oss-20b', model_kwargs={'stop': ['\n']})
+            output=chat_completions(messages=messages, model='Qwen/Qwen3.5-9B', model_kwargs={'stop': ['\n']})
         )
         # TODO: the safety_model kwarg is untested: Together rejects every guard model id with
         # invalid_safety_model, and this account's model list has none. Restore coverage once one is
@@ -57,7 +57,7 @@ class TestTogether:
         t.add_computed_column(
             output_2=chat_completions(
                 messages=messages,
-                model='openai/gpt-oss-20b',
+                model='Qwen/Qwen3.5-9B',
                 model_kwargs={
                     'max_tokens': 300,
                     'stop': ['\n'],
@@ -76,6 +76,7 @@ class TestTogether:
         assert len(result['output'][0]['choices'][0]['message']) > 0
         assert len(result['output_2'][0]['choices'][0]['message']) > 0
 
+    @pytest.mark.skip(reason='Together AI offers no serverless embedding models (as of 2026-10-07)')
     def test_embeddings(self, uses_db: None) -> None:
         skip_test_if_not_installed('together')
         skip_test_if_no_client('together')

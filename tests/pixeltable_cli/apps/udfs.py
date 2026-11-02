@@ -1,5 +1,7 @@
 """Udfs the corpus applications and the CLI tests share."""
 
+import time
+
 import numpy as np
 
 import pixeltable as pxt
@@ -25,3 +27,10 @@ def dummy_embedding(text: str) -> pxt.Array[(32,), np.float32]:
     arr = np.zeros((32,), dtype=np.float32)
     arr[len(text) % 32] = 1
     return arr
+
+
+@pxt.udf
+def sleep(secs: float) -> float:
+    """Return secs after sleeping that long."""
+    time.sleep(secs)
+    return secs

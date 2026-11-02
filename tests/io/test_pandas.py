@@ -219,7 +219,6 @@ class TestPandas:
     @rerun_on_network_error()
     def test_pandas_images(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
-        skip_test_if_not_installed('boto3')  # This test relies on s3 URLs
 
         # Test overriding string type to images
         t4 = import_csv(p('images'), 'tests/data/datasets/images.csv', schema_overrides={'image': pxt.Image | None})

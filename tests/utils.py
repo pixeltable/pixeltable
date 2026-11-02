@@ -12,9 +12,11 @@ import os
 import random
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import sysconfig
+import threading
 import time
 import urllib.parse
 import uuid
@@ -35,16 +37,18 @@ import pandas as pd
 import PIL.Image
 import pytest
 import sqlalchemy as sql
+from typing_extensions import TypeForm
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, telemetry
 from pixeltable._query import ResultSet
-from pixeltable.catalog import Path as PxtPath, retry_loop
+from pixeltable.catalog import Path as PxtPath, retry_md_read_loop
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.service import management_client, proxy_daemon
+from pixeltable.telemetry import SubscriberRegistry
 from pixeltable.types import ColumnSpec
 from pixeltable.utils import sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
@@ -53,6 +57,7 @@ from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
 if TYPE_CHECKING:
+    from botocore.exceptions import ClientError
     from pyiceberg.catalog.sql import SqlCatalog
 
 TESTS_DIR = Path(os.path.dirname(__file__))
@@ -108,6 +113,38 @@ def runs_linux_with_gpu() -> bool:
         return sysconfig.get_platform() == 'linux-x86_64' and torch.cuda.is_available()
     except ImportError:
         return False
+
+
+# Below the default ephemeral range of every platform (Linux 32768-60999, macOS and Windows 49152-65535), which
+# bind() to port 0 and connect() draw on, and above the pxt daemon's default port (22089)
+_PORTS = range(23000, 32768)
+_port_cursor: int | None = None
+
+
+def free_port() -> int:
+    """Return a free loopback port for a process that binds it later.
+
+    The OS can hand a port from its ephemeral range to any other socket between this check and that bind. This one is
+    outside that range, in a slice of its own for each xdist worker, and is not returned again until the worker has
+    gone around its slice.
+    """
+    global _port_cursor  # noqa: PLW0603
+    slice_len = len(_PORTS) // int(os.environ.get('PYTEST_XDIST_WORKER_COUNT', '1'))
+    worker = int(os.environ.get('PYTEST_XDIST_WORKER', 'gw0').removeprefix('gw'))
+    first = _PORTS.start + worker * slice_len
+    if _port_cursor is None:
+        # test sessions running side by side on one machine start at different places in the slice
+        _port_cursor = os.getpid() % slice_len
+    for _ in range(slice_len):
+        port = first + _port_cursor
+        _port_cursor = (_port_cursor + 1) % slice_len
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(('127.0.0.1', port))
+            except OSError:
+                continue
+        return port
+    raise RuntimeError(f'No free port in {first}-{first + slice_len - 1}')
 
 
 @pxt.udf
@@ -518,6 +555,37 @@ def generate_test_video(
     return str(output_path)
 
 
+def generate_color_video(
+    tmp_path: Path, segments: list[tuple[str, int]], extension: str = 'mp4', start_time: float = 0.0
+) -> str:
+    """
+    Create an h264 video from 1-second segments of solid color and return its path.
+
+    Each segment is a (color, fps) pair; segments with different fps produce a variable frame rate video. The first
+    frame is at start_time.
+    """
+    cmd = ['ffmpeg']
+    for color, fps in segments:
+        cmd.extend(['-f', 'lavfi', '-i', f'color=c={color}:s=64x64:r={fps}:d=1'])
+    inputs = ''.join(f'[{i}]' for i in range(len(segments)))
+    cmd.extend(['-filter_complex', f'{inputs}concat=n={len(segments)}:v=1', '-fps_mode', 'passthrough'])
+    cmd.extend(['-output_ts_offset', str(start_time), '-c:v', 'libx264', '-pix_fmt', 'yuv420p'])
+    output_path = tmp_path / f'{uuid4()}.{extension}'
+    cmd.extend(['-y', str(output_path)])
+    subprocess.run(cmd, capture_output=True, check=True)
+    return str(output_path)
+
+
+def generate_tone_audio(tmp_path: Path, extension: str, start_time: float = 0.0) -> str:
+    """Create a 2-second 440 Hz tone whose first sample is at start_time and return its path."""
+    codec = 'libopus' if extension == 'webm' else 'flac'
+    output_path = tmp_path / f'{uuid4()}.{extension}'
+    cmd = ['ffmpeg', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2']
+    cmd.extend(['-output_ts_offset', str(start_time), '-c:a', codec, '-y', str(output_path)])
+    subprocess.run(cmd, capture_output=True, check=True)
+    return str(output_path)
+
+
 __IMAGE_FILES: list[str] = []
 __IMAGE_FILES_WITH_BAD_IMAGE: list[str] = []
 
@@ -631,7 +699,7 @@ def get_sentences(n: int = 100) -> list[str]:
     return [q['question'].replace("'", '') for q in questions_list[:n]]
 
 
-def assert_type_eq(col_type: ts.ColumnType, pxt_type: type[ts._PxtType]) -> None:
+def assert_type_eq(col_type: ts.ColumnType, pxt_type: TypeForm) -> None:
     assert col_type == ts.ColumnType.normalize_type(pxt_type)
 
 
@@ -748,7 +816,7 @@ def assert_table_metadata_eq(expected: dict[str, Any], actual: pxt.TableMetadata
     """
     now = datetime.datetime.now(tz=datetime.timezone.utc)
     actual_created_at: datetime.datetime = actual['version_created']
-    assert (now - actual_created_at).total_seconds() <= (120 if Env.get().is_using_cockroachdb else 60)
+    assert (now - actual_created_at).total_seconds() <= 60
     assert isinstance(actual['id'], uuid.UUID)
 
     trimmed_actual = {k: v for k, v in actual.items() if k not in {'version_created', 'id'}}
@@ -800,6 +868,11 @@ def skip_test_if_not_local(reason: str = 'Requires a local (file-backed) Pixelta
         pytest.skip(reason)
 
 
+def aux_db_name(suffix: str) -> str:
+    """Return a db name unique to this test worker."""
+    return f'{os.environ["PIXELTABLE_DB"]}_{suffix}'
+
+
 def skip_test_if_no_client(client_name: str) -> None:
     try:
         _ = get_runtime().get_client(client_name)
@@ -813,8 +886,6 @@ def skip_test_if_no_pxt_credentials() -> None:
 
 
 def skip_test_if_no_aws_credentials() -> None:
-    skip_test_if_not_installed('boto3')
-
     import boto3
     from botocore.exceptions import NoCredentialsError
 
@@ -825,12 +896,30 @@ def skip_test_if_no_aws_credentials() -> None:
         pytest.skip(str(exc).splitlines()[0])
 
 
+def aws_client_error(code: str, status: int, message: str, headers: dict[str, str] | None = None) -> 'ClientError':
+    """A botocore ClientError with the given AWS error code, HTTP status, message and response headers."""
+    from botocore.exceptions import ClientError
+
+    return ClientError(
+        {
+            'Error': {'Code': code, 'Message': message},
+            'ResponseMetadata': {
+                'RequestId': 'request-id',
+                'HostId': 'host-id',
+                'HTTPStatusCode': status,
+                'HTTPHeaders': headers or {},
+                'RetryAttempts': 0,
+            },
+        },
+        'InvokeModel',
+    )
+
+
 _S3_PYTEST_RESOURCES = 's3://pxt-test/pytest-resources'
 
 
 def ensure_s3_pytest_resources_access() -> None:
     """Skip if s3://pxt-test/pytest-resources is not reachable (no creds or no access)."""
-    skip_test_if_not_installed('boto3')
     try:
         ObjectOps.validate_destination(_S3_PYTEST_RESOURCES)
     except Exception as exc:
@@ -841,6 +930,26 @@ def validate_update_status(status: pxt.UpdateStatus, expected_rows: int | None =
     assert status.num_excs == 0
     if expected_rows is not None:
         assert status.num_rows == expected_rows, status
+
+
+def run_workers(target: Callable[[int], None], n_threads: int) -> list[tuple[int, BaseException]]:
+    """Run target(tid) on n_threads workers; return any exceptions raised."""
+    errors: list[tuple[int, BaseException]] = []
+    lock = threading.Lock()
+
+    def runner(tid: int) -> None:
+        try:
+            target(tid)
+        except BaseException as e:
+            with lock:
+                errors.append((tid, e))
+
+    threads = [threading.Thread(target=runner, args=(i,)) for i in range(n_threads)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    return errors
 
 
 def iceberg_catalog(warehouse_path: str | Path, name: str = 'pixeltable') -> 'SqlCatalog':
@@ -1004,7 +1113,7 @@ class ReloadTester:
         # enumerate(): the list index is useful for debugging
         for idx, (query_dict, result_set) in enumerate(self.query_info):
 
-            @retry_loop()
+            @retry_md_read_loop()
             def query_from_dict() -> pxt.Query:
                 return pxt.Query.from_dict(query_dict)
 
@@ -1196,10 +1305,10 @@ def check_media_store_count(
 
 
 def home_bucket_uri(catalog_path: str) -> str:
-    """The pxtfs:// home bucket of the hosted database holding catalog_path."""
+    """The home bucket of the hosted database holding catalog_path, as stored media urls spell it."""
     catalog = PxtPath.parse(catalog_path, allow_empty_path=True)
     assert catalog.org is not None and catalog.db is not None, catalog_path
-    return f'pxtfs://{catalog.org}:{catalog.db}/home'
+    return f'pxt://{catalog.org}:{catalog.db}/buckets/home'
 
 
 def assert_image_bytes(data: bytes, *, size: tuple[int, int] | None = None) -> None:
@@ -1237,13 +1346,28 @@ def fetch_presigned(url: str, expires_s: int, host_suffix: str) -> bytes:
     parsed = urllib.parse.urlparse(url)
     assert parsed.scheme == 'https', url
     assert parsed.hostname is not None and parsed.hostname.endswith(host_suffix), url
-    assert urllib.parse.parse_qs(parsed.query).get('X-Amz-Expires') == [str(expires_s)], url
+    query = urllib.parse.parse_qs(parsed.query)
+    if 't' in query:
+        # a storage edge token, t=<expiry>.<hmac>, has an absolute expiry: allow for the time since signing
+        expiry = int(query['t'][0].split('.')[0])
+        assert abs(expiry - (time.time() + expires_s)) <= 300, url
+    else:
+        assert query.get('X-Amz-Expires') == [str(expires_s)], url
     resp = httpx.get(url, timeout=30)
     assert resp.status_code == 200, resp.text
     unsigned = httpx.get(parsed._replace(query='').geturl(), timeout=30)
-    # R2 answers a request that carries no signature with 400 InvalidArgument (Authorization); S3 with 403
+    # R2 answers a request that carries no signature with 400 InvalidArgument (Authorization); S3 and the storage
+    # edge with 403
     assert unsigned.status_code in (400, 401, 403), (unsigned.status_code, unsigned.text)
     return resp.content
+
+
+def _proxy_temp_store_count(db: str) -> int:
+    """Count the objects in the proxy daemon's temp store, which is a per-process directory under its tmp dir."""
+    tmp_dir = proxy_daemon.proxy_home(db) / 'tmp'
+    if not tmp_dir.is_dir():
+        return 0
+    return sum(LocalStore(path).count(None) for path in tmp_dir.iterdir() if path.is_dir())
 
 
 def get_temp_store_count(tbl: pxt.Table, db_root: DatabaseRoot) -> int:
@@ -1255,7 +1379,7 @@ def get_temp_store_count(tbl: pxt.Table, db_root: DatabaseRoot) -> int:
     if catalog_uri.db is None:
         return TempStore.count()
     else:
-        return LocalStore(proxy_daemon.proxy_home(catalog_uri.db) / 'tmp').count(None)
+        return _proxy_temp_store_count(catalog_uri.db)
 
 
 def check_temp_store_count(tbl: pxt.Table, expected_count: int, db_root: DatabaseRoot) -> None:
@@ -1269,7 +1393,7 @@ def check_temp_store_count(tbl: pxt.Table, expected_count: int, db_root: Databas
     if catalog_uri.db is None:
         actual = TempStore.count()
     else:
-        actual = LocalStore(proxy_daemon.proxy_home(catalog_uri.db) / 'tmp').count(None)
+        actual = _proxy_temp_store_count(catalog_uri.db)
 
     assert actual == expected_count, f'expected {expected_count} temp objects, found {actual}'
 
@@ -1385,3 +1509,78 @@ def schema_from_tbl_md(metadata: pxt.TableMetadata) -> dict[str, str]:
         },
         'indexes': metadata['indexes'],
     }
+
+
+class RecordingSubscriber(telemetry.Subscriber):
+    """Records every hook invocation; span tokens are dict records linked by id."""
+
+    def __init__(self) -> None:
+        self.spans: list[dict[str, Any]] = []
+        self.events: list[tuple[Any, str, dict[str, Any]]] = []
+        self.counter_adds: list[tuple[telemetry.Counter, int | float, dict[str, Any]]] = []
+        self.histogram_records: list[tuple[telemetry.Histogram, int | float, dict[str, Any]]] = []
+        self.ctx_restores: list[Any] = []
+        self.ctx_exits: list[Any] = []
+
+    def on_span_start(self, name: str, parent_token: Any, attrs: dict[str, Any] | None, set_current: bool) -> Any:
+        record: dict[str, Any] = {
+            'id': len(self.spans),
+            'name': name,
+            'parent_id': parent_token['id'] if parent_token is not None else None,
+            'attrs': attrs,
+            'set_current': set_current,
+            'ended': False,
+            'exc': None,
+            'end_attrs': None,
+        }
+        self.spans.append(record)
+        return record
+
+    def on_span_end(self, token: Any, exc: BaseException | None, attrs: dict[str, Any] | None) -> None:
+        token['ended'] = True
+        token['exc'] = exc
+        token['end_attrs'] = attrs
+
+    def on_event(self, token: Any, name: str, attrs: dict[str, Any]) -> None:
+        self.events.append((token, name, attrs))
+
+    def on_counter_add(self, counter: telemetry.Counter, value: int | float, attrs: dict[str, Any]) -> None:
+        self.counter_adds.append((counter, value, attrs))
+
+    def on_histogram_record(self, histogram: telemetry.Histogram, value: int | float, attrs: dict[str, Any]) -> None:
+        self.histogram_records.append((histogram, value, attrs))
+
+    def capture_context(self) -> Any:
+        return 'ctx'
+
+    def restore_context(self, ctx: Any) -> Any:
+        self.ctx_restores.append(ctx)
+        return 'token'
+
+    def exit_context(self, token: Any) -> None:
+        self.ctx_exits.append(token)
+
+    def find(self, name: str) -> dict[str, Any]:
+        matches = [s for s in self.spans if s['name'] == name]
+        assert len(matches) == 1, f'expected exactly one span named {name!r}, got {len(matches)}'
+        return matches[0]
+
+    def counter_total(self, counter: telemetry.Counter) -> int | float:
+        """The sum of all values added to `counter` since this subscriber was subscribed."""
+        return sum(value for c, value, _ in self.counter_adds if c is counter)
+
+
+@contextmanager
+def record_telemetry(span_level: int = telemetry.INFO) -> Iterator[RecordingSubscriber]:
+    """Record the telemetry emitted inside the block, with spans at `span_level` and above."""
+    recorder = RecordingSubscriber()
+    SubscriberRegistry.get().subscribe(recorder)
+    telemetry.set_span_level(span_level)
+    try:
+        yield recorder
+    finally:
+        SubscriberRegistry.get().unsubscribe(recorder)
+        telemetry.set_span_level(telemetry.INFO)
+        # a block failing between span_start(set_current=True) and span_end would leak the ambient span into
+        # subsequent tests
+        telemetry._current_span.set(None)

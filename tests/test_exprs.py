@@ -3,7 +3,9 @@
 
 import base64
 import datetime
+import gc
 import json
+import logging
 import math
 import os
 import re
@@ -190,6 +192,33 @@ class TestExprs:
         _ = t.where(t.c1n != None).collect()
         print(_)
 
+    def test_bool_literal_operators(self, test_tbl: pxt.Table) -> None:
+        # Regression test for PXT-1659: a bool literal on either side of & / | wraps into an expr instead of
+        # raising TypeError.
+        t = test_tbl
+        for e in (t.c4 & True, True & t.c4, t.c4 | False, False | t.c4, (t.c2 > 0) & True, True & (t.c2 > 0)):
+            assert e.col_type.is_bool_type(), e
+
+        rows = t.select(t.c2, a=t.c4 & True, b=True & t.c4, c=t.c4 | False, d=False | t.c4).order_by(t.c2).collect()
+        assert all(r['a'] == r['b'] == r['c'] == r['d'] == (r['c2'] % 2 == 1) for r in rows)
+
+        with pytest.raises(TypeError, match='needs to be an expression that returns a boolean'):
+            _ = t.c4 & 5
+        with pytest.raises(TypeError, match='needs to be an expression that returns a boolean'):
+            _ = t.c4 | 'x'
+
+        # a non-bool column must fail at construction too, in both operand orders (t.c2 is Int)
+        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+            _ = t.c2 & True
+        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+            _ = True & t.c2
+        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+            _ = t.c2 | False
+        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+            _ = False | t.c2
+        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+            _ = t.c2 & t.c4
+
     def test_exception_handling(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
@@ -222,6 +251,48 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             _ = t.where(t.c2 <= 2).select(self.value_exc(t.c2 - 1)).show()
 
+    @staticmethod
+    @pxt.udf
+    def raise_sync(x: int) -> int:
+        raise ValueError(f'sync {x}')
+
+    @staticmethod
+    @pxt.udf
+    async def raise_async(x: int) -> int:
+        raise ValueError(f'async {x}')
+
+    @staticmethod
+    @pxt.udf(resource_pool='rate-limits:test')
+    async def raise_rate_limited(x: int) -> int:
+        raise ValueError(f'rate-limited {x}')
+
+    @pytest.mark.db_roots('local', reason='inspects in-process DataRows')
+    @pytest.mark.parametrize('udf_name', ['raise_sync', 'raise_async', 'raise_rate_limited'])
+    def test_errored_rows_released(self, uses_db: None, udf_name: str) -> None:
+        """A row whose evaluation raised is garbage-collected after the insert.
+
+        The recorded exception's traceback references the row through the frame that caught it, so the row is part
+        of a reference cycle.
+        """
+
+        def num_errored_rows() -> int:
+            # pytest's log capture handlers keep the record of each _logger.exception() call in the rate-limits
+            # scheduler, and through its traceback the rows
+            for logger in (logging.getLogger(), logging.getLogger('pixeltable')):
+                for handler in logger.handlers:
+                    records = getattr(handler, 'records', None)
+                    if isinstance(records, list):
+                        records.clear()
+            gc.collect()
+            return sum(1 for obj in gc.get_objects() if isinstance(obj, exprs.DataRow) and obj.has_exc())
+
+        baseline = num_errored_rows()
+        t = pxt.create_table('errored_rows', {'x': pxt.Int})
+        t.add_computed_column(y=getattr(self, udf_name)(t.x))
+        status = t.insert([{'x': i} for i in range(10)], on_error='ignore')
+        assert status.num_excs == 10
+        assert num_errored_rows() == baseline
+
     def test_props(self, test_tbl: pxt.Table, img_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         t = test_tbl
         # errortype/-msg for computed column
@@ -243,7 +314,7 @@ class TestExprs:
                 # over the proxy each fileurl is a fetchable daemon media URL, not the local source file
                 assert all(u.startswith(('http://', 'https://')) and '/media/' in u for u in stored_urls), stored_urls
             case 'cloud':
-                assert all(u.startswith('pxtfs://') and '/home/' in u for u in stored_urls), stored_urls
+                assert all(u.startswith('pxt://') and '/buckets/home/' in u for u in stored_urls), stored_urls
 
         # localpath
         res = img_t.select(img_t.img.localpath).collect().to_pandas()
@@ -732,6 +803,84 @@ class TestExprs:
             res['item_of_vartype_list'][i] == [res['c2'][i], res['c1'][i], res['c3'][i]] for i in range(len(res))
         )
 
+    def test_ambiguous_json_key(self, db_root: DatabaseRoot) -> None:
+        """j.mean refers to the Json method mean(), which can't be used as a value; j['mean'] works."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'j': pxt.Json})
+        msg = r"j\.mean is the method mean\(\); call it to get a value, or use j\['mean'\] for the JSON field"
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.add_computed_column(m=t.j.mean)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.add_computed_column(m=t.j.mean.astype(pxt.Float))
+        t.add_computed_column(m=t.j['mean'].astype(pxt.Float))
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.alter_computed_column(m=t.j.mean.astype(pxt.Float))
+        t.insert([{'j': {'mean': 1.5}}])
+        assert t.select(t.m).collect()['m'] == [1.5]
+
+        # in a query, j.mean fails when the query is built, also behind astype() or inside a dict
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.select(m=t.j.mean.astype(pxt.Float))
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.select(x={'m': t.j.mean})
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.where(t.j.mean.astype(pxt.Float) > 1)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.order_by(t.j.mean)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.group_by(t.j.mean)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.sample(n_per_stratum=1, stratify_by=t.j.mean)
+        other = pxt.create_table(p('other'), {'x': pxt.Float})
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.join(other, on=t.j.mean.astype(pxt.Float) == other.x)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+
+            @pxt.query
+            def means(x: float) -> pxt.Query:
+                return t.where(t.m > x).select(m=t.j.mean.astype(pxt.Float))
+
+        # an update, delete or view fails before it changes anything
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.update({'j': t.j.mean})
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.update({'j': {}}, where=t.j.mean.astype(pxt.Float) > 1)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.delete(where=t.j.mean.astype(pxt.Float) > 1)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            t.recompute_columns('m', where=t.j.mean.astype(pxt.Float) > 1)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            pxt.create_view(p('chunks'), t, iterator=pxtf.string.string_splitter(t.j.mean, separators='sentence'))
+        res = t.select(t.j, t.m).collect()
+        assert res['j'] == [{'mean': 1.5}]
+        assert res['m'] == [1.5]
+
+        TableModel = pxt.model_base()  # noqa: N806
+
+        class Stats(TableModel, name='stats'):
+            j: pxt.Json
+            mean = j.mean.astype(pxt.Float)  # noqa: F821
+
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            TableModel.update_all(p(''))
+
+        TableModel2 = pxt.model_base()  # noqa: N806
+
+        class Stats2(TableModel2, name='stats'):
+            j: pxt.Json
+            mean = j['mean'].astype(pxt.Float)  # noqa: F821
+
+        TableModel2.update_all(p(''))
+
+        TableModel3 = pxt.model_base()  # noqa: N806
+
+        class Stats3(TableModel3, name='stats'):
+            j: pxt.Json
+            mean = j.mean.astype(pxt.Float)  # noqa: F821
+
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=msg):
+            TableModel3.update_all(p(''))
+
     def test_json_path_projection(self, db_root: DatabaseRoot) -> None:
         # a projection ('*' or a slice) yields one positionally-aligned result per source element: a missing field,
         # a null element, or a non-list element under a further projection becomes null, never dropped. So parallel
@@ -842,6 +991,10 @@ class TestExprs:
             # dict resolution applied to heterogeneous tuple
             (t.col.f5[:].f5a, pxt.Json[(int | None, str | None, float | None, ...)] | None),
             (t.col.f4['*'].f4b, pxt.Json[[str | None]] | None),  # special '*' operator
+            # dict schemas are open, so a key that the schema doesn't declare resolves to untyped Json
+            (t.col.not_a_field, pxt.Json | None),
+            (t.col.f2.not_a_field[3].f1, pxt.Json | None),
+            (t.col.f4['*'].not_a_field, pxt.Json[[pxt.Json | None]] | None),
             (
                 t.col.f4.f4a,
                 pxt.Json[[int | None]] | None,
@@ -859,7 +1012,6 @@ class TestExprs:
             (t.col.f1, 'cannot_be_a_field', "'cannot_be_a_field'"),  # field access on primitive type
             (t.col.f1, 3, '[3]'),  # index access on primitive type
             (t.col.f1, slice(3, 10), '[3:10]'),  # slice access on primitive type
-            (t.col, 'not_a_field', "'not_a_field'"),  # invalid field name in dict
             (t.col, 3, '[3]'),  # index access on dict
             (t.col, slice(3, 10), '[3:10]'),  # slice access on dict
             (t.col.f2.f2b, 'not_an_index', "'not_an_index'"),  # field access on tuple
@@ -1559,7 +1711,9 @@ class TestExprs:
         query = t.select(t.img, t.img.rotate(60))
         _ = query.show(n=100)._repr_html_()
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_EXPRESSION, match=r'img\.rotate is the method rotate\(\); call it to get a value'
+        ):
             _ = t.select(t.img.rotate)
 
     def test_img_members(self, img_tbl: pxt.Table) -> None:
@@ -1695,6 +1849,30 @@ class TestExprs:
         reload_catalog()
         t = pxt.get_table(p('test'))
         assert t.get_metadata()['columns']['y']['computed_with'] == expected
+
+    def test_dict_literal_key_order_after_reload(self, db_root: DatabaseRoot) -> None:
+        """A Literal's dict value is stored as a jsonb object, whose key order Postgres does not preserve."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'x': pxt.Int | None})
+        # the list under 'aaa' has no column references, so it becomes a Literal
+        t.add_computed_column(dumped=pxtf.json.dumps({'zzz': t.x, 'aaa': [{'yy': 1, 'b': {'long_key': 2, 'k': 3}}]}))
+        expected = "dumps({'zzz': x, 'aaa': [{'yy': 1, 'b': {'long_key': 2, 'k': 3}}]})"
+        assert t.get_metadata()['columns']['dumped']['computed_with'] == expected
+        t.insert(x=1)
+
+        reload_catalog()
+        t = pxt.get_table(p('test'))
+        assert t.get_metadata()['columns']['dumped']['computed_with'] == expected
+        t.insert(x=2)
+        assert t.order_by(t.x).collect()['dumped'] == [
+            '{"zzz": 1, "aaa": [{"yy": 1, "b": {"long_key": 2, "k": 3}}]}',
+            '{"zzz": 2, "aaa": [{"yy": 1, "b": {"long_key": 2, "k": 3}}]}',
+        ]
+
+    def test_dict_literal_key_order_in_tuple(self) -> None:
+        """A dict nested in a tuple keeps its key order through as_dict() and from_dict()."""
+        lit = Literal({'zzz': (1, {'yy': 1, 'b': 2}), 'aaa': {'long_key': 1, 'k': 2}})
+        assert json.dumps(Literal.from_dict(lit.as_dict()).val) == json.dumps(lit.val)
 
     @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_print(
@@ -1895,6 +2073,9 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION):
             # nested aggregates
             _ = t.group_by(t.c2 % 2).select(sum(count(t.c2))).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'c1\.upper is the method upper\(\)'):
+            # uncalled method in group_by clause
+            _ = t.group_by(t.c1.upper).select(count(t.c2)).collect()
 
     def test_function_call_errors(self, test_tbl: pxt.Table) -> None:
         t = test_tbl

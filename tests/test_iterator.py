@@ -1,5 +1,7 @@
 import re
+import sys
 import warnings
+from pathlib import Path
 from textwrap import dedent
 from typing import Any, Iterator, TypedDict
 
@@ -151,6 +153,14 @@ def _(bound_args: dict[str, Any]) -> dict[str, type] | None:
     return None
 
 
+@pxt.iterator
+def pop_iterator(x: int, opts: dict, items: list) -> Iterator[MyRow]:
+    n = opts['nested'].pop('n', None)
+    item = items.pop() if len(items) > 0 else None
+    for i in range(x):
+        yield MyRow(icol=i, scol=f'{n}:{item}', acol=None)
+
+
 class TestIterator:
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_iterator(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
@@ -228,6 +238,18 @@ class TestIterator:
         }
         # the shadowing columns hold the innermost iterator's values, not the shadowed ones
         assert all(r['scol'] == f'string {r["icol"]}' for r in vv.collect())
+
+    def test_iterator_modifies_args(self, db_root: DatabaseRoot) -> None:
+        """An iterator that modifies a constant argument doesn't change that argument for other input rows."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'input': pxt.Int})
+        t.insert([{'input': 1}, {'input': 1}])
+        v1 = pxt.create_view(p('view1'), t, iterator=pop_iterator(t.input, opts={'nested': {'n': 3}}, items=[4]))
+        # the nested dict is constant, the dict that contains it is not
+        it = pop_iterator(t.input, opts={'x': t.input, 'nested': {'n': 3}}, items=[4])
+        v2 = pxt.create_view(p('view2'), t, iterator=it)
+        t.insert([{'input': 1}])
+        assert all([r['scol'] for r in v.collect()] == ['3:4'] * 3 for v in (v1, v2))
 
     @pytest.mark.db_roots('local', reason='validates the @pxt.iterator decorator on client-process-local classes')
     def test_iterator_errors(self, uses_db: None) -> None:
@@ -668,6 +690,41 @@ class TestIterator:
         # Now drop the view with the broken iterator and make sure the table is still usable
         pxt.drop_table('view')
         reload_and_validate_table(has_view=False)
+
+    @pytest.mark.db_roots(
+        'local', reason='breaks a client-process-local iterator module on disk; not visible to the daemon'
+    )
+    def test_iterator_module_import_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, uses_db: None) -> None:
+        # A stored iterator whose module fails to import must surface the import failure, like the UDF path.
+        (tmp_path / 'stored_it_mod.py').write_text(
+            'import pixeltable as pxt\n'
+            'from typing import Iterator, TypedDict\n\n'
+            'class R(TypedDict):\n'
+            '    x: int\n\n'
+            '@pxt.iterator\n'
+            'def it(n: int) -> Iterator[R]:\n'
+            '    for i in range(n):\n'
+            '        yield R(x=i)\n'
+        )
+        monkeypatch.syspath_prepend(str(tmp_path))
+        import stored_it_mod  # type: ignore[import-not-found]
+
+        t = pxt.create_table('test', {'n': pxt.Int})
+        v = pxt.create_view('view', t, iterator=stored_it_mod.it(t.n))
+        t.insert(n=2)
+        assert len(v.collect()) == 2
+
+        (tmp_path / 'stored_it_mod.py').write_text('import this_module_does_not_exist\n')
+        monkeypatch.delitem(sys.modules, 'stored_it_mod')
+        reload_catalog()
+        # the view still loads and existing data stays readable, but inserts surface the import failure
+        v = pxt.get_table('view')
+        assert len(v.collect()) == 2
+        t = pxt.get_table('test')
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_STATE, match="could not be imported: No module named 'this_module_does_not_exist'"
+        ):
+            t.insert(n=1)
 
     def test_retrofit(self, db_root: DatabaseRoot) -> None:
         """

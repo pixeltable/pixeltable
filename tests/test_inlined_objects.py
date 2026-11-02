@@ -362,14 +362,14 @@ class TestInlinedObjects:
         reload_tester.run_reload_test()
 
     @pytest.mark.db_roots('local', reason='TODO: convert; file-path media in JSON not yet shipped over proxy')
-    def test_json_media(self, db_root: DatabaseRoot) -> None:
+    def test_json_media(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
 
         schema: dict[str, Any] = {
             'id': pxt.Int | None,
             'media': pxt.Json[{'clip': pxt.Video, 'sound': pxt.Audio, 'doc': pxt.Document, 'label': str}] | None,
         }
-        t = pxt.create_table(p('test'), schema)
+        t = pxt.create_table(p('test'), schema, _is_data_versioned=is_data_versioned)
 
         videos = get_video_files()
         audios = get_audio_files()

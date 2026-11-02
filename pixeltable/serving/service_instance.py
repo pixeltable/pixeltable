@@ -6,7 +6,7 @@ from pixeltable.service.service_md import ServiceInstanceRecord
 from pixeltable_cli.types import ServiceSpec, ServiceState
 
 if TYPE_CHECKING:
-    from pixeltable.service.management_protocol import LogRecord
+    from pixeltable.service.management_protocol import LogRecord, SpanRecord
 
     from .service_manager import ServiceManagerBase
 
@@ -58,9 +58,19 @@ class ServiceInstance:
         """Cycle the process or pods serving this instance onto what they already run."""
         self._manager.restart(self)
 
+    def retry(self) -> ServiceInstance | None:
+        """Start a new attempt of this instance's failed current generation, and return the instance afterwards.
+
+        None: the generation was a deletion.
+        """
+        return self._manager.retry(self)
+
     def delete(self) -> None:
         """Stop serving and forget this instance."""
         self._manager.delete(self)
 
     def logs(self, *, since_seconds: int, limit: int, include_health: bool) -> Sequence[LogRecord]:
         return self._manager.logs(self, since_seconds=since_seconds, limit=limit, include_health=include_health)
+
+    def spans(self, *, since_seconds: int, limit: int, trace_id: str | None) -> Sequence[SpanRecord]:
+        return self._manager.spans(self, since_seconds=since_seconds, limit=limit, trace_id=trace_id)

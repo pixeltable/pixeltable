@@ -2,10 +2,21 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable.runtime import get_runtime, reset_runtime
 
 from ..utils import rerun_on_network_error, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
+
+
+class TestMistralClient:
+    def test_client_closed_on_reset(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('mistralai')
+        monkeypatch.setenv('MISTRAL_API_KEY', 'test-key')
+        config = get_runtime().get_client('mistral').sdk_configuration
+        http_clients = [config.client, config.async_client]
+        reset_runtime()
+        assert all(c.is_closed for c in http_clients)
 
 
 @pytest.mark.remote_api

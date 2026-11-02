@@ -1,0 +1,9 @@
+{
+  "name": "ts-functions",
+  "private": true,
+  "type": "module",
+  "description": "Measures each TypeScript and JavaScript function for claude_erosion_check.py.",
+  "dependencies": {
+    "ts-morph": "28.0.0"
+  }
+}

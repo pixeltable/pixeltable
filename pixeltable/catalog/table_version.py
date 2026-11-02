@@ -16,7 +16,7 @@ import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.type_system as ts
-from pixeltable import telemetry
+from pixeltable import telemetry, telemetry_schemas
 from pixeltable.env import Env
 from pixeltable.exprs.inline_expr import InlineDict
 from pixeltable.func.iterator import GeneratingFunctionCall
@@ -40,7 +40,6 @@ from .tbl_ops import (
     CreateTableVersionOp,
     DeleteTableMdOp,
     DeleteTableMediaFilesOp,
-    DropStoreTableOp,
     TableOp,
     TableOpsBuilder,
 )
@@ -53,11 +52,21 @@ if TYPE_CHECKING:
     from pixeltable._query import Query
     from pixeltable.catalog.table_version_handle import TableVersionHandle
     from pixeltable.io.data_sources import SqlDataSource
-    from pixeltable.plan import SampleClause
+    from pixeltable.plan import SampleClause, UpdatePlan
 
     from .table_path import TableVersionPath
 
 _logger = logging.getLogger(__name__)
+
+
+def _plan_node_names(plan: 'exec.ExecNode') -> list[str]:
+    """Node class names in plan-chain order (consumer first), for PlanAttrs.nodes."""
+    names: list[str] = []
+    node: exec.ExecNode | None = plan
+    while node is not None:
+        names.append(type(node).__name__)
+        node = node.input
+    return names
 
 
 class _CycleFoundError(Exception):
@@ -288,29 +297,33 @@ class TableVersion:
 
         return TableVersionHandle(self.key)
 
+    @telemetry.spanned('pixeltable.media.delete', level=telemetry.DEBUG)
     def delete_media(self, tbl_version: int | None = None) -> None:
         # Assemble a set of column destinations and delete objects from all of them
         # None is a valid column destination which refers to the default object location
         destinations = {col.destination for col in self.cols_by_id.values() if col.is_stored}
-        for dest in destinations:
-            ObjectOps.delete(dest, self.id, tbl_version=tbl_version)
+        # the files that CellMaterializationNode wrote for this table's array, binary and json cells
+        destinations.add(Env.get().cell_materialization_dest)
+        counts = [ObjectOps.delete(dest, self.id, tbl_version=tbl_version) for dest in destinations]
+        reported_counts = [c for c in counts if c is not None]
+        telemetry.add_attrs(
+            telemetry.func_span(),
+            **telemetry_schemas.MediaDeleteAttrs(
+                destinations=[str(d) if d is not None else str(Env.get().media_dir) for d in destinations],
+                num_files=sum(reported_counts) if reported_counts else None,
+            ),
+        )
 
     def drop_ops(self) -> tuple[list[TableOp], bool]:
-        """Returns a tuple of drop table ops, and a boolean that indicates whether a new table and schema
-        versions were created."""
+        """Return the drop operations, and whether versions were advanced."""
         new_version = self.is_mutable and self.is_data_versioned
         if new_version:
             self.bump_version(bump_schema_version=True)
-        mutable_base_tbl_id: str | None = None
-        # if this is a mutable view of a mutable base, advance the base's view_sn in the end
-        if self.is_view and self.is_mutable and self.path.base.is_mutable():
-            mutable_base_tbl_id = str(self.path.base.tbl_id)
         id_str = str(self.id)
         ops = (
             TableOpsBuilder(id_str, tbl_version=self._tbl_md.current_version)
             .add(DeleteTableMediaFilesOp)
-            .add(DropStoreTableOp, is_view=self.is_view)
-            .add(DeleteTableMdOp, mutable_base_tbl_id=mutable_base_tbl_id)
+            .add(DeleteTableMdOp, is_view=self.is_view)
             .build()
         )
         return ops, new_version
@@ -755,13 +768,15 @@ class TableVersion:
         idx_cols: set[Column] = self.idx_val_cols | self.idx_undo_cols
         row_count = self.store_tbl.count()
         num_excs = 0
-        cols_with_excs: list[Column] = []
+        cols_with_excs: list[int] = []
         for col in cols:
             if not col.is_computed or not col.is_stored or row_count == 0:
                 continue
 
             # populate the column
-            plan = Planner.create_add_column_plan(self.path, col)
+            with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
+                plan = Planner.create_add_column_plan(self.path, col)
+                telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(plan)))
             excs_per_col = 0
             with get_runtime().report_progress():
                 try:
@@ -776,7 +791,7 @@ class TableVersion:
                         f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}',
                     ) from exc
             if excs_per_col > 0:
-                cols_with_excs.append(col)
+                cols_with_excs.append(col.id)
                 num_excs += excs_per_col
 
         get_runtime().catalog.record_column_dependencies(self)
@@ -785,11 +800,8 @@ class TableVersion:
             plan.ctx.profile.print(num_rows=row_count)
 
         # TODO: what to do about system columns with exceptions?
-        row_counts = RowCountStats(upd_rows=row_count, num_excs=num_excs, computed_values=0)  # add_columns
-        return UpdateStatus(
-            cols_with_excs=[f'{col.get_tbl().name}.{col.name}' for col in cols_with_excs if col.name is not None],
-            row_count_stats=row_counts,
-        )
+        row_counts = RowCountStats(upd_rows=row_count, num_excs=num_excs)  # add_columns
+        return UpdateStatus(cols_with_excs=self._cols_with_excs_names(cols_with_excs), row_count_stats=row_counts)
 
     def _own_col_refs(self, value_expr_dict: dict[str, Any] | None) -> set[int]:
         """The ids of the columns of this table that value_expr_dict references. value_expr_dict can be None for if
@@ -816,6 +828,22 @@ class TableVersion:
         """Returns a counter starting at the next available column position."""
         highest_pos = max((c.pos for c in self._schema_version_md.columns.values() if c.pos is not None), default=-1)
         return itertools.count(start=highest_pos + 1)
+
+    def _cols_with_excs_names(self, col_ids: Iterable[int]) -> list[str]:
+        """Qualified names of the given columns, for UpdateStatus.cols_with_excs.
+
+        An index value column is named as '<table>.<indexed_column>:<index>'.
+        """
+        idxs_by_val_col_id = {info.val_col.id: info for info in self.idxs.values() if info.val_col is not None}
+        names: list[str] = []
+        for col_id in col_ids:
+            col = self.cols_by_id[col_id]
+            if not col.is_system_col:
+                names.append(f'{self.name}.{col.name}')
+            elif col_id in idxs_by_val_col_id:
+                info = idxs_by_val_col_id[col_id]
+                names.append(f'{self.name}.{info.col.name}:{info.name}')
+        return names
 
     def drop_column(self, col: Column) -> None:
         """Drop a column from the table."""
@@ -982,6 +1010,9 @@ class TableVersion:
                 )
             col.tbl_handle = self.handle
             col.id = self.next_col_id()
+            # do this before _col_ref_substitutions(), which requires a valid value expression
+            if col.is_computed:
+                col.check_value_expr()
 
         # the ids exist now, so a placeholder can be resolved to the actual column
         subst = self._col_ref_substitutions(new_cols)
@@ -989,8 +1020,6 @@ class TableVersion:
             value_expr = col.value_expr
             if value_expr is not None:
                 col.set_value_expr(value_expr.substitute(subst))
-            if col.is_computed:
-                col.check_value_expr()
 
         default_idxs: list[tuple[Column, index.BtreeIndex, Column | None, Column | None]] = []
         all_cols: list[Column] = []
@@ -1123,7 +1152,7 @@ class TableVersion:
     def _validate_altered_value_expr(self, col: Column, new_value_expr: exprs.Expr) -> None:
         """Verify that new_value_expr can replace col's current value expression."""
         assert col.is_computed
-        if new_value_expr.col_type != col.col_type:
+        if new_value_expr.col_type.with_open_dicts() != col.col_type:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Column {col.name!r}: the new value expression has type `{new_value_expr.col_type}`, but the '
@@ -1278,11 +1307,12 @@ class TableVersion:
         assert self.is_insertable
         # Exactly one of source / query must be specified
         assert (source is None) != (query is None)
-        with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG):
+        with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
             if query is not None:
                 plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
             else:
                 plan = Planner.create_insert_plan(self, source, ignore_errors=not fail_on_exception)
+            telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(plan)))
 
         rowid_gen: Iterator[int] | None = None
         # For data-versioned tables, generate rowids from the table's sequence.
@@ -1327,9 +1357,7 @@ class TableVersion:
             exec_plan, rowids=rowids, abort_on_exc=abort_on_exc, return_rows=return_rows
         )
         result = UpdateStatus(
-            cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
-            rows=rows,
-            row_count_stats=row_counts,
+            cols_with_excs=self._cols_with_excs_names(cols_with_excs), rows=rows, row_count_stats=row_counts
         )
 
         # update views
@@ -1340,7 +1368,9 @@ class TableVersion:
             with telemetry.span(
                 'pixeltable.view_load', set_current=telemetry.current_span() is not None, view=view.get().name
             ):
-                view_plan = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
+                view_plan = Planner.create_view_load_plan(
+                    view.get().path, created_at_current_version=view.get().path.get_bases()
+                )
                 status = view.get()._insert(view_plan, timestamp, print_stats=print_stats)
             result += status.to_cascade()
 
@@ -1368,42 +1398,34 @@ class TableVersion:
                 including within views.
             return_rows: if True, capture the post-update row state in UpdateStatus.rows.
         """
-        from pixeltable.exprs import SqlElementCache
         from pixeltable.plan import Planner
 
         assert self.is_mutable
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
 
         update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True, allow_media=True)
         if where is not None:
-            if not isinstance(where, exprs.Expr):
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_EXPRESSION,
-                    f'`where` argument must be a valid Pixeltable expression; got `{type(where)}`',
-                )
-            analysis_info = Planner.analyze(self.path, where)
-            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
-            if analysis_info.filter is not None:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter}'
-                )
+            self._validate_where_clause(where, error_prefix='`where` argument')
 
-        plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], cascade)
+        with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
+            update_plan = Planner.create_update_plan(
+                self.path,
+                update_targets=update_spec,
+                recompute_targets=[],
+                where=where,
+                cascade=cascade,
+                return_rows=return_rows,
+            )
+            telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(update_plan.root)))
+        if self.is_data_versioned:
+            timestamp = time.time()
+            self.bump_version(timestamp, bump_schema_version=False)
+            result = self._propagate_update_plan(
+                update_plan, list(update_spec.keys()), timestamp, cascade, return_rows=return_rows
+            )
+        else:
+            result = self._update_rows(update_plan.root, update_plan.set_cols, return_rows=return_rows)
 
-        timestamp = time.time()
-        self.bump_version(timestamp, bump_schema_version=False)
-        result = self._propagate_update(
-            [plan],
-            where.sql_expr(SqlElementCache()) if where is not None else None,
-            recomputed_cols,
-            modified_cols=list(update_spec.keys()),
-            base_versions=[],
-            timestamp=timestamp,
-            cascade=cascade,
-            return_rows=return_rows,
-        )
-        result += UpdateStatus(updated_cols=updated_cols)
-        return result
+        return result + UpdateStatus(updated_cols=[c.qualified_name for c in update_plan.updated_cols])
 
     def batch_update(
         self,
@@ -1424,26 +1446,24 @@ class TableVersion:
 
         # if we do lookups of rowids, we must have one for each row in the batch
         assert len(rowids) == 0 or len(rowids) == len(batch)
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
 
-        plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols = Planner.create_batch_update_plan(
-            self.path, batch, rowids, cascade=cascade
-        )
-        timestamp = time.time()
-        self.bump_version(timestamp, bump_schema_version=False)
-        result = self._propagate_update(
-            [plan],
-            delete_where_clause,
-            recomputed_cols,
-            modified_cols=updated_cols,
-            base_versions=[],
-            timestamp=timestamp,
-            cascade=cascade,
-            return_rows=return_rows,
-        )
-        result += UpdateStatus(updated_cols=[c.qualified_name for c in updated_cols])
+        with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
+            update_plan = Planner.create_batch_update_plan(
+                self.path, batch, rowids, cascade=cascade, return_rows=return_rows
+            )
+            telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(update_plan.root)))
+        if self.is_data_versioned:
+            timestamp = time.time()
+            self.bump_version(timestamp, bump_schema_version=False)
+            result = self._propagate_update_plan(
+                update_plan, update_plan.updated_cols, timestamp, cascade, return_rows=return_rows
+            )
+        else:
+            result = self._update_rows(update_plan.root, update_plan.set_cols, return_rows=return_rows)
+        result += UpdateStatus(updated_cols=[c.qualified_name for c in update_plan.updated_cols])
 
-        unmatched_rows = row_update_node.unmatched_rows()
+        assert update_plan.row_update_node is not None
+        unmatched_rows = update_plan.row_update_node.unmatched_rows()
         if len(unmatched_rows) > 0:
             if error_if_not_exists:
                 raise excs.NotFoundError(
@@ -1455,6 +1475,16 @@ class TableVersion:
                 )
                 result += insert_status.to_cascade()
         return result
+
+    def _update_rows(self, plan: 'exec.ExecNode', set_cols: list[Column], return_rows: bool) -> UpdateStatus:
+        assert not self.is_data_versioned
+        assert len(self.mutable_views) == 0, 'TODO: implement view propagation for operational tables [PXT-1101]'
+        get_runtime().catalog.mark_modified_tv(self.handle)
+        plan.ctx.title = self.display_str()
+        cols_with_excs, row_counts, rows = self.store_tbl.update_rows(plan, set_cols, return_rows=return_rows)
+        return UpdateStatus(
+            row_count_stats=row_counts, cols_with_excs=self._cols_with_excs_names(cols_with_excs), rows=rows
+        )
 
     def _validate_update_spec(
         self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool, allow_media: bool
@@ -1505,11 +1535,12 @@ class TableVersion:
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col_name!r} is a media column and cannot be updated'
                 )
 
-            # make sure that the value is compatible with the column type
+            # make sure that the value is compatible with the column type, whose dict schemas are closed on update
+            closed_type = col.col_type.with_closed_dicts()
             value_expr: exprs.Expr
             try:
                 # check if this is a literal
-                value_expr = exprs.Literal(val, col_type=col.col_type)
+                value_expr = exprs.Literal(val, col_type=closed_type)
             except TypeError as exc:
                 if not allow_exprs:
                     raise excs.RequestError(
@@ -1524,7 +1555,9 @@ class TableVersion:
                         excs.ErrorCode.UNSUPPORTED_OPERATION,
                         f'Column {col_name!r}: value is not a recognized literal or expression: {val!r}',
                     ) from exc
-                if not col.col_type.is_supertype_of(value_expr.col_type, ignore_nullable=True):
+                value_expr.check_method_refs(f'Column {col_name!r}: ')
+                # expression values aren't validated, so every key of the expression's type must be in the column type
+                if not closed_type.is_supertype_of(value_expr.col_type.with_closed_dicts(), ignore_nullable=True):
                     raise excs.RequestError(
                         excs.ErrorCode.TYPE_MISMATCH,
                         f'The literal value {val!r} is not compatible with the type '
@@ -1542,7 +1575,7 @@ class TableVersion:
         cascade: bool = True,
         bump_version: bool = True,
     ) -> UpdateStatus:
-        from pixeltable.exprs import CompoundPredicate, SqlElementCache
+        from pixeltable.exprs import CompoundPredicate
         from pixeltable.plan import Planner
 
         assert self.is_mutable
@@ -1565,24 +1598,43 @@ class TableVersion:
                 != None
             )
             where_clause = CompoundPredicate.make_conjunction([where_clause, errortype_pred])
-        plan, updated_cols, recomputed_cols = Planner.create_update_plan(
-            self.path, update_targets={}, recompute_targets=target_columns, cascade=cascade
-        )
+        with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
+            update_plan = Planner.create_update_plan(
+                self.path,
+                update_targets={},
+                recompute_targets=target_columns,
+                where=where_clause,
+                cascade=cascade,
+                return_rows=False,
+            )
+            telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(update_plan.root)))
 
         timestamp = time.time()
         if bump_version:
             self.bump_version(timestamp, bump_schema_version=False)
-        result = self._propagate_update(
-            [plan],
-            where_clause.sql_expr(SqlElementCache()) if where_clause is not None else None,
-            recomputed_cols,
-            modified_cols=target_columns,
+        result = self._propagate_update_plan(update_plan, target_columns, timestamp, cascade)
+        result += UpdateStatus(updated_cols=[c.qualified_name for c in update_plan.updated_cols])
+        return result
+
+    def _propagate_update_plan(
+        self,
+        update_plan: UpdatePlan,
+        modified_cols: list[Column],
+        timestamp: float,
+        cascade: bool,
+        return_rows: bool = False,
+    ) -> UpdateStatus:
+        assert update_plan.soft_delete_where_clause is not None
+        return self._propagate_update(
+            [update_plan.root],
+            update_plan.soft_delete_where_clause,
+            update_plan.recomputed_cols,
+            modified_cols=modified_cols,
             base_versions=[],
             timestamp=timestamp,
             cascade=cascade,
+            return_rows=return_rows,
         )
-        result += UpdateStatus(updated_cols=updated_cols)
-        return result
 
     def _propagate_update(
         self,
@@ -1600,6 +1652,8 @@ class TableVersion:
 
         plans: insert plans to execute. If plans is not empty, the caller is expected to have already bumped self's
         version. Also if plans is not empty, this will write self's metadata in the end.
+        base_versions: the new version of each base, nearest first, or None for a base without a new version; ends
+            at the table where the update started
         base_membership_change: True if the update may have added rows to this table's base; a row appearing in the
             base is a row this view needs to add, whether or not it has a predicate of its own
         """
@@ -1630,7 +1684,7 @@ class TableVersion:
             cols_with_excs, row_counts, rows = self.store_tbl.insert_rows(p, return_rows=return_rows)
             result += UpdateStatus(
                 row_count_stats=row_counts.insert_to_update(),
-                cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
+                cols_with_excs=self._cols_with_excs_names(cols_with_excs),
                 rows=rows,
             )
 
@@ -1655,19 +1709,34 @@ class TableVersion:
                     and len(exprs.Expr.get_refd_column_ids(view_tv.predicate.as_dict()) & changed_qids) > 0
                 )
 
+                updated_bases = [b for b, v in zip(view_tv.path.get_bases(), base_versions) if v is not None]
+                assert len(updated_bases) > 0  # the table where the update started always has a plan
+
                 view_plans: list[exec.ExecNode] = []
                 if needs_iterator_reload or (membership_change and view_tv.is_component_view):
-                    view_plans.append(Planner.create_view_load_plan(view_tv.path, propagates_insert=True))
+                    view_plans.append(
+                        Planner.create_view_load_plan(view_tv.path, created_at_current_version=updated_bases)
+                    )
                 elif membership_change:
                     # rows already in the view that still satisfy the predicate; their stored columns that aren't
                     # recomputed carry over from the row that was just soft-deleted
-                    view_plans.append(Planner.create_view_update_plan(view_tv.path, recompute_targets=recomputed_cols))
+                    view_plans.append(
+                        Planner.create_view_update_plan(
+                            view_tv.path, recompute_targets=recomputed_cols, created_at_current_version=updated_bases
+                        )
+                    )
                     # rows that satisfy the predicate now and weren't in the view; nothing to carry over
                     view_plans.append(
-                        Planner.create_view_load_plan(view_tv.path, propagates_insert=True, exclude_existing_rows=True)
+                        Planner.create_view_load_plan(
+                            view_tv.path, created_at_current_version=updated_bases, exclude_existing_rows=True
+                        )
                     )
                 elif len(recomputed_cols) > 0:
-                    view_plans.append(Planner.create_view_update_plan(view_tv.path, recompute_targets=recomputed_cols))
+                    view_plans.append(
+                        Planner.create_view_update_plan(
+                            view_tv.path, recompute_targets=recomputed_cols, created_at_current_version=updated_bases
+                        )
+                    )
 
                 if len(view_plans) > 0:
                     view_tv.bump_version(timestamp, bump_schema_version=False)
@@ -1699,6 +1768,7 @@ class TableVersion:
                 excs.ErrorCode.INVALID_EXPRESSION,
                 f'{error_prefix} must be a valid Pixeltable expression; got `{type(pred)}`',
             )
+        pred.check_method_refs(f'{error_prefix}: ')
         analysis_info = Planner.analyze(self.path, pred)
         # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
         if analysis_info.filter is not None:
@@ -1728,7 +1798,11 @@ class TableVersion:
             del_rows = self.store_tbl.delete_rows(where_clause=sql_where_clause)
         row_counts = RowCountStats(del_rows=del_rows)  # delete
         result = UpdateStatus(row_count_stats=row_counts)
-        if del_rows > 0 and self.is_data_versioned:
+        if del_rows == 0:
+            # self.version belongs to an earlier operation, and the views would match that operation's retired rows
+            return result
+
+        if self.is_data_versioned:
             # we're creating a new version
             self.bump_version(timestamp, bump_schema_version=False)
         for view in self.mutable_views:
@@ -1736,10 +1810,10 @@ class TableVersion:
                 where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
             )
             result += status.to_cascade()
-
-        if del_rows > 0 and self.is_data_versioned:
+        if self.is_data_versioned:
             self.set_version_update_status(result)
             self._write_md(new_version=True, new_schema_version=False)
+
         return result
 
     def revert(self) -> None:
@@ -1750,6 +1824,7 @@ class TableVersion:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot revert version 0')
         self._revert()
 
+    @telemetry.spanned('pixeltable.catalog.revert_version')
     def _revert(self) -> None:
         """
         Reverts the stored metadata for this table version and propagates to views.
@@ -1757,6 +1832,9 @@ class TableVersion:
         Doesn't attempt to revert the in-memory metadata, but instead invalidates this TableVersion instance
         and relies on Catalog to reload it
         """
+        telemetry.add_attrs(
+            telemetry.func_span(), **telemetry_schemas.CatalogAttrs(table_id=str(self.id), version=self.version)
+        )
         conn = get_runtime().conn
         # make sure we don't have a snapshot referencing this version
         # (unclear how to express this with sqlalchemy)

@@ -27,6 +27,14 @@ from ..utils import (
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
+def skip_test_if_no_sam3() -> None:
+    # a config that pins an older torch (eg, whisperx's) resolves a transformers that predates SAM 3
+    import transformers
+
+    if not hasattr(transformers, 'Sam3Model'):
+        pytest.skip(f'SAM 3 is not available in transformers {transformers.__version__}')
+
+
 @pytest.mark.very_expensive  # Downloads Hugging Face models
 @rerun_on_network_error()
 @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
@@ -217,6 +225,7 @@ class TestHuggingface:
     @pytest.mark.xdist_group('large_model')
     def test_sam3_for_segmentation(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_not_installed('transformers', 'torchvision')
+        skip_test_if_no_sam3()
         from huggingface_hub import get_token
 
         if get_token() is None:
@@ -255,6 +264,7 @@ class TestHuggingface:
     @pytest.mark.xdist_group('large_model')
     def test_sam_automatic_mask_generation(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_not_installed('transformers')
+        skip_test_if_no_sam3()
         from huggingface_hub import get_token
 
         if get_token() is None:
@@ -291,6 +301,7 @@ class TestHuggingface:
 
     def test_sam3_for_segmentation_invalid_args(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_not_installed('transformers', 'torchvision')
+        skip_test_if_no_sam3()
         from pixeltable.functions.huggingface import sam3_for_segmentation
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image | None})
@@ -307,6 +318,7 @@ class TestHuggingface:
     @pytest.mark.xdist_group('large_model')
     def test_sam3_for_video_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers', 'torchvision')
+        skip_test_if_no_sam3()
         from huggingface_hub import get_token
 
         if get_token() is None:
@@ -351,6 +363,7 @@ class TestHuggingface:
     @pytest.mark.xdist_group('large_model')
     def test_sam3_for_segmentation_no_detections(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_not_installed('transformers', 'torchvision')
+        skip_test_if_no_sam3()
         from huggingface_hub import get_token
 
         if get_token() is None:

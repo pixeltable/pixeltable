@@ -39,7 +39,7 @@ frames = pxt.get_table('my_app.frames')
 frames.select(frames.thumb).head(10)
 ```
 
-Add Whisper, YOLOX, and other models from the cookbooks as computed columns on these tables. When the rows look ready for training, export with `to_pytorch_dataset()`. Skip `pxt service update` on this path. [Self-hosting](/howto/deployment/overview).
+Add [YOLOX object detection](/howto/cookbooks/images/yolox-object-detection) or [WhisperX transcription](/howto/cookbooks/audio/whisperx-transcription) as computed columns on these tables. When the rows look ready for training, export with `to_pytorch_dataset()`. Skip `pxt service update` on this path. [Self-hosting](/howto/deployment/overview).
 
 A video search app with endpoints: `uvx pixeltable-new myapp --video`, then pass `videointel` to `pxt schema update`. Live search over chunks: [RAG and live APIs](/use-cases/multimodal-backend).
 

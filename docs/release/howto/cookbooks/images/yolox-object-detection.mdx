@@ -1,0 +1,215 @@
+---
+title: 'Detect objects in images and videos with YOLOX'
+sidebarTitle: 'YOLOX object detection'
+description: 'Run YOLOX object detection in Python on images and video frames, then query and draw the detected objects.'
+keywords: ['yolox', 'object detection', 'YOLOX Python', 'video object detection']
+---
+
+You detect objects in images and video frames, filter by object class, and draw the bounding boxes.
+
+**What's in this recipe:**
+
+- Preview YOLOX detections and save them for each image
+- Query images and video frames by COCO class id
+- Draw detections and assemble annotated frames into a video
+
+## Problem
+
+You have images or videos and need to find objects such as people and cars. You want to query which
+images or frames contain those objects and inspect their bounding boxes.
+
+## Solution
+
+You use YOLOX, an anchor-free object detector, to return a box around each detected object.
+[`pixeltable.functions.yolox.yolox()`](/sdk/latest/yolox) runs one of `yolox_nano`, `yolox_tiny`, `yolox_s`,
+`yolox_m`, `yolox_l`, or `yolox_x` on an image. On a video, [`frame_iterator()`](/platform/iterators) makes one
+row per frame, and the same function runs on `frame`. The call belongs in a computed column, so an insert
+stores the boxes with the row. Weights come from
+[pixeltable-yolox](https://github.com/pixeltable/pixeltable-yolox). This UDF runs on CPU.
+
+You use the Query-then-Commit pattern: preview detections with a query on a few rows, then save the
+same expression with `add_computed_column()` to process every row.
+
+### Setup
+
+You need Python 3.11 or newer. You run these snippets in a notebook or Python REPL.
+
+```bash
+pip install -U pixeltable pixeltable-yolox
+```
+
+```python
+from uuid import uuid4
+
+import pixeltable as pxt
+from pixeltable.functions.video import frame_iterator, make_video
+from pixeltable.functions.vision import bboxes_draw
+from pixeltable.functions.yolox import yolox
+from yolox.data.datasets import COCO_CLASSES
+```
+
+### Load images
+
+Each run creates a fresh catalog directory. The video example uses the same `demo` namespace.
+
+```python
+demo = f'yolox_demo_{uuid4().hex}'
+pxt.create_dir(demo)
+
+images = pxt.create_table(f'{demo}.images', {'image': pxt.Image})
+```
+
+```python
+images.insert([
+    {
+        'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000036.jpg'
+    },
+    {
+        'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000090.jpg'
+    },
+])
+```
+
+### Detect objects in an image table
+
+`yolox()` returns three lists of equal length:
+
+- `bboxes`: `[xmin, ymin, xmax, ymax]` in pixels
+- `scores`: confidence from 0 to 1, already filtered by `threshold` (default `0.5`)
+- `labels`: COCO class ids. `0` is `person` and `2` is `car`. Names are `yolox.data.datasets.COCO_CLASSES`.
+
+`bboxes_draw()` paints those boxes onto the image. You pass the class names so the label text reads `person`.
+
+```python
+@pxt.udf
+def class_names(detections: dict) -> list[str]:
+    return [COCO_CLASSES[int(label)] for label in detections['labels']]
+```
+
+### Test image detection with a query
+
+You preview detections on two images before saving a computed column.
+
+```python
+image_detections = yolox(images.image, model_id='yolox_m', threshold=0.5)
+images.select(images.image, detections=image_detections).head(2)
+```
+
+### Commit changes with a computed column
+
+You save the same expression, then add class names and annotated images.
+
+```python
+images.add_computed_column(detections=image_detections)
+images.add_computed_column(classes=class_names(images.detections))
+images.add_computed_column(
+    annotated=bboxes_draw(
+        images.image,
+        images.detections.bboxes,
+        labels=images.classes,
+    )
+)
+```
+
+```python
+images.select(
+    images.image, images.annotated, images.classes, images.detections.scores
+).collect()
+```
+
+### Query the detections
+
+`threshold` drops low-confidence boxes inside `yolox()`. `labels.contains()` keeps rows that include a
+class id. This keeps images with a person (`0`):
+
+```python
+people = images.where(images.detections.labels.contains(0))
+people.select(images.classes, images.detections.scores).collect()
+```
+
+`0.8` returns fewer boxes. `0.25` returns more. Model-size tradeoffs are in
+[Detect objects in images](/howto/cookbooks/images/img-detect-objects). Box color and fill are in
+[Visualize object detections](/howto/cookbooks/images/img-visualize-detections).
+
+### Detect objects in video frames
+
+`frame_iterator()` adds `frame`, `frame_attrs`, and `pos`. `fps=1.0` extracts one frame per second.
+If you set `fps` above the video's own rate, the iterator returns every frame. Adding the detection
+column runs `yolox()` on each extracted frame. `yolox_tiny` is the smaller model. `yolox_m` and
+`yolox_x` are the larger ones.
+
+```python
+videos = pxt.create_table(f'{demo}.videos', {'video': pxt.Video})
+```
+
+```python
+videos.insert([
+    {
+        'video': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/bangkok.mp4'
+    }
+])
+```
+
+```python
+frames = pxt.create_view(
+    f'{demo}.frames',
+    videos,
+    iterator=frame_iterator(videos.video, fps=1.0),
+)
+```
+
+You preview detections on two frames, then save the same expression for all frames.
+
+```python
+frame_detections = yolox(frames.frame, model_id='yolox_tiny', threshold=0.5)
+frames.select(frames.frame, detections=frame_detections).head(2)
+```
+
+```python
+frames.add_computed_column(detections=frame_detections)
+frames.add_computed_column(classes=class_names(frames.detections))
+frames.add_computed_column(
+    annotated=bboxes_draw(
+        frames.frame,
+        frames.detections.bboxes,
+        labels=frames.classes,
+        width=3,
+    )
+)
+```
+
+Frames that contain a car (COCO id `2`):
+
+```python
+cars = frames.where(frames.detections.labels.contains(2))
+cars.select(frames.pos, frames.classes, frames.annotated).head(3)
+```
+
+`make_video()` stitches the annotated frames back into one clip. `pos` is each frame's place in the
+view. `fps=1` plays those frames at one per second, the same spacing `frame_iterator()` used.
+
+```python
+frames.group_by(videos).select(
+    make_video(frames.pos, frames.annotated, fps=1)
+).collect()
+```
+
+`num_frames` and `keyframes_only` are documented on [Iterators](/platform/iterators) and in
+[Extract frames from videos](/howto/cookbooks/video/video-extract-frames). Comparing `yolox_tiny`,
+`yolox_m`, and `yolox_x` with mean average precision is in
+[Object detection in videos](/howto/use-cases/object-detection-in-videos).
+
+[`yolo_to_coco()`](/sdk/latest/yolox) converts `bboxes` and `labels` to COCO annotations: `bbox` as
+`[x, y, width, height]`, plus `category`.
+
+### In an application
+
+These snippets call `pxt.create_table()` and `add_computed_column()` so you can run them in a notebook
+or a REPL. An application declares the same columns on a `TableModel` in `app.py` and creates them
+with `pxt schema update`. For use from a script or across sessions, you define `class_names()` in an
+importable module and import it.
+
+## See also
+
+- [Detect objects in images](/howto/cookbooks/images/img-detect-objects): image-only recipe and the six model ids
+- [Object detection in videos](/howto/use-cases/object-detection-in-videos): compare model sizes with mean average precision

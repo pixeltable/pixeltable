@@ -4,7 +4,9 @@ import argparse
 import atexit
 import os
 import pathlib
+import signal
 import sys
+import threading
 
 from pixeltable.config import Config
 from pixeltable_cli.client.utils import is_running
@@ -64,6 +66,10 @@ def main(argv: list[str] | None = None) -> None:
     _write_pidfile(port)
     atexit.register(lambda: _remove_pidfile_if_ours(port))
     Config.init(reinit=True, project_root=args.project_root)
+    # In a container the daemon is PID 1, which ignores a signal it has no handler for, so a stopped pod would
+    # wait out its whole grace period. shutdown() blocks until serve_forever() returns, which runs in this
+    # thread, so it is called from another.
+    signal.signal(signal.SIGTERM, lambda signum, frame: threading.Thread(target=server.shutdown, daemon=True).start())
     run(server)
 
 

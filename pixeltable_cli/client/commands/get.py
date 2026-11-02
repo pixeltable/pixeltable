@@ -1,9 +1,10 @@
 import json
+import sys
 
 from pixeltable_cli import models
 
 from ..parser import Parser, parse_cols
-from ..utils import get_request, validate_path_arg
+from ..utils import EXIT_ERROR, get_request, validate_path_arg
 
 EPILOG = """\
 Examples:
@@ -47,11 +48,11 @@ def run(argv: list[str]) -> None:
 
     if args.as_json:
         print(json.dumps(resp.model_dump(), indent=2, default=str))
-        return
-
+    elif resp.row is not None:
+        for k, v in resp.row.items():
+            print(f'{k}\t{v}')
     if resp.row is None:
+        sys.stdout.flush()
         pk_pairs = ', '.join(f'{n}={v!r}' for n, v in zip(resp.pk_columns, args.pk))
-        print(f'no row found for {{{pk_pairs}}}')
-        return
-    for k, v in resp.row.items():
-        print(f'{k}\t{v}')
+        print(f'pxt: no row found for {{{pk_pairs}}} [ROW_NOT_FOUND]', file=sys.stderr)
+        sys.exit(EXIT_ERROR)

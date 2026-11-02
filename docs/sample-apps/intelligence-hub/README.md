@@ -242,7 +242,7 @@ Following the [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-
 
 | | n8n / Zapier | Pixeltable Intelligence Hub |
 |---|---|---|
-| **Setup** | SaaS account, node config UI | `pip install pixeltable` + Python |
+| **Setup** | SaaS account, node config UI | `pip install -U pixeltable` + Python |
 | **Incremental** | Triggers / polling | Insert a row, entire pipeline runs |
 | **Versioned** | No built-in versioning | Every result stored and queryable |
 | **Composable** | Drag-and-drop nodes | Python -- swap the LLM, add a channel, change scoring |

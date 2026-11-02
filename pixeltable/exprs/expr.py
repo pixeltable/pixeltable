@@ -469,20 +469,45 @@ class Expr(abc.ABC):
                     'For details, see: https://docs.pixeltable.com/platform/udfs-in-pixeltable',
                 )
 
+    def check_method_refs(self, error_prefix: str = '') -> None:
+        """Raise if this expr contains an uncalled method reference."""
+        from .method_ref import MethodRef
+
+        method_ref = next(self.subexprs(MethodRef), None)
+        if method_ref is None:
+            return
+        json_hint = (
+            f', or use {method_ref.base_expr}[{method_ref.method_name!r}] for the JSON field'
+            if method_ref.base_expr.col_type.is_json_type()
+            else ''
+        )
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_EXPRESSION,
+            f'{error_prefix}{method_ref} is the method {method_ref.method_name}(); call it to get a value{json_hint}.',
+        )
+
     def _has_relative_path(self) -> bool:
         return any(c._has_relative_path() for c in self.components)
 
-    def tbl_ids(self) -> set[UUID]:
-        """Returns table ids referenced by this expr.
-
-        Must only access metadata, not execution structures (eg, TableVersion).
-        """
+    def tbl_keys(self) -> set[catalog.TableVersionKey]:
+        """Returns the table versions referenced by this expr."""
         from .column_ref import ColumnRef
         from .rowid_ref import RowidRef
 
-        col_ref_ids = {ref.col_md.qcolid.tbl_id for ref in self.subexprs(ColumnRef)}
-        rowid_ids = {ref.tbl_id for ref in self.subexprs(RowidRef)}
-        return col_ref_ids | rowid_ids
+        col_ref_keys = {
+            catalog.TableVersionKey(ref.col_md.qcolid.tbl_id, ref.col_md.col_effective_version)
+            for ref in self.subexprs(ColumnRef)
+        }
+        rowid_keys = {ref.tbl_key for ref in self.subexprs(RowidRef)}
+        return col_ref_keys | rowid_keys
+
+    def tbl_ids(self) -> set[UUID]:
+        """Returns the ids of the tables referenced by this expr."""
+        return {key.tbl_id for key in self.tbl_keys()}
+
+    @classmethod
+    def list_tbl_keys(cls, exprs_: Iterable[Expr]) -> set[catalog.TableVersionKey]:
+        return {key for e in exprs_ for key in e.tbl_keys()}
 
     @classmethod
     def list_tbl_ids(cls, exprs_: Iterable[Expr]) -> set[UUID]:
@@ -970,23 +995,33 @@ class Expr(abc.ABC):
             return ArithmeticExpr(op, Literal(other), self)
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
-    def __and__(self, other: object) -> Expr:
-        if not isinstance(other, Expr):
-            raise TypeError(f'Other needs to be an expression: {type(other)}')
-        if not other.col_type.is_bool_type():
-            raise TypeError(f'Other needs to be an expression that returns a boolean: {other.col_type}')
+    def _make_compound_predicate(self, op: LogicalOperator, other: object) -> Expr:
+        """
+        `self op other` where other is an Expr or a literal; both operands must be boolean. The reflected
+        operators call this directly: `True & t.col` displays as `(col) & (True)`.
+        """
         from .compound_predicate import CompoundPredicate
 
-        return CompoundPredicate(LogicalOperator.AND, [self, other])
+        if not self.col_type.is_bool_type():
+            raise TypeError(f'Expression does not return a boolean: {self.col_type}')
+        other_expr = other if isinstance(other, Expr) else Expr.from_object(other)
+        if other_expr is None or not other_expr.col_type.is_bool_type():
+            raise TypeError(f'Other needs to be an expression that returns a boolean: {other!r}')
+        return CompoundPredicate(op, [self, other_expr])
+
+    def __and__(self, other: object) -> Expr:
+        return self._make_compound_predicate(LogicalOperator.AND, other)
+
+    def __rand__(self, other: object) -> Expr:
+        # `and` is commutative for booleans
+        return self._make_compound_predicate(LogicalOperator.AND, other)
 
     def __or__(self, other: object) -> Expr:
-        if not isinstance(other, Expr):
-            raise TypeError(f'Other needs to be an expression: {type(other)}')
-        if not other.col_type.is_bool_type():
-            raise TypeError(f'Other needs to be an expression that returns a boolean: {other.col_type}')
-        from .compound_predicate import CompoundPredicate
+        return self._make_compound_predicate(LogicalOperator.OR, other)
 
-        return CompoundPredicate(LogicalOperator.OR, [self, other])
+    def __ror__(self, other: object) -> Expr:
+        # `or` is commutative for booleans
+        return self._make_compound_predicate(LogicalOperator.OR, other)
 
     def __invert__(self) -> Expr:
         from .compound_predicate import CompoundPredicate

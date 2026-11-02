@@ -1,15 +1,19 @@
 # ruff: noqa: RUF029
 import builtins
 import os
+import pathlib
 import re
 import subprocess
+import sys
 import typing
 import warnings
 from datetime import datetime, timezone
+from pathlib import Path
 from textwrap import dedent
 from typing import Any
 
 import numpy as np
+import PIL.Image
 import pytest
 
 import __main__
@@ -18,6 +22,7 @@ import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable import env, func
 from pixeltable.func import Batch, Function, FunctionRegistry
+from pixeltable.utils.app_module import load_app_module
 
 from .utils import (
     DatabaseRoot,
@@ -64,6 +69,48 @@ def udf_with_array_constants(
     a: pxt.Array[pxt.Float, (6,)], b: pxt.Array[pxt.Float, (6,)] = _ones_arr
 ) -> pxt.Array[pxt.Float, (6,)]:
     return a + b
+
+
+@pxt.udf
+def pop_max_tokens(prompt: str, model_kwargs: dict) -> str:
+    return f'{prompt}:{model_kwargs.pop("max_tokens", None)}'
+
+
+@pxt.udf(batch_size=2)
+def pop_max_tokens_batched(prompt: Batch[str], model_kwargs: dict) -> Batch[str]:
+    max_tokens = model_kwargs.pop('max_tokens', None)
+    return [f'{p}:{max_tokens}' for p in prompt]
+
+
+@pxt.udf
+def modify_args(opts: dict, items: list, arr: pxt.Array[pxt.Int, (2,)], img: PIL.Image.Image) -> str:
+    result = f'{opts["nested"].pop("n", None)}:{items.pop() if len(items) > 0 else None}:{arr[0]}:{img.width}'
+    arr[0] += 1
+    img.thumbnail((img.width // 2, img.height // 2))
+    return result
+
+
+@pxt.udf
+def pop_embedding(text: str, opts: dict) -> pxt.Array[pxt.Float, (2,)]:
+    return np.array([opts.pop('n', 0), 1.0], dtype=np.float32)
+
+
+@pxt.udf
+def count_rows(path: str) -> int:
+    return pxt.get_table(path).count()
+
+
+@pxt.uda(allows_window=True, requires_order_by=False)
+class pop_n(pxt.Aggregator):
+    def __init__(self, opts: dict) -> None:
+        self.init_n = opts.pop('n', None)
+        self.update_n = None
+
+    def update(self, val: int, extra: dict) -> None:
+        self.update_n = extra.pop('n', None)
+
+    def value(self) -> str:
+        return f'{self.init_n}:{self.update_n}'
 
 
 T = typing.TypeVar('T')
@@ -525,11 +572,11 @@ class TestFunction:
         img_paths = get_image_files()[:5]
         img_tbl.insert([{'id': i, 'img': p} for i, p in enumerate(img_paths)])
 
-        @pxt.query(return_scalar=True)
+        @pxt.query
         def rotated(id: int, angle: int) -> pxt.Query:
-            return img_tbl.where(img_tbl.id == id).select(r=img_tbl.img.rotate(angle)).limit(1)
+            return img_tbl.where(img_tbl.id == id).select(img_tbl.img.rotate(angle)).limit(1)
 
-        result1 = img_tbl.select(r=rotated(img_tbl.id, 90)[0]).order_by(img_tbl.id).collect()
+        result1 = img_tbl.select(r=rotated(img_tbl.id, 90)).order_by(img_tbl.id).collect()
         result2 = img_tbl.select(r=img_tbl.img.rotate(90)).order_by(img_tbl.id).collect()
         assert_resultset_eq(result1, result2, compare_col_types=False)
 
@@ -539,18 +586,99 @@ class TestFunction:
         t = pxt.get_table(name)
         validate_update_status(t.insert(rows))
 
+    def test_query_result_shape(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
+        t.insert([{'c1': i, 'c2': i + 0.5} for i in range(10)])
+
+        @pxt.query
+        def total_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).select(pxtf.sum(t.c2))
+
+        @pxt.query
+        def single_group_total_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).group_by().select(pxtf.sum(t.c2))
+
+        @pxt.query
+        def values_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).select(t.c2)
+
+        @pxt.query
+        def named_values_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).select(v=t.c2)
+
+        @pxt.query
+        def counts_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).group_by(t.c1).select(pxtf.count(t.c1))
+
+        @pxt.query
+        def value_at(x: int) -> pxt.Query:
+            return t.where(t.c1 == x).select(t.c2).limit(1)
+
+        @pxt.query
+        def row_at(x: int) -> pxt.Query:
+            return t.where(t.c1 == x).select(t.c1, t.c2).limit(1)
+
+        @pxt.query
+        def first_values(n: int) -> pxt.Query:
+            return t.order_by(t.c1).select(t.c2).limit(n)
+
+        @pxt.query
+        def running_totals_below(x: int) -> pxt.Query:
+            return t.where(t.c1 < x).select(pxtf.sum(t.c2, order_by=t.c1))
+
+        assert_type_eq(total_below.signature.return_type, pxt.Float | None)
+        assert_type_eq(single_group_total_below.signature.return_type, pxt.Float | None)
+        assert_type_eq(values_below.signature.return_type, pxt.Json[[pxt.Float]])
+        assert_type_eq(named_values_below.signature.return_type, pxt.Json[[{'v': pxt.Float}]])
+        assert_type_eq(counts_below.signature.return_type, pxt.Json[[pxt.Int]])
+        assert_type_eq(value_at.signature.return_type, pxt.Float | None)
+        assert_type_eq(row_at.signature.return_type, pxt.Json[{'c1': pxt.Int, 'c2': pxt.Float}] | None)
+        assert_type_eq(first_values.signature.return_type, pxt.Json[[pxt.Float]])
+        # a window function returns a value per row, rather than aggregating the rows into one
+        assert_type_eq(running_totals_below.signature.return_type, pxt.Json[[pxt.Float | None]])
+
+        t.add_computed_column(total=total_below(t.c1))
+        t.add_computed_column(values=values_below(t.c1))
+        t.add_computed_column(named_values=named_values_below(t.c1))
+        t.add_computed_column(next_value=value_at(t.c1 + 1))
+        t.add_computed_column(next_row=row_at(t.c1 + 1))
+        assert_type_eq(t.total.col_type, pxt.Float | None)
+        assert_type_eq(t.next_row.col_type, pxt.Json[{'c1': pxt.Int, 'c2': pxt.Float}] | None)
+        res = reload_tester.run_query(
+            t.select(t.c1, t.total, t.values, t.named_values, t.next_value, t.next_row).order_by(t.c1)
+        )
+        # sum() over no rows is None
+        assert res['total'] == [None, *[sum(j + 0.5 for j in range(i)) for i in range(1, 10)]]
+        assert res['values'][3] == [0.5, 1.5, 2.5]
+        assert res['named_values'][2] == [{'v': 0.5}, {'v': 1.5}]
+        # a single-row query without a row returns None
+        assert res['next_value'] == [*[i + 1.5 for i in range(9)], None]
+        assert res['next_row'] == [*[{'c1': i + 1, 'c2': i + 1.5} for i in range(9)], None]
+        assert t.select(n=counts_below(t.c1)).order_by(t.c1).collect()['n'][3] == [1, 1, 1]
+        assert t.select(s=single_group_total_below(3)).limit(1).collect()['s'] == [4.5]
+        assert t.select(v=first_values(2)).limit(1).collect()['v'] == [[0.5, 1.5]]
+        assert sorted(t.select(r=running_totals_below(3)).limit(1).collect()['r'][0]) == [0.5, 2.0, 4.5]
+
+        reload_tester.run_reload_test()
+        t = pxt.get_table(p('test'))
+        assert_type_eq(t.total.col_type, pxt.Float | None)
+        t.insert([{'c1': 10, 'c2': 10.5}])
+        res = t.where(t.c1 == 10).select(t.total, t.next_value, t.next_row).collect()
+        assert res[0] == {'total': sum(j + 0.5 for j in range(10)), 'next_value': None, 'next_row': None}
+
     def test_query_bound_limit_offset(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int | None})
         t.insert([{'c1': i} for i in range(10)])
 
-        @pxt.query(return_scalar=True)
+        @pxt.query
         def head(n: int) -> pxt.Query:
-            return t.select(r=t.c1).limit(n)
+            return t.select(t.c1).limit(n)
 
-        @pxt.query(return_scalar=True)
+        @pxt.query
         def skipped(off: int) -> pxt.Query:
-            return t.select(r=t.c1).limit(1, offset=off)
+            return t.select(t.c1).limit(1, offset=off)
 
         # bound limit < 0 raises RequestError
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="'limit'"):
@@ -592,6 +720,170 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'offset'"):
             neg.add_computed_column(c=skipped(neg.n), on_error='abort')
 
+    def test_udf_modifies_args(self, db_root: DatabaseRoot) -> None:
+        """A udf or uda that modifies a constant argument doesn't change that argument for other rows or groups."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'prompt': pxt.String, 'grp': pxt.Int})
+        t.add_computed_column(out=pop_max_tokens(t.prompt, model_kwargs={'max_tokens': 5}))
+        # an equal constant in another call of the same row
+        t.add_computed_column(upper_out=pop_max_tokens(t.prompt.upper(), model_kwargs={'max_tokens': 5}))
+        t.insert([{'prompt': 'a', 'grp': 0}, {'prompt': 'b', 'grp': 0}, {'prompt': 'c', 'grp': 1}])
+        t.insert([{'prompt': 'd', 'grp': 1}])
+        res = t.order_by(t.prompt).collect()
+        assert [r['out'] for r in res] == ['a:5', 'b:5', 'c:5', 'd:5']
+        assert [r['upper_out'] for r in res] == ['A:5', 'B:5', 'C:5', 'D:5']
+
+        res = t.order_by(t.prompt).select(out=pop_max_tokens(t.prompt, model_kwargs={'max_tokens': 7})).collect()
+        assert [r['out'] for r in res] == ['a:7', 'b:7', 'c:7', 'd:7']
+
+        res = (
+            t.order_by(t.prompt).select(out=pop_max_tokens_batched(t.prompt, model_kwargs={'max_tokens': 3})).collect()
+        )
+        assert [r['out'] for r in res] == ['a:3', 'b:3', 'c:3', 'd:3']
+
+        # a list, an array, an image, and a dict nested in a dict that isn't constant
+        img = PIL.Image.new('RGB', (64, 64))
+        res = (
+            t.order_by(t.prompt)
+            .select(out=modify_args({'p': t.prompt, 'nested': {'n': 1}}, [2], np.zeros(2, dtype=np.int64), img))
+            .collect()
+        )
+        assert [r['out'] for r in res] == ['1:2:0:64'] * 4
+        assert img.size == (64, 64)
+
+        res = t.group_by(t.grp).order_by(t.grp).select(out=pop_n(t.grp, extra={'n': 2}, opts={'n': 1})).collect()
+        assert [r['out'] for r in res] == ['1:2', '1:2']
+
+        res = t.select(out=pop_n(t.grp, extra={'n': 2}, opts={'n': 1}, group_by=t.grp, order_by=t.prompt)).collect()
+        assert [r['out'] for r in res] == ['1:2', '1:2', '1:2', '1:2']
+
+        # an embedding udf with an argument bound by using()
+        t.add_embedding_index('prompt', embedding=pop_embedding.using(opts={'n': 3}))
+        sim = t.prompt.similarity(string='a')
+        # running the same query multiple times still returns the correct result
+        for _ in range(2):
+            assert t.order_by(sim, asc=False).limit(4).select(sim=sim).collect()['sim'] == pytest.approx([1.0] * 4)
+
+    @pytest.mark.db_roots('local', reason="the udf runs on the proxy daemon, where the client's path doesn't resolve")
+    def test_udf_calls_get_table(self, db_root: DatabaseRoot) -> None:
+        """A udf that calls pxt.get_table() fails with an error that points to @pxt.query."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'x': pxt.Int})
+        t.insert([{'x': 1}])
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Use a @pxt\.query UDF'):
+            t.select(count_rows(p('tbl'))).collect()
+
+        u = pxt.create_table(p('tbl2'), {'x': pxt.Int})
+        u.add_computed_column(n=count_rows(p('tbl')))
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Use a @pxt\.query UDF'):
+            u.insert([{'x': 1}])
+
+    @pytest.mark.db_roots('local', reason='loads an application file in process')
+    def test_table_loads_after_failed_import_is_fixed(self, uses_db: None, project_env: pathlib.Path) -> None:
+        """A table that uses a udf loads again once a module that failed to import partway is fixed."""
+        source = dedent(
+            """
+            import pixeltable as pxt
+
+
+            @pxt.udf
+            def double(x: int) -> int:
+                return 2 * x
+            """
+        )
+        app_file = project_env / 'double_app.py'
+        app_file.write_text(source, encoding='utf-8')
+        module = load_app_module(str(app_file), subject='application file')
+        t = pxt.create_table('nums', {'x': pxt.Int})
+        t.add_computed_column(y=module.double(t.x))
+
+        # the module raises after defining the udf
+        app_file.write_text(source + 'undefined_name\n', encoding='utf-8')
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='NameError'):
+            load_app_module(str(app_file), subject='application file')
+        # loading the table imports the module again
+        reload_catalog()
+        with pytest.raises(NameError, match='undefined_name'):
+            pxt.get_table('nums')
+
+        app_file.write_text(source, encoding='utf-8')
+        load_app_module(str(app_file), subject='application file')
+        reload_catalog()
+        t = pxt.get_table('nums')
+        t.insert([{'x': 2}])
+        assert t.select(t.y).collect()['y'] == [4]
+
+    @pytest.mark.db_roots('local', reason='loads application files in process')
+    def test_import_rollback(self, uses_db: None, project_env: pathlib.Path) -> None:
+        """Loading a table keeps the udfs of each module that imported successfully, also when another import fails."""
+        shout_source = dedent(
+            """
+            import pixeltable as pxt
+
+
+            @pxt.udf(is_method=True)
+            def shout(s: str) -> str:
+                return s.upper()
+            """
+        )
+        # a udf nested in a class, next to a method udf
+        (project_env / 'nested_app.py').write_text(
+            shout_source
+            + dedent(
+                """
+
+                class Ops:
+                    @pxt.udf
+                    def double(x: int) -> int:
+                        return 2 * x
+                """
+            ),
+            encoding='utf-8',
+        )
+        # a module that imports a method udf from a helper module
+        (project_env / 'helper_udfs.py').write_text(shout_source.replace('shout', 'whisper'), encoding='utf-8')
+        app_source = dedent(
+            """
+            import pixeltable as pxt
+            import helper_udfs
+
+
+            @pxt.udf
+            def triple(x: int) -> int:
+                return 3 * x
+            """
+        )
+        app_file = project_env / 'helper_app.py'
+        app_file.write_text(app_source, encoding='utf-8')
+        other_file = project_env / 'other_app.py'
+        other_file.write_text('import pixeltable as pxt\n', encoding='utf-8')
+
+        nested = load_app_module(str(project_env / 'nested_app.py'), subject='application file')
+        t = pxt.create_table('nums', {'x': pxt.Int, 's': pxt.String})
+        t.add_computed_column(y=nested.Ops.double(t.x))
+        app = load_app_module(str(app_file), subject='application file')
+        u = pxt.create_table('more_nums', {'x': pxt.Int, 's': pxt.String})
+        u.add_computed_column(y=app.triple(u.x))
+
+        # loading other_app unloads the other project modules, so the next table load imports them again
+        load_app_module(str(other_file), subject='application file')
+        reload_catalog()
+        t = pxt.get_table('nums')
+        t.insert([{'x': 2, 's': 'a'}])
+        assert list(t.select(t.y, t.s.shout()).collect()) == [{'y': 4, 'shout': 'A'}]
+
+        # helper_app raises after importing helper_udfs, which stays imported
+        app_file.write_text(app_source + 'undefined_name\n', encoding='utf-8')
+        load_app_module(str(other_file), subject='application file')
+        reload_catalog()
+        with pytest.raises(NameError, match='undefined_name'):
+            pxt.get_table('more_nums')
+        app_file.write_text(app_source, encoding='utf-8')
+        reload_catalog()
+        u = pxt.get_table('more_nums')
+        u.insert([{'x': 2, 's': 'B'}])
+        assert list(u.select(u.y, u.s.whisper()).collect()) == [{'y': 6, 'whisper': 'B'}]
+
     def test_query_param_in_aggregate(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'x': pxt.Int})
@@ -599,26 +891,26 @@ class TestFunction:
         params = pxt.create_table(p('params'), {'k': pxt.Int})
         params.insert([{'k': 1}, {'k': 2}])
 
-        @pxt.query(return_scalar=True)
+        @pxt.query
         def shifted_sum(k: int) -> pxt.Query:
-            return t.select(s=pxtf.sum(t.x + k))
+            return t.select(pxtf.sum(t.x + k))
 
         res = params.order_by(params.k).select(r=shifted_sum(params.k)).collect()
-        assert res['r'] == [[10], [14]]
+        assert res['r'] == [10, 14]
 
         @pxt.query
         def sum_with_param(k: int) -> pxt.Query:
             return t.select(s=pxtf.sum(t.x), k=k)
 
         res = params.order_by(params.k).select(r=sum_with_param(params.k)).collect()
-        assert res['r'] == [[{'s': 6, 'k': 1}], [{'s': 6, 'k': 2}]]
+        assert res['r'] == [{'s': 6, 'k': 1}, {'s': 6, 'k': 2}]
 
         @pxt.query
         def sum_with_param_expr(k: int) -> pxt.Query:
             return t.select(s=pxtf.sum(t.x), adjusted=k + 1)
 
         res = params.order_by(params.k).select(r=sum_with_param_expr(params.k)).collect()
-        assert res['r'] == [[{'s': 6, 'adjusted': 2}], [{'s': 6, 'adjusted': 3}]]
+        assert res['r'] == [{'s': 6, 'adjusted': 2}, {'s': 6, 'adjusted': 3}]
 
         @pxt.query
         def grouped_sum_with_param_expr(k: int) -> pxt.Query:
@@ -630,6 +922,8 @@ class TestFunction:
             [{'g': 0, 's': 2, 'scaled': 20}, {'g': 1, 's': 4, 'scaled': 20}],
         ]
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_query2(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         schema: dict[str, Any] = {'query_text': pxt.String | None, 'i': pxt.Int | None}
@@ -658,12 +952,12 @@ class TestFunction:
         @pxt.query
         def retrieval(s: str, n: int) -> pxt.Query:
             """simply returns 2 passages from the table"""
-            return chunks.select(chunks.text).limit(2)
+            return chunks.select(text=chunks.text).limit(2)
 
         assert_type_eq(retrieval.signature.return_type, pxt.Json[[{'text': pxt.String | None}]])
 
         res = queries.select(queries.i, out=retrieval(queries.query_text, queries.i)).collect()
-        # Default (return_scalar=False): each row is a dict, not a bare string.
+        # a named select-list item: each row is a dict, not a bare string
         assert all(len(out) == 2 and all(isinstance(x, dict) for x in out) for out in res['out'])
         validate_update_status(queries.add_computed_column(chunks=retrieval(queries.query_text, queries.i)))
         assert queries.chunks.col_type == retrieval.signature.return_type.copy(nullable=True)
@@ -678,8 +972,8 @@ class TestFunction:
         res = queries.select(queries.chunks).collect()
         assert all(len(c) == 2 and all(isinstance(x, dict) for x in c) for c in res['chunks'])
 
-        # return_scalar=True: each row is a bare string value.
-        @pxt.query(return_scalar=True)
+        # an unnamed select-list item: each row is a bare string value
+        @pxt.query
         def retrieval_scalar(s: str, n: int) -> pxt.Query:
             return chunks.select(chunks.text).limit(2)
 
@@ -696,6 +990,8 @@ class TestFunction:
     # references 'view', which no longer exists).
     # TODO: find a general solution
     @pytest.mark.filterwarnings("ignore:The computed column 'result' in table 'retrieval' is no longer valid")
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_query_over_view(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('test'))
@@ -706,7 +1002,7 @@ class TestFunction:
         def retrieve() -> pxt.Query:
             return v.select(v.text).limit(20)
 
-        assert_type_eq(retrieve.signature.return_type, pxt.Json[[{'text': pxt.String | None}]])
+        assert_type_eq(retrieve.signature.return_type, pxt.Json[[pxt.String | None]])
 
         retrieval = pxt.create_table(p('test/retrieval'), {'n': pxt.Int | None})
         retrieval.add_computed_column(result=retrieve())
@@ -727,18 +1023,18 @@ class TestFunction:
         """@pxt.query bodies that use limit() with differently-shaped limit arguments."""
         t = test_tbl
 
-        # limit(n) where n is a plain int parameter, return_scalar=True
-        @pxt.query(return_scalar=True)
+        # limit(n) where n is a plain int parameter
+        @pxt.query
         def q1(n: int) -> pxt.Query:
             return t.select(t.c4).limit(n)
 
         res = t.select(t.c4, result=q1(2)).collect()
         assert res[0]['result'] == [False, True]
 
-        # return_scalar=True returning array-valued rows
-        @pxt.query(return_scalar=True)
+        # array-valued rows
+        @pxt.query
         def q4(n: int) -> pxt.Query:
-            return t.select(foo=[2, 3, n]).limit(2)
+            return t.select([2, 3, n]).limit(2)
 
         res = t.select(t.c4, result=q4(4)).limit(2).collect()
         assert res[0]['result'][0] == [2, 3, 4]
@@ -801,6 +1097,8 @@ class TestFunction:
             def q_str_offset(n: str) -> pxt.Query:
                 return t.select(t.c4).limit(10, offset=n)  # type: ignore[arg-type]
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_query_json_mapper(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int | None, 'c2': pxt.Float | None})
@@ -832,6 +1130,8 @@ class TestFunction:
 
         assert_type_eq(c.signature.return_type, pxt.Json[[{'c': pxt.Int | None}]])
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_query_udf_after_drop(self, db_root: DatabaseRoot) -> None:
         """Stored computed columns whose value_expr contains a @pxt.query UDF must remain loadable
         after the UDF's referenced column or table is dropped. The reload path must deserialize the
@@ -866,7 +1166,7 @@ class TestFunction:
         host_view = pxt.create_view(p('host_view'), host)
         host_view.add_computed_column(rows_view=q_tbl(host_view.threshold))
 
-        expected_rows_col = [{'extra': 2}, {'extra': 3}, {'extra': 4}]
+        expected_rows_col = [2, 3, 4]
         expected_rows_tbl = [{'id': 2, 'val': 20}, {'id': 3, 'val': 30}, {'id': 4, 'val': 40}]
         expected_rows_star = [{'id': i, 'val': i * 10, 'extra': i} for i in range(5)]
         expected_host_row = {
@@ -1641,6 +1941,59 @@ class TestFunction:
         # reload_and_validate_table(validation_error=return_type_error.format(return_type='Array | None'))
 
     @pytest.mark.db_roots(
+        'local',
+        reason='patches a UDF signature in the client process across catalog reloads; not visible to the daemon',
+    )
+    def test_typed_dict_return_type_evolution(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """
+        A computed column stays valid when the TypedDict return type of its UDF gains an optional key (as when a
+        provider SDK adds a field to a response): dict schemas are open, so the stored return type is still a
+        supertype of the one in the code.
+        """
+        udf = udf_with_typed_dict_result
+        stored_type = ts.JsonType(ts.JsonType.TypeSchema({'label': ts.StringType()}))
+        t = pxt.create_table('test', {'label': pxt.String})
+        with monkeypatch.context() as m:
+            # create the column with the return type that the UDF had before it gained the 'score' key
+            m.setattr(udf.signature, 'return_type', stored_type)
+            t.add_computed_column(result=udf(t.label))
+        assert t.result.col_type.matches(stored_type)
+
+        reload_catalog()
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', pxt.PixeltableWarning)
+            t = pxt.get_table('test')
+        assert t.result.col_type.matches(stored_type)
+        t.insert(label='a')
+        res = t.select(t.result, score=t.result.score).collect()
+        assert res['result'] == [{'label': 'a', 'score': 0.5}]
+        assert res['score'] == [0.5]
+
+    def test_typed_dict_param_literals(self, db_root: DatabaseRoot) -> None:
+        # a literal default that omits an optional key conforms to the parameter type
+        @pxt.udf(_force_stored=True)
+        def transform(x: int, options: TypedDictOptions = {'offset': 1}) -> int:  # noqa: B006
+            return x * options.get('scale', 1) + options['offset']
+
+        t = pxt.create_table(db_root.make_catalog_path('test'), {'x': pxt.Int})
+        t.insert(x=2)
+        assert t.select(out=transform(t.x)).collect()['out'] == [3]
+
+        # so does a literal passed to .using(), including one with keys that the parameter type doesn't declare
+        assert t.select(out=transform.using(options={'offset': 5})(t.x)).collect()['out'] == [7]
+        scaled = transform.using(options={'offset': 5, 'scale': 3, 'note': 'x'})
+        assert t.select(out=scaled(t.x)).collect()['out'] == [11]
+
+        # a literal that lacks a required key does not
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="Expected type .* for parameter 'options'"):
+            transform.using(options={'scale': 3})
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Default value for parameter 'options'"):
+
+            @pxt.udf
+            def bad_default(x: int, options: TypedDictOptions = {'scale': 3}) -> int:  # type: ignore[typeddict-item]  # noqa: B006
+                return x
+
+    @pytest.mark.db_roots(
         'local', reason='patches a client-process-local UDF to raise on catalog load; not visible to the daemon'
     )
     def test_udf_import_error(self, uses_db: None) -> None:
@@ -1699,6 +2052,51 @@ class TestFunction:
         reload_catalog()
         with pytest.warns(pxt.PixeltableWarning, match=regex):
             t = pxt.get_table('test')
+
+    @pytest.mark.db_roots('local', reason='breaks a client-process-local UDF module on disk; not visible to the daemon')
+    def test_udf_module_import_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, uses_db: None) -> None:
+        # Regression test for PXT-1426: a stored UDF whose module fails to import must surface the import
+        # failure, not just 'no longer exists'.
+        # `from broken_helper import missing_name` fails with the helper module's file path in the error text;
+        # that path is stripped so the message stays safe to show remote callers.
+        (tmp_path / 'broken_helper.py').write_text('')
+        (tmp_path / 'broken_udf_mod.py').write_text('from broken_helper import missing_name\n')
+        # written before syspath_prepend() and its cache refresh: on Windows, imports can miss a module written later
+        (tmp_path / 'stored_udf_mod.py').write_text(
+            'import pixeltable as pxt\n\n@pxt.udf\ndef f(s: str) -> str:\n    return s\n'
+        )
+        monkeypatch.syspath_prepend(str(tmp_path))
+        d = {
+            '_classpath': 'pixeltable.func.callable_function.CallableFunction',
+            'path': 'broken_udf_mod.f',
+            'signatures': [],
+        }
+        fn = Function.from_dict(d)
+        assert isinstance(fn, func.InvalidFunction)
+        assert 'could not be imported' in fn.error_msg
+        assert "cannot import name 'missing_name' from 'broken_helper'" in fn.error_msg
+        assert str(tmp_path) not in fn.error_msg
+
+        # the cause also has to reach the protocol error shown to remote callers
+        from pixeltable.exprs.function_call import FunctionValidationError
+
+        validation_error = FunctionValidationError(function_path='broken_udf_mod.f', error_msg=fn.error_msg)
+        assert "cannot import name 'missing_name' from 'broken_helper'" in validation_error.protocol_error_msg()
+        assert str(tmp_path) not in validation_error.protocol_error_msg()
+
+        # the same cause on the user-visible path: a stored UDF whose module breaks warns on get_table
+        import stored_udf_mod  # type: ignore[import-not-found]
+
+        t = pxt.create_table('test', {'s': pxt.String})
+        t.add_computed_column(r=stored_udf_mod.f(t.s))
+
+        (tmp_path / 'stored_udf_mod.py').write_text('import this_module_does_not_exist\n')
+        monkeypatch.delitem(sys.modules, 'stored_udf_mod')
+        reload_catalog()
+        with pytest.warns(
+            pxt.PixeltableWarning, match="could not be imported: No module named 'this_module_does_not_exist'"
+        ):
+            pxt.get_table('test')
 
     def test_tool_errors(self) -> None:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
@@ -1766,8 +2164,18 @@ class TestFunction:
         assert fn3.name == 'my_customers'
         assert list(fn3.signature.parameters.keys()) == ['customer_id']
         assert [p.col_type for p in fn3.signature.parameters.values()] == [ts.StringType()]
-        assert_type_eq(fn3.signature.return_type, expected_return_type)
+        # limit=1: the one matching row, or None
+        assert_type_eq(
+            fn3.signature.return_type,
+            pxt.Json[{'customer_id': pxt.String, 'name': pxt.String, 'sales': pxt.Int | None, 'ref_id': pxt.String}]
+            | None,
+        )
         assert fn3.comment() == "I'm a tool that LLMs can use to do stuff."
+        res = t.select(found=fn3(customer_id='Q371A'), missing=fn3(customer_id='X')).collect()
+        assert res[0] == {
+            'found': {'customer_id': 'Q371A', 'name': 'Aaron Siegel', 'ref_id': 'PXT-Q371A', 'sales': None},
+            'missing': None,
+        }
 
         # use the retrieval UDF to define a computed column, and verify its type
         lookup = pxt.create_table('lookup', {'lookup_id': pxt.String})
@@ -1980,6 +2388,12 @@ class TestFunction:
         t.add_computed_column(emb=mock_embed_plain(t.content))
         validate_update_status(t.insert([{'content': 'hello world'}, {'content': 'foo bar'}]))
 
+        # a failing estimator doesn't fail the request
+        t = pxt.create_table(p('test_est_failing'), {'content': pxt.String | None})
+        t.add_computed_column(emb=mock_embed_failing_estimate(t.content))
+        validate_update_status(t.insert([{'content': 'hello world'}, {'content': 'foo bar'}, {'content': 'baz'}]))
+        assert t.select(t.emb).collect()['emb'] == [[0.1, 0.2, 0.3]] * 3
+
     def test_resource_estimator_batch(self, db_root: DatabaseRoot) -> None:
         """resource_estimator works for a batched UDF."""
         p = db_root.make_catalog_path
@@ -2069,6 +2483,17 @@ def _(content: str) -> dict[str, int]:
     return {'requests': 1, 'tokens': len(content) // 4}
 
 
+@pxt.udf(is_deterministic=False, resource_pool='rate-limits:test-embed-failing-estimate')
+async def mock_embed_failing_estimate(content: str) -> list[float]:
+    init_test_pool('rate-limits:test-embed-failing-estimate')
+    return [0.1, 0.2, 0.3]
+
+
+@mock_embed_failing_estimate.resource_estimator
+def _(content: str) -> dict[str, int]:
+    raise ValueError(f'cannot estimate {content!r}')
+
+
 # Batch UDF with resource estimator
 @pxt.udf(is_deterministic=False, resource_pool='rate-limits:test-embed-batch', batch_size=2)
 async def mock_embed_batch(content: Batch[str], model: str = 'default') -> Batch[list[float]]:
@@ -2086,6 +2511,22 @@ def _(content: list[str]) -> dict[str, int]:
 @pxt.udf
 def udf6(name: str) -> str:
     return ''
+
+
+class TypedDictResult(typing.TypedDict):
+    label: str
+    score: typing.NotRequired[float]
+
+
+# Used by TestFunction.test_typed_dict_return_type_evolution, which patches its return type.
+@pxt.udf
+def udf_with_typed_dict_result(label: str) -> TypedDictResult:
+    return {'label': label, 'score': 0.5}
+
+
+class TypedDictOptions(typing.TypedDict):
+    offset: int
+    scale: typing.NotRequired[int]
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:test-sync')

@@ -34,7 +34,7 @@ import pydantic
 from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.service.management_protocol import LogRecord
+from pixeltable.service.management_protocol import LogRecord, SpanRecord
 from pixeltable.service.service_md import LocalServiceInstanceRecord, ServiceInstanceRecord
 from pixeltable.utils.app_module import load_app_module, module_name, services_by_name
 from pixeltable.utils.process import is_pid, pid_alive, process_timestamp
@@ -50,6 +50,23 @@ _logger = logging.getLogger(__name__)
 # the locks that serialize start(), keyed by record file, and the lock guarding that dict
 _service_locks: dict[Path, threading.Lock] = {}
 _service_locks_guard = threading.Lock()
+
+
+def bind_service_port(service_name: str, port: int) -> socket.socket:
+    """Bind port on loopback for a service to listen on. Raise RequestError if the port is taken."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # SO_REUSEADDR lets POSIX rebind a port left in TIME_WAIT by a stopped service. On Windows it lets a socket bind
+    # a port that another is still listening on, so the service would share a busy port instead of refusing it.
+    if sys.platform != 'win32':
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind(('127.0.0.1', port))
+    except OSError as e:
+        sock.close()
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot serve {service_name!r} on port {port}: {e.strerror}'
+        ) from e
+    return sock
 
 
 class ServiceManagerBase(abc.ABC):
@@ -84,6 +101,17 @@ class ServiceManagerBase(abc.ABC):
     def restart(self, instance: ServiceInstance) -> None:
         """Cycle instance onto what it already runs."""
 
+    def retry(self, instance: ServiceInstance) -> ServiceInstance | None:
+        """Start a new attempt of instance's failed current generation, and return the instance afterwards.
+
+        None: the generation was a deletion.
+        """
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'{instance.service_name!r} is a local service, and only hosted services can be retried; '
+            'restart it with `pxt service update`',
+        )
+
     @abc.abstractmethod
     def delete(self, instance: ServiceInstance) -> None:
         """Stop instance and forget it."""
@@ -95,6 +123,15 @@ class ServiceManagerBase(abc.ABC):
         """Return the newest limit lines that instance logged in the last since_seconds seconds, oldest first.
 
         include_health keeps the health probe lines, which are otherwise left out.
+        """
+
+    @abc.abstractmethod
+    def spans(
+        self, instance: ServiceInstance, *, since_seconds: int, limit: int, trace_id: str | None
+    ) -> Sequence[SpanRecord]:
+        """Return the newest limit sampled spans of instance from the last since_seconds seconds, oldest first.
+
+        trace_id keeps only the spans of that trace.
         """
 
 
@@ -178,8 +215,21 @@ class ServiceManager(ServiceManagerBase):
     ) -> Sequence[LogRecord]:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'Reading the log of a service on this machine is not supported; the log is at '
-            f'{self._log_path(instance.service_name, instance.base_path)}',
+            f'A service on this machine writes its log to '
+            f'{self._log_path(instance.service_name, instance.base_path)}. '
+            "'pxt service logs' reads the log of a service in a Pixeltable Cloud database, such as "
+            f"pxt://org:db/{instance.service_name}. Run 'pxt new' to get a free Pixeltable Cloud trial database. "
+            "To deploy to a Pixeltable Cloud database, run 'pxt db update pxt://org:db', then "
+            "'pxt schema update app.py pxt://org:db', then 'pxt service update app.py pxt://org:db'.",
+        )
+
+    def spans(
+        self, instance: ServiceInstance, *, since_seconds: int, limit: int, trace_id: str | None
+    ) -> Sequence[SpanRecord]:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            'Reading the spans of a service on this machine is not supported. Start it with --otel and set '
+            'OTEL_SPAN_DUMP (the span_dump option in the [otel] config section) to write its spans to a file.',
         )
 
     def _local_record(self, record: ServiceInstanceRecord) -> LocalServiceInstanceRecord:
@@ -340,16 +390,7 @@ class ServiceManager(ServiceManagerBase):
         if port is not None:
             # bind here, so that a port already in use is reported by this call rather than read out of the
             # log of a child that exited; the child binds it for real a moment later
-            probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            try:
-                probe.bind(('127.0.0.1', port))
-            except OSError as e:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot serve {name!r} on port {port}: {e.strerror}'
-                ) from e
-            finally:
-                probe.close()
+            bind_service_port(name, port).close()
 
         # the service outlives this call, so it must not inherit our stdio: attached to a pipe it would block
         # the reader on EOF, and attached to a terminal it would write into that session. Its own session keeps

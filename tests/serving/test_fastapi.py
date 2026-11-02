@@ -1,12 +1,18 @@
 import asyncio
+import base64
+import contextlib
+import dataclasses
 import hashlib
 import json
 import os
 import pathlib
+import signal
+import socket
+import threading
 import time
 import urllib.parse
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Awaitable, Callable, Iterator, Literal
 
 import httpx
 import numpy as np
@@ -16,6 +22,7 @@ import pytest
 import sqlalchemy as sql
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 import pixeltable.functions.json as pxt_json
 from pixeltable.env import Env
 from pixeltable.functions.video import frame_iterator
@@ -38,7 +45,11 @@ from tests.utils import (
 
 if TYPE_CHECKING:
     # fastapi is an optional dependency, so the tests that need it import it themselves and skip without it
+    import fastapi
     from fastapi.testclient import TestClient
+
+    from pixeltable.serving import FastAPIRouter
+    from pixeltable.serving.pod_runner import _DrainingServer
 
 
 @pxt.udf
@@ -188,6 +199,68 @@ def await_background_job(
         return body
 
 
+def wait_until(condition: Callable[[], bool], timeout: float) -> bool:
+    """Poll condition until it is true or timeout passes; return its last value."""
+    deadline = time.time() + timeout
+    while not condition():
+        if time.time() > deadline:
+            return False
+        time.sleep(0.05)
+    return True
+
+
+@dataclasses.dataclass
+class ServedRouter:
+    """Routers served on a loopback port."""
+
+    server: '_DrainingServer'
+    addr: str  # host:port
+
+
+@contextlib.contextmanager
+def serve_router(
+    routers: list['FastAPIRouter'],
+    *,
+    app: 'fastapi.FastAPI | None' = None,
+    port: int = 0,
+    job_secret: str | None = None,
+    root_path: str = '',
+    drain_s: float = 0.0,
+) -> Iterator[ServedRouter]:
+    """Serve routers on a loopback port, on a thread of the test process, with the server of a hosted pod.
+
+    app is a custom app that includes routers; without one, the routers are served in an app of their own.
+    """
+    import fastapi
+    import uvicorn
+
+    from pixeltable.serving.pod_runner import _DrainingServer
+
+    if app is None:
+        app = fastapi.FastAPI()
+        for router in routers:
+            app.include_router(router)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(('127.0.0.1', port))
+    addr = f'127.0.0.1:{sock.getsockname()[1]}'
+    if job_secret is not None:
+        for router in routers:
+            router._configure_job_forwarding(addr, job_secret, root_path)
+    # loop='asyncio': the default installs uvloop's event loop policy for the whole test process
+    config = uvicorn.Config(app, log_config=None, loop='asyncio', root_path=root_path)
+    server = _DrainingServer(config, routers, drain_s)
+    thread = threading.Thread(target=server.run, kwargs={'sockets': [sock]}, daemon=True)
+    thread.start()
+    try:
+        assert wait_until(lambda: server.started, 30.0), 'the server did not start'
+        yield ServedRouter(server, addr)
+    finally:
+        server.should_exit = True
+        thread.join(timeout=60.0)
+        sock.close()
+
+
 def get_media(client: Any, url: str) -> Any:
     """GET a media URL. A router-served URL goes through the TestClient; a proxy-daemon URL (which carries a real
     loopback host:port) is fetched directly, since the router can't serve the daemon's media store."""
@@ -261,8 +334,8 @@ def assert_correct_result_url(
     url: str, db_root: DatabaseRoot, always_external: bool, route_type: str | None = None
 ) -> None:
     if route_type != 'compute' and db_root.is_cloud:  # compute routes never return cloud URLs
-        # `image` is served as a presigned R2 URL from a cloud DB ...
-        assert 'r2.cloudflarestorage.com' in url, url
+        # `image` is served as a URL on the storage edge from a cloud DB ...
+        assert url.startswith(f'https://usercontent.{os.environ["PIXELTABLE_CLOUD_HOST"]}/'), url
     elif always_external or db_root.id != 'local':
         # ... or as a /media/ URL when uploaded, or (over proxy) when a referenced local file had to
         # be shipped to the daemon, ...
@@ -965,15 +1038,19 @@ class TestFastAPI:
     @pytest.mark.db_roots(
         'local', reason='a background job computes in the router process only for an in-process catalog'
     )
-    @pytest.mark.parametrize('busy_at_shutdown', [False, True])
-    def test_background_job_teardown(self, uses_db: None, busy_at_shutdown: bool) -> None:
+    @pytest.mark.parametrize('at_shutdown', ['busy', 'done', 'expired'])
+    def test_background_job_teardown(
+        self, uses_db: None, at_shutdown: Literal['busy', 'done', 'expired'], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A background job runs on a worker thread with an event loop of its own, which app shutdown closes."""
         skip_test_if_not_installed('fastapi')
-        from pixeltable.serving import FastAPIRouter
+        from pixeltable.serving import FastAPIRouter, _fastapi
 
+        # shortened, so that a fetched result expires within the test
+        monkeypatch.setattr(_fastapi, '_JOB_FETCHED_TTL_S', 0.1)
         t = pxt.create_table('bg_teardown', {'x': pxt.Int})
-        # in one scenario the job holds its worker until the shutdown, in the other it is done before it
-        t.add_computed_column(y=record_loop(t.x, 2.0 if busy_at_shutdown else 0.0))
+        # at shutdown, the job is still running, is done, or is done and its result expired
+        t.add_computed_column(y=record_loop(t.x, 2.0 if at_shutdown == 'busy' else 0.0))
         router = FastAPIRouter()
         router.add_insert_route(t, path='/bg', background=True)
         client = make_test_client(router)
@@ -982,13 +1059,15 @@ class TestFastAPI:
         with client:
             resp = client.post('/bg', json={'x': 1})
             assert resp.status_code == 200, resp.text
-            if busy_at_shutdown:
+            if at_shutdown == 'busy':
                 # leave the context as soon as the job is on a worker, without waiting for it to finish
                 deadline = time.time() + 30.0
                 while len(_computation_loops) == n_loops and time.time() < deadline:
                     time.sleep(0.01)
             else:
                 await_background_job(client, resp.json(), require_pending=False)
+            if at_shutdown == 'expired':
+                assert wait_until(lambda: client.get(resp.json()['job_url']).status_code == 404, 10.0)
             loops = _computation_loops[n_loops:]
             assert len(loops) == 1, 'the job did not run on a worker thread of its own'
             assert not loops[0].is_closed()
@@ -1046,6 +1125,284 @@ class TestFastAPI:
             monkeypatch.setenv('PIXELTABLE_PUBLIC_ORIGIN', 'http://org-db.svc.pxt.run')
             with pytest.raises(ValueError, match='must be an HTTPS origin'):
                 client.post('/bg', json={'id': 2})
+
+    def test_error_response_retry_after(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        p = db_root.make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter, _fastapi
+
+        t = pxt.create_table(p('items'), {'id': pxt.Int}, primary_key='id')
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/ins')
+        client = make_test_client(router)
+
+        # an error without a wait sends no Retry-After
+        assert client.post('/ins', json={'id': 1}).status_code == 200
+        duplicate = client.post('/ins', json={'id': 1})
+        assert duplicate.status_code == 422 and 'Retry-After' not in duplicate.headers, duplicate.text
+
+        # the route's work fails with a wait, as an unreachable hosted database does
+        def unreachable(*args: Any) -> None:
+            raise pxt.exceptions.ServiceUnavailableError(
+                pxt.exceptions.ErrorCode.DATABASE_UNAVAILABLE, 'down', retry_after=2.5
+            )
+
+        monkeypatch.setattr(_fastapi, '_validate_registered_schema', unreachable)
+        refused = client.post('/ins', json={'id': 2})
+        # Retry-After takes whole seconds, so a fractional wait rounds up
+        assert refused.status_code == 503 and refused.headers['Retry-After'] == '3', refused.text
+        assert refused.json()['detail'] == {
+            'error_code': 'DATABASE_UNAVAILABLE',
+            'message': 'down',
+            'retryable': True,
+            'retry_after': 2.5,
+        }
+
+    @pytest.mark.db_roots(
+        'local', reason='a background job computes in the router process only for an in-process catalog'
+    )
+    def test_background_job_limit_and_retention(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter, _fastapi
+
+        # shortened, so the test reaches the limit and the TTLs in seconds
+        monkeypatch.setattr(_fastapi, '_MAX_PENDING_JOBS', 2)
+        monkeypatch.setattr(_fastapi, '_JOB_FETCHED_TTL_S', 0.5)
+        t = pxt.create_table('jobs', {'x': pxt.Int, 'secs': pxt.Float})
+        t.add_computed_column(slept=sleep(t.secs))
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/bg', background=True)
+        client = make_test_client(router)
+
+        jobs = [client.post('/bg', json={'x': i, 'secs': 1.0}).json() for i in range(2)]
+        refused = client.post('/bg', json={'x': 2, 'secs': 0.0})
+        assert refused.status_code == 503 and refused.headers['Retry-After'] == '5', refused.text
+        assert refused.json()['detail'] == {
+            'error_code': 'JOB_REFUSED',
+            'message': 'the service instance is at its limit of 2 unfinished background jobs',
+            'retryable': True,
+            'retry_after': 5,
+        }
+        pending = client.get(jobs[0]['job_url'])
+        assert pending.json()['status'] == 'pending' and pending.headers['Retry-After'] == '2'
+        for job in jobs:
+            await_background_job(client, job, require_pending=False)
+
+        # a fetched result is kept for _JOB_FETCHED_TTL_S
+        assert client.get(jobs[-1]['job_url']).json()['status'] == 'done'
+        time.sleep(0.6)
+        expired = client.get(jobs[-1]['job_url'])
+        assert expired.status_code == 404 and expired.json()['detail'] == 'unknown or expired job'
+
+        # finished jobs do not count against the limit; a result expires _JOB_RESULT_TTL_S after its job finishes
+        # (polling fetches the result, so _JOB_FETCHED_TTL_S is raised above _JOB_RESULT_TTL_S)
+        # shortened only here: above, a finished result waits unfetched while the loop polls the other job
+        monkeypatch.setattr(_fastapi, '_JOB_RESULT_TTL_S', 1.0)
+        monkeypatch.setattr(_fastapi, '_JOB_FETCHED_TTL_S', 60.0)
+        late = client.post('/bg', json={'x': 3, 'secs': 0.0})
+        assert late.status_code == 200, late.text
+        assert wait_until(lambda: client.get(late.json()['job_url']).status_code == 404, 10.0)
+
+        # an id from an earlier pixeltable version, and one from a server that restarted since
+        for job_id in (uuid.uuid4().hex, f'{"0" * 16}.{uuid.uuid4().hex}'):
+            stopped = client.get(f'/_pxt/jobs/{job_id}')
+            assert stopped.status_code == 410, job_id
+            assert stopped.json()['detail'] == 'the service instance that ran this job has stopped'
+        for job_id in ('nonexistent', f'{"0" * 16}.nonexistent', f'{"0" * 16}.YQ.{uuid.uuid4().hex}.{"0" * 32}'):
+            assert client.get(f'/_pxt/jobs/{job_id}').status_code == 404, job_id
+
+    @pytest.mark.db_roots(
+        'local', reason='a background job computes in the router process only for an in-process catalog'
+    )
+    def test_background_job_forwarding(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A poll that reaches a server other than the job's owner is forwarded to the owner."""
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.middleware.trustedhost import TrustedHostMiddleware
+
+        from pixeltable.serving import FastAPIRouter, _fastapi
+
+        t = pxt.create_table('jobs', {'x': pxt.Int, 'secs': pxt.Float})
+        t.add_computed_column(slept=sleep(t.secs))
+        job_secret = 'db-credential'
+        # served like the pods of a hosted service, whose gateway strips the root_path from the request path
+        root_path = '/svc'
+        api_key = {'X-Api-Key': 'secret'}
+
+        def check_api_key(x_api_key: Annotated[str, fastapi.Header()]) -> None:
+            if x_api_key != 'secret':
+                raise fastapi.HTTPException(status_code=403)
+
+        def jobs_router(
+            *, name: str | None = None, path: str = '/bg', addr: str | None = None, service_path: str = root_path
+        ) -> FastAPIRouter:
+            # an app's own authentication: the owner checks the client's headers on a forwarded poll as well
+            router = FastAPIRouter(name=name, dependencies=[fastapi.Depends(check_api_key)])
+            router.add_insert_route(t, path=path, background=True)
+            if addr is not None:
+                router._configure_job_forwarding(addr, job_secret, service_path)
+            return router
+
+        shedding = threading.Event()
+        public_host = {'Host': 'jobs.example.com'}
+
+        def jobs_app(routers: list[FastAPIRouter]) -> fastapi.FastAPI:
+            # a custom app that checks the Host, and whose middleware can answer before the routers do
+            app = fastapi.FastAPI()
+            app.add_middleware(TrustedHostMiddleware, allowed_hosts=['jobs.example.com'])
+
+            @app.middleware('http')
+            async def shed_load(
+                request: fastapi.Request, call_next: Callable[[fastapi.Request], Awaitable[fastapi.Response]]
+            ) -> fastapi.Response:
+                if shedding.is_set():
+                    return fastapi.responses.JSONResponse(
+                        {'detail': 'overloaded'}, status_code=503, headers={'Retry-After': '7'}
+                    )
+                return await call_next(request)
+
+            for router in routers:
+                app.include_router(router)
+            return app
+
+        def poll_path(job: dict[str, Any]) -> str:
+            return urllib.parse.urlsplit(job['job_url']).path.removeprefix(root_path)
+
+        # each server has a second router with a background route, under the same prefix: a named one, whose jobs
+        # have a poll route of their own
+        other_routers = [jobs_router(), jobs_router(name='more', path='/more-bg')]
+        owner_routers = [jobs_router(), jobs_router(name='more', path='/more-bg')]
+        with (
+            serve_router(other_routers, job_secret=job_secret, root_path=root_path) as served_other,
+            httpx.Client(base_url=f'http://{served_other.addr}', headers={**api_key, **public_host}) as other,
+        ):
+            with (
+                serve_router(
+                    owner_routers, app=jobs_app(owner_routers), job_secret=job_secret, root_path=root_path
+                ) as owner,
+                httpx.Client(base_url=f'http://{owner.addr}', headers={**api_key, **public_host}) as c,
+            ):
+                job = c.post('/bg', json={'x': 1, 'secs': 0.5}).json()
+                body = await_background_job(other, {'id': job['id'], 'job_url': poll_path(job)})
+                assert single_row(body['result'], 'insert')['x'] == 1, body
+                # the second router's job, on its owner and forwarded
+                more_job = c.post('/more-bg', json={'x': 3, 'secs': 0.0}).json()
+                for client in (c, other):
+                    more_body = await_background_job(
+                        client, {'id': more_job['id'], 'job_url': poll_path(more_job)}, require_pending=False
+                    )
+                    assert single_row(more_body['result'], 'insert')['x'] == 3, more_body
+
+                # the owner app's own answer reaches the client as it is, not as a lost job
+                shedding.set()
+                shed = other.get(poll_path(job))
+                assert shed.status_code == 503 and shed.headers['Retry-After'] == '7', shed.text
+                shedding.clear()
+
+                # a changed address does not match the MAC; only a forged id can show that
+                instance, owner_addr_b64, job_uuid, mac = job['id'].split('.')
+                addr_b64 = base64.urlsafe_b64encode(b'127.0.0.1:2').decode().rstrip('=')
+                assert other.get(f'/_pxt/jobs/{instance}.{addr_b64}.{job_uuid}.{mac}').status_code == 404
+                # nor does a MAC with a non-ASCII character
+                assert other.get(f'/_pxt/jobs/{instance}.{owner_addr_b64}.{job_uuid}.%C3%A9').status_code == 404
+                # nor does the key of another service of the same database
+                stranger = make_test_client(jobs_router(addr='127.0.0.1:1', service_path='/other'))
+                assert stranger.get(poll_path(job), headers=api_key).status_code == 404
+
+            # the owner stopped
+            assert other.get(poll_path(job)).status_code == 410
+            # a server of the same service at the owner's address now answers 410 itself
+            owner_port = int(owner.addr.split(':')[1])
+            with serve_router([jobs_router()], port=owner_port, job_secret=job_secret, root_path=root_path):
+                assert other.get(poll_path(job)).status_code == 410
+            # a server of another service there answers 404, which the poll gets as 410
+            with serve_router(
+                [jobs_router(service_path='/other')], port=owner_port, job_secret=job_secret, root_path='/other'
+            ):
+                assert other.get(poll_path(job)).status_code == 410
+
+            # an owner that does not answer in time
+            monkeypatch.setattr(_fastapi, '_FORWARD_TIMEOUT', httpx.Timeout(0.2, connect=1.0))
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as silent:
+                silent.bind(('127.0.0.1', 0))
+                silent.listen()
+                slow = make_test_client(jobs_router(addr=f'127.0.0.1:{silent.getsockname()[1]}'))
+                slow_job = slow.post('/bg', json={'x': 2, 'secs': 0.0}, headers=api_key).json()
+                unanswered = other.get(f'/_pxt/jobs/{slow_job["id"]}')
+                assert unanswered.status_code == 503 and unanswered.headers['Retry-After'] == '2', unanswered.text
+
+            # an owner that accepts the connection and closes it without an answer, as one does while it shuts down
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as hasty:
+                hasty.bind(('127.0.0.1', 0))
+                hasty.listen()
+                closer = threading.Thread(target=lambda: hasty.accept()[0].close(), daemon=True)
+                closer.start()
+                dropping = make_test_client(jobs_router(addr=f'127.0.0.1:{hasty.getsockname()[1]}'))
+                dropped_job = dropping.post('/bg', json={'x': 4, 'secs': 0.0}, headers=api_key).json()
+                dropped = other.get(f'/_pxt/jobs/{dropped_job["id"]}')
+                assert dropped.status_code == 503 and dropped.headers['Retry-After'] == '2', dropped.text
+                closer.join(timeout=5.0)
+
+    @pytest.mark.db_roots(
+        'local', reason='a background job computes in the router process only for an in-process catalog'
+    )
+    def test_background_job_drain(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """On SIGTERM, a pod's server refuses new jobs, and stops once its jobs' results are fetched or have been kept
+        for _DRAIN_COLLECT_S, or at the drain deadline."""
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter, _fastapi
+
+        t = pxt.create_table('jobs', {'x': pxt.Int, 'secs': pxt.Float})
+        t.add_computed_column(slept=sleep(t.secs))
+
+        def jobs_router() -> FastAPIRouter:
+            router = FastAPIRouter()
+            router.add_insert_route(t, path='/bg', background=True)
+            return router
+
+        # handle_exit() is the server's SIGTERM handler; without jobs, the server stops at once
+        with serve_router([jobs_router()], drain_s=60.0) as served:
+            served.server.handle_exit(signal.SIGTERM, None)
+            assert wait_until(lambda: served.server.should_exit, 5.0)
+
+        router = jobs_router()
+        with serve_router([router], drain_s=60.0) as served, httpx.Client(base_url=f'http://{served.addr}') as c:
+            job = c.post('/bg', json={'x': 1, 'secs': 1.0}).json()
+            served.server.handle_exit(signal.SIGTERM, None)
+            # the drain starts on a thread of its own
+            assert wait_until(lambda: router._draining, 5.0)
+            refused = c.post('/bg', json={'x': 2, 'secs': 0.0})
+            assert refused.status_code == 503 and refused.headers['Retry-After'] == '1', refused.text
+            assert refused.json()['detail'] == {
+                'error_code': 'JOB_REFUSED',
+                'message': 'the service instance is shutting down',
+                'retryable': True,
+                'retry_after': 1,
+            }
+            await_background_job(c, job)
+            assert wait_until(lambda: served.server.should_exit, 5.0)
+
+        # a second SIGTERM stops the server without waiting
+        with serve_router([jobs_router()], drain_s=5.0) as served, httpx.Client(base_url=f'http://{served.addr}') as c:
+            assert c.post('/bg', json={'x': 3, 'secs': 1.0}).status_code == 200
+            served.server.handle_exit(signal.SIGTERM, None)
+            served.server.handle_exit(signal.SIGTERM, None)
+            assert served.server.should_exit
+
+        # at the deadline, the server stops although a job still runs
+        with serve_router([jobs_router()], drain_s=0.5) as served, httpx.Client(base_url=f'http://{served.addr}') as c:
+            assert c.post('/bg', json={'x': 4, 'secs': 4.0}).status_code == 200
+            served.server.handle_exit(signal.SIGTERM, None)
+            assert wait_until(lambda: served.server.should_exit, 3.0)
+
+        # a finished unfetched result keeps the server for _DRAIN_COLLECT_S, not until the deadline
+        monkeypatch.setattr(_fastapi, '_DRAIN_COLLECT_S', 0.5)
+        with serve_router([jobs_router()], drain_s=60.0) as served, httpx.Client(base_url=f'http://{served.addr}') as c:
+            assert c.post('/bg', json={'x': 5, 'secs': 0.0}).status_code == 200
+            # the inserted row shows that the job finished, without a poll that would fetch its result
+            assert wait_until(lambda: t.where(t.x == 5).count() == 1, 10.0)
+            served.server.handle_exit(signal.SIGTERM, None)
+            assert wait_until(lambda: served.server.should_exit, 5.0)
 
     def test_openapi(self, db_root: DatabaseRoot) -> None:
         """Verify the generated OpenAPI schema reflects column comments, column types, and route shapes."""
@@ -1236,8 +1593,8 @@ class TestFastAPI:
         assert 'min_len' not in default_schema.get('required', [])
 
     def test_add_query_route_single_column(self, db_root: DatabaseRoot) -> None:
-        """Single-column queries: return_scalar=False produces dict-per-row in a wrapper,
-        return_scalar=True produces a plain list of scalar values."""
+        """Single-column queries: a named item produces dict-per-row in a wrapper, an unnamed item a plain list of
+        values."""
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
@@ -1248,50 +1605,71 @@ class TestFastAPI:
 
         @pxt.query
         def all_texts() -> pxt.Query:
-            return t.select(t.text).order_by(t.id)
+            return t.select(text=t.text).order_by(t.id)
 
-        @pxt.query(return_scalar=True)
+        @pxt.query
         def all_texts_scalar() -> pxt.Query:
             return t.select(t.text).order_by(t.id)
+
+        @pxt.query
+        def id_total(min_id: int) -> pxt.Query:
+            return t.where(t.id >= min_id).select(pxtf.sum(t.id))
 
         router = FastAPIRouter()
         router.add_query_route(path='/texts', query=all_texts)
         router.add_query_route(path='/texts-scalar', query=all_texts_scalar)
+        router.add_query_route(path='/id-total', query=id_total)
         client = make_test_client(router)
 
-        # return_scalar=False (default): dict-per-row wrapped in {'rows': [...]}
+        # a named item: dict-per-row wrapped in {'rows': [...]}
         resp = client.post('/texts', json={})
         assert resp.status_code == 200, resp.text
         assert resp.json() == {'rows': [{'text': 't0'}, {'text': 't1'}, {'text': 't2'}]}
 
-        # return_scalar=True: plain JSON array of scalar values
+        # an unnamed item: plain JSON array of values
         resp = client.post('/texts-scalar', json={})
         assert resp.status_code == 200, resp.text
         assert resp.json() == ['t0', 't1', 't2']
 
-    def test_add_query_route_one_row(self, db_root: DatabaseRoot) -> None:
-        """one_row=True returns a flat JSON object (or bare scalar with return_scalar=True).
-        0 rows -> 404; >1 rows -> 409."""
+        # an aggregation without group_by(): the value itself, null over no rows
+        resp = client.post('/id-total', json={'min_id': 1})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == 3
+        resp = client.post('/id-total', json={'min_id': 10})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() is None
+        response = client.get('/openapi.json').json()['paths']['/id-total']['post']['responses']['200']
+        assert response['content']['application/json']['schema']['anyOf'] == [{'type': 'integer'}, {'type': 'null'}]
+
+    def test_add_query_route_single_row(self, db_root: DatabaseRoot) -> None:
+        """A query with limit(1) returns a flat JSON object, or a bare value for an unnamed item; no row -> 404.
+        An aggregation without group_by() returns a flat JSON object as well. A background job's result has the same
+        shape."""
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(p('test_serve/docs'), {'id': pxt.Int | None, 'text': pxt.String | None})
-        # id=0 appears twice on purpose, to exercise the >1-row branch
+        # id=0 appears twice on purpose: limit(1) returns the first of them
         t.insert([{'id': 0, 'text': 'dup-a'}, {'id': 0, 'text': 'dup-b'}, {'id': 1, 'text': 't1'}])
 
         @pxt.query
         def by_id(id: int) -> pxt.Query:
-            return t.where(t.id == id).select(t.id, t.text).order_by(t.text)
+            return t.where(t.id == id).select(t.id, t.text).order_by(t.text).limit(1)
 
-        @pxt.query(return_scalar=True)
+        @pxt.query
         def text_by_id(id: int) -> pxt.Query:
-            return t.where(t.id == id).select(t.text).order_by(t.text)
+            return t.where(t.id == id).select(t.text).order_by(t.text).limit(1)
+
+        @pxt.query
+        def id_stats(min_id: int) -> pxt.Query:
+            return t.where(t.id >= min_id).select(n=pxtf.count(t.id), total=pxtf.sum(t.id))
 
         router = FastAPIRouter()
-        router.add_query_route(path='/by-id', query=by_id, one_row=True)
-        router.add_query_route(path='/text-by-id', query=text_by_id, one_row=True)
+        router.add_query_route(path='/by-id', query=by_id)
+        router.add_query_route(path='/text-by-id', query=text_by_id)
+        router.add_query_route(path='/id-stats', query=id_stats)
 
         # a query route declares a function rather than a table, so it has nothing to bind; entering the
         # client's context runs the startup handlers, which must not refuse a router of query routes alone
@@ -1313,12 +1691,15 @@ class TestFastAPI:
 
         client = make_test_client(router)
 
-        # non-scalar one_row: flat JSON object, NOT wrapped in {'rows': [...]}
+        # flat JSON object, NOT wrapped in {'rows': [...]}
         resp = client.post('/by-id', json={'id': 1})
         assert resp.status_code == 200, resp.text
         assert resp.json() == {'id': 1, 'text': 't1'}
+        resp = client.post('/by-id', json={'id': 0})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'id': 0, 'text': 'dup-a'}
 
-        # scalar one_row: bare value, NOT a list
+        # unnamed item: bare value, NOT a list
         resp = client.post('/text-by-id', json={'id': 1})
         assert resp.status_code == 200, resp.text
         assert resp.json() == 't1'
@@ -1329,26 +1710,52 @@ class TestFastAPI:
         resp = client.post('/text-by-id', json={'id': 999})
         assert resp.status_code == 404, resp.text
 
-        # >1 rows -> 409 with 'expected exactly 1' in the detail
-        resp = client.post('/by-id', json={'id': 0})
-        assert resp.status_code == 409, resp.text
-        assert 'expected exactly 1' in resp.json()['detail']
-        resp = client.post('/text-by-id', json={'id': 0})
-        assert resp.status_code == 409, resp.text
+        # an aggregation without group_by(): flat JSON object, also over no rows
+        resp = client.post('/id-stats', json={'min_id': 0})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'n': 3, 'total': 1}
+        resp = client.post('/id-stats', json={'min_id': 10})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'n': 0, 'total': None}
 
-        # OpenAPI: non-scalar one_row advertises the row model, not the wrapper
+        # a background job's result: the row, or the value
+        bg_router = FastAPIRouter()
+        bg_router.add_query_route(path='/by-id', query=by_id, background=True)
+        bg_router.add_query_route(path='/text-by-id', query=text_by_id, background=True)
+        bg_client = make_test_client(bg_router)
+        job = bg_client.post('/by-id', json={'id': 1}).json()
+        assert await_background_job(bg_client, job, require_pending=False)['result'] == {'id': 1, 'text': 't1'}
+        job = bg_client.post('/text-by-id', json={'id': 1}).json()
+        assert await_background_job(bg_client, job, require_pending=False)['result'] == 't1'
+        # no row: the job fails with the detail of the synchronous 404
+        job = bg_client.post('/by-id', json={'id': 999}).json()
+        deadline = time.time() + 30.0
+        while (status := bg_client.get(job['job_url']).json())['status'] == 'pending':
+            assert time.time() < deadline, status
+            time.sleep(0.05)
+        assert status['status'] == 'error', status
+        assert status['error_detail'] == client.post('/by-id', json={'id': 999}).json()['detail']
+
+        # OpenAPI: a single row advertises the row model, not the wrapper
         openapi = client.get('/openapi.json').json()
         by_id_200 = openapi['paths']['/by-id']['post']['responses']['200']['content']['application/json']['schema']
         # should reference the row-shaped model (has 'id' and 'text' properties), not a wrapper with 'rows'
         assert '$ref' in by_id_200
         row_schema = openapi['components']['schemas'][by_id_200['$ref'].split('/')[-1]]
         assert set(row_schema['properties'].keys()) == {'id', 'text'}
-        # scalar one_row schema has no 'rows' wrapper and is not an array
+        # a single value has no 'rows' wrapper and is not an array
         scalar_schema = openapi['paths']['/text-by-id']['post']['responses']['200']['content']['application/json'][
             'schema'
         ]
         assert scalar_schema.get('type') != 'array'
         assert 'rows' not in str(scalar_schema)
+        # an aggregation advertises the row model as well
+        stats_schema = openapi['paths']['/id-stats']['post']['responses']['200']['content']['application/json'][
+            'schema'
+        ]
+        assert '$ref' in stats_schema
+        stats_row_schema = openapi['components']['schemas'][stats_schema['$ref'].split('/')[-1]]
+        assert set(stats_row_schema['properties'].keys()) == {'n', 'total'}
 
     def test_add_query_route_image(self, db_root: DatabaseRoot) -> None:
         """Image query route: JSON response, return_fileresponse (happy/404/500), and background."""
@@ -1368,7 +1775,7 @@ class TestFastAPI:
 
         @pxt.query
         def one_image(img_id: int) -> pxt.Query:
-            return t.where(t.id == img_id).select(t.resized)
+            return t.where(t.id == img_id).select(t.resized).limit(1)
 
         @pxt.query
         def one_image_delayed(img_id: int) -> pxt.Query:
@@ -1379,25 +1786,25 @@ class TestFastAPI:
             return t.select(t.resized).order_by(t.id)
 
         router = FastAPIRouter()
-        # JSON variant: list of {'image': <media url>}
+        # JSON variant: list of media urls
         router.add_query_route(path='/all-json', query=all_images)
         # FileResponse variant: exactly one row
         router.add_query_route(path='/one-file', query=one_image, return_fileresponse=True)
-        # FileResponse variant with >1 row -> 409
-        router.add_query_route(path='/all-file', query=all_images, return_fileresponse=True)
+        # FileResponse variant over a query that returns a list
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='return_fileresponse requires a query that returns one'):
+            router.add_query_route(path='/all-file', query=all_images, return_fileresponse=True)
         # Background variant
         router.add_query_route(path='/one-bg', query=one_image_delayed, background=True)
         client = make_test_client(router)
 
-        # JSON variant: wrapper with rows containing objects with 'resized' fields rewritten as media URLs
+        # JSON variant: values rewritten as media URLs
         resp = client.post('/all-json', json={})
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        assert 'rows' in body
-        assert len(body['rows']) == 2
-        for item in body['rows']:
-            assert_correct_result_url(item['resized'], db_root, True)
-            media_resp = get_media(client, item['resized'])
+        assert len(body) == 2
+        for url in body:
+            assert_correct_result_url(url, db_root, True)
+            media_resp = get_media(client, url)
             assert media_resp.status_code == 200
 
         # FileResponse: exactly one matching row -> image bytes
@@ -1413,11 +1820,6 @@ class TestFastAPI:
         # FileResponse: 0 matching rows -> 404
         resp = client.post('/one-file', json={'img_id': 999})
         assert resp.status_code == 404, resp.text
-
-        # FileResponse: >1 row -> 409
-        resp = client.post('/all-file', json={})
-        assert resp.status_code == 409, resp.text
-        assert 'expected exactly 1' in resp.json()['detail']
 
         # Background variant: poll /_pxt/jobs/{id} until done
         resp = client.post('/one-bg', json={'img_id': 1})
@@ -1448,10 +1850,10 @@ class TestFastAPI:
 
         @pxt.query
         def thumb_by_id(img_id: int) -> pxt.Query:
-            return t.where(t.id == img_id).select(thumb=t.image.resize([16, 16]))
+            return t.where(t.id == img_id).select(thumb=t.image.resize([16, 16])).limit(1)
 
         router = FastAPIRouter()
-        router.add_query_route(path='/transform-json', query=thumb_by_id, one_row=True)
+        router.add_query_route(path='/transform-json', query=thumb_by_id)
         router.add_query_route(path='/transform-file', query=thumb_by_id, return_fileresponse=True)
         client = make_test_client(router)
 
@@ -1505,6 +1907,8 @@ class TestFastAPI:
             'audio': assert_audio_bytes,
         }
 
+        edge_host = f'usercontent.{os.environ["PIXELTABLE_CLOUD_HOST"]}'
+
         resp = client.post(
             '/insert',
             json={'id': 1, 'image': get_image_files()[0], 'video': get_video_files()[0], 'audio': get_audio_files()[0]},
@@ -1512,14 +1916,14 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         body = resp.json()
         for col, decode in decoders.items():
-            decode(fetch_presigned(body[col], expires_s=3600, host_suffix='.r2.cloudflarestorage.com'))
+            decode(fetch_presigned(body[col], expires_s=3600, host_suffix=edge_host))
 
         resp = client.post('/all', json={})
         assert resp.status_code == 200, resp.text
         rows = resp.json()['rows']
         assert len(rows) == 1
         for col, decode in decoders.items():
-            decode(fetch_presigned(rows[0][col], expires_s=3600, host_suffix='.r2.cloudflarestorage.com'))
+            decode(fetch_presigned(rows[0][col], expires_s=3600, host_suffix=edge_host))
 
     @pytest.mark.very_expensive
     def test_s3_media_urls(self, db_root: DatabaseRoot) -> None:
@@ -1578,11 +1982,11 @@ class TestFastAPI:
 
         @pxt.query
         def get_mirrored(vid: int) -> pxt.Query:
-            return t.where(t.id == vid).select(mirrored=t.mirrored)
+            return t.where(t.id == vid).select(mirrored=t.mirrored).limit(1)
 
         router = FastAPIRouter()
         router.add_insert_route(t, path='/ingest', uploadfile_inputs=['v'])
-        router.add_query_route(path='/mirrored', query=get_mirrored, one_row=True)
+        router.add_query_route(path='/mirrored', query=get_mirrored)
         client = make_test_client(router)
 
         # ingest a local video
@@ -1673,12 +2077,24 @@ class TestFastAPI:
             return t.where(t.id >= min_id).select(t.id, t.text)
 
         @pxt.query
+        def lookup_one(min_id: int) -> pxt.Query:
+            return t.where(t.id >= min_id).select(t.id, t.text).limit(1)
+
+        @pxt.query
         def with_default(min_id: int = 0) -> pxt.Query:
             return t.select(t.id)
 
         @pxt.query
         def by_text(needle: str) -> pxt.Query:
-            return t.where(t.text == needle).select(t.image)
+            return t.where(t.text == needle).select(t.image).limit(1)
+
+        @pxt.query
+        def all_images() -> pxt.Query:
+            return t.select(t.image)
+
+        @pxt.query
+        def running_ids() -> pxt.Query:
+            return t.select(pxtf.sum(t.id, order_by=t.id))
 
         @pxt.query
         def by_image(img: pxt.Image) -> pxt.Query:
@@ -1701,8 +2117,19 @@ class TestFastAPI:
         ):
             router.add_query_route(path='/e', query=by_text, return_fileresponse=True, background=True)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='exactly one media-typed output column'):
-            # by_text returns a single media column; lookup returns (id, text) which is not media-typed
-            router.add_query_route(path='/e', query=lookup, return_fileresponse=True)
+            # by_text returns a single media column; lookup_one returns (id, text) which is not media-typed
+            router.add_query_route(path='/e', query=lookup_one, return_fileresponse=True)
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match="return_fileresponse requires a query that returns one row.*'all_images'",
+        ):
+            router.add_query_route(path='/e', query=all_images, return_fileresponse=True)
+        # a window function returns a value per row, so the query returns a list
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            match="return_fileresponse requires a query that returns one row.*'running_ids'",
+        ):
+            router.add_query_route(path='/e', query=running_ids, return_fileresponse=True)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='GET endpoints cannot have uploadfile_inputs'):
             router.add_query_route(path='/e', query=by_image, uploadfile_inputs=['img'], method='get')
 

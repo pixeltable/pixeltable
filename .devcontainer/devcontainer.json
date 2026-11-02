@@ -1,22 +1,14 @@
 {
-  "name": "pixeltable-cockroach",
+  "name": "pixeltable",
   "dockerComposeFile": "docker-compose.yml",
   "service": "app",
   "remoteUser": "ubuntu",
   "workspaceFolder": "/workspaces/pixeltable",
   "shutdownAction": "stopCompose",
-  "forwardPorts": [22089, 26257, 8080],
+  "forwardPorts": [22089],
   "portsAttributes": {
     "22089": {
       "label": "Pixeltable Dashboard",
-      "onAutoForward": "openBrowser"
-    },
-    "26257": {
-      "label": "CockroachDB SQL",
-      "onAutoForward": "silent"
-    },
-    "8080": {
-      "label": "CockroachDB Admin UI",
       "onAutoForward": "openBrowser"
     }
   },

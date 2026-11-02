@@ -24,6 +24,7 @@ from pixeltable.func import Batch
 from pixeltable.functions.video import legacy_frame_iterator
 from pixeltable.utils.filecache import FileCache
 
+from .conftest import SampleFileServer
 from .utils import (
     TESTS_DIR,
     DatabaseRoot,
@@ -75,6 +76,30 @@ def fill_3x4(x: int) -> pxt.Array[(3, 4), pxt.Int]:
 @pxt.udf
 def raises_when_evaluated(x: str) -> str:
     raise AssertionError()
+
+
+@pxt.udf
+def reciprocal(n: int) -> float:
+    return 1.0 / n
+
+
+@pxt.udf
+def halve(x: float) -> float:
+    return x / 2
+
+
+@pxt.udf
+def embed_or_raise(text: str) -> pxt.Array[(4,), np.float32]:
+    if text == 'bad':
+        raise ValueError('cannot embed')
+    return np.ones(4, dtype=np.float32)
+
+
+@pxt.udf
+def provider_fails(x: int) -> int:
+    raise pxt.ExternalServiceError(
+        pxt.ErrorCode.PROVIDER_ERROR, provider='gemini', status_code=500, provider_error_code='X', retry_after=3
+    )
 
 
 class TestTable:
@@ -1309,6 +1334,24 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='Expected an instance of `TestModel1`; got `TestModel2`'):
             _ = t.insert(cast(list[pydantic.BaseModel], rows1 + rows2))
 
+    def test_pydantic_serializer_reads_table(self, db_root: DatabaseRoot) -> None:
+        """A model serializer can call Pixeltable during insert() and compute()."""
+        p = db_root.make_catalog_path
+        lookup = pxt.create_table(p('lookup'), {'name': pxt.String})
+        validate_update_status(lookup.insert(name='a'), expected_rows=1)
+        t = pxt.create_table(p('tbl'), {'s': pxt.String})
+
+        class Row(pydantic.BaseModel):
+            s: str
+
+            @pydantic.field_serializer('s')
+            def serialize_s(self, s: str) -> str:
+                return f'{s}{pxt.get_table(p("lookup")).count()}'
+
+        validate_update_status(t.insert([Row(s='x')]), expected_rows=1)
+        assert t.select(t.s).collect()['s'] == ['x1']
+        assert [out['s'] for out in t.compute([Row(s='y')])] == ['y1']
+
     def test_compute_with_errors(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test_null_handling'), {'id': pxt.Int | None, 'data': pxt.Json | None})
@@ -2276,7 +2319,7 @@ class TestTable:
             for path in paths:
                 assert os.path.exists(path) and os.path.isfile(path)
 
-    def test_validate_json(self, db_root: DatabaseRoot) -> None:
+    def test_validate_json(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
 
         class MySchema(TypedDict):
@@ -2300,14 +2343,23 @@ class TestTable:
                 'json_col_4': pxt.Json[tuple[pxt.Int, ...]] | None,
                 'json_col_5': pxt.Json[(pxt.Int, pxt.String, ...)] | None,  # noqa: RUF031
             },
+            _is_data_versioned=is_data_versioned,
         )
         t.insert(json_col_1={'a': 'coconuts', 'b': 1, 'c': 3.0, 'd': True})
         t.update({'json_col_2': {'a': 'mangoes', 'b': 2}})  # Omit optional properties ok since total=False
         t.update({'json_col_3': [1, 'two']})  # List of correct length ok
         t.update({'json_col_4': []})  # Variadic list of minimal length ok
+        assert t.select(t.json_col_4).collect()[0]['json_col_4'] == []
         t.update({'json_col_4': [1, 2, 3, 4]})  # Longer variadic list ok
         t.update({'json_col_5': [1]})  # Variadic list of minimal length ok
         t.update({'json_col_5': [1, 'two', 'three', 'four']})  # Longer variadic list ok
+        assert t.collect()[0] == {
+            'json_col_1': {'a': 'coconuts', 'b': 1, 'c': 3.0, 'd': True},
+            'json_col_2': {'a': 'mangoes', 'b': 2},
+            'json_col_3': [1, 'two'],
+            'json_col_4': [1, 2, 3, 4],
+            'json_col_5': [1, 'two', 'three', 'four'],
+        }
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"expected a list; got `str`: 'not a list'"):
             t.insert(json_col_3='not a list')  # Wrong type
@@ -2343,11 +2395,62 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"missing required key: 'b'"):
             t.insert(json_col_1={'a': 'apples'})  # Missing required field
 
+        # Dict schemas are closed on insert and update: keys the schema doesn't declare are rejected
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"unexpected key: 'e'"):
+            t.insert(json_col_1={'a': 'apples', 'b': 1, 'c': 3.0, 'd': True, 'e': 'extra'})
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"unexpected key: 'z'"):
+            t.insert(json_col_2={'z': None})
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH,
+            match=r"The literal value.*is not compatible with the type.*of column 'json_col_2'",
+        ):
+            t.update({'json_col_2': {'a': 'mangoes', 'z': 1}})
+
         with pxt_raises(
             pxt.ErrorCode.TYPE_MISMATCH,
             match=r"The literal value.*is not compatible with the type.*of column 'json_col_2'",
         ):
             t.update({'json_col_2': {'a': 15}})  # Validation error on update
+
+    def test_update_json_expr(self, db_root: DatabaseRoot) -> None:
+        # An update expression's values aren't validated, so its type may declare no keys that the column's doesn't
+        class Schema(TypedDict, total=False):
+            a: str
+            b: int
+
+        t = pxt.create_table(db_root.make_catalog_path('test'), {'s': pxt.String, 'j': Schema | None})
+        t.insert(s='x')
+        t.update({'j': {'a': t.s}})  # omitting an optional key is fine
+        assert t.collect()['j'] == [{'a': 'x'}]
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"is not compatible with the type.*of column 'j'"):
+            t.update({'j': {'a': t.s, 'z': t.s}})
+
+    def test_insert_pydantic_json(self, db_root: DatabaseRoot) -> None:
+        # A nested model's values have exactly its fields, so it fits a dict schema that declares more, as optional
+        class Schema(TypedDict, total=False):
+            a: int
+            b: str
+
+        class Inner(pydantic.BaseModel):
+            a: int
+
+        class Row(pydantic.BaseModel):
+            meta: Inner
+
+        t = pxt.create_table(db_root.make_catalog_path('test'), {'meta': Schema})
+        t.insert([Row(meta=Inner(a=1))])
+        assert t.collect()['meta'] == [{'a': 1}]
+
+        # but not one whose fields the schema doesn't declare
+        class Inner2(pydantic.BaseModel):
+            a: int
+            z: int
+
+        class Row2(pydantic.BaseModel):
+            meta: Inner2
+
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"has incompatible type `Inner2` for column 'meta'"):
+            t.insert([Row2(meta=Inner2(a=1, z=2))])
 
     def test_validate_image(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
@@ -2381,7 +2484,6 @@ class TestTable:
     @rerun_on_network_error()
     def test_validate_external_url(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
-        skip_test_if_not_installed('boto3')
         rows = [
             {'media': 's3://open-images-dataset/validation/doesnotexist.jpg', 'is_bad_media': True},
             {'media': 'https://archive.random.org/download?file=2024-01-28.bin', 'is_bad_media': True},  # 403 error
@@ -2431,7 +2533,6 @@ class TestTable:
     @pytest.mark.db_roots('local', reason='inspects the local file cache via FileCache and tbl._id')
     @rerun_on_network_error()
     def test_create_s3_image_table(self, uses_db: None) -> None:
-        skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test', {'img': pxt.Image | None})
         # this is needed because reload_db() doesn't call TableVersion.drop(), which would
         # clear the file cache
@@ -2496,7 +2597,6 @@ class TestTable:
     @rerun_on_network_error()
     def test_video_url(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
-        skip_test_if_not_installed('boto3')
         schema: dict[str, Any] = {'payload': pxt.Int | None, 'video': pxt.Video | None}
         tbl = pxt.create_table(p('test'), schema)
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
@@ -2511,14 +2611,6 @@ class TestTable:
 
     @rerun_on_network_error()
     def test_create_video_table(self, db_root: DatabaseRoot) -> None:
-        if Env.get().is_using_cockroachdb:
-            # TODO(PXT-921): fix this on CockroachDB
-            pytest.skip(
-                'Skipped on CockroachDB due to: RETRY_SERIALIZABLE - failed preemptive refresh due to'
-                ' encountered recently written committed value...'
-            )
-        skip_test_if_not_installed('boto3')
-
         p = db_root.make_catalog_path
         tbl = pxt.create_table(p('test_tbl'), {'payload': pxt.Int | None, 'video': pxt.Video | None})
         view = pxt.create_view(p('test_view'), tbl, iterator=legacy_frame_iterator(tbl.video))
@@ -2570,7 +2662,6 @@ class TestTable:
     @rerun_on_network_error()
     def test_video_urls(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
-        skip_test_if_not_installed('boto3')
         tbl = pxt.create_table(p('test'), {'video': pxt.Video | None})
 
         # create a list of uris with duplicates, to test the duplicate-handling logic of CachePrefetchNode
@@ -2735,7 +2826,6 @@ class TestTable:
 
     def test_query(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        skip_test_if_not_installed('boto3')
         col_names = ['c1', 'c2', 'c3', 'c4', 'c5']
         t = make_tbl(p('test'), col_names, is_data_versioned=is_data_versioned)
         rows = create_table_data(t)
@@ -2747,7 +2837,7 @@ class TestTable:
         t2 = pxt.get_table(p('test'))
         _ = t2.show(n=0)
 
-    def test_batch_update(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+    def test_batch_update(self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         t = test_tbl
         num_rows = t.count()
@@ -2756,13 +2846,14 @@ class TestTable:
         assert t.count() == num_rows  # make sure we didn't lose any rows
         assert t.where(t.c2 == 1).collect()[0]['c1'] == '1'
         assert t.where(t.c2 == 2).collect()[0]['c1'] == '2'
-        # the same, but with _rowid
-        validate_update_status(
-            t.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two', '_rowid': (2,)}]), expected_rows=2
-        )
-        assert t.count() == num_rows  # make sure we didn't lose any rows
-        assert t.where(t.c2 == 1).collect()[0]['c1'] == 'one'
-        assert t.where(t.c2 == 2).collect()[0]['c1'] == 'two'
+        # the same, but with _rowid; a data-versioned table numbers its rows sequentially from 0
+        if is_data_versioned:
+            validate_update_status(
+                t.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two', '_rowid': (2,)}]), expected_rows=2
+            )
+            assert t.count() == num_rows  # make sure we didn't lose any rows
+            assert t.where(t.c2 == 1).collect()[0]['c1'] == 'one'
+            assert t.where(t.c2 == 2).collect()[0]['c1'] == 'two'
 
         # unknown primary key: raise error
         with pxt_raises(pxt.ErrorCode.ROW_NOT_FOUND) as exc_info:
@@ -2789,7 +2880,7 @@ class TestTable:
 
         # test composite primary key
         schema: dict[str, Any] = {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.Float | None}
-        t = pxt.create_table(p('composite'), schema, primary_key=['c1', 'c2'])
+        t = pxt.create_table(p('composite'), schema, primary_key=['c1', 'c2'], _is_data_versioned=is_data_versioned)
         rows = [{'c1': str(i), 'c2': i, 'c3': float(i)} for i in range(10)]
         validate_update_status(t.insert(rows), expected_rows=10)
 
@@ -2800,10 +2891,11 @@ class TestTable:
         assert t.where(t.c2 == 1).collect()[0]['c3'] == 2.0
         assert t.where(t.c2 == 2).collect()[0]['c3'] == 3.0
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
-            # can't mix _rowid with primary key
-            _ = t.batch_update([{'c1': '1', 'c2': 1, 'c3': 2.0, '_rowid': (1,)}])
-        assert "'c1' is a primary key column" in str(exc_info.value).lower()
+        if is_data_versioned:
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
+                # can't mix _rowid with primary key
+                _ = t.batch_update([{'c1': '1', 'c2': 1, 'c3': 2.0, '_rowid': (1,)}])
+            assert "'c1' is a primary key column" in str(exc_info.value).lower()
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             # bad literal
@@ -2816,26 +2908,39 @@ class TestTable:
         assert "primary key column(s) 'c2' missing" in str(exc_info.value).lower()
 
         # table without primary key
-        t2 = pxt.create_table(p('no_pk'), schema)
+        t2 = pxt.create_table(p('no_pk'), schema, _is_data_versioned=is_data_versioned)
         validate_update_status(t2.insert(rows), expected_rows=10)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
             _ = t2.batch_update([{'c1': '1', 'c2': 1, 'c3': 2.0}])
         assert 'must have primary key for batch update' in str(exc_info.value).lower()
 
-        # updating with _rowid still works
-        validate_update_status(
-            t2.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two', '_rowid': (2,)}]), expected_rows=2
-        )
-        assert t2.count() == len(rows)
-        assert t2.where(t2.c2 == 1).collect()[0]['c1'] == 'one'
-        assert t2.where(t2.c2 == 2).collect()[0]['c1'] == 'two'
-        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match='Malformed batch update'):
-            # some rows are missing rowids
-            _ = t2.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two'}])
+        # updating with _rowid still works on a data-versioned table
+        if is_data_versioned:
+            validate_update_status(
+                t2.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two', '_rowid': (2,)}]), expected_rows=2
+            )
+            assert t2.count() == len(rows)
+            assert t2.where(t2.c2 == 1).collect()[0]['c1'] == 'one'
+            assert t2.where(t2.c2 == 2).collect()[0]['c1'] == 'two'
+            with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match='Malformed batch update'):
+                # some rows are missing rowids
+                _ = t2.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two'}])
+        else:
+            # an operational table's rowids are random UUIDs that callers can't obtain
+            for tbl in (t, t2):
+                with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='_rowid is not supported'):
+                    _ = tbl.batch_update([{'c1': 'one', '_rowid': (uuid.uuid4(),)}])
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='_rowid is not supported'):
+                # also when only a later row has _rowid
+                _ = t.batch_update([{'c1': '1', 'c2': 1, 'c3': 5.0}, {'c1': '2', 'c2': 2, 'c3': 6.0, '_rowid': (1,)}])
+            assert t.where(t.c2 == 1).collect()[0]['c3'] == 2.0
 
         # update with SQL-expressible computed columns
         t = pxt.create_table(
-            p('cascade_test'), {'id': pxt.Int, 'val': pxt.String | None, 'num': pxt.Float | None}, primary_key='id'
+            p('cascade_test'),
+            {'id': pxt.Int, 'val': pxt.String | None, 'num': pxt.Float | None},
+            primary_key='id',
+            _is_data_versioned=is_data_versioned,
         )
         t.add_computed_column(val_upper=t.val.upper())
         t.add_computed_column(num_x2=t.num * 2)
@@ -2848,8 +2953,24 @@ class TestTable:
         assert res[0].items() >= {'id': 1, 'val_upper': 'UPDATED', 'num_x2': 20.0}.items()
         assert res[1].items() >= {'id': 2, 'val_upper': 'CHANGED', 'num_x2': 40.0}.items()
 
-    def test_update(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+    def test_update(
+        self, test_tbl: pxt.Table, small_img_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool
+    ) -> None:
         t = test_tbl
+
+        def current_rows() -> list[dict[str, Any]]:
+            """t's non-computed columns, in a form that can be re-inserted."""
+            col_names = [name for name, md in t.get_metadata()['columns'].items() if not md['is_computed']]
+            return list(t.select(*[t[name] for name in col_names]).collect())
+
+        def restore(rows: list[dict[str, Any]]) -> None:
+            """Undo the preceding update; an operational table has no history to revert to."""
+            if is_data_versioned:
+                t.revert()
+            else:
+                t.delete()
+                validate_update_status(t.insert(rows), expected_rows=len(rows))
+
         # update every type with a literal
         test_cases = [
             ('c1', 'new string'),
@@ -2861,11 +2982,12 @@ class TestTable:
         ]
         count = t.count()
         for col_name, literal in test_cases:
+            rows = current_rows()
             status = t.update({col_name: literal}, where=t.c3 < 10.0, cascade=False)
             assert status.num_rows == 10
             assert status.updated_cols == [f'{t._name()}.{col_name}']
             assert t.count() == count
-            t.revert()
+            restore(rows)
 
         # exchange two columns
         t.add_column(float_col=pxt.Float | None)
@@ -2873,10 +2995,11 @@ class TestTable:
         float_col_vals = t.order_by(t.c2).select(t.float_col).collect().to_pandas()['float_col']
         c3_vals = t.order_by(t.c2).select(t.c3).collect().to_pandas()['c3']
         assert np.all(float_col_vals == pd.Series([1.0] * t.count()))
+        rows = current_rows()
         t.update({'c3': t.float_col, 'float_col': t.c3})
         assert np.all(t.order_by(t.c2).select(t.c3).collect().to_pandas()['c3'] == float_col_vals)
         assert np.all(t.order_by(t.c2).select(t.float_col).collect().to_pandas()['float_col'] == c3_vals)
-        t.revert()
+        restore(rows)
 
         # update column that is used in computed cols
         t.add_computed_column(computed1=t.c3 + 1)
@@ -2889,6 +3012,7 @@ class TestTable:
         computed3 = t.order_by(t.computed3).collect().to_pandas()['computed3']
         assert t.where(t.c3 < 10.0).count() == 10
         assert t.where(t.c3 == 10.0).count() == 1
+        rows = current_rows()
         # update to a value that also satisfies the where clause
         status = t.update({'c3': 0.0}, where=t.c3 < 10.0, cascade=False)
         assert status.num_rows == 10
@@ -2900,10 +3024,11 @@ class TestTable:
         assert np.all(t.order_by(t.computed2).collect().to_pandas()['computed2'] == computed2)
         assert np.all(t.order_by(t.computed3).collect().to_pandas()['computed3'] == computed3)
 
-        # revert, then verify that we're back to where we started
+        # undo the update, then verify that we're back to where we started
+        tbl_path = t.get_metadata()['path']
         reload_catalog()
-        t = pxt.get_table(t.get_metadata()['path'])
-        t.revert()
+        t = pxt.get_table(tbl_path)
+        restore(rows)
         assert t.where(t.c3 < 10.0).count() == 10
         assert t.where(t.c3 == 10.0).count() == 1
 
@@ -2950,11 +3075,21 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not a recognized'):
             t.update({'c3': lambda c3: math.sqrt(c3)})
 
+        # uncalled method
+        c1_vals = t.order_by(t.c2).select(t.c1).collect()['c1']
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'c1\.upper is the method upper\(\)'):
+            t.update({'c1': t.c1.upper})
+        assert t.order_by(t.c2).select(t.c1).collect()['c1'] == c1_vals
+
         # non-Predicate filter
         with pxt_raises(
             pxt.ErrorCode.INVALID_EXPRESSION, match=r'`where` argument must be a valid Pixeltable expression'
         ):
             t.update({'c3': 1.0}, where=lambda c2: c2 == 10)  # type: ignore[arg-type]
+
+        # uncalled method in filter
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'c1\.upper is the method upper\(\)'):
+            t.update({'c3': 1.0}, where=t.c1.upper == 'a')
 
         img_t = small_img_tbl
 
@@ -2962,10 +3097,12 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not expressible'):
             img_t.update({'split': 'train'}, where=img_t.img.width > 100)
 
-    def test_batch_update_computed_pk(self, db_root: DatabaseRoot) -> None:
+    def test_batch_update_computed_pk(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(
-            p('computed_pk'), {'id': {'value': pxtf.uuid.uuid7(), 'primary_key': True}, 'caption': pxt.String | None}
+            p('computed_pk'),
+            {'id': {'value': pxtf.uuid.uuid7(), 'primary_key': True}, 'caption': pxt.String | None},
+            _is_data_versioned=is_data_versioned,
         )
         validate_update_status(t.insert([{'caption': 'first'}]), expected_rows=1)
         row_id = t.select(t.id).head(1)[0]['id']
@@ -2977,7 +3114,7 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is computed'):
             t.update({'id': row_id})
 
-    def test_batch_update_return_rows(self, db_root: DatabaseRoot) -> None:
+    def test_batch_update_return_rows(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Coverage for the `return_rows` parameter on Table.batch_update().
 
         Note: at the time of writing, `Table.batch_update()` does not actually cascade to
@@ -2991,15 +3128,27 @@ class TestTable:
             p('test_batch_update_return_rows'),
             {'id': pxt.Int, 'val': pxt.Int, 'name': pxt.String | None},
             primary_key='id',
+            _is_data_versioned=is_data_versioned,
         )
-        t.insert(
-            [{'id': 1, 'val': 10, 'name': 'a'}, {'id': 2, 'val': 20, 'name': 'b'}, {'id': 3, 'val': 30, 'name': 'c'}]
-        )
+        initial_rows = [
+            {'id': 1, 'val': 10, 'name': 'a'},
+            {'id': 2, 'val': 20, 'name': 'b'},
+            {'id': 3, 'val': 30, 'name': 'c'},
+        ]
+        t.insert(initial_rows)
+
+        def restore() -> None:
+            """Undo the preceding update; an operational table has no history to revert to."""
+            if is_data_versioned:
+                t.revert()
+            else:
+                t.delete()
+                t.insert(initial_rows)
 
         # default: return_rows=False -> status.rows is None
         status = t.batch_update([{'id': 1, 'name': 'x'}])
         assert status.rows is None
-        t.revert()
+        restore()
 
         # return_rows=True with two updated rows: each affected row appears in status.rows with
         # its new value, and unchanged columns are present too.
@@ -3011,7 +3160,7 @@ class TestTable:
         assert rows_by_id[1]['name'] == 'a'  # unchanged
         assert rows_by_id[3]['val'] == 300
         assert rows_by_id[3]['name'] == 'c'  # unchanged
-        t.revert()
+        restore()
 
         # return_rows=True with if_not_exists='insert': mix of updates and inserts. The inserted
         # rows must also surface in status.rows - this is what the `to_cascade` rows-preservation
@@ -3033,26 +3182,44 @@ class TestTable:
         # the inserted row
         assert rows_by_id[4]['val'] == 40
         assert rows_by_id[4]['name'] == 'd'
-        t.revert()
+        restore()
 
         # backward compatibility: positional cascade/if_not_exists still work
         status = t.batch_update([{'id': 1, 'name': 'pos'}], False, 'error')
         assert status.rows is None  # default return_rows=False
         assert status.num_rows == 1
 
-    def test_update_return_rows(self, db_root: DatabaseRoot) -> None:
+    def test_update_return_rows(
+        self, db_root: DatabaseRoot, is_data_versioned: bool, local_embed: pxt.Function
+    ) -> None:
         """Coverage for the `return_rows` parameter on Table.update()."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('test_update_return_rows'), {'id': pxt.Int, 'val': pxt.Int, 'name': pxt.String | None})
-        t.insert(
-            [{'id': 1, 'val': 10, 'name': 'a'}, {'id': 2, 'val': 20, 'name': 'b'}, {'id': 3, 'val': 30, 'name': 'c'}]
+        t = pxt.create_table(
+            p('test_update_return_rows'),
+            {'id': pxt.Int, 'val': pxt.Int, 'name': pxt.String | None},
+            _is_data_versioned=is_data_versioned,
         )
+        initial_rows = [
+            {'id': 1, 'val': 10, 'name': 'a'},
+            {'id': 2, 'val': 20, 'name': 'b'},
+            {'id': 3, 'val': 30, 'name': 'c'},
+        ]
+        t.insert(initial_rows)
         t.add_computed_column(val_plus_one=t.val + 1)
+        t.add_embedding_index('name', idx_name='name_idx', string_embed=local_embed)
+
+        def restore() -> None:
+            """Undo the preceding update; an operational table has no history to revert to."""
+            if is_data_versioned:
+                t.revert()
+            else:
+                t.delete()
+                t.insert(initial_rows)
 
         # default: return_rows=False -> status.rows is None
         status = t.update({'name': 'x'})
         assert status.rows is None
-        t.revert()
+        restore()
 
         # return_rows=True with a literal value, no where: every row in status.rows has the new value
         status = t.update({'name': 'updated'}, return_rows=True)
@@ -3062,7 +3229,7 @@ class TestTable:
         # the dicts also include the unchanged columns
         assert {r['id'] for r in status.rows} == {1, 2, 3}
         assert {r['val'] for r in status.rows} == {10, 20, 30}
-        t.revert()
+        restore()
 
         # return_rows=True with a where filter: only the filtered rows are returned
         status = t.update({'name': 'filtered'}, where=t.val >= 20, return_rows=True)
@@ -3070,7 +3237,7 @@ class TestTable:
         assert len(status.rows) == 2 == status.num_rows
         assert all(r['name'] == 'filtered' for r in status.rows)
         assert {r['val'] for r in status.rows} == {20, 30}
-        t.revert()
+        restore()
 
         # return_rows=True with cascade=True: the recomputed computed column is reflected in the dict
         status = t.update({'val': 100}, where=t.id == 1, return_rows=True, cascade=True)
@@ -3078,7 +3245,9 @@ class TestTable:
         assert len(status.rows) == 1
         assert status.rows[0]['val'] == 100
         assert status.rows[0]['val_plus_one'] == 101  # recomputed
-        t.revert()
+        # the value of an index on a column that wasn't updated is also included
+        assert status.rows[0]['name:name_idx'] is not None
+        restore()
 
         # return_rows=True with cascade=False: the new base-column value is present, but the
         # computed column reflects the *stale* (pre-update) value because it wasn't recomputed.
@@ -3088,14 +3257,14 @@ class TestTable:
         assert status.rows[0]['val'] == 200
         # val was 20 before this update, so val_plus_one is still 21
         assert status.rows[0]['val_plus_one'] == 21
-        t.revert()
+        restore()
 
         # backward compatibility: positional where/cascade still work
         status = t.update({'name': 'pos'}, t.id == 3, False)
         assert status.rows is None  # default return_rows=False
         assert status.num_rows == 1
 
-    def test_cascading_update(self, test_tbl: pxt.InsertableTable) -> None:
+    def test_cascading_update(self, test_tbl: pxt.InsertableTable, is_data_versioned: bool) -> None:
         t = test_tbl
         t.add_computed_column(d1=t.c3 - 1)
         # add column that can be updated
@@ -3107,6 +3276,56 @@ class TestTable:
         t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
         r2 = t.where(t.c2 < 5).select(t.c3, t.c10, t.d1, t.d2).order_by(t.c2).collect()
         assert_resultset_eq(r1, r2)
+
+        # batch_update of only one of d2's inputs: the other one must still be read; d3 nests a SQL-expressible
+        # subexpr of the updated col inside a Python UDF, which must see the new value
+        t.add_computed_column(d3=halve(t.c3 - t.c10))
+        t.batch_update([{'c2': i, 'c3': 100.0 + i} for i in range(5)])
+        r3 = t.where(t.c2 < 5).select(t.c3 - 1.0, t.c3 - t.c10, (t.c3 - t.c10) / 2).order_by(t.c2).collect()
+        r4 = t.where(t.c2 < 5).select(t.d1, t.d2, t.d3).order_by(t.c2).collect()
+        assert_resultset_eq(r3, r4)
+
+    def test_update_edge_cases(
+        self, db_root: DatabaseRoot, sample_file_server: SampleFileServer, is_data_versioned: bool
+    ) -> None:
+        """Update behavior around unchanged columns, nulls, empty updates and per-row errors."""
+        p = db_root.make_catalog_path
+        img_files = [sample_file_server.url(f, db_root) for f in get_image_files()[:4]]
+        t = pxt.create_table(
+            p('op_update'),
+            {'id': pxt.Int, 'val': pxt.Int | None, 'j': pxt.Json | None, 'img': pxt.Image | None},
+            primary_key='id',
+            _is_data_versioned=is_data_versioned,
+        )
+
+        t.add_computed_column(inv=reciprocal(t.val))
+        t.insert({'id': i, 'val': i + 1, 'j': {'a': i}, 'img': img_files[i]} for i in range(4))
+
+        # an update never changes the columns it wasn't asked to change, media columns included
+        validate_update_status(t.update({'val': 10}, where=t.id == 0), expected_rows=1)
+        assert t.where(t.img != None).count() == 4
+        assert all(r['img'].size is not None for r in t.select(t.img).collect())
+        validate_update_status(t.update({'img': None}, where=t.id == 1), expected_rows=1)
+        assert t.where(t.img == None).count() == 1
+
+        # a JSON None is stored as a SQL NULL, not as a JSON 'null'
+        validate_update_status(t.update({'j': None}, where=t.id == 2), expected_rows=1)
+        assert t.where(t.j == None).count() == 1
+        validate_update_status(t.update({'j': {'b': 1}}, where=t.id == 2), expected_rows=1)
+        assert t.where(t.id == 2).collect()[0]['j'] == {'b': 1}
+
+        # an update that sets no columns still matches and returns the rows
+        validate_update_status(t.update({}, where=t.id == 2), expected_rows=1)
+        status = t.batch_update([{'id': 2}], return_rows=True)
+        validate_update_status(status, expected_rows=1)
+        assert status.rows is not None and status.rows[0]['j'] == {'b': 1}
+
+        # an error in a recomputed column is recorded on the affected row only
+        status = t.update({'val': 0}, where=t.id == 3)
+        assert status.num_excs == 1
+        assert status.cols_with_excs == ['op_update.inv']
+        assert t.where(t.inv.errortype != None).count() == 1
+        assert t.where(t.id == 0).collect()[0]['inv'] == 0.1
 
     def test_delete(
         self, test_tbl: pxt.Table, small_img_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool
@@ -3139,6 +3358,10 @@ class TestTable:
             pxt.ErrorCode.INVALID_EXPRESSION, match=r'`where` argument must be a valid Pixeltable expression; got'
         ):
             t.delete(where=lambda c2: c2 == 10)  # type: ignore[arg-type]
+
+        # uncalled method in filter
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'c1\.upper is the method upper\(\)'):
+            t.delete(where=t.c1.upper == 'a')
 
         img_t = small_img_tbl
 
@@ -3322,9 +3545,6 @@ class TestTable:
 
     def test_computed_col_exceptions(self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        if Env.get().is_using_cockroachdb:
-            # TODO Fix this on CockroachDB; it's a problem!
-            pytest.skip('Skipped on CockroachDB due to columns still being created when add_computed_column() fails.')
         # exception during insert()
         schema: dict[str, Any] = {'c2': pxt.Int | None}
         rows = list(test_tbl.select(test_tbl.c2).collect())
@@ -3339,6 +3559,16 @@ class TestTable:
         assert 'test_insert.add1' in status.cols_with_excs
         assert t.where(t.add1.errortype != None).count() == 10
         assert t.where(t.add_sum.errortype != None).count() == 10
+
+        # exception in an index value column, which is reported under the index name
+        t = pxt.create_table(p('test_idx_exc'), {'s': pxt.String}, _is_data_versioned=is_data_versioned)
+        t.add_embedding_index('s', idx_name='s_idx', string_embed=embed_or_raise)
+        status = t.insert([{'s': 'ok'}, {'s': 'bad'}], on_error='ignore')
+        assert status.num_excs == 1
+        assert status.cols_with_excs == ['test_idx_exc.s:s_idx']
+        status = t.update({'s': 'bad'}, where=t.s == 'ok')
+        assert status.num_excs == 1
+        assert status.cols_with_excs == ['test_idx_exc.s:s_idx']
 
         # exception during add_computed_column()
         t = pxt.create_table(p('test_add_column'), schema, _is_data_versioned=is_data_versioned)
@@ -3362,6 +3592,16 @@ class TestTable:
         assert t.where(t.add1.errortype != None).count() == 10
         msgs = t.select(msg=t.add1.errormsg).collect()['msg']
         assert sum('division by zero' in msg for msg in msgs if msg is not None) == 10
+
+    def test_computed_col_error_keeps_its_fields(self, db_root: DatabaseRoot) -> None:
+        t = pxt.create_table(db_root.make_catalog_path('test'), {'x': pxt.Int})
+        t.add_computed_column(y=provider_fails(t.x))
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match=r'In row 0 the expression provider_fails\(x\)') as exc:
+            t.insert(x=1)
+        err = exc.value
+        assert isinstance(err, pxt.ExternalServiceError)
+        assert (err.provider, err.provider_http_status_code, err.provider_error_code) == ('gemini', 500, 'X')
+        assert err.retry_after == 3
 
     # TODO: cannot be converted: KeyboardInterrupt injection is client-process-local and does not reach the daemon
     @pytest.mark.db_roots(
@@ -3456,6 +3696,14 @@ class TestTable:
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
         _ = new_t.collect()
+
+        # an aggregate function outside a window has no value per row
+        match = 'aggregate functions are not supported in computed columns'
+        for value, stored in ((pxtf.sum(t.c2), True), (pxtf.sum(t.c2), False), (pxtf.sum(t.c2) + 1, True)):
+            with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=match):
+                t.add_computed_column(total=value, stored=stored)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=match):
+            t.alter_computed_column(c9=pxtf.sum(t.c2), recompute=False)
 
     def test_revert(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
@@ -3763,6 +4011,34 @@ class TestTable:
             raise RuntimeError(f'Error in recompute_udf for value {i}')
         return str(i + TestTable.recompute_udf_increment)
 
+    def test_recompute_keeps_input_error(self, db_root: DatabaseRoot) -> None:
+        """A recompute passes on an input cell's stored error to the cells computed from it, as the insert did."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'img': pxt.Image, 'b': pxt.Int | None, 'note': pxt.String | None})
+        t.add_computed_column(w=t.img.width)
+        t.add_computed_column(w1=t.w + 1)  # computed in SQL
+        t.add_computed_column(mode=t.img.mode)
+        t.add_computed_column(upper_mode=t.mode.upper())  # computed in SQL
+        t.add_computed_column(md=t.img.get_metadata())  # a Json column
+        t.insert([{'img': get_image_files(include_bad_image=True)[0]}], on_error='ignore')
+        col_names = ['img', 'w', 'w1', 'mode', 'upper_mode', 'md']
+        errors = t.select(*(t[name].errortype for name in col_names), *(t[name].errormsg for name in col_names))
+        inserted = errors.collect()[0]
+        assert inserted['img_errortype'] is not None
+        assert all(inserted[f'{name}_errortype'] == inserted['img_errortype'] for name in col_names)
+        assert all(inserted[f'{name}_errormsg'] == inserted['img_errormsg'] for name in col_names)
+
+        for name in col_names[1:]:
+            for errors_only in (False, True):
+                status = t.recompute_columns(name, errors_only=errors_only, cascade=False)
+                assert (status.num_excs, status.cols_with_excs) == (1, [f'tbl.{name}'])
+                assert errors.collect()[0] == inserted
+
+        # an update passes it on as well; errormsg is a value, not the error
+        status = t.update({'b': t.w + 1, 'note': t.img.errormsg})
+        assert (status.num_excs, status.cols_with_excs) == (1, ['tbl.b'])
+        assert t.select(t.b, t.note).collect()[0] == {'b': None, 'note': inserted['img_errormsg']}
+
     # TODO: cannot be converted because the UDF reads client-process-local class attributes the daemon cannot see
     @pytest.mark.db_roots('local', reason='UDF reads client-process-local class attributes the daemon cannot see')
     def test_recompute_column(self, uses_db: None) -> None:
@@ -3872,6 +4148,8 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="not bound by table 'recompute_test'"):
             y = pxt.create_table('other_table', {'i': pxt.Int | None})
             t.recompute_columns('i1', where=y.i == 0)
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r's\.upper is the method upper\(\)'):
+            t.recompute_columns('i1', where=t.s.upper == 'a')
 
     def __test_drop_column_if_not_exists(self, t: pxt.Table, non_existing_col: str | ColumnRef) -> None:
         """Test the if_not_exists parameter of drop_column API"""
@@ -4096,6 +4374,8 @@ class TestTable:
             """Localized version of p(path), without the pxt://org:db/ prefix"""
             return pxt.catalog.Path.localize(p(path))
 
+        test_tbl.add_btree_index('c2', idx_name='c2_idx')
+
         validate_repr(
             test_tbl,
             f"""
@@ -4111,7 +4391,11 @@ class TestTable:
                       c5             Timestamp  test_tbl
                       c6                  Json  test_tbl
                       c7                  Json  test_tbl
-                      c8  Array[(2, 3), int64]  test_tbl  [[1, 2, 3], [4, 5, 6]]""",
+                      c8  Array[(2, 3), int64]  test_tbl  [[1, 2, 3], [4, 5, 6]]
+
+             Index Name Column   Type
+            -------------------------
+                 c2_idx     c2  btree""",
         )
 
         v = pxt.create_view(p('test_view'), test_tbl)
@@ -4169,7 +4453,7 @@ class TestTable:
         validate_repr(
             s1,
             f"""
-            snapshot '{p('test_snap1')}' (of '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:2')}')
+            snapshot '{p('test_snap1')}' (of '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:3')}')
             Where: ~(c1 == None)
 
              Column Name                  Type        Source           Computed With                      Comment
@@ -4194,7 +4478,7 @@ class TestTable:
         validate_repr(
             s2,
             f"""
-            snapshot '{p('test_snap2')}' (of '{loc('test_tbl:2')}')
+            snapshot '{p('test_snap2')}' (of '{loc('test_tbl:3')}')
 
              Column Name                  Type    Source           Computed With                      Comment
             -------------------------------------------------------------------------------------------------
@@ -4214,7 +4498,7 @@ class TestTable:
         validate_repr(
             s3,
             f"""
-            snapshot '{p('test_snap3')}' (of '{loc('test_tbl:2')}')
+            snapshot '{p('test_snap3')}' (of '{loc('test_tbl:3')}')
 
              Column Name                  Type      Source           Computed With                      Comment
             ---------------------------------------------------------------------------------------------------
@@ -4254,7 +4538,7 @@ class TestTable:
         validate_repr(
             iterator_view_1,
             f"""
-            view 'iterator_view_1' (of '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:2')}')
+            view 'iterator_view_1' (of '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:3')}')
 
              Column Name                  Type           Source           Computed With                      Comment
             --------------------------------------------------------------------------------------------------------
@@ -4285,7 +4569,7 @@ class TestTable:
         validate_repr(
             iterator_view_2,
             f"""
-            view 'iterator_view_2' (of '{loc('iterator_view_1')}', '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:2')}')
+            view 'iterator_view_2' (of '{loc('iterator_view_1')}', '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:3')}')
 
                         Column Name                  Type           Source                       Computed With                      Comment
             -------------------------------------------------------------------------------------------------------------------------------

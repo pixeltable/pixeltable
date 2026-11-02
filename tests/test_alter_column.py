@@ -3,7 +3,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
-from .utils import DatabaseRoot, pxt_raises, reload_catalog, validate_update_status
+from .utils import DatabaseRoot, pxt_raises, reload_catalog, run_workers, validate_update_status
 
 
 class TestAlterColumn:
@@ -32,6 +32,24 @@ class TestAlterColumn:
             reload_catalog(do_reload_catalog)
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected non-None'):
                 t.insert(c1=None)
+
+    @pytest.mark.db_roots(
+        'local',
+        reason='this runtime holds the pre-alter schema while a second in-process runtime alters the column; '
+        'hosted inserts are checked in the daemon',
+    )
+    def test_alter_column_visible_to_other_runtime(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        path = db_root.make_catalog_path('test_tbl')
+        t = pxt.create_table(path, {'c1': pxt.String}, _is_data_versioned=is_data_versioned)
+        validate_update_status(t.insert(c1='a'), 1)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected non-None'):
+            t.insert(c1=None)
+
+        errors = run_workers(lambda _tid: pxt.get_table(path).alter_column('c1', type_=pxt.String | None), n_threads=1)
+        assert len(errors) == 0, errors
+
+        validate_update_status(t.insert(c1=None), 1)
+        assert t.select(t.c1).order_by(t.c1).collect()['c1'] == ['a', None]
 
     def test_alter_column_via_reference(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         t = pxt.create_table(
@@ -209,6 +227,18 @@ class TestAlterColumn:
         num_versions = len(t.get_versions())
         t.alter_computed_column(c=t.n * 10)
         assert len(t.get_versions()) == num_versions
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_alter_computed_column_dict_literal(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
+        # the type of a constant dict in the value expression has a closed schema, but the column's type is open
+        t = pxt.create_table(db_root.make_catalog_path('test_tbl'), {'s': pxt.String})
+        t.add_computed_column(x={'p': t.s, 'opts': {'k': 1}})
+        validate_update_status(t.insert(s='a'), 1)
+        reload_catalog(do_reload_catalog)
+        t.alter_computed_column(x={'p': t.s, 'opts': {'k': 2}}, recompute=False)  # type: ignore[arg-type]
+        validate_update_status(t.insert(s='b'), 1)
+        rows = t.select(t.x).order_by(t.s).collect()['x']
+        assert rows == [{'p': 'a', 'opts': {'k': 1}}, {'p': 'b', 'opts': {'k': 2}}]
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_alter_computed_column_refs(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:

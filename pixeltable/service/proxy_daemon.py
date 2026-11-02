@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, AsyncIterator
 
 import httpx
 import sqlalchemy as sql
@@ -38,10 +38,12 @@ from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.process import is_pid, pid_alive
 
 from . import proxy_dispatch
-from .proxy_protocol import decode_body
+from .proxy_protocol import KEEP_ALIVE_S, decode_body, iter_body_chunks
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
+
+_logger = logging.getLogger(__name__)
 
 _LOCK_NAME = 'port.lock'
 _STARTUP_TIMEOUT = 60.0  # generous: the daemon creates/migrates its db on first init
@@ -141,17 +143,17 @@ def start(db: str, test_mode: bool = False) -> str:
             # serves the caller's project
             stop(db)
 
-    parent_home = Config.get().home
-    pgdata = os.environ.get('PIXELTABLE_PGDATA') or str(parent_home / 'pgdata')
     env = {
         **os.environ,
         'PIXELTABLE_HOME': str(proxy_home(db)),  # own media/tmp + port.lock
-        'PIXELTABLE_PGDATA': pgdata,  # shared postmaster
         # intentionally using the raw db name (without case-folding): Env has a fallback for legacy (case-sensitive)
         # database names.
         'PIXELTABLE_DB': db,  # own database
         'PIXELTABLE_PROXY_DAEMON': '1',  # mark this process as a proxy daemon instance
     }
+    pgdata_dir = Env.get().pgdata_dir
+    if pgdata_dir is not None:
+        env['PIXELTABLE_PGDATA'] = str(pgdata_dir)  # shared postmaster
     # The daemon outlives this call, so it must not inherit our stdio: leaving the child's stdout/stderr
     # attached to a pipe blocks the reader on EOF forever, and attached to a terminal it would spew daemon
     # output into that session. Redirect to a log file and detach into its own session so signals sent to
@@ -291,7 +293,7 @@ def _build_app(test_mode: bool = False) -> 'FastAPI':
     """
     from fastapi import FastAPI, HTTPException, Request, Response
     from fastapi.concurrency import run_in_threadpool
-    from fastapi.responses import FileResponse
+    from fastapi.responses import FileResponse, StreamingResponse
 
     app = FastAPI()
 
@@ -302,7 +304,16 @@ def _build_app(test_mode: bool = False) -> 'FastAPI':
         body = await run_in_threadpool(
             proxy_dispatch.handle, request_json.decode(), request_parts, include_error_detail=test_mode
         )
-        return Response(content=body, media_type='application/octet-stream')
+
+        # async so that StreamingResponse iterates it on the event loop rather than in a threadpool
+        async def chunks() -> AsyncIterator[memoryview]:  # noqa: RUF029
+            for chunk in iter_body_chunks(body):
+                yield chunk
+
+        # an explicit Content-Length keeps the response unchunked on the wire
+        return StreamingResponse(
+            chunks(), media_type='application/octet-stream', headers={'Content-Length': str(len(body))}
+        )
 
     if test_mode:
 
@@ -342,6 +353,11 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
     handled outside.
 
     test_mode: exposes the test-only endpoints and returns diagnostic detail with errors.
+
+    With an OTLP endpoint in the database's entry (db_exporter_otlp_endpoint), in OTEL_EXPORTER_OTLP_ENDPOINT, or in
+    the [otel] config section, the daemon exports telemetry there. A cloud pod skips the entry and exports to the
+    collector in the pod, at the address in OTEL_EXPORTER_OTLP_ENDPOINT. With a span dump file (OTEL_SPAN_DUMP, or
+    span_dump in the [otel] section) the daemon writes its spans to that file, with or without an endpoint.
     """
     # mark this process as a hosted-catalog server (no client-accessible local store) before the catalog inits
     os.environ['PIXELTABLE_PROXY_DAEMON'] = '1'
@@ -351,13 +367,32 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
             'The proxy daemon requires the serve dependencies (fastapi, uvicorn). '
-            'Install them with: pip install pixeltable[serve]',
+            "Install them with: pip install 'pixeltable[serve]'",
         ) from e
+    # inline: pixeltable.serving loads fastapi, which a client importing this module for read_port_lock() lacks
+    from pixeltable.serving._app import init_instrumentation, instrument_app
 
+    # configuration, not a flag, turns this on: a cloud pod running an older pixeltable ignores an unknown
+    # environment variable but fails on an unknown flag
+    otel_endpoint = Config.get().get_string_value('exporter_otlp_endpoint', section='otel')
+    otel_span_dump = Config.get().get_string_value('span_dump', section='otel')
+    otel_configured = otel_endpoint is not None or otel_span_dump is not None
+    env = Env.get()
+    otel_installed = env.is_installed_package('opentelemetry.instrumentation.pixeltable') and env.is_installed_package(
+        'opentelemetry.instrumentation.fastapi'
+    )
+    if otel_configured and not otel_installed:
+        # the endpoint can come from an OTEL_* variable that another program set, and a missing package must not
+        # stop the daemon
+        _logger.warning('OTLP export is configured, but the daemon exports no telemetry without pixeltable[otel]')
+    otel = otel_configured and otel_installed
+    if otel:
+        init_instrumentation()
     app = _build_app(test_mode)
 
     # eagerly create/migrate this daemon's database before announcing readiness
     _ = get_runtime().catalog
+    asgi_app = instrument_app(app) if otel else app
 
     # pixeltable log level also drives uvicorn
     log_level = logging.getLogger('pixeltable').getEffectiveLevel()
@@ -365,7 +400,14 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
     # log_config=None suppresses uvicorn's own logging setup which results in closing every handler registered so far.
     # Note: at this point, uvicorn logging has already been configured by Env.
     if host is not None or port is not None:
-        uvicorn.run(app, host=host or '127.0.0.1', port=port or 8000, log_level=log_level, log_config=None)
+        uvicorn.run(
+            asgi_app,
+            host=host or '127.0.0.1',
+            port=port or 8000,
+            log_level=log_level,
+            log_config=None,
+            timeout_keep_alive=KEEP_ALIVE_S,
+        )
         return
 
     config = Config.get()
@@ -385,7 +427,8 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
     atexit.register(lambda: lock.unlink(missing_ok=True))
     signal.signal(signal.SIGTERM, _cleanup)
 
-    uvicorn.Server(uvicorn.Config(app, log_level=log_level, log_config=None)).run(sockets=[sock])
+    uvicorn_config = uvicorn.Config(asgi_app, log_level=log_level, log_config=None, timeout_keep_alive=KEEP_ALIVE_S)
+    uvicorn.Server(uvicorn_config).run(sockets=[sock])
 
 
 def main(argv: list[str] | None = None) -> None:

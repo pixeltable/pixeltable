@@ -73,14 +73,7 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
             _evict_project_modules()
             # a file written after this process started is invisible to a finder that cached its directory
             importlib.invalidate_caches()
-            registered = set(registry.module_fns)
-            try:
-                return importlib.import_module(name)
-            except BaseException:
-                # a module that raises partway through leaves the udfs it already defined registered, and
-                # Python drops it from sys.modules, so _evict_project_modules() cannot reach them again
-                registry.deregister_functions(set(registry.module_fns) - registered)
-                raise
+            return registry.import_module(name)
     except ProhibitedWriteError as e:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, _prohibited_write_msg(str(path), subject, e)
@@ -366,6 +359,18 @@ def get_module_services(module: ModuleType, file: str) -> tuple[fastapi.FastAPI 
                     f'{file}: the FastAPI application does not include the router {name!r}; '
                     f'include it with include_router(), or move it to a separate file',
                 )
+        # unnamed routers share the name and the path of the route that polls their jobs
+        unnamed = [
+            name
+            for name, router in routers.items()
+            if router.name is None and any(route.background for route in router.service_spec(name).routes)
+        ]
+        if len(unnamed) > 1:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'{file}: the routers {", ".join(map(repr, unnamed))} have background routes but no name; '
+                'assign a name with FastAPIRouter(name=...)',
+            )
 
     return app, routers
 

@@ -12,6 +12,7 @@ from typing_extensions import TypeForm
 import pixeltable.exceptions as excs
 from pixeltable import type_system as ts
 from pixeltable.utils import parse_local_file_path
+from pixeltable.utils.object_stores import warn_if_pxtfs_destination
 
 from ..exprs import ColumnRef
 from .globals import normalize_schema
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
 
     from pixeltable import exprs
     from pixeltable.func.function import Function
+    from pixeltable.io.table_data_conduit import PydanticTableDataConduit
     from pixeltable.row import RowBatch
     from pixeltable.service.proxy_client import ProxyClient
     from pixeltable.types import ColumnSpec
@@ -228,6 +230,8 @@ class TableProxy(Table):
         bound_args = self._dispatch_args(locals())
         self._check_single_column_kwarg('add_computed_column', '`col_name=col_type` or `col_name=expression`', kwargs)
         self._check_mutable('add columns to')
+        # the daemon validates the column, where none of the caller's code runs
+        warn_if_pxtfs_destination(next(iter(kwargs)), destination)
         bound_args['columns'] = bound_args.pop('kwargs')
         return self._dispatch('add_computed_column', bound_args)
 
@@ -383,7 +387,9 @@ class TableProxy(Table):
         - plain dicts are sent as-is
         """
         if isinstance(source[0], pydantic.BaseModel):
-            source = self._pydantic_to_rows(source, check_required=False)
+            from pixeltable.io.table_data_conduit import PydanticTableDataConduit
+
+            source = self._pydantic_to_rows(PydanticTableDataConduit(source), check_required=False)
         rows: list[dict[str, Any]] = []
         for source_row in source:
             if not isinstance(source_row, dict):
@@ -393,11 +399,10 @@ class TableProxy(Table):
             rows.append(source_row)
         return rows
 
-    def _pydantic_to_rows(self, models: list[Any], *, check_required: bool = True) -> list[dict[str, Any]]:
+    def _pydantic_to_rows(
+        self, converter: PydanticTableDataConduit, *, check_required: bool = True
+    ) -> list[dict[str, Any]]:
         """Validate pydantic models against this table's schema and convert them to insertable dicts."""
-        from pixeltable.io.table_data_conduit import PydanticTableDataConduit
-
-        converter = PydanticTableDataConduit(models)
         converter.add_table_info(self)
         if not check_required:
             converter.reqd_col_names.clear()

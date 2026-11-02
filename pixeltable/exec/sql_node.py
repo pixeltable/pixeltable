@@ -1,4 +1,3 @@
-import datetime
 import logging
 import random
 import warnings
@@ -10,8 +9,7 @@ import numpy as np
 import sqlalchemy as sql
 from pgvector import HalfVector
 
-from pixeltable import catalog, exprs
-from pixeltable.env import Env
+from pixeltable import catalog, exprs, telemetry
 from pixeltable.metadata import schema
 from pixeltable.query_clauses import JoinClause, JoinType
 from pixeltable.runtime import get_runtime
@@ -87,7 +85,7 @@ class SqlNode(ExecNode):
 
     tbl: catalog.TableVersionPath | None
     select_list: exprs.ExprSet
-    columns: list[catalog.Column]  # for which columns to populate DataRow.cell_vals/cell_md
+    columns: list[catalog.Column]  # columns copied unchanged into the output rows, via DataRow.cell_vals/cell_md
     cell_md_refs: list[exprs.ColumnPropertyRef]  # of ColumnRefs which also need DataRow.slot_cellmd for evaluation
     set_pk: bool
     num_pk_cols: int
@@ -100,6 +98,7 @@ class SqlNode(ExecNode):
     cellmd_item_idxs: exprs.ExprDict[int]  # cellmd expr -> idx in sql select list
     column_item_idxs: dict[catalog.Column, int]  # column -> idx in sql select list
     column_cellmd_item_idxs: dict[catalog.Column, int]  # column -> idx in sql select list
+    copied_input_col_ids: dict[int, list[int]]  # select_list slot idx -> ids of its copied input columns
     result_cursor: sql.engine.CursorResult | None
 
     # where_clause/-_element: allow subclass to set one or the other (but not both)
@@ -207,6 +206,13 @@ class SqlNode(ExecNode):
         return []
 
     def _create_select_list_state(self) -> None:
+        """Assemble the SQL select list and record each item's position in it.
+
+        The SQL select list contains:
+        - select_list, whose values go into the output row's slots
+        - the cellmd of cell_md_refs, for DataRow.slot_md
+        - the value and cellmd of each copied column, for DataRow.cell_vals/cell_md; these items aren't slots
+        """
         assert self.sql_elements.contains_all(self.select_list)
         self.sql_select_list_exprs = exprs.ExprSet(self.select_list)
         self.cellmd_item_idxs = exprs.ExprDict((ref, self.sql_select_list_exprs.add(ref)) for ref in self.cell_md_refs)
@@ -220,6 +226,23 @@ class SqlNode(ExecNode):
         self.column_cellmd_item_idxs = {
             cellmd_ref.col_ref.col: self.sql_select_list_exprs.add(cellmd_ref) for cellmd_ref in column_cellmd_refs
         }
+        self.copied_input_col_ids = {}
+        for e in self.select_list:
+            # an error property such as errormsg is a value, not its column's error (as in RowBuilder), so the
+            # traversal stops there
+            refs = e.subexprs(
+                filter=lambda x: isinstance(x, exprs.ColumnRef)
+                or (isinstance(x, exprs.ColumnPropertyRef) and x.is_cellmd_prop()),
+                traverse_matches=False,
+            )
+            # the output rows have the cellmd of copied columns only (column_cellmd_item_idxs)
+            col_ids = [
+                ref.col.id
+                for ref in refs
+                if isinstance(ref, exprs.ColumnRef) and ref.col in self.column_cellmd_item_idxs
+            ]
+            if len(col_ids) > 0:
+                self.copied_input_col_ids[e.slot_idx] = col_ids
 
     def _create_stmt(self) -> sql.Select:
         """Create Select from local state"""
@@ -335,7 +358,7 @@ class SqlNode(ExecNode):
             assert exclude_deleted_at_current_version is None
         joined_tbls: list[catalog.TableVersionHandle] = [candidates[0]]
         for t in candidates[1:]:
-            # the tables in the path must either all be data-versioned or not
+            # all tables in the path have the same versioning
             assert t.get().is_data_versioned == is_data_versioned
             # a data-versioned table has to be joined even if nothing references its columns, in order to apply the
             # version predicate (= select only visible rows)
@@ -410,6 +433,16 @@ class SqlNode(ExecNode):
     def set_offset(self, offset: exprs.Expr) -> None:
         self.offset = offset
 
+    def _check_catalog_locks(self) -> None:
+        """Check that Catalog holds read locks for the tables used by this query."""
+        for input in self._cte_inputs:
+            input._check_catalog_locks()
+        if self.tbl is None:
+            return
+        cat = get_runtime().catalog
+        for handle in self.tbl.get_tbl_versions():
+            cat.check_rows_read_locked(handle.get())
+
     def _log_explain(self, stmt: sql.Select) -> None:
         try:
             # don't set dialect=Env.get().engine.dialect: x % y turns into x %% y -> syntax error
@@ -428,6 +461,7 @@ class SqlNode(ExecNode):
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         # run the query; do this here rather than in _open(), exceptions are only expected during iteration
+        self._check_catalog_locks()
         with warnings.catch_warnings(record=True) as w:
             if self._stmt is None:
                 self._stmt = self._create_stmt()
@@ -444,14 +478,13 @@ class SqlNode(ExecNode):
                 self._log_explain(stmt)
 
             conn = get_runtime().conn
-            result_cursor = conn.execute(stmt, self.bound_args)
+            with telemetry.span('pixeltable.sa.select'):
+                result_cursor = conn.execute(stmt, self.bound_args)
             for _ in w:
                 pass
 
         output_batch = DataRowBatch(self.row_builder)
         output_row: exprs.DataRow | None = None
-        is_using_cockroachdb = Env.get().is_using_cockroachdb
-        tzinfo = Env.get().default_time_zone
 
         for sql_row in result_cursor:
             output_row = output_batch.add_row(output_row)
@@ -486,17 +519,6 @@ class SqlNode(ExecNode):
                         output_row[slot_idx] = float(sql_row[i])
                     else:
                         raise RuntimeError(f'Unexpected Decimal value for {e}')
-                elif is_using_cockroachdb and isinstance(sql_row[i], datetime.datetime):
-                    # Ensure that the datetime is timezone-aware and in the session time zone
-                    # cockroachDB returns timestamps in the session time zone, with numeric offset,
-                    # convert to the session time zone with the requested tzinfo for DST handling
-                    if e.col_type.is_timestamp_type():
-                        if isinstance(sql_row[i].tzinfo, datetime.timezone):
-                            output_row[slot_idx] = sql_row[i].astimezone(tz=tzinfo)
-                        else:
-                            output_row[slot_idx] = sql_row[i]
-                    else:
-                        raise RuntimeError(f'Unexpected datetime value for {e}')
                 elif e.col_type.is_array_type() and isinstance(sql_row[i], (list, HalfVector)):
                     # pgvector decodes VECTOR/HALFVEC values to lists of floats (>= 0.5) or HalfVector
                     # objects (< 0.5); all array data needs to be materialized as ndarrays
@@ -504,6 +526,16 @@ class SqlNode(ExecNode):
                     output_row[slot_idx] = np.asarray(value, dtype=np.float32)
                 else:
                     output_row[slot_idx] = sql_row[i]
+
+            # an errored cell stores NULL, with its error in the cellmd; an expr that reads a copied column's errored
+            # cell needs to get that error, as during an insert
+            for slot_idx, col_ids in self.copied_input_col_ids.items():
+                for col_id in col_ids:
+                    cell_md = output_row.cell_md[col_id]
+                    if cell_md is not None and cell_md.errortype is not None:
+                        errormsg = '' if cell_md.errormsg is None else cell_md.errormsg
+                        self.row_builder.set_exc(output_row, slot_idx, exprs.StoredError(cell_md.errortype, errormsg))
+                        break
 
             output_row = None
 

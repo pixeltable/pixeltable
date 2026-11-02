@@ -4,7 +4,7 @@ from typing import Any
 
 import sqlalchemy as sql
 
-from pixeltable import env, exceptions as excs, type_system as ts
+from pixeltable import exceptions as excs, type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
@@ -83,11 +83,6 @@ class ArithmeticExpr(Expr):
         if left is None or right is None:
             return None
         if self.operator in (ArithmeticOperator.ADD, ArithmeticOperator.SUB, ArithmeticOperator.MUL):
-            if env.Env.get().is_using_cockroachdb and self._op1.col_type != self._op2.col_type:
-                if self._op1.col_type != self.col_type:
-                    left = sql.cast(left, self.col_type.to_sa_type())
-                if self._op2.col_type != self.col_type:
-                    right = sql.cast(right, self.col_type.to_sa_type())
             if self.operator == ArithmeticOperator.ADD:
                 return left + right
             if self.operator == ArithmeticOperator.SUB:

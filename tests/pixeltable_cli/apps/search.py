@@ -31,10 +31,16 @@ class Chunks(
 def similar_chunks(needle: str, limit: int = 3) -> pxt.Query:
     """The chunks closest to a search string, which is what an embedding index is for."""
     sim = Chunks.text.similarity(string=needle)
-    return Chunks.order_by(sim, asc=False).limit(limit).select(Chunks.text)
+    return Chunks.order_by(sim, asc=False).limit(limit).select(text=Chunks.text)
+
+
+@pxt.query
+def most_similar_chunk(needle: str) -> pxt.Query:
+    sim = Chunks.text.similarity(string=needle)
+    return Chunks.order_by(sim, asc=False).limit(1).select(Chunks.text)
 
 
 search = FastAPIRouter(name='search')
 search.add_insert_route(Articles, path='/articles', inputs=[Articles.article_id, Articles.body])  # type: ignore[arg-type]
 search.add_query_route(path='/similar', query=similar_chunks)
-search.add_query_route(path='/similar-one', query=similar_chunks, one_row=True, method='get')
+search.add_query_route(path='/similar-one', query=most_similar_chunk, method='get')

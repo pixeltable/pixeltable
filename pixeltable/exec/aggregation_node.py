@@ -4,7 +4,7 @@ import logging
 import sys
 from typing import Any, AsyncIterator, Iterable, cast
 
-from pixeltable import catalog, exceptions as excs, exprs
+from pixeltable import catalog, exceptions as excs, exprs, telemetry
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -102,7 +102,8 @@ class AggregationNode(ExecNode):
 
                 if group != current_group:
                     # we're entering a new group, emit a row for the previous one
-                    self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
+                    with telemetry.span('pixeltable.agg.finalize', level=telemetry.DEBUG):
+                        self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
                     self.output_batch.add_row(prev_row)
                     num_output_rows += 1
                     if limit is not None and num_output_rows == limit:
@@ -115,7 +116,8 @@ class AggregationNode(ExecNode):
 
         if prev_row is not None:
             # emit the last group
-            self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
+            with telemetry.span('pixeltable.agg.finalize', level=telemetry.DEBUG):
+                self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
             self.output_batch.add_row(prev_row)
 
         _logger.debug(f'AggregateNode: consumed {num_input_rows} rows, returning {len(self.output_batch.rows)} rows')

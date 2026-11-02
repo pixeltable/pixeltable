@@ -57,19 +57,17 @@ async def chat_completions(
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b`
+        Add a computed column that applies the model `accounts/fireworks/models/gpt-oss-120b`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(
         ...     response=chat_completions(
-        ...         messages,
-        ...         model='accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b',
+        ...         messages, model='accounts/fireworks/models/gpt-oss-120b'
         ...     )
         ... )
     """
-    if model_kwargs is None:
-        model_kwargs = {}
+    model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
     if 'timeout' not in model_kwargs:
         model_kwargs['timeout'] = Config.get().get_int_value('timeout', section='fireworks') or 600

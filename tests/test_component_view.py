@@ -185,6 +185,10 @@ class TestComponentView:
             _ = pxt.create_view(p('test_view'), video_t, iterator=frame_iterator(1, fps=1))
         assert 'argument type Int does not match parameter type Video' in str(excinfo.value)
 
+        # uncalled method
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'video\.reverse is the method reverse\(\)'):
+            _ = pxt.create_view(p('test_view'), video_t, iterator=frame_iterator(video_t.video.reverse, fps=1))
+
         # create frame view
         view_t = pxt.create_view(p('test_view'), video_t, iterator=legacy_frame_iterator(video_t.video, fps=1))
         # computed column that references a column from the base
@@ -304,6 +308,11 @@ class TestComponentView:
         with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match='Malformed _rowid'):
             # malformed _rowid
             view_t.batch_update([{'annotation': {'a': 1}, '_rowid': (1,)}])
+
+        # a view of the component view has the same rowid columns as the component view
+        v = pxt.create_view(p('view_of_view'), view_t, additional_columns={'note': pxt.String | None})
+        validate_update_status(v.batch_update([{'note': 'x', '_rowid': (1, 0)}]), expected_rows=1)
+        assert v.where(v.note == 'x').count() == 1
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as excinfo:
             _ = pxt.create_view(

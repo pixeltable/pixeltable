@@ -1,0 +1,222 @@
+---
+title: 'Transcribe speech and identify speakers with WhisperX'
+sidebarTitle: 'WhisperX transcription'
+description: 'Transcribe speech with WhisperX in Python, identify speakers, and search the transcript with word-level timestamps.'
+keywords: ['whisperx', 'speaker diarization', 'word-level timestamps', 'speech to text']
+---
+
+You transcribe recorded conversations, identify who spoke each word, and search what was said.
+
+**What's in this recipe:**
+
+- Preview WhisperX transcription and save it for each clip
+- Extract word timestamps and speaker labels
+- Search speech segments with an embedding index
+
+## Problem
+
+You have recorded conversations and need a transcript with word timestamps and speaker labels. You
+want to find relevant speech and return to the point in the recording where it was said.
+
+## Solution
+
+You use WhisperX to transcribe speech locally and align each word to a time and a speaker.
+[`pixeltable.functions.whisperx.transcribe()`](/sdk/latest/whisperx) does that as a computed column on
+audio, or on audio taken from a video with `extract_audio()`. `diarize=True` is the switch that adds
+word-level timestamps and speaker labels: Pixeltable then runs WhisperX alignment and diarization, and
+stores `segments` plus `word_segments`. A view splits those segments into rows, and an embedding index
+searches what was said.
+
+`diarize=False` returns `language` and `segments` with `start`, `end`, `text`, and `avg_logprob`. It does
+not need a Hugging Face token. `alignment_model_name`, `interpolate_method`, `return_char_alignments`,
+`diarization_model_name`, `num_speakers`, `min_speakers`, and `max_speakers` are valid only when
+`diarize=True`.
+
+You use the Query-then-Commit pattern: preview a transcript with a query on one clip, then save the
+same expression with `add_computed_column()` to transcribe every clip.
+
+### Setup
+
+You need Python 3.11 or newer and WhisperX 3.8 or newer. The search step needs `sentence-transformers`.
+WhisperX also needs [FFmpeg](https://ffmpeg.org/download.html) available on your system to load audio.
+
+```bash
+pip install -U pixeltable 'whisperx>=3.8' sentence-transformers
+```
+
+Diarization loads WhisperX's default pyannote pipeline. On WhisperX 3.8 and later that model is
+`pyannote/speaker-diarization-community-1`. Accept that model's terms on Hugging Face, then export a
+token. Pixeltable reads `HF_TOKEN` (or the `[hf]` `token` setting in
+[Configuration](/platform/configuration)). Pass `diarization_model_name` when you want a different
+pyannote pipeline, such as `pyannote/speaker-diarization-3.1`.
+
+```bash
+export HF_TOKEN='your-huggingface-token'
+```
+
+```python
+from uuid import uuid4
+
+import pixeltable as pxt
+from pixeltable.functions.huggingface import sentence_transformer
+from pixeltable.functions.json import list_iterator
+from pixeltable.functions.whisperx import transcribe
+```
+
+### Load a video clip
+
+Each run creates a fresh catalog directory. The later views use the same `demo` namespace.
+
+```python
+demo = f'whisperx_demo_{uuid4().hex}'
+pxt.create_dir(demo)
+
+clips = pxt.create_table(
+    f'{demo}.clips', {'title': pxt.String, 'video': pxt.Video}
+)
+```
+
+```python
+clips.insert([
+    {
+        'title': 'Lex Fridman podcast excerpt',
+        'video': (
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/release/'
+            'docs/resources/audio-transcription-demo/'
+            'Lex-Fridman-Podcast-430-Excerpt-0.mp4'
+        ),
+    }
+])
+```
+
+### Transcribe audio from video
+
+`extract_audio()` copies the soundtrack of a `pxt.Video` column into a `pxt.Audio` value. A file that
+is already audio goes in a `pxt.Audio` column, and you pass that column to `transcribe()` without
+`extract_audio()`.
+
+`model` is a Whisper model name. `tiny.en` is the small English model. On CUDA, `compute_type`
+defaults to `float16`. Otherwise it defaults to `int8`.
+
+```python
+clips.add_computed_column(audio=clips.video.extract_audio(format='wav'))
+```
+
+You preview one transcript, then save the same expression as a computed column.
+
+```python
+transcript = transcribe(
+    clips.audio,
+    model='tiny.en',
+    language='en',
+    diarize=True,
+)
+clips.select(transcript=transcript).head(1)
+```
+
+```python
+clips.add_computed_column(transcript=transcript)
+```
+
+```python
+clips.select(
+    clips.transcript.segments[0].text,
+    clips.transcript.segments[0].speaker,
+    clips.transcript.segments[0].words,
+).collect()
+```
+
+With `diarize=True`, each segment has `start`, `end`, `text`, `avg_logprob`, and `words`, plus
+`speaker` when the diarizer overlapped that span. `word_segments` is the flat list of words. Each word has `word`,
+`start`, `end`, `score`, and `speaker` when alignment and diarization assigned them. A missing
+timestamp or speaker is null.
+
+### Word-level timestamps and speakers
+
+`list_iterator()` turns `word_segments` into one row per word. The `astype()` calls give Pixeltable
+the list types it needs. `str | None` and `float | None` keep a word whose `start` or `speaker` was
+not assigned.
+
+```python
+words = pxt.create_view(
+    f'{demo}.words',
+    clips,
+    iterator=list_iterator(
+        word=clips.transcript.word_segments['*'].word.astype(pxt.Json[[str]]),
+        start=clips.transcript.word_segments['*'].start.astype(
+            pxt.Json[[float | None]]
+        ),
+        end=clips.transcript.word_segments['*'].end.astype(
+            pxt.Json[[float | None]]
+        ),
+        speaker=clips.transcript.word_segments['*'].speaker.astype(
+            pxt.Json[[str | None]]
+        ),
+    ),
+)
+```
+
+```python
+words.order_by(words.start).limit(12).select(
+    words.speaker, words.start, words.end, words.word
+).collect()
+```
+
+`num_speakers`, `min_speakers`, and `max_speakers` constrain the diarizer when you already know how
+many people are speaking.
+
+### Search what was said
+
+Index the speech segments. Each row is one utterance, with its start time and speaker, which is the
+unit you search. `add_embedding_index()` embeds `text` and stays current when you insert another
+clip. The first call downloads `all-MiniLM-L6-v2`.
+
+```python
+segments = pxt.create_view(
+    f'{demo}.segments',
+    clips,
+    iterator=list_iterator(
+        start=clips.transcript.segments['*'].start.astype(pxt.Json[[float]]),
+        end=clips.transcript.segments['*'].end.astype(pxt.Json[[float]]),
+        speaker=clips.transcript.segments['*'].speaker.astype(
+            pxt.Json[[str | None]]
+        ),
+        text=clips.transcript.segments['*'].text.astype(pxt.Json[[str]]),
+    ),
+)
+```
+
+```python
+segments.select(segments.start, segments.speaker, segments.text).head(5)
+```
+
+```python
+segments.add_embedding_index(
+    'text',
+    string_embed=sentence_transformer.using(model_id='all-MiniLM-L6-v2'),
+)
+```
+
+```python
+sim = segments.text.similarity(string='how we remember experiences')
+segments.order_by(sim, asc=False).limit(5).select(
+    segments.speaker, segments.start, segments.text, sim
+).collect()
+```
+
+Long-file splitting with OpenAI Whisper, without word alignment, is in
+[Transcribe audio files with Whisper](/howto/cookbooks/audio/audio-transcribe). Chapter titles from
+WhisperX segments are in
+[Generate podcast chapters](/howto/cookbooks/audio/audio-podcast-chapters). Index behavior is in
+[Embedding indexes](/platform/embedding-indexes).
+
+### In an application
+
+These snippets call `pxt.create_table()`, `create_view()`, and `add_embedding_index()` so you can run
+them in a notebook or a REPL. An application declares the table and the view on a `TableModel` in
+`app.py`, puts the embedding index in `__indexes__`, and creates them with `pxt schema update`.
+
+## See also
+
+- [Transcribe with Whisper](/howto/cookbooks/audio/audio-transcribe): split long audio and transcribe it with OpenAI Whisper
+- [Podcast chapters](/howto/cookbooks/audio/audio-podcast-chapters): turn speech segments into chapter titles

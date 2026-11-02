@@ -1,4 +1,7 @@
-"""Pixeltable Cloud home storage (``pxtfs://org:db/<bucket>/...``)"""
+"""Pixeltable Cloud home storage (``pxt://org:db/buckets/<bucket>/...``).
+
+``pxtfs://org:db/<bucket>/...``, the older spelling, names the same objects.
+"""
 
 from __future__ import annotations
 
@@ -24,6 +27,7 @@ from pixeltable import ErrorCode, exceptions as excs
 from pixeltable.env import Env
 from pixeltable.utils.cloud_utils import get_bucket_credentials, get_presigned_url_from_cloud
 from pixeltable.utils.object_stores import (
+    PXT_BUCKETS_DIR,
     S3_COMPATIBLE_TARGETS,
     FileDestination,
     ObjectStoreBase,
@@ -34,7 +38,7 @@ from pixeltable.utils.s3_store import S3Store
 
 _logger = logging.getLogger(__name__)
 
-_PXTFS_URI_PATTERN = re.compile(r'^pxtfs://[^/]+/([^/?#]+)(.*)$')
+_PXT_URI_PATTERN = re.compile(rf'^pxt://[^/]+/{PXT_BUCKETS_DIR}/([^/?#]+)(.*)$')
 
 # how often a write rejected for lack of space checks the quota again
 _QUOTA_RECHECK_INTERVAL_S = 60.0
@@ -51,6 +55,7 @@ class _PxtStoreCacheEntry:
     storage_provider: str
     prefix: str | None = None  # the credentials' scope; None for the whole bucket
     no_space_left: bool = False
+    no_space_detail: str | None = None  # the control plane's text for no_space_left, if it sent one
     no_space_warned: bool = False  # tracks whether warning has been issued for no space left in pixeltable store
     quota_checked_at: float = field(default_factory=time.monotonic)  # when no_space_left was last fetched
 
@@ -78,7 +83,8 @@ def _handle_no_space_warning(no_space_left: bool, entry: _PxtStoreCacheEntry, or
         if entry.no_space_warned:
             return
         warnings.warn(
-            f'Pixeltable store for pxtfs://{org}:{db}/{bucket} has no space left. '
+            entry.no_space_detail
+            or f'Pixeltable store for pxt://{org}:{db}/buckets/{bucket} has no space left. '
             'Only read and delete operations are allowed.',
             category=excs.PixeltableWarning,
             stacklevel=3,
@@ -94,6 +100,7 @@ def _refresh_credentials(org: str, db: str, bucket: str, entry: _PxtStoreCacheEn
     expiry_time = datetime.now(tz=timezone.utc) + timedelta(seconds=creds.ttl_seconds)
 
     entry.no_space_left = creds.no_space_left
+    entry.no_space_detail = creds.no_space_detail
     entry.quota_checked_at = time.monotonic()
     if creds.resolved_bucket_name:
         entry.physical_bucket_name = creds.resolved_bucket_name
@@ -125,6 +132,7 @@ def _build_pxt_store_entry(org: str, db: str, bucket: str, prefix: str | None = 
         physical_bucket_name=creds.resolved_bucket_name,
         endpoint_url=creds.endpoint_url,
         no_space_left=creds.no_space_left,
+        no_space_detail=creds.no_space_detail,
         storage_provider=creds.storage_provider,
         prefix=prefix,
     )
@@ -173,7 +181,7 @@ def _build_pxt_store_entry(org: str, db: str, bucket: str, prefix: str | None = 
     )
     entry.resource = boto3_session.resource('s3', endpoint_url=creds.endpoint_url, region_name='auto')
 
-    _logger.info(f'Initialized session for pxtfs://{org}:{db}/{bucket}/{prefix or ""}')
+    _logger.info(f'Initialized session for pxt://{org}:{db}/buckets/{bucket}/{prefix or ""}')
     return entry
 
 
@@ -240,12 +248,12 @@ class PxtStore(ObjectStoreBase):
         return S3Store(soa, client=self._pxt_store_entry.client, resource=self._pxt_store_entry.resource)
 
     def _to_logical_uri(self, store_object_uri: str) -> str:
-        """Create object uri with logical bucket name, store_object_uri is a pxtfs:// uri with physical bucket name."""
-        assert store_object_uri.startswith('pxtfs://')
+        """Create object uri with logical bucket name, store_object_uri is a pxt:// uri with physical bucket name."""
+        assert store_object_uri.startswith('pxt://')
         physical, logical = self._pxt_store_entry.physical_bucket_name, self.soa.container
 
-        matched = _PXTFS_URI_PATTERN.match(store_object_uri)
-        assert matched, f'Unexpected pxtfs URI shape in {store_object_uri!r}'
+        matched = _PXT_URI_PATTERN.match(store_object_uri)
+        assert matched, f'Unexpected pxt URI shape in {store_object_uri!r}'
 
         bucket, path = matched.group(1), matched.group(2)
         if bucket == logical:
@@ -253,8 +261,7 @@ class PxtStore(ObjectStoreBase):
         assert bucket == physical, (
             f'Unexpected bucket segment {bucket!r} in {store_object_uri!r} (expected {physical!r} or {logical!r})'
         )
-        org_db = store_object_uri.split('/')[2]
-        return f'pxtfs://{org_db}/{logical}{path}'
+        return f'{self.soa.container_free_uri}{logical}{path}'
 
     def validate(self, error_col_name: str) -> str | None:
         """Probe the store's prefix and return the logical base URI on success."""
@@ -295,13 +302,21 @@ class PxtStore(ObjectStoreBase):
                 _refresh_credentials(self.soa.account, self.soa.account_extension, self.soa.container, entry)
             except excs.ExternalServiceError as e:
                 _logger.warning('Could not check the quota of %s: %s', self.soa.prefix_free_uri, e)
+        if entry.no_space_left and entry.no_space_detail is not None:
+            # the error raise_if_refused() raises for the control plane's STORE_FULL refusal of an upload URL
+            raise excs.ExternalServiceError(
+                ErrorCode.PROVIDER_BAD_REQUEST,
+                entry.no_space_detail,
+                provider='pixeltable_cloud',
+                provider_error_code='STORE_FULL',
+            )
         if entry.no_space_left:
             raise excs.ServiceUnavailableError(
                 ErrorCode.STORE_UNAVAILABLE,
                 'No space left in Pixeltable store. Only read and delete operations are allowed.',
             )
         # Inner S3 store reads dest.remote_key for the upload and returns dest.url; since
-        # dest.url is already the logical (pxtfs://) URL, we can pass dest through unchanged.
+        # dest.url is already the logical (pxt://) URL, we can pass dest through unchanged.
         return self._store.copy_local_file(src_path, dest)
 
     def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:

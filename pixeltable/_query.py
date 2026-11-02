@@ -26,7 +26,7 @@ import PIL.Image
 import pydantic
 import sqlalchemy.exc as sql_exc
 
-from pixeltable import catalog, exceptions as excs, exec, exprs
+from pixeltable import catalog, exceptions as excs, exec, exprs, telemetry, telemetry_schemas
 from pixeltable._query_base import QueryBase
 from pixeltable.catalog import fold_identifier
 from pixeltable.catalog.update_status import UpdateStatus
@@ -301,8 +301,21 @@ class ResultCursor(Iterable[Row]):
             self.open()
         assert self._row_iterator is not None
         try:
-            for data in self._row_iterator:
-                yield Row(data, self._columns, self._schema)
+            with telemetry.span(
+                'pixeltable.result_cursor.yield_rows',
+                set_current=True,
+                **telemetry_schemas.QueryAttrs(tables=self._query._tbl_names()),
+            ) as yield_span:
+                num_rows = 0
+                try:
+                    for data in self._row_iterator:
+                        num_rows += 1
+                        yield Row(data, self._columns, self._schema)
+                except GeneratorExit:
+                    pass
+                finally:
+                    # also on early consumer exit, where the row count is the partial one
+                    telemetry.add_attrs(yield_span, rows=num_rows)
         finally:
             self.close()
 
@@ -521,6 +534,7 @@ class Query(QueryBase):
         assert n is not None
         return self.limit(n).collect()
 
+    @telemetry.spanned('pixeltable.head', set_current=True)
     def head(self, n: int = 10) -> ResultSet:
         """Return the first n rows of the Query, in insertion order of the underlying Table.
 
@@ -536,7 +550,9 @@ class Query(QueryBase):
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
-        return self._head(n)
+        result = self._head(n)
+        self._record_query_attrs(len(result))
+        return result
 
     def _rowid_order_by(self) -> list[exprs.RowidRef]:
         """The rowid components of this query's first table, in order, as an insertion-order sort key."""
@@ -569,6 +585,7 @@ class Query(QueryBase):
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with group_by()')
         return self.order_by(*self._rowid_order_by(), asc=True).limit(n)._collect(media_as_urls=media_as_urls)
 
+    @telemetry.spanned('pixeltable.tail', set_current=True)
     def tail(self, n: int = 10) -> ResultSet:
         """Return the last n rows of the Query, in insertion order of the underlying Table.
 
@@ -584,7 +601,9 @@ class Query(QueryBase):
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
-        return self._tail(n)
+        result = self._tail(n)
+        self._record_query_attrs(len(result))
+        return result
 
     def _tail(self, n: int = 10, *, media_as_urls: bool = False) -> ResultSet:
         if self.order_by_clause is not None:
@@ -610,9 +629,9 @@ class Query(QueryBase):
         self, args: dict[str, Any] | None = None, *, media_as_urls: bool = False
     ) -> Generator[list, None, None]:
         assert self._from_clause.is_local
-        tbl_ids = self.referenced_tbl_ids()
+        tbl_keys = self.referenced_tbl_keys()
         tvps = self._from_clause.tvps
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=tbl_ids):
+        with get_runtime().catalog.begin_data_read_xact(tvps=tvps, tbl_keys=tbl_keys):
             try:
                 planned_exprs = self._compiled_select_list()
                 if media_as_urls:
@@ -630,12 +649,22 @@ class Query(QueryBase):
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
-                single_tbl = next(iter(tbl_ids)) if len(tbl_ids) == 1 else None
+                single_tbl = next(iter(tbl_keys)).tbl_id if len(tbl_keys) == 1 else None
                 get_runtime().catalog.convert_sql_exc(e, tbl_id=single_tbl)
                 raise  # just re-raise if not converted to a Pixeltable error
 
+    def _tbl_names(self) -> list[str]:
+        return [tbl.tbl_name() for tbl in self._from_clause.tbls]
+
+    def _record_query_attrs(self, rows: int) -> None:
+        """Attach the query's identifying attrs to the enclosing query span (collect/head/tail/count)."""
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.QueryAttrs(tables=self._tbl_names(), rows=rows))
+
+    @telemetry.spanned('pixeltable.collect', set_current=True)
     def collect(self) -> ResultSet:
-        return self._collect()
+        result = self._collect()
+        self._record_query_attrs(len(result))
+        return result
 
     def _exec_proxy(self, **extra: Any) -> ProxyResultCursor:
         from pixeltable.catalog.catalog_proxy import CatalogProxy
@@ -649,7 +678,7 @@ class Query(QueryBase):
         if not self._from_clause.is_local:
             return self._exec_proxy(args=args).as_result_set()
         tvps = self._from_clause.tvps
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=self.referenced_tbl_ids()):
+        with get_runtime().catalog.begin_data_read_xact(tvps=tvps, tbl_keys=self.referenced_tbl_keys()):
             schema = self.schema
             # url-mode takes the direct path; the cursor path (no args) stays as-is for normal execution
             if args is None and not media_as_urls:
@@ -680,7 +709,7 @@ class Query(QueryBase):
         sink = proxy_protocol.InlinePartSink()
         encode = proxy_protocol.value_encoder(sink)
         result = bytearray(b'{"schema":')
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=self.referenced_tbl_ids()):
+        with get_runtime().catalog.begin_data_read_xact(tvps=tvps, tbl_keys=self.referenced_tbl_keys()):
             # look at the schema inside the transaction
             schema = self.schema
             file_ref_idxs = self._file_ref_idxs()
@@ -726,6 +755,7 @@ class Query(QueryBase):
             get_runtime().catalog.convert_sql_exc(e, tbl=(single_tbl.tbl_version if single_tbl is not None else None))
             raise  # just re-raise if not converted to a Pixeltable error
 
+    @telemetry.spanned('pixeltable.count', set_current=True)
     def count(self) -> int:
         """Return the number of rows in the Query.
 
@@ -748,7 +778,9 @@ class Query(QueryBase):
 
             cat = get_runtime().get_catalog(self._from_clause.catalog_uri)
             assert isinstance(cat, CatalogProxy)
-            return cat.client.send_request('Query', 'count', {'query': self.as_dict()})
+            num_rows = cat.client.send_request('Query', 'count', {'query': self.as_dict()})
+            self._record_query_attrs(num_rows)
+            return num_rows
 
         count_query = Query(
             from_clause=self._from_clause,
@@ -761,7 +793,7 @@ class Query(QueryBase):
         is_grouped = self.group_by_clause is not None or self.grouping_tbl_key is not None
 
         assert self._from_clause.is_local
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=self._from_clause.tvps):
+        with get_runtime().catalog.begin_data_read_xact(tvps=self._from_clause.tvps):
             plan_root = count_query._ensure_plan().exec_root
             if not isinstance(plan_root, exec.SqlNode):
                 raise excs.RequestError(
@@ -771,9 +803,12 @@ class Query(QueryBase):
 
         result = count_query.collect()
         if is_grouped:
-            return len(result)
-        assert len(result) == 1
-        return int(result[0, 'count'])
+            num_rows = len(result)
+        else:
+            assert len(result) == 1
+            num_rows = int(result[0, 'count'])
+        self._record_query_attrs(num_rows)
+        return num_rows
 
     def update(self, value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus:
         """Update rows in the underlying table of the Query.
@@ -946,8 +981,8 @@ class Query(QueryBase):
             return data_file_path
         else:
             assert self._from_clause.is_local
-            with get_runtime().catalog.begin_xact(
-                for_write=False, read_tvps=self._from_clause.tvps, read_tbl_ids=self.referenced_tbl_ids()
+            with get_runtime().catalog.begin_data_read_xact(
+                tvps=self._from_clause.tvps, tbl_keys=self.referenced_tbl_keys()
             ):
                 return write_coco_dataset(self, dest_path)
 
@@ -994,8 +1029,8 @@ class Query(QueryBase):
             assert dest_path.is_dir()
         else:
             assert self._from_clause.is_local
-            with get_runtime().catalog.begin_xact(
-                for_write=False, read_tvps=self._from_clause.tvps, read_tbl_ids=self.referenced_tbl_ids()
+            with get_runtime().catalog.begin_data_read_xact(
+                tvps=self._from_clause.tvps, tbl_keys=self.referenced_tbl_keys()
             ):
                 # we need the metadata for PixeltablePytorchDataset
                 export_parquet(self, dest_path, inline_images=True, _write_md=True)

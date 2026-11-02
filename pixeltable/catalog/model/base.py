@@ -160,8 +160,11 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             )
 
         # Apply column/index changes to existing tables. New tables are handled by _create_all() below.
+        # update_from_model() needs each queried table ahead of the tables that query it.
         update_diffs = [
-            (name, d) for name, d in diffs.items() if d.resolution in ('update_additive', 'update_destructive')
+            (name, diffs[name])
+            for name, _ in _creation_order(registered_models)
+            if diffs[name].resolution in ('update_additive', 'update_destructive')
         ]
 
         pending_creates = {name for name, d in diffs.items() if d.resolution == 'create'}

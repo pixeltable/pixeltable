@@ -272,22 +272,25 @@ class TempStore:
     A temporary store for files of data that are not yet persisted to their destination(s).
     A destination is typically either a LocalStore (local persisted files) or a cloud object store.
 
-    It provides functionality to manage temporary files in the env.Env.get().tmp_dir directory.
+    It provides functionality to manage temporary files in this process's subdirectory of env.Env.get().tmp_dir.
     It reuses some of the LocalStore functionality to create unique file names and save objects.
     """
 
     @classmethod
     def _tmp_dir(cls) -> Path:
-        """Returns the path to the temporary directory where files are stored."""
-        return env.Env.get().tmp_dir
+        """Returns the path to the temporary directory where files are stored.
+
+        Each process that shares a Pixeltable home has its own directory.
+        """
+        return env.Env.get().tmp_dir / str(os.getpid())
 
     @classmethod
     def count(cls, tbl_id: UUID | None = None, tbl_version: int | None = None) -> int:
         return LocalStore(cls._tmp_dir()).count(tbl_id, tbl_version)
 
     @classmethod
-    def contains_path(cls, file_path: Path) -> bool:
-        return LocalStore(cls._tmp_dir()).contains_path(file_path)
+    def contains_path(cls, file_path: Path | str) -> bool:
+        return Path(file_path).is_relative_to(env.Env.get().tmp_dir)
 
     @classmethod
     def resolve_url(cls, file_url: str | None) -> Path | None:
@@ -317,7 +320,9 @@ class TempStore:
             extension = ''
         if tbl_id is not None:
             return LocalStore(cls._tmp_dir())._prepare_path_raw(tbl_id, 0, 0, extension)
-        return cls._tmp_dir() / f'{uuid.uuid4()}{extension}'
+        tmp_dir = cls._tmp_dir()
+        tmp_dir.mkdir(exist_ok=True)
+        return tmp_dir / f'{uuid.uuid4()}{extension}'
 
     @classmethod
     def clear(cls) -> None:

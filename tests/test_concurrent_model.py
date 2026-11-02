@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import re
-import threading
 from typing import Any, Callable
 
 import pytest
@@ -18,7 +17,7 @@ from pixeltable.utils.fault_injection import FaultLocation
 
 from .coordinator import MultiThreadedScenario
 from .fault_injection import BlockFault
-from .utils import dummy_embedding, pxt_raises
+from .utils import dummy_embedding, pxt_raises, run_workers
 
 ROOT = ''
 
@@ -47,26 +46,6 @@ def _run_with_concurrent_apply(
         .then_unblock(thread_id=1, fault=block)
         .execute(timeout=timeout)
     )
-
-
-def _run_workers(target: Callable[[int], None], n_threads: int) -> list[tuple[int, BaseException]]:
-    """Run target(tid) on n_threads workers; return any exceptions raised."""
-    errors: list[tuple[int, BaseException]] = []
-    lock = threading.Lock()
-
-    def runner(tid: int) -> None:
-        try:
-            target(tid)
-        except BaseException as e:
-            with lock:
-                errors.append((tid, e))
-
-    threads = [threading.Thread(target=runner, args=(i,)) for i in range(n_threads)]
-    for th in threads:
-        th.start()
-    for th in threads:
-        th.join()
-    return errors
 
 
 @pytest.mark.db_roots('local', reason='fault-injection/concurrency test of update_all() vs concurrent schema change')
@@ -897,7 +876,7 @@ class TestConcurrentModelUpdate:
 
             TMi.update_all(ROOT)
 
-        errors = _run_workers(worker, n_threads=n_threads)
+        errors = run_workers(worker, n_threads=n_threads)
         assert errors == [], f'errors: {errors[:3]}'
 
         for tid in range(n_threads):
@@ -922,7 +901,7 @@ class TestConcurrentModelUpdate:
             x = value + 1
 
         n_threads = 4
-        errors = _run_workers(lambda _tid: TM2.update_all(ROOT), n_threads=n_threads)
+        errors = run_workers(lambda _tid: TM2.update_all(ROOT), n_threads=n_threads)
         # a thread whose diff predates the winner's commit loses the CAS; one that diffs afterwards finds nothing to
         # do. Neither produces a duplicate-add error, and the first thread to reach the apply always commits.
         assert all(

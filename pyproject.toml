@@ -34,6 +34,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Topic :: Database",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
@@ -52,7 +53,8 @@ dependencies = [
     "psycopg[binary]>=3.1.18",
     "sqlalchemy>=2.0.40",
     "pgvector>=0.4.0",
-    "av>=14.1",
+    "av>=15.1",
+    "boto3>=1.36",
     "beautifulsoup4>=4.10",
     "lxml>=5.1",
     "requests>=2.31.0",
@@ -65,7 +67,7 @@ dependencies = [
     "ftfy>=6.2.0",
     "pydantic>=2.11",
     "pyarrow>=19",
-    "pixeltable-pgserver==0.5.0",
+    "pixeltable-pgserver==0.7.1",
     "tzlocal>=5.0",
     "aiohttp>=3.10",
     "deprecated>=1.2.15",
@@ -84,7 +86,7 @@ serve = ["fastapi[standard]>=0.120.0,!=0.137.0,!=0.137.1"]
 # separate distribution, opt-in via opentelemetry.instrumentation.pixeltable. The SDK and exporters live
 # here rather than in that package so it stays api-only, per contrib convention.
 otel = [
-    "opentelemetry-instrumentation-pixeltable==0.1.0",
+    "opentelemetry-instrumentation-pixeltable==0.2.0",
     "opentelemetry-sdk>=1.39.0",
     "opentelemetry-exporter-otlp-proto-http>=1.39.0",
     "opentelemetry-exporter-otlp-proto-grpc>=1.39.0",
@@ -115,6 +117,10 @@ override-dependencies = [
     "ruff>=0.14",  # Required because 'fireworks-ai' hard-codes 'ruff<10'
     "protobuf>=5.29.6",  # Required because 'fireworks-ai' hard-codes 'protobuf==5.29.4'
     # "huggingface-hub>=1",  # Required due to 'whisperx'
+]
+constraint-dependencies = [
+    "numpy>=2.5 ; python_version >= '3.15'",  # The first numpy with Python 3.15 wheels
+    "torch>=2.15 ; python_version >= '3.15'",  # The first torch with Python 3.15 wheels
 ]
 
 [tool.uv.workspace]
@@ -165,9 +171,9 @@ dev = [
     "torch>=2.11",
     "torchaudio>=2.11",
     "torchvision>=0.23",
-    "torchcodec>=0.11",
+    "torchcodec>=0.11 ; python_version < '3.15'",
     "soundfile>=0.13",
-    "openai>=3.8",
+    "openai>=3.32",
     "anthropic>=1.3",
     "together>=2.32",
     "fal-client>=0.5.6",
@@ -176,8 +182,6 @@ dev = [
     "replicate>=1.0.7 ; python_version < '3.14'",
     "google-genai>=2.22",
     "groq>=1.7",
-    "boto3==1.36.23",
-    "botocore==1.36.23",
     "spacy>=3.8.7,<3.9 ; python_version < '3.14'",
     "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
     "sentencepiece>=0.2.0",
@@ -192,8 +196,7 @@ dev = [
     # "whisperx>=3.8.5 ; python_version < '3.14'",
     "ollama>=0.6",
     "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
-    # TODO(PXT-1452): drop the <2 cap once pixeltable/func/mcp.py targets the MCP 2.x client API
-    "mcp>=1.27.2,<2",
+    "mcp>=2",
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
     # fiftyone is commented out, because even the most recent versions hardcode a dependency on an insecure version
     # of at least one library. We can re-enable it once they update their dependencies.
@@ -201,13 +204,12 @@ dev = [
     "lancedb>=0.30",
     "pylance>=6",
     "google-cloud-storage>=2.18.0",
-    "sqlalchemy-cockroachdb>=2.0.3",
     "psycopg2-binary>=2.9.11",
     "diffusers>=0.38",
     "accelerate>=1.10",
     "azure-storage-blob>=12.20.0",
     "azure-identity>=1.16.0",
-    "twelvelabs>=1.3",
+    "twelvelabs>=1.3.6",
     "vlmrun>=0.6.5",
     "voyageai>=0.3.7 ; python_version < '3.14'",
     "scenedetect>=0.6.0.1 ; python_version < '3.14' or sys_platform != 'win32'",
@@ -215,7 +217,7 @@ dev = [
     "ipywidgets>=8.0.0",
     "mdformat>=1.0.0",
     "nbqa>=1.9.1",
-    "snowflake-sqlalchemy>=1.7.0",
+    "snowflake-sqlalchemy>=1.7.0 ; python_version < '3.15'",
     # fastapi powers `pxt service` (user-defined services); the pxt daemon itself is stdlib-only
     "fastapi[standard]>=0.120.0,!=0.137.0,!=0.137.1",
     "imagehash>=4.3",
@@ -223,7 +225,7 @@ dev = [
     "scipy>=1.17 ; python_version >= '3.14'",
 ]
 test = [
-    "pytest>=9.0.3",
+    "pytest>=9.0.3,<9.2",  # PXT-1714: lift when pytest-benchmark supports pytest 9.2
     "pytest-xdist[psutil]>=3.8",
     "pytest-rerunfailures>=15.1",
     "pytest-benchmark>=5.1",
@@ -236,7 +238,7 @@ extra-dev = [
 ]
 cuda-dev = [
     # Dependencies that require CUDA.
-    "vllm>=0.24"
+    "vllm>=0.24 ; python_version < '3.15'"
 ]
 cloud-dev = [
     # Minimal set of dev dependencies needed to run the [cloud*] tests. This is a subset of `dev`.
@@ -248,8 +250,6 @@ cloud-dev = [
 ]
 storage-sdks = [
     # Used for CI configurations that need only the storage SDKs (in addition to basic dependencies).
-    "boto3==1.36.23",
-    "botocore==1.36.23",
     "google-cloud-storage>=2.18.0",
 ]
 
@@ -320,7 +320,7 @@ name = 'pxt://pixeltable:pxttest'
 include = ['pixeltable/_version.py']
 # no pod reads the documentation tree, and it is a quarter of what the archive would otherwise carry
 exclude = ['docs/**']
-system_dependencies = ["libiconv", "ffmpeg==6.1.1=gpl*"]
+system_dependencies = ["libiconv", "ffmpeg==7.1.1=gpl*"]
 memory_mb = 6144
 workers = 3
 cpu = 2.0
@@ -332,10 +332,6 @@ typeCheckingMode = "off"
 extraPaths = ["packages/opentelemetry-instrumentation-pixeltable/src"]
 
 [tool.pytest.ini_options]
-# Restrict default (pathless) collection to the core test suite. CI invokes `pytest <markers>` with no path,
-# which would otherwise sweep in the separately-distributed packages/*/tests (e.g. the OpenTelemetry
-# instrumentation), whose dependencies are absent in the --no-dev minimal config. Those packages run via their
-# own CI config (see tool/ci_tool.py). Explicit path args on the command line override testpaths as usual.
 testpaths = ["tests"]
 addopts = '-v -m "not remote_api and not expensive and not very_expensive and not benchmark and not otel" --strict-markers'
 markers = [

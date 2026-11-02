@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import AsyncIterator, Iterator
 from uuid import UUID
 
-from pixeltable import exceptions as excs, exprs, telemetry
+from pixeltable import exceptions as excs, exprs, telemetry, telemetry_schemas
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.http import fetch_url, redact_url
 from pixeltable.utils.progress_reporter import ProgressReporter
@@ -147,6 +147,7 @@ class CachePrefetchNode(ExecNode):
         file_cache = FileCache.get()
         num_objects = 0
         num_bytes = 0
+        bytes_per_tbl: dict[tuple[str, str], int] = {}  # (table name, table id) -> bytes fetched
 
         for f in done:
             url = self.in_flight_requests.pop(f)
@@ -156,12 +157,16 @@ class CachePrefetchNode(ExecNode):
             local_path: Path | None = None
             if tmp_path is not None:
                 num_objects += 1
-                num_bytes += tmp_path.stat().st_size
+                file_size = tmp_path.stat().st_size
+                num_bytes += file_size
 
                 # register the file with the cache for the first column in which it's missing
                 assert url in self.in_flight_urls
                 _, info = self.in_flight_urls[url][0]
-                local_path = file_cache.add(info.col.get_tbl().id, info.col.id, url, tmp_path)
+                tbl = info.col.get_tbl()
+                key = (tbl.name, str(tbl.id))
+                bytes_per_tbl[key] = bytes_per_tbl.get(key, 0) + file_size
+                local_path = file_cache.add(tbl.id, info.col.id, url, tmp_path)
                 _logger.debug(f'cached {redact_url(url)} as {local_path}')
 
             # add the local path/exception to the slots that reference the url
@@ -177,6 +182,8 @@ class CachePrefetchNode(ExecNode):
                     del self.in_flight_rows[id(row)]
                     self.__add_ready_row(row, state.idx)
 
+        for (table, table_id), n in bytes_per_tbl.items():
+            telemetry_schemas.media_fetched_bytes.add(n, table=table, table_id=table_id)
         if self.ctx.show_progress:
             self.progress_reporter.update(num_objects, num_bytes)
 
@@ -235,9 +242,13 @@ class CachePrefetchNode(ExecNode):
         hooks_token = telemetry.restore_context(hooks_ctx)
         safe_url = redact_url(url)
         try:
-            with telemetry.span('pixeltable.media.fetch', level=telemetry.DEBUG, url=safe_url):
+            with telemetry.span(
+                'pixeltable.media.fetch', level=telemetry.DEBUG, **telemetry_schemas.MediaFetchAttrs(url=safe_url)
+            ) as fetch_span:
                 try:
-                    return fetch_url(url), None
+                    tmp_path = fetch_url(url)
+                    telemetry.add_attrs(fetch_span, **telemetry_schemas.MediaFetchAttrs(bytes=tmp_path.stat().st_size))
+                    return tmp_path, None
                 except Exception as e:
                     # The original exception can repeat the signed URL; export only its type and the redacted URL.
                     raise excs.ExternalServiceError(

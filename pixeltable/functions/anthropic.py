@@ -11,7 +11,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Iterable, cast
 
 import pixeltable as pxt
-from pixeltable import env, exprs
+from pixeltable import env, exprs, telemetry_schemas
 from pixeltable.func import Tools
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
@@ -188,8 +188,7 @@ async def messages(
         ...     response=messages(msgs, model='claude-3-5-sonnet-20241022')
         ... )
     """
-    if model_kwargs is None:
-        model_kwargs = {}
+    model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
     if tools is not None:
         # Reformat `tools` into Anthropic format
@@ -245,6 +244,9 @@ async def messages(
     )
 
     result_dict = json.loads(await result.text())
+    telemetry_schemas.record_token_usage(
+        f'{__name__}.messages', model, result_dict.get('usage'), 'input_tokens', 'output_tokens'
+    )
     return result_dict
 
 
@@ -257,10 +259,13 @@ def _(model: str) -> str:
 def _(messages: list[dict[str, str]], max_tokens: int) -> dict[str, int]:
     input_len = 0
     for message in messages:
-        if 'role' in message:
-            input_len += len(message['role'])
-        if 'content' in message:
-            input_len += len(message['content'])
+        try:
+            if 'role' in message:
+                input_len += len(message['role'])
+            if 'content' in message:
+                input_len += len(message['content'])
+        except Exception:
+            pass  # best effort: skip what can't be read
     return {'requests': 1, 'input_tokens': int(input_len / 4), 'output_tokens': max_tokens}
 
 

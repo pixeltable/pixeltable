@@ -1,26 +1,42 @@
-"""URI parsing, output formatting and state polling shared by the hosted-CLI commands
-(`pxt db`, `pxt service`, `pxt org`)."""
+"""URI parsing and output formatting shared by the hosted-CLI commands (`pxt db`, `pxt service`, `pxt org`)."""
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import datetime
 import hashlib
 import json
+import signal
 import sys
+import threading
 import time
-from typing import Any, Iterator
+import urllib.error
+import urllib.request
+from typing import Any, Callable, Iterator, NoReturn
 
 from pixeltable_cli import models
-from pixeltable_cli.types import DbState
+from pixeltable_cli.types import GenerationReceipt
 from pixeltable_cli.utils import split_pxt_uri
 
-from .utils import get_request, print_aligned
+from .utils import (
+    EXIT_CHANGES_PENDING,
+    EXIT_ERROR,
+    RequestFailedError,
+    get_request,
+    post_request,
+    print_aligned,
+    print_next,
+)
 
-DB_POLL_INTERVAL = 5
+RECEIPT_POLL_INTERVAL = 5.0
+RECEIPT_WAIT_TIMEOUT = 3 * 3600.0
+EXIT_INTERRUPTED = 130
+EXIT_TERMINATED = 143  # 128 + SIGTERM's 15
+_PLAIN_PROGRESS_INTERVAL = 60.0  # without a terminal, a wait prints a line at least this often; in seconds
 
-_TRANSITIONAL = frozenset(s.value for s in DbState if s.is_transitional)
-DB_POLL_TIMEOUT = 600
+_ENDPOINT_TIMEOUT = 60.0
+_ENDPOINT_PROBE_TIMEOUT = 10.0
 
 
 def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
@@ -28,7 +44,7 @@ def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
     parts = split_pxt_uri(uri)
     if parts is None or parts.db is None or parts.path is not None:
         print(f'{prog}: error: URI must be pxt://org:db, got {uri!r}', file=sys.stderr)
-        sys.exit(2)
+        sys.exit(EXIT_ERROR)
     return parts.org, parts.db
 
 
@@ -42,7 +58,7 @@ def resolve_db_uri(db_uri: str | None, prog: str = 'pxt') -> tuple[str, str]:
                 f'{prog}: error: no database URI given, and no db_uri is set in the Pixeltable config file',
                 file=sys.stderr,
             )
-            sys.exit(2)
+            sys.exit(EXIT_ERROR)
         db_uri = configured
     return parse_db_uri(db_uri, prog=prog)
 
@@ -56,19 +72,22 @@ def parse_org_uri(uri: str, prog: str = 'pxt') -> str:
     return parts.org
 
 
-def add_logs_args(parser: argparse.ArgumentParser) -> None:
-    """Add the options shared by `pxt db logs` and `pxt service logs`."""
+def add_logs_args(parser: argparse.ArgumentParser, *, spans: bool = False) -> None:
+    """Add the options of `pxt db logs` and `pxt service logs`, or of the `spans` verbs when spans is set."""
     parser.add_argument('--since', default='1h', help='how far back to read: 30s, 10m, 1h, 2d (default: 1h)')
     parser.add_argument(
         '--tail',
         type=int,
         default=200,
         dest='limit',
-        help='the newest N lines in the window, at most 10000 (default: 200)',
+        help=f'the newest N {"spans" if spans else "lines"} in the window, at most 10000 (default: 200)',
     )
-    parser.add_argument(
-        '--include-health', action='store_true', dest='include_health', help='keep the GET /health probe lines'
-    )
+    if spans:
+        parser.add_argument('--trace', dest='trace_id', help='only the spans of this trace (32 lowercase hex digits)')
+    else:
+        parser.add_argument(
+            '--include-health', action='store_true', dest='include_health', help='keep the GET /health probe lines'
+        )
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
 
@@ -77,14 +96,61 @@ def print_logs(target: dict[str, str], args: argparse.Namespace) -> None:
     params = {**target, 'since': args.since, 'limit': args.limit, 'include_health': args.include_health}
     resp = get_request('/api/logs', params)
     records = resp.get('records', []) if isinstance(resp, dict) else []
+    _print_read(records, args, 'log records', lambda log_records: print('\n'.join(r['line'] for r in log_records)))
+
+
+def print_spans(target: dict[str, str], args: argparse.Namespace) -> None:
+    """Print the sampled spans of target: {'org', 'db'} names a database's pod, {'service'} names a service."""
+    params = {**target, 'since': args.since, 'limit': args.limit, 'trace_id': args.trace_id}
+    resp = get_request('/api/spans', params)
+    spans = resp.get('spans', []) if isinstance(resp, dict) else []
+    _print_read(spans, args, 'spans', _print_span_trees)
+
+
+def _print_read(
+    records: list[dict[str, Any]],
+    args: argparse.Namespace,
+    noun: str,
+    print_text: Callable[[list[dict[str, Any]]], None],
+) -> None:
+    """Print records as JSON with --json, otherwise as text, or a note that the window holds none."""
     if args.json_output:
         print(json.dumps(records))
-        return
-    if len(records) == 0:
-        print(f'No log records in the last {args.since}.')
-        return
-    for r in records:
-        print(r['line'])
+    elif len(records) == 0:
+        print(f'No {noun} in the last {args.since}.')
+    else:
+        print_text(records)
+
+
+def _print_span_trees(spans: list[dict[str, Any]]) -> None:
+    """Print spans grouped by trace, each span indented under its parent.
+
+    spans is oldest first, so the traces and the children of each span come out in the order they started.
+    """
+    traces: dict[str, list[dict[str, Any]]] = {}
+    for span in spans:
+        traces.setdefault(span['trace_id'], []).append(span)
+    for trace_id, trace_spans in traces.items():
+        print(f'trace {trace_id}')
+        span_ids = {span['span_id'] for span in trace_spans}
+        children: dict[str | None, list[dict[str, Any]]] = {}
+        for span in trace_spans:
+            # Sampling or the --since window can leave out a span's parent. Such a span is printed at depth 0.
+            parent_id = span['parent_span_id'] if span['parent_span_id'] in span_ids else None
+            children.setdefault(parent_id, []).append(span)
+        _print_span_subtree(children, None, 0)
+
+
+def _print_span_subtree(children: dict[str | None, list[dict[str, Any]]], parent_id: str | None, depth: int) -> None:
+    for span in children.get(parent_id, []):
+        start = datetime.datetime.fromtimestamp(span['start_ms'] / 1000, datetime.timezone.utc)
+        # every daemon request is one pixeltable.rpc span and every served route one pixeltable.route span, so the
+        # operation is in their attributes
+        operation = span['attributes'].get('pxt.method') or span['attributes'].get('pxt.route')
+        name = f'{span["name"]} {operation}' if operation else span['name']
+        error = '  ERROR' if span['status'] == 'ERROR' else ''
+        print(f'{"  " * depth}{start.isoformat(timespec="milliseconds")}  {span["duration_ms"]:.1f} ms  {name}{error}')
+        _print_span_subtree(children, span['span_id'], depth + 1)
 
 
 def _fmt_age(age_s: int) -> str:
@@ -124,8 +190,7 @@ def _fmt_project(resources: dict[str, Any]) -> str | None:
     # must match ProjectFingerprint.archive_digest() in pixeltable/utils/project.py;
     # inlined to avoid importing from pixeltable here, which adds substantial load latency
     digest = hashlib.sha256(json.dumps(files, sort_keys=True, separators=(',', ':')).encode()).hexdigest()[:8]
-    md_version = resources.get('pxt_md_version') or 0
-    return f'{len(files)} files  archive {digest}  md_version {md_version}'
+    return f'{len(files)} files  archive {digest}'
 
 
 _RESOURCE_ROWS: tuple[tuple[str, str, str], ...] = (
@@ -137,7 +202,10 @@ _RESOURCE_ROWS: tuple[tuple[str, str, str], ...] = (
 
 
 def print_db(report: dict[str, Any], workers: list[dict[str, Any]] | None = None) -> None:
-    """Print one database's report: its state, its resources, and what an update would change."""
+    """Print one database's report: its current resources, the desired ones where they differ, and its pods.
+
+    Whether a change is in progress comes from the current generation's phase, not from comparing the two.
+    """
     current = report.get('current')
     if current is None:
         print(f'{report.get("db", "")}  absent')
@@ -153,21 +221,26 @@ def print_db(report: dict[str, Any], workers: list[dict[str, Any]] | None = None
             continue
         text = f'{now}{unit}' if now is not None else '-'
         if want is not None and want != now:
-            text += f' -> {want}{unit}   pending'
+            text += f'   desired {want}{unit}'
         rows.append((label, text))
 
     now_project, want_project = _fmt_project(running), _fmt_project(target)
     if now_project is not None or want_project is not None:
         text = now_project or '-'
         if want_project is not None and want_project != now_project:
-            text += f' -> {want_project}   pending'
+            text += f'   desired {want_project}'
         rows.append(('project', text))
+    if current.get('md_version') is not None:
+        rows.append(('md_version', str(current['md_version'])))
     if running.get('default_bucket') is not None:
         rows.append(('bucket', running['default_bucket']))
 
     outcome = current.get('last_build_outcome')
     if outcome is not None and outcome != 'SUCCEEDED':
         rows.append(('build', outcome))
+    receipt = report.get('receipt')
+    if receipt is not None:
+        rows.append(('generation', describe_receipt(GenerationReceipt.model_validate(receipt))))
     for label, field in (('error', 'last_build_error'), ('reason', 'failure_reason')):
         if current.get(field) is not None:
             rows.append((label, str(current[field])))
@@ -176,33 +249,6 @@ def print_db(report: dict[str, Any], workers: list[dict[str, Any]] | None = None
     for label, text in rows:
         print(f'  {label.ljust(width)}  {text}')
     _print_workers(workers or [])
-
-
-def print_service(svc: dict[str, Any]) -> None:
-    name = svc.get('service_name', '')
-    state = svc.get('state', '')
-    base = svc.get('base_path', '')
-    workers_max = svc.get('workers_max')
-    if workers_max is not None:
-        workers_str = f'workers={svc.get("workers_min", 1)}-{workers_max}'
-    else:
-        workers_str = f'workers={svc.get("workers_min", 1)}'
-    endpoint = svc.get('endpoint') or ''
-    pending = ' (update pending)' if svc.get('update_pending') is True else ''
-    print(f'{name}  state={state}{pending}  base={base}  {workers_str}  {endpoint}'.rstrip())
-    # Print route URLs from service_config
-    svc_config_str = svc.get('service_config')
-    if svc_config_str and endpoint:
-        try:
-            svc_cfg = json.loads(svc_config_str) if isinstance(svc_config_str, str) else svc_config_str
-            prefix = svc_cfg.get('prefix', '')
-            for route in svc_cfg.get('routes', []):
-                method = route.get('method', 'POST').upper()
-                path = route.get('path', '')
-                print(f'  {method}  {endpoint}{prefix}{path}')
-        except Exception:
-            pass
-    _print_workers(svc.get('workers') or [])
 
 
 def print_org(org: dict[str, Any]) -> None:
@@ -216,61 +262,237 @@ def print_org(org: dict[str, Any]) -> None:
 
 
 @contextlib.contextmanager
-def spinner(label: str | None) -> Iterator[None]:
-    """Display a transient progress spinner showing label for the duration of the block; None displays nothing."""
-    if label is None:
-        yield
+def spinner(label: str | None) -> Iterator[Callable[[str], None]]:
+    """Display a transient spinner on stderr showing label for the duration of the block, on a terminal only; None
+    displays nothing.
+
+    Yields a function that replaces the label.
+    """
+    if label is None or not _stderr_is_a_terminal():
+        yield lambda _: None
         return
 
     # imported lazily: rich is a heavy import, and a poll without a label never reaches this
+    from rich.console import Console
     from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
     with Progress(
         SpinnerColumn(),
         TextColumn('[progress.description]{task.description}'),
         TimeElapsedColumn(),
+        console=Console(stderr=True),
         transient=True,
         redirect_stdout=False,
         redirect_stderr=False,
     ) as progress:
-        progress.add_task(label, total=None)
-        yield
+        task = progress.add_task(label, total=None)
+        yield lambda text: progress.update(task, description=text)
 
 
-def db_state(response: dict[str, Any]) -> str | None:
-    return ((response.get('report') or {}).get('current') or {}).get('state')
+def _stderr_is_a_terminal() -> bool:
+    try:
+        return sys.stderr.isatty()
+    except (AttributeError, ValueError):  # replaced by an object without isatty(), or closed
+        return False
 
 
-def exit_unless_reached(response: dict[str, Any], expected_state: DbState, operation: str) -> None:
-    """Exit with 1 unless the database reached expected_state."""
-    state = db_state(response)
-    if state == expected_state:
-        return
-    seen = 'no state was read' if state is None else f'last state: {state}'
-    print(f'pxt: {operation} did not complete ({seen})', file=sys.stderr)
-    sys.exit(1)
-
-
-def poll_db(org: str, db: str, label: str | None) -> dict[str, Any]:
-    """Poll a hosted database until nothing is in flight, and return the whole response.
-
-    Returns an empty dict if no read succeeded. A failed read is retried until the deadline, so a
-    database briefly unreachable mid-transition does not abort the wait.
+@contextlib.contextmanager
+def _wait_progress(label: str) -> Iterator[Callable[[str], None]]:
+    """The progress of a wait that can run for minutes, on stderr: the spinner on a terminal; otherwise a line at each
+    change of label and every _PLAIN_PROGRESS_INTERVAL seconds, from a thread of its own, so that a poll that blocks
+    does not silence it. Yields a function that replaces the label.
     """
-    response: dict[str, Any] = {}
-    deadline = time.monotonic() + DB_POLL_TIMEOUT
-    with spinner(label):
-        while time.monotonic() < deadline:
-            time.sleep(DB_POLL_INTERVAL)
-            try:
-                resp = get_request('/api/db', {'org': org, 'db': db})
-            except SystemExit:
-                raise
-            except Exception:
-                continue
-            response = resp if isinstance(resp, dict) else {}
-            state = db_state(response)
-            # an unrecognized state is one a newer control plane reports, and waiting on it would hang
-            if state is None or state not in _TRANSITIONAL:
+    if _stderr_is_a_terminal():
+        with spinner(label) as set_spinner_label:
+            yield set_spinner_label
+        return
+
+    start = time.monotonic()
+    lock = threading.Lock()
+    shown = [label]  # the label printed last
+    stop = threading.Event()
+
+    def print_line() -> None:
+        elapsed = int(time.monotonic() - start)
+        line = f'{shown[0].removesuffix(" ...")}  {elapsed // 3600}:{elapsed // 60 % 60:02d}:{elapsed % 60:02d}'
+        print(line, file=sys.stderr, flush=True)
+
+    def set_label(text: str) -> None:
+        with lock:
+            if text != shown[0]:
+                shown[0] = text
+                print_line()
+
+    def heartbeat() -> None:
+        while not stop.wait(_PLAIN_PROGRESS_INTERVAL):
+            with lock:
+                print_line()
+
+    with lock:
+        print_line()
+    thread = threading.Thread(target=heartbeat, name='pxt-wait-progress', daemon=True)
+    thread.start()
+    try:
+        yield set_label
+    finally:
+        stop.set()
+        thread.join()
+
+
+class _Terminated(BaseException):
+    """Raised by SIGTERM during a wait, so that it stops as Ctrl-C does."""
+
+
+@contextlib.contextmanager
+def _stopped_by_user(status_command: str) -> Iterator[None]:
+    """Ctrl-C or SIGTERM during the block stops only the waiting: it says the change continues and names
+    status_command, and exits 130 or 143."""
+
+    def raise_terminated(signum: int, frame: Any) -> None:
+        raise _Terminated
+
+    try:
+        previous = signal.signal(signal.SIGTERM, raise_terminated)
+    except ValueError:  # not the main thread, which alone may set a handler
+        previous = None
+    try:
+        yield
+    except KeyboardInterrupt:
+        _exit_stopped_waiting(status_command)
+    except _Terminated:
+        _exit_stopped_waiting(status_command, EXIT_TERMINATED)
+    finally:
+        if previous is not None:
+            signal.signal(signal.SIGTERM, previous)
+
+
+def describe_receipt(receipt: GenerationReceipt) -> str:
+    """One-line status of a generation."""
+    if receipt.observed:
+        state = 'done'
+    elif receipt.superseded:
+        state = 'replaced by a newer one'
+    elif receipt.failed:
+        state = f'FAILED: {receipt.failure_reason}'
+    elif receipt.outcome is not None:
+        state = f'unknown outcome {receipt.outcome}; upgrade Pixeltable'
+    elif receipt.error is not None:
+        state = f'retrying after error: {receipt.error.message}'
+    else:
+        state = receipt.progress
+    return f'{receipt.generation}  {state}'
+
+
+def print_receipt(receipt: GenerationReceipt) -> None:
+    """Print a generation's status and its warnings."""
+    print(f'{receipt.resource} generation {describe_receipt(receipt)}')
+    for warning in receipt.warnings:
+        print(f'  warning: {warning}')
+
+
+def await_receipts(db_uri: str, receipts: list[GenerationReceipt], *, status_command: str) -> list[GenerationReceipt]:
+    """Poll receipts until each settles, showing the progress of the first unsettled one on stderr, and return them.
+
+    Ctrl-C, SIGTERM and RECEIPT_WAIT_TIMEOUT only stop the waiting; the change continues in Pixeltable Cloud. The
+    timeout exits with EXIT_CHANGES_PENDING. A poll that fails transiently is retried until the timeout; any other
+    failed poll exits with EXIT_ERROR.
+    """
+    if len(receipts) == 0:
+        print('pxt: Pixeltable Cloud accepted the change without a receipt to wait on', file=sys.stderr)
+        sys.exit(EXIT_ERROR)
+    current = receipts
+    poll_error: RequestFailedError | None = None
+    deadline = time.monotonic() + RECEIPT_WAIT_TIMEOUT
+    with _stopped_by_user(status_command), _wait_progress(_waiting_label(current)) as set_label:
+        while not all(r.settled for r in current) and not any(r.unsuccessful for r in current):
+            if time.monotonic() >= deadline:
                 break
-    return response
+            set_label(_waiting_label(current, poll_error))
+            time.sleep(RECEIPT_POLL_INTERVAL)
+            try:
+                resp = post_request(
+                    '/api/receipts',
+                    {'db_uri': db_uri, 'receipts': [r.model_dump(mode='json') for r in current]},
+                    raise_on_error=True,
+                )
+            except RequestFailedError as e:
+                if not e.transient:
+                    e.report()
+                    _exit_stopped_waiting(status_command, EXIT_ERROR)
+                poll_error = e
+                continue
+            poll_error = None
+            current = models.ReceiptsResponse.model_validate(resp).receipts
+    if not all(r.settled for r in current) and not any(r.unsuccessful for r in current):
+        print(
+            f'pxt: still in progress after {RECEIPT_WAIT_TIMEOUT / 3600:.0f}h: '
+            f'{_waiting_label(current, poll_error).rstrip(" .")}; the change continues in Pixeltable Cloud',
+            file=sys.stderr,
+        )
+        print_next(status_command, 'shows its progress')
+        sys.exit(EXIT_CHANGES_PENDING)
+    return current
+
+
+def exit_unless_observed(receipts: list[GenerationReceipt], *, retry_command: str) -> None:
+    """Exit with EXIT_ERROR and the reason, unless every receipt is observed."""
+    for receipt in receipts:
+        if receipt.failed:
+            print(
+                f'pxt: {receipt.resource} generation {receipt.generation} failed: {receipt.failure_reason}',
+                file=sys.stderr,
+            )
+            print_next(retry_command, 'tries it again as it is')
+            sys.exit(EXIT_ERROR)
+        if receipt.superseded:
+            print(
+                f'pxt: {receipt.resource} generation {receipt.generation} was replaced by a newer update before it '
+                'finished',
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_ERROR)
+        if receipt.outcome is not None and not receipt.observed:
+            print(
+                f'pxt: {receipt.resource} generation {receipt.generation} ended with unknown outcome '
+                f'{receipt.outcome}; upgrade Pixeltable to read it',
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_ERROR)
+
+
+def await_endpoint(endpoint: str, *, status_command: str) -> None:
+    """Poll a hosted service's endpoint until a request reaches its pod rather than the gateway.
+
+    A service's receipt is observed once its pod is ready, which can be moments before the gateway routes to it;
+    until then the gateway answers 502. Any status from the pod itself, including 404, means the route works. Ctrl-C
+    and SIGTERM stop the wait as they do in await_receipts().
+    """
+    deadline = time.monotonic() + _ENDPOINT_TIMEOUT
+    with _stopped_by_user(status_command):
+        while True:
+            try:
+                with urllib.request.urlopen(f'{endpoint}/health', timeout=_ENDPOINT_PROBE_TIMEOUT):
+                    return
+            except urllib.error.HTTPError as e:
+                if e.code not in (502, 503, 504):
+                    return
+            except (urllib.error.URLError, TimeoutError):
+                pass
+            if time.monotonic() >= deadline:
+                print(f'pxt: {endpoint} did not answer within {_ENDPOINT_TIMEOUT:.0f}s', file=sys.stderr)
+                sys.exit(EXIT_ERROR)
+            time.sleep(RECEIPT_POLL_INTERVAL)
+
+
+def _exit_stopped_waiting(status_command: str, exit_code: int = EXIT_INTERRUPTED) -> NoReturn:
+    print('\npxt: stopped waiting; the change continues in Pixeltable Cloud', file=sys.stderr)
+    print_next(status_command, 'shows its progress')
+    sys.exit(exit_code)
+
+
+def _waiting_label(receipts: list[GenerationReceipt], poll_error: RequestFailedError | None = None) -> str:
+    pending = next((r for r in receipts if not r.settled), receipts[0])
+    label = f'{pending.resource} generation {describe_receipt(pending)}'
+    if poll_error is not None:
+        label += f' (could not read its progress: {poll_error}; retrying)'
+    return f'{label} ...'

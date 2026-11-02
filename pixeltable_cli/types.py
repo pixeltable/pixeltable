@@ -10,7 +10,7 @@ import pydantic
 
 from pixeltable_cli.utils import PxtPath
 
-OpStatus = Literal['applied', 'skipped', 'refused', 'failed']
+OpStatus = Literal['applied', 'accepted', 'skipped', 'refused', 'failed']
 
 Severity = Literal['additive', 'destructive', 'unsupported', 'blocked']
 
@@ -60,6 +60,7 @@ class SchemaChangeOpDetails(pydantic.BaseModel):
     previous_value: str | None = None  # altered computed columns only: the old value expression
     stored: bool | None = None  # altered computed columns only: whether the column is stored
     index_ref: SchemaChangeIndexRef | None = None  # the new index for an index add or alter
+    command: str | None = None  # a blocked op: the command that clears it
 
 
 class SchemaChangeOp(ChangeOp):
@@ -84,6 +85,7 @@ class SchemaChangeOp(ChangeOp):
             severity='blocked',
             description=f'the udf definitions in the database are out of date ({_summary(changes)}); '
             f'run {command} first',
+            details=SchemaChangeOpDetails(command=command),
         )
 
     @classmethod
@@ -120,6 +122,23 @@ class ServiceChangeOp(ChangeOp):
         )
 
     @classmethod
+    def resources(cls, field: str, current: float | int | None, declared: float | int) -> ServiceChangeOp:
+        """current: None for the control plane's default."""
+        # the replica count changes in place; every other field is a property of each pod
+        restarts = field != 'workers'
+        was = 'the default' if current is None else str(current)
+        return cls(
+            target='resources',
+            name=field,
+            op='alter',
+            severity='additive',
+            description=f'{field} will be {declared} rather than {was}'
+            + (', which restarts the service' if restarts else ''),
+            details={'from': was, 'to': str(declared)},
+            requires_restart=restarts,
+        )
+
+    @classmethod
     def fingerprint_changed(cls, changes: list[str], command: str | None = None) -> ServiceChangeOp:
         """ProjectFingerprint.changes() produced changes."""
         summary = _summary(changes)
@@ -142,6 +161,51 @@ class ServiceChangeOp(ChangeOp):
             severity='blocked',
             description=f'{summary}; run {command} to upload them',
             details={'changes': '; '.join(changes), 'command': command},
+        )
+
+    @classmethod
+    def unsettled_generation(cls, receipt: GenerationReceipt) -> ServiceChangeOp:
+        """The hosted instance's current generation is in progress or failed; update waits for it or retries it."""
+        if receipt.failed:
+            description = f'generation {receipt.generation} failed: {receipt.failure_reason}; update retries it'
+        else:
+            description = (
+                f'generation {receipt.generation} is still in progress ({receipt.progress}); update waits for it'
+            )
+        return cls(
+            target='service',
+            name='generation',
+            op='alter',
+            severity='additive',
+            description=description,
+            details={'generation': str(receipt.generation)},
+        )
+
+    @classmethod
+    def release_changed(cls) -> ServiceChangeOp:
+        """The database has a newer release than the hosted instance runs, such as a rebuilt image."""
+        return cls(
+            target='project',
+            name='release',
+            op='alter',
+            severity='additive',
+            description='the database has newer code than the service runs; update restarts the service on it',
+            requires_restart=True,
+        )
+
+    @classmethod
+    def kept_release_changed(cls, changes: list[str]) -> ServiceChangeOp:
+        """The project differs from the release a hosted instance keeps, whose code would serve the definition."""
+        return cls(
+            target='project',
+            name='release',
+            op='alter',
+            severity='blocked',
+            description=(
+                f'{_summary(changes)} since the release the service keeps; update without --keep-release to move it '
+                'onto the new code'
+            ),
+            details={'changes': '; '.join(changes)},
         )
 
     @classmethod
@@ -238,7 +302,7 @@ class ServiceChangeOp(ChangeOp):
         )
 
     @classmethod
-    def delete_service(cls, name: str, endpoint: str | None, status: OpStatus) -> ServiceChangeOp:
+    def delete_service(cls, name: str, endpoint: str | None, status: OpStatus | None) -> ServiceChangeOp:
         served = '' if endpoint is None else f' at {endpoint}'
         return cls(
             target='service',
@@ -308,7 +372,7 @@ class ServiceState(StrEnum):
 
 # what a DbChangeOp acts on. The two artifacts are separate: 'image' is the environment the pods run on,
 # 'archive' the sources they fetch, and a source edit moves only the second.
-DbTarget = Literal['image', 'archive', 'capacity', 'bindings']
+DbTarget = Literal['image', 'archive', 'capacity', 'config', 'generation']
 
 
 class DbChangeOp(ChangeOp):
@@ -332,11 +396,11 @@ class DbChangeOp(ChangeOp):
         )
 
     @classmethod
-    def rebind(cls, changes: list[str]) -> DbChangeOp:
-        """A config var now names a different source; the pods re-read it when they restart."""
+    def config(cls, changes: list[str]) -> DbChangeOp:
+        """The project config changed; the pods read the new settings when they restart."""
         return cls(
-            target='bindings',
-            name='bindings',
+            target='config',
+            name='config',
             op='alter',
             severity='additive',
             description=f'{_summary(changes)}, which restarts the database',
@@ -362,6 +426,24 @@ class DbChangeOp(ChangeOp):
             description=description,
             details=details,
             requires_restart=True,
+        )
+
+    @classmethod
+    def unsettled_generation(cls, receipt: GenerationReceipt) -> DbChangeOp:
+        """The current generation already has the declared spec, but is in progress or failed."""
+        if receipt.failed:
+            description = f'generation {receipt.generation} failed: {receipt.failure_reason}; update retries it'
+        else:
+            description = (
+                f'generation {receipt.generation} is still in progress ({receipt.progress}); update waits for it'
+            )
+        return cls(
+            target='generation',
+            name=str(receipt.generation),
+            op='alter',
+            severity='additive',
+            description=description,
+            details={'generation': str(receipt.generation)},
         )
 
     @classmethod
@@ -471,6 +553,106 @@ class SchemaPlan(pydantic.BaseModel):
         return sum(1 for t in self.tables if t.resolution == resolution)
 
 
+# Generation receipts
+
+
+class ResourcePhase(StrEnum):
+    """A hosted resource's phase, as the control plane derives it from its desired and observed state."""
+
+    PENDING = 'PENDING'
+    BLOCKED = 'BLOCKED'
+    READY = 'READY'
+    STOPPED = 'STOPPED'
+    FAILED = 'FAILED'
+    DELETING = 'DELETING'
+    DELETED = 'DELETED'
+
+
+class ReceiptOutcome(StrEnum):
+    """How a generation ended: its intent was observed, or a newer generation of the same resource replaced it."""
+
+    OBSERVED = 'OBSERVED'
+    SUPERSEDED = 'SUPERSEDED'
+
+
+class ReceiptError(pydantic.BaseModel):
+    """Why the current attempt of a generation has not succeeded."""
+
+    model_config = pydantic.ConfigDict(extra='ignore')
+
+    message: str
+    retryable: bool
+    attempts: int = 0
+    first_failed_at: float | None = None
+    retry_at: float | None = None
+    dependency: bool = False
+
+
+class GenerationReceipt(pydantic.BaseModel):
+    """The durable record of one accepted desired generation of a database or a service."""
+
+    model_config = pydantic.ConfigDict(extra='ignore')
+
+    kind: str
+    resource_id: str
+    generation: int
+
+    db: str = ''
+    service_name: str | None = None
+    base_path: str = ''
+
+    attempt_id: str | None = None
+    outcome: ReceiptOutcome | str | None = None
+    error: ReceiptError | None = None
+    phase: ResourcePhase | str | None = None
+
+    waiting_for: str | None = None
+
+    warnings: list[str] = pydantic.Field(default_factory=list)
+
+    @property
+    def resource(self) -> str:
+        if self.service_name is None:
+            return self.db
+        return '/'.join(part for part in (self.db, self.base_path, self.service_name) if part != '')
+
+    @property
+    def observed(self) -> bool:
+        return self.outcome == ReceiptOutcome.OBSERVED
+
+    @property
+    def superseded(self) -> bool:
+        return self.outcome == ReceiptOutcome.SUPERSEDED
+
+    @property
+    def failed(self) -> bool:
+        if self.outcome is not None:
+            return False
+        if self.error is not None and not self.error.retryable:
+            return True
+        return self.phase == ResourcePhase.FAILED
+
+    @property
+    def unsuccessful(self) -> bool:
+        """Settled without success: failed, superseded, or ended with an unknown outcome."""
+        return self.failed or (self.outcome is not None and not self.observed)
+
+    @property
+    def failure_reason(self) -> str:
+        return 'no reason was reported' if self.error is None else self.error.message
+
+    @property
+    def progress(self) -> str:
+        """The progress of an unsettled generation."""
+        phase = 'PENDING' if self.phase is None else str(self.phase)
+        return phase if self.waiting_for is None else f'{phase}, waiting for {self.waiting_for}'
+
+    @property
+    def settled(self) -> bool:
+        """Whether the receipt is final: only a retry or a new submission can change it."""
+        return self.outcome is not None or self.failed
+
+
 # Services
 
 
@@ -532,6 +714,11 @@ class ServiceDiff(pydantic.BaseModel):
 
     name: str
     exists: bool
+    generation: int | None = pydantic.Field(
+        default=None,
+        description='the generation of the hosted service the plan was computed against; 0 for an absent one, '
+        'null for a local service',
+    )
     state: str | None  # the service's state, None when it does not exist
     endpoint: str | None
 
@@ -551,6 +738,11 @@ class ServiceDiff(pydantic.BaseModel):
     ops: list[ServiceChangeOp] = pydantic.Field(default_factory=list)
 
     status: OpStatus | None = None
+    receipt: GenerationReceipt | None = pydantic.Field(
+        default=None,
+        description='for an update of a hosted service, the receipt of the submitted change; for a diff, the receipt '
+        'of the current generation if it is in progress or failed',
+    )
 
     @pydantic.computed_field  # type: ignore[prop-decorator]
     @property
@@ -634,6 +826,17 @@ class ServiceInstance(pydantic.BaseModel):
     # whether its database has moved past the project this instance serves
     update_pending: bool = False
 
+    cpu: float | None = pydantic.Field(default=None, description='vCPUs per pod; null for a local instance')
+    memory_mb: int | None = pydantic.Field(default=None, description='memory per pod, in MB; null for a local instance')
+    workers: int | None = pydantic.Field(default=None, description='number of pods; null for a local instance')
+    file_cache_gb: float | None = pydantic.Field(
+        default=None, description='file cache size per pod, in GB; null for a local instance'
+    )
+
+    receipt: GenerationReceipt | None = pydantic.Field(
+        default=None, description="the receipt of a hosted instance's current desired generation"
+    )
+
 
 # Databases
 
@@ -654,6 +857,19 @@ class DbPlan(pydantic.BaseModel):
     resolution: Resolution
     ops: list[DbChangeOp] = pydantic.Field(default_factory=list)
     status: OpStatus | None = None
+    generation: int | None = pydantic.Field(
+        default=None, description='the database generation the plan was computed against; 0 for an absent database'
+    )
+    receipts: list[GenerationReceipt] = pydantic.Field(
+        default_factory=list,
+        description='for an update, the receipts of the submitted change; for a diff, the receipt of the current '
+        'generation if it is in progress or failed',
+    )
+    entry_added_to: str | None = pydantic.Field(
+        default=None,
+        description='the config file where --add-config-entry appended the database entry; null without the flag, '
+        'or if the entry was already there',
+    )
 
     @classmethod
     def from_ops(cls, db_uri: str, state: DbState | None, ops: list[DbChangeOp]) -> DbPlan:

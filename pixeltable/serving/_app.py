@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING, Any
 
 from pixeltable import exceptions as excs
@@ -10,13 +11,16 @@ from pixeltable.utils.app_module import load_app_module, module_routers, service
 if TYPE_CHECKING:
     import fastapi
 
+    from pixeltable.serving import FastAPIRouter
     from pixeltable_cli.types import ServiceSpec
 
 _logger = logging.getLogger(__name__)
 
 
-def create_app(app_file: str, name: str, base_path: str = '') -> tuple['fastapi.FastAPI', 'ServiceSpec']:
-    """Create or return the FastAPI app derived from app_file, plus its spec."""
+def create_app(
+    app_file: str, name: str, base_path: str = ''
+) -> tuple['fastapi.FastAPI', 'ServiceSpec', list['FastAPIRouter']]:
+    """Create or return the FastAPI app derived from app_file, plus its spec and the routers in app_file."""
     Env.get().require_package('fastapi')
     import fastapi
 
@@ -41,11 +45,11 @@ def create_app(app_file: str, name: str, base_path: str = '') -> tuple['fastapi.
     spec = service_spec(name, service, routers)
     _logger.info(f'serving {name!r} from {app_file}')
     if not isinstance(service, FastAPIRouter):
-        return service, spec
+        return service, spec, routers
 
     app = fastapi.FastAPI(title=name)
     app.include_router(service)
-    return app, spec
+    return app, spec, routers
 
 
 _OTEL_NOT_INSTALLED = (
@@ -64,8 +68,24 @@ def init_instrumentation(**kwargs: Any) -> None:
     pxt_otel.init(**kwargs)
 
 
-def instrument_app(app: 'fastapi.FastAPI') -> None:
-    """Instrument a FastAPI application, so that Pixeltable spans nest under its request spans."""
-    import opentelemetry.instrumentation.pixeltable as pxt_otel
+def instrument_app(app: 'fastapi.FastAPI') -> Any:
+    """Instrument a FastAPI application, so that Pixeltable spans nest under its request spans.
 
-    pxt_otel.instrument_fastapi(app)
+    Returns the ASGI app to serve, which also starts the trace of a request at the time the Pixeltable Cloud
+    gateway received it.
+    """
+    import opentelemetry.instrumentation.pixeltable as pxt_otel
+    from opentelemetry.instrumentation.pixeltable._sdk import _gateway_span_app
+
+    # the fastapi instrumentation ignores these variables when it receives patterns from the caller, and this keeps
+    # their patterns next to /health$
+    env_excluded_urls = os.environ.get(
+        'OTEL_PYTHON_FASTAPI_EXCLUDED_URLS', os.environ.get('OTEL_PYTHON_EXCLUDED_URLS', '')
+    )
+    # a blank pattern would match every URL, as in '/ping,' or '   '
+    env_patterns = [pattern.strip() for pattern in env_excluded_urls.split(',') if pattern.strip() != '']
+    # k8s probes call /health every few seconds, and a trace per probe is noise
+    excluded_urls = ','.join([*env_patterns, '/health$'])
+    # a span per ASGI message sent or received would double the spans of every request
+    pxt_otel.instrument_fastapi(app, excluded_urls=excluded_urls, exclude_spans=['receive', 'send'])
+    return _gateway_span_app(app, excluded_urls)

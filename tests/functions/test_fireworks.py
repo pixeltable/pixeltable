@@ -19,12 +19,12 @@ class TestFireworks:
         t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         messages = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(
-            output=chat_completions(messages=messages, model='accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b')
+            output=chat_completions(messages=messages, model='accounts/fireworks/models/gpt-oss-120b')
         )
         t.add_computed_column(
             output_2=chat_completions(
                 messages=messages,
-                model='accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b',
+                model='accounts/fireworks/models/gpt-oss-120b',
                 model_kwargs={'max_tokens': 300, 'top_k': 40, 'top_p': 0.9, 'temperature': 0.7},
             )
         )
