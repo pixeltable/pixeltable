@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
 import psutil
+import pydantic
 import sqlalchemy as sql
 import tzlocal
 from pillow_heif import register_heif_opener
@@ -32,6 +33,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
+from pixeltable.service.resources import UdfResources
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
@@ -53,6 +55,8 @@ _logger = logging.getLogger(__name__)
 LOG_FMT_STR = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
 T = TypeVar('T')
+
+_UDF_RESOURCES_ADAPTER = pydantic.TypeAdapter(dict[str, UdfResources])
 
 _DEFAULT_PROXY_DOMAIN = 'pxt.run'
 # The tunnel load balancer also listens on 9000, the default before 443; PIXELTABLE_CLOUD_HOST=pxt.run:9000 picks it
@@ -1017,6 +1021,54 @@ class Env:
                 info = make_pool_info()
                 self._resource_pool_info[pool_id] = info
             return info
+
+    def udf_resources(self) -> dict[str, UdfResources]:
+        """Return the udf_resources setting, keyed by each configured UDF's self_path."""
+        # pixeltable.func imports this module
+        from pixeltable import func
+        from pixeltable.func.globals import resolve_symbol
+
+        config = Config.get()
+        setting = config.get_value('udf_resources', dict)
+        if setting is None:
+            return {}
+        source = config.describe_setting('pixeltable', 'udf_resources')
+        try:
+            entries = _UDF_RESOURCES_ADAPTER.validate_python(setting)
+        except pydantic.ValidationError as e:
+            raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid {source}:\n{e}') from e
+
+        result: dict[str, UdfResources] = {}
+        configured_paths: dict[str, str] = {}
+        for path, resources in entries.items():
+            try:
+                fn = resolve_symbol(path)
+            except AttributeError:
+                fn = None
+            if not isinstance(fn, func.CallableFunction):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION, f'{source}: {path!r} is not a UDF declared with @pxt.udf'
+                )
+            if not fn.is_builtin:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'{source}: {path!r} is not a built-in UDF; only built-in UDFs run on Modal',
+                )
+            if any(inspect.iscoroutinefunction(py_fn) for py_fn in fn.py_fns):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'{source}: {path!r} is async; only synchronous UDFs run on Modal',
+                )
+            assert fn.self_path is not None
+            # a re-export resolves to the same UDF under another path
+            if fn.self_path in configured_paths:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'{source}: {configured_paths[fn.self_path]!r} and {path!r} are the same UDF',
+                )
+            configured_paths[fn.self_path] = path
+            result[fn.self_path] = resources
+        return result
 
     @property
     def pgdata_dir(self) -> Path | None:

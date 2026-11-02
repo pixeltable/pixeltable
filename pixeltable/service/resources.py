@@ -26,6 +26,17 @@ class ServiceResources(PodResources):
     file_cache_gb: float | None = pydantic.Field(default=None, gt=0, description='file cache size per pod, in GB')
 
 
+class UdfResources(pydantic.BaseModel):
+    """Resources of the Modal containers that run one UDF's calls."""
+
+    model_config = pydantic.ConfigDict(extra='forbid', frozen=True)
+
+    cpu: float | None = pydantic.Field(default=None, gt=0, description='vCPUs per container')
+    memory_mb: int | None = pydantic.Field(default=None, gt=0, description='memory per container, in MB')
+    gpu: str | None = pydantic.Field(default=None, min_length=1, description="Modal GPU spec, eg 'T4' or 'H100:2'")
+    timeout_seconds: int | None = pydantic.Field(default=None, gt=0, description='time limit of one call')
+
+
 class DatabaseCapacity(PodResources):
     disk_gb: int | None = pydantic.Field(
         default=None, gt=0, description="size of each pod's PIXELTABLE_HOME volume, in GB"

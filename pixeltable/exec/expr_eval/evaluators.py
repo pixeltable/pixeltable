@@ -8,7 +8,8 @@ import logging
 import sys
 from typing import Any, Callable, Iterator, cast
 
-from pixeltable import exceptions as excs, exprs, func, telemetry, telemetry_schemas
+from pixeltable import env, exceptions as excs, exprs, func, telemetry, telemetry_schemas
+from pixeltable.service.resources import UdfResources
 
 from .globals import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
 
@@ -66,6 +67,7 @@ class FnCallEvaluator(Evaluator):
     fn_call: exprs.FunctionCall
     fn: func.CallableFunction
     scalar_py_fn: Callable | None  # only set for non-batching CallableFunctions
+    udf_resources: UdfResources | None
 
     # only set if fn.is_batched
     call_args_queue: asyncio.Queue[FnCallArgs] | None  # FnCallArgs waiting for execution
@@ -75,6 +77,8 @@ class FnCallEvaluator(Evaluator):
         super().__init__(dispatcher, exec_ctx)
         self.fn_call = fn_call
         self.fn = cast(func.CallableFunction, fn_call.fn)
+        self_path = self.fn.self_path
+        self.udf_resources = env.Env.get().udf_resources().get(self_path) if self_path is not None else None
         if fn_call.resource_pool is not None and not self.fn.is_async:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,

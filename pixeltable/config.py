@@ -19,7 +19,7 @@ import toml
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs
-from pixeltable.service.resources import DatabaseCapacity, ServiceResources
+from pixeltable.service.resources import DatabaseCapacity, ServiceResources, UdfResources
 
 if TYPE_CHECKING:
     from pixeltable import catalog
@@ -647,7 +647,7 @@ class Config:
         """
         Validate a config value against its declared type.
 
-        A scalar is returned as is; the dicts of a list[Pydantic model] option become model instances.
+        The dicts of a list[Pydantic model] option become model instances; any other value is returned as is.
         """
         origin_t = typing.get_origin(expected_type) or expected_type
         # isinstance() accepts a bool for int, so a TOML true would pass the check
@@ -941,6 +941,8 @@ class Config:
     def describe_setting(self, section: str, key: str) -> str:
         """A printable description of a setting, incl. its source."""
         source = self.get_value_source(key, section)
+        if source == 'env' and self.is_overridden(key, section):
+            return f'{section}.{key} in the config_overrides of pxt.init()'
         if source == 'env':
             return f'{env_var_name(section, key)} in the environment'
         if source == 'unset':
@@ -983,6 +985,11 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
             'destinations and the OTLP endpoint and protocol (db_<key>), and for a hosted database the contents of '
             "its runtime image and its services' resources",
             list[DatabaseConfig],
+        ),
+        'udf_resources': (
+            "Resources of the Modal containers that run a UDF's calls, keyed by the UDF's path, eg "
+            "'pixeltable.functions.huggingface.clip'",
+            dict[str, UdfResources],
         ),
         'db_pool_size': ('Number of database connections the engine keeps open (default: 5)', int),
         'db_pool_max_overflow': (
