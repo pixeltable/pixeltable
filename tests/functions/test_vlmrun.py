@@ -2,7 +2,7 @@ import json
 import os
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, AsyncIterator, Iterator
+from typing import Any, AsyncIterator, Callable, Iterator
 
 import httpx
 import PIL.Image
@@ -165,14 +165,15 @@ class TestVLMRunMocked:
         assert fake_vlmrun.deleted_files() == ['file-1', 'file-2', 'file-3']
 
     def test_long_running_request(self, fake_vlmrun: _FakeVlmRun) -> None:
-        # the gateway redirects the request; its result URL returns no result, a run of 5xx and a redirect before the
-        # result
+        # the gateway redirects the request; its result URL returns no result, a run of 5xx, redirects to itself and a
+        # redirect elsewhere before the result
         fake_vlmrun.add(_CHAT, httpx.Response(303, headers={'Location': '/v1/openai/results/1'}))
         fake_vlmrun.add(
             f'GET {_API}/openai/results/1',
             httpx.Response(204),
             httpx.Response(200),
             *[httpx.Response(500)] * 8,
+            *[httpx.Response(303, headers={'Location': '/v1/openai/results/1'})] * (pxtf.vlmrun._MAX_REDIRECTS + 5),
             httpx.Response(303, headers={'Location': 'https://results.example.com/1'}),
         )
         fake_vlmrun.add('GET https://results.example.com/1', _completion('done'))
@@ -183,7 +184,7 @@ class TestVLMRunMocked:
         validate_update_status(t.insert(prompt='hi'), 1)
 
         assert t.select(t.response).collect()[0]['response']['choices'][0]['message']['content'] == 'done'
-        assert len(fake_vlmrun.requests_to(f'GET {_API}/openai/results/1')) == 11
+        assert len(fake_vlmrun.requests_to(f'GET {_API}/openai/results/1')) == 11 + pxtf.vlmrun._MAX_REDIRECTS + 5
         # the API key goes to the API host only
         assert 'Authorization' not in fake_vlmrun.requests_to('GET https://results.example.com/1')[0].headers
 
@@ -330,6 +331,16 @@ class TestVLMRunMocked:
             t.insert(doc=_smallest_pdf())
         assert fake_vlmrun.requests_to('GET http://169.254.169.254/latest/meta-data') == []
 
+    def test_redirect_loop(self, fake_vlmrun: _FakeVlmRun) -> None:
+        fake_vlmrun.add(_CHAT, _completion({'document': 'https://cdn.example.com/a.pdf'}))
+        fake_vlmrun.add('GET https://cdn.example.com/a.pdf', httpx.Response(302, headers={'Location': '/b.pdf'}))
+        fake_vlmrun.add('GET https://cdn.example.com/b.pdf', httpx.Response(302, headers={'Location': '/a.pdf'}))
+        t = pxt.create_table('test_tbl', {'doc': pxt.Document})
+        t.add_computed_column(redacted=pxtf.vlmrun.generate_document('Redact the names', t.doc, model=_MODEL))
+        with pxt_raises(pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, match='redirected more than 20 times'):
+            t.insert(doc=_smallest_pdf())
+        assert len([r for r in fake_vlmrun.requests if r.url.host == 'cdn.example.com']) == 21
+
     def test_failed_download_removed(self, fake_vlmrun: _FakeVlmRun) -> None:
         class BrokenStream(httpx.AsyncByteStream):
             async def __aiter__(self) -> AsyncIterator[bytes]:
@@ -364,12 +375,25 @@ class TestVLMRunMocked:
         assert Path(redacted).read_bytes()[:5] == b'%PDF-'
         assert _body(fake_vlmrun.requests_to(_CHAT)[0])['toolsets'] == ['document']
 
-    def test_unsupported_format(self, fake_vlmrun: _FakeVlmRun) -> None:
-        t = pxt.create_table('test_tbl', {'doc': pxt.Document})
-        messages = [{'role': 'user', 'content': [{'type': 'file_url', 'file_url': t.doc}]}]
+    @pytest.mark.parametrize(
+        ('col_type', 'value', 'match'),
+        [
+            (
+                pxt.Document,
+                lambda: next(d for d in get_documents() if d.endswith('.txt')),
+                r'Unsupported file format: \.txt',
+            ),
+            (pxt.String, lambda: '/no/such/dir/file.pdf', 'Not a file: /no/such/dir/file.pdf'),
+        ],
+    )
+    def test_bad_local_file(
+        self, fake_vlmrun: _FakeVlmRun, col_type: Any, value: Callable[[], str], match: str
+    ) -> None:
+        t = pxt.create_table('test_tbl', {'file': col_type})
+        messages = [{'role': 'user', 'content': [{'type': 'file_url', 'file_url': t.file}]}]
         t.add_computed_column(response=pxtf.vlmrun.chat_completions(messages, model=_MODEL))
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'Unsupported file format: \.txt'):
-            t.insert(doc=next(d for d in get_documents() if d.endswith('.txt')))
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=match):
+            t.insert(file=value())
         assert fake_vlmrun.requests == []
 
     @pytest.mark.parametrize(
@@ -384,11 +408,24 @@ class TestVLMRunMocked:
             t.insert(media=value)
         assert fake_vlmrun.requests == []
 
-    @pytest.mark.parametrize('model_kwargs', [{'response_format': {'type': 'json_object'}}, {'toolsets': ['video']}])
-    def test_reserved_model_kwargs(self, fake_vlmrun: _FakeVlmRun, model_kwargs: dict[str, Any]) -> None:
+    @pytest.mark.parametrize(
+        ('udf', 'key'),
+        [
+            ('generate_image', 'response_format'),
+            ('generate_image', 'toolsets'),
+            ('generate_image', 'messages'),
+            ('chat_completions', 'model'),
+        ],
+    )
+    def test_reserved_model_kwargs(self, fake_vlmrun: _FakeVlmRun, udf: str, key: str) -> None:
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
-        t.add_computed_column(image=pxtf.vlmrun.generate_image(t.prompt, model=_MODEL, model_kwargs=model_kwargs))
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=f'cannot contain `{next(iter(model_kwargs))}`'):
+        model_kwargs = {key: 'x'}
+        if udf == 'generate_image':
+            t.add_computed_column(out=pxtf.vlmrun.generate_image(t.prompt, model=_MODEL, model_kwargs=model_kwargs))
+        else:
+            messages = [{'role': 'user', 'content': t.prompt}]
+            t.add_computed_column(out=pxtf.vlmrun.chat_completions(messages, model=_MODEL, model_kwargs=model_kwargs))
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=f'cannot contain `{key}`'):
             t.insert(prompt='A red circle')
         assert fake_vlmrun.requests == []
 

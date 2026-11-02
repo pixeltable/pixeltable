@@ -50,6 +50,9 @@ _DIRECT_UPLOAD_LIMIT = 32 * 2**20
 # An artifact can lag the completion that references it, so a 404 is retried for this long before it counts as a bad id
 _NOT_FOUND_GRACE = 60.0
 
+# _poll() follows redirects itself, so it caps a chain of them as httpx does
+_MAX_REDIRECTS = 20
+
 _MAX_DETAIL_LEN = 500
 
 _Artifact = Literal['image', 'video', 'document']
@@ -143,6 +146,8 @@ class _VlmRunClient:
                 pxt.ErrorCode.INVALID_ARGUMENT,
                 f'Unsupported file format: {path.suffix}. Supported formats: {supported}',
             )
+        if not path.is_file():
+            raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'Not a file: {file}')
         return await self._upload(path.name, path)
 
     async def _upload(self, name: str, data: bytes | Path) -> str:
@@ -222,6 +227,7 @@ class _VlmRunClient:
         """
         start = time.monotonic()
         attempt = 0
+        redirects = 0
         while True:
             delay: float | None = None
             try:
@@ -242,7 +248,18 @@ class _VlmRunClient:
                         or status >= 500
                     )
                     if resp.is_redirect:
-                        url, params = resp.url.join(resp.headers['location']), None
+                        next_url = resp.url.join(resp.headers['location'])
+                        # a redirect to the same URL means that the result isn't ready yet, so only new URLs count
+                        if next_url != resp.url:
+                            redirects += 1
+                            if redirects > _MAX_REDIRECTS:
+                                raise pxt.ExternalServiceError(
+                                    pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+                                    f'VLM Run redirected more than {_MAX_REDIRECTS} times, last to '
+                                    f'{redact_url(str(next_url))[:_MAX_DETAIL_LEN]}',
+                                    provider='vlmrun',
+                                )
+                        url, params = next_url, None
                     elif not not_ready:
                         error = _status_error(resp)
                         if error.error_code not in (pxt.ErrorCode.RATE_LIMITED, pxt.ErrorCode.PROVIDER_OVERLOADED):
@@ -405,10 +422,10 @@ def _response_format(artifact: _Artifact) -> dict[str, Any]:
     return {'type': 'json_schema', 'schema': output_model.model_json_schema()}
 
 
-def _check_generation_kwargs(model_kwargs: dict[str, Any] | None) -> None:
+def _check_model_kwargs(model_kwargs: dict[str, Any] | None, reserved: tuple[str, ...]) -> None:
     if model_kwargs is None:
         return
-    for key in ('response_format', 'toolsets'):
+    for key in reserved:
         if key in model_kwargs:
             raise pxt.RequestError(
                 pxt.ErrorCode.INVALID_ARGUMENT, f'`model_kwargs` cannot contain `{key}`: this function sets it'
@@ -426,7 +443,7 @@ async def _generate(
     model_kwargs: dict[str, Any] | None,
 ) -> Path:
     """Runs a generation request and returns the path of a TempStore file that holds the generated artifact."""
-    _check_generation_kwargs(model_kwargs)
+    _check_model_kwargs(model_kwargs, ('model', 'messages', 'response_format', 'toolsets'))
     body: dict[str, Any] = {} if model_kwargs is None else dict(model_kwargs)
     prefix, extension = _ARTIFACT_TYPES[artifact]
     client = _vlmrun_client()
@@ -545,6 +562,7 @@ async def chat_completions(messages: list, *, model: str, model_kwargs: dict[str
         ...     )
         ... )
     """
+    _check_model_kwargs(model_kwargs, ('model', 'messages'))
     body: dict[str, Any] = {} if model_kwargs is None else dict(model_kwargs)
     client = _vlmrun_client()
     file_ids: list[str] = []
