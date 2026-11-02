@@ -36,7 +36,7 @@ class TestModal:
 
         # built-in UDFs, one of them under a re-exported path
         valid = (
-            entry('pixeltable.functions.video.clip', 'cpu = 4\nmemory_mb = 8192\ntimeout_seconds = 600')
+            entry('pixeltable.functions.video.clip', 'cpu = 4\nmemory_mb = 8192\ntimeout_seconds = 300')
             + entry('pixeltable.functions.huggingface.image_captioning', "gpu = 'T4'")
             + entry('pixeltable.functions.image.rotate', 'cpu = 0.5')
         )
@@ -46,6 +46,7 @@ class TestModal:
         for text, message in (
             (entry('pixeltable.functions.video.clip', 'cpus = 4'), r'Extra inputs are not permitted'),
             (entry('pixeltable.functions.video.clip', 'cpu = 0'), r'greater than 0'),
+            (entry('pixeltable.functions.video.clip', 'timeout_seconds = 301'), r'less than or equal to 300'),
             (entry('pixeltable.functions.video.clip', "memory_mb = 'lots'"), r'valid integer'),
             (entry('pixeltable.functions.video.clip', "gpu = ''"), r'at least 1 character'),
             ("[pixeltable.udf_resources]\n'pixeltable.functions.video.clip' = 4\n", r'valid dictionary'),

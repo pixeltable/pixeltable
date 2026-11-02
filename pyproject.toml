@@ -220,6 +220,7 @@ dev = [
     # fastapi powers `pxt service` (user-defined services); the pxt daemon itself is stdlib-only
     "fastapi[standard]>=0.120.0,!=0.137.0,!=0.137.1",
     "modal>=1.6",
+    "hypercorn>=0.17",
     "imagehash>=4.3",
     "scipy>=1 ; python_version < '3.14'",
     "scipy>=1.17 ; python_version >= '3.14'",

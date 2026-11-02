@@ -15,15 +15,19 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
+import httpx
+import hypercorn.asyncio
+import hypercorn.config
 import modal
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs, func, type_system as ts
 from pixeltable.config import Config
-from pixeltable.env import Env
+from pixeltable.env import Env, register_client
 from pixeltable.func.globals import resolve_symbol
+from pixeltable.runtime import get_runtime
 from pixeltable.service import proxy_protocol
 from pixeltable.service.resources import UdfResources
 from pixeltable.utils.local_store import TempStore
@@ -129,90 +133,154 @@ def _decode_body(body: bytes) -> dict[str, Any]:
     return proxy_protocol.deserialize_value(json.loads(head), parts)
 
 
-class ModalServer:
-    """Runs the calls to one UDF in a Modal container."""
+_PORT = 8000
+# TODO: make the region a setting
+# Modal's proxy and the Servers' containers run in this region; a container elsewhere adds a hop to every call
+_REGION = 'us-east'
+# Servers take no parameters, so the container gets the UDF path from this environment variable
+_UDF_PATH_VAR = 'PXT_UDF_PATH'
+# how long a call keeps retrying while the Server answers 503 because no container has room for it
+_STARTUP_TIMEOUT_SECONDS = 300
 
-    # Modal reads the parameter type from the annotation, so this module has no 'from __future__ import annotations'
-    udf_path: str = modal.parameter()
+
+class ModalServer:
+    """Runs the calls to one UDF, one at a time, in a Modal container behind an HTTP server."""
+
+    udf_path: str
     overloads: list[func.CallableFunction]
     task_id: str | None
+    lock: threading.Lock
 
     @modal.enter()
     def start(self) -> None:
         Env.init_without_db()
+        self.udf_path = os.environ[_UDF_PATH_VAR]
         fn = resolve_symbol(self.udf_path)
         assert isinstance(fn, func.CallableFunction)
         self.overloads = fn._resolved_fns
         self.task_id = os.environ.get('MODAL_TASK_ID')
+        self.lock = threading.Lock()
+        config = hypercorn.config.Config()
+        config.bind = [f'0.0.0.0:{_PORT}']
+        # with a shutdown_trigger, hypercorn installs no signal handlers, which work only in the main thread
+        serve = hypercorn.asyncio.serve(self.handle, config, shutdown_trigger=asyncio.Event().wait)  # type: ignore[arg-type]
+        threading.Thread(target=asyncio.run, args=(serve,), daemon=True).start()
 
-    @modal.method()
+    async def handle(
+        self,
+        scope: dict[str, Any],
+        receive: Callable[[], Awaitable[dict[str, Any]]],
+        send: Callable[[dict[str, Any]], Awaitable[None]],
+    ) -> None:
+        """Answer a POST with the result of run() on its body."""
+        if scope['type'] != 'http':
+            return
+        request_body = bytearray()
+        while True:
+            message = await receive()
+            request_body += message.get('body', b'')
+            if not message.get('more_body', False):
+                break
+        if scope['method'] != 'POST':
+            # Modal polls GET /metrics
+            status, body = 404, b''
+        else:
+            try:
+                status, body = 200, await asyncio.to_thread(self.run, bytes(request_body))
+            except Exception as exc:
+                status, body = 500, f'{type(exc).__name__}: {exc}'.encode()
+        await send(
+            {'type': 'http.response.start', 'status': status, 'headers': [(b'content-length', str(len(body)).encode())]}
+        )
+        await send({'type': 'http.response.body', 'body': body})
+
     def run(self, request_body: bytes) -> bytes:
         """Run the UdfCallRequest in request_body and return the encoded UdfCallResponse."""
-        try:
-            request = UdfCallRequest.decode(request_body)
-            fn = next((overload for overload in self.overloads if overload.signature == request.signature), None)
-            if fn is None:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_STATE,
-                    f"The Modal App's version of {self.udf_path!r} has no signature {request.signature}",
-                )
-            start = time.monotonic()
-            values: list[Any] | None = None
-            error: Exception | None = None
+        with self.lock:
             try:
-                if request.batch_args is not None:
-                    assert request.batch_kwargs is not None
-                    values = fn.exec_batch(request.batch_args, request.batch_kwargs)
-                else:
-                    assert request.args is not None and request.kwargs is not None
-                    values = [fn.py_fn(*request.args, **request.kwargs)]
-            except Exception as exc:
-                error = exc
-            response = UdfCallResponse(values, error, time.monotonic() - start, self.task_id)
-            return response.encode(fn.signature.get_return_type())
-        finally:
-            # a container runs one input at a time, so the temp store contains only this call's files
-            TempStore.clear()
+                request = UdfCallRequest.decode(request_body)
+                fn = next((overload for overload in self.overloads if overload.signature == request.signature), None)
+                if fn is None:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_STATE,
+                        f"The Modal App's version of {self.udf_path!r} has no signature {request.signature}",
+                    )
+                start = time.monotonic()
+                values: list[Any] | None = None
+                error: Exception | None = None
+                try:
+                    if request.batch_args is not None:
+                        assert request.batch_kwargs is not None
+                        values = fn.exec_batch(request.batch_args, request.batch_kwargs)
+                    else:
+                        assert request.args is not None and request.kwargs is not None
+                        values = [fn.py_fn(*request.args, **request.kwargs)]
+                except Exception as exc:
+                    error = exc
+                response = UdfCallResponse(values, error, time.monotonic() - start, self.task_id)
+                return response.encode(fn.signature.get_return_type())
+            finally:
+                # the lock serializes the calls, so the temp store contains only this call's files
+                TempStore.clear()
+
+
+@register_client('modal', credential_param='proxy_secret')
+def _(proxy_key: str, proxy_secret: str) -> httpx.AsyncClient:
+    # HTTP/2 sends concurrent calls over one connection
+    return httpx.AsyncClient(http2=True, headers={'Modal-Key': proxy_key, 'Modal-Secret': proxy_secret})
 
 
 class ModalPool:
-    """The process's handle on the Modal containers that run one UDF's calls."""
+    """The process's handle on the Modal Server for one UDF."""
 
     udf_path: str
     resources: UdfResources
     # set by connect()
-    server: modal.cls.Obj | None
+    url: str | None
 
     def __init__(self, udf_path: str, resources: UdfResources) -> None:
         self.udf_path = udf_path
         self.resources = resources
-        self.server = None
+        self.url = None
 
     async def connect(self) -> None:
-        """Look up the pool's ModalServer, deploying the App at the process's first call."""
-        if self.server is None:
+        """Look up the Server's URL, deploying the App at the process's first call."""
+        if self.url is None:
             # a deploy takes seconds to minutes and calls Modal's blocking API
             app_name = await asyncio.to_thread(ensure_app)
-            cls = modal.Cls.from_name(app_name, 'ModalServer')
-            # Modal counts physical cores, each with 2 vCPUs
-            cpu = None if self.resources.cpu is None else self.resources.cpu / 2
-            self.server = cls.with_options(
-                cpu=cpu, memory=self.resources.memory_mb, gpu=self.resources.gpu, timeout=self.resources.timeout_seconds
-            )(udf_path=self.udf_path)
+            self.url = await modal.Server.from_name(app_name, _server_name(self.udf_path)).get_url.aio()
 
     async def call(self, call_args: FnCallArgs) -> UdfCallResponse:
-        """Run call_args in the pool's containers."""
-        assert self.server is not None
-        request = UdfCallRequest(
+        """Run call_args on the Server."""
+        assert self.url is not None
+        request_body = UdfCallRequest(
             call_args.pxt_fn.signature, call_args.args, call_args.kwargs, call_args.batch_args, call_args.batch_kwargs
-        )
+        ).encode()
+        client: httpx.AsyncClient = get_runtime().get_client('modal')
         start = time.monotonic()
-        response = UdfCallResponse.decode(await self.server.run.remote.aio(request.encode()))
+        attempt = 0
+        while True:
+            response = await client.post(self.url, content=request_body, timeout=self.resources.timeout_seconds)
+            if response.status_code != 503 or time.monotonic() - start > _STARTUP_TIMEOUT_SECONDS:
+                break
+            await asyncio.sleep(min(1.0, 0.1 * 2**attempt))
+            attempt += 1
+        if response.status_code != 200:
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'Modal call of {self.udf_path} failed with status {response.status_code}: {response.text}',
+            )
+        result = UdfCallResponse.decode(response.content)
         _logger.debug(
             f'Modal call of {self.udf_path}: {len(call_args.rows)} rows in {time.monotonic() - start:.2f}s, '
-            f'UDF {response.duration_seconds:.2f}s, container {response.task_id}'
+            f'UDF {result.duration_seconds:.2f}s, container {result.task_id}'
         )
-        return response
+        return result
+
+
+def _server_name(udf_path: str) -> str:
+    """Return the name of the UDF's Server in the App."""
+    return f'{udf_path.rsplit(".", 1)[-1]}-{hashlib.sha256(udf_path.encode()).hexdigest()[:8]}'
 
 
 _deploy_lock = threading.Lock()
@@ -274,7 +342,26 @@ def _deploy_app() -> str:
         )
         hf_cache = modal.Volume.from_name('pxt-hf-cache', create_if_missing=True)
         app = modal.App(name)
-        app.cls(image=image, serialized=True, volumes={'/cache': hf_cache})(ModalServer)
+        for udf_path, resources in Env.get().udf_resources().items():
+            app.server(
+                name=_server_name(udf_path),
+                image=image,
+                serialized=True,
+                volumes={'/cache': hf_cache},
+                env={_UDF_PATH_VAR: udf_path},
+                port=_PORT,
+                h2_enabled=True,
+                routing_region=_REGION,
+                compute_region=_REGION,
+                # Modal counts physical cores, each with 2 vCPUs
+                cpu=None if resources.cpu is None else resources.cpu / 2,
+                memory=resources.memory_mb,
+                gpu=resources.gpu,
+                # ModalServer runs one call at a time
+                target_concurrency=1,
+                # Modal can scale down a container during a call; this lets the call finish
+                exit_grace_period=resources.timeout_seconds,
+            )(ModalServer)
         _logger.info(f'Deploying Modal App {name!r}')
         start = time.monotonic()
         # 'recreate' stops the previous deploy's containers, which would otherwise keep running its pixeltable source

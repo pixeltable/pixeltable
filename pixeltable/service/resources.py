@@ -26,6 +26,10 @@ class ServiceResources(PodResources):
     file_cache_gb: float | None = pydantic.Field(default=None, gt=0, description='file cache size per pod, in GB')
 
 
+# Modal's proxy loses the response of a call that runs past a limit between 310 and 400 seconds
+MAX_UDF_CALL_SECONDS = 300
+
+
 class UdfResources(pydantic.BaseModel):
     """Resources of the Modal containers that run one UDF's calls."""
 
@@ -34,7 +38,9 @@ class UdfResources(pydantic.BaseModel):
     cpu: float | None = pydantic.Field(default=None, gt=0, description='vCPUs per container')
     memory_mb: int | None = pydantic.Field(default=None, gt=0, description='memory per container, in MB')
     gpu: str | None = pydantic.Field(default=None, min_length=1, description="Modal GPU spec, eg 'T4' or 'H100:2'")
-    timeout_seconds: int | None = pydantic.Field(default=None, gt=0, description='time limit of one call')
+    timeout_seconds: int = pydantic.Field(
+        default=MAX_UDF_CALL_SECONDS, gt=0, le=MAX_UDF_CALL_SECONDS, description='time limit of one call'
+    )
 
 
 class DatabaseCapacity(PodResources):

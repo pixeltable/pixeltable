@@ -1028,6 +1028,10 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
     'groq': {'api_key': 'Groq API key', 'rate_limit': 'Rate limit for Groq API requests'},
     'jina': {'api_key': 'Jina AI API key', 'rate_limit': 'Rate limit for Jina AI API requests'},
     'mistral': {'api_key': 'Mistral API key', 'rate_limit': 'Rate limit for Mistral API requests'},
+    'modal': {
+        'proxy_key': 'Modal proxy token ID, for the calls to the UDFs in udf_resources',
+        'proxy_secret': 'Modal proxy token secret, for the calls to the UDFs in udf_resources',
+    },
     'nebius': {
         'api_key': 'Nebius Token Factory API key',
         'rate_limit': 'Rate limit for Nebius Token Factory API requests',
