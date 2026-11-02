@@ -10,7 +10,6 @@ SKIP_NOTEBOOKS=(
     working-with-tigris             # [PXT-1122] Hard-codes getpass() calls for credentials and bucket
     working-with-runwayml           # [PXT-1120] RunwayML integration is very broken
     working-with-twelvelabs         # [PXT-1119] Exceeds rate limit
-    working-with-vlmrun             # No VLMRUN_API_KEY secret in CI; generation cells have high dollar cost
 )
 
 # Check if `nvidia-smi` returns success; if not, skip GPU notebooks too
@@ -41,6 +40,7 @@ VERY_EXPENSIVE_NOTEBOOKS=(
     working-with-mistralai
     working-with-nebius
     working-with-openrouter
+    working-with-vlmrun
     working-with-voyageai
 )
 

@@ -1025,6 +1025,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'api_key': 'Nebius Token Factory API key',
         'rate_limit': 'Rate limit for Nebius Token Factory API requests',
     },
+    'ollama': {'host': 'Ollama server URL'},
     'openai': {
         'api_key': 'OpenAI API key',
         'base_url': 'OpenAI API base URL',
@@ -1060,7 +1061,11 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
     },
     'twelvelabs': {'api_key': 'TwelveLabs API key', 'rate_limit': 'Rate limit for TwelveLabs API requests'},
     'veo': {'rate_limits': 'Per-model rate limits for Veo API requests'},
-    'vlmrun': {'api_key': 'VLM Run API key', 'rate_limit': 'Rate limit for VLM Run API requests'},
+    'vlmrun': {
+        'api_key': 'VLM Run API key',
+        'rate_limit': 'Rate limit for VLM Run API requests',
+        'timeout': 'Maximum seconds for one VLM Run call, including its uploads, polling and download (default: 600)',
+    },
     'voyage': {'api_key': 'Voyage AI API key', 'rate_limit': 'Rate limit for Voyage AI API requests'},
     'pypi': {'api_key': 'PyPI API key (for internal use only)'},
 }
