@@ -50,12 +50,12 @@ _DIRECT_UPLOAD_LIMIT = 32 * 2**20
 # An artifact can lag the completion that references it, so a 404 is retried for this long before it counts as a bad id
 _NOT_FOUND_GRACE = 60.0
 
-# The result URL of a long-running request returns 5xx while its job is in progress
-_MAX_CONSECUTIVE_5XX = 5
-
 _MAX_DETAIL_LEN = 500
 
 _Artifact = Literal['image', 'video', 'document']
+
+# An artifact id is a type prefix and this, as in img_a1b2c3
+_ARTIFACT_ID_SUFFIX = r'_\w{6}'
 
 # id prefix and file extension of each kind of generated artifact
 _ARTIFACT_TYPES: dict[_Artifact, tuple[str, str]] = {
@@ -119,7 +119,8 @@ class _VlmRunClient:
         except TimeoutError:
             raise pxt.ExternalServiceError(
                 pxt.ErrorCode.PROVIDER_TIMEOUT,
-                f'VLM Run call did not complete within {self.timeout}s',
+                f'VLM Run call did not complete within {self.timeout}s; to allow more time, set `VLMRUN_TIMEOUT` '
+                'or `timeout` in the `vlmrun` section of the config file',
                 provider='vlmrun',
             ) from None
 
@@ -168,6 +169,15 @@ class _VlmRunClient:
             raise _status_error(put)
         return _field(_json(await self._send('GET', f'files/verify-upload/{file_id}')), 'id')
 
+    async def delete_files(self, file_ids: list[str]) -> None:
+        """Deletes uploaded files, logging rather than raising a failure: the call's result doesn't depend on it."""
+        results = await asyncio.gather(
+            *(self._http.delete(f'files/{file_id}', timeout=30.0) for file_id in file_ids), return_exceptions=True
+        )
+        for file_id, result in zip(file_ids, results):
+            if isinstance(result, BaseException) or not result.is_success:
+                _logger.debug(f'Deleting VLM Run file {file_id} failed: {result!r}')
+
     async def chat(self, body: dict[str, Any]) -> dict[str, Any]:
         """Creates a chat completion and returns the API response."""
         resp = await self._send('POST', 'openai/chat/completions', json=body)
@@ -179,7 +189,7 @@ class _VlmRunClient:
     async def download(self, ref: str, session_id: str | None, dest: Path) -> None:
         """Downloads a generated artifact, given its id or URL, into `dest`."""
         if ref.startswith('https://'):
-            await self._fetch(ref, dest)
+            await self._poll(ref, dest=dest)
             return
         if session_id is None:
             raise pxt.ExternalServiceError(
@@ -190,62 +200,52 @@ class _VlmRunClient:
         params = {'object_id': ref, 'session_id': session_id}
         if ref.startswith('url_'):
             # the body of a url_ artifact is the media's URL
-            resp = await self._poll('artifacts', params=params)
-            url = _media_ref(resp.text)
+            url = (await self._poll('artifacts', params=params)).text.strip()
             if not url.startswith('https://'):
                 raise pxt.ExternalServiceError(
                     pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
-                    f'VLM Run artifact {ref} is not an https URL: {url[:_MAX_DETAIL_LEN]!r}',
+                    f'VLM Run artifact {ref} holds a URL that is not https: {redact_url(url)[:_MAX_DETAIL_LEN]}',
                     provider='vlmrun',
                 )
-            await self._fetch(url, dest)
+            await self._poll(url, dest=dest)
         else:
             await self._poll('artifacts', params=params, dest=dest)
-
-    async def _fetch(self, url: str, dest: Path) -> None:
-        try:
-            async with self._http.stream('GET', url, follow_redirects=True) as resp:
-                if not resp.is_success:
-                    await resp.aread()
-                    raise _status_error(resp)
-                await _write_body(resp, dest)
-        except httpx.TransportError as exc:
-            raise pxt.ExternalServiceError(
-                pxt.ErrorCode.PROVIDER_ERROR, f'Download of a VLM Run result failed: {exc!r}', provider='vlmrun'
-            ) from exc
 
     async def _poll(
         self, url: str | httpx.URL, *, params: dict[str, str] | None = None, dest: Path | None = None
     ) -> httpx.Response:
-        """GETs `url` until it returns a result, and returns that response.
+        """GETs `url` until it returns a non-empty result, and returns that response.
 
-        The result's body is streamed into `dest` if given, and read into the response otherwise.
+        The result's body is streamed into `dest` if given, and read into the response otherwise. A failure that can
+        pass, such as a 5xx, a 429 or a dropped connection, is retried here until deadline() ends the call: the job
+        has already run, and an error the scheduler retries would rerun the call and pay for another generation.
         """
         start = time.monotonic()
-        consecutive_5xx = 0
         attempt = 0
         while True:
             delay: float | None = None
             try:
                 async with self._http.stream('GET', url, params=params) as resp:
                     status = resp.status_code
-                    consecutive_5xx = consecutive_5xx + 1 if status >= 500 else 0
                     if status in (200, 201) and dest is not None:
                         await _write_body(resp, dest)
-                        return resp
-                    await resp.aread()
-                    if status in (200, 201) and len(resp.content.strip()) > 0:
-                        return resp
+                        if dest.stat().st_size > 0:
+                            return resp
+                    else:
+                        await resp.aread()
+                        if status in (200, 201) and len(resp.content.strip()) > 0:
+                            return resp
                     not_ready = (
                         status in (200, 201, 202, 204)  # 200 and 201 with an empty body
                         or (status == 404 and time.monotonic() - start < _NOT_FOUND_GRACE)
-                        or (status >= 500 and consecutive_5xx <= _MAX_CONSECUTIVE_5XX)
+                        # the result URL of a long-running request returns 5xx while its job is in progress
+                        or status >= 500
                     )
                     if resp.is_redirect:
                         url, params = resp.url.join(resp.headers['location']), None
                     elif not not_ready:
                         error = _status_error(resp)
-                        if error.error_code != pxt.ErrorCode.RATE_LIMITED:
+                        if error.error_code not in (pxt.ErrorCode.RATE_LIMITED, pxt.ErrorCode.PROVIDER_OVERLOADED):
                             raise error
                         delay = error.retry_after
                     _logger.debug(f'VLM Run result at {resp.url.path} not ready (status {status})')
@@ -343,13 +343,13 @@ def _field(obj: dict[str, Any], key: str) -> str:
     return value
 
 
-def _media_ref(ref: str) -> str:
-    """Returns the artifact id or https URL in a media reference from the API.
+def _media_ref(ref: str, prefix: str) -> str:
+    """Returns the artifact id or https URL in a reference to generated media with the given artifact id prefix.
 
-    An artifact id can come with a file extension, as in `vid_a1b2c3.mp4`.
+    An artifact id can come with a file extension, as in `vid_a1b2c3.mp4`, and a `url_` artifact stands for any type.
     """
     ref = ref.strip()
-    m = re.fullmatch(r'([a-z]+_[0-9a-f]{6})(?:\.\w+)?', ref)
+    m = re.fullmatch(rf'((?:{prefix}|url){_ARTIFACT_ID_SUFFIX})(?:\.\w+)?', ref)
     if m is not None:
         return m.group(1)
     if ref.startswith('https://'):
@@ -361,8 +361,11 @@ def _media_ref(ref: str) -> str:
     )
 
 
-async def _resolve_messages(messages: list, client: _VlmRunClient) -> list:
-    """Returns a copy of `messages` in which media from Pixeltable columns is uploaded and referenced by file id."""
+async def _resolve_messages(messages: list, client: _VlmRunClient, file_ids: list[str]) -> list:
+    """Returns a copy of `messages` in which media from Pixeltable columns is uploaded and referenced by file id.
+
+    The ids of the uploaded files are appended to `file_ids`.
+    """
     messages = copy.deepcopy(messages)
     for message in messages:
         content = message.get('content') if isinstance(message, dict) else None
@@ -375,11 +378,14 @@ async def _resolve_messages(messages: list, client: _VlmRunClient) -> list:
             value = part.get(part_type)
             if isinstance(value, dict) and isinstance(value.get('url'), str):
                 continue
+            if value is None:
+                raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'`{part_type}` is null')
             # an image column produces a PIL image, and a video or document column a local path
             if isinstance(value, str) and (part_type == 'image_url' or len(urllib.parse.urlparse(value).scheme) > 1):
                 part[part_type] = {'url': value}
             elif isinstance(value, (PIL.Image.Image, str)):
-                content[i] = {'type': 'input_file', 'file_id': await client.upload(value)}
+                file_ids.append(await client.upload(value))
+                content[i] = {'type': 'input_file', 'file_id': file_ids[-1]}
             else:
                 raise pxt.RequestError(
                     pxt.ErrorCode.INVALID_ARGUMENT,
@@ -392,7 +398,7 @@ def _response_format(artifact: _Artifact) -> dict[str, Any]:
     """Returns a `response_format` that asks for the id of one generated artifact."""
     prefix = _ARTIFACT_TYPES[artifact][0]
     ref_model = pydantic.create_model(
-        f'{artifact.title()}Ref', id=(str, pydantic.Field(..., pattern=rf'^{prefix}_\w{{6}}$'))
+        f'{artifact.title()}Ref', id=(str, pydantic.Field(..., pattern=f'^{prefix}{_ARTIFACT_ID_SUFFIX}$'))
     )
     fields: dict[str, Any] = {artifact: (ref_model, ...)}
     output_model = pydantic.create_model(f'{artifact.title()}Output', **fields)
@@ -422,37 +428,43 @@ async def _generate(
     """Runs a generation request and returns the path of a TempStore file that holds the generated artifact."""
     _check_generation_kwargs(model_kwargs)
     body: dict[str, Any] = {} if model_kwargs is None else dict(model_kwargs)
+    prefix, extension = _ARTIFACT_TYPES[artifact]
     client = _vlmrun_client()
-    async with client.deadline():
-        content: list[dict[str, Any]] = [{'type': 'text', 'text': prompt}]
-        for input in inputs:
-            if input is not None:
-                content.append({'type': 'input_file', 'file_id': await client.upload(input)})
-        body.update(
-            model=model,
-            messages=[{'role': 'system', 'content': system_message}, {'role': 'user', 'content': content}],
-            response_format=_response_format(artifact),
-            toolsets=[toolset],
-        )
-        result = await client.chat(body)
-        try:
-            ref = json.loads(result['choices'][0]['message']['content'])[artifact]
-            if isinstance(ref, dict):
-                ref = ref['id']
-        except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
-            raise pxt.ExternalServiceError(
-                pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
-                f'VLM Run returned no {artifact}: {str(result)[:_MAX_DETAIL_LEN]}',
-                provider='vlmrun',
-            ) from exc
-        dest = TempStore.create_path(extension=_ARTIFACT_TYPES[artifact][1])
-        try:
-            await client.download(_media_ref(str(ref)), result.get('session_id'), dest)
-        except BaseException:
-            # including cancellation by deadline(): nothing downstream knows the path of a partial download
-            dest.unlink(missing_ok=True)
-            raise
-        return dest
+    file_ids: list[str] = []
+    try:
+        async with client.deadline():
+            content: list[dict[str, Any]] = [{'type': 'text', 'text': prompt}]
+            for input in inputs:
+                if input is not None:
+                    file_ids.append(await client.upload(input))
+                    content.append({'type': 'input_file', 'file_id': file_ids[-1]})
+            body.update(
+                model=model,
+                messages=[{'role': 'system', 'content': system_message}, {'role': 'user', 'content': content}],
+                response_format=_response_format(artifact),
+                toolsets=[toolset],
+            )
+            result = await client.chat(body)
+            try:
+                ref = json.loads(result['choices'][0]['message']['content'])[artifact]
+                if isinstance(ref, dict):
+                    ref = ref['id']
+            except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+                raise pxt.ExternalServiceError(
+                    pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+                    f'VLM Run returned no {artifact}: {str(result)[:_MAX_DETAIL_LEN]}',
+                    provider='vlmrun',
+                ) from exc
+            dest = TempStore.create_path(extension=extension)
+            try:
+                await client.download(_media_ref(str(ref), prefix), result.get('session_id'), dest)
+            except BaseException:
+                # including cancellation by deadline(): nothing downstream knows the path of a partial download
+                dest.unlink(missing_ok=True)
+                raise
+            return dest
+    finally:
+        await client.delete_files(file_ids)
 
 
 def _load_image(path: Path) -> PIL.Image.Image:
@@ -475,8 +487,8 @@ async def chat_completions(messages: list, *, model: str, model_kwargs: dict[str
     Message content items can reference Pixeltable media columns directly: image columns via
     `{'type': 'image_url', 'image_url': tbl.img}`, video columns via `{'type': 'video_url', 'video_url': tbl.video}`,
     and document columns via `{'type': 'file_url', 'file_url': tbl.doc}`. Referenced media is uploaded to VLM Run
-    for each call. A string in `video_url` or `file_url` that is not a URL is read as a local file path and uploaded,
-    so don't put untrusted strings there.
+    for each call, and deleted from VLM Run when the call ends. A string in `video_url` or `file_url` that is not a
+    URL is read as a local file path and uploaded, so don't put untrusted strings there.
 
     Request throttling:
     Applies the rate limit set in the config (section `vlmrun`, key `rate_limit`). If no rate limit is configured,
@@ -511,7 +523,7 @@ async def chat_completions(messages: list, *, model: str, model_kwargs: dict[str
         ...     )
         ... )
 
-        Extract structured data from a document column `doc` into a JSON column:
+        Ask for the invoice number and total of a document column `doc` as a JSON string:
 
         >>> messages = [
         ...     {
@@ -535,9 +547,13 @@ async def chat_completions(messages: list, *, model: str, model_kwargs: dict[str
     """
     body: dict[str, Any] = {} if model_kwargs is None else dict(model_kwargs)
     client = _vlmrun_client()
-    async with client.deadline():
-        body.update(model=model, messages=await _resolve_messages(messages, client))
-        result = await client.chat(body)
+    file_ids: list[str] = []
+    try:
+        async with client.deadline():
+            body.update(model=model, messages=await _resolve_messages(messages, client, file_ids))
+            result = await client.chat(body)
+    finally:
+        await client.delete_files(file_ids)
     if 'choices' not in result:
         raise pxt.ExternalServiceError(
             pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
@@ -558,7 +574,7 @@ async def generate_image(
 
     Args:
         prompt: Text prompt describing the image to generate or the edit to apply.
-        image: The image to edit. Omit it to generate a new image.
+        image: The image to edit. If it is omitted, or null in a row, the image is generated from the prompt alone.
         model: The model to use, such as `'vlmrun-orion-2:auto'`.
         model_kwargs: Additional parameters for the VLM Run chat completions API. This function sets
             `response_format` and `toolsets` itself, so they cannot be passed.
@@ -652,7 +668,8 @@ async def generate_video(
     Args:
         prompt: Text prompt describing the video to generate.
         image: An image to start the video from.
-        video: A video to start from.
+        video: A video to start from. If both `image` and `video` are omitted, or null in a row, the video is
+            generated from the prompt alone.
         model: The model to use, such as `'vlmrun-orion-2:auto'`.
         model_kwargs: Additional parameters for the VLM Run chat completions API. This function sets
             `response_format` and `toolsets` itself, so they cannot be passed.
@@ -691,7 +708,7 @@ async def generate_document(
     Args:
         prompt: Text prompt describing the transformation, such as
             `'Redact all personally identifiable information'`.
-        document: The document to transform.
+        document: The document to transform: a PDF, DOC or DOCX file.
         model: The model to use, such as `'vlmrun-orion-2:auto'`.
         model_kwargs: Additional parameters for the VLM Run chat completions API. This function sets
             `response_format` and `toolsets` itself, so they cannot be passed.

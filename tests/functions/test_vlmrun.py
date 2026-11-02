@@ -50,8 +50,12 @@ class _FakeVlmRun:
         key = f'{request.method} {request.url.copy_with(query=None)}'
         if key == f'POST {_API}/files':
             return httpx.Response(201, json={'id': f'file-{len(self.requests_to(key))}'})
+        if request.method == 'DELETE' and request.url.path.startswith('/v1/files/'):
+            return httpx.Response(200, json={'id': request.url.path.rsplit('/', 1)[-1]})
         assert len(self.responses[key]) > 0, f'unexpected request: {key}'
-        return self.responses[key].pop(0) if len(self.responses[key]) > 1 else self.responses[key][0]
+        response = self.responses[key].pop(0) if len(self.responses[key]) > 1 else self.responses[key][0]
+        # a new response each time, since a response's stream can be read only once
+        return httpx.Response(response.status_code, headers=response.headers, stream=response.stream)
 
     def add(self, key: str, *responses: httpx.Response) -> None:
         """Queues responses for `key` (method and URL); the last one answers every further request."""
@@ -59,6 +63,9 @@ class _FakeVlmRun:
 
     def requests_to(self, key: str) -> list[httpx.Request]:
         return [r for r in self.requests if f'{r.method} {r.url.copy_with(query=None)}' == key]
+
+    def deleted_files(self) -> list[str]:
+        return sorted(r.url.path.rsplit('/', 1)[-1] for r in self.requests if r.method == 'DELETE')
 
 
 @pytest.fixture
@@ -100,21 +107,21 @@ class TestVLMRunClient:
 
     def test_missing_credentials(self, uses_db: None, tmp_path: Path) -> None:
         project_root = Config.get().project_root
-        with pytest.MonkeyPatch.context() as mp:
-            # a config file of the test's own, so that the developer's config.toml can't supply an api_key
-            mp.delenv('VLMRUN_API_KEY', raising=False)
-            mp.setenv('PIXELTABLE_CONFIG', str(tmp_path / 'config.toml'))
-            Config.init(reinit=True, project_root=project_root)
-            reset_runtime()
-            try:
+        try:
+            with pytest.MonkeyPatch.context() as mp:
+                # a config file of the test's own, so that the developer's config.toml can't supply an api_key
+                mp.delenv('VLMRUN_API_KEY', raising=False)
+                mp.setenv('PIXELTABLE_CONFIG', str(tmp_path / 'config.toml'))
+                Config.init(reinit=True, project_root=project_root)
+                reset_runtime()
                 t = pxt.create_table('test_tbl', {'image': pxt.Image})
                 messages = [{'role': 'user', 'content': [{'type': 'image_url', 'image_url': t.image}]}]
                 t.add_computed_column(response=pxtf.vlmrun.chat_completions(messages, model=_MODEL))
                 with pxt_raises(pxt.ErrorCode.MISSING_CREDENTIALS, match='VLMRUN_API_KEY'):
                     t.insert(image=get_image_files()[0])
-            finally:
-                reset_runtime()
-        Config.init(reinit=True, project_root=project_root)
+        finally:
+            reset_runtime()
+            Config.init(reinit=True, project_root=project_root)
 
 
 class TestVLMRunMocked:
@@ -155,15 +162,17 @@ class TestVLMRunMocked:
             {'type': 'video_url', 'video_url': {'url': 'https://example.com/v.mp4'}},
         ]
         assert all(r.headers['Authorization'] == 'Bearer test-key' for r in fake_vlmrun.requests)
+        assert fake_vlmrun.deleted_files() == ['file-1', 'file-2', 'file-3']
 
     def test_long_running_request(self, fake_vlmrun: _FakeVlmRun) -> None:
-        # the gateway redirects the request; its result URL returns no result, 5xx and a redirect before the result
+        # the gateway redirects the request; its result URL returns no result, a run of 5xx and a redirect before the
+        # result
         fake_vlmrun.add(_CHAT, httpx.Response(303, headers={'Location': '/v1/openai/results/1'}))
         fake_vlmrun.add(
             f'GET {_API}/openai/results/1',
             httpx.Response(204),
             httpx.Response(200),
-            httpx.Response(500),
+            *[httpx.Response(500)] * 8,
             httpx.Response(303, headers={'Location': 'https://results.example.com/1'}),
         )
         fake_vlmrun.add('GET https://results.example.com/1', _completion('done'))
@@ -174,7 +183,7 @@ class TestVLMRunMocked:
         validate_update_status(t.insert(prompt='hi'), 1)
 
         assert t.select(t.response).collect()[0]['response']['choices'][0]['message']['content'] == 'done'
-        assert len(fake_vlmrun.requests_to(f'GET {_API}/openai/results/1')) == 4
+        assert len(fake_vlmrun.requests_to(f'GET {_API}/openai/results/1')) == 11
         # the API key goes to the API host only
         assert 'Authorization' not in fake_vlmrun.requests_to('GET https://results.example.com/1')[0].headers
 
@@ -210,12 +219,14 @@ class TestVLMRunMocked:
             t.insert(prompt='hi')
 
     def test_generate_image(self, fake_vlmrun: _FakeVlmRun) -> None:
-        # the artifact id comes with an extension; the artifact isn't there yet, then rate-limited, then ready
+        # the artifact id comes with an extension; the artifact isn't there yet, then rate-limited, then empty, then
+        # ready
         fake_vlmrun.add(_CHAT, _completion({'image': {'id': 'img_a1b2c3.png'}}, session_id='sess-1'))
         fake_vlmrun.add(
             _ARTIFACTS,
             httpx.Response(404),
             httpx.Response(429, headers={'Retry-After': '0'}),
+            httpx.Response(200),
             httpx.Response(200, content=_image_bytes()),
         )
         t = pxt.create_table('test_tbl', {'image': pxt.Image})
@@ -233,7 +244,7 @@ class TestVLMRunMocked:
             {'type': 'input_file', 'file_id': 'file-1'},
         ]
         artifact_requests = fake_vlmrun.requests_to(_ARTIFACTS)
-        assert len(artifact_requests) == 3
+        assert len(artifact_requests) == 4
         assert dict(artifact_requests[0].url.params) == {'object_id': 'img_a1b2c3', 'session_id': 'sess-1'}
 
     @pytest.mark.parametrize(
@@ -252,6 +263,7 @@ class TestVLMRunMocked:
             t.insert(image=get_image_files()[0])
         assert len(fake_vlmrun.requests_to(_ARTIFACTS)) == 1
         assert _body(fake_vlmrun.requests_to(_CHAT)[0])['toolsets'] == ['viz']
+        assert fake_vlmrun.deleted_files() == ['file-1']
 
     def test_generate_video(self, fake_vlmrun: _FakeVlmRun) -> None:
         # the body of a url_ artifact is the URL of the video
@@ -301,12 +313,17 @@ class TestVLMRunMocked:
             {'type': 'input_file', 'file_id': 'file-big'},
         ]
 
-    def test_non_https_redirect(self, fake_vlmrun: _FakeVlmRun) -> None:
-        fake_vlmrun.add(_CHAT, _completion({'document': 'https://cdn.example.com/d.pdf'}))
-        fake_vlmrun.add(
-            'GET https://cdn.example.com/d.pdf',
-            httpx.Response(302, headers={'Location': 'http://169.254.169.254/latest/meta-data'}),
-        )
+    @pytest.mark.parametrize('source', ['redirect', 'url_artifact'])
+    def test_non_https_url(self, fake_vlmrun: _FakeVlmRun, source: str) -> None:
+        if source == 'redirect':
+            fake_vlmrun.add(_CHAT, _completion({'document': 'https://cdn.example.com/d.pdf'}))
+            fake_vlmrun.add(
+                'GET https://cdn.example.com/d.pdf',
+                httpx.Response(302, headers={'Location': 'http://169.254.169.254/latest/meta-data'}),
+            )
+        else:
+            fake_vlmrun.add(_CHAT, _completion({'document': {'id': 'url_f41446'}}, session_id='sess-1'))
+            fake_vlmrun.add(_ARTIFACTS, httpx.Response(200, text='http://169.254.169.254/latest/meta-data'))
         t = pxt.create_table('test_tbl', {'doc': pxt.Document})
         t.add_computed_column(redacted=pxtf.vlmrun.generate_document('Redact the names', t.doc, model=_MODEL))
         with pxt_raises(pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, match='not https: http://169.254.169.254'):
@@ -319,19 +336,26 @@ class TestVLMRunMocked:
                 yield b'%PDF-partial'
                 raise httpx.ReadError('stream broke')
 
+        # a download that keeps breaking is retried until the deadline, which leaves no partial file
+        fake_vlmrun.client.timeout = 0.5
         fake_vlmrun.add(_CHAT, _completion({'document': 'https://cdn.example.com/d.pdf'}))
         fake_vlmrun.add('GET https://cdn.example.com/d.pdf', httpx.Response(200, stream=BrokenStream()))
         t = pxt.create_table('test_tbl', {'doc': pxt.Document})
         t.add_computed_column(redacted=pxtf.vlmrun.generate_document('Redact the names', t.doc, model=_MODEL))
         tmp_count = TempStore.count()
-        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='stream broke'):
+        with pxt_raises(pxt.ErrorCode.PROVIDER_TIMEOUT, match='did not complete'):
             t.insert(doc=_smallest_pdf())
         assert TempStore.count() == tmp_count
+        assert len(fake_vlmrun.requests_to('GET https://cdn.example.com/d.pdf')) > 1
 
     def test_generate_document(self, fake_vlmrun: _FakeVlmRun) -> None:
         pdf = _smallest_pdf()
         fake_vlmrun.add(_CHAT, _completion({'document': 'https://cdn.example.com/d.pdf'}))
-        fake_vlmrun.add('GET https://cdn.example.com/d.pdf', httpx.Response(200, content=Path(pdf).read_bytes()))
+        fake_vlmrun.add(
+            'GET https://cdn.example.com/d.pdf',
+            httpx.Response(503),
+            httpx.Response(200, content=Path(pdf).read_bytes()),
+        )
         t = pxt.create_table('test_tbl', {'doc': pxt.Document})
         t.add_computed_column(redacted=pxtf.vlmrun.generate_document('Redact the names', t.doc, model=_MODEL))
         validate_update_status(t.insert(doc=pdf), 1)
@@ -348,12 +372,16 @@ class TestVLMRunMocked:
             t.insert(doc=next(d for d in get_documents() if d.endswith('.txt')))
         assert fake_vlmrun.requests == []
 
-    def test_invalid_media_value(self, fake_vlmrun: _FakeVlmRun) -> None:
-        t = pxt.create_table('test_tbl', {'n': pxt.Int})
-        messages = [{'role': 'user', 'content': [{'type': 'image_url', 'image_url': t.n}]}]
+    @pytest.mark.parametrize(
+        ('col_type', 'value', 'match'),
+        [(pxt.Int, 1, '`image_url` must be a media column'), (pxt.Image | None, None, '`image_url` is null')],
+    )
+    def test_invalid_media_value(self, fake_vlmrun: _FakeVlmRun, col_type: Any, value: Any, match: str) -> None:
+        t = pxt.create_table('test_tbl', {'media': col_type})
+        messages = [{'role': 'user', 'content': [{'type': 'image_url', 'image_url': t.media}]}]
         t.add_computed_column(response=pxtf.vlmrun.chat_completions(messages, model=_MODEL))
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`image_url` must be a media column'):
-            t.insert(n=1)
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=match):
+            t.insert(media=value)
         assert fake_vlmrun.requests == []
 
     @pytest.mark.parametrize('model_kwargs', [{'response_format': {'type': 'json_object'}}, {'toolsets': ['video']}])
