@@ -242,7 +242,7 @@ class _VlmRunClient:
 
 @register_client('vlmrun', credential_param='api_key')
 def _(api_key: str, timeout: float | None = None) -> _VlmRunClient:
-    return _VlmRunClient(api_key, timeout=timeout or 600.0)
+    return _VlmRunClient(api_key, timeout=600.0 if timeout is None else timeout)
 
 
 def _vlmrun_client() -> _VlmRunClient:
@@ -405,19 +405,19 @@ async def _generate(
 ) -> Path:
     """Runs a generation request and returns the path of a TempStore file that holds the generated artifact."""
     _check_generation_kwargs(model_kwargs)
+    body: dict[str, Any] = {} if model_kwargs is None else dict(model_kwargs)
     client = _vlmrun_client()
     async with client.deadline():
         content: list[dict[str, Any]] = [{'type': 'text', 'text': prompt}]
         for input in inputs:
             if input is not None:
                 content.append({'type': 'input_file', 'file_id': await client.upload(input)})
-        body = {
-            **(model_kwargs or {}),
-            'model': model,
-            'messages': [{'role': 'system', 'content': system_message}, {'role': 'user', 'content': content}],
-            'response_format': _response_format(artifact),
-            'toolsets': [toolset],
-        }
+        body.update(
+            model=model,
+            messages=[{'role': 'system', 'content': system_message}, {'role': 'user', 'content': content}],
+            response_format=_response_format(artifact),
+            toolsets=[toolset],
+        )
         result = await client.chat(body)
         try:
             ref = json.loads(result['choices'][0]['message']['content'])[artifact]
@@ -512,10 +512,11 @@ async def chat_completions(messages: list, *, model: str, model_kwargs: dict[str
         ...     )
         ... )
     """
+    body: dict[str, Any] = {} if model_kwargs is None else dict(model_kwargs)
     client = _vlmrun_client()
     async with client.deadline():
-        messages = await _resolve_messages(messages, client)
-        result = await client.chat({**(model_kwargs or {}), 'model': model, 'messages': messages})
+        body.update(model=model, messages=await _resolve_messages(messages, client))
+        result = await client.chat(body)
     if 'choices' not in result:
         raise pxt.ExternalServiceError(
             pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
