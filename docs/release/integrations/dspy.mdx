@@ -1,0 +1,260 @@
+---
+title: 'DSPy'
+description: 'Use a Pixeltable embedding index as the retriever in a DSPy program'
+---
+
+A [DSPy](https://dspy.ai) program retrieves passages, then a module such as `dspy.ChainOfThought` writes the answer. This page keeps the passages in Pixeltable: one row per document, a view that splits each document into chunks, and an embedding index on the chunk text. `search()` ranks those chunks with `similarity()` and returns them as `passages`.
+
+The [DSPy RAG tutorial](https://dspy.ai/current/tutorials/rag/) calls any Python function as the retriever. `search()` is that function. It returns a `dspy.Prediction` whose `passages` list is the chunk text, the same attribute [`dspy.retrievers.Embeddings`](https://dspy.ai/api/tools/Embeddings/) returns. `dspy.Retrieve` reads a retrieval model from `dspy.settings.rm`. Leave that unset and call `search()` from the module.
+
+<Note>
+This page matches Pixeltable 0.7.22, DSPy 3.4.1, sentence-transformers 6.2.0, and mistune 3.4.0. The index uses `sentence-transformers/all-MiniLM-L6-v2`. The model runs locally, so retrieval needs no API key. The answer step below calls `dspy.LM('openai/gpt-4o-mini')`, which reads `OPENAI_API_KEY`. Other providers use the same call with a different model string ([connecting a language model](https://dspy.ai/current/getting-started/installation/)).
+</Note>
+
+## Install
+
+Pixeltable needs Python 3.11 or later. `sentence-transformers` pulls in PyTorch. On a machine without a GPU, install the CPU wheel first, or pip fetches a CUDA build that can be several gigabytes:
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install pixeltable dspy sentence-transformers mistune
+```
+
+Skip the torch line if you already have a GPU build of PyTorch. The first insert downloads `all-MiniLM-L6-v2`. `mistune` parses the Markdown files in the next section.
+
+## Build the chunk index
+
+The script creates the directory, the document table, the chunk view, and the index. It deletes an existing `dspy_rag` directory first, including its rows, so you can run it again.
+
+An application file declares the same table, view, and index. In a new folder, `pxt init` writes `pixeltable.toml` and marks the project root. `pxt schema update` creates `dspy_rag.docs` and `dspy_rag.chunks`.
+
+<Tabs>
+  <Tab title="Script">
+    ```python
+    import pixeltable as pxt
+    from pixeltable.functions.document import document_splitter
+    from pixeltable.functions.huggingface import sentence_transformer
+
+    embed = sentence_transformer.using(model_id='sentence-transformers/all-MiniLM-L6-v2')
+
+    pxt.drop_dir('dspy_rag', force=True, if_not_exists='ignore')
+    pxt.create_dir('dspy_rag')
+    docs = pxt.create_table('dspy_rag.docs', {'document': pxt.Document, 'topic': pxt.String})
+    chunks = pxt.create_view(
+        'dspy_rag.chunks',
+        docs,
+        iterator=document_splitter(docs.document, separators='paragraph'),
+    )
+    chunks.add_embedding_index('text', string_embed=embed, idx_name='chunks_embed')
+    ```
+  </Tab>
+  <Tab title="Application file">
+    Save this as `app.py`.
+
+    ```python
+    import pixeltable as pxt
+    import pixeltable.functions as pxtf
+
+    TableModel = pxt.model_base()
+    embed = pxtf.huggingface.sentence_transformer.using(
+        model_id='sentence-transformers/all-MiniLM-L6-v2'
+    )
+
+
+    class Docs(TableModel, name='docs'):
+        document: pxt.Document
+        topic: pxt.String
+
+
+    class Chunks(
+        TableModel,
+        name='chunks',
+        base=Docs,
+        iterator=pxtf.document.document_splitter(Docs.document, separators='paragraph'),
+    ):
+        __indexes__ = [
+            pxt.EmbeddingIndex(text, string_embed=embed, name='chunks_embed')
+        ]
+    ```
+
+    ```bash
+    pxt init
+    ```
+
+    ```bash
+    pxt schema update app.py dspy_rag
+    ```
+
+    ```python
+    import pixeltable as pxt
+
+    docs = pxt.get_table('dspy_rag.docs')
+    chunks = pxt.get_table('dspy_rag.chunks')
+    ```
+  </Tab>
+</Tabs>
+
+`separators='paragraph'` yields one chunk per Markdown paragraph. A `.txt` file stays one chunk with that separator. `char_limit` splits a `.txt` file when you also pass `limit`.
+
+## Insert the documents
+
+`topic` is metadata on the document. The chunk view carries it, so a later `where` clause can limit retrieval to one topic. The two files are the corpus:
+
+```python
+from pathlib import Path
+
+samples = Path('dspy_samples')
+samples.mkdir(exist_ok=True)
+(samples / 'pixeltable.md').write_text(
+    'Pixeltable keeps documents in a table. A view iterator splits each document into chunks, '
+    'and an embedding index on the chunk text updates when you insert a new row.\n\n'
+    'A similarity query ranks chunks against a query string. A where clause on a column such as '
+    'topic limits the ranking to one collection.\n'
+)
+(samples / 'bees.md').write_text(
+    'A honeybee colony has one queen, thousands of workers, and a few hundred drones. '
+    'Workers leave the hive to collect nectar and pollen.\n\n'
+    'Bees tell each other where flowers are with a waggle dance. The angle of the dance '
+    'matches the angle between the sun and the food source.\n'
+)
+docs.insert([
+    {'document': str(samples / 'pixeltable.md'), 'topic': 'pixeltable'},
+    {'document': str(samples / 'bees.md'), 'topic': 'bees'},
+])
+```
+
+The insert writes the documents and the chunks, and it fills the embedding index.
+
+## Retrieve passages
+
+`search()` orders chunks by `similarity()` and returns at most `k` texts. `topic` adds a `where` clause on the document's topic column.
+
+```python
+import dspy
+
+
+def search(question: str, *, k: int = 3, topic: str | None = None) -> dspy.Prediction:
+    sim = chunks.text.similarity(string=question)
+    query = chunks
+    if topic is not None:
+        query = query.where(chunks.topic == topic)
+    rows = query.order_by(sim, asc=False).limit(k).select(chunks.text).collect()
+    return dspy.Prediction(passages=rows['text'])
+
+
+question = 'How does the embedding index stay current when a new document is inserted?'
+print(search(question).passages[0])
+```
+
+The first passage is the chunk that says the embedding index updates when you insert a new row.
+
+## Filter on a column
+
+The same function with `topic` set drops every chunk from the other documents. A question about how bees share the location of flowers returns the waggle-dance chunk. The same question with `topic='pixeltable'` returns the chunk about a where clause limiting the ranking to one collection:
+
+```python
+print(search('How do bees share the location of flowers?').passages[0])
+print(search('How do bees share the location of flowers?', topic='pixeltable').passages[0])
+```
+
+More on `where` clauses: [Queries and expressions](/tutorials/queries-and-expressions).
+
+## Answer from the passages
+
+`RAG` is a `dspy.Module`. `forward()` retrieves, then `dspy.ChainOfThought` reads `context` and `question` and writes `response`. The module also fills `reasoning`.
+
+```python
+lm = dspy.LM('openai/gpt-4o-mini')
+dspy.configure(lm=lm)
+
+
+class RAG(dspy.Module):
+    def __init__(self):
+        self.respond = dspy.ChainOfThought('context, question -> response')
+
+    def forward(self, question: str):
+        context = search(question).passages
+        return self.respond(context=context, question=question)
+
+
+rag = RAG()
+pred = rag(question=question)
+print(pred.response)
+```
+
+## Inserts update the index
+
+Insert another document. The view adds a chunk for the new paragraph, and the embedding index adds its vector. The next call to `search()` returns that chunk. There is no separate reindex step.
+
+```python
+(samples / 'dspy.md').write_text(
+    'A DSPy program retrieves passages, and a ChainOfThought module writes an answer from that context.\n'
+)
+docs.insert([{'document': str(samples / 'dspy.md'), 'topic': 'dspy'}])
+print(search('Which module writes an answer from retrieved passages?').passages[0])
+```
+
+The first passage is the new chunk, the one that names `ChainOfThought`.
+
+## Store the answer
+
+To keep a DSPy answer, write the question and the response into a table:
+
+```python
+runs = pxt.create_table(
+    'dspy_rag.runs',
+    {'question': pxt.String, 'response': pxt.String},
+    if_exists='replace',
+)
+pred = rag(question=question)
+runs.insert([{'question': question, 'response': pred.response}])
+```
+
+A computed column runs the module when the question row is inserted and stores the string. Put the UDF in its own module. Pixeltable refuses a UDF defined in the script you run. Load the chunk table when the module is imported. A `get_table()` call inside the UDF runs during the insert and raises `AssertionError`.
+
+```python
+import dspy
+import pixeltable as pxt
+
+chunks = pxt.get_table('dspy_rag.chunks')
+
+
+@pxt.udf
+def answer_question(question: str) -> str:
+    sim = chunks.text.similarity(string=question)
+    rows = chunks.order_by(sim, asc=False).limit(3).select(chunks.text).collect()
+    prediction = dspy.ChainOfThought('context, question -> response')(
+        context=rows['text'], question=question
+    )
+    return prediction.response
+```
+
+Save that module as `answers.py` next to the script, then import it. The language model configured above is the one the column calls. `collect()` after the insert reads the stored response and does not call the model again.
+
+```python
+from answers import answer_question
+
+questions = pxt.create_table(
+    'dspy_rag.questions',
+    {'question': pxt.String},
+    if_exists='replace',
+)
+questions.add_computed_column(response=answer_question(questions.question))
+questions.insert([{'question': question}])
+print(questions.collect()[0]['response'])
+```
+
+<CardGroup cols={2}>
+  <Card title="Embedding indexes" icon="magnifying-glass" href="/platform/embedding-indexes">
+    Declare an index and rank rows with similarity().
+  </Card>
+  <Card title="Iterators" icon="file-lines" href="/platform/iterators">
+    Split a document into one row per chunk.
+  </Card>
+  <Card title="Computed columns" icon="table" href="/tutorials/computed-columns">
+    Store a value when the row is inserted.
+  </Card>
+  <Card title="DSPy RAG tutorial" icon="book" href="https://dspy.ai/current/tutorials/rag/">
+    The retriever is any function that returns passages.
+  </Card>
+</CardGroup>
