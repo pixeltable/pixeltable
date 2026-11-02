@@ -2,7 +2,7 @@ import json
 import os
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, AsyncIterator, Iterator
 
 import httpx
 import PIL.Image
@@ -12,6 +12,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.config import Config
 from pixeltable.runtime import get_runtime, reset_runtime
+from pixeltable.utils.local_store import TempStore
 
 from ..utils import (
     get_documents,
@@ -269,6 +270,64 @@ class TestVLMRunMocked:
         assert len(fake_vlmrun.requests_to(f'POST {_API}/files')) == 2
         assert 'Authorization' not in fake_vlmrun.requests_to('GET https://cdn.example.com/v.mp4')[0].headers
 
+    def test_presigned_upload(self, fake_vlmrun: _FakeVlmRun, monkeypatch: pytest.MonkeyPatch) -> None:
+        # an image or a file over the direct upload limit goes to a presigned storage URL
+        monkeypatch.setattr(pxtf.vlmrun, '_DIRECT_UPLOAD_LIMIT', 0)
+        video = _smallest_video()
+        fake_vlmrun.add(
+            f'POST {_API}/files/presigned-url',
+            httpx.Response(
+                201, json={'id': 'file-big', 'url': 'https://storage.example.com/up', 'content_type': 'video/mp4'}
+            ),
+        )
+        fake_vlmrun.add('PUT https://storage.example.com/up', httpx.Response(200))
+        fake_vlmrun.add(f'GET {_API}/files/verify-upload/file-big', httpx.Response(200, json={'id': 'file-big'}))
+        fake_vlmrun.add(_CHAT, _completion({'video': 'https://cdn.example.com/v.mp4'}))
+        fake_vlmrun.add('GET https://cdn.example.com/v.mp4', httpx.Response(200, content=Path(video).read_bytes()))
+        t = pxt.create_table('test_tbl', {'image': pxt.Image, 'video': pxt.Video})
+        t.add_computed_column(
+            output=pxtf.vlmrun.generate_video('Continue it', image=t.image, video=t.video, model=_MODEL)
+        )
+        validate_update_status(t.insert(image=get_image_files()[0], video=video), 1)
+
+        assert fake_vlmrun.requests_to(f'POST {_API}/files') == []
+        puts = fake_vlmrun.requests_to('PUT https://storage.example.com/up')
+        assert len(puts) == 2
+        assert all('Authorization' not in put.headers for put in puts)
+        assert all(put.headers['Content-Length'] == str(len(put.content)) for put in puts)
+        assert puts[1].content == Path(video).read_bytes()
+        assert _body(fake_vlmrun.requests_to(_CHAT)[0])['messages'][1]['content'][1:] == [
+            {'type': 'input_file', 'file_id': 'file-big'},
+            {'type': 'input_file', 'file_id': 'file-big'},
+        ]
+
+    def test_non_https_redirect(self, fake_vlmrun: _FakeVlmRun) -> None:
+        fake_vlmrun.add(_CHAT, _completion({'document': 'https://cdn.example.com/d.pdf'}))
+        fake_vlmrun.add(
+            'GET https://cdn.example.com/d.pdf',
+            httpx.Response(302, headers={'Location': 'http://169.254.169.254/latest/meta-data'}),
+        )
+        t = pxt.create_table('test_tbl', {'doc': pxt.Document})
+        t.add_computed_column(redacted=pxtf.vlmrun.generate_document('Redact the names', t.doc, model=_MODEL))
+        with pxt_raises(pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, match='not https: http://169.254.169.254'):
+            t.insert(doc=_smallest_pdf())
+        assert fake_vlmrun.requests_to('GET http://169.254.169.254/latest/meta-data') == []
+
+    def test_failed_download_removed(self, fake_vlmrun: _FakeVlmRun) -> None:
+        class BrokenStream(httpx.AsyncByteStream):
+            async def __aiter__(self) -> AsyncIterator[bytes]:
+                yield b'%PDF-partial'
+                raise httpx.ReadError('stream broke')
+
+        fake_vlmrun.add(_CHAT, _completion({'document': 'https://cdn.example.com/d.pdf'}))
+        fake_vlmrun.add('GET https://cdn.example.com/d.pdf', httpx.Response(200, stream=BrokenStream()))
+        t = pxt.create_table('test_tbl', {'doc': pxt.Document})
+        t.add_computed_column(redacted=pxtf.vlmrun.generate_document('Redact the names', t.doc, model=_MODEL))
+        tmp_count = TempStore.count()
+        with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='stream broke'):
+            t.insert(doc=_smallest_pdf())
+        assert TempStore.count() == tmp_count
+
     def test_generate_document(self, fake_vlmrun: _FakeVlmRun) -> None:
         pdf = _smallest_pdf()
         fake_vlmrun.add(_CHAT, _completion({'document': 'https://cdn.example.com/d.pdf'}))
@@ -323,14 +382,16 @@ class TestVLMRun:
         t.add_computed_column(text=ask('What is 2+2?', model=_MODEL))
         t.add_computed_column(image_fast=ask('Describe this image briefly', image_part, model=_MODEL))
         t.add_computed_column(image_auto=ask('Describe this image briefly', image_part, model='vlmrun-orion-2:auto'))
-        t.add_computed_column(doc=ask('What is the title of this document?', doc_part, model=_MODEL))
+        t.add_computed_column(doc_title=ask('What is the title of this document?', doc_part, model=_MODEL))
         t.add_computed_column(
             doc_toolset=ask(
                 'Extract all text from this document', doc_part, model=_MODEL, model_kwargs={'toolsets': ['document']}
             )
         )
         t.add_computed_column(
-            video=ask('Describe this video briefly', {'type': 'video_url', 'video_url': t.video}, model=_MODEL)
+            video_description=ask(
+                'Describe this video briefly', {'type': 'video_url', 'video_url': t.video}, model=_MODEL
+            )
         )
         schema = {
             'type': 'object',
@@ -348,7 +409,7 @@ class TestVLMRun:
         validate_update_status(t.insert(image=get_image_files()[0], video=_smallest_video(), doc=_smallest_pdf()), 1)
 
         row = t.collect()[0]
-        columns = ('text', 'image_fast', 'image_auto', 'doc', 'doc_toolset', 'video', 'structured')
+        columns = ('text', 'image_fast', 'image_auto', 'doc_title', 'doc_toolset', 'video_description', 'structured')
         assert all(len(row[col]['choices'][0]['message']['content']) > 0 for col in columns)
         assert '4' in row['text']['choices'][0]['message']['content']
         assert row['image_auto']['model'] == 'vlmrun-orion-2:auto'

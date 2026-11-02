@@ -24,7 +24,7 @@ import pixeltable as pxt
 from pixeltable.env import register_client
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
-from pixeltable.utils.http import exponential_backoff, is_retryable_error
+from pixeltable.utils.http import exponential_backoff, is_retryable_error, redact_url
 from pixeltable.utils.image import to_bytes
 from pixeltable.utils.local_store import TempStore
 
@@ -72,9 +72,20 @@ class _ApiKeyAuth(httpx.Auth):
         self._header = f'Bearer {api_key}'
 
     def auth_flow(self, request: httpx.Request) -> Generator[httpx.Request, httpx.Response, None]:
-        if request.url.scheme == 'https' and request.url.host == _BASE_URL.host:
+        if request.url.host == _BASE_URL.host:
             request.headers['Authorization'] = self._header
         yield request
+
+
+async def _require_https(request: httpx.Request) -> None:  # noqa: RUF029  # AsyncClient awaits its event hooks
+    # runs for every request the client sends, including each redirect it follows, so that a URL or a Location from
+    # the API can't point it at a plain-http endpoint, such as one on an internal network
+    if request.url.scheme != 'https':
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            f'VLM Run returned a URL that is not https: {redact_url(str(request.url))}',
+            provider='vlmrun',
+        )
 
 
 class _VlmRunClient:
@@ -92,6 +103,7 @@ class _VlmRunClient:
             auth=_ApiKeyAuth(api_key),
             timeout=httpx.Timeout(None, connect=30.0),
             limits=httpx.Limits(max_keepalive_connections=100, max_connections=500),
+            event_hooks={'request': [_require_https]},
             transport=transport,
         )
 
@@ -122,31 +134,35 @@ class _VlmRunClient:
     async def upload(self, file: PIL.Image.Image | str) -> str:
         """Uploads an image, or the local file at the given path, and returns its file id."""
         if isinstance(file, PIL.Image.Image):
-            name, data = 'image.png', await asyncio.to_thread(to_bytes, file, 'png')
-        else:
-            path = Path(file)
-            if path.suffix.lower() not in _SUPPORTED_EXTENSIONS:
-                supported = ', '.join(sorted(_SUPPORTED_EXTENSIONS))
-                raise pxt.RequestError(
-                    pxt.ErrorCode.INVALID_ARGUMENT,
-                    f'Unsupported file format: {path.suffix}. Supported formats: {supported}',
-                )
-            if path.stat().st_size > _DIRECT_UPLOAD_LIMIT:
-                return await self._upload_presigned(path)
-            name, data = path.name, await asyncio.to_thread(path.read_bytes)
+            return await self._upload('image.png', await asyncio.to_thread(to_bytes, file, 'png'))
+        path = Path(file)
+        if path.suffix.lower() not in _SUPPORTED_EXTENSIONS:
+            supported = ', '.join(sorted(_SUPPORTED_EXTENSIONS))
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_ARGUMENT,
+                f'Unsupported file format: {path.suffix}. Supported formats: {supported}',
+            )
+        return await self._upload(path.name, path)
+
+    async def _upload(self, name: str, data: bytes | Path) -> str:
+        size = len(data) if isinstance(data, bytes) else data.stat().st_size
+        if size > _DIRECT_UPLOAD_LIMIT:
+            return await self._upload_presigned(name, size, data if isinstance(data, bytes) else _file_chunks(data))
+        if isinstance(data, Path):
+            data = await asyncio.to_thread(data.read_bytes)
         resp = await self._send('POST', 'files', params={'purpose': 'assistants'}, files={'file': (name, data)})
         return _field(_json(resp), 'id')
 
-    async def _upload_presigned(self, path: Path) -> str:
-        resp = await self._send('POST', 'files/presigned-url', json={'filename': path.name, 'purpose': 'assistants'})
+    async def _upload_presigned(self, name: str, size: int, content: bytes | AsyncIterator[bytes]) -> str:
+        resp = await self._send('POST', 'files/presigned-url', json={'filename': name, 'purpose': 'assistants'})
         presigned = _json(resp)
         file_id, url = _field(presigned, 'id'), _field(presigned, 'url')
         put = await self._send(
             'PUT',
             url,
-            content=_file_chunks(path),
-            # an explicit length keeps httpx from chunking the body: presigned storage URLs need a Content-Length
-            headers={'Content-Type': _field(presigned, 'content_type'), 'Content-Length': str(path.stat().st_size)},
+            content=content,
+            # an explicit length keeps httpx from chunking a streamed body: presigned storage URLs need a Content-Length
+            headers={'Content-Type': _field(presigned, 'content_type'), 'Content-Length': str(size)},
         )
         if not put.is_success:
             raise _status_error(put)
@@ -430,7 +446,12 @@ async def _generate(
                 provider='vlmrun',
             ) from exc
         dest = TempStore.create_path(extension=_ARTIFACT_TYPES[artifact][1])
-        await client.download(_media_ref(str(ref)), result.get('session_id'), dest)
+        try:
+            await client.download(_media_ref(str(ref)), result.get('session_id'), dest)
+        except BaseException:
+            # including cancellation by deadline(): nothing downstream knows the path of a partial download
+            dest.unlink(missing_ok=True)
+            raise
         return dest
 
 
