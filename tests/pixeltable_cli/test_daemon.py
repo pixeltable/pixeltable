@@ -264,7 +264,10 @@ class TestDaemon:
         assert 'Traceback' not in r.stderr
 
     def test_restart_keeps_working_dir(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
-        """A replaced daemon keeps the working directory set with pxt cd, unless it serves another project."""
+        """A replaced or restarted daemon keeps the working directory set with pxt cd.
+
+        pxt daemon stop and a daemon for another project clear it.
+        """
         project = tmp_path / 'project'
         _create_pxt_project(project)
         other_project = tmp_path / 'other_project'
@@ -278,6 +281,14 @@ class TestDaemon:
         _replacement_pid(daemon_port, project, drift_env, pid)
         assert 'restart_wd' in _pxt(daemon_port, project, drift_env, 'pwd').stdout
 
+        assert _pxt(daemon_port, project, drift_env, 'daemon', 'restart').returncode == 0
+        assert 'restart_wd' in _pxt(daemon_port, project, drift_env, 'pwd').stdout
+
+        assert _pxt(daemon_port, project, drift_env, 'daemon', 'stop').returncode == 0
+        assert _pxt(daemon_port, project, drift_env, 'pwd').stdout == '(no working directory)\n'
+
+        r = _pxt(daemon_port, project, drift_env, 'cd', 'restart_wd')
+        assert r.returncode == 0, r.stderr
         assert _pxt(daemon_port, other_project, drift_env, 'pwd').stdout == '(no working directory)\n'
         assert _pxt(daemon_port, project, drift_env, 'pwd').stdout == '(no working directory)\n'
 

@@ -67,8 +67,7 @@ def main(argv: list[str] | None = None) -> None:
     _write_pidfile(port)
     atexit.register(lambda: _remove_pidfile_if_ours(port))
     Config.init(reinit=True, project_root=args.project_root)
-    project_root = Config.get().project_root
-    daemon_state.load_wd(working_dirs_path(port), None if project_root is None else str(project_root))
+    daemon_state.load_wd(working_dirs_path(port))
     # In a container the daemon is PID 1, which ignores a signal it has no handler for, so a stopped pod would
     # wait out its whole grace period. shutdown() blocks until serve_forever() returns, which runs in this
     # thread, so it is called from another.

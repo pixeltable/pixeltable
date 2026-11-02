@@ -263,7 +263,7 @@ def _packages_fingerprint() -> str:
     dirs = set(site.getsitepackages())
     if site.ENABLE_USER_SITE is True:
         dirs.add(site.getusersitepackages())
-    metadata_dirs: list[str] = []
+    listing: list[str] = []
     for site_dir in dirs:
         try:
             with os.scandir(site_dir) as entries:
@@ -273,8 +273,8 @@ def _packages_fingerprint() -> str:
         for e in metadata_entries:
             # an entry removed since the scan, or a dangling symlink, has no mtime
             with contextlib.suppress(OSError):
-                metadata_dirs.append(f'{e.name} {e.stat().st_mtime_ns}')
-    return value_fingerprint('\n'.join(sorted(metadata_dirs)))
+                listing.append(f'{e.name} {e.stat().st_mtime_ns}')
+    return value_fingerprint('\n'.join(sorted(listing)))
 
 
 # Env-var keys whose values may contain credentials and must not be returned verbatim
@@ -306,7 +306,7 @@ def project_root() -> str | None:
 
 
 def value_fingerprint(value: str) -> str:
-    """A hash of one config value, short enough to print and to compare by eye."""
+    """Hash value into a string short enough to print and to compare by eye."""
     return hashlib.sha256(value.encode('utf-8')).hexdigest()[:12]
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -14,7 +15,7 @@ from pixeltable_cli.client.utils import (
     port_is_open,
     read_pidfile,
 )
-from pixeltable_cli.utils import get_port, pidfile_path
+from pixeltable_cli.utils import get_port, pidfile_path, working_dirs_path
 
 from ..parser import Parser
 
@@ -52,6 +53,9 @@ def run(argv: list[str]) -> None:
         _start()
     elif args.action == 'stop':
         _stop(force=args.force)
+        # a stop clears the working directories set with pxt cd; a restart keeps them
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(working_dirs_path(get_port()))
     elif args.action == 'restart':
         _stop(force=args.force, ok_if_absent=True)
         _start()

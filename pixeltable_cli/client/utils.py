@@ -341,13 +341,13 @@ def _restart_if_mismatched(health: dict[str, Any]) -> None:
     kill_and_wait(reported_pid)
     spawn_detached()
     new_health = wait_for_health()
-    # Cross-verify: the new responder must have a fresh PID and an identity that fully matches the client.
+    # Cross-verify: the new responder must have a fresh PID and an identity that matches the client's.
     # Anything else means the restart did not actually swap in a daemon belonging to this install/env.
     if new_health.get('pid') == reported_pid:
         reason = f'new daemon kept the killed PID {reported_pid}'
     else:
-        # call identity() again: an install can finish during the restart
-        new_diff = _identity_diff(identity(), new_health)
+        # an install that overlaps the restart does not make the restart a failure
+        new_diff = [k for k in _identity_diff(identity(), new_health) if k != 'packages_fingerprint']
         if _serves_another_project(new_health):
             new_diff = [*new_diff, 'project_root']
         if len(new_diff) > 0:
