@@ -26,7 +26,7 @@ Skip the torch line if you already have a GPU build of PyTorch. The first insert
 
 The script creates the directory, the document table, the chunk view, and the index. It deletes an existing `dspy_rag` directory first, including its rows, so you can run it again.
 
-An application file declares the same table, view, and index. In a new folder, `pxt init` writes `pixeltable.toml` and marks the project root. `pxt schema update` creates `dspy_rag.docs` and `dspy_rag.chunks`.
+An application file declares the same table, view, and index. In a new folder, `pxt init` writes `pixeltable.toml` and marks the project root. `pxt schema update` creates `dspy_rag.docs` and `dspy_rag.chunks`. The app file declares only those two, so `pxt schema prune` would drop the `runs` table created later on this page. Running `docs.insert()` again duplicates the documents, since only the script clears the directory.
 
 <Tabs>
   <Tab title="Script">
@@ -94,11 +94,11 @@ An application file declares the same table, view, and index. In a new folder, `
   </Tab>
 </Tabs>
 
-`separators='paragraph'` yields one chunk per Markdown paragraph. A `.txt` file stays one chunk with that separator. `char_limit` splits a `.txt` file when you also pass `limit`.
+`separators='paragraph'` yields one chunk per Markdown paragraph.
 
 ## Insert the documents
 
-`topic` is metadata on the document. The chunk view carries it, so a later `where` clause can limit retrieval to one topic. The two files are the corpus:
+`topic` is metadata on the document. The chunk view includes it, so a later `where` clause can limit retrieval to one topic. The two files are the corpus:
 
 ```python
 from pathlib import Path
@@ -161,7 +161,7 @@ More on `where` clauses: [Queries and expressions](/tutorials/queries-and-expres
 
 ## Answer from the passages
 
-`RAG` is a `dspy.Module`. `forward()` retrieves, then `dspy.ChainOfThought` reads `context` and `question` and writes `response`. The module also fills `reasoning`.
+`RAG` is a `dspy.Module`. `forward()` retrieves, then `dspy.ChainOfThought` reads `context` and `question` and writes `response`. The module also fills `reasoning`. Run `export OPENAI_API_KEY=...` first.
 
 ```python
 lm = dspy.LM('openai/gpt-4o-mini')
@@ -184,7 +184,7 @@ print(pred.response)
 
 ## Inserts update the index
 
-Insert another document. The view adds a chunk for the new paragraph, and the embedding index adds its vector. The next call to `search()` returns that chunk. There is no separate reindex step.
+Insert another document. The view adds a chunk for the new paragraph, and the embedding index adds its vector. The next call to `search()` returns that chunk.
 
 ```python
 (samples / 'dspy.md').write_text(
@@ -210,51 +210,6 @@ pred = rag(question=question)
 runs.insert([{'question': question, 'response': pred.response}])
 ```
 
-A computed column runs the module when the question row is inserted and stores the string. Put the UDF in its own module. Pixeltable refuses a UDF defined in the script you run. Load the chunk table when the module is imported. A `get_table()` call inside the UDF runs during the insert and raises `AssertionError`.
-
-```python
-import dspy
-import pixeltable as pxt
-
-chunks = pxt.get_table('dspy_rag.chunks')
-
-
-@pxt.udf
-def answer_question(question: str) -> str:
-    sim = chunks.text.similarity(string=question)
-    rows = chunks.order_by(sim, asc=False).limit(3).select(chunks.text).collect()
-    prediction = dspy.ChainOfThought('context, question -> response')(
-        context=rows['text'], question=question
-    )
-    return prediction.response
-```
-
-Save that module as `answers.py` next to the script, then import it. The language model configured above is the one the column calls. `collect()` after the insert reads the stored response and does not call the model again.
-
-```python
-from answers import answer_question
-
-questions = pxt.create_table(
-    'dspy_rag.questions',
-    {'question': pxt.String},
-    if_exists='replace',
-)
-questions.add_computed_column(response=answer_question(questions.question))
-questions.insert([{'question': question}])
-print(questions.collect()[0]['response'])
-```
-
-<CardGroup cols={2}>
-  <Card title="Embedding indexes" icon="magnifying-glass" href="/platform/embedding-indexes">
-    Declare an index and rank rows with similarity().
-  </Card>
-  <Card title="Iterators" icon="file-lines" href="/platform/iterators">
-    Split a document into one row per chunk.
-  </Card>
-  <Card title="Computed columns" icon="table" href="/tutorials/computed-columns">
-    Store a value when the row is inserted.
-  </Card>
-  <Card title="DSPy RAG tutorial" icon="book" href="https://dspy.ai/current/tutorials/rag/">
-    The retriever is any function that returns passages.
-  </Card>
-</CardGroup>
+<Card title="Embedding indexes" icon="magnifying-glass" href="/platform/embedding-indexes">
+  Declare an index and rank rows with similarity().
+</Card>

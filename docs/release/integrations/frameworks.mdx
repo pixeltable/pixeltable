@@ -289,8 +289,6 @@ Platforms that host or route many models from a shared catalog.
 
 ## Agent frameworks
 
-DSPy calls a Python function for passages. [DSPy](/integrations/dspy) builds that function on a chunk view and a local embedding index.
-
 Already on Agno? Keep it. The cookbook stores the agent's knowledge through the `langchain-pixeltable` adapter, which creates the table and its index on first insert. Each run drops `agno_rag/docs` first, so any data already in that table is deleted. A new Pixeltable app declares its embedding index on a `TableModel` instead ([embedding indexes](/platform/embedding-indexes)).
 
 <CardGroup cols={2}>
