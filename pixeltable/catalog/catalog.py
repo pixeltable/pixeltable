@@ -123,13 +123,18 @@ def _is_retryable_exc(e: BaseException) -> bool:
 
 
 def retry_md_read_loop(
-    *, tbl_keys: Collection[TableVersionKey] | None = None
+    *, tbl_keys: Collection[TableVersionKey] | None = None, is_local: bool = True
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Retry an operation that reads catalog metadata without reading table rows.
 
     `tbl_keys` identifies tables to refresh before running the operation. Any pending operations on those tables
     are finalized first.
+
+    With `is_local=False`, the operation reads a hosted catalog and runs without a local transaction or retries; each
+    of its requests runs in a transaction of its own.
     """
+    if not is_local:
+        return lambda op: op
     return _retry_loop(LockRequest(TblOpClass.MD_READ, read_tbl_keys=tbl_keys))
 
 
@@ -392,9 +397,6 @@ class Catalog(CatalogBase):
             yield
         finally:
             _frozen.reset(token)
-
-    def run_read(self, op: Callable[[], T]) -> T:
-        return retry_md_read_loop()(op)()
 
     @contextmanager
     def begin_md_read_xact(self, *, tbl_keys: Collection[TableVersionKey] | None = None) -> Iterator[sql.Connection]:

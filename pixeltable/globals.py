@@ -983,12 +983,14 @@ def ls(path: str = '') -> pd.DataFrame:
     To get a programmatic list of the directory's contents, use [get_dir_contents()][pixeltable.get_dir_contents]
     instead.
     """
+    from pixeltable.catalog import retry_md_read_loop
     from pixeltable.metadata import schema
 
     path_obj = catalog.Path.parse(path, allow_empty_path=True)
     cat = get_runtime().get_catalog(path_obj)
     dir_entries = cat.get_dir_contents(path_obj)
 
+    @retry_md_read_loop(is_local=path_obj.is_local)
     def op() -> list[list[str]]:
         rows: list[list[str]] = []
         for name, entry in dir_entries.items():
@@ -1012,7 +1014,7 @@ def ls(path: str = '') -> pd.DataFrame:
             rows.append([name, kind, version, base])
         return rows
 
-    rows = cat.run_read(op)
+    rows = op()
 
     rows = sorted(rows, key=lambda x: x[0])
     df = pd.DataFrame(

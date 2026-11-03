@@ -11,7 +11,16 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import DatabaseRoot, get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
+from ..utils import (
+    DatabaseRoot,
+    LocalDbKind,
+    get_audio_files,
+    get_documents,
+    get_video_files,
+    no_local_db_env,
+    run_in_new_process,
+    skip_test_if_not_installed,
+)
 from .conftest import PxtRunner
 
 # A minimal schema, for the cases that assert on an error message rather than on what Pixeltable can express.
@@ -180,6 +189,61 @@ class TestSchema:
         assert 'shouted' in docs.columns()
         assert docs.select(docs.shouted).collect()['shouted'] == ['hello world!']
         assert_in_agreement(cli, str(schema_file), target)
+
+    @pytest.mark.db_roots(
+        'proxy', 'cloud-cli', reason='the commands under test reach a hosted catalog, and must not need the local one'
+    )
+    @pytest.mark.parametrize('local_db', ['embedded', 'external'])
+    def test_update_without_local_db(
+        self,
+        cli: PxtRunner,
+        db_root: DatabaseRoot,
+        project_dir: pathlib.Path,
+        session_project: pathlib.Path,
+        daemon_port: int,
+        tmp_path: pathlib.Path,
+        local_db: LocalDbKind,
+    ) -> None:
+        """Create tables in a hosted catalog, then insert and read rows, from processes that have no local database."""
+        app = project_dir / 'app.py'
+        app.write_text(
+            dedent(
+                """
+                import datetime
+
+                import pixeltable as pxt
+
+                TableModel = pxt.model_base()
+
+
+                class Events(TableModel, name='events'):
+                    at: pxt.Timestamp
+                    recent = at > datetime.datetime(2024, 1, 1)
+                """
+            ),
+            encoding='utf-8',
+        )
+        target = db_root.make_catalog_path('events_app')
+        env_overrides = no_local_db_env(local_db, tmp_path)
+        # a daemon of its own, started without a local database
+        r = cli(
+            'schema',
+            'update',
+            str(app),
+            target,
+            '--json',
+            env_overrides={**env_overrides, 'PXT_PORT': str(daemon_port)},
+        )
+        assert [t['resolution'] for t in r.json['tables']] == ['create']
+
+        code = f"""
+            import datetime
+
+            events = pxt.get_table({f'{target}/events'!r})
+            events.insert(at=datetime.datetime(2025, 1, 1))
+            print(json.dumps(events.select(events.recent).collect()['recent']))
+        """
+        assert run_in_new_process(code, env_overrides, session_project) == [True]
 
     def test_evolution(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """Editing the file under data: an added column is applied as it stands, a dropped one is refused."""

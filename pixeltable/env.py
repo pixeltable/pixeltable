@@ -158,7 +158,7 @@ class Env:
     _resource_pool_info: dict[str, Any]
     _resource_pool_lock: threading.Lock
     _dbms: Dbms | None
-    _db_lock: threading.Lock  # protects _db_connected and the db fields
+    _db_lock: threading.Lock  # serializes ensure_connected()
     _db_connected: bool
 
     @classmethod
@@ -183,7 +183,7 @@ class Env:
         try:
             env._set_up()
             if connect:
-                env.connect(reinit_db=reinit_db)
+                env.ensure_connected(reinit_db=reinit_db)
             cls._instance = env
         finally:
             # Reset the initializing flag, even if setup fails.
@@ -506,47 +506,44 @@ class Env:
         self.clear_tmp_dir()
         self._set_up_runtime()
 
-    def connect(self, reinit_db: bool = False) -> None:
-        """Start or connect to the database, create its metadata and upgrade it. Idempotent."""
+    def ensure_connected(self, reinit_db: bool = False) -> None:
+        """Start or connect to the database, create its metadata and upgrade it, unless that already happened."""
         if self._db_connected:
             return
         with self._db_lock:
-            if not self._db_connected:
-                self._set_up_db(reinit_db)
-                self._db_connected = True
+            if self._db_connected:
+                return
+            self._init_db(Config.get())
 
-    def _set_up_db(self, reinit_db: bool) -> None:
-        config = Config.get()
-        self._init_db(config)
+            if reinit_db and not self.is_local:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    'Reinitializing pixeltable database is not supported when running in non-local environment',
+                )
 
-        if reinit_db and not self.is_local:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                'Reinitializing pixeltable database is not supported when running in non-local environment',
-            )
+            if self.is_local:
+                # Embedded postmaster: create or reset the database as needed.
+                if reinit_db and self._store_db_exists(self._db_name):
+                    self._drop_store_db()
 
-        if self.is_local:
-            # Embedded postmaster: create or reset the database as needed.
-            if reinit_db and self._store_db_exists(self._db_name):
-                self._drop_store_db()
-
-            create_db = not self._store_db_exists(self._db_name)
-            if create_db:
-                _logger.info(f'creating database at: {self.redacted_db_url}')
-                self._create_store_db()
+                create_db = not self._store_db_exists(self._db_name)
+                if create_db:
+                    _logger.info(f'creating database at: {self.redacted_db_url}')
+                    self._create_store_db()
+                else:
+                    _logger.info(f'found database at: {self.redacted_db_url}')
             else:
-                _logger.info(f'found database at: {self.redacted_db_url}')
-        else:
-            # External DB: pre-provisioned; no local setup needed.
-            _logger.info(f'Using external database at: {self.redacted_db_url}')
+                # External DB: pre-provisioned; no local setup needed.
+                _logger.info(f'Using external database at: {self.redacted_db_url}')
 
-        self._create_engine()
+            self._create_engine()
 
-        # Create catalog tables and system metadata
-        self._init_metadata()
+            # Create catalog tables and system metadata
+            self._init_metadata()
 
-        self.console_logger.info(f'Connected to Pixeltable database at: {self.redacted_db_url}')
-        self._upgrade_metadata()
+            self.console_logger.info(f'Connected to Pixeltable database at: {self.redacted_db_url}')
+            self._upgrade_metadata()
+            self._db_connected = True
 
     def _init_db(self, config: Config) -> None:
         """
@@ -1026,6 +1023,7 @@ class Env:
     @property
     def pgdata_dir(self) -> Path | None:
         """Data directory of the embedded Postgres server; None when Pixeltable uses an external database."""
+        assert self._db_url is not None  # pgdata_dir is known only after ensure_connected()
         return self._pgdata_dir
 
     @property

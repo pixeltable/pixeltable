@@ -7,7 +7,6 @@ import json
 from typing import TYPE_CHECKING, Any, Literal
 
 from pixeltable import catalog, exprs, func
-from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.object_stores import ObjectPath, warn_if_pxtfs_destination
 from pixeltable_cli.types import Resolution, SchemaChangeIndexRef, SchemaChangeOp, SchemaChangeOpDetails, TableDiff
@@ -322,11 +321,13 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
     """
     import pixeltable as pxt
 
+    from ..catalog import retry_md_read_loop
     from .definition import BtreeIndex
 
     dir_path = catalog.Path.parse(catalog_dir.rstrip('/'), allow_empty_path=True)
     catalog_dir = dir_path.prefix
 
+    @retry_md_read_loop(is_local=dir_path.is_local)
     def op() -> dict[str, TableDiff]:
         results: dict[str, TableDiff] = {}
 
@@ -579,7 +580,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
 
         return results
 
-    return get_runtime().get_catalog(dir_path).run_read(op)
+    return op()
 
 
 def _drop_index_change(idx_md: IndexMetadata, action: str) -> SchemaChangeOp:
