@@ -18,6 +18,7 @@ from ..utils import (
     pxt_raises,
     rerun_on_network_error,
     skip_test_if_no_client,
+    skip_test_if_not_installed,
     validate_update_status,
 )
 
@@ -36,6 +37,7 @@ def _smallest_video() -> str:
 
 class TestVLMRunClient:
     def test_client_closed_on_reset(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('vlmrun')
         monkeypatch.setenv('VLMRUN_API_KEY', 'test-key')
         http_client = get_runtime().get_client('vlmrun')._http
         reset_runtime()
@@ -96,6 +98,7 @@ class TestVLMRun:
         ],
     )
     def test_bad_local_file(self, uses_db: None, col_type: Any, value: Callable[[], str], match: str) -> None:
+        skip_test_if_not_installed('vlmrun')
         skip_test_if_no_client('vlmrun')
         t = pxt.create_table('test_tbl', {'file': col_type})
         messages = [{'role': 'user', 'content': [{'type': 'file_url', 'file_url': t.file}]}]
@@ -108,6 +111,7 @@ class TestVLMRun:
         [(pxt.Int, 1, '`image_url` must be a media column'), (pxt.Image | None, None, '`image_url` is null')],
     )
     def test_invalid_media_value(self, uses_db: None, col_type: Any, value: Any, match: str) -> None:
+        skip_test_if_not_installed('vlmrun')
         skip_test_if_no_client('vlmrun')
         t = pxt.create_table('test_tbl', {'media': col_type})
         messages = [{'role': 'user', 'content': [{'type': 'image_url', 'image_url': t.media}]}]
@@ -116,6 +120,7 @@ class TestVLMRun:
             t.insert(media=value)
 
     def test_chat_completions(self, uses_db: None) -> None:
+        skip_test_if_not_installed('vlmrun')
         skip_test_if_no_client('vlmrun')
         t = pxt.create_table('test_tbl', {'image': pxt.Image, 'video': pxt.Video, 'doc': pxt.Document})
 
@@ -163,6 +168,7 @@ class TestVLMRun:
         assert isinstance(structured['title'], str) and isinstance(structured['num_pages'], int)
 
     def test_generate_image(self, uses_db: None) -> None:
+        skip_test_if_not_installed('vlmrun')
         skip_test_if_no_client('vlmrun')
         t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'image': pxt.Image})
         t.add_computed_column(generated=pxtf.vlmrun.generate_image(t.prompt, model=_MODEL))
@@ -176,6 +182,7 @@ class TestVLMRun:
         assert all(isinstance(row[col], PIL.Image.Image) for col in ('generated', 'edited', 'annotated'))
 
     def test_generate_video(self, uses_db: None) -> None:
+        skip_test_if_not_installed('vlmrun')
         skip_test_if_no_client('vlmrun')
         t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'image': pxt.Image, 'video': pxt.Video})
         t.add_computed_column(from_text=pxtf.vlmrun.generate_video(t.prompt, model=_MODEL))
@@ -192,6 +199,7 @@ class TestVLMRun:
         assert all(row[f'{col}_duration'] > 0 for col in ('from_text', 'from_image', 'from_video'))
 
     def test_generate_document(self, uses_db: None) -> None:
+        skip_test_if_not_installed('vlmrun')
         skip_test_if_no_client('vlmrun')
         t = pxt.create_table('test_tbl', {'doc': pxt.Document})
         t.add_computed_column(

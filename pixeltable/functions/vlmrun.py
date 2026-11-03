@@ -1,8 +1,8 @@
 """
 Pixeltable UDFs that wrap the [VLM Run](https://docs.vlm.run/) Orion agent API.
 
-In order to use them, you must configure your VLM Run API key, by setting the `VLMRUN_API_KEY` environment variable
-or `vlmrun.api_key` in the Pixeltable config file.
+In order to use them, you must first `pip install vlmrun` and configure your VLM Run API key, by setting the
+`VLMRUN_API_KEY` environment variable or `vlmrun.api_key` in the Pixeltable config file.
 """
 
 import asyncio
@@ -14,19 +14,21 @@ import re
 import time
 import urllib.parse
 from pathlib import Path
-from typing import Any, AsyncIterator, Generator, Literal
+from typing import TYPE_CHECKING, Any, AsyncIterator, Generator, Literal
 
 import httpx
 import PIL.Image
 import pydantic
 
 import pixeltable as pxt
-from pixeltable.env import register_client
+from pixeltable.env import Env, register_client
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import RetryInfo, exponential_backoff, is_retryable_error, redact_url
-from pixeltable.utils.image import to_bytes
 from pixeltable.utils.local_store import TempStore
+
+if TYPE_CHECKING:
+    import vlmrun.client  # type: ignore[import-untyped]
 
 _logger = logging.getLogger(__name__)
 
@@ -43,9 +45,6 @@ _SUPPORTED_EXTENSIONS = frozenset(
 
 # Content part types whose value can come from a Pixeltable media column
 _MEDIA_PART_TYPES = ('image_url', 'video_url', 'file_url')
-
-# The Files API takes larger files through a presigned URL
-_DIRECT_UPLOAD_LIMIT = 32 * 2**20
 
 # An artifact can lag the completion that references it, so a 404 is retried for this long before it counts as a bad id
 _NOT_FOUND_GRACE = 60.0
@@ -92,13 +91,20 @@ async def _require_https(request: httpx.Request) -> None:  # noqa: RUF029  # Asy
 
 
 class _VlmRunClient:
-    """Client for the VLM Run API. Owns the connection pool for API calls, polling and downloads."""
+    """Client for the VLM Run API. Uploads and deletes files with the vlmrun SDK. Chat completions, polling and
+    downloads go through a connection pool of its own: the SDK's chat client follows the 303 that answers a
+    long-running request, where this client polls the result URL instead."""
 
     timeout: float
+    _sdk: 'vlmrun.client.VLMRun'
     _http: httpx.AsyncClient
 
     def __init__(self, api_key: str, timeout: float) -> None:
+        from vlmrun.client import VLMRun
+
         self.timeout = timeout
+        # require_api_key=False skips the key check over the network that the SDK otherwise makes here
+        self._sdk = VLMRun(api_key=api_key, base_url=str(_BASE_URL).rstrip('/'), require_api_key=False)
         # no read timeout: a request runs for up to ~150s before the gateway redirects it, a long poll holds the
         # connection while the job runs, and deadline() bounds the whole call
         self._http = httpx.AsyncClient(
@@ -137,7 +143,13 @@ class _VlmRunClient:
     async def upload(self, file: PIL.Image.Image | str) -> str:
         """Uploads an image, or the local file at the given path, and returns its file id."""
         if isinstance(file, PIL.Image.Image):
-            return await self._upload('image.png', await asyncio.to_thread(to_bytes, file, 'png'))
+            # the SDK uploads from a path
+            path = TempStore.create_path(extension='.png')
+            try:
+                await asyncio.to_thread(file.save, path, format='PNG')
+                return await self._upload(path)
+            finally:
+                path.unlink(missing_ok=True)
         path = Path(file)
         if path.suffix.lower() not in _SUPPORTED_EXTENSIONS:
             supported = ', '.join(sorted(_SUPPORTED_EXTENSIONS))
@@ -147,39 +159,37 @@ class _VlmRunClient:
             )
         if not path.is_file():
             raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'Not a file: {file}')
-        return await self._upload(path.name, path)
+        return await self._upload(path)
 
-    async def _upload(self, name: str, data: bytes | Path) -> str:
-        size = len(data) if isinstance(data, bytes) else data.stat().st_size
-        if size > _DIRECT_UPLOAD_LIMIT:
-            return await self._upload_presigned(name, size, data if isinstance(data, bytes) else _file_chunks(data))
-        if isinstance(data, Path):
-            data = await asyncio.to_thread(data.read_bytes)
-        resp = await self._send('POST', 'files', params={'purpose': 'assistants'}, files={'file': (name, data)})
-        return _field(_json(resp), 'id')
-
-    async def _upload_presigned(self, name: str, size: int, content: bytes | AsyncIterator[bytes]) -> str:
-        resp = await self._send('POST', 'files/presigned-url', json={'filename': name, 'purpose': 'assistants'})
-        presigned = _json(resp)
-        file_id, url = _field(presigned, 'id'), _field(presigned, 'url')
-        put = await self._send(
-            'PUT',
-            url,
-            content=content,
-            # an explicit length keeps httpx from chunking a streamed body: presigned storage URLs need a Content-Length
-            headers={'Content-Type': _field(presigned, 'content_type'), 'Content-Length': str(size)},
-        )
-        if not put.is_success:
-            raise _status_error(put)
-        return _field(_json(await self._send('GET', f'files/verify-upload/{file_id}')), 'id')
+    async def _upload(self, path: Path) -> str:
+        try:
+            # force=True uploads a new file even if one with the same content exists: delete_files() deletes this
+            # call's files when the call ends, and another call may be using an existing one
+            uploaded = await asyncio.to_thread(self._sdk.files.upload, file=path, force=True)
+        except Exception as exc:
+            raise pxt.ExternalServiceError(
+                pxt.ErrorCode.PROVIDER_ERROR,
+                f'Upload to VLM Run failed: {exc}',
+                provider='vlmrun',
+                status_code=getattr(exc, 'http_status', None),
+            ) from exc
+        if uploaded.id is None:
+            raise pxt.ExternalServiceError(
+                pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+                'VLM Run returned an upload without an id',
+                provider='vlmrun',
+            )
+        return uploaded.id
 
     async def delete_files(self, file_ids: list[str]) -> None:
         """Deletes uploaded files, logging rather than raising a failure: the call's result doesn't depend on it."""
+        # each delete is bounded, as the SDK retries a failing one several times
         results = await asyncio.gather(
-            *(self._http.delete(f'files/{file_id}', timeout=30.0) for file_id in file_ids), return_exceptions=True
+            *(asyncio.wait_for(asyncio.to_thread(self._sdk.files.delete, file_id), 30.0) for file_id in file_ids),
+            return_exceptions=True,
         )
         for file_id, result in zip(file_ids, results):
-            if isinstance(result, BaseException) or not result.is_success:
+            if isinstance(result, BaseException):
                 _logger.debug(f'Deleting VLM Run file {file_id} failed: {result!r}')
 
     async def chat(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -276,17 +286,12 @@ class _VlmRunClient:
 
 @register_client('vlmrun', credential_param='api_key')
 def _(api_key: str, timeout: float | None = None) -> _VlmRunClient:
+    Env.get().require_package('vlmrun', [0, 9, 3])
     return _VlmRunClient(api_key, timeout=600.0 if timeout is None else timeout)
 
 
 def _vlmrun_client() -> _VlmRunClient:
     return get_runtime().get_client('vlmrun')
-
-
-async def _file_chunks(path: Path) -> AsyncIterator[bytes]:
-    with path.open('rb') as f:
-        while chunk := await asyncio.to_thread(f.read, 2**20):
-            yield chunk
 
 
 async def _write_body(resp: httpx.Response, dest: Path) -> None:
@@ -352,17 +357,6 @@ def _json(resp: httpx.Response) -> dict[str, Any]:
     return result
 
 
-def _field(obj: dict[str, Any], key: str) -> str:
-    value = obj.get(key)
-    if not isinstance(value, str):
-        raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
-            f'VLM Run returned a response without `{key}`: {str(obj)[:_MAX_DETAIL_LEN]}',
-            provider='vlmrun',
-        )
-    return value
-
-
 def _media_ref(ref: str, prefix: str) -> str:
     """Returns the artifact id or https URL in a reference to generated media with the given artifact id prefix.
 
@@ -416,11 +410,10 @@ async def _resolve_messages(messages: list, client: _VlmRunClient, file_ids: lis
 
 def _response_format(artifact: _Artifact) -> dict[str, Any]:
     """Returns a `response_format` that asks for the id of one generated artifact."""
-    prefix = _ARTIFACT_TYPES[artifact][0]
-    ref_model = pydantic.create_model(
-        f'{artifact.title()}Ref', id=(str, pydantic.Field(..., pattern=f'^{prefix}{_ARTIFACT_ID_SUFFIX}$'))
-    )
-    fields: dict[str, Any] = {artifact: (ref_model, ...)}
+    from vlmrun.types import refs  # type: ignore[import-untyped]
+
+    ref_type = {'image': refs.ImageRef, 'video': refs.VideoRef, 'document': refs.DocumentRef}[artifact]
+    fields: dict[str, Any] = {artifact: (ref_type, ...)}
     output_model = pydantic.create_model(f'{artifact.title()}Output', **fields)
     return {'type': 'json_schema', 'schema': output_model.model_json_schema()}
 
@@ -514,6 +507,10 @@ async def chat_completions(messages: list, *, model: str, model_kwargs: dict[str
     Applies the rate limit set in the config (section `vlmrun`, key `rate_limit`). If no rate limit is configured,
     uses a default of 600 RPM.
 
+    __Requirements:__
+
+    - `pip install vlmrun`
+
     Args:
         messages: A list of messages for the chat conversation. Media content items can reference Pixeltable
             columns directly (see above).
@@ -593,6 +590,10 @@ async def generate_image(
 
     For additional details, see: <https://docs.vlm.run/>
 
+    __Requirements:__
+
+    - `pip install vlmrun`
+
     Args:
         prompt: Text prompt describing the image to generate or the edit to apply.
         image: The image to edit. If it is omitted, or null in a row, the image is generated from the prompt alone.
@@ -638,6 +639,10 @@ async def annotate_image(
     Draws bounding boxes, keypoints or segmentation masks on an image, using VLM Run's `viz` toolset.
 
     For additional details, see: <https://docs.vlm.run/>
+
+    __Requirements:__
+
+    - `pip install vlmrun`
 
     Args:
         prompt: Text prompt describing what to annotate, such as `'Draw bounding boxes around all people'`.
@@ -686,6 +691,10 @@ async def generate_video(
 
     For additional details, see: <https://docs.vlm.run/>
 
+    __Requirements:__
+
+    - `pip install vlmrun`
+
     Args:
         prompt: Text prompt describing the video to generate.
         image: An image to start the video from.
@@ -725,6 +734,10 @@ async def generate_document(
     Transforms a document, for example by redacting it, using VLM Run's `document` toolset.
 
     For additional details, see: <https://docs.vlm.run/>
+
+    __Requirements:__
+
+    - `pip install vlmrun`
 
     Args:
         prompt: Text prompt describing the transformation, such as
