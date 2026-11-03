@@ -87,3 +87,13 @@ def test_http_server_log_omits_token(
         _logger.removeHandler(caplog.handler)
     assert 'GET /<token>/' in caplog.text
     assert file_server.token not in caplog.text
+
+
+def test_http_server_tokens_differ() -> None:
+    first = make_server(address='127.0.0.1', port=0)
+    second = make_server(address='127.0.0.1', port=0)
+    try:
+        assert first.token != second.token
+    finally:
+        first.server_close()
+        second.server_close()

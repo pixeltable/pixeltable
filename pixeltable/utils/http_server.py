@@ -52,7 +52,7 @@ class AbsolutePathHandler(http.server.SimpleHTTPRequestHandler):
         Code initially taken from there:
         https://github.com/python/cpython/blob/f5406ef454662b98df107775d18ff71ae6849618/Lib/http/server.py#L834
         """
-        # send_head() refuses a path without the token
+        # only send_head() checks the token, and it calls this only for a path that starts with it
         path = path.removeprefix(f'/{self.server.token}')
         _logger.info(f'translate path {path=}')
         # abandon query parameters, taken from http.server.SimpleHTTPRequestHandler
