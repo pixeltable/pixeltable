@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Iterator
@@ -32,22 +33,29 @@ _ARTIFACTS = f'GET {_API}/artifacts'
 _MODEL = 'vlmrun-orion-2:fast'
 
 
+def _key(request: httpx.Request) -> str:
+    return f'{request.method} {request.url.copy_with(query=None)}'
+
+
 class _FakeVlmRun:
     """The VLM Run API, as served to the registered client: each request takes the next queued response for its
     method and URL, except uploads, which always succeed."""
 
     client: 'pxtf.vlmrun._VlmRunClient'
     requests: list[httpx.Request]
+    request_times: list[float]
     responses: defaultdict[str, list[httpx.Response]]
 
     def __init__(self) -> None:
         self.client = pxtf.vlmrun._VlmRunClient('test-key', timeout=60.0, transport=httpx.MockTransport(self._handle))
         self.requests = []
+        self.request_times = []
         self.responses = defaultdict(list)
 
     def _handle(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
-        key = f'{request.method} {request.url.copy_with(query=None)}'
+        self.request_times.append(time.monotonic())
+        key = _key(request)
         if key == f'POST {_API}/files':
             return httpx.Response(201, json={'id': f'file-{len(self.requests_to(key))}'})
         if request.method == 'DELETE' and request.url.path.startswith('/v1/files/'):
@@ -62,7 +70,10 @@ class _FakeVlmRun:
         self.responses[key].extend(responses)
 
     def requests_to(self, key: str) -> list[httpx.Request]:
-        return [r for r in self.requests if f'{r.method} {r.url.copy_with(query=None)}' == key]
+        return [r for r in self.requests if _key(r) == key]
+
+    def request_times_to(self, key: str) -> list[float]:
+        return [t for r, t in zip(self.requests, self.request_times) if _key(r) == key]
 
     def deleted_files(self) -> list[str]:
         return sorted(r.url.path.rsplit('/', 1)[-1] for r in self.requests if r.method == 'DELETE')
@@ -364,7 +375,7 @@ class TestVLMRunMocked:
         fake_vlmrun.add(_CHAT, _completion({'document': 'https://cdn.example.com/d.pdf'}))
         fake_vlmrun.add(
             'GET https://cdn.example.com/d.pdf',
-            httpx.Response(503),
+            httpx.Response(503, headers={'Retry-After': '0.3'}),
             httpx.Response(200, content=Path(pdf).read_bytes()),
         )
         t = pxt.create_table('test_tbl', {'doc': pxt.Document})
@@ -373,6 +384,9 @@ class TestVLMRunMocked:
 
         redacted = t.select(t.redacted).collect()[0]['redacted']
         assert Path(redacted).read_bytes()[:5] == b'%PDF-'
+        # the download retries the 503 after its Retry-After
+        first, second = fake_vlmrun.request_times_to('GET https://cdn.example.com/d.pdf')
+        assert second - first >= 0.3
         assert _body(fake_vlmrun.requests_to(_CHAT)[0])['toolsets'] == ['document']
 
     @pytest.mark.parametrize(

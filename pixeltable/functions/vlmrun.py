@@ -24,7 +24,7 @@ import pixeltable as pxt
 from pixeltable.env import register_client
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
-from pixeltable.utils.http import exponential_backoff, is_retryable_error, redact_url
+from pixeltable.utils.http import RetryInfo, exponential_backoff, is_retryable_error, redact_url
 from pixeltable.utils.image import to_bytes
 from pixeltable.utils.local_store import TempStore
 
@@ -241,12 +241,6 @@ class _VlmRunClient:
                         await resp.aread()
                         if status in (200, 201) and len(resp.content.strip()) > 0:
                             return resp
-                    not_ready = (
-                        status in (200, 201, 202, 204)  # 200 and 201 with an empty body
-                        or (status == 404 and time.monotonic() - start < _NOT_FOUND_GRACE)
-                        # the result URL of a long-running request returns 5xx while its job is in progress
-                        or status >= 500
-                    )
                     if resp.is_redirect:
                         next_url = resp.url.join(resp.headers['location'])
                         # a redirect to the same URL means that the result isn't ready yet, so only new URLs count
@@ -260,7 +254,14 @@ class _VlmRunClient:
                                     provider='vlmrun',
                                 )
                         url, params = next_url, None
-                    elif not not_ready:
+                    elif (
+                        status in (200, 201, 202, 204)  # 200 and 201 with an empty body
+                        or (status == 404 and time.monotonic() - start < _NOT_FOUND_GRACE)
+                        # the result URL of a long-running request returns 5xx while its job is in progress
+                        or status >= 500
+                    ):
+                        delay = _retry_info(resp).retry_delay
+                    else:
                         error = _status_error(resp)
                         if error.error_code not in (pxt.ErrorCode.RATE_LIMITED, pxt.ErrorCode.PROVIDER_OVERLOADED):
                             raise error
@@ -269,7 +270,8 @@ class _VlmRunClient:
             except httpx.TransportError as exc:
                 # a long poll can outlast the connection
                 _logger.debug(f'Polling VLM Run result failed, will poll again: {exc!r}')
-            await asyncio.sleep(delay if delay is not None else exponential_backoff(attempt))
+            # a Retry-After, as on a 429 or a 503, sets the least wait
+            await asyncio.sleep(max(0.0 if delay is None else delay, exponential_backoff(attempt)))
             attempt += 1
 
 
@@ -294,11 +296,13 @@ async def _write_body(resp: httpx.Response, dest: Path) -> None:
             await asyncio.to_thread(f.write, chunk)
 
 
+def _retry_info(resp: httpx.Response) -> RetryInfo:
+    return is_retryable_error(httpx.HTTPStatusError(f'status {resp.status_code}', request=resp.request, response=resp))
+
+
 def _status_error(resp: httpx.Response) -> pxt.ExternalServiceError:
     status = resp.status_code
-    retryable, retry_after = is_retryable_error(
-        httpx.HTTPStatusError(f'status {status}', request=resp.request, response=resp)
-    )
+    retryable, retry_after = _retry_info(resp)
     code: pxt.ErrorCode
     if status in (401, 403):
         code = pxt.ErrorCode.PROVIDER_AUTH_ERROR
