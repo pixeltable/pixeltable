@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Literal, Sequence
 
 import numpy as np
+from tenacity import retry, retry_if_result, wait_exponential
 
 import pixeltable as pxt
 from pixeltable import env, type_system as ts
@@ -86,18 +87,7 @@ async def _wait_for_asset(client: 'twelvelabs.AsyncTwelveLabs', asset_id: str) -
         timeout = 600
     try:
         async with asyncio.timeout(timeout):
-            while True:
-                asset = await client.assets.retrieve(asset_id)
-                if asset.status == 'ready':
-                    return
-                if asset.status == 'failed':
-                    message = '' if asset.error is None else f': {asset.error.message}'
-                    raise pxt.ExternalServiceError(
-                        pxt.ErrorCode.PROVIDER_ERROR,
-                        f'TwelveLabs asset {asset_id} processing failed{message}',
-                        provider='twelvelabs',
-                    )
-                await asyncio.sleep(2)
+            await _poll_until_ready(client, asset_id)
     except TimeoutError as e:
         raise pxt.ExternalServiceError(
             pxt.ErrorCode.PROVIDER_TIMEOUT,
@@ -106,6 +96,20 @@ async def _wait_for_asset(client: 'twelvelabs.AsyncTwelveLabs', asset_id: str) -
             '(or TWELVELABS_ASSET_PROCESSING_TIMEOUT) to extend the timeout.',
             provider='twelvelabs',
         ) from e
+
+
+@retry(retry=retry_if_result(lambda ready: not ready), wait=wait_exponential(multiplier=2, min=2, max=30))
+async def _poll_until_ready(client: 'twelvelabs.AsyncTwelveLabs', asset_id: str) -> bool:
+    asset = await client.assets.retrieve(asset_id)
+    assert asset.status in ('processing', 'ready', 'failed'), f'Unexpected TwelveLabs asset status: {asset.status!r}'
+    if asset.status == 'failed':
+        message = '' if asset.error is None else f': {asset.error.message}'
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_ERROR,
+            f'TwelveLabs asset {asset_id} processing failed{message}',
+            provider='twelvelabs',
+        )
+    return asset.status == 'ready'
 
 
 @pxt.udf(resource_pool='request-rate:twelvelabs')
