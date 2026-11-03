@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import copy
 import hashlib
 import json
@@ -9,7 +10,7 @@ from types import TracebackType
 from typing import (
     TYPE_CHECKING,
     Any,
-    AsyncIterator,
+    AsyncGenerator,
     Callable,
     Generator,
     Hashable,
@@ -451,15 +452,16 @@ class Query(QueryBase):
             get_runtime().stop_progress()
             yield row
 
-    async def _aexec(self, args: dict[str, Any] | None = None) -> AsyncIterator[exprs.DataRow]:
+    async def _aexec(self, args: dict[str, Any] | None = None) -> AsyncGenerator[exprs.DataRow, None]:
         """Run the query and yield rows."""
         args = args or {}
         self._validate_bound_args(args)
         if self._resolved_limit(args) == 0:
             return
         plan = self._ensure_plan()
-        async for row in plan.aexec(args):
-            yield row
+        async with contextlib.aclosing(plan.aexec(args)) as rows:
+            async for row in rows:
+                yield row
 
     def _ensure_plan(self) -> exec.ExecPlan:
         assert get_runtime().in_xact
@@ -744,10 +746,8 @@ class Query(QueryBase):
         columns = {name: i for i, name in enumerate(schema)}
         try:
             planned_exprs = self._compiled_select_list()
-            result = [
-                Row(tuple(row[e.slot_idx] for e in planned_exprs), columns, schema)
-                async for row in self._aexec(args=args)
-            ]
+            async with contextlib.aclosing(self._aexec(args=args)) as rows:
+                result = [Row(tuple(row[e.slot_idx] for e in planned_exprs), columns, schema) async for row in rows]
             return ResultSet(result, schema)
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
