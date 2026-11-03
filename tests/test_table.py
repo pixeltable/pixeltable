@@ -1,5 +1,6 @@
 import datetime
 import enum
+import errno
 import json
 import math
 import os
@@ -34,12 +35,14 @@ from .utils import (
     assert_resultset_eq,
     assert_table_metadata_eq,
     check_media_store_count,
+    check_temp_store_count,
     create_table_data,
     create_test_tbl,
     get_audio_files,
     get_documents,
     get_image_files,
     get_multimedia_commons_video_uris,
+    get_temp_store_count,
     get_video_files,
     make_tbl,
     pxt_raises,
@@ -3602,6 +3605,241 @@ class TestTable:
         assert isinstance(err, pxt.ExternalServiceError)
         assert (err.provider, err.provider_http_status_code, err.provider_error_code) == ('gemini', 500, 'X')
         assert err.retry_after == 3
+
+    def test_unsaveable_image(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
+        """A computed image that cannot be saved aborts the operation or, with on_error='ignore', is a cell error."""
+        p = db_root.make_catalog_path
+        img_file = sample_file_server.url(get_image_files()[0], db_root)
+        t = pxt.create_table(p('test_unsaveable'), {'id': pxt.Int, 'photo': pxt.Image, 'box': pxt.Json})
+        box = [t.box[i].astype(pxt.Int) for i in range(4)]
+        t.add_computed_column(hero=t.photo.crop(box))
+        t.add_computed_column(hero_w=t.hero.width)
+        t.add_computed_column(hero_md=t.hero.get_metadata())
+        t.add_computed_column(hero_a=fill_3x4(t.hero_w))
+        # a zero-area box crops to an empty image
+        rows = [
+            {'id': 0, 'photo': img_file, 'box': [0, 0, 0, 0]},
+            {'id': 1, 'photo': img_file, 'box': [0, 0, 100, 100]},
+        ]
+        msg = "Error while saving column 'hero': cannot write empty image"
+
+        with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=msg):
+            t.insert(rows)
+        assert t.count() == 0
+
+        status = t.insert(rows, on_error='ignore')
+        assert status.num_rows == 2
+        assert status.num_excs == 4
+        assert set(status.cols_with_excs) == {
+            'test_unsaveable.hero',
+            'test_unsaveable.hero_w',
+            'test_unsaveable.hero_md',
+            'test_unsaveable.hero_a',
+        }
+        res = (
+            t.select(
+                t.hero,
+                t.hero_w,
+                t.hero_md,
+                t.hero_a,
+                err_type=t.hero.errortype,
+                err_msg=t.hero.errormsg,
+                w_msg=t.hero_w.errormsg,
+                md_msg=t.hero_md.errormsg,
+                a_msg=t.hero_a.errormsg,
+            )
+            .order_by(t.id)
+            .collect()
+        )
+        assert res[0] == {
+            'hero': None,
+            'hero_w': None,
+            'hero_md': None,
+            'hero_a': None,
+            'err_type': 'RequestError',
+            'err_msg': msg,
+            'w_msg': msg,
+            'md_msg': msg,
+            'a_msg': msg,
+        }
+        assert res[1]['hero'].size == (100, 100)
+        assert res[1]['hero_w'] == 100
+        assert res[1]['hero_md']['width'] == 100
+        assert np.array_equal(res[1]['hero_a'], np.full((3, 4), 100))
+        assert res[1]['err_msg'] is None
+        # an empty image can't be saved, but a query returns it
+        assert t.where(t.id == 0).select(img=t.photo.crop(box)).collect()[0]['img'].size == (0, 0)
+
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Error while saving column 'hero2': cannot write empty image"
+        ):
+            t.add_computed_column(hero2=t.photo.crop(box))
+        status = t.add_computed_column(hero2=t.photo.crop(box), on_error='ignore')
+        assert status.num_excs == 1
+        assert status.cols_with_excs == ['test_unsaveable.hero2']
+        assert t.where(t.hero2.errormsg != None).select(t.id).collect()['id'] == [0]
+
+    def test_unsaveable_image_in_json(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
+        """An image in JSON that cannot be saved aborts the operation or, with on_error='ignore', is a cell error."""
+        p = db_root.make_catalog_path
+        img_file = sample_file_server.url(get_image_files()[0], db_root)
+        t = pxt.create_table(p('test_unsaveable_json'), {'id': pxt.Int, 'photo': pxt.Image, 'box': pxt.Json})
+        box = [t.box[i].astype(pxt.Int) for i in range(4)]
+        t.add_computed_column(j={'hero': t.photo.crop(box), 'id': t.id})
+        t.add_computed_column(j_id=t.j['id'])
+        rows = [
+            {'id': 0, 'photo': img_file, 'box': [0, 0, 0, 0]},
+            {'id': 1, 'photo': img_file, 'box': [0, 0, 100, 100]},
+        ]
+        msg = "Error while saving column 'j': cannot write empty image"
+
+        with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=msg):
+            t.insert(rows)
+        assert t.count() == 0
+
+        status = t.insert(rows, on_error='ignore')
+        assert status.num_rows == 2
+        assert status.num_excs == 2
+        assert set(status.cols_with_excs) == {'test_unsaveable_json.j', 'test_unsaveable_json.j_id'}
+        res = t.select(t.j, t.j_id, j_msg=t.j.errormsg, id_msg=t.j_id.errormsg).order_by(t.id).collect()
+        assert res[0] == {'j': None, 'j_id': None, 'j_msg': msg, 'id_msg': msg}
+        assert res[1]['j']['hero'].size == (100, 100)
+        assert res[1]['j_id'] == 1
+        assert res[1]['j_msg'] is None
+
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Error while saving column 'j2': cannot write empty image"
+        ):
+            t.add_computed_column(j2={'hero': t.photo.crop(box)})
+        status = t.add_computed_column(j2={'hero': t.photo.crop(box)}, on_error='ignore')
+        assert status.num_excs == 1
+        assert status.cols_with_excs == ['test_unsaveable_json.j2']
+        assert t.where(t.j2.errormsg != None).select(t.id).collect()['id'] == [0]
+
+    def test_unsaveable_image_literal(self, db_root: DatabaseRoot) -> None:
+        """An inserted image that cannot be saved aborts the insert or, with on_error='ignore', is a cell error."""
+        t = pxt.create_table(db_root.make_catalog_path('test_unsaveable_literal'), {'id': pxt.Int, 'img': pxt.Image})
+        t.add_computed_column(img_md=t.img.get_metadata())
+        t.add_computed_column(img_a=fill_3x4(t.img.width))
+        rows = [
+            {'id': 0, 'img': PIL.Image.new('RGB', (0, 0))},
+            {'id': 1, 'img': PIL.Image.new('RGB', (8, 8))},
+            {'id': 2, 'img': PIL.Image.new('HSV', (8, 8))},
+            {'id': 3, 'img': PIL.Image.new('RGBA', (0, 0))},
+        ]
+        msg = "Error while saving column 'img': cannot write empty image"
+        hsv_msg = "Error while saving column 'img': cannot write mode HSV as TIFF"
+        tmp_count = get_temp_store_count(t, db_root)
+
+        for row, row_msg in [(rows[0], msg), (rows[2], hsv_msg), (rows[3], msg)]:
+            with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=row_msg):
+                t.insert([row])
+        status = t.insert(rows, on_error='ignore')
+        assert status.num_rows == 4
+        assert status.num_excs == 9
+        res = (
+            t.select(t.img, t.img_md, t.img_a, err_msg=t.img.errormsg, md_msg=t.img_md.errormsg, a_msg=t.img_a.errormsg)
+            .order_by(t.id)
+            .collect()
+        )
+        assert res[0] == {'img': None, 'img_md': None, 'img_a': None, 'err_msg': msg, 'md_msg': msg, 'a_msg': msg}
+        assert res[3] == res[0]
+        assert res[1]['img'].size == (8, 8)
+        assert res[1]['img_md'] == {'width': 8, 'height': 8, 'mode': 'RGB', 'bits': None, 'format': None}
+        assert np.array_equal(res[1]['img_a'], np.full((3, 4), 8))
+        assert res[2] == {
+            'img': None,
+            'img_md': None,
+            'img_a': None,
+            'err_msg': hsv_msg,
+            'md_msg': hsv_msg,
+            'a_msg': hsv_msg,
+        }
+        # no insert leaves a partial file in the TempStore
+        check_temp_store_count(t, tmp_count, db_root)
+
+    @pytest.mark.db_roots('local', reason='monkeypatches os.fsync in-process')
+    def test_temp_store_write_failure(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A failed TempStore write aborts the insert or, with on_error='ignore', is a cell error."""
+        t = pxt.create_table(db_root.make_catalog_path('test_temp_write'), {'img': pxt.Image})
+        tmp_count = get_temp_store_count(t, db_root)
+
+        def fail_fsync(fd: int) -> None:
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+        monkeypatch.setattr(os, 'fsync', fail_fsync)
+        msg = "Error while saving column 'img': No space left on device"
+        detail = '[Errno 28] No space left on device'
+        with pxt_raises(pxt.ErrorCode.STORE_UNAVAILABLE, match=re.escape(msg)) as exc_info:
+            t.insert(img=PIL.Image.new('RGB', (8, 8)))
+        assert exc_info.value.message == msg
+        assert exc_info.value.detail == detail
+        status = t.insert(img=PIL.Image.new('RGB', (8, 8)), on_error='ignore')
+        assert status.num_excs == 1
+        res = t.select(t.img, err_type=t.img.errortype, err_msg=t.img.errormsg).collect()
+        assert res[0] == {'img': None, 'err_type': 'ServiceUnavailableError', 'err_msg': f'{msg}\n{detail}'}
+        check_temp_store_count(t, tmp_count, db_root)
+
+    def test_image_modes(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
+        """Computed, inserted and queried images keep their mode, and their pixels when stored losslessly."""
+        p = db_root.make_catalog_path
+        img_file = get_image_files()[0]
+        lossy_modes = {'l': 'L', 'rgb': 'RGB', 'cmyk': 'CMYK'}
+        lossless_modes = {
+            'bw': '1',
+            'la': 'LA',
+            'p': 'P',
+            'pa': 'PA',
+            'i': 'I',
+            'f': 'F',
+            'i16': 'I;16',
+            'i16b': 'I;16B',
+            'lab': 'LAB',
+        }
+        stored_modes = lossy_modes | lossless_modes
+        queried_modes = stored_modes | {'hsv': 'HSV'}
+        # img_file is grayscale, and Pillow 10.3 cannot convert L to LAB
+        with PIL.Image.open(img_file) as src:
+            rgb_src = src.convert('RGB')
+        expected = {col_name: rgb_src.convert(mode) for col_name, mode in queried_modes.items()}
+        transparent = {'l_t': expected['l'].copy(), 'rgb_t': expected['rgb'].copy(), 'p_t': expected['p'].copy()}
+        for img in transparent.values():
+            img.info['transparency'] = img.getpixel((0, 0))
+        transparent['p_alpha'] = expected['p'].copy()
+        transparent['p_alpha'].info['transparency'] = bytes(range(256))  # an alpha value per palette entry
+
+        schema = (
+            {'img': pxt.Image}
+            | {f'{col_name}_in': pxt.Image for col_name in stored_modes}
+            | dict.fromkeys(transparent, pxt.Image)
+        )
+        t = pxt.create_table(p('test_image_modes'), schema)
+        rgb = t.img.convert('RGB')
+        for col_name, mode in stored_modes.items():
+            t.add_computed_column(**{col_name: rgb.convert(mode)})
+        t.add_computed_column(j={'p': rgb.convert('P'), 'f': rgb.convert('F'), 'la': rgb.convert('LA')})
+        values = {f'{col_name}_in': expected[col_name] for col_name in stored_modes}
+        t.insert([{'img': sample_file_server.url(img_file, db_root), **values, **transparent}])
+
+        row = t.select().collect()[0]
+        for col_name, mode in stored_modes.items():
+            for img in [row[col_name], row[f'{col_name}_in']]:
+                assert img.mode == mode
+                if col_name in lossless_modes:
+                    assert np.array_equal(np.asarray(img), np.asarray(expected[col_name]))
+        for key in ['p', 'f', 'la']:
+            assert row['j'][key].mode == expected[key].mode
+            assert np.array_equal(np.asarray(row['j'][key]), np.asarray(expected[key]))
+        for col_name, img in transparent.items():
+            assert row[col_name].mode == img.mode
+            assert np.array_equal(np.asarray(row[col_name].convert('RGBA')), np.asarray(img.convert('RGBA')))
+
+        # a query result is not saved, so it keeps its pixels in every mode
+        row = t.select(**{col_name: rgb.convert(mode) for col_name, mode in queried_modes.items()}).collect()[0]
+        for col_name, mode in queried_modes.items():
+            assert row[col_name].mode == mode
+            assert np.array_equal(np.asarray(row[col_name]), np.asarray(expected[col_name]))
+            assert row[col_name].getpalette() == expected[col_name].getpalette()
 
     # TODO: cannot be converted: KeyboardInterrupt injection is client-process-local and does not reach the daemon
     @pytest.mark.db_roots(

@@ -358,7 +358,7 @@ class SqlNode(ExecNode):
             assert exclude_deleted_at_current_version is None
         joined_tbls: list[catalog.TableVersionHandle] = [candidates[0]]
         for t in candidates[1:]:
-            # the tables in the path must either all be data-versioned or not
+            # all tables in the path have the same versioning
             assert t.get().is_data_versioned == is_data_versioned
             # a data-versioned table has to be joined even if nothing references its columns, in order to apply the
             # version predicate (= select only visible rows)
@@ -433,6 +433,16 @@ class SqlNode(ExecNode):
     def set_offset(self, offset: exprs.Expr) -> None:
         self.offset = offset
 
+    def _check_catalog_locks(self) -> None:
+        """Check that Catalog holds read locks for the tables used by this query."""
+        for input in self._cte_inputs:
+            input._check_catalog_locks()
+        if self.tbl is None:
+            return
+        cat = get_runtime().catalog
+        for handle in self.tbl.get_tbl_versions():
+            cat.check_rows_read_locked(handle.get())
+
     def _log_explain(self, stmt: sql.Select) -> None:
         try:
             # don't set dialect=Env.get().engine.dialect: x % y turns into x %% y -> syntax error
@@ -451,6 +461,7 @@ class SqlNode(ExecNode):
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         # run the query; do this here rather than in _open(), exceptions are only expected during iteration
+        self._check_catalog_locks()
         with warnings.catch_warnings(record=True) as w:
             if self._stmt is None:
                 self._stmt = self._create_stmt()
