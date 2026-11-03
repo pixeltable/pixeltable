@@ -45,6 +45,7 @@ from . import (
     video,
     vision,
     vllm,
+    vlmrun_gateway,
     voyageai,
     whisper,
     whisperx,
