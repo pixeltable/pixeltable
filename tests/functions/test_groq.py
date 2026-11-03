@@ -8,8 +8,7 @@ from .tool_utils import stock_price
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
-@pytest.mark.remote_api
-@pytest.mark.very_expensive
+@pytest.mark.skip_merge_queue
 @rerun(reruns=4, reruns_delay=8)
 class TestGroq:
     def test_chat_completions(self, uses_db: None) -> None:

@@ -13,9 +13,13 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal, NamedTuple, NoReturn
 
-DEFAULT_PYTEST = "-m 'not expensive and not very_expensive and not benchmark'"
-EXPENSIVE_PYTEST = "-m 'not very_expensive and not benchmark'"
-VERY_EXPENSIVE_PYTEST = "-m 'not benchmark'"
+DEFAULT_PYTEST = (
+    "-m 'not skip_merge_queue and not expensive and not very_expensive and not resource_intensive and not benchmark'"
+)
+SCHEDULED_PYTEST = "-m 'not expensive and not very_expensive and not resource_intensive and not benchmark'"
+EXPENSIVE_PYTEST = "-m 'not very_expensive and not resource_intensive and not benchmark'"
+VERY_EXPENSIVE_PYTEST = "-m 'not resource_intensive and not benchmark'"
+RESOURCE_INTENSIVE_PYTEST = "-m 'resource_intensive'"
 
 # Note: in addition to these pytest filters, the tests that actually run are implicitly filtered by
 # skip_test_if_not_installed() and the install configuration.
@@ -72,7 +76,7 @@ ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 TRIGGERS = ('pull_request', 'merge_group', 'schedule', 'workflow_dispatch')
 
 DEFAULT_XDIST_WORKERS = 'logical'  # one worker per vCPU; -n auto would be 2 on windows-2025 (physical cores)
-LARGE_RUNNER_XDIST_WORKERS = '8'
+LARGE_RUNNER_XDIST_WORKERS = '2'
 
 
 class MatrixConfig(NamedTuple):
@@ -113,12 +117,23 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
     """Return the matrix configurations to run for the given trigger."""
     assert trigger in TRIGGERS, trigger
 
+    # force_all is set by the "Run on all platforms" checkbox on a workflow dispatch, and by the weekly scheduled run.
+    scheduled = force_all or trigger == 'schedule'
+    standard_pytest = SCHEDULED_PYTEST if scheduled else DEFAULT_PYTEST
+
     # Run on every trigger: static checks, plus the tests under a no-dev-dependencies install, once with the default
     # resolution and once with required deps pinned to their minimum versions.
     configs = [
         MatrixConfig('static-checks', 'lint', MAIN_PLATFORM, '3.11'),
-        MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev'),
-        MatrixConfig('minimum-deps', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev --resolution lowest-direct'),
+        MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev', pytest_options=standard_pytest),
+        MatrixConfig(
+            'minimum-deps',
+            'py',
+            MAIN_PLATFORM,
+            '3.11',
+            uv_options='--no-dev --resolution lowest-direct',
+            pytest_options=standard_pytest,
+        ),
     ]
 
     if trigger == 'pull_request':
@@ -133,58 +148,68 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
     else:
         # A non-PR trigger: merge queue, workflow dispatch, or schedule.
 
-        configs.extend(MatrixConfig('standard', 'py', platform, '3.11') for platform in BASIC_PLATFORMS)
+        configs.extend(
+            MatrixConfig('standard', 'py', platform, '3.11', pytest_options=standard_pytest)
+            for platform in BASIC_PLATFORMS
+        )
 
         configs.append(MatrixConfig('random-ops', 'random-ops', MAIN_PLATFORM, '3.11', uv_options='--no-dev'))
         configs.append(
             MatrixConfig('otel', 'otel', MAIN_PLATFORM, '3.11', uv_options='--no-dev --extra otel --extra serve')
         )
 
-        # force_all is set by the "Run on all platforms" checkbox on a workflow dispatch.
-        if force_all or trigger == 'schedule':
+        if force_all:
+            configs.append(
+                MatrixConfig('standard++', 'py', MAIN_PLATFORM, '3.11', pytest_options=VERY_EXPENSIVE_PYTEST)
+            )
+            configs.append(MatrixConfig('notebooks++', 'ipynb', 'ubuntu-large', '3.11'))
+            configs.extend(
+                MatrixConfig('standard', 'py', platform, '3.11', pytest_options=standard_pytest)
+                for platform in EXPENSIVE_PLATFORMS
+            )
+        elif scheduled:
+            configs.append(MatrixConfig('standard+', 'py', MAIN_PLATFORM, '3.11', pytest_options=EXPENSIVE_PYTEST))
+        else:
+            configs.append(MatrixConfig('standard', 'py', MAIN_PLATFORM, '3.11'))
+            # Non-HF notebooks. HF-dependent notebooks are gated behind --include-expensive, which only the
+            # weekly run passes (see NB_TEST_OPTS in pytest.yml), so they are excluded here.
+            configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.11'))
+
+        if scheduled:
             configs.append(
                 MatrixConfig(
-                    'standard++',
+                    'resource-intensive',
                     'py',
                     'ubuntu-large',
                     '3.11',
-                    pytest_options=VERY_EXPENSIVE_PYTEST,
+                    pytest_options=RESOURCE_INTENSIVE_PYTEST,
                     xdist_workers=LARGE_RUNNER_XDIST_WORKERS,
                     pre_test_cmd='./scripts/log-memory.sh 15 &',
                 )
             )
-            configs.append(MatrixConfig('notebooks++', 'ipynb', 'ubuntu-large', '3.11'))
-
-            configs.extend(MatrixConfig('standard', 'py', platform, '3.11') for platform in EXPENSIVE_PLATFORMS)
-
-        else:
-            configs.append(
-                MatrixConfig(
-                    'standard+',
-                    'py',
-                    'ubuntu-large',
-                    '3.11',
-                    pytest_options=EXPENSIVE_PYTEST,
-                    xdist_workers=LARGE_RUNNER_XDIST_WORKERS,
-                )
-            )
-            # Non-HF notebooks. HF-dependent notebooks are gated behind --include-expensive, which only the
-            # scheduled run passes (see NB_TEST_OPTS in pytest.yml), so they are excluded here.
-            configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.11'))
 
         # Standard test suite on main & basic platforms on Python 3.15
-        configs.extend(MatrixConfig('standard', 'py', platform, '3.15') for platform in ALL_PLATFORMS)
+        configs.extend(
+            MatrixConfig('standard', 'py', platform, '3.15', pytest_options=standard_pytest)
+            for platform in ALL_PLATFORMS
+        )
 
         # Standard test suite on Ubuntu on intermediate Python versions
-        configs.extend(MatrixConfig('standard', 'py', MAIN_PLATFORM, py) for py in ('3.12', '3.13', '3.14'))
+        configs.extend(
+            MatrixConfig('standard', 'py', MAIN_PLATFORM, py, pytest_options=standard_pytest)
+            for py in ('3.12', '3.13', '3.14')
+        )
 
         # Minimal tests on Python 3.15
-        configs.append(MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.15', uv_options='--no-dev'))
+        configs.append(
+            MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.15', uv_options='--no-dev', pytest_options=standard_pytest)
+        )
 
         # Minimal tests on alternative platforms (we don't run the standard suite on these, since dev dependencies
         # can be hit-or-miss)
         configs.extend(
-            MatrixConfig('minimal', 'py', platform, '3.11', uv_options='--no-dev') for platform in ALTERNATIVE_PLATFORMS
+            MatrixConfig('minimal', 'py', platform, '3.11', uv_options='--no-dev', pytest_options=standard_pytest)
+            for platform in ALTERNATIVE_PLATFORMS
         )
 
         # Minimal tests with S3 media destination. We use a unique bucket name that incorporates today's date, so that
@@ -197,6 +222,7 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
                     MAIN_PLATFORM,
                     '3.11',
                     uv_options='--no-dev --group storage-sdks',
+                    pytest_options=standard_pytest,
                     pre_test_cmd=f'export PIXELTABLE_OUTPUT_MEDIA_DEST={new_bucket_addr()}',
                 )
             )

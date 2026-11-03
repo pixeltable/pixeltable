@@ -1448,8 +1448,8 @@ def _(n: int) -> ts.ArrayType:
 # character n-gram hashing and images via grayscale downsampling, both into the same fixed-dimensional space -- so it
 # is a drop-in for clip (used as both image_embed and string_embed) as well as for string-only embeddings. Identical
 # inputs produce identical vectors, so retrieving an item by querying with itself is exact. It does NOT model
-# cross-modal or lexically-independent semantics; tests that assert those use the real models on the very_expensive
-# (scheduled) tier.
+# cross-modal or lexically-independent semantics; tests that assert those use the real models, marked
+# skip_merge_queue.
 
 LOCAL_EMBED_DIM = 512  # matches openai/clip-vit-base-patch32; bind via local_embedding.using(dim=...)
 

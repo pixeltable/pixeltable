@@ -109,7 +109,7 @@ class TestHfDatasetsBasic:
                 pxt.io.import_huggingface_dataset(p('hf_basic_stream'), stream_ds)
 
 
-@pytest.mark.very_expensive  # Downloads Hugging Face datasets
+@pytest.mark.skip_merge_queue  # Downloads Hugging Face datasets
 @pytest.mark.skipif(
     sysconfig.get_platform() == 'linux-aarch64', reason='libsndfile.so is missing on Linux ARM instances in CI'
 )
@@ -336,7 +336,6 @@ class TestHfDatasets:
         assert all(pathlib.Path(row['image_localpath']).exists() for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
-    @pytest.mark.very_expensive  # I/O intensive
     def test_import_arrays(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
         self._skip_streaming_over_proxy(streaming, db_root)
@@ -404,7 +403,6 @@ class TestHfDatasets:
     # TODO: find out whether we need a workaround
     # @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.parametrize('streaming', [False])
-    @pytest.mark.very_expensive  # I/O intensive
     def test_import_list_of_dict(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
         self._skip_streaming_over_proxy(streaming, db_root)
@@ -442,7 +440,6 @@ class TestHfDatasets:
         assert all(isinstance(x, dict) for row in res for x in row['prev_messages'])
 
     @pytest.mark.parametrize('streaming', [False, True])
-    @pytest.mark.very_expensive  # I/O intensive
     def test_import_classlabel(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
         self._skip_streaming_over_proxy(streaming, db_root)
@@ -465,7 +462,6 @@ class TestHfDatasets:
         assert all(row['label'] in ['neg', 'pos'] for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
-    @pytest.mark.very_expensive  # I/O intensive
     def test_import_sequence_of_float(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
         self._skip_streaming_over_proxy(streaming, db_root)
@@ -491,7 +487,6 @@ class TestHfDatasets:
         assert all(row['emb'].dtype == np.float32 for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
-    @pytest.mark.very_expensive  # I/O intensive
     def test_import_sequence_of_dict(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
         self._skip_streaming_over_proxy(streaming, db_root)
@@ -518,7 +513,6 @@ class TestHfDatasets:
         assert all(isinstance(row['answers']['answer_start'], np.ndarray) for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
-    @pytest.mark.very_expensive  # I/O intensive
     def test_import_nested_struct(self, streaming: bool, db_root: DatabaseRoot) -> None:
         """
         Test importing dataset with nested structures:
@@ -551,7 +545,6 @@ class TestHfDatasets:
         assert all(isinstance(row['context']['sentences'], list) for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
-    @pytest.mark.very_expensive  # I/O intensive
     def test_import_arraynd(self, streaming: bool, db_root: DatabaseRoot) -> None:
         """Test dataset with Array2D and Array3D features."""
         skip_test_if_not_installed('datasets')

@@ -29,7 +29,7 @@ def _ensure_ollama_availability() -> None:
         pytest.skip(f'ollama not available: {_ollama_exception}')
 
 
-@pytest.mark.expensive
+@pytest.mark.skip_merge_queue
 @pytest.mark.xdist_group('ollama')
 class TestOllama:
     def test_generate(self, uses_db: None) -> None:

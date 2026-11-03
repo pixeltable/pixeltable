@@ -123,8 +123,7 @@ class TestGeminiLocal:
         return response
 
 
-@pytest.mark.remote_api
-@pytest.mark.very_expensive
+@pytest.mark.skip_merge_queue
 @pytest.mark.db_roots('local', reason='UDF/integration test')
 @rerun_on_network_error()
 class TestGemini:
@@ -228,6 +227,7 @@ class TestGemini:
             print(f'Video analysis result id={i}: {text}')
             assert text and not any(word in text for word in ['failed', 'unable', 'invalid'])
 
+    @pytest.mark.expensive
     def test_generate_content_nano_banana(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -273,6 +273,7 @@ class TestGemini:
         run_tool_invocations_test(make_table)
 
     # TODO: Test in vertexai or deprecate the imagen UDFs
+    @pytest.mark.expensive
     @pytest.mark.skip('google-genai 2.x reaches Imagen only in Vertex AI mode, not through the Developer API')
     def test_generate_images(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
@@ -293,6 +294,7 @@ class TestGemini:
         assert results['output'][0].size == (1024, 1024)
         assert results['output2'][0].size == (1280, 896)
 
+    @pytest.mark.very_expensive
     @pytest.mark.parametrize(
         ('with_images', 'delivery', 'aspect_ratio', 'resolution', 'width', 'height'),
         [(False, 'inline', '16:9', '360p', 640, 360), (True, 'uri', '9:16', '720p', 720, 1280)],

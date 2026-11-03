@@ -15,7 +15,7 @@ from ..utils import (
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
-@pytest.mark.very_expensive
+@pytest.mark.skip_merge_queue
 @pytest.mark.xdist_group('yolox')
 @rerun_on_network_error()
 class TestYolox:
