@@ -2,10 +2,12 @@
 config-resolution helpers, and the identity fingerprint. Stdlib-only so the client side can import without
 pulling in pxt or pydantic."""
 
+import contextlib
 import hashlib
 import importlib.metadata
 import os
 import re
+import site
 import sys
 import tomllib
 from pathlib import Path
@@ -59,6 +61,11 @@ def pidfile_path(port: int | None = None) -> str:
     other's PID.
     """
     return os.path.join(_resolve_pixeltable_home(), f'pxt-daemon-{port if port is not None else get_port()}.pid')
+
+
+def working_dirs_path(port: int) -> str:
+    """Path of the file in which the daemon on port saves the working directories set with `pxt cd`."""
+    return os.path.join(_resolve_pixeltable_home(), f'pxt-daemon-{port}-working-dirs.json')
 
 
 class PxtUriParts(NamedTuple):
@@ -213,6 +220,15 @@ def find_project_root(start: Path) -> Path | None:
     return None
 
 
+def project_root_error(root: Path, pixeltable_home: Path) -> str | None:
+    """Return why root cannot be a project root, or None if it can. root and pixeltable_home must be resolved."""
+    if Path.home().resolve().is_relative_to(root):
+        return 'the project would include every file in your home directory'
+    if root == pixeltable_home:
+        return 'it is the Pixeltable home, which stores the local database'
+    return None
+
+
 # Identity fingerprint keys
 _IDENTITY_KEYS: tuple[str, ...] = (
     'pxt_version',
@@ -222,6 +238,7 @@ _IDENTITY_KEYS: tuple[str, ...] = (
     'pixeltable_pgdata',
     'pixeltable_config_file',
     'pixeltable_env',
+    'packages_fingerprint',
 )
 
 
@@ -239,6 +256,25 @@ def _pxt_install_dir() -> str | None:
     except importlib.metadata.PackageNotFoundError:
         return None
     return str(Path(str(dist.locate_file('pixeltable'))).resolve())
+
+
+def _packages_fingerprint() -> str:
+    """Hash the name and mtime of each distribution's metadata directory in the site-packages directories."""
+    dirs = set(site.getsitepackages())
+    if site.ENABLE_USER_SITE is True:
+        dirs.add(site.getusersitepackages())
+    listing: list[str] = []
+    for site_dir in dirs:
+        try:
+            with os.scandir(site_dir) as entries:
+                metadata_entries = [e for e in entries if e.name.endswith(('.dist-info', '.egg-info'))]
+        except OSError:
+            continue
+        for e in metadata_entries:
+            # an entry removed since the scan, or a dangling symlink, has no mtime
+            with contextlib.suppress(OSError):
+                listing.append(f'{e.name} {e.stat().st_mtime_ns}')
+    return value_fingerprint('\n'.join(sorted(listing)))
 
 
 # Env-var keys whose values may contain credentials and must not be returned verbatim
@@ -270,7 +306,7 @@ def project_root() -> str | None:
 
 
 def value_fingerprint(value: str) -> str:
-    """A hash of one config value, short enough to print and to compare by eye."""
+    """Hash value into a string short enough to print and to compare by eye."""
     return hashlib.sha256(value.encode('utf-8')).hexdigest()[:12]
 
 
@@ -296,4 +332,5 @@ def identity() -> dict[str, Any]:
         'pixeltable_pgdata': _resolve_pixeltable_pgdata(home),
         'pixeltable_config_file': _resolve_pixeltable_config_file(home),
         'pixeltable_env': _snapshot_pixeltable_env(),
+        'packages_fingerprint': _packages_fingerprint(),
     }

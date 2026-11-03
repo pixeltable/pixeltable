@@ -40,7 +40,6 @@ from .tbl_ops import (
     CreateTableVersionOp,
     DeleteTableMdOp,
     DeleteTableMediaFilesOp,
-    DropStoreTableOp,
     TableOp,
     TableOpsBuilder,
 )
@@ -316,21 +315,15 @@ class TableVersion:
         )
 
     def drop_ops(self) -> tuple[list[TableOp], bool]:
-        """Returns a tuple of drop table ops, and a boolean that indicates whether a new table and schema
-        versions were created."""
+        """Return the drop operations, and whether versions were advanced."""
         new_version = self.is_mutable and self.is_data_versioned
         if new_version:
             self.bump_version(bump_schema_version=True)
-        mutable_base_tbl_id: str | None = None
-        # if this is a mutable view of a mutable base, advance the base's view_sn in the end
-        if self.is_view and self.is_mutable and self.path.base.is_mutable():
-            mutable_base_tbl_id = str(self.path.base.tbl_id)
         id_str = str(self.id)
         ops = (
             TableOpsBuilder(id_str, tbl_version=self._tbl_md.current_version)
             .add(DeleteTableMediaFilesOp)
-            .add(DropStoreTableOp, is_view=self.is_view)
-            .add(DeleteTableMdOp, mutable_base_tbl_id=mutable_base_tbl_id)
+            .add(DeleteTableMdOp, is_view=self.is_view)
             .build()
         )
         return ops, new_version
@@ -807,7 +800,7 @@ class TableVersion:
             plan.ctx.profile.print(num_rows=row_count)
 
         # TODO: what to do about system columns with exceptions?
-        row_counts = RowCountStats(upd_rows=row_count, num_excs=num_excs, computed_values=0)  # add_columns
+        row_counts = RowCountStats(upd_rows=row_count, num_excs=num_excs)  # add_columns
         return UpdateStatus(cols_with_excs=self._cols_with_excs_names(cols_with_excs), row_count_stats=row_counts)
 
     def _own_col_refs(self, value_expr_dict: dict[str, Any] | None) -> set[int]:
@@ -1017,6 +1010,9 @@ class TableVersion:
                 )
             col.tbl_handle = self.handle
             col.id = self.next_col_id()
+            # do this before _col_ref_substitutions(), which requires a valid value expression
+            if col.is_computed:
+                col.check_value_expr()
 
         # the ids exist now, so a placeholder can be resolved to the actual column
         subst = self._col_ref_substitutions(new_cols)
@@ -1024,8 +1020,6 @@ class TableVersion:
             value_expr = col.value_expr
             if value_expr is not None:
                 col.set_value_expr(value_expr.substitute(subst))
-            if col.is_computed:
-                col.check_value_expr()
 
         default_idxs: list[tuple[Column, index.BtreeIndex, Column | None, Column | None]] = []
         all_cols: list[Column] = []
@@ -1158,7 +1152,7 @@ class TableVersion:
     def _validate_altered_value_expr(self, col: Column, new_value_expr: exprs.Expr) -> None:
         """Verify that new_value_expr can replace col's current value expression."""
         assert col.is_computed
-        if new_value_expr.col_type != col.col_type:
+        if new_value_expr.col_type.with_open_dicts() != col.col_type:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Column {col.name!r}: the new value expression has type `{new_value_expr.col_type}`, but the '
@@ -1374,7 +1368,9 @@ class TableVersion:
             with telemetry.span(
                 'pixeltable.view_load', set_current=telemetry.current_span() is not None, view=view.get().name
             ):
-                view_plan = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
+                view_plan = Planner.create_view_load_plan(
+                    view.get().path, created_at_current_version=view.get().path.get_bases()
+                )
                 status = view.get()._insert(view_plan, timestamp, print_stats=print_stats)
             result += status.to_cascade()
 
@@ -1408,17 +1404,7 @@ class TableVersion:
 
         update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True, allow_media=True)
         if where is not None:
-            if not isinstance(where, exprs.Expr):
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_EXPRESSION,
-                    f'`where` argument must be a valid Pixeltable expression; got `{type(where)}`',
-                )
-            analysis_info = Planner.analyze(self.path, where)
-            # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
-            if analysis_info.filter is not None:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter}'
-                )
+            self._validate_where_clause(where, error_prefix='`where` argument')
 
         with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
             update_plan = Planner.create_update_plan(
@@ -1549,11 +1535,12 @@ class TableVersion:
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col_name!r} is a media column and cannot be updated'
                 )
 
-            # make sure that the value is compatible with the column type
+            # make sure that the value is compatible with the column type, whose dict schemas are closed on update
+            closed_type = col.col_type.with_closed_dicts()
             value_expr: exprs.Expr
             try:
                 # check if this is a literal
-                value_expr = exprs.Literal(val, col_type=col.col_type)
+                value_expr = exprs.Literal(val, col_type=closed_type)
             except TypeError as exc:
                 if not allow_exprs:
                     raise excs.RequestError(
@@ -1568,7 +1555,9 @@ class TableVersion:
                         excs.ErrorCode.UNSUPPORTED_OPERATION,
                         f'Column {col_name!r}: value is not a recognized literal or expression: {val!r}',
                     ) from exc
-                if not col.col_type.is_supertype_of(value_expr.col_type, ignore_nullable=True):
+                value_expr.check_method_refs(f'Column {col_name!r}: ')
+                # expression values aren't validated, so every key of the expression's type must be in the column type
+                if not closed_type.is_supertype_of(value_expr.col_type.with_closed_dicts(), ignore_nullable=True):
                     raise excs.RequestError(
                         excs.ErrorCode.TYPE_MISMATCH,
                         f'The literal value {val!r} is not compatible with the type '
@@ -1663,6 +1652,8 @@ class TableVersion:
 
         plans: insert plans to execute. If plans is not empty, the caller is expected to have already bumped self's
         version. Also if plans is not empty, this will write self's metadata in the end.
+        base_versions: the new version of each base, nearest first, or None for a base without a new version; ends
+            at the table where the update started
         base_membership_change: True if the update may have added rows to this table's base; a row appearing in the
             base is a row this view needs to add, whether or not it has a predicate of its own
         """
@@ -1718,19 +1709,34 @@ class TableVersion:
                     and len(exprs.Expr.get_refd_column_ids(view_tv.predicate.as_dict()) & changed_qids) > 0
                 )
 
+                updated_bases = [b for b, v in zip(view_tv.path.get_bases(), base_versions) if v is not None]
+                assert len(updated_bases) > 0  # the table where the update started always has a plan
+
                 view_plans: list[exec.ExecNode] = []
                 if needs_iterator_reload or (membership_change and view_tv.is_component_view):
-                    view_plans.append(Planner.create_view_load_plan(view_tv.path, propagates_insert=True))
+                    view_plans.append(
+                        Planner.create_view_load_plan(view_tv.path, created_at_current_version=updated_bases)
+                    )
                 elif membership_change:
                     # rows already in the view that still satisfy the predicate; their stored columns that aren't
                     # recomputed carry over from the row that was just soft-deleted
-                    view_plans.append(Planner.create_view_update_plan(view_tv.path, recompute_targets=recomputed_cols))
+                    view_plans.append(
+                        Planner.create_view_update_plan(
+                            view_tv.path, recompute_targets=recomputed_cols, created_at_current_version=updated_bases
+                        )
+                    )
                     # rows that satisfy the predicate now and weren't in the view; nothing to carry over
                     view_plans.append(
-                        Planner.create_view_load_plan(view_tv.path, propagates_insert=True, exclude_existing_rows=True)
+                        Planner.create_view_load_plan(
+                            view_tv.path, created_at_current_version=updated_bases, exclude_existing_rows=True
+                        )
                     )
                 elif len(recomputed_cols) > 0:
-                    view_plans.append(Planner.create_view_update_plan(view_tv.path, recompute_targets=recomputed_cols))
+                    view_plans.append(
+                        Planner.create_view_update_plan(
+                            view_tv.path, recompute_targets=recomputed_cols, created_at_current_version=updated_bases
+                        )
+                    )
 
                 if len(view_plans) > 0:
                     view_tv.bump_version(timestamp, bump_schema_version=False)
@@ -1762,6 +1768,7 @@ class TableVersion:
                 excs.ErrorCode.INVALID_EXPRESSION,
                 f'{error_prefix} must be a valid Pixeltable expression; got `{type(pred)}`',
             )
+        pred.check_method_refs(f'{error_prefix}: ')
         analysis_info = Planner.analyze(self.path, pred)
         # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
         if analysis_info.filter is not None:
@@ -1791,7 +1798,11 @@ class TableVersion:
             del_rows = self.store_tbl.delete_rows(where_clause=sql_where_clause)
         row_counts = RowCountStats(del_rows=del_rows)  # delete
         result = UpdateStatus(row_count_stats=row_counts)
-        if del_rows > 0 and self.is_data_versioned:
+        if del_rows == 0:
+            # self.version belongs to an earlier operation, and the views would match that operation's retired rows
+            return result
+
+        if self.is_data_versioned:
             # we're creating a new version
             self.bump_version(timestamp, bump_schema_version=False)
         for view in self.mutable_views:
@@ -1799,10 +1810,10 @@ class TableVersion:
                 where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
             )
             result += status.to_cascade()
-
-        if del_rows > 0 and self.is_data_versioned:
+        if self.is_data_versioned:
             self.set_version_update_status(result)
             self._write_md(new_version=True, new_schema_version=False)
+
         return result
 
     def revert(self) -> None:

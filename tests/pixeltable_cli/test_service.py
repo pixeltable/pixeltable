@@ -2,6 +2,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import socket
 import time
@@ -789,6 +790,14 @@ class TestService:
         assert r.returncode == 3
         assert 'would stop: 1 service(s)' in r.stdout
         assert 'ingest' in get_services(cli, target)
+        # with --json, the error document, whose ops are the ones refused, since the list cannot carry its fields
+        r = cli('service', 'prune', str(app_file), target, '--json', check=False)
+        assert r.returncode == 3
+        assert r.json['error_code'] == 'CONFIRMATION_REQUIRED'
+        assert [(op['name'], op['status']) for op in r.json['ops']] == [('ingest', 'refused')]
+        assert [step['command'] for step in r.json['next']] == [
+            shlex.join(next_command) for next_command in r.next_commands
+        ]
 
         r = cli('service', 'prune', str(app_file), target, '-f', '--json')
         assert [(op['name'], op['status']) for op in r.json] == [('ingest', 'applied')]
@@ -874,16 +883,24 @@ class TestService:
         assert r.returncode == 2
         assert [s['resolution'] for s in r.json['services']] == ['blocked']
         blocked = [op for s in r.json['services'] for op in s['ops'] if op['severity'] == 'blocked']
-        assert [op['details']['command'] for op in blocked] == [f'pxt schema update {app} {target}']
+        # shell-quoted, since it is run as given; a Windows path's backslashes are quoted too
+        assert [op['details']['command'] for op in blocked] == [shlex.join(['pxt', 'schema', 'update', app, target])]
         assert "'notes'" in blocked[0]['description'], blocked[0]['description']
 
         r = cli('service', 'update', app, target, '-f', '--json', check=False)
         assert r.returncode == EXIT_ERROR
         assert [s['status'] for s in r.json['services']] == ['refused']
         assert get_services(cli, target) == {}
+        # the plan carries PLAN_BLOCKED, and stdout and stderr name the same command
+        assert r.json['error_code'] == 'PLAN_BLOCKED'
+        assert (
+            r.next_commands
+            == [shlex.split(step['command']) for step in r.json['next']]
+            == [['pxt', 'schema', 'update', app, target]]
+        )
 
-        # applying the schema unblocks it
-        cli('schema', 'update', app, target)
+        # the command it names unblocks it
+        cli(*r.next_commands[0][1:])
         r = cli('service', 'diff', app, target, '--json', check=False)
         assert [s['resolution'] for s in r.json['services']] == ['create']
 
@@ -1011,10 +1028,10 @@ class TestService:
         sentences = {text.strip() for text in chunks.select(chunks.text).collect()['text']}
         rows = _post(endpoint, '/similar', needle='volcano', limit=2).json()['rows']
         assert len(rows) == 2 and {row['text'].strip() for row in rows} <= sentences, rows
-        # one_row=True refuses a query that returns more, so the limit is part of the request
-        resp = httpx.get(f'{endpoint}/similar-one', params={'needle': 'volcano', 'limit': 1}, timeout=_REQUEST_TIMEOUT)
+        # a query with limit(1) over one unnamed item returns the value itself
+        resp = httpx.get(f'{endpoint}/similar-one', params={'needle': 'volcano'}, timeout=_REQUEST_TIMEOUT)
         assert resp.status_code == 200, resp.text
-        assert resp.json()['text'].strip() in sentences, resp.json()
+        assert resp.json().strip() in sentences, resp.json()
 
     def test_custom_app(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A file supplying its own application: the router it includes is part of it, not a second service."""
@@ -1171,18 +1188,22 @@ class TestService:
         deploy(cli, app, target)
         assert_serving(cli, app, target, 'ingest')
 
-        # the daemon validates --since and --tail before resolving the service
-        r = cli('service', 'logs', f'{target}/ingest', '--since', 'bogus', check=False)
-        assert r.returncode == 1 and 'must be a duration' in r.stderr, r.stderr
-        r = cli('service', 'logs', f'{target}/ingest', '--tail', '50000', check=False)
-        assert r.returncode == 1 and "'limit' must be <= 10000" in r.stderr, r.stderr
-        r = cli('service', 'logs', f'{target}/nosuch', check=False)
-        assert r.returncode == 1 and 'No service' in r.stderr, r.stderr
+        # the daemon validates --since, --tail and --trace before resolving the service
+        for verb in ('logs', 'spans'):
+            r = cli('service', verb, f'{target}/ingest', '--since', 'bogus', check=False)
+            assert r.returncode == 1 and 'must be a duration' in r.stderr, r.stderr
+            r = cli('service', verb, f'{target}/ingest', '--tail', '50000', check=False)
+            assert r.returncode == 1 and "'limit' must be <= 10000" in r.stderr, r.stderr
+            r = cli('service', verb, f'{target}/nosuch', check=False)
+            assert r.returncode == 1 and 'No service' in r.stderr, r.stderr
+        r = cli('service', 'spans', f'{target}/ingest', '--trace', 'ABC', check=False)
+        assert r.returncode == 1 and 'must be 32 lowercase hex digits' in r.stderr, r.stderr
 
         if db_root.is_cloud:
             # a bare name reaches local services only
-            r = cli('service', 'logs', 'ingest', check=False)
-            assert r.returncode == 1 and "No service 'ingest' is running" in r.stderr, r.stderr
+            for verb in ('logs', 'spans'):
+                r = cli('service', verb, 'ingest', check=False)
+                assert r.returncode == 1 and "No service 'ingest' is running" in r.stderr, r.stderr
             return
 
         # a local service logs to a file, and the error gives the path of that file and points to the cloud, for a
@@ -1197,6 +1218,9 @@ class TestService:
             deploy_steps = "'pxt db update pxt://org:db', then 'pxt schema update app.py pxt://org:db', then "
             assert deploy_steps in r.stderr, r.stderr
             assert "'pxt service update app.py pxt://org:db'" in r.stderr, r.stderr
+            # a local service writes its spans to the span_dump file, if one is set
+            r = cli('service', 'spans', name, check=False)
+            assert r.returncode == 1 and 'not supported. Start it with --otel' in r.stderr, r.stderr
         assert log_file.is_file()
 
         # the same name at a second target makes the bare name ambiguous
@@ -2105,9 +2129,32 @@ class TestServiceUpdateHostedSet:
 class TestServiceOtel:
     @pytest.mark.otel
     @pytest.mark.db_roots('local', reason='run() is patched out, so it reaches no catalog')
-    def test_run_otel(self, tmp_path: pathlib.Path) -> None:
+    @pytest.mark.parametrize(
+        ('excluded_urls_env', 'excluded_urls'),
+        [
+            ({}, '/health$'),
+            # the fastapi variable wins over the general one
+            ({'OTEL_PYTHON_FASTAPI_EXCLUDED_URLS': '/ping', 'OTEL_PYTHON_EXCLUDED_URLS': '/other'}, '/ping,/health$'),
+            ({'OTEL_PYTHON_EXCLUDED_URLS': '/other'}, '/other,/health$'),
+            # blank patterns are dropped, because an empty pattern matches every URL
+            ({'OTEL_PYTHON_FASTAPI_EXCLUDED_URLS': ''}, '/health$'),
+            ({'OTEL_PYTHON_FASTAPI_EXCLUDED_URLS': '   '}, '/health$'),
+            ({'OTEL_PYTHON_FASTAPI_EXCLUDED_URLS': '/ping,'}, '/ping,/health$'),
+        ],
+    )
+    def test_run_otel(
+        self,
+        tmp_path: pathlib.Path,
+        monkeypatch: pytest.MonkeyPatch,
+        excluded_urls_env: dict[str, str],
+        excluded_urls: str,
+    ) -> None:
         """--otel resolves the instrumentation package and wires init()/instrument_fastapi() into run."""
         skip_test_if_not_installed('fastapi', 'uvicorn', 'opentelemetry.instrumentation.pixeltable')
+        for name in ('OTEL_PYTHON_FASTAPI_EXCLUDED_URLS', 'OTEL_PYTHON_EXCLUDED_URLS'):
+            monkeypatch.delenv(name, raising=False)
+        for name, value in excluded_urls_env.items():
+            monkeypatch.setenv(name, value)
         app_file = tmp_path / 'app.py'
         app_file.write_text('', encoding='utf-8')  # the app it declares is patched out below
         app = SimpleNamespace(routes=[])  # stands in for the FastAPI app, which run() counts the routes of
@@ -2117,11 +2164,17 @@ class TestServiceOtel:
             patch('uvicorn.run') as mock_run,
             patch('opentelemetry.instrumentation.pixeltable.init') as mock_otel_init,
             patch('opentelemetry.instrumentation.pixeltable.instrument_fastapi') as mock_instrument_fastapi,
+            patch('opentelemetry.instrumentation.pixeltable._sdk._gateway_span_app') as mock_gateway_span_app,
         ):
             service_cmd.run(['run', str(app_file), 'my_dir', 'ingest', '--otel'])
         mock_otel_init.assert_called_once_with()
-        mock_instrument_fastapi.assert_called_once_with(app)
-        mock_run.assert_called_once()
+        # the patterns from the environment stay excluded next to /health$
+        mock_instrument_fastapi.assert_called_once_with(
+            app, excluded_urls=excluded_urls, exclude_spans=['receive', 'send']
+        )
+        mock_gateway_span_app.assert_called_once_with(app, excluded_urls)
+        # uvicorn serves the wrapper, so that the gateway header starts the trace
+        assert mock_run.call_args.args == (mock_gateway_span_app.return_value,)
 
 
 class TestServiceStop:

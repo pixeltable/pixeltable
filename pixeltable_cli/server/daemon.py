@@ -10,8 +10,9 @@ import threading
 
 from pixeltable.config import Config
 from pixeltable_cli.client.utils import is_running
+from pixeltable_cli.server.daemon_state import state as daemon_state
 from pixeltable_cli.server.http_server import bind, run
-from pixeltable_cli.utils import get_port, pidfile_path
+from pixeltable_cli.utils import get_port, pidfile_path, working_dirs_path
 
 _LOOPBACK = '127.0.0.1'
 
@@ -66,6 +67,7 @@ def main(argv: list[str] | None = None) -> None:
     _write_pidfile(port)
     atexit.register(lambda: _remove_pidfile_if_ours(port))
     Config.init(reinit=True, project_root=args.project_root)
+    daemon_state.load_wd(working_dirs_path(port))
     # In a container the daemon is PID 1, which ignores a signal it has no handler for, so a stopped pod would
     # wait out its whole grace period. shutdown() blocks until serve_forever() returns, which runs in this
     # thread, so it is called from another.

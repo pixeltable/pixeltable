@@ -37,10 +37,16 @@ class TestConcurrentOps:
         )
 
     @pytest.mark.parametrize('num_threads,rows_per_thread', [(4, 100)])
-    def test_concurrent_insert_and_select(self, db_root: DatabaseRoot, num_threads: int, rows_per_thread: int) -> None:
+    def test_concurrent_insert_and_select(
+        self, db_root: DatabaseRoot, is_data_versioned: bool, num_threads: int, rows_per_thread: int
+    ) -> None:
         """Verify that concurrent inserts and selects from multiple threads work correctly."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('test_concurrent'), {'thread_id': pxt.Int, 'row_idx': pxt.Int, 'value': pxt.Int})
+        t = pxt.create_table(
+            p('test_concurrent'),
+            {'thread_id': pxt.Int, 'row_idx': pxt.Int, 'value': pxt.Int},
+            _is_data_versioned=is_data_versioned,
+        )
         t.add_computed_column(doubled=t.value * 2)
         t.add_computed_column(offset=t.value + 100)
 
@@ -237,7 +243,7 @@ class TestConcurrentOps:
         errors = run_workers(worker, n_threads=self.NUM_THREADS)
         self._assert_no_errors(errors)
 
-    def test_concurrent_select_insert(self, db_root: DatabaseRoot) -> None:
+    def test_concurrent_select_insert(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """
         Concurrent threads doing select and insert operations on the same table.
 
@@ -250,7 +256,9 @@ class TestConcurrentOps:
         """
         p = db_root.make_catalog_path
         n0 = 20
-        t = pxt.create_table(p('t_reader_writer'), {'id': pxt.Int, 'val': pxt.String, 'n': pxt.Int})
+        t = pxt.create_table(
+            p('t_reader_writer'), {'id': pxt.Int, 'val': pxt.String, 'n': pxt.Int}, _is_data_versioned=is_data_versioned
+        )
         t.add_computed_column(s_double=t.n * 2)
         t.add_computed_column(s_label=_make_label(t.val))
         t.add_computed_column(u_sum=t.n + t.s_double, stored=False)
@@ -306,7 +314,7 @@ class TestConcurrentOps:
                 assert len(template_rows) == 1
                 top_k_result = template_rows[0]['top_k']
                 assert len(top_k_result) == min(limit_k, cur_len)
-                assert [row['id'] for row in top_k_result] == sorted(cur_ids)[:limit_k]
+                assert top_k_result == sorted(cur_ids)[:limit_k]
 
                 time.sleep(0.005)
 

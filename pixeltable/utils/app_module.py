@@ -73,14 +73,7 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
             _evict_project_modules()
             # a file written after this process started is invisible to a finder that cached its directory
             importlib.invalidate_caches()
-            registered = set(registry.module_fns)
-            try:
-                return importlib.import_module(name)
-            except BaseException:
-                # a module that raises partway through leaves the udfs it already defined registered, and
-                # Python drops it from sys.modules, so _evict_project_modules() cannot reach them again
-                registry.deregister_functions(set(registry.module_fns) - registered)
-                raise
+            return registry.import_module(name)
     except ProhibitedWriteError as e:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, _prohibited_write_msg(str(path), subject, e)

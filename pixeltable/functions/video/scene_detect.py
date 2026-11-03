@@ -1,10 +1,10 @@
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple, TypedDict
 
+import av
 import numpy as np
 
 import pixeltable as pxt
-import pixeltable.utils.av as av_utils
+import pixeltable.functions.video.iterators as video_iterators
 from pixeltable.env import Env
 from pixeltable.utils.code import local_public_names
 
@@ -16,7 +16,7 @@ class SceneInfo(TypedDict):
     """One scene detected within a video: where it starts and how long it lasts."""
 
     start_time: float
-    """Scene start, in seconds from the start of the video."""
+    """Scene start, as the timestamp of the scene's first frame in seconds."""
     start_pts: int
     """Scene start, as a presentation timestamp (in the video stream's time base)."""
     duration: float
@@ -49,7 +49,7 @@ def scene_detect_adaptive(
 
     Args:
         video: The video to analyze for scene cuts.
-        fps: Number of frames to extract per second for analysis. If None or 0, analyzes all frames.
+        fps: Number of frames to extract per second for analysis. If None, analyzes all frames.
             Lower values process faster but may miss exact scene cuts.
         adaptive_threshold: Threshold that the score ratio must exceed to trigger a new scene cut.
             Lower values will detect more scenes (more sensitive), higher values will detect fewer scenes.
@@ -77,7 +77,9 @@ def scene_detect_adaptive(
         - `start_pts` (int): The pts of the start of the scene.
         - `duration` (float): The duration of the scene in seconds.
 
-        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
+        The scenes are ordered chronologically and cover the whole video: each scene ends where the next one
+        starts, and the last scene ends at the end of the video. If the file records neither frame durations nor
+        a stream duration, the end of the video is estimated from its frame rate.
 
     Examples:
         Detect scene cuts with default parameters:
@@ -123,6 +125,8 @@ def scene_detect_adaptive(
             kernel_size=kernel_size,
         )
         return _scene_detect(video, fps, detector)
+    except pxt.Error:
+        raise
     except Exception as e:
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect_adaptive(): failed to detect scenes: {e}'
@@ -178,7 +182,9 @@ def scene_detect_content(
         - `start_pts` (int): The pts of the start of the scene.
         - `duration` (float): The duration of the scene in seconds.
 
-        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
+        The scenes are ordered chronologically and cover the whole video: each scene ends where the next one
+        starts, and the last scene ends at the end of the video. If the file records neither frame durations nor
+        a stream duration, the end of the video is estimated from its frame rate.
 
     Examples:
         Detect scene cuts with default parameters:
@@ -226,6 +232,8 @@ def scene_detect_content(
             filter_mode=filter_mode_enum,
         )
         return _scene_detect(video, fps, detector)
+    except pxt.Error:
+        raise
     except Exception as e:
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect_content(): failed to detect scenes: {e}'
@@ -256,7 +264,7 @@ def scene_detect_threshold(
 
     Args:
         video: The video to analyze for fade transitions.
-        fps: Number of frames to extract per second for analysis. If None or 0, analyzes all frames.
+        fps: Number of frames to extract per second for analysis. If None, analyzes all frames.
             Lower values process faster but may miss exact transition points.
         threshold: 8-bit intensity value that each pixel value (R, G, and B) must be less than or equal to in order
             to trigger a fade in/out.
@@ -279,7 +287,9 @@ def scene_detect_threshold(
         - `start_pts` (int): The pts of the start of the scene.
         - `duration` (float): The duration of the scene in seconds.
 
-        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
+        The scenes are ordered chronologically and cover the whole video: each scene ends where the next one
+        starts, and the last scene ends at the end of the video. If the file records neither frame durations nor
+        a stream duration, the end of the video is estimated from its frame rate.
 
     Examples:
         Detect fade-to-black transitions with default parameters:
@@ -319,6 +329,8 @@ def scene_detect_threshold(
             method=method_enum,
         )
         return _scene_detect(video, fps, detector)
+    except pxt.Error:
+        raise
     except Exception as e:
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect_threshold(): failed to detect scenes: {e}'
@@ -343,7 +355,7 @@ def scene_detect_histogram(
 
     Args:
         video: The video to analyze for scene cuts.
-        fps: Number of frames to extract per second for analysis. If None or 0, analyzes all frames.
+        fps: Number of frames to extract per second for analysis. If None, analyzes all frames.
             Lower values process faster but may miss exact scene cuts.
         threshold: Maximum relative difference between 0.0 and 1.0 that the histograms can differ. Histograms are
             calculated on the Y channel after converting the frame to YUV, and normalized based on the number of bins.
@@ -362,7 +374,9 @@ def scene_detect_histogram(
         - `start_pts` (int): The pts of the start of the scene.
         - `duration` (float): The duration of the scene in seconds.
 
-        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
+        The scenes are ordered chronologically and cover the whole video: each scene ends where the next one
+        starts, and the last scene ends at the end of the video. If the file records neither frame durations nor
+        a stream duration, the end of the video is estimated from its frame rate.
 
     Examples:
         Detect scene cuts with default parameters:
@@ -393,6 +407,8 @@ def scene_detect_histogram(
     try:
         detector = HistogramDetector(threshold=threshold, bins=bins, min_scene_len=min_scene_len)
         return _scene_detect(video, fps, detector)
+    except pxt.Error:
+        raise
     except Exception as e:
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect_histogram(): failed to detect scenes: {e}'
@@ -445,7 +461,9 @@ def scene_detect_hash(
         - `start_pts` (int): The pts of the start of the scene.
         - `duration` (float): The duration of the scene in seconds.
 
-        The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.
+        The scenes are ordered chronologically and cover the whole video: each scene ends where the next one
+        starts, and the last scene ends at the end of the video. If the file records neither frame durations nor
+        a stream duration, the end of the video is estimated from its frame rate.
 
     Examples:
         Detect scene cuts with default parameters:
@@ -474,6 +492,8 @@ def scene_detect_hash(
     try:
         detector = HashDetector(threshold=threshold, size=size, lowpass=lowpass, min_scene_len=min_scene_len)
         return _scene_detect(video, fps, detector)
+    except pxt.Error:
+        raise
     except Exception as e:
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect_hash(): failed to detect scenes: {e}'
@@ -486,16 +506,20 @@ class _SceneDetectFrameInfo(NamedTuple):
     frame_time: float
 
 
-def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[SceneInfo]:
+def _scene_detect(video: str, fps: float | None, detector: 'SceneDetector') -> list[SceneInfo]:
     from scenedetect import FrameTimecode  # type: ignore[import-untyped]
 
-    with av_utils.VideoFrames(Path(video), fps=fps) as frame_iter:
-        if frame_iter.video_framerate is None or frame_iter.video_framerate == 0:
-            raise pxt.RequestError(
-                pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect: could not determine video frame rate of {video!s}'
-            )
-        video_fps = float(frame_iter.video_framerate)
+    with av.open(video) as container:
+        # scenedetect's FrameTimecode needs a nominal frame rate
+        video_framerate = container.streams.video[0].average_rate
+    if video_framerate is None or video_framerate == 0:
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_DATA_FORMAT, f'scene_detect: could not determine video frame rate of {video!s}'
+        )
+    video_fps = float(video_framerate)
 
+    frame_iter = video_iterators.frame_iterator.create_iter(video=video, fps=fps)  # type: ignore[attr-defined]
+    try:
         scenes: list[SceneInfo] = []
         frame_idx: int | None = None
 
@@ -527,10 +551,11 @@ def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[Sce
                 frame_info = frame_info[info_offset:]
 
         for item in frame_iter:
-            frame_info.append(_SceneDetectFrameInfo(item.frame_idx, item.pts, item.time))
-            frame_array = np.array(item.frame.convert('RGB'))
-            frame_idx = item.frame_idx
-            timecode = FrameTimecode(item.frame_idx, video_fps)
+            frame_attrs = item['frame_attrs']
+            frame_idx = frame_attrs['index']
+            frame_info.append(_SceneDetectFrameInfo(frame_idx, frame_attrs['pts'], frame_attrs['time']))
+            frame_array = np.array(item['frame'].convert('RGB'))
+            timecode = FrameTimecode(frame_idx, video_fps)
             cuts = detector.process_frame(timecode, frame_array)
             process_cuts(cuts)
 
@@ -540,17 +565,18 @@ def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[Sce
             final_cuts = detector.post_process(final_timecode)
             process_cuts(final_cuts)
 
-            # if we didn't detect any cuts but the video has content, add the full video as a single scene
-            if len(scenes) == 0:
-                scenes.append(
-                    {
-                        'start_time': frame_info[0].frame_time,
-                        'start_pts': frame_info[0].frame_pts,
-                        'duration': frame_info[-1].frame_time - frame_info[0].frame_time,
-                    }
-                )
+            start = frame_info[0]
+            scenes.append(
+                {
+                    'start_time': start.frame_time,
+                    'start_pts': start.frame_pts,
+                    'duration': frame_iter.video_end_time() - start.frame_time,
+                }
+            )
 
         return scenes
+    finally:
+        frame_iter.close()
 
 
 __all__ = local_public_names(__name__)

@@ -1,14 +1,14 @@
+# TODO: get_video_duration() and get_audio_duration() fall back to the container's duration when the stream headers
+#     don't record one; for .flv files, and Matroska files without DURATION tags, that value is not the length and
+#     needs to be converted to one
+
 import logging
 import re
 import subprocess
-from dataclasses import dataclass
-from fractions import Fraction
 from pathlib import Path
-from types import TracebackType
-from typing import Any, Iterator, NoReturn, Self
+from typing import Any, NoReturn
 
 import av
-import PIL.Image
 
 import pixeltable as pxt
 from pixeltable.env import Env
@@ -24,6 +24,23 @@ AUDIO_FORMATS: dict[str, tuple[str, str]] = {
 }
 
 
+def get_stream_duration(stream: av.stream.Stream) -> float | None:
+    """Return the stream's duration in seconds from the container headers."""
+    if stream.duration is not None:
+        return float(stream.duration * stream.time_base)
+    # FFmpeg's Matroska muxer writes the end timestamp as DURATION, formatted HH:MM:SS.nnnnnnnnn
+    duration_tag = stream.metadata.get('DURATION')
+    if duration_tag is None:
+        return None
+    try:
+        hours, minutes, seconds = duration_tag.split(':')
+        end_time = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+    except ValueError:
+        # an unreadable tag counts as missing
+        return None
+    return end_time - float((stream.start_time or 0) * stream.time_base)
+
+
 def get_video_duration(path: str) -> float | None:
     """Return video duration in seconds."""
     with av.open(path) as container:
@@ -32,8 +49,9 @@ def get_video_duration(path: str) -> float | None:
         video_stream = container.streams.video[0]
 
         # Prefer stream-level duration from the header
-        if video_stream.duration is not None:
-            return float(video_stream.duration * video_stream.time_base)
+        duration = get_stream_duration(video_stream)
+        if duration is not None:
+            return duration
 
         # use container duration if we don't have audio streams (which might be longer than the video stream)
         if len(container.streams.audio) == 0 and container.duration is not None:
@@ -51,7 +69,7 @@ def get_video_duration(path: str) -> float | None:
                 max_pts_duration = packet.duration
         if max_pts is not None:
             end_pts = max_pts + (max_pts_duration or 0)
-            result = float(end_pts * video_stream.time_base)
+            result = float((end_pts - (video_stream.start_time or 0)) * video_stream.time_base)
             # the video stream can't be longer than the container, but some demuxers
             # (e.g. MPEG) emit trailing packets past the real end
             if container.duration is not None:
@@ -71,8 +89,9 @@ def get_audio_duration(path: str) -> float | None:
         audio_stream = container.streams.audio[0]
 
         # prefer stream-level duration from the header
-        if audio_stream.duration is not None:
-            return float(audio_stream.duration * audio_stream.time_base)
+        duration = get_stream_duration(audio_stream)
+        if duration is not None:
+            return duration
 
         # use container duration if we have no video streams that might be longer than the audio
         if len(container.streams.video) == 0 and container.duration is not None:
@@ -365,8 +384,9 @@ def ffmpeg_segment_cmd(
 
     cmd.extend(
         [
-            '-break_non_keyframes',
-            '1',  # Allow splitting at non-keyframe boundaries for accurate duration
+            # the segment muxer rounds cut times to the nearest microsecond and can skip a keyframe exactly at the cut
+            '-segment_time_delta',
+            '0.001',
             '-reset_timestamps',
             '1',  # Reset timestamps for each segment
             '-loglevel',
@@ -375,81 +395,3 @@ def ffmpeg_segment_cmd(
         ]
     )
     return cmd
-
-
-class VideoFrames:
-    """
-    Context manager for iterating over video frames at a specified frame rate.
-
-    Args:
-        path: Path to the video file
-        fps: Number of frames to extract per second. If None or 0.0, extracts all frames.
-    """
-
-    path: Path
-    fps: float
-    container: av.container.input.InputContainer | None
-    video_framerate: Fraction | None
-    video_time_base: Fraction | None
-    video_start_time: int | None
-
-    @dataclass
-    class Item:
-        frame_idx: int
-        pts: int
-        dts: int
-        time: float
-        is_corrupt: bool
-        key_frame: bool
-        pict_type: int
-        interlaced_frame: bool
-        frame: PIL.Image.Image
-
-    def __init__(self, path: Path, fps: float | None = None) -> None:
-        self.path = path
-        self.fps = 0.0 if fps is None else fps
-        self.container = None
-        self.video_framerate = None
-        self.video_time_base = None
-        self.video_start_time = None
-
-    def __enter__(self) -> Self:
-        self.container = av.open(self.path)
-        stream = self.container.streams.video[0]
-        self.video_framerate = stream.average_rate
-        self.video_time_base = stream.time_base
-        self.video_start_time = stream.start_time or 0
-        return self
-
-    def __exit__(
-        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
-    ) -> None:
-        # Clean up
-        if self.container:
-            self.container.close()
-
-    def __iter__(self) -> Iterator[Item]:
-        num_returned = 0
-        frame_idx = -1
-        while True:
-            try:
-                frame = next(self.container.decode(video=0))
-            except (StopIteration, EOFError):
-                return
-
-            frame_idx += 1
-            if self.fps == 0.0 or (num_returned <= frame.time * self.fps):
-                img = frame.to_image()
-                assert isinstance(img, PIL.Image.Image)
-                yield VideoFrames.Item(
-                    frame_idx=frame_idx,
-                    pts=frame.pts,
-                    dts=frame.dts,
-                    time=frame.time,
-                    is_corrupt=frame.is_corrupt,
-                    key_frame=frame.key_frame,
-                    pict_type=frame.pict_type,
-                    interlaced_frame=frame.interlaced_frame,
-                    frame=img,
-                )
-                num_returned += 1

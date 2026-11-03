@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import builtins
 import copy
+import dataclasses
 import itertools
 from abc import ABC
-from typing import Any, Self, Sequence, cast, overload
-from uuid import UUID
+from typing import Any, Callable, Self, Sequence, cast, overload
 
 import pandas as pd
 
@@ -51,9 +51,8 @@ class QueryBase(ABC):
     offset_val: exprs.Expr | None
     sample_clause: SampleClause | None
 
-    # IDs of all tables referenced by this query (from-clause path + exprs). Computed once on
-    # first access, then cached: the value depends on the static query shape and never changes.
-    _referenced_tbl_ids: set[UUID] | None
+    # Table-version keys from the query's FROM paths and expressions, evaluated lazily
+    _referenced_tbl_keys: set[catalog.TableVersionKey] | None
 
     def __init__(
         self,
@@ -93,7 +92,7 @@ class QueryBase(ABC):
         self.limit_val = limit
         self.offset_val = offset
         self.sample_clause = sample_clause
-        self._referenced_tbl_ids = None
+        self._referenced_tbl_keys = None
 
     @classmethod
     def _normalize_select_list(
@@ -157,6 +156,19 @@ class QueryBase(ABC):
         # SELECT * case: re-resolve against the current table schema
         select_list_exprs, column_names = self._normalize_select_list(self._from_clause.tbls, None)
         return list(zip(select_list_exprs, column_names))
+
+    @property
+    def _is_ungrouped_aggregate(self) -> bool:
+        if self._select_list_exprs is None or self.grouping_tbl_key is not None:
+            return False
+        # group_by() without arguments forms a single group, the same as no group_by()
+        if self.group_by_clause is not None and len(self.group_by_clause) > 0:
+            return False
+        # any(): if there are any non-window agg function calls in the select list, we must be doing non-grouping agg
+        return any(
+            e.is_std_agg_fn_call
+            for e in exprs.Expr.list_subexprs(self._select_list_exprs, expr_class=exprs.FunctionCall)
+        )
 
     def _vars(self) -> dict[str, exprs.Variable]:
         """
@@ -282,14 +294,38 @@ class QueryBase(ABC):
             sample_clause=copy.deepcopy(self.sample_clause),
         )
 
-    def referenced_tbl_ids(self) -> set[UUID]:
-        """Returns the IDs of all tables referenced by this query.
+    @classmethod
+    def _from_query(
+        cls, source: QueryBase, *, from_clause: FromClause, substitution_fn: Callable[[exprs.Expr], exprs.Expr]
+    ) -> Self:
+        # join predicates belong to from_clause
+        assert len(source._from_clause.join_clauses) == 0
+        return cls(
+            from_clause=from_clause,
+            select_list=None
+            if source.select_list is None
+            else [(substitution_fn(e), n) for e, n in source.select_list],
+            where_clause=None if source.where_clause is None else substitution_fn(source.where_clause),
+            group_by_clause=None
+            if source.group_by_clause is None
+            else [substitution_fn(e) for e in source.group_by_clause],
+            grouping_tbl_key=source.grouping_tbl_key,
+            order_by_clause=None
+            if source.order_by_clause is None
+            else [(substitution_fn(e), asc) for e, asc in source.order_by_clause],
+            limit=None if source.limit_val is None else substitution_fn(source.limit_val),
+            offset=None if source.offset_val is None else substitution_fn(source.offset_val),
+            sample_clause=None
+            if source.sample_clause is None
+            else dataclasses.replace(
+                source.sample_clause, stratify_exprs=[substitution_fn(e) for e in source.sample_clause.stratify_exprs]
+            ),
+        )
 
-        Walks the query's static structure (exprs + from-clause path) on first call and caches
-        the result; the value depends on the static query shape and never changes.
-        """
-        if self._referenced_tbl_ids is not None:
-            return self._referenced_tbl_ids
+    def referenced_tbl_keys(self) -> set[catalog.TableVersionKey]:
+        """Return table-version keys referenced by the query's expressions and FROM paths, including bases."""
+        if self._referenced_tbl_keys is not None:
+            return self._referenced_tbl_keys
 
         all_exprs = itertools.chain(
             # _select_list_exprs is None: no external ColumnRefs without an explicit select list
@@ -298,12 +334,12 @@ class QueryBase(ABC):
             self.group_by_clause or [],
             [] if self.order_by_clause is None else (e for e, _ in self.order_by_clause),
         )
-        tbl_ids = exprs.Expr.list_tbl_ids(all_exprs)
+        tbl_keys = exprs.Expr.list_tbl_keys(all_exprs)
         for tp in self._from_clause.tbls:
-            tbl_ids.update(tp.tbl_ids)
+            tbl_keys.update(tp.tbl_keys)
 
-        self._referenced_tbl_ids = tbl_ids
-        return tbl_ids
+        self._referenced_tbl_keys = tbl_keys
+        return tbl_keys
 
     def _descriptors(self) -> DescriptionHelper:
         helper = DescriptionHelper()
@@ -417,6 +453,7 @@ class QueryBase(ABC):
             expr = exprs.Expr.from_object(raw_expr)
             if expr is None:
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression: {raw_expr}')
+            expr.check_method_refs()
             if expr.col_type.is_invalid_type() and not (isinstance(expr, exprs.Literal) and expr.val is None):
                 raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid type: {raw_expr}')
             if len(self._from_clause.tbls) == 1 and self._from_clause.is_local:
@@ -494,6 +531,7 @@ class QueryBase(ABC):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_EXPRESSION, f'where() expects a Pixeltable expression; got: {pred}'
             )
+        pred.check_method_refs()
         if not pred.col_type.is_bool_type():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -520,6 +558,7 @@ class QueryBase(ABC):
         if isinstance(on, exprs.ColumnRef):
             on = [on]
         elif isinstance(on, exprs.Expr):
+            on.check_method_refs()
             if not on.is_bound_by(joined_tbls):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -760,6 +799,7 @@ class QueryBase(ABC):
                 break
             if not isinstance(item, exprs.Expr):
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression in group_by(): {item}')
+            item.check_method_refs()
         if grouping_tbl_key is None:
             # no Table item was found, so every item passed the Expr check above
             group_by_clause = cast('list[exprs.Expr]', list(grouping_items))
@@ -840,6 +880,7 @@ class QueryBase(ABC):
         for e in expr_list:
             if not isinstance(e, exprs.Expr):
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression in order_by(): {e}')
+            e.check_method_refs()
         order_by_clause = self.order_by_clause if self.order_by_clause is not None else []
         order_by_clause.extend((e.copy(), asc) for e in expr_list)
         return type(self)(
@@ -1012,6 +1053,7 @@ class QueryBase(ABC):
             for expr in stratify_by:
                 if expr is None or not isinstance(expr, exprs.Expr):
                     raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression: {expr}')
+                expr.check_method_refs()
                 if not expr.col_type.is_scalar_type():
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_ARGUMENT,

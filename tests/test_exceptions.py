@@ -1,5 +1,8 @@
 """Tests for pixeltable.exceptions."""
 
+import copy
+import pickle
+
 import pytest
 
 import pixeltable.exceptions as excs
@@ -54,3 +57,18 @@ class TestExceptions:
             403,
             'PLAN_LIMIT',
         )
+
+    def test_copy_and_pickle(self) -> None:
+        err = excs.ExternalServiceError(
+            excs.ErrorCode.RATE_LIMITED, 'slow down', retry_after=5, provider='bedrock', status_code=429
+        )
+        err.detail = 'a detail'
+        for clone in (copy.copy(err), copy.deepcopy(err), pickle.loads(pickle.dumps(err))):
+            assert isinstance(clone, excs.ExternalServiceError)
+            assert (clone.error_code, clone.message, clone.retry_after, clone.detail) == (
+                excs.ErrorCode.RATE_LIMITED,
+                'slow down',
+                5,
+                'a detail',
+            )
+            assert (clone.provider, clone.provider_http_status_code) == ('bedrock', 429)

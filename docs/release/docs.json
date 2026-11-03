@@ -331,7 +331,11 @@
           {
             "group": "Observability",
             "pages": [
-              "integrations/langfuse"
+              "integrations/langfuse",
+              "integrations/phoenix",
+              "integrations/logfire",
+              "integrations/opik",
+              "integrations/signoz"
             ]
           },
           {
@@ -476,6 +480,10 @@
     }
   },
   "redirects": [
+    {
+      "source": "/sdk/latest/pixeltable/serving/SqlExport",
+      "destination": "/sdk/latest/sqlexport"
+    },
     {
       "source": "/overview/from-your-stack",
       "destination": "/howto/coming-from"

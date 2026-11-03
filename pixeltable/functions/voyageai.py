@@ -201,10 +201,7 @@ async def rerank(
         >>> queries.add_computed_column(candidates=get_candidates(queries.query))
         >>> queries.add_computed_column(
         ...     reranked=rerank(
-        ...         queries.query,
-        ...         queries.candidates.text,
-        ...         model='rerank-2.5',
-        ...         top_k=5,
+        ...         queries.query, queries.candidates, model='rerank-2.5', top_k=5
         ...     )
         ... )
     """

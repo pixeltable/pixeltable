@@ -1,25 +1,37 @@
-"""`pxt service {diff,update,prune,stop,list,logs,example}` - run the services an application file defines."""
+"""`pxt service {diff,update,prune,stop,list,logs,spans,example}` - run the services an application file defines."""
 
 from __future__ import annotations
 
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 import pydantic
 
 from ...types import GenerationReceipt, Resolution, ServiceChangeOp, ServiceInstance, ServicePlan
 from ...utils import PxtPath, project_root, split_pxt_uri
-from ..hosted import add_logs_args, await_endpoint, await_receipts, describe_receipt, exit_unless_observed, print_logs
+from ..hosted import (
+    add_logs_args,
+    await_endpoint,
+    await_receipts,
+    describe_receipt,
+    exit_unless_observed,
+    print_logs,
+    print_spans,
+)
 from ..parser import Parser
 from ..utils import (
     EXIT_CHANGES_PENDING,
     EXIT_ERROR,
     EXIT_IN_AGREEMENT,
+    blocked_document,
     check_file,
     confirm_or_exit,
     get_request,
     post_request,
+    print_blocked,
+    print_json,
     print_json_schema,
     refuse_destructive,
 )
@@ -106,7 +118,7 @@ Examples:
 
 Tracing:
   --otel emits OpenTelemetry traces from the services 'update' starts, and needs the instrumentation
-  package ('pip install pixeltable[otel]'). The setting belongs to the running service, not to the file:
+  package (pip install 'pixeltable[otel]'). The setting belongs to the running service, not to the file:
   a service already running without it restarts when 'update' is given the flag, and 'diff' reports that
   as a pending change.
 {_OWN_APP}{_HOSTED}{_APP_FILE}"""
@@ -126,7 +138,7 @@ Ports:
   so name the service too when the file defines more than one.
 
 Tracing:
-  --otel needs the instrumentation package ('pip install pixeltable[otel]'). The setting belongs to the
+  --otel needs the instrumentation package (pip install 'pixeltable[otel]'). The setting belongs to the
   running service, not to the file: a service already running without it restarts to pick it up, and
   dropping the flag restarts it again.
 {_OWN_APP}{_HOSTED}{_APP_FILE}"""
@@ -217,7 +229,19 @@ log a few seconds after it is written. A service running on this machine logs to
 'pxt service logs' reports the path of that file.
 """
 
-VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'restart', 'retry', 'list', 'logs', 'check', 'example')
+SPANS_EPILOG = """\
+Examples:
+  pxt service spans pxt://acme:main/my_dir/ingest   # the sampled trace spans of a hosted service in the last hour
+  pxt service spans pxt://acme:main/ingest --since 10m --tail 50
+  pxt service spans pxt://acme:main/ingest --trace 4bf92f3577b34da6a3ce929d0e0e4736
+  pxt service spans pxt://acme:main/ingest --json
+
+The spans are grouped by trace, and each span is indented under its parent. CloudWatch keeps every trace that
+contains an error or takes longer than one second, and a share of the other traces. A span appears a few seconds
+after it ends. Spans are read only from hosted services.
+"""
+
+VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'restart', 'retry', 'list', 'logs', 'spans', 'check', 'example')
 
 
 _MARKERS: dict[Resolution, str] = {
@@ -249,6 +273,7 @@ def run(argv: list[str]) -> None:
             '  retry    retry the failed update of the named hosted services\n'
             '  list     what is running locally, and where\n'
             '  logs     read the log of the named service\n'
+            '  spans    read the sampled trace spans of the named service\n'
             '  check    validate the application file on its own (takes no TARGET)\n'
             '  example  write a working application file to start from\n\n'
             'APP is a Python file defining FastAPIRouter services; TARGET is the catalog directory their\n'
@@ -311,6 +336,14 @@ def run(argv: list[str]) -> None:
         add_logs_args(ap)
         args = ap.parse_args(argv[1:])
         print_logs({'service': args.name}, args)
+        return
+
+    if verb == 'spans':
+        ap = Parser(prog='pxt service spans', epilog=SPANS_EPILOG, usage_exit_code=EXIT_ERROR)
+        ap.add_argument('name', help='service name, or TARGET/NAME to disambiguate')
+        add_logs_args(ap, spans=True)
+        args = ap.parse_args(argv[1:])
+        print_spans({'service': args.name}, args)
         return
 
     if verb == 'diff' and argv[1:] == ['--json-schema']:
@@ -469,13 +502,16 @@ def _update(
     if s.destructive > 0 and not allow_destructive:
         # the daemon would refuse the apply; refusing here names the command that permits it
         refuse_destructive(
-            'pxt service update', s.destructive, force=force, on_refusal=lambda: _print_plan(plan, as_json=as_json)
+            'pxt service update',
+            s.destructive,
+            force=force,
+            on_refusal=lambda error: _print_plan(plan, as_json=as_json, error=error),
         )
     restarts = f', interrupting {s.restarts} running service(s)' if s.restarts > 0 else ''
     confirm_or_exit(
         f'start or restart {s.create + s.update_additive + s.update_destructive} service(s){restarts}?',
         force,
-        on_refusal=lambda: _print_plan(plan, as_json=as_json),
+        on_refusal=lambda error: _print_plan(plan, as_json=as_json, error=error),
     )
 
     applied = ServicePlan.model_validate(
@@ -496,13 +532,22 @@ def _update(
     )
     db_uri = _hosted_db_uri(applied.target)
     if db_uri is not None:
-        _await_hosted(applied, db_uri, as_json=as_json)
-    _print_plan(applied, as_json=as_json, applied=True)
+        _await_hosted(applied, db_uri)
+    blocked = [op for d in applied.services for op in d.ops if op.severity == 'blocked']
+    submitted = [d.receipt for d in applied.services if d.receipt is not None and d.status in ('accepted', 'applied')]
+    error = None
+    # a failed generation exits below with its own next step, which the blocked plan's must not hide
+    if len(blocked) > 0 and not any(r.unsuccessful for r in submitted):
+        # the database has to change before these services can serve, and this command does not change it
+        error = blocked_document(
+            [op.description for op in blocked], [op.details['command'] for op in blocked if 'command' in op.details]
+        )
+    _print_plan(applied, as_json=as_json, applied=True, error=error)
     for d in applied.services:
         if db_uri is not None and d.receipt is not None and d.status in ('accepted', 'applied'):
             exit_unless_observed([d.receipt], retry_command=f'pxt service retry {_service_uri(db_uri, d.receipt)}')
-    if applied.summary.blocked > 0:
-        # the database has to change before these services can serve, and this command does not change it
+    if error is not None:
+        print_blocked(error)
         sys.exit(EXIT_ERROR)
 
 
@@ -516,14 +561,14 @@ def _service_uri(db_uri: str, receipt: GenerationReceipt) -> str:
     return '/'.join(part for part in (db_uri, receipt.base_path, receipt.service_name) if part)
 
 
-def _await_hosted(plan: ServicePlan, db_uri: str, *, as_json: bool) -> None:
+def _await_hosted(plan: ServicePlan, db_uri: str) -> None:
     """Wait on the receipts of the plan's hosted services, then until their endpoints answer."""
     accepted = [d.receipt for d in plan.services if d.receipt is not None and d.status == 'accepted']
     if len(accepted) == 0:
         return
     settled = {
         (r.resource_id, r.generation): r
-        for r in await_receipts(db_uri, accepted, show=not as_json, status_command=f'pxt service list {db_uri}')
+        for r in await_receipts(db_uri, accepted, status_command=f'pxt service list {db_uri}')
     }
     running = {(str(i.catalog_path), i.name): i for i in _running(db_uri)}
     for d in plan.services:
@@ -581,8 +626,7 @@ def _run_foreground(
             sys.exit(EXIT_ERROR)
         service_name = next(iter(services))
     app, _, _ = create_app(app_file, service_name, target)
-    if otel:
-        instrument_app(app)
+    asgi_app = instrument_app(app) if otel else app
     n_routes = len(app.routes)
     display_host = 'localhost' if host in ('0.0.0.0', '::') else host
     url = f'http://{display_host}:{port}'
@@ -590,7 +634,7 @@ def _run_foreground(
         print(json.dumps({'status': 'started', 'host': host, 'port': port, 'url': url, 'routes': n_routes}))
     else:
         print(f'Pixeltable is running on {url}\n  Routes: {n_routes}\n  API docs at {url}/docs')
-    uvicorn.run(app, host=host, port=port, log_config=None)
+    uvicorn.run(asgi_app, host=host, port=port, log_config=None)
 
 
 def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_run: bool) -> None:
@@ -611,7 +655,9 @@ def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_ru
     confirm_or_exit(
         f'stop {len(planned.ops)} service(s)?',
         force,
-        on_refusal=lambda: _print_ops(refused, as_json=as_json, verb='would stop', count=len(refused)),
+        on_refusal=lambda error: _print_ops(
+            refused, as_json=as_json, verb='would stop', count=len(refused), error=error
+        ),
     )
     pruned = ServicePlan.model_validate(post_request('/api/service/prune', body))
     _print_ops(pruned.ops, as_json=as_json, verb='stopped')
@@ -666,9 +712,11 @@ def _running(target: str | None = None) -> list[ServiceInstance]:
     return [ServiceInstance.model_validate(d) for d in get_request('/api/service/list', params)]
 
 
-def _print_plan(plan: ServicePlan, *, as_json: bool, applied: bool = False) -> None:
+def _print_plan(
+    plan: ServicePlan, *, as_json: bool, applied: bool = False, error: dict[str, Any] | None = None
+) -> None:
     if as_json:
-        print(plan.model_dump_json(indent=2))
+        print_json(plan.model_dump(mode='json'), error)
         return
     for service in plan.services:
         resolution = service.resolution
@@ -699,11 +747,22 @@ def _print_plan(plan: ServicePlan, *, as_json: bool, applied: bool = False) -> N
     print(f'Plan: {counts}')
 
 
-def _print_ops(ops: list[ServiceChangeOp], *, as_json: bool, verb: str, count: int | None = None) -> None:
+def _print_ops(
+    ops: list[ServiceChangeOp],
+    *,
+    as_json: bool,
+    verb: str,
+    count: int | None = None,
+    error: dict[str, Any] | None = None,
+) -> None:
     """Print each op, then the count of the services the verb names: by default the applied ones, or `count` for a
-    plan that applies none."""
+    plan that applies none. With error, the --json list becomes the error document's `ops`."""
     if as_json:
-        print(json.dumps([op.model_dump(mode='json') for op in ops], indent=2))
+        dumped = [op.model_dump(mode='json') for op in ops]
+        if error is None:
+            print(json.dumps(dumped, indent=2))
+        else:
+            print_json({'ops': dumped}, error)
         return
     for op in ops:
         endpoint = op.details.get('endpoint', '')

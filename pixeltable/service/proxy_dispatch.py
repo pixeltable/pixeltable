@@ -20,9 +20,9 @@ from uuid import UUID, uuid4
 
 import sqlalchemy as sql
 
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, telemetry, telemetry_schemas
 from pixeltable._query import Query
-from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_loop
+from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_md_read_loop
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
@@ -48,7 +48,14 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
     request._binary_parts = request_parts
     path_label = request.path_key.get('tbl_key', request.path_key) if request.path_key else ''
     _logger.debug('%s.%s %s', request.class_name, request.method, path_label)
+    key = (request.class_name, request.method)
+    # the client sends any class_name and method, and an unknown pair maps to 'unsupported' so that the metric
+    # has a bounded set of method values
+    method = f'{request.class_name}.{request.method}' if key in _HANDLERS or key in _TABLE_HANDLERS else 'unsupported'
     t0 = time.monotonic()
+    # set_current: catalog work before the operation itself (path resolution, the staleness check) nests here
+    rpc_span = telemetry.span_start('pixeltable.rpc', set_current=True, attrs={'pxt.method': method})
+    error: Exception | None = None
     try:
         if request.protocol_version != PROTOCOL_VERSION:
             config = Config.get()
@@ -69,8 +76,8 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
             error_dict['client_protocol_version'] = request.protocol_version
             error_dict['server_protocol_version'] = PROTOCOL_VERSION
             _logger.info('%s.%s error (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
+            error = mismatch
             return proxy_protocol.encode_response({'error': error_dict})
-        key = (request.class_name, request.method)
         table_handler = _TABLE_HANDLERS.get(key)
         if table_handler is not None:
             # Table method
@@ -81,7 +88,7 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
             if is_mutation:
                 # refuse to run if the client's snapshot_path_key is behind the current schema
                 snapshot_key = TablePathKey.from_dict(request.snapshot_path_key)
-                with cat.begin_xact(for_write=False):
+                with cat.begin_md_read_xact():
                     md = cat.read_md_for_export(tbl)
                 if snapshot_key != _current_key(md):
                     # return the current md and is_stale_md=True so the client refreshes and retries
@@ -94,7 +101,7 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
                 return proxy_protocol.encode_response({'result': result})
 
             # a mutation bumps the table version; return the new md so the client's path refreshes
-            with cat.begin_xact(for_write=False):
+            with cat.begin_md_read_xact():
                 md = cat.read_md_for_export(tbl)
             _logger.debug('%s.%s %s (%.2fs)', request.class_name, request.method, path_label, time.monotonic() - t0)
             return proxy_protocol.encode_response({'result': result, 'current_md': md})
@@ -115,6 +122,7 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
         return body
 
     except excs.Error as e:
+        error = e
         if e.detail is not None:
             # Log error details in the server log
             _logger.info('Error detail handling %s.%s:\n%s', request.class_name, request.method, e.detail)
@@ -125,7 +133,8 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
             error_dict['cause'] = _restore_upload_names(error_dict['cause'], request._uploaded_names)
         return proxy_protocol.encode_response({'error': error_dict})
 
-    except Exception:
+    except Exception as e:
+        error = e
         # An unexpected server-side failure. Log the full traceback for debugging, but return only a short
         # reference id to the client: server internals (stack frames, filesystem paths) must not cross the wire unless
         # include_error_detail is True (enabled in test mode).
@@ -146,6 +155,8 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
         return proxy_protocol.encode_response({'error': error_dict})
 
     finally:
+        telemetry.span_end(rpc_span, exc=error)
+        telemetry_schemas.rpc_duration.record(time.monotonic() - t0, method=method, error=error is not None)
         # best-effort removal of this request's uploaded temp files; missing_ok covers a file that a handler moved
         # into a reassembled directory (those directories are removed by the handler that creates them) or that
         # tbl.insert() moved into the media store
@@ -237,14 +248,17 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
             archive_path.unlink(missing_ok=True)
 
     # concurrent downloads are safe: boto3 clients are thread-safe
-    if len(objects) > 0:
-        with ThreadPoolExecutor(max_workers=min(16, len(objects)), thread_name_prefix='pxt-part-download') as executor:
-            list(executor.map(lambda key: download(key, pathlib.Path(request._remote_parts[key, None])), objects))
-    if len(archives) > 0:
-        with ThreadPoolExecutor(
-            max_workers=min(_MAX_ARCHIVE_DOWNLOADS, len(archives)), thread_name_prefix='pxt-archive-download'
-        ) as executor:
-            list(executor.map(lambda item: extract(*item), archives.items()))
+    with telemetry.span('pixeltable.media.prefetch', num_parts=len(parts)):
+        if len(objects) > 0:
+            with ThreadPoolExecutor(
+                max_workers=min(16, len(objects)), thread_name_prefix='pxt-part-download'
+            ) as executor:
+                list(executor.map(lambda key: download(key, pathlib.Path(request._remote_parts[key, None])), objects))
+        if len(archives) > 0:
+            with ThreadPoolExecutor(
+                max_workers=min(_MAX_ARCHIVE_DOWNLOADS, len(archives)), thread_name_prefix='pxt-archive-download'
+            ) as executor:
+                list(executor.map(lambda item: extract(*item), archives.items()))
 
 
 def _convert_result(key: tuple[str, str], result: Any) -> Any:
@@ -268,7 +282,7 @@ def _deserialize_args(request: ProxyRequest) -> dict:
     proxy_protocol.deserialize_request() directly.
     """
 
-    @retry_loop(for_write=False)
+    @retry_md_read_loop()
     def deserialize() -> dict:
         return proxy_protocol.deserialize_request(request)
 
@@ -279,7 +293,7 @@ def _create_table(request: ProxyRequest) -> tuple[list, bool]:
     kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
     tbl, was_created = cat.create_table(**kwargs)
-    with cat.begin_xact(for_write=False):
+    with cat.begin_md_read_xact():
         md = cat.read_md_for_export(tbl)
     return md, was_created
 
@@ -288,7 +302,7 @@ def _create_view(request: ProxyRequest) -> tuple[list, bool]:
     kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
     tbl, was_created = cat.create_view(**kwargs)
-    with cat.begin_xact(for_write=False):
+    with cat.begin_md_read_xact():
         md = cat.read_md_for_export(tbl)
     return md, was_created
 
@@ -297,13 +311,13 @@ def _create_from_model(request: ProxyRequest) -> tuple[list, bool]:
     kwargs = _deserialize_args(request)
     base_dict = kwargs.pop('base')
 
-    @retry_loop(for_write=False)
+    @retry_md_read_loop()
     def build_base() -> Any:
         return None if base_dict is None else Query.from_dict(base_dict)
 
     cat = get_runtime().catalog
     tbl, was_created = cat.create_from_model(base=build_base(), **kwargs)
-    with cat.begin_xact(for_write=False):
+    with cat.begin_md_read_xact():
         md = cat.read_md_for_export(tbl)
     return md, was_created
 
@@ -320,7 +334,7 @@ def _get_table(request: ProxyRequest) -> list | None:
     tbl = cat.get_table(**kwargs)
     if tbl is None:
         return None
-    with cat.begin_xact(for_write=False):
+    with cat.begin_md_read_xact():
         return cat.read_md_for_export(tbl)
 
 
@@ -328,7 +342,7 @@ def _get_table_by_id(request: ProxyRequest) -> list | None:
     kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
 
-    @retry_loop(for_write=False)
+    @retry_md_read_loop()
     def load() -> list | None:
         tbl = cat.get_table_by_id(**kwargs)
         return None if tbl is None else cat.read_md_for_export(tbl)
@@ -346,7 +360,7 @@ def _resolve_tbl(path_key: TablePathKey) -> LocalTable:
     tbl_id, effective_version = path_key.keys[0].tbl_id, path_key.keys[0].effective_version
     cat = get_runtime().catalog
 
-    @retry_loop(for_write=False)
+    @retry_md_read_loop()
     def resolve() -> LocalTable | None:
         return cat.get_table_by_id(tbl_id, effective_version)
 
@@ -460,7 +474,7 @@ def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
     kwargs = _deserialize_args(request)
 
     # from_dict() loads the query's table metadata, which is disallowed inside a plain transaction
-    @retry_loop(for_write=False)
+    @retry_md_read_loop()
     def build() -> Query:
         return Query.from_dict(kwargs['query'])
 
@@ -596,7 +610,7 @@ def _describe(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 def _build_query(query_dict: dict) -> Query:
     # from_dict() loads metadata
-    @retry_loop(for_write=False)
+    @retry_md_read_loop()
     def build() -> Query:
         return Query.from_dict(query_dict)
 

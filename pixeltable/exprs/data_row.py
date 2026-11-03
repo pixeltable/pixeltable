@@ -15,7 +15,7 @@ import PIL.Image
 import sqlalchemy as sql
 
 import pixeltable.utils.image as image_utils
-from pixeltable import catalog, env
+from pixeltable import catalog, env, exceptions as excs
 from pixeltable.telemetry import SpanHandle
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.misc import non_none_dict_factory
@@ -81,6 +81,18 @@ class CellMd:
     def as_dict(self) -> dict:
         x = dataclasses.asdict(self, dict_factory=non_none_dict_factory)
         return x
+
+
+class StoredError(Exception):
+    """The error stored in a cell, packaged as an exception for propagation to dependent cells."""
+
+    errortype: str
+    errormsg: str
+
+    def __init__(self, errortype: str, errormsg: str) -> None:
+        super().__init__(errormsg)
+        self.errortype = errortype
+        self.errormsg = errormsg
 
 
 class DataRow:
@@ -388,6 +400,10 @@ class DataRow:
         format = None
         if isinstance(val, PIL.Image.Image):
             format = image_utils.default_format(val)
+            try:
+                val = image_utils.to_bytes(val, format)
+            except Exception as e:
+                raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, str(e)) from e
         filepath, url = TempStore.save_media_object(
             val, col.tbl_handle.id, col.id, col.get_tbl().version, format=format
         )
