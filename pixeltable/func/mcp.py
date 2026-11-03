@@ -1,5 +1,7 @@
+import asyncio
+import contextlib
 import inspect
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Sequence
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
@@ -8,7 +10,58 @@ from pixeltable.func.function import Function
 from pixeltable.func.signature import Parameter, Signature
 
 if TYPE_CHECKING:
+    import httpx2
     import mcp
+
+
+@contextlib.asynccontextmanager
+async def mcp_session(
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    timeout: float | None = None,
+    on_http_error: Callable[[int], None] | None = None,
+) -> AsyncIterator['mcp.ClientSession']:
+    """An initialized MCP session over Streamable HTTP, for the duration of the context.
+
+    `headers`, `timeout` and `on_http_error` replace the SDK's default HTTP client. `timeout` also bounds the session
+    as a whole, because the protocol's own read timeout covers neither connection setup nor teardown.
+
+    `on_http_error` receives the status of each failed JSON-RPC request, which the transport otherwise reports as one
+    opaque protocol error that keeps neither the status nor the response body. The SDK's optional event stream and its
+    session teardown do not carry a request, so the statuses they return are not reported.
+    """
+    Env.get().require_package('mcp', [2])
+    import mcp
+    from mcp.client.streamable_http import streamable_http_client
+
+    async with contextlib.AsyncExitStack() as stack:
+        http_client: 'httpx2.AsyncClient | None' = None
+        if headers is not None or timeout is not None or on_http_error is not None:
+            import httpx2
+
+            if timeout is not None:
+                await stack.enter_async_context(asyncio.timeout(timeout))
+            event_hooks: dict[str, list[Any]] = {}
+            if on_http_error is not None:
+                report: Callable[[int], None] = on_http_error
+
+                async def record_status(response: 'httpx2.Response') -> None:  # noqa: RUF029
+                    if response.status_code >= 400 and response.request.method == 'POST':
+                        report(response.status_code)
+
+                event_hooks['response'] = [record_status]
+            http_client = await stack.enter_async_context(
+                httpx2.AsyncClient(headers=headers, timeout=timeout, event_hooks=event_hooks)
+            )
+        read_stream, write_stream = await stack.enter_async_context(
+            streamable_http_client(url, http_client=http_client)
+        )
+        session = await stack.enter_async_context(
+            mcp.ClientSession(read_stream, write_stream, read_timeout_seconds=timeout)
+        )
+        await session.initialize()
+        yield session
 
 
 def mcp_udfs(url: str) -> list['pxt.func.Function']:
@@ -18,18 +71,8 @@ def mcp_udfs(url: str) -> list['pxt.func.Function']:
 
 
 async def mcp_udfs_async(url: str) -> list['pxt.func.Function']:
-    Env.get().require_package('mcp', [2])
-    import mcp
-    from mcp.client.streamable_http import streamable_http_client
-
-    list_tools_result: mcp.types.ListToolsResult | None = None
-    async with (
-        streamable_http_client(url) as (read_stream, write_stream),
-        mcp.ClientSession(read_stream, write_stream) as session,
-    ):
-        await session.initialize()
+    async with mcp_session(url) as session:
         list_tools_result = await session.list_tools()
-    assert list_tools_result is not None
 
     return [mcp_tool_to_udf(url, tool) for tool in list_tools_result.tools]
 
@@ -107,15 +150,9 @@ class McpFunction(Function):
         # TODO: open one session per McpFunction rather than one per call
         Env.get().require_package('mcp', [2])
         import mcp
-        from mcp.client.streamable_http import streamable_http_client
 
         error_msg: str | None = None
-        async with (
-            streamable_http_client(self.url) as (read_stream, write_stream),
-            mcp.ClientSession(read_stream, write_stream) as session,
-        ):
-            await session.initialize()
-
+        async with mcp_session(self.url) as session:
             if not self._is_verified:
                 current_tool = next(
                     (tool for tool in (await session.list_tools()).tools if tool.name == self.tool_name), None
