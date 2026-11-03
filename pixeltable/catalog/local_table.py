@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     import torch.utils.data
 
     import pixeltable.plan
-    from pixeltable.globals import TableDataSource
+    from pixeltable.api import TableDataSource
 
     from .table_version import TableVersion
 

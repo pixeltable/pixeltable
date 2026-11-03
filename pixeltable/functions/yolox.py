@@ -8,7 +8,7 @@ import PIL.Image
 import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.func import Batch
-from pixeltable.functions.util import normalize_image_mode
+from pixeltable.functions.model_support import normalize_image_mode
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
