@@ -16,6 +16,7 @@ from pixeltable import catalog
 from pixeltable.catalog import table_copy
 from pixeltable.catalog.catalog_proxy import CatalogProxy
 from pixeltable.catalog.table_proxy import TableProxy
+from pixeltable.runtime import get_runtime
 from pixeltable.service.proxy_protocol import LocalFile
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps, StorageTarget
@@ -183,10 +184,10 @@ class TestCopyTable:
         drop_table() and revert() delete that prefix; a remote url outside of it is kept."""
         p = db_root.make_catalog_path
         img_file = get_image_files()[0]
-        downloaded: list[str] = []
+        downloaded: list[tuple[str, bool]] = []  # (url, whether a transaction is open)
 
         def download(url: str, dest_path: pathlib.Path) -> None:
-            downloaded.append(url)
+            downloaded.append((url, get_runtime().in_xact))
             shutil.copy(img_file, dest_path)
 
         # a bucket whose every object is img_file
@@ -198,7 +199,8 @@ class TestCopyTable:
         t.insert([{'img': source_url}, {'img': other_url}])
         downloaded.clear()
         t2 = pxt.copy_table('src', p('dst'))
-        assert downloaded == [source_url]
+        # the export's transaction is closed: a download must not hold its locks and snapshot
+        assert downloaded == [(source_url, False)]
         urls = t2.select(t2.img.fileurl).collect()['img_fileurl']
         assert other_url in urls and source_url not in urls
         # the copy reads its own bytes of the object
@@ -297,14 +299,15 @@ class TestCopyTable:
         t = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
         t.insert({'id': i, 'img': f} for i, f in enumerate(get_image_files()[:3]))
 
-        move = CatalogProxy.move
+        dispatch = TableProxy._dispatch
 
-        def move_after_conflict(self: CatalogProxy, *args: Any, **kwargs: Any) -> None:
-            # someone else creates the destination while the rows are being copied
-            pxt.create_table(p('dst'), {'other': pxt.String})
-            move(self, *args, **kwargs)
+        def finish_after_conflict(self: TableProxy, method: str, args: dict[str, Any]) -> Any:
+            if method == 'finish_copy':
+                # someone else creates the destination while the rows are being copied
+                pxt.create_table(p('dst'), {'other': pxt.String})
+            return dispatch(self, method, args)
 
-        monkeypatch.setattr(CatalogProxy, 'move', move_after_conflict)
+        monkeypatch.setattr(TableProxy, '_dispatch', finish_after_conflict)
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
             pxt.copy_table('src', p('dst'))
         assert pxt.get_table(p('dst')).columns() == ['other']
@@ -388,17 +391,20 @@ class TestCopyTable:
         dispatch = TableProxy._dispatch
         refused: list[bool] = []
 
-        def insert_before_finish(self: TableProxy, method: str, args: dict[str, Any]) -> Any:
+        def write_before_finish(self: TableProxy, method: str, args: dict[str, Any]) -> Any:
             if method == 'finish_copy':
                 with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'is a copy that copy_table\(\) has not finished'):
                     self.insert([{'id': 100}])
+                with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'copy_table\(\) has not finished copying it'):
+                    pxt.move(str(self._path()), p('moved'))
                 refused.append(True)
             return dispatch(self, method, args)
 
-        monkeypatch.setattr(TableProxy, '_dispatch', insert_before_finish)
+        monkeypatch.setattr(TableProxy, '_dispatch', write_before_finish)
         t2 = pxt.copy_table('src', p('dst'))
         assert refused == [True]
         assert sorted(t2.collect()['id']) == [0, 1]
+        assert pxt.get_table(p('moved'), if_not_exists='ignore') is None
 
     def test_load_store_rows_refuses_rows_beyond_history(
         self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
@@ -447,6 +453,22 @@ class TestCopyTable:
         t.insert([{'img': img_file}, {'img': img_file}])
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='is not a media file of'):
             pxt.copy_table('src', p('dst'))
+        assert _temporary_copies(db_root) == []
+
+    def test_finish_copy_repeated(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A repeated finish_copy, as when the client retries a request that committed, finds the copy finished."""
+        p = db_root.make_catalog_path
+        dispatch = TableProxy._dispatch
+
+        def finish_twice(self: TableProxy, method: str, args: dict[str, Any]) -> Any:
+            if method == 'finish_copy':
+                dispatch(self, method, args)
+            return dispatch(self, method, args)
+
+        monkeypatch.setattr(TableProxy, '_dispatch', finish_twice)
+        pxt.create_table('src', {'id': pxt.Int}).insert({'id': i} for i in range(3))
+        t2 = pxt.copy_table('src', p('dst'))
+        assert sorted(t2.collect()['id']) == [0, 1, 2]
         assert _temporary_copies(db_root) == []
 
     def test_load_store_rows_repeated(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:

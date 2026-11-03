@@ -184,9 +184,12 @@ def is_copy_in_progress(tbl_md: schema.TableMd) -> bool:
     return tbl_md.additional_md.get(_COPY_IN_PROGRESS, False)
 
 
-def _check_copy_in_progress(tv: TableVersion, method: str) -> None:
-    if not is_copy_in_progress(tv.tbl_md):
-        raise excs.RequestError(excs.ErrorCode.INVALID_STATE, f'{method}(): {tv.name!r} is not a copy in progress')
+def _check_copy_in_progress(tbl_id: uuid.UUID, method: str) -> schema.TableMd:
+    """Return the TableMd of tbl_id, read from the store (a cached one may be stale), if it is a copy in progress."""
+    tbl_md = get_runtime().catalog.load_tbl_md(TableVersionKey(tbl_id, None)).tbl_md
+    if not is_copy_in_progress(tbl_md):
+        raise excs.RequestError(excs.ErrorCode.INVALID_STATE, f'{method}(): {tbl_md.name!r} is not a copy in progress')
+    return tbl_md
 
 
 def _arrow_type(sa_type: sql.types.TypeEngine) -> pa.DataType:
@@ -248,7 +251,10 @@ class _Chunk:
     num_media_bytes: int = 0
     # local media files that this chunk is the first to reference: url -> local path
     new_media: dict[str, str] = dataclasses.field(default_factory=dict)
-    # referenced urls of local media files that an earlier chunk uploaded
+    # urls of the source table's bucket objects that this chunk is the first to reference; they are downloaded for the
+    # chunk's upload, and their size is not part of num_media_bytes
+    new_objects: set[str] = dataclasses.field(default_factory=set)
+    # referenced urls of media files that an earlier chunk uploaded
     prev_media: set[str] = dataclasses.field(default_factory=set)
 
 
@@ -320,12 +326,13 @@ class _TableExport:
         if url in self._exported_media:
             self._chunk.prev_media.add(url)
             return
-        if url in self._chunk.new_media:
+        if url in self._chunk.new_media or url in self._chunk.new_objects:
             return
         if path is None:
-            path = self._tmp_dir / f'media_{uuid.uuid4().hex}{PurePosixPath(urllib.parse.urlparse(url).path).suffix}'
-            ObjectOps.copy_object_to_local_file(url, path)
-        elif not path.is_file():
+            # downloaded only for the upload, outside of the export's transaction
+            self._chunk.new_objects.add(url)
+            return
+        if not path.is_file():
             if len(self.missing_files) < _MAX_LISTED_FILES:
                 self.missing_files.append(url)
             return
@@ -358,7 +365,7 @@ class _TableExport:
         assert self._writer is not None
         # the file is incomplete until close() writes its footer
         self._writer.close()
-        self._exported_media.update(self._chunk.new_media)
+        self._exported_media.update(self._chunk.new_media, self._chunk.new_objects)
         self.chunks.append(self._chunk)
         self._chunk = None
         self._writer = None
@@ -444,17 +451,19 @@ def copy_table(tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path)
             uploaded: dict[str, str] = {}  # source url -> its url in the destination
             for i, chunk in enumerate(export.chunks):
                 _logger.debug(f'Copying rows chunk {i + 1}/{len(export.chunks)} ({chunk.num_rows} rows)')
+                downloads = {url: _download(url, tmp_dir) for url in chunk.new_objects}
                 result = copy._dispatch(
                     'load_store_rows',
                     {
                         'rows_file': LocalFile(str(chunk.rows_file)),
-                        'new_media': {url: LocalFile(path) for url, path in chunk.new_media.items()},
+                        'new_media': {url: LocalFile(path) for url, path in (chunk.new_media | downloads).items()},
                         'prev_media': {url: uploaded[url] for url in chunk.prev_media},
                     },
                 )
                 uploaded.update(result)
-            copy._dispatch('finish_copy', {'num_rows': export.num_rows})
-            dest_catalog.move(tmp_path, dest_path, IfExistsParam.ERROR, IfNotExistsParam.ERROR)
+                for path in downloads.values():
+                    FsPath(path).unlink()
+            copy._dispatch('finish_copy', {'num_rows': export.num_rows, 'dest_path': dest_path})
         except BaseException as e:
             try:
                 dest_catalog.drop_table(tmp_path, IfNotExistsParam.IGNORE, force=False)
@@ -467,6 +476,12 @@ def copy_table(tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path)
     result_tbl = dest_catalog.get_table(dest_path, IfNotExistsParam.ERROR)
     assert result_tbl is not None
     return result_tbl
+
+
+def _download(url: str, tmp_dir: FsPath) -> str:
+    path = tmp_dir / f'media_{uuid.uuid4().hex}{PurePosixPath(urllib.parse.urlparse(url).path).suffix}'
+    ObjectOps.copy_object_to_local_file(url, path)
+    return str(path)
 
 
 def load_store_rows(
@@ -483,14 +498,15 @@ def load_store_rows(
     """
     cat = get_runtime().catalog
     # checked here as well, so that a refused call stores no media files
-    _check_copy_in_progress(tbl._tbl_version.get(), 'load_store_rows')
+    with cat.begin_md_read_xact():
+        _check_copy_in_progress(tbl._id, 'load_store_rows')
     md = cat.collect_tbl_history(tbl._id, None)
     # object store I/O runs outside of a transaction, so that it doesn't hold a db connection
     placed_media = _place_media(tbl._tbl_version.get(), md, rows_file, new_media)
 
     with cat.begin_data_write_xact(tvps=[tbl._tbl_version_path]):
+        _check_copy_in_progress(tbl._id, 'load_store_rows')
         tv = tbl._tbl_version.get()
-        _check_copy_in_progress(tv, 'load_store_rows')
         # the client retries a request that gets a 5xx, so this call may repeat one that committed; a call's rows commit
         # together, so its first row tells (an index lookup: the system columns are indexed)
         sa_tbl = tv.store_tbl.sa_tbl
@@ -508,23 +524,33 @@ def load_store_rows(
     return placed_media
 
 
-def finish_copy(tbl: InsertableTable, num_rows: int) -> None:
-    """Finish tbl, a copy in progress that load_store_rows() filled, after checking that it holds num_rows rows."""
+def finish_copy(tbl: InsertableTable, num_rows: int, dest_path: Path) -> None:
+    """Finish tbl, a copy in progress that load_store_rows() filled: check that it holds num_rows rows, clear its mark
+    and move it to dest_path, in one transaction, so that no other write reaches it before it is at dest_path."""
     from .catalog import retry_md_write_loop
 
-    @retry_md_write_loop(tvps=[tbl._tbl_version_path])
+    cat = get_runtime().catalog
+    tbl_path = tbl._path()
+    key = TableVersionKey(tbl._id, None)
+
+    @retry_md_write_loop(paths=[tbl_path, dest_path])
     def finish() -> None:
-        tv = tbl._tbl_version.get()
-        _check_copy_in_progress(tv, 'finish_copy')
-        stmt = sql.select(sql.func.count()).select_from(tv.store_tbl.sa_tbl)
+        dest_obj = cat._get_schema_object(dest_path)
+        if dest_obj is not None and dest_obj._id == tbl._id:
+            return  # the client repeats a call that committed (it retries a 5xx)
+        tbl_md = _check_copy_in_progress(tbl._id, 'finish_copy')
+        stmt = sql.select(sql.func.count()).select_from(tbl._tbl_version.get().store_tbl.sa_tbl)
         num_stored_rows = get_runtime().conn.execute(stmt).scalar_one()
         if num_stored_rows != num_rows:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_STATE,
-                f'finish_copy(): {tv.name!r} holds {num_stored_rows} rows, not the {num_rows} rows of the copied table',
+                f'finish_copy(): {tbl_md.name!r} holds {num_stored_rows} rows, not the {num_rows} rows of the copied '
+                'table',
             )
-        del tv.tbl_md.additional_md[_COPY_IN_PROGRESS]
-        tv._write_md(new_version=False, new_schema_version=False)
+        del tbl_md.additional_md[_COPY_IN_PROGRESS]
+        cat.write_tbl_md(tbl._id, None, tbl_md, None, None)
+        cat._clear_tv_cache(key)
+        cat._move(tbl_path, dest_path, IfExistsParam.ERROR, IfNotExistsParam.ERROR)
 
     finish()
 

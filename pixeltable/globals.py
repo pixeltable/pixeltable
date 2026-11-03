@@ -667,8 +667,8 @@ def copy_table(table: str | catalog.Table, dest_path: str) -> catalog.Table:
     The copy keeps the stored values of every column, computed columns and embedding indexes included, without
     computing them again, and keeps every version of the table, so that
     `pxt.get_table('pxt://<org>:<db>/<path>:<version>')` reads the same rows as the local table at that version.
-    Local media files are uploaded to the database's storage; media at a remote URL keeps its URL. The local table
-    is left as it is.
+    Local media files, and the media files that the table itself stored in a bucket, are uploaded to the database's
+    storage; any other media at a remote URL keeps its URL. The local table is left as it is.
 
     While it runs, the copy is filled under a temporary name in the directory of `dest_path`, of the form
     `<name>_copy_<suffix>`, and moved to `dest_path` once it is complete. A copy that fails drops the temporary table;

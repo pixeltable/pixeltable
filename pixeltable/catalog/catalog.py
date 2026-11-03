@@ -1442,6 +1442,16 @@ class Catalog(CatalogBase):
             # If src_obj is None, it means `if_not_exists='ignore'` and the source doesn't exist.
             # If dest_obj is None and src_obj is not None, then we can proceed with the move.
             if isinstance(src_obj, LocalTable):
+                from .table_copy import is_copy_in_progress
+
+                # only finish_copy() moves a copy in progress, once it has cleared the mark
+                if src_obj._tbl_version is not None and is_copy_in_progress(
+                    self.load_tbl_md(TableVersionKey(src_obj._id, None)).tbl_md
+                ):
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_STATE,
+                        f'Cannot move {src_obj._display_str()}: copy_table() has not finished copying it',
+                    )
                 self._move_table(
                     src_obj._id, new_path.name, dest_dir._id, is_pure_snapshot=src_obj._tbl_version is None
                 )
