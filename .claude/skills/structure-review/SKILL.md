@@ -7,8 +7,9 @@ description: >
   classic smells, and can a reader new to the code follow it. Then ownership, semantics, API shape, failure
   paths, errors, tests and docs. Produces short inline comments plus a summary, as a draft for the user to
   post. Use only when asked to review with structure-review.
+disable-model-invocation: true
 argument-hint: '[PR number or URL | branch | commit range]'
-allowed-tools: Bash(gh pr view *) Bash(gh pr diff *) Bash(gh api graphql *) Bash(git fetch *)
+allowed-tools: Bash(gh pr view *) Bash(gh pr diff *)
 ---
 
 # Structure review
