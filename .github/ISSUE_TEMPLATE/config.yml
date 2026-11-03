@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question or help
+    url: https://github.com/pixeltable/pixeltable/discussions
+    about: Ask in Discussions rather than opening an issue.
+  - name: Discord
+    url: https://discord.gg/QPyqFYx2UN
+    about: Chat with the community and the maintainers.
+  - name: Security vulnerability
+    url: https://github.com/pixeltable/pixeltable/blob/main/SECURITY.md
+    about: Do not open a public issue. Email contact@pixeltable.com.

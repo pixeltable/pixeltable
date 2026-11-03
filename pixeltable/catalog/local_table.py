@@ -5,14 +5,15 @@ import builtins
 import datetime
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence, overload
 from uuid import UUID
 
 import pandas as pd
-from typing_extensions import overload
+import pydantic
+from typing_extensions import TypeForm
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, exprs, index, type_system as ts
+from pixeltable import exceptions as excs, exprs, index, telemetry, telemetry_schemas, type_system as ts
 from pixeltable.catalog.table_metadata import (
     ColumnMetadata,
     EmbeddingIndexParams,
@@ -21,6 +22,7 @@ from pixeltable.catalog.table_metadata import (
     VersionMetadata,
 )
 from pixeltable.metadata.utils import MetadataUtils
+from pixeltable.row import RowBatch
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.formatter import Formatter
@@ -34,16 +36,16 @@ from .globals import (
     IfExistsParam,
     IfNotExistsParam,
     MediaValidation,
-    QColumnId,
+    OnErrorParam,
+    fold_identifier,
+    fold_mapping_keys,
     is_valid_identifier,
 )
 from .table import Table
 from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
+from .types import QColumnId
 from .update_status import UpdateStatus
-
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-
 
 if TYPE_CHECKING:
     import torch.utils.data
@@ -88,19 +90,19 @@ class LocalTable(Table):
         return self
 
     def _name(self) -> str:
-        cat = get_runtime().catalog
-        with cat.begin_xact(for_write=False):
-            return cat.read_tbl_record(self._id).md['name']
+        from pixeltable.catalog import retrying_read
+
+        return retrying_read(lambda: get_runtime().catalog.read_tbl_record(self._id).md['name'])
 
     def _dir_id(self) -> UUID | None:
-        cat = get_runtime().catalog
-        with cat.begin_xact(for_write=False):
-            return cat.read_tbl_record(self._id).dir_id
+        from pixeltable.catalog import retrying_read
+
+        return retrying_read(lambda: get_runtime().catalog.read_tbl_record(self._id).dir_id)
 
     def get_metadata(self) -> 'TableMetadata':
-        from pixeltable.catalog import retry_loop
+        from pixeltable.catalog import retry_md_read_loop
 
-        @retry_loop(for_write=False)
+        @retry_md_read_loop()
         def op() -> 'TableMetadata':
             return self._get_metadata()
 
@@ -124,7 +126,7 @@ class LocalTable(Table):
                 )
             column_info[col.name] = ColumnMetadata(
                 name=col.name,
-                type_=col.col_type._to_str(as_schema=True),
+                type_=repr(col.col_type),
                 version_added=col.schema_version_add,
                 is_stored=col.is_stored,
                 is_primary_key=col.is_pk,
@@ -137,7 +139,7 @@ class LocalTable(Table):
                 comment=col.comment,
                 custom_metadata=col.custom_metadata,
                 is_iterator_col=False,
-                destination=col._explicit_destination,
+                destination=col.display_destination,
             )
 
         indices = tv.idxs_by_name.values()
@@ -148,15 +150,15 @@ class LocalTable(Table):
                 continue
             if isinstance(info.idx, index.EmbeddingIndex):
                 indexed_col_md = self._tbl_version_path.get_column_md(QColumnId(info.col.tbl_handle.id, info.col.id))
-                col_ref = ColumnRef(indexed_col_md)
-                embedding_fncall = info.idx.embeddings[info.col.col_type._type](col_ref)
+                embedding_str = str(info.idx.create_value_expr(indexed_col_md))
                 index_info[info.name] = IndexMetadata(
                     name=info.name,
                     columns=[info.col.name],
                     index_type='embedding',
                     parameters=EmbeddingIndexParams(
                         metric=info.idx.metric.name.lower(),  # type: ignore[typeddict-item]
-                        embedding=str(embedding_fncall),
+                        precision=info.idx.precision.name.lower(),  # type: ignore[typeddict-item]
+                        embedding=embedding_str,
                         embedding_functions=[str(fn) for fn in info.idx.embeddings.values()],
                     ),
                 )
@@ -169,13 +171,16 @@ class LocalTable(Table):
         if any(col.is_pk for col in columns):
             primary_key = [col.name for col in columns if col.is_pk]
 
+        has_default_idxs = self._tbl_version is not None and self._tbl_version.get().has_default_idxs
+
         return TableMetadata(
             id=self._id,
             name=self._name(),
             path=str(self._path()),
             columns=column_info,
-            indices=index_info,
-            is_versioned=tv.is_versioned,
+            indexes=index_info,
+            is_data_versioned=tv.is_data_versioned,
+            has_default_idxs=has_default_idxs,
             is_view=False,
             is_snapshot=False,
             version=self._get_version(),
@@ -192,8 +197,8 @@ class LocalTable(Table):
             iterator_call=None,
         )
 
-    def _get_version(self) -> int | None:
-        """Return the version of this table or None if not versioned. Used by tests to ascertain version changes."""
+    def _get_version(self) -> int:
+        """Return the current version of this table."""
         return self._tbl_version_path.version()
 
     def __hash__(self) -> int:
@@ -209,10 +214,10 @@ class LocalTable(Table):
         return getattr(self, name)
 
     def list_views(self, *, recursive: bool = True) -> list[str]:
-        from pixeltable.catalog import retry_loop
+        from pixeltable.catalog import retry_md_read_loop
 
-        # we need retry_loop() here, because we end up loading Tables for the views
-        @retry_loop(read_tvps=[self._tbl_version_path])
+        # Loading view metadata can encounter pending operations, requiring a retry of the whole listing.
+        @retry_md_read_loop(tbl_keys=self._tbl_version_path.tbl_keys)
         def op() -> list[str]:
             paths: list[str] = []
             for t in self._get_views(recursive=recursive):
@@ -233,12 +238,79 @@ class LocalTable(Table):
         if mutable_only:
             views = [t for t in views if t._tbl_version_path.is_mutable()]
         if recursive:
-            views.extend(t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only))
+            descendants = [t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only)]
+            views.extend(descendants)
         return views
 
     def columns(self) -> list[str]:
         cols = self._tbl_version_path.columns()
         return [c.name for c in cols]
+
+    @telemetry.spanned('pixeltable.compute', set_current=True)
+    def compute(
+        self,
+        source: Sequence[dict[str, Any]] | Sequence[pydantic.BaseModel],
+        /,
+        *,
+        outputs: Sequence[str | ColumnRef] | None = None,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+    ) -> RowBatch:
+        from pixeltable.io.table_data_conduit import PydanticTableDataConduit, RowDataTableDataConduit, TableDataConduit
+        from pixeltable.plan import Planner
+
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        # str/bytes are technically Sequences; reject them explicitly so we don't fall through to
+        # TableDataConduit.create() which would treat a string as a path/URL and trigger file I/O.
+        if isinstance(source, (str, bytes)) or not isinstance(source, Sequence) or len(source) == 0:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'compute() requires a non-empty sequence of dicts or pydantic models; got {type(source).__name__}',
+            )
+        fail_on_exc = OnErrorParam.fail_on_exception(on_error)
+        # TableDataConduit.is_rowdata_structure() only accepts list (not arbitrary Sequence) for the
+        # dict-source dispatch, so normalize to list here.
+        data_source = TableDataConduit.create(list(source))
+        if not isinstance(data_source, (RowDataTableDataConduit, PydanticTableDataConduit)):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'compute() requires a sequence of dicts or pydantic models; got {type(source).__name__}',
+            )
+
+        path = self._tbl_version_path
+        self._validate_compute()
+        try:
+            with get_runtime().catalog.begin_data_read_xact(tbl_keys=path.tbl_keys):
+                output_md = self._resolve_compute_outputs(outputs)
+                # input rows supply values for the base table's columns
+                base_tbl = self._get_base_tables()[-1] if path.is_view() else self
+                data_source.add_table_info(base_tbl)
+                # the compute plan checks for the required columns that the outputs read
+                data_source.reqd_col_names.clear()
+                data_source.prepare_for_insert_into_table()
+                input_rows = [row for batch in data_source.valid_row_batch() for row in batch]
+
+                output_cols = path.columns()
+                if output_md is not None:
+                    output_qids = {md.qcolid for md in output_md}
+                    output_cols = [c for c in output_cols if c.qid in output_qids]
+
+                plan = Planner.create_compute_plan(path, input_rows, ignore_errors=not fail_on_exc, outputs=output_md)
+                data_rows: list[exprs.DataRow] = []
+                with plan:
+                    # TODO: fix progress reporter
+                    for row_batch in plan:
+                        if fail_on_exc:
+                            for row in row_batch:
+                                # if fail_on_exc == True, we need to check for media validation exceptions
+                                if row.has_exc():
+                                    raise row.get_first_exc()
+                        data_rows.extend(row_batch.rows)
+                result = plan.row_builder.create_row_batch(data_rows, output_cols=output_cols)
+        except excs.ExprEvalError as e:
+            excs.raise_from_expr_eval_err(e)
+
+        FileCache.get().emit_eviction_warnings()
+        return result
 
     def _get_base_tables(self) -> list['Table']:
         """The ancestor list of bases of this table, starting with its immediate base. Requires a transaction context"""
@@ -254,8 +326,8 @@ class LocalTable(Table):
     def _effective_base_versions(self) -> list[int | None]:
         """The effective versions of the ancestor bases, starting with its immediate base."""
 
-    def _is_versioned(self) -> bool:
-        return self._tbl_version_path.is_versioned()
+    def _is_data_versioned(self) -> bool:
+        return self._tbl_version_path.is_data_versioned()
 
     def _get_comment(self) -> str:
         return self._tbl_version_path.comment()
@@ -280,7 +352,9 @@ class LocalTable(Table):
         pxt:// path of a hosted table); when None the local in-catalog path is shown.
         """
 
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
+        from pixeltable.catalog import retrying_read
+
+        def op() -> DescriptionHelper:
             helper = DescriptionHelper()
             helper.append(self._table_descriptor(path))
             col_df, separator_idxs = self._col_descriptor()
@@ -293,6 +367,8 @@ class LocalTable(Table):
             if self._get_custom_metadata():
                 helper.append(f'Custom Metadata: {Formatter.summarize_json(self._get_custom_metadata())}')
             return helper
+
+        return retrying_read(op, tbl_keys=self._tbl_version_path.tbl_keys)
 
     def _col_descriptor(self, columns: list[str] | None = None) -> tuple[pd.DataFrame, list[int] | None]:
         """Generates column descriptor DataFrame and a list of vertical separators.
@@ -325,7 +401,7 @@ class LocalTable(Table):
             col_descriptors.append(
                 {
                     'Column Name': col.name,
-                    'Type': col.col_type._to_str(as_schema=True),
+                    'Type': repr(col.col_type),
                     'Source': source_tv.name,
                     'Computed With': computed_with,
                     'Comment': col.comment if col.comment is not None else '',
@@ -342,22 +418,44 @@ class LocalTable(Table):
 
         if self._tbl_version is None:
             return pd.DataFrame([])
-        pd_rows = []
-        for name, info in self._tbl_version.get().idxs_by_name.items():
-            if isinstance(info.idx, index.EmbeddingIndex) and (columns is None or info.col.name in columns):
-                col_md = self._tbl_version_path.get_column_md(QColumnId(info.col.tbl_handle.id, info.col.id))
-                col_ref = ColumnRef(col_md)
-                embedding = info.idx.embeddings[info.col.col_type._type](col_ref)
-                row = {
-                    'Index Name': name,
-                    'Column': info.col.name,
-                    'Metric': str(info.idx.metric.name.lower()),
-                    'Embedding': str(embedding),
-                }
+        # Only surface indexes whose underlying column is user-visible (same rule as _get_metadata()).
+        visible_cols = {col.name for col in self._tbl_version_path.columns() if col.name is not None}
+        infos: list[TableVersion.IndexInfo] = []
+        for info in self._tbl_version.get().idxs_by_name.values():
+            col_name = info.col.name
+            if col_name is None or col_name not in visible_cols or (columns is not None and col_name not in columns):
+                continue
+            if isinstance(info.idx, (index.EmbeddingIndex, index.BtreeIndex)):
+                infos.append(info)
+        if not infos:
+            return pd.DataFrame([])
+
+        # Embedding-only output keeps Index Name/Column/Metric/Embedding. Type is added when a B-tree index is
+        # present; Metric/Embedding are blank for those rows and omitted when nothing is an embedding index.
+        show_type = any(isinstance(info.idx, index.BtreeIndex) for info in infos)
+        show_embedding = any(isinstance(info.idx, index.EmbeddingIndex) for info in infos)
+        pd_rows: list[dict[str, str]] = []
+        for info in infos:
+            assert info.col.name is not None
+            row: dict[str, str] = {'Index Name': info.name, 'Column': info.col.name}
+            if show_type:
+                row['Type'] = info.idx.display_name()
+            if not show_embedding:
                 pd_rows.append(row)
+                continue
+            if isinstance(info.idx, index.EmbeddingIndex):
+                col_md = self._tbl_version_path.get_column_md(QColumnId(info.col.tbl_handle.id, info.col.id))
+                row['Metric'] = str(info.idx.metric.name.lower())
+                row['Embedding'] = str(info.idx.create_value_expr(col_md))
+            else:
+                row['Metric'] = ''
+                row['Embedding'] = ''
+            pd_rows.append(row)
         return pd.DataFrame(pd_rows)
 
+    @telemetry.spanned('pixeltable.describe', set_current=True)
     def describe(self) -> None:
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
         if getattr(builtins, '__IPYTHON__', False):
             from IPython.display import Markdown, display
 
@@ -406,28 +504,32 @@ class LocalTable(Table):
                     col = self._tbl_version.get().cols_by_name[new_col_name]
                     # cannot drop a column with dependents; so reject
                     # replace directive if column has dependents.
-                    if len(self._get_dependent_user_cols(col)) > 0:
+                    dependent_user_cols = self._get_dependent_user_cols(col)
+                    if len(dependent_user_cols) > 0:
                         raise excs.AlreadyExistsError(
                             excs.ErrorCode.COLUMN_ALREADY_EXISTS,
-                            f'Column {new_col_name!r} already exists and has dependents. '
+                            f'Column {new_col_name!r} already exists and the following columns depend on it: '
+                            f'{", ".join(c.name for c in dependent_user_cols)}. '
                             f'Cannot {if_exists.name.lower()} it.',
                         )
                     self.drop_column(new_col_name)
                     assert new_col_name not in self._tbl_version.get().cols_by_name
         return cols_to_ignore
 
+    @telemetry.spanned('pixeltable.add_columns', set_current=True)
     def add_columns(
         self,
-        schema: Mapping[str, type | ColumnSpec],
+        schema: Mapping[str, TypeForm | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
-        from pixeltable.catalog import retry_loop
+        from pixeltable.catalog import retry_md_write_loop
 
         self._validate_column_schema(schema)
+        schema = fold_mapping_keys(schema)
 
         # a retry loop is necessary because drop column needs it
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
-        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
+        @retry_md_write_loop(tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_add_columns() -> list[Column] | None:
             self._check_mutable('add columns to')
 
@@ -450,6 +552,7 @@ class LocalTable(Table):
                 self._verify_column(new_col)
             return new_cols
 
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
         new_cols = do_add_columns()
         if new_cols is None:
             return UpdateStatus()
@@ -464,18 +567,19 @@ class LocalTable(Table):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: type | ColumnSpec,
+        **kwargs: TypeForm | ColumnSpec,
     ) -> UpdateStatus:
         # verify kwargs and construct column schema dict
         self._check_single_column_kwarg('add_column', '`col_name=col_type`', kwargs)
         col_type = next(iter(kwargs.values()))
-        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias, dict)):
+        if not isinstance(col_type, (ts.ColumnType, dict)) and not ts.is_type_form(col_type):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
                 'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?',
             )
         return self.add_columns(kwargs, if_exists=if_exists)
 
+    @telemetry.spanned('pixeltable.add_computed_column', set_current=True)
     def add_computed_column(
         self,
         *,
@@ -488,10 +592,10 @@ class LocalTable(Table):
         if_exists: Literal['error', 'ignore', 'replace'] = 'error',
         **kwargs: exprs.Expr,
     ) -> UpdateStatus:
-        from pixeltable.catalog import retry_loop
+        from pixeltable.catalog import retry_md_write_loop
 
         # a retry loop is necessary because drop column needs it.
-        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
+        @retry_md_write_loop(tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_add_computed_column() -> UpdateStatus:
             self._check_mutable('add columns to')
             self._check_single_column_kwarg(
@@ -500,6 +604,7 @@ class LocalTable(Table):
             col_name, spec = next(iter(kwargs.items()))
             if not is_valid_identifier(col_name):
                 raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {col_name}')
+            col_name = fold_identifier(col_name)
 
             col_schema: ColumnSpec = {'value': spec}
             if stored is not None:
@@ -509,15 +614,8 @@ class LocalTable(Table):
             col_schema['custom_metadata'] = custom_metadata
             col_schema['comment'] = comment
 
-            # Raise an error if the column expression refers to a column error property
             if isinstance(spec, exprs.Expr):
-                for e in spec.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
-                    if e.is_cellmd_prop():
-                        raise excs.RequestError(
-                            excs.ErrorCode.UNSUPPORTED_OPERATION,
-                            f'Use of a reference to the {e.prop.name.lower()!r} property of another column '
-                            f'is not allowed in a computed column.',
-                        )
+                self._verify_computed_col_value(col_name, spec)
 
             # handle existing columns based on if_exists parameter
             cols_to_ignore = self._ignore_or_drop_existing_columns(
@@ -537,7 +635,25 @@ class LocalTable(Table):
             FileCache.get().emit_eviction_warnings()
             return result
 
-        return do_add_computed_column()
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        result = do_add_computed_column()
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(result))
+        return result
+
+    def _verify_computed_col_value(self, col_name: str, value_expr: 'exprs.Expr') -> None:
+        """Verify a user-supplied value expression for a computed column of this table."""
+        for e in value_expr.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
+            if e.is_cellmd_prop():
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Use of a reference to the {e.prop.name.lower()!r} property of another column '
+                    f'is not allowed in a computed column.',
+                )
+        if not value_expr.is_bound_by([self._tbl_version_path]):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'The value expression of column {col_name!r} ({value_expr}) is not bound by {self._display_str()}',
+            )
 
     @classmethod
     def _verify_column(cls, col: Column) -> None:
@@ -550,13 +666,16 @@ class LocalTable(Table):
         for col in schema:
             cls._verify_column(col)
 
+    @telemetry.spanned('pixeltable.drop_column', set_current=True)
     def drop_column(self, column: str | ColumnRef, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
-        from pixeltable.catalog import retry_loop
+        from pixeltable.catalog import retry_md_write_loop
+
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
 
         # Retry loop is necessary because table metadata is loaded inside.
         # Note: the provided ColumnRef may belong to a different table.
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
+        @retry_md_write_loop(tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_drop_column() -> None:
             self._check_mutable('drop columns from')
             col: Column = None
@@ -573,7 +692,7 @@ class LocalTable(Table):
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot drop base table column {col.name!r}'
                     )
-                col = self._tbl_version.get().cols_by_name[column]
+                col = self._tbl_version.get().cols_by_name[col.name]
             else:
                 exists = self._tbl_version_path.has_column(column.col_md.qcolid)
                 if not exists:
@@ -611,7 +730,7 @@ class LocalTable(Table):
 
             if len(dependent_views) > 0:
                 dependent_views_str = '\n'.join(
-                    f'view: {view._path()}, predicate: {predicate}' for view, predicate in dependent_views
+                    sorted(f'view: {view._path()}, predicate: {predicate}' for view, predicate in dependent_views)
                 )
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -630,19 +749,21 @@ class LocalTable(Table):
 
         do_drop_column()
 
+    @telemetry.spanned('pixeltable.rename_column', set_current=True)
     def rename_column(self, old_name: str, new_name: str) -> None:
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=False
-        ):
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        with get_runtime().catalog.begin_md_write_xact(tvps=[self._tbl_version_path]):
             self._check_mutable('rename columns of')
             self._tbl_version.get().rename_column(old_name, new_name)
 
-    def alter_column(self, column: str | ColumnRef, *, type_: type) -> None:
-        from pixeltable.catalog import retry_loop
+    @telemetry.spanned('pixeltable.alter_column', set_current=True)
+    def alter_column(self, column: str | ColumnRef, *, type_: TypeForm) -> None:
+        from pixeltable.catalog import retry_md_write_loop
 
-        new_col_type = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
+        new_col_type = ts.ColumnType.normalize_type(type_, allow_builtin_types=False)
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
 
-        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
+        @retry_md_write_loop(tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_alter_column() -> None:
             self._check_mutable('alter columns of')
 
@@ -683,6 +804,99 @@ class LocalTable(Table):
 
         do_alter_column()
 
+    @telemetry.spanned('pixeltable.alter_computed_column', set_current=True)
+    def alter_computed_column(
+        self, *, recompute: bool = True, cascade: bool = True, **kwargs: 'exprs.Expr'
+    ) -> UpdateStatus:
+        from pixeltable.catalog import retry_md_write_loop
+
+        self._check_single_column_kwarg('alter_computed_column', '`col_name=expression`', kwargs)
+        col_name, spec = next(iter(kwargs.items()))
+
+        @retry_md_write_loop(tvps=[self._tbl_version_path], lock_mutable_tree=True)
+        def do_alter_computed_column() -> UpdateStatus:
+            self._check_mutable('alter columns of')
+
+            col = self._tbl_version_path.get_column(fold_identifier(col_name))
+            if col is None:
+                raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {col_name}')
+            if col.get_tbl().id != self._tbl_version_path.tbl_id:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter base table column {col.name!r}'
+                )
+            if not col.is_computed:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Column {col.name!r} is not a computed column'
+                )
+
+            new_value_expr = exprs.Expr.from_object(spec)
+            if new_value_expr is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_EXPRESSION,
+                    f'Column {col.name!r}: the new value needs to be a Pixeltable expression, '
+                    f'but it is a `{type(spec)}`',
+                )
+            new_value_expr = new_value_expr.copy()
+            new_value_expr.bind_rel_paths()
+            self._verify_computed_col_value(col.name, new_value_expr)
+
+            tv = self._tbl_version.get()
+            if recompute:
+                assert tv.is_data_versioned, 'TODO: implement recompute for operational tables [PXT-1101]'
+
+            result = tv.alter_computed_column(col, new_value_expr, recompute=recompute, cascade=cascade)
+            FileCache.get().emit_eviction_warnings()
+            return result
+
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        result = do_alter_computed_column()
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(result))
+        return result
+
+    @telemetry.spanned('pixeltable.add_btree_index', set_current=True)
+    def add_btree_index(
+        self, column: str | ColumnRef, *, idx_name: str | None = None, if_exists: Literal['error', 'ignore'] = 'error'
+    ) -> None:
+        self._check_mutable('add an index to')
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        # A B-tree index is parameterless, so replacing one with another achieves nothing; only 'error' and
+        # 'ignore' are meaningful.
+        if if_exists not in ('error', 'ignore'):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f"if_exists must be one of: ['error', 'ignore']; got {if_exists!r}"
+            )
+        if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
+
+        if idx_name is not None:
+            # Index name must be a valid pixeltable column name
+            Column.validate_name(idx_name)
+
+        with get_runtime().catalog.begin_md_write_xact(tvps=[self._tbl_version_path], lock_mutable_tree=True):
+            tv = self._tbl_version.get()
+            col = self._resolve_column_parameter(column)
+
+            existing_idx_by_name = tv.get_idx_by_name(idx_name) if idx_name is not None else None
+            if existing_idx_by_name is not None and not isinstance(existing_idx_by_name.idx, index.BtreeIndex):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Index {idx_name!r} already exists, but is not a B-tree index.',
+                )
+            # Do nothing if an index already exists, if_exists is 'ignore', and no other error that TableVersion will
+            # raise should take precedence.
+            if (
+                if_exists_ == IfExistsParam.IGNORE
+                and not tv.has_default_idxs
+                and (existing_idx_by_name is None or existing_idx_by_name.col.qid == col.qid)
+                and col.tbl_handle.id == tv.id
+                and tv.find_btree_index(col) is not None
+            ):
+                return
+
+            _ = tv.add_index(col, idx_name=idx_name, idx=index.BtreeIndex(uses_value_col=tv.is_data_versioned))
+
+        FileCache.get().emit_eviction_warnings()
+
+    @telemetry.spanned('pixeltable.add_embedding_index', set_current=True)
     def add_embedding_index(
         self,
         column: str | ColumnRef,
@@ -699,13 +913,9 @@ class LocalTable(Table):
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> None:
         self._validate_embedding_args(embedding, string_embed, image_embed)
-        assert self._tbl_version is None or self._tbl_version.get().is_versioned, (
-            'TODO: implement for unversioned tables [PXT-1101]'
-        )
 
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-        ):
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        with get_runtime().catalog.begin_md_write_xact(tvps=[self._tbl_version_path], lock_mutable_tree=True):
             self._check_mutable('add an index to')
             col = self._resolve_column_parameter(column)
 
@@ -714,14 +924,15 @@ class LocalTable(Table):
                 Column.validate_name(idx_name)
                 # Named index: duplicate detection is by name. Handle a name collision before constructing the new
                 # index, so that if_exists='ignore' remains a true no-op and never surfaces validation errors.
-                if idx_name in self._tbl_version.get().idxs_by_name:
+                existing_idx = self._tbl_version.get().get_idx_by_name(idx_name)
+                if existing_idx is not None:
                     if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
                     # An index with the same name already exists. Handle it according to if_exists.
                     if if_exists_ == IfExistsParam.ERROR:
                         raise excs.AlreadyExistsError(
                             excs.ErrorCode.INDEX_ALREADY_EXISTS, f'Duplicate index name: {idx_name}'
                         )
-                    if not isinstance(self._tbl_version.get().idxs_by_name[idx_name].idx, index.EmbeddingIndex):
+                    if not isinstance(existing_idx.idx, index.EmbeddingIndex):
                         raise excs.RequestError(
                             excs.ErrorCode.UNSUPPORTED_OPERATION,
                             f'Index {idx_name!r} is not an embedding index. Cannot {if_exists_.name.lower()} it.',
@@ -730,7 +941,7 @@ class LocalTable(Table):
                         return
                     assert if_exists_ in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
                     self.drop_index(idx_name=idx_name)
-                    assert idx_name not in self._tbl_version.get().idxs_by_name
+                    assert self._tbl_version.get().get_idx_by_name(idx_name) is None
 
             from pixeltable.index import EmbeddingIndex
 
@@ -746,7 +957,7 @@ class LocalTable(Table):
                 document_embed=document_embed,
                 column=col,  # Pass column for shape validation
             )
-            _ = idx.create_value_expr(col)  # validation only; result discarded
+            _ = idx.create_value_expr(col.column_version_md())  # validation only; result discarded
 
             if idx_name is None:
                 # Unnamed index: duplicate detection is by index definition on this column.
@@ -780,6 +991,7 @@ class LocalTable(Table):
             if isinstance(info.idx, index.EmbeddingIndex) and info.idx.as_dict() == target
         ]
 
+    @telemetry.spanned('pixeltable.drop_embedding_index', set_current=True)
     def drop_embedding_index(
         self,
         *,
@@ -792,9 +1004,8 @@ class LocalTable(Table):
                 excs.ErrorCode.MISSING_REQUIRED, "Exactly one of 'column' or 'idx_name' must be provided"
             )
 
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-        ):
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        with get_runtime().catalog.begin_md_write_xact(tvps=[self._tbl_version_path], lock_mutable_tree=True):
             col: Column = None
             if idx_name is None:
                 col = self._resolve_column_parameter(column)
@@ -820,6 +1031,7 @@ class LocalTable(Table):
             raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, f'Invalid column parameter type: {type(column)}')
         return col
 
+    @telemetry.spanned('pixeltable.drop_index', set_current=True)
     def drop_index(
         self,
         *,
@@ -832,9 +1044,8 @@ class LocalTable(Table):
                 excs.ErrorCode.MISSING_REQUIRED, "Exactly one of 'column' or 'idx_name' must be provided"
             )
 
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-        ):
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        with get_runtime().catalog.begin_md_write_xact(tvps=[self._tbl_version_path], lock_mutable_tree=True):
             col: Column = None
             if idx_name is None:
                 col = self._resolve_column_parameter(column)
@@ -855,12 +1066,12 @@ class LocalTable(Table):
 
         if idx_name is not None:
             if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-            if idx_name not in self._tbl_version.get().idxs_by_name:
+            idx_info = self._tbl_version.get().get_idx_by_name(idx_name)
+            if idx_info is None:
                 if if_not_exists_ == IfNotExistsParam.ERROR:
                     raise excs.NotFoundError(excs.ErrorCode.INDEX_NOT_FOUND, f'Index {idx_name!r} does not exist')
                 assert if_not_exists_ == IfNotExistsParam.IGNORE
                 return
-            idx_info = self._tbl_version.get().idxs_by_name[idx_name]
         else:
             if col.get_tbl().id != self._tbl_version.id:
                 raise excs.RequestError(
@@ -886,14 +1097,16 @@ class LocalTable(Table):
                 )
             idx_info = idx_info_list[0]
 
-        # Find out if anything depends on this index
-        dependent_user_cols = self._get_dependent_user_cols(idx_info.val_col)
-        if len(dependent_user_cols) > 0:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Cannot drop index {idx_info.name!r} because the following columns depend on it:\n'
-                f'{", ".join(c.name for c in dependent_user_cols)}',
-            )
+        # Find out if anything depends on this index. An index that is created directly on the indexed column has no
+        # value column, and therefore nothing that can reference it.
+        if idx_info.val_col is not None:
+            dependent_user_cols = self._get_dependent_user_cols(idx_info.val_col)
+            if len(dependent_user_cols) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot drop index {idx_info.name!r} because the following columns depend on it:\n'
+                    f'{", ".join(c.name for c in dependent_user_cols)}',
+                )
         self._tbl_version.get().drop_index(idx_info.id)
 
     @overload
@@ -936,6 +1149,7 @@ class LocalTable(Table):
     ) -> UpdateStatus:
         raise NotImplementedError
 
+    @telemetry.spanned('pixeltable.update', set_current=True)
     def update(
         self,
         value_spec: dict[str, Any],
@@ -945,14 +1159,17 @@ class LocalTable(Table):
     ) -> UpdateStatus:
         self._validate_update_value_spec(value_spec)
         self._validate_where(where)
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-        ):
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        with get_runtime().catalog.begin_data_write_xact(tvps=[self._tbl_version_path]):
             self._check_mutable('update')
-            result = self._tbl_version.get().update(value_spec, where, cascade, return_rows=return_rows)
+            tv = self._tbl_version.get()
+            result = tv.update(value_spec, where, cascade, return_rows=return_rows)
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(result))
             FileCache.get().emit_eviction_warnings()
             return result
 
+    @telemetry.spanned('pixeltable.batch_update', set_current=True)
     def batch_update(
         self,
         rows: Iterable[dict[str, Any]],
@@ -960,17 +1177,22 @@ class LocalTable(Table):
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
         return_rows: bool = False,
     ) -> UpdateStatus:
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-        ):
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        with get_runtime().catalog.begin_data_write_xact(tvps=[self._tbl_version_path]):
             self._check_mutable('update')
             rows = list(rows)
-
+            if len(rows) == 0:
+                return UpdateStatus(rows=[] if return_rows else None)
             row_updates: list[dict[Column, exprs.Expr]] = []
             pk_col_names = {c.name for c in self._tbl_version.get().primary_key_columns()}
 
             # pseudo-column _rowid: contains the rowid of the row to update and can be used instead of the primary key
             has_rowid = _ROWID_COLUMN_NAME in rows[0]
+            if not self._tbl_version.get().is_data_versioned and any(_ROWID_COLUMN_NAME in row for row in rows):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'batch_update(): {_ROWID_COLUMN_NAME} is not supported for operational tables',
+                )
             rowids: list[tuple[int, ...]] = []
             if len(pk_col_names) == 0 and not has_rowid:
                 raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'Table must have primary key for batch update')
@@ -982,7 +1204,7 @@ class LocalTable(Table):
                 if has_rowid:
                     # every row must specify _rowid if any does
                     if _ROWID_COLUMN_NAME not in row_spec:
-                        raise excs.Error(
+                        raise excs.InternalError(
                             excs.ErrorCode.INTERNAL_ERROR,
                             f'Malformed batch update: row is missing {_ROWID_COLUMN_NAME}',
                         )
@@ -997,7 +1219,8 @@ class LocalTable(Table):
                         )
                 row_updates.append(col_vals)
 
-            result = self._tbl_version.get().batch_update(
+            tv = self._tbl_version.get()
+            result = tv.batch_update(
                 row_updates,
                 rowids,
                 error_if_not_exists=if_not_exists == 'error',
@@ -1005,9 +1228,12 @@ class LocalTable(Table):
                 cascade=cascade,
                 return_rows=return_rows,
             )
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(result))
             FileCache.get().emit_eviction_warnings()
             return result
 
+    @telemetry.spanned('pixeltable.recompute_columns', set_current=True)
     def recompute_columns(
         self,
         *columns: str | ColumnRef,
@@ -1016,8 +1242,8 @@ class LocalTable(Table):
         cascade: bool = True,
     ) -> UpdateStatus:
         cat = get_runtime().catalog
-        # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        with cat.begin_xact(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True):
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        with cat.begin_data_write_xact(tvps=[self._tbl_version_path]):
             self._check_mutable('recompute columns of')
             if len(columns) == 0:
                 raise excs.RequestError(
@@ -1036,7 +1262,7 @@ class LocalTable(Table):
                     col = self._tbl_version_path.get_column(column)
                     if col is None:
                         raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column}')
-                    col_name = column
+                    col_name = col.name
                 else:
                     assert isinstance(column, ColumnRef)
                     col = column.col
@@ -1059,26 +1285,28 @@ class LocalTable(Table):
                     f'`where` predicate ({where}) is not bound by {self._display_str()}',
                 )
 
-            result = self._tbl_version.get().recompute_columns(
-                col_names, where=where, errors_only=errors_only, cascade=cascade
-            )
+            tv = self._tbl_version.get()
+            result = tv.recompute_columns(col_names, where=where, errors_only=errors_only, cascade=cascade)
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(result))
             FileCache.get().emit_eviction_warnings()
             return result
 
     def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:
         raise NotImplementedError
 
+    @telemetry.spanned('pixeltable.revert', set_current=True)
     def revert(self) -> None:
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-        ):
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        with get_runtime().catalog.begin_md_write_xact(tvps=[self._tbl_version_path], lock_mutable_tree=True):
             self._check_mutable('revert')
             tv = self._tbl_version.get()
-            if not tv.is_versioned:
+            if not tv.is_data_versioned:
                 raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, 'Revert is supported on versioned tables only'
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, 'Revert is supported on data-versioned tables only'
                 )
             tv.revert()
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
             # remove cached md in order to force a reload on the next operation
             self._tbl_version_path.clear_cached_md()
 
@@ -1098,7 +1326,6 @@ class LocalTable(Table):
         tbl_id = self._id
         # Collect an extra version, if available, to allow for computation of the first version's schema change
         vers_list = get_runtime().catalog.collect_tbl_history(tbl_id, n + 1)
-        assert vers_list[0].tbl_md.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
 
         # Construct the metadata change description dictionary
         md_list = [(vers_md.version_md.version, vers_md.schema_version_md.columns) for vers_md in vers_list]

@@ -196,6 +196,7 @@ class TestMigration:
                         self._verify_v49_query_scalar()
                     if old_version >= 55:
                         self._verify_c7_null()
+                        self._verify_mixed_case_names()
 
                     pxt.drop_table('sample_table', force=True)
 
@@ -207,7 +208,7 @@ class TestMigration:
         _logger.info(f'Verified DB dumps with versions: {versions_found}')
         assert VERSION in versions_found, (
             f'No DB dump found for current schema version {VERSION}. You can generate one with:\n'
-            f'`rm target/*.dump.gz target/*.toml; python tool/create_test_db_dump.py'
+            f'`rm target/*.dump.gz target/*.toml; python -m tool.create_test_db_dump'
             f' && mv target/*.dump.gz target/*.toml tests/data/dbdumps`'
         )
         assert VERSION in VERSION_NOTES, (
@@ -342,6 +343,10 @@ class TestMigration:
             t.where(t.c2 == 21).select(t.base_table_inline_list_mixed).head(1)['base_table_inline_list_mixed'][0]
         )
         assert inline_list_mixed == [1, 'a', 'test string 21', [1, 'a', 'test string 21'], 1, 'a']
+        # q2 selects one unnamed item, but a q2 stored at version 56 or earlier returns dicts rather than values
+        sim_output = t.where(t.c2 == 21).select(t.base_table_sim_output).head(1)['base_table_sim_output'][0]
+        row_type = dict if version <= 56 else str
+        assert len(sim_output) > 0 and all(isinstance(row, row_type) for row in sim_output), sim_output
 
     @staticmethod
     def __substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
@@ -435,14 +440,12 @@ class TestMigration:
         assert 'base_table_query_scalar_output' in col_names, (
             f'base_table_query_scalar_output column not found; columns: {col_names}'
         )
-        # return_scalar=True: values should be lists of scalars, not lists of dicts
+        # q3 selects one unnamed item: values should be lists of scalars, not lists of dicts
         rows = t.select(t.base_table_query_scalar_output).limit(3).collect()
         for row in rows:
             val = row['base_table_query_scalar_output']
             if val is not None and len(val) > 0:
-                assert not isinstance(val[0], dict), (
-                    f'return_scalar query should produce scalar values, got dict: {val[0]}'
-                )
+                assert not isinstance(val[0], dict), f'q3 should produce scalar values, got dict: {val[0]}'
 
     @classmethod
     def _verify_v49(cls) -> None:
@@ -465,6 +468,20 @@ class TestMigration:
             assert result.fetchone() is not None, f'Expected pk index {good_idx_name} to exist for pk_test_good'
             result = conn.execute(sql.text('SELECT 1 FROM pg_indexes WHERE indexname = :idx'), {'idx': bad_idx_name})
             assert result.fetchone() is None, f'Expected pk index {bad_idx_name} to NOT exist for pk_test_bad'
+
+    @classmethod
+    def _verify_mixed_case_names(cls) -> None:
+        assert 'views' in pxt.list_dirs()
+        pk_good = pxt.get_table('PK_Test_Good')
+        assert pk_good.columns() == ['id', 'name']
+        assert pk_good.order_by(pk_good.Id).collect()['name'] == ['Alice', 'Bob', 'Charlie']
+
+        t = pxt.get_table('base_table')
+        assert 'base_table_plus' in t.columns()
+        assert 'sim_idx' in t.get_metadata()['indexes']
+        assert 'view_plus' in pxt.get_table('Views/view').columns()
+
+        assert 'dropped_col' in pxt.get_table('PK_Test_Good:0').columns()
 
     @classmethod
     def _verify_c7_null(cls) -> None:

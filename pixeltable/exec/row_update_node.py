@@ -1,4 +1,5 @@
-from typing import Any, AsyncIterator
+import contextlib
+from typing import Any, AsyncGenerator
 
 from pixeltable import catalog, exprs
 
@@ -21,6 +22,7 @@ class RowUpdateNode(ExecNode):
     is_rowid_key: bool  # if True, key_vals_batch contains rowids rather than primary key values
     col_slot_idxs: dict[catalog.Column, int]
     pk_columns: list[catalog.Column]
+    num_rowid_cols: int
     matched_key_vals: set[tuple]
 
     def __init__(
@@ -46,6 +48,7 @@ class RowUpdateNode(ExecNode):
         assert all(col in all_col_slot_idxs for col in col_vals_batch[0])
         self.col_slot_idxs = {col: all_col_slot_idxs[col] for col in col_vals_batch[0]}
         self.pk_columns = tbl.tbl_version.get().primary_key_columns()
+        self.num_rowid_cols = len(tbl.tbl_version.get().store_tbl.rowid_columns())
         self._init_exec_state()
 
     def _init_exec_state(self) -> None:
@@ -54,18 +57,23 @@ class RowUpdateNode(ExecNode):
     def _open(self) -> None:
         self._init_exec_state()
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        async for batch in self.input:
-            for row in batch:
-                key_vals = row.rowid if self.is_rowid_key else tuple(row.cell_vals[col.id] for col in self.pk_columns)
-                if key_vals not in self.updates:
-                    continue
-                self.matched_key_vals.add(key_vals)
-                col_vals = self.updates[key_vals]
-                for col, val in col_vals.items():
-                    slot_idx = self.col_slot_idxs[col]
-                    row[slot_idx] = val
-            yield batch
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
+        async with contextlib.aclosing(aiter(self.input)) as input_iter:
+            async for batch in input_iter:
+                for row in batch:
+                    key_vals = (
+                        row.pk[: self.num_rowid_cols]
+                        if self.is_rowid_key
+                        else tuple(row.cell_vals[col.id] for col in self.pk_columns)
+                    )
+                    if key_vals not in self.updates:
+                        continue
+                    self.matched_key_vals.add(key_vals)
+                    col_vals = self.updates[key_vals]
+                    for col, val in col_vals.items():
+                        slot_idx = self.col_slot_idxs[col]
+                        row[slot_idx] = val
+                yield batch
 
     def unmatched_rows(self) -> list[dict[str, Any]]:
         """Return rows that didn't get used in the updates as a list of dicts compatible with TableVersion.insert()."""

@@ -1,0 +1,56 @@
+---
+title: 'Media processing'
+sidebarTitle: 'Datasets from media'
+description: 'Insert a video. Frames are rows. Export when the dataset is ready.'
+---
+
+Insert media. Iterators explode it into rows. Computed columns run on the new rows. Export when you are ready to train.
+
+Create the tables with `pxt schema update app.py my_app`, then open them with `t = pxt.get_table('my_app.videos')`. Cookbooks on this topic use `pxt.create_table()` so you can run cells without a project. An app puts the same columns on a `TableModel` in `app.py` and creates the tables with `pxt schema update`.
+
+```python
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+
+TableModel = pxt.model_base()
+
+
+class Videos(TableModel, name='videos'):
+    video: pxt.Video
+
+
+class Frames(
+    TableModel,
+    name='frames',
+    base=Videos,
+    iterator=pxtf.video.frame_iterator(Videos.video, fps=1),
+):
+    thumb = frame.resize((256, 256))  # type: ignore[name-defined]  # iterator output
+```
+
+```bash
+pxt schema update app.py my_app
+```
+
+```python
+videos = pxt.get_table('my_app.videos')
+videos.insert([{'video': 'demo.mp4'}])
+frames = pxt.get_table('my_app.frames')
+frames.select(frames.thumb).head(10)
+```
+
+Add [YOLOX object detection](/howto/cookbooks/images/yolox-object-detection) or [WhisperX transcription](/howto/cookbooks/audio/whisperx-transcription) as computed columns on these tables. When the rows look ready for training, export with `to_pytorch_dataset()`. Skip `pxt service update` on this path. [Self-hosting](/howto/deployment/overview).
+
+A video search app with endpoints: `uvx pixeltable-new myapp --video`, then pass `videointel` to `pxt schema update`. Live search over chunks: [RAG and live APIs](/use-cases/multimodal-backend).
+
+<CardGroup cols={3}>
+  <Card title="Extract video frames" icon="film" href="/howto/cookbooks/video/video-extract-frames">
+    Frames as rows from a `pxt.Video` column.
+  </Card>
+  <Card title="Transcribe audio" icon="waveform" href="/howto/cookbooks/audio/audio-transcribe">
+    Transcripts as computed columns.
+  </Card>
+  <Card title="Export to PyTorch" icon="download" href="/howto/cookbooks/data/data-export-pytorch">
+    `to_pytorch_dataset()` when the rows are ready.
+  </Card>
+</CardGroup>

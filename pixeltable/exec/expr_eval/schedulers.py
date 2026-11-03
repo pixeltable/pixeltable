@@ -7,9 +7,9 @@ import logging
 import math
 import sys
 import time
-from typing import Collection
+from typing import Any, Collection
 
-from pixeltable import env, exceptions as excs, func
+from pixeltable import env, exceptions as excs, func, telemetry, telemetry_schemas
 from pixeltable.config import Config
 from pixeltable.utils import fault_injection
 from pixeltable.utils.fault_injection import FaultLocation
@@ -20,6 +20,23 @@ from .globals import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
 _logger = logging.getLogger(__name__)
 
 __all__ = ['RateLimitsScheduler', 'RequestRateScheduler']
+
+_RETRYABLE_PXT_ERROR_CODES = frozenset(
+    (excs.ErrorCode.PROVIDER_ERROR, excs.ErrorCode.RATE_LIMITED, excs.ErrorCode.PROVIDER_OVERLOADED)
+)
+
+
+def _is_retryable_udf_error(exc: Exception) -> tuple[bool, float | None]:
+    """Returns whether a scheduler should retry a failed UDF call, and the suggested retry delay."""
+    if isinstance(exc, excs.Error):
+        # exc.is_retryable is for users. Since schedulers retry automatically, they do it only for a subset of error
+        # codes.
+        if exc.error_code == excs.ErrorCode.PROVIDER_ERROR and isinstance(exc.__cause__, Exception):
+            return _is_retryable_udf_error(exc.__cause__)
+        if exc.error_code in _RETRYABLE_PXT_ERROR_CODES:
+            return True, exc.retry_after
+        return False, None
+    return is_retryable_error(exc)
 
 
 class RateLimitsScheduler(Scheduler):
@@ -128,16 +145,15 @@ class RateLimitsScheduler(Scheduler):
             return list(self.pool_info.resource_limits.keys())
 
     def _get_request_resources(self, request: FnCallArgs) -> dict[str, int]:
-        estimator = request.fn_call.fn._resource_estimator
+        fn = request.fn_call.fn
+        estimator = fn._resource_estimator
         param_names = [
             p.name for p in inspect.signature(estimator, eval_str=True).parameters.values() if p.name != '_param_types'
         ]
-        if len(param_names) == 0:
-            result = estimator()
-        else:
-            extra = set(param_names) - set(request.fn_call.fn.signature.parameters.keys())
+        kwargs: dict[str, Any] = {}
+        if len(param_names) > 0:
+            extra = set(param_names) - set(fn.signature.parameters.keys())
             if extra:
-                fn = request.fn_call.fn
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,
                     f'resource_estimator for {fn.self_path or fn} has parameters '
@@ -149,17 +165,21 @@ class RateLimitsScheduler(Scheduler):
             # distinguish overloads that share the same Python types (e.g., str for Document vs Video).
             has_param_types = '_param_types' in inspect.signature(estimator, eval_str=True).parameters
             if not request.is_batched:
-                if has_param_types:
-                    param_types = {name: p.col_type for name, p in request.fn_call.fn.signature.parameters.items()}
-                    per_row_kwargs[0]['_param_types'] = param_types
-                result = estimator(**per_row_kwargs[0])
+                kwargs = per_row_kwargs[0]
             else:
                 columnar_kwargs = {k: [d[k] for d in per_row_kwargs] for k in per_row_kwargs[0]}
                 constant_kwargs, batched_kwargs = request.pxt_fn.create_batch_kwargs(columnar_kwargs)
-                if has_param_types:
-                    param_types = {name: p.col_type for name, p in request.fn_call.fn.signature.parameters.items()}
-                    constant_kwargs['_param_types'] = param_types
-                result = estimator(**constant_kwargs, **batched_kwargs)
+                kwargs = {**constant_kwargs, **batched_kwargs}
+            if has_param_types:
+                kwargs['_param_types'] = {name: p.col_type for name, p in fn.signature.parameters.items()}
+        try:
+            result = estimator(**kwargs)
+        except Exception:
+            _logger.warning(
+                f'resource estimator for {fn.display_name} failed; estimating 1 request and no other resources',
+                exc_info=True,
+            )
+            result = {'requests': 1}
         # Filter to resources known to the pool to avoid KeyError in _resource_delay(), this is done
         # because some providers do not report resources so rate limiting can only be done off of config
         known = self._resources
@@ -201,18 +221,33 @@ class RateLimitsScheduler(Scheduler):
                 f'start evaluating slot {request.fn_call.slot_idx}, batch_size={len(request.rows)}'
             )
             self.total_requests += 1
-            if request.is_batched:
-                batch_result = await pxt_fn.aexec_batch(*request.batch_args, **request.batch_kwargs)
-                assert len(batch_result) == len(request.rows)
-                for row, result in zip(request.rows, batch_result):
-                    row[request.fn_call.slot_idx] = result
-            else:
-                request_kwargs = request.kwargs
-                if '_runtime_ctx' in pxt_fn.signature.system_parameters:
-                    request_kwargs = {**request_kwargs, '_runtime_ctx': env.RuntimeCtx(is_retry=num_retries > 0)}
-                fault_injection.process_fault(FaultLocation.SCHEDULER_RATE_LIMITS_AEXEC)
-                result = await pxt_fn.aexec(*request.args, **request_kwargs)
-                request.row[request.fn_call.slot_idx] = result
+            with (
+                telemetry.span(
+                    f'pixeltable.udf.{request.fn_call.fn.display_name}',
+                    level=telemetry.DEBUG,
+                    set_current=telemetry.current_span() is not None,
+                    **telemetry_schemas.UdfCallAttrs(
+                        udf_path=pxt_fn.self_path,
+                        column=self.dispatcher.col_names.get(request.fn_call.slot_idx),
+                        batch_size=len(request.rows) if request.is_batched else None,
+                        resource_pool=self.resource_pool,
+                        retries=num_retries,
+                    ),
+                ),
+                telemetry_schemas.udf_call(pxt_fn),
+            ):
+                if request.is_batched:
+                    batch_result = await pxt_fn.aexec_batch(*request.batch_args, **request.batch_kwargs)
+                    assert len(batch_result) == len(request.rows)
+                    for row, result in zip(request.rows, batch_result):
+                        row[request.fn_call.slot_idx] = result
+                else:
+                    request_kwargs = request.kwargs
+                    if '_runtime_ctx' in pxt_fn.signature.system_parameters:
+                        request_kwargs = {**request_kwargs, '_runtime_ctx': env.RuntimeCtx(is_retry=num_retries > 0)}
+                    fault_injection.process_fault(FaultLocation.SCHEDULER_RATE_LIMITS_AEXEC)
+                    result = await pxt_fn.aexec(*request.args, **request_kwargs)
+                    request.row[request.fn_call.slot_idx] = result
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
             _logger.debug(
                 f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} '
@@ -239,7 +274,7 @@ class RateLimitsScheduler(Scheduler):
                     if retry_delay is None:
                         # The resource pool did not recognize it as a retriable error. Try our generic best-effort logic
                         # before giving up.
-                        is_retriable, retry_delay = is_retryable_error(exc)
+                        is_retriable, retry_delay = _is_retryable_udf_error(exc)
                         if is_retriable:
                             retry_delay = retry_delay or exponential_backoff(num_retries)
                     if retry_delay is not None:
@@ -249,6 +284,9 @@ class RateLimitsScheduler(Scheduler):
                             f' attempt {num_retries} based on the information in the error'
                         )
                         await asyncio.sleep(retry_delay)
+                        telemetry_schemas.udf_retries.add(
+                            1, udf=request.fn_call.fn.display_name, udf_path=request.fn_call.fn.self_path
+                        )
                         self.queue.put_nowait(self.QueueItem(request, num_retries + 1, exec_ctx))
                         return
 
@@ -306,8 +344,8 @@ class RequestRateScheduler(Scheduler):
         self.total_retried = 0
         self.total_errors = 0
 
-        # try to get the rate limit from the config
-        elems = resource_pool.split(':')
+        # model name can contain `:`, e.g. 'amazon.nova-pro-v1:0'
+        elems = resource_pool.split(':', maxsplit=2)
         section: str
         key: str
         if len(elems) == 2:
@@ -371,14 +409,29 @@ class RequestRateScheduler(Scheduler):
                 f'start evaluating slot {request.fn_call.slot_idx}, batch_size={len(request.rows)}'
             )
             self.total_requests += 1
-            if request.is_batched:
-                batch_result = await pxt_fn.aexec_batch(*request.batch_args, **request.batch_kwargs)
-                assert len(batch_result) == len(request.rows)
-                for row, result in zip(request.rows, batch_result):
-                    row[request.fn_call.slot_idx] = result
-            else:
-                result = await pxt_fn.aexec(*request.args, **request.kwargs)
-                request.row[request.fn_call.slot_idx] = result
+            with (
+                telemetry.span(
+                    f'pixeltable.udf.{request.fn_call.fn.display_name}',
+                    level=telemetry.DEBUG,
+                    set_current=telemetry.current_span() is not None,
+                    **telemetry_schemas.UdfCallAttrs(
+                        udf_path=pxt_fn.self_path,
+                        column=self.dispatcher.col_names.get(request.fn_call.slot_idx),
+                        batch_size=len(request.rows) if request.is_batched else None,
+                        resource_pool=self.resource_pool,
+                        retries=num_retries,
+                    ),
+                ),
+                telemetry_schemas.udf_call(pxt_fn),
+            ):
+                if request.is_batched:
+                    batch_result = await pxt_fn.aexec_batch(*request.batch_args, **request.batch_kwargs)
+                    assert len(batch_result) == len(request.rows)
+                    for row, result in zip(request.rows, batch_result):
+                        row[request.fn_call.slot_idx] = result
+                else:
+                    result = await pxt_fn.aexec(*request.args, **request.kwargs)
+                    request.row[request.fn_call.slot_idx] = result
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
             _logger.debug(
                 f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} '
@@ -390,13 +443,16 @@ class RequestRateScheduler(Scheduler):
             _logger.exception(f'exception for {self.resource_pool}: type={type(exc)}\n{exc}')
             if hasattr(exc, 'response') and hasattr(exc.response, 'headers'):
                 _logger.debug(f'scheduler {self.resource_pool}: exception headers: {exc.response.headers}')
-            is_retriable, retry_after = is_retryable_error(exc)
+            is_retriable, retry_after = _is_retryable_udf_error(exc)
             if is_retriable and num_retries < self.MAX_RETRIES:
                 retry_delay = self._compute_retry_delay(num_retries, retry_after)
                 _logger.debug(f'scheduler {self.resource_pool}: retrying after {retry_delay}')
                 now = time.monotonic()
                 # put the request back in the queue right away, which prevents new requests from being generated until
                 # this one succeeds or exceeds its retry limit
+                telemetry_schemas.udf_retries.add(
+                    1, udf=request.fn_call.fn.display_name, udf_path=request.fn_call.fn.self_path
+                )
                 self.queue.put_nowait(self.QueueItem(request, num_retries + 1, exec_ctx, retry_after=now + retry_delay))
                 return
 

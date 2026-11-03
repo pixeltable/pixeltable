@@ -1,4 +1,4 @@
-pixeltable>=0.4.12
+pixeltable>=0.7.4
 pytubefix>=9.1.1
 click>=8.0.0
 openai-whisper>=20231117

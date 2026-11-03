@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import functools
 import itertools
@@ -8,13 +9,13 @@ import logging
 from collections import defaultdict, deque
 from concurrent import futures
 from pathlib import Path
-from typing import AsyncIterator, Iterator, NamedTuple
+from typing import AsyncGenerator, AsyncIterator, Iterator, NamedTuple
 from uuid import UUID
 
 import PIL.Image
 
 import pixeltable.utils.image as image_utils
-from pixeltable import exprs, telemetry
+from pixeltable import exceptions as excs, exprs, telemetry, telemetry_schemas
 from pixeltable.env import Env
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectPath, ObjectStoreBase, StorageTarget
 from pixeltable.utils.progress_reporter import ProgressReporter
@@ -63,6 +64,7 @@ class ObjectStoreSaveNode(ExecNode):
         # to perform the file write.
         store: ObjectStoreBase
         dest: FileDestination
+        file_size: int  # in bytes, determined before the file gets moved
         destination_count: int = 1  # number of unique destinations for this file
 
     retain_input_order: bool  # if True, return rows in the exact order they were received
@@ -133,37 +135,40 @@ class ObjectStoreSaveNode(ExecNode):
             self.input_finished = True
             return None
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        input_iter = aiter(self.input)
-        with futures.ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
-            while True:
-                # Create work to fill the queue to the high water mark ... ?without overrunning the in-flight row limit.
-                while not self.input_finished and self.queued_work < self.QUEUE_DEPTH_HIGH_WATER:
-                    input_batch = await self.get_input_batch(input_iter)
-                    if input_batch is not None:
-                        await self.__process_input_batch(input_batch, executor)
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
+        async with contextlib.aclosing(aiter(self.input)) as input_iter:
+            with futures.ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
+                while True:
+                    # Create work to fill the queue to the high water mark,
+                    # without overrunning the in-flight row limit.
+                    while not self.input_finished and self.queued_work < self.QUEUE_DEPTH_HIGH_WATER:
+                        input_batch = await self.get_input_batch(input_iter)
+                        if input_batch is not None:
+                            await self.__process_input_batch(input_batch, executor)
 
-                # Wait for enough completions to enable more queueing or if we're done
-                while self.queued_work > self.QUEUE_DEPTH_LOW_WATER or (self.input_finished and self.queued_work > 0):
-                    done, _ = futures.wait(self.in_flight_requests, return_when=futures.FIRST_COMPLETED)
-                    self.__process_completions(done, ignore_errors=self.ctx.ignore_errors)
+                    # Wait for enough completions to enable more queueing or if we're done
+                    while self.queued_work > self.QUEUE_DEPTH_LOW_WATER or (
+                        self.input_finished and self.queued_work > 0
+                    ):
+                        done, _ = futures.wait(self.in_flight_requests, return_when=futures.FIRST_COMPLETED)
+                        self.__process_completions(done)
 
-                # Emit results to meet batch size requirements or empty the in-flight row queue
-                if self.__has_ready_batch() or (
-                    len(self.ready_rows) > 0 and self.input_finished and self.queued_work == 0
-                ):
-                    # create DataRowBatch from the first BATCH_SIZE ready rows
-                    batch = DataRowBatch(self.row_builder)
-                    rows = [self.ready_rows.popleft() for _ in range(min(self.BATCH_SIZE, len(self.ready_rows)))]
-                    for row in rows:
-                        assert row is not None
-                        batch.add_row(row)
-                    self.num_returned_rows += len(rows)
-                    _logger.debug(f'returning {len(rows)} rows')
-                    yield batch
+                    # Emit results to meet batch size requirements or empty the in-flight row queue
+                    if self.__has_ready_batch() or (
+                        len(self.ready_rows) > 0 and self.input_finished and self.queued_work == 0
+                    ):
+                        # create DataRowBatch from the first BATCH_SIZE ready rows
+                        batch = DataRowBatch(self.row_builder)
+                        rows = [self.ready_rows.popleft() for _ in range(min(self.BATCH_SIZE, len(self.ready_rows)))]
+                        for row in rows:
+                            assert row is not None
+                            batch.add_row(row)
+                        self.num_returned_rows += len(rows)
+                        _logger.debug(f'returning {len(rows)} rows')
+                        yield batch
 
-                if self.input_finished and self.queued_work == 0 and len(self.ready_rows) == 0:
-                    return
+                    if self.input_finished and self.queued_work == 0 and len(self.ready_rows) == 0:
+                        return
 
     def __has_ready_batch(self) -> bool:
         """True if there are >= BATCH_SIZES entries in ready_rows and the first BATCH_SIZE ones are all non-None"""
@@ -181,27 +186,42 @@ class ObjectStoreSaveNode(ExecNode):
                 self.ready_rows.extend([None] * (idx - len(self.ready_rows) + 1))
             self.ready_rows[idx] = row
 
-    def __process_completions(self, done: set[futures.Future], ignore_errors: bool) -> None:
+    def __handle_save_error(self, row: exprs.DataRow, info: exprs.ColumnSlotIdx, exc: Exception) -> None:
+        msg = f'Error while saving column {info.col.name!r}'
+        if isinstance(exc, excs.Error):
+            err = exc.with_message(f'{msg}: {exc.message}')
+        else:
+            # str(exc) can contain file paths, which belong in detail rather than in the message
+            reason = exc.strerror if isinstance(exc, OSError) and exc.strerror is not None else type(exc).__name__
+            err = excs.ServiceUnavailableError(excs.ErrorCode.STORE_UNAVAILABLE, f'{msg}: {reason}')
+            err.detail = str(exc)
+        if not self.ctx.ignore_errors:
+            raise err from exc
+        self.row_builder.set_exc(row, info.slot_idx, err)
+
+    def __process_completions(self, done: set[futures.Future]) -> None:
         from pixeltable.utils.local_store import TempStore
 
         num_objects = 0
         num_bytes = 0
+        bytes_per_tbl: dict[tuple[str, str], int] = {}  # (table name, table id) -> bytes saved
 
         for f in done:
             work_designator = self.in_flight_requests.pop(f)
             new_file_url, exc = f.result()
-            if exc is not None and not ignore_errors:
-                raise exc
-            assert new_file_url is not None
-
+            work_items = self.in_flight_work.pop(work_designator)
             if exc is None:
+                assert new_file_url is not None
                 num_objects += 1
                 num_bytes += work_designator.file_size
+                tbl = work_items[0][1].col.get_tbl()
+                key = (tbl.name, str(tbl.id))
+                bytes_per_tbl[key] = bytes_per_tbl.get(key, 0) + work_designator.file_size
 
             # add the local path/exception to the slots that reference the url
-            for row, info in self.in_flight_work.pop(work_designator):
+            for row, info in work_items:
                 if exc is not None:
-                    self.row_builder.set_exc(row, info.slot_idx, exc)
+                    self.__handle_save_error(row, info, exc)
                 else:
                     row.file_urls[info.slot_idx] = new_file_url
 
@@ -214,6 +234,8 @@ class ObjectStoreSaveNode(ExecNode):
                     del self.in_flight_rows[id(row)]
                     self.__add_ready_row(row, state.idx)
 
+        for (table, table_id), n in bytes_per_tbl.items():
+            telemetry_schemas.media_saved_bytes.add(n, table=table, table_id=table_id)
         if self.ctx.show_progress:
             self.progress_reporter.update(num_objects, num_bytes)
 
@@ -254,7 +276,8 @@ class ObjectStoreSaveNode(ExecNode):
                 # Do not copy local file URLs to the LocalStore
                 continue
 
-            work_designator = ObjectStoreSaveNode.WorkDesignator(str(src_path), destination, src_path.stat().st_size)
+            file_size = src_path.stat().st_size
+            work_designator = ObjectStoreSaveNode.WorkDesignator(str(src_path), destination, file_size)
             locations = self.in_flight_work.get(work_designator)
             if locations is not None:
                 # we've already seen this
@@ -267,7 +290,7 @@ class ObjectStoreSaveNode(ExecNode):
             store = ObjectOps.get_store(destination, False, col.name)
             dest = store.resolve_destination(col.tbl_handle.id, col.id, col.get_tbl().version, ext=src_path.suffix)
             work_item = ObjectStoreSaveNode.WorkItem(
-                src_path=src_path, destination=destination, info=info, store=store, dest=dest
+                src_path=src_path, destination=destination, info=info, store=store, dest=dest, file_size=file_size
             )
             row_to_do.append(work_item)
             self.in_flight_work[work_designator] = [(row, info)]
@@ -298,12 +321,13 @@ class ObjectStoreSaveNode(ExecNode):
     async def __encode_input_batch(self, input_batch: DataRowBatch) -> None:
         """Encode the batch's in-memory media values into the TempStore; encode jobs run on Env.cpu_pool."""
         loop = asyncio.get_running_loop()
-        pending: list[tuple[exprs.DataRow, int, asyncio.Future[tuple[Path, str]]]] = []
+        pending: list[tuple[exprs.DataRow, exprs.ColumnSlotIdx, asyncio.Future[tuple[Path, str]]]] = []
         # carry the ambient instrumentation span onto the worker threads so encode spans nest correctly
         hooks_ctx = telemetry.capture_context()
         for row in input_batch:
             scheduled: set[int] = set()  # columns can share a slot (eg, btree index value cols): encode once
-            for col, index in self.file_col_info:
+            for info in self.file_col_info:
+                col, index = info
                 if index in scheduled or not row.prepare_col_val_for_save(index, col):
                     continue
                 val = row.vals[index]
@@ -312,11 +336,17 @@ class ObjectStoreSaveNode(ExecNode):
                 encode_fn = functools.partial(
                     self.__encode_media_value, val, col.tbl_handle.id, col.id, col.get_tbl().version, format, hooks_ctx
                 )
-                pending.append((row, index, loop.run_in_executor(Env.get().cpu_pool, encode_fn)))
+                pending.append((row, info, loop.run_in_executor(Env.get().cpu_pool, encode_fn)))
                 scheduled.add(index)
 
-        for row, index, fut in pending:
-            filepath, url = await fut
+        for row, info, fut in pending:
+            index = info.slot_idx
+            try:
+                filepath, url = await fut
+            except Exception as e:
+                # the slot keeps no url, so that __process_input_row() skips it
+                self.__handle_save_error(row, info, e)
+                continue
             row.file_paths[index] = str(filepath)
             row.file_urls[index] = url
             row.vals[index] = None
@@ -340,6 +370,11 @@ class ObjectStoreSaveNode(ExecNode):
         hooks_token = telemetry.restore_context(hooks_ctx)
         try:
             with telemetry.span('pixeltable.media.encode', level=telemetry.DEBUG):
+                if isinstance(val, PIL.Image.Image):
+                    try:
+                        val = image_utils.to_bytes(val, format)
+                    except Exception as e:
+                        raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, str(e)) from e
                 return TempStore.save_media_object(val, tbl_id, col_id, tbl_version, format)
         finally:
             telemetry.exit_context(hooks_token)
@@ -357,11 +392,9 @@ class ObjectStoreSaveNode(ExecNode):
         # carry the ambient instrumentation span onto the worker threads so save spans nest correctly
         hooks_ctx = telemetry.capture_context()
         for work_item in work_to_do:
-            # determine size before file gets moved
-            file_size = work_item.src_path.stat().st_size
             f = executor.submit(self.__persist_media_file, work_item, hooks_ctx)
             self.in_flight_requests[f] = ObjectStoreSaveNode.WorkDesignator(
-                str(work_item.src_path), work_item.destination, file_size
+                str(work_item.src_path), work_item.destination, work_item.file_size
             )
             _logger.debug(f'submitted {work_item}')
 
@@ -375,7 +408,11 @@ class ObjectStoreSaveNode(ExecNode):
         """
         hooks_token = telemetry.restore_context(hooks_ctx)
         try:
-            with telemetry.span('pixeltable.media.save', level=telemetry.DEBUG, destination=work_item.destination):
+            with telemetry.span(
+                'pixeltable.media.save',
+                level=telemetry.DEBUG,
+                **telemetry_schemas.MediaSaveAttrs(destination=work_item.destination, bytes=work_item.file_size),
+            ):
                 new_file_url = ObjectOps.put_file_resolved(
                     work_item.store, work_item.src_path, work_item.dest, work_item.destination_count == 1
                 )

@@ -23,7 +23,7 @@ Ensure you have the following installed and configured:
 - AWS CDK v2
 - Docker Desktop 
 - Node.js 18+
-- Python 3.8+
+- Python 3.11+
 - An OpenAI API key
 
 ## Project Structure

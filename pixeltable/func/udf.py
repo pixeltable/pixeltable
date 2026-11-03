@@ -132,6 +132,7 @@ def make_function(
     `substitute_fn`.
     """
     defined_in_script = False
+    function_path: str | None
     # Obtain function_path from decorated_fn when appropriate
     if force_stored:
         # force storing the function in the db
@@ -279,7 +280,7 @@ def make_function(
         # in the registry if the cell is re-run, so it carries a path for serialization but is not registered
         # TODO: remove this when removing support for inlined udfs in notebooks
         if decorated_fn.__module__ != '__main__':
-            FunctionRegistry.get().register_function(function_path, result)
+            FunctionRegistry.get().register_function(function_path, result, decorated_fn.__module__)
 
     return result
 
@@ -340,7 +341,7 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         )
         # method/property dispatch requires registration in the type-method registry
         if (is_method or is_property) and function_path is not None:
-            FunctionRegistry.get().register_function(function_path, result)
+            FunctionRegistry.get().register_function(function_path, result, py_fn.__module__)
         return result
 
     if len(args) == 1:
@@ -386,7 +387,7 @@ def from_table(tbl: catalog.Table, return_value: 'exprs.Expr' | None, descriptio
     ancestors = [tbl, *tbl._get_base_tables()]
     ancestors.reverse()  # We must traverse the ancestors in order from base to derived
 
-    subst: dict[exprs.Expr, exprs.Expr] = {}
+    subst: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
     result_dict: dict[str, exprs.Expr] = {}
     params: list[Parameter] = []
 

@@ -4,7 +4,7 @@ import pixeltable as pxt
 
 from ..utils import rerun_on_network_error, skip_test_if_not_installed, validate_update_status
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 @rerun_on_network_error()
@@ -13,7 +13,7 @@ class TestVllm:
         skip_test_if_not_installed('vllm')
         from pixeltable.functions import vllm
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
 
         t.add_computed_column(
             messages=[
@@ -49,7 +49,7 @@ class TestVllm:
         skip_test_if_not_installed('vllm')
         from pixeltable.functions import vllm
 
-        t = pxt.create_table('test_gen_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_gen_tbl', {'prompt': pxt.String | None})
 
         t.add_computed_column(
             output=vllm.generate(t.prompt, model='Qwen/Qwen2.5-0.5B-Instruct', engine_args={'max_model_len': 512})

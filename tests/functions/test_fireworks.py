@@ -4,10 +4,11 @@ import pixeltable as pxt
 
 from ..utils import rerun_on_network_error, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 @pytest.mark.remote_api
+@pytest.mark.very_expensive
 @rerun_on_network_error()
 class TestFireworks:
     def test_fireworks(self, uses_db: None) -> None:
@@ -15,13 +16,15 @@ class TestFireworks:
         skip_test_if_no_client('fireworks')
         from pixeltable.functions.fireworks import chat_completions
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         messages = [{'role': 'user', 'content': t.input}]
-        t.add_computed_column(output=chat_completions(messages=messages, model='accounts/fireworks/models/gpt-oss-20b'))
+        t.add_computed_column(
+            output=chat_completions(messages=messages, model='accounts/fireworks/models/gpt-oss-120b')
+        )
         t.add_computed_column(
             output_2=chat_completions(
                 messages=messages,
-                model='accounts/fireworks/models/gpt-oss-20b',
+                model='accounts/fireworks/models/gpt-oss-120b',
                 model_kwargs={'max_tokens': 300, 'top_k': 40, 'top_p': 0.9, 'temperature': 0.7},
             )
         )

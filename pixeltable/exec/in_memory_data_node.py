@@ -1,5 +1,5 @@
 import logging
-from typing import Any, AsyncIterator
+from typing import Any, AsyncGenerator
 
 from pixeltable import catalog, exprs
 from pixeltable.utils.local_store import TempStore
@@ -22,26 +22,39 @@ class InMemoryDataNode(ExecNode):
     tbl: catalog.TableVersionHandle
 
     input_rows: list[dict[str, Any]]
+    set_pk: bool  # if True, assign synthetic pks (input row position); needed for iterator expansion
     output_batch: DataRowBatch | None
+    _is_closed: bool
 
     # output_exprs is declared in the superclass, but we redeclare it here with a more specific type
     output_exprs: list[exprs.ColumnRef]
 
-    def __init__(self, tbl: catalog.TableVersionHandle, rows: list[dict[str, Any]], row_builder: exprs.RowBuilder):
+    def __init__(
+        self,
+        tbl: catalog.TableVersionHandle,
+        rows: list[dict[str, Any]],
+        row_builder: exprs.RowBuilder,
+        set_pk: bool = False,
+    ):
         # we materialize the input slots
         output_exprs = list(row_builder.input_exprs)
         super().__init__(row_builder, output_exprs, [], None)
         assert tbl.get().is_insertable
         self.tbl = tbl
         self.input_rows = rows
+        self.set_pk = set_pk
         self.output_batch = None
+        self._is_closed = False
 
     def _open(self) -> None:
         """Create row batch and populate with self.input_rows"""
+        assert not self._is_closed, 'InMemoryDataNode is not reusable'
+
+        # input rows can only provide values for this table's columns
         user_cols_by_name = {
             col_ref.col.name: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)
             for col_ref in self.output_exprs
-            if col_ref.col.name is not None
+            if col_ref.col.name is not None and col_ref.col.get_tbl().id == self.tbl.id
         }
         output_cols_by_idx = {
             col_ref.slot_idx: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx) for col_ref in self.output_exprs
@@ -49,8 +62,11 @@ class InMemoryDataNode(ExecNode):
         output_slot_idxs = {e.slot_idx for e in self.output_exprs}
 
         self.output_batch = DataRowBatch(self.row_builder)
-        for input_row in self.input_rows:
+        for row_idx, input_row in enumerate(self.input_rows):
             output_row = self.row_builder.make_row()
+            if self.set_pk:
+                # (rowid, v_min); the rowid stands in for a store-assigned one, the version is irrelevant here
+                output_row.set_pk((row_idx, 0))
             # populate the output row with the values provided in the input row
             input_slot_idxs: set[int] = set()
             for col_name, val in input_row.items():
@@ -76,6 +92,13 @@ class InMemoryDataNode(ExecNode):
                 output_row[col_info.slot_idx] = None
             self.output_batch.add_row(output_row)
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+    def _close(self) -> None:
+        # Release references to input rows and the last output batch. When images are present, this may free up
+        # a significant amount of memory.
+        self.input_rows = []
+        self.output_batch = None
+        self._is_closed = True
+
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         _logger.debug(f'InMemoryDataNode: created row batch with {len(self.output_batch)} rows')
         yield self.output_batch

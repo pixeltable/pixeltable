@@ -3,10 +3,12 @@ from __future__ import annotations
 import dataclasses
 from uuid import UUID
 
+from pixeltable import telemetry
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 
+from .globals import fold_identifier
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 
@@ -16,10 +18,12 @@ class Dir(SchemaObject):
         super().__init__(id)
 
     @classmethod
+    @telemetry.spanned('pixeltable.catalog.create_dir', level=telemetry.DEBUG)
     def _create(cls, parent_id: UUID, name: str) -> Dir:
         session = get_runtime().session
         user = Env.get().user
         assert session is not None
+        assert name == fold_identifier(name), name
         dir_md = schema.DirMd(name=name, user=user, additional_md={})
         dir_record = schema.Dir(parent_id=parent_id, md=dataclasses.asdict(dir_md))
         session.add(dir_record)
@@ -33,12 +37,12 @@ class Dir(SchemaObject):
 
     def _name(self) -> str:
         cat = get_runtime().catalog
-        with cat.begin_xact(for_write=False):
+        with cat.begin_md_read_xact():
             return cat.read_dir_record(self._id).md['name']
 
     def _dir_id(self) -> UUID | None:
         cat = get_runtime().catalog
-        with cat.begin_xact(for_write=False):
+        with cat.begin_md_read_xact():
             return cat.read_dir_record(self._id).parent_id
 
     def _path(self) -> Path:

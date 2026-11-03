@@ -1,5 +1,5 @@
-from collections.abc import Iterator
 from pathlib import Path
+from typing import Iterator
 
 import PIL.Image
 import pytest
@@ -9,6 +9,7 @@ from pixeltable import ResultSet
 from pixeltable.config import Config
 
 from ..utils import (
+    NETWORK_ERROR_PATTERNS,
     get_audio_files,
     get_image_files,
     get_video_files,
@@ -19,32 +20,24 @@ from ..utils import (
 )
 from .tool_utils import run_tool_invocations_test
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 @pytest.fixture()
-def bedrock_us_east_1(uses_db: None) -> Iterator[None]:
+def bedrock_us_east_1(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Configure the Bedrock client and temp_location for us-east-1."""
-    Config.init(
-        config_overrides={
-            'bedrock.region_name': 'us-east-1',
-            'bedrock.temp_location': 's3://pxt-bedrock-test-us-east-1/bedrock_outputs/',
-        },
-        reinit=True,
-    )
+    monkeypatch.setenv('BEDROCK_REGION_NAME', 'us-east-1')
+    monkeypatch.setenv('BEDROCK_TEMP_LOCATION', 's3://pxt-bedrock-test-us-east-1/bedrock_outputs/')
+    Config.init(reinit=True)
     yield
 
 
 @pytest.fixture()
-def bedrock_us_west_2(uses_db: None) -> Iterator[None]:
+def bedrock_us_west_2(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Configure the Bedrock client and temp_location for us-west-2."""
-    Config.init(
-        config_overrides={
-            'bedrock.region_name': 'us-west-2',
-            'bedrock.temp_location': 's3://pxt-bedrock-test-us-west-2/bedrock_outputs/',
-        },
-        reinit=True,
-    )
+    monkeypatch.setenv('BEDROCK_REGION_NAME', 'us-west-2')
+    monkeypatch.setenv('BEDROCK_TEMP_LOCATION', 's3://pxt-bedrock-test-us-west-2/bedrock_outputs/')
+    Config.init(reinit=True)
     yield
 
 
@@ -58,7 +51,7 @@ def _run_converse_text(model_ids: list[str]) -> None:
     from pixeltable.functions.bedrock import converse
 
     for model_id in model_ids:
-        t = pxt.create_table(_tbl_name(model_id), {'input': pxt.String})
+        t = pxt.create_table(_tbl_name(model_id), {'input': pxt.String | None})
         messages = [{'role': 'user', 'content': [{'text': t.input}]}]
         t.add_computed_column(output=converse(messages, model_id=model_id))
         validate_update_status(t.insert(input='What is 2+2?'), expected_rows=1)
@@ -84,6 +77,36 @@ def _assert_text_similarity(t: pxt.Table) -> None:
     results = t.order_by(sim, asc=False).limit(2).select(t.text, similarity=sim).collect()
     assert len(results) == 2
     assert 'machine learning' in results['text'][0].lower() or 'intelligence' in results['text'][0].lower()
+
+
+_LUMA_RAY_MODEL_ID = 'luma.ray-v2:0'
+_LUMA_RAY_REGION = 'us-west-2'
+_UNAVAILABLE_VIDEO_MODEL_SNIPPETS = (
+    'end of its life',
+    'end of life',
+    "don't have access to the model",
+    'do not have access to the model',
+    'model access is denied',
+    'use case details have not been submitted',
+    'not subscribed',
+    'aws marketplace',
+    'could not find model',
+    'could not resolve the foundation model',
+    'model identifier is invalid',
+)
+
+
+def _is_unavailable_video_model_error(_errortype: str | None, errormsg: str | None) -> bool:
+    """Return True when the error message shows the video model is missing, retired, or not enabled.
+
+    Error type alone is not a skip signal. A ResourceNotFoundException from a routing or request bug
+    still fails the test unless the message matches a known unavailable-model snippet.
+    """
+    message = (errormsg or '').lower()
+    # Storage failures mention the output bucket; those are configuration errors, not a missing model.
+    if 's3:' in message or 's3://' in message:
+        return False
+    return any(snippet in message for snippet in _UNAVAILABLE_VIDEO_MODEL_SNIPPETS)
 
 
 def _assert_image_similarity(t: pxt.Table, img_paths: list) -> None:
@@ -130,8 +153,36 @@ def _converse_image_messages(t: pxt.Table) -> list:
     ]
 
 
+def test_unavailable_video_model_error() -> None:
+    eol = (
+        'An error occurred (ResourceNotFoundException) when calling the StartAsyncInvoke operation: '
+        'This model version has reached the end of its life.'
+    )
+    assert _is_unavailable_video_model_error('ResourceNotFoundException', eol)
+    assert _is_unavailable_video_model_error(
+        'AccessDeniedException', "You don't have access to the model with the specified model ID."
+    )
+    assert not _is_unavailable_video_model_error(
+        'AccessDeniedException', 'is not authorized to perform: s3:PutObject on resource: s3://bucket/key'
+    )
+    assert not _is_unavailable_video_model_error(
+        'ValidationException', 'Invalid input: resolution must be one of 540p, 720p'
+    )
+    unresolved = (
+        'An error occurred (ResourceNotFoundException) when calling the StartAsyncInvoke operation: '
+        'Could not resolve the foundation model from the provided model identifier.'
+    )
+    assert _is_unavailable_video_model_error('ResourceNotFoundException', unresolved)
+    # Type alone must not skip; this message matches none of the unavailable-model snippets.
+    assert not _is_unavailable_video_model_error(
+        'ResourceNotFoundException',
+        'An error occurred (ResourceNotFoundException) when calling the StartAsyncInvoke operation: '
+        'The requested resource was not found.',
+    )
+
+
 @pytest.mark.remote_api
-@pytest.mark.expensive
+@pytest.mark.very_expensive
 @pytest.mark.usefixtures('bedrock_us_east_1')
 @rerun_on_network_error()
 class TestBedrock:
@@ -139,7 +190,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'image': pxt.Image})
+        t = pxt.create_table('tbl', {'image': pxt.Image | None})
         t.add_computed_column(
             response=invoke_model(
                 {'inputType': 'image', 'image': {'mediaSource': {'base64String': t.image}}},
@@ -154,7 +205,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'image': pxt.Image})
+        t = pxt.create_table('tbl', {'image': pxt.Image | None})
         t.add_computed_column(
             response=invoke_model(
                 {
@@ -173,7 +224,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'audio': pxt.Audio})
+        t = pxt.create_table('tbl', {'audio': pxt.Audio | None})
         t.add_computed_column(
             response=invoke_model(
                 {'inputType': 'audio', 'audio': {'mediaSource': {'base64String': t.audio}}},
@@ -189,7 +240,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'video': pxt.Video})
+        t = pxt.create_table('tbl', {'video': pxt.Video | None})
         t.add_computed_column(
             response=invoke_model(
                 {'inputType': 'video', 'video': {'mediaSource': {'base64String': t.video}}},
@@ -205,7 +256,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'video': pxt.Video})
+        t = pxt.create_table('tbl', {'video': pxt.Video | None})
         t.add_computed_column(
             response=invoke_model(
                 # Pegasus uses a flat schema: inputPrompt + mediaSource at top level (no inputType nesting)
@@ -223,12 +274,12 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'image': pxt.Image})
+        t = pxt.create_table('tbl', {'image': pxt.Image | None})
         t.add_computed_column(
             response=invoke_model(
                 {
                     'anthropic_version': 'bedrock-2023-05-31',
-                    'max_tokens': 256,
+                    'max_tokens': 1024,
                     'messages': [
                         {
                             'role': 'user',
@@ -242,32 +293,34 @@ class TestBedrock:
                         }
                     ],
                 },
-                model_id='anthropic.claude-3-haiku-20240307-v1:0',
+                model_id='us.anthropic.claude-haiku-5-5',
             )
         )
         image_filepaths = get_image_files()[:1]
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         results = t.select(t.response).collect()
-        assert results[0]['response']['content'][0]['text']
+        # a response can begin with a thinking block
+        assert any(block['type'] == 'text' and block['text'] for block in results[0]['response']['content'])
 
     def test_converse_anthropic(self, uses_db: None) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import converse
 
-        t = pxt.create_table('tbl', {'input': pxt.String})
+        t = pxt.create_table('tbl', {'input': pxt.String | None})
         messages = [{'role': 'user', 'content': [{'text': t.input}]}]
         t.add_computed_column(
             output=converse(
                 messages,
-                model_id='anthropic.claude-3-haiku-20240307-v1:0',
+                model_id='us.anthropic.claude-haiku-5-5',
                 system=[{'text': 'You are a helpful assistant. Keep answers short.'}],
-                inference_config={'temperature': 0.6, 'maxTokens': 256},
-                additional_model_request_fields={'top_k': 40},
+                inference_config={'maxTokens': 1024},
+                additional_model_request_fields={'output_config': {'effort': 'low'}},
             )
         )
-        t.add_computed_column(response=t.output.output.message.content[0].text)
+        # a response can begin with a reasoning block, which has no text
+        t.add_computed_column(response=t.output.output.message.content['*'].text)
         validate_update_status(t.insert(input='What is the capital of France?'), expected_rows=1)
-        assert 'Paris' in t.collect()[0]['response']
+        assert any('Paris' in text for text in t.collect()[0]['response'] if text is not None)
 
     @rerun(reruns=3, reruns_delay=8)
     def test_converse_tool_invocations(self, uses_db: None) -> None:
@@ -275,12 +328,10 @@ class TestBedrock:
         from pixeltable.functions import bedrock
 
         def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
-            t = pxt.create_table('tbl', {'prompt': pxt.String})
+            t = pxt.create_table('tbl', {'prompt': pxt.String | None})
             messages = [{'role': 'user', 'content': [{'text': t.prompt}]}]
             t.add_computed_column(
-                response=bedrock.converse(
-                    messages, model_id='anthropic.claude-3-haiku-20240307-v1:0', tool_config=tools
-                )
+                response=bedrock.converse(messages, model_id='us.anthropic.claude-haiku-5-5', tool_config=tools)
             )
             t.add_computed_column(tool_calls=bedrock.invoke_tools(tools, t.response))
             return t
@@ -291,7 +342,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'image': pxt.Image})
+        t = pxt.create_table('tbl', {'image': pxt.Image | None})
         t.add_computed_column(
             response=invoke_model(
                 {
@@ -317,7 +368,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'video': pxt.Video})
+        t = pxt.create_table('tbl', {'video': pxt.Video | None})
         t.add_computed_column(
             response=invoke_model(
                 {
@@ -343,7 +394,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import converse
 
-        t = pxt.create_table('tbl', {'image': pxt.Image})
+        t = pxt.create_table('tbl', {'image': pxt.Image | None})
         t.add_computed_column(output=converse(_converse_image_messages(t), model_id='amazon.nova-lite-v1:0'))
         image_filepaths = get_image_files()[:1]
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
@@ -353,7 +404,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import converse
 
-        t = pxt.create_table('tbl', {'video': pxt.Video})
+        t = pxt.create_table('tbl', {'video': pxt.Video | None})
         messages = [
             {
                 'role': 'user',
@@ -368,22 +419,29 @@ class TestBedrock:
         validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text']
 
-    def test_invoke_model_nova_reel(self, uses_db: None) -> None:
+    # the account allows one concurrent Luma Ray request, so a run that overlaps another (a second CI run, or a local
+    # one) is throttled until the other's generation finishes, which takes up to a few minutes
+    @rerun(reruns=3, reruns_delay=120, only_rerun=['ThrottlingException', *NETWORK_ERROR_PATTERNS])
+    def test_invoke_model_luma_ray(self, uses_db: None, bedrock_us_west_2: None) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'prompt': pxt.String})
+        t = pxt.create_table('tbl', {'prompt': pxt.String | None})
         t.add_computed_column(
             video=invoke_model(
-                {
-                    'taskType': 'TEXT_VIDEO',
-                    'textToVideoParams': {'text': t.prompt},
-                    'videoGenerationConfig': {'durationSeconds': 6, 'fps': 24, 'dimension': '1280x720'},
-                },
-                model_id='amazon.nova-reel-v1:1',
+                {'prompt': t.prompt, 'aspect_ratio': '16:9', 'duration': '5s', 'resolution': '540p'},
+                model_id=_LUMA_RAY_MODEL_ID,
             )
         )
-        validate_update_status(t.insert(prompt='a dog running on a beach'), expected_rows=1)
+        status = t.insert(prompt='a dog running on a beach', on_error='ignore')
+        if status.num_excs != 0:
+            row = t.select(errortype=t.video.errortype, errormsg=t.video.errormsg).collect()[0]
+            errortype = row['errortype']
+            errormsg = row['errormsg']
+            if _is_unavailable_video_model_error(errortype, errormsg):
+                pytest.skip(f'Bedrock model {_LUMA_RAY_MODEL_ID} is not available in {_LUMA_RAY_REGION}: {errormsg}')
+            raise AssertionError(f'invoke_model({_LUMA_RAY_MODEL_ID}) failed: {errortype}: {errormsg}')
+        validate_update_status(status, expected_rows=1)
         result = t.collect()[0]['video']
         assert result is not None and Path(result).exists()
 
@@ -391,7 +449,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'text': pxt.String})
+        t = pxt.create_table('tbl', {'text': pxt.String | None})
         t.add_computed_column(
             response=invoke_model(
                 {'inputText': t.text, 'dimensions': 256, 'normalize': True}, model_id='amazon.titan-embed-text-v2:0'
@@ -406,7 +464,7 @@ class TestBedrock:
 
         model_ids = ['amazon.titan-embed-text-v1', 'amazon.titan-embed-text-v2:0']
         for model_id in model_ids:
-            t = pxt.create_table(_tbl_name(model_id), {'text': pxt.String})
+            t = pxt.create_table(_tbl_name(model_id), {'text': pxt.String | None})
             t.add_embedding_index('text', string_embed=embed.using(model_id=model_id))
             t.insert(_TEXT_ROWS)
             _assert_text_similarity(t)
@@ -415,7 +473,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
 
-        t = pxt.create_table('tbl', {'text': pxt.String})
+        t = pxt.create_table('tbl', {'text': pxt.String | None})
         t.add_computed_column(embedding=embed(t.text, model_id='amazon.titan-embed-text-v2:0', dimensions=256))
         validate_update_status(t.insert(text='Hello, world!'), expected_rows=1)
         assert len(t.collect()[0]['embedding']) == 256
@@ -426,7 +484,7 @@ class TestBedrock:
 
         img_paths = get_image_files()[:3]
         for model_id in ['amazon.titan-embed-image-v1']:
-            t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
+            t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image | None})
             t.add_embedding_index('image', image_embed=embed.using(model_id=model_id))
             t.insert([{'image': p} for p in img_paths])
             _assert_image_similarity(t, img_paths)
@@ -435,7 +493,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
 
-        t = pxt.create_table('tbl', {'text': pxt.String})
+        t = pxt.create_table('tbl', {'text': pxt.String | None})
         t.add_embedding_index(
             'text', string_embed=embed.using(model_id='amazon.nova-2-multimodal-embeddings-v1:0', dimensions=1024)
         )
@@ -447,7 +505,7 @@ class TestBedrock:
         from pixeltable.functions.bedrock import embed
 
         img_paths = get_image_files()[:3]
-        t = pxt.create_table('tbl', {'image': pxt.Image})
+        t = pxt.create_table('tbl', {'image': pxt.Image | None})
         t.add_embedding_index(
             'image', image_embed=embed.using(model_id='amazon.nova-2-multimodal-embeddings-v1:0', dimensions=1024)
         )
@@ -458,7 +516,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'audio': pxt.Audio})
+        t = pxt.create_table('tbl', {'audio': pxt.Audio | None})
         t.add_computed_column(
             response=invoke_model(
                 {
@@ -480,7 +538,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'video': pxt.Video})
+        t = pxt.create_table('tbl', {'video': pxt.Video | None})
         t.add_computed_column(
             response=invoke_model(
                 {
@@ -511,7 +569,7 @@ class TestBedrock:
         from pixeltable.functions.bedrock import embed
 
         for model_id in ['cohere.embed-english-v3', 'cohere.embed-multilingual-v3']:
-            t = pxt.create_table(_tbl_name(model_id), {'text': pxt.String})
+            t = pxt.create_table(_tbl_name(model_id), {'text': pxt.String | None})
             t.add_embedding_index('text', string_embed=embed.using(model_id=model_id))
             t.insert(_TEXT_ROWS)
             _assert_text_similarity(t)
@@ -520,7 +578,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
 
-        t = pxt.create_table('tbl', {'text': pxt.String})
+        t = pxt.create_table('tbl', {'text': pxt.String | None})
         t.add_computed_column(embedding=embed(t.text, model_id='cohere.embed-v4:0'))
         validate_update_status(t.insert(text='Hello, world!'), expected_rows=1)
         assert len(t.collect()[0]['embedding']) == 1536
@@ -529,7 +587,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
 
-        t = pxt.create_table('tbl', {'text': pxt.String})
+        t = pxt.create_table('tbl', {'text': pxt.String | None})
         t.add_computed_column(embedding=embed(t.text, model_id='cohere.embed-v4:0', dimensions=512))
         validate_update_status(t.insert(text='Hello, world!'), expected_rows=1)
         assert len(t.collect()[0]['embedding']) == 512
@@ -539,7 +597,7 @@ class TestBedrock:
         from pixeltable.functions.bedrock import embed
 
         img_paths = get_image_files()[:3]
-        t = pxt.create_table('tbl', {'image': pxt.Image})
+        t = pxt.create_table('tbl', {'image': pxt.Image | None})
         t.add_embedding_index('image', image_embed=embed.using(model_id='cohere.embed-v4:0'))
         t.insert([{'image': p} for p in img_paths])
         _assert_image_similarity(t, img_paths)
@@ -548,7 +606,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'image': pxt.Image})
+        t = pxt.create_table('tbl', {'image': pxt.Image | None})
         t.add_computed_column(
             response=invoke_model(
                 {
@@ -579,7 +637,7 @@ class TestBedrock:
 
         image_filepaths = get_image_files()[:1]
         model_id = 'us.meta.llama4-maverick-17b-instruct-v1:0'
-        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
+        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image | None})
         t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
@@ -593,7 +651,7 @@ class TestBedrock:
         model_ids = ['us.mistral.pixtral-large-2502-v1:0', 'mistral.magistral-small-2509']
         image_filepaths = get_image_files()[:1]
         for model_id in model_ids:
-            t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
+            t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image | None})
             t.add_computed_column(response=invoke_model(_image_url_body(t), model_id=model_id))
             validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
             _assert_openai_compat_response(t.select(t.response).collect(), model_id)
@@ -604,7 +662,7 @@ class TestBedrock:
 
         image_filepaths = get_image_files()[:1]
         model_id = 'us.mistral.pixtral-large-2502-v1:0'
-        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
+        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image | None})
         t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
@@ -622,7 +680,7 @@ class TestBedrock:
         model_ids = ['google.gemma-3-4b-it', 'google.gemma-3-12b-it', 'google.gemma-3-27b-it']
         image_filepaths = get_image_files()[:1]
         for model_id in model_ids:
-            t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
+            t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image | None})
             t.add_computed_column(response=invoke_model(_image_url_body(t), model_id=model_id))
             validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
             _assert_openai_compat_response(t.select(t.response).collect(), model_id)
@@ -633,7 +691,7 @@ class TestBedrock:
 
         image_filepaths = get_image_files()[:1]
         model_id = 'google.gemma-3-12b-it'
-        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
+        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image | None})
         t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
@@ -646,7 +704,7 @@ class TestBedrock:
 
         image_filepaths = get_image_files()[:1]
         model_id = 'nvidia.nemotron-nano-12b-v2'
-        t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
+        t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image | None})
         t.add_computed_column(response=invoke_model(_image_url_body(t), model_id=model_id))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         _assert_openai_compat_response(t.select(t.response).collect(), model_id)
@@ -657,7 +715,7 @@ class TestBedrock:
 
         image_filepaths = get_image_files()[:1]
         model_id = 'nvidia.nemotron-nano-12b-v2'
-        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
+        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image | None})
         t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
@@ -670,7 +728,7 @@ class TestBedrock:
 
         image_filepaths = get_image_files()[:1]
         model_id = 'moonshotai.kimi-k2.5'
-        t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
+        t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image | None})
         t.add_computed_column(response=invoke_model(_image_url_body(t), model_id=model_id))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         _assert_openai_compat_response(t.select(t.response).collect(), model_id)
@@ -681,7 +739,7 @@ class TestBedrock:
 
         image_filepaths = get_image_files()[:1]
         model_id = 'moonshotai.kimi-k2.5'
-        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
+        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image | None})
         t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
@@ -694,7 +752,7 @@ class TestBedrock:
 
         image_filepaths = get_image_files()[:1]
         model_id = 'qwen.qwen3-vl-235b-a22b'
-        t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
+        t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image | None})
         t.add_computed_column(response=invoke_model(_image_url_body(t), model_id=model_id))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         _assert_openai_compat_response(t.select(t.response).collect(), model_id)
@@ -704,7 +762,7 @@ class TestBedrock:
         from pixeltable.functions.bedrock import converse
 
         image_filepaths = get_image_files()[:1]
-        t = pxt.create_table('tbl_qwen_vl_cv', {'image': pxt.Image})
+        t = pxt.create_table('tbl_qwen_vl_cv', {'image': pxt.Image | None})
         t.add_computed_column(output=converse(_converse_image_messages(t), model_id='qwen.qwen3-vl-235b-a22b'))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text']
@@ -715,7 +773,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'prompt': pxt.String})
+        t = pxt.create_table('tbl', {'prompt': pxt.String | None})
         t.add_computed_column(
             response=invoke_model(
                 {'prompt': t.prompt, 'mode': 'text-to-image', 'aspect_ratio': '1:1', 'output_format': 'jpeg'},

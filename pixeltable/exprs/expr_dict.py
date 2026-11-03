@@ -43,6 +43,10 @@ class ExprDict(Generic[T]):
         item = self._data.get(key.id)
         return item[1] if item is not None else default
 
+    def pop(self, key: Expr, default: T | None = None) -> T | None:
+        item = self._data.pop(key.id, None)
+        return item[1] if item is not None else default
+
     def clear(self) -> None:
         self._data.clear()
 

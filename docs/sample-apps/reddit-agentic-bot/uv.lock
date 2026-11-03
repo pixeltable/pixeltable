@@ -3042,7 +3042,7 @@ dependencies = [
 requires-dist = [
     { name = "anthropic" },
     { name = "duckduckgo-search" },
-    { name = "pixeltable", specifier = ">=0.6.0" },
+    { name = "pixeltable", specifier = ">=0.7.4" },
     { name = "praw" },
     { name = "python-dotenv" },
     { name = "sentence-transformers" },

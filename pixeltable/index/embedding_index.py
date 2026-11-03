@@ -6,13 +6,13 @@ from typing import Any, ClassVar, Literal
 import numpy as np
 import pgvector.sqlalchemy
 import sqlalchemy as sql
-from sqlalchemy import cast
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.func as func
 import pixeltable.type_system as ts
+from pixeltable import telemetry, telemetry_schemas
 from pixeltable.env import Env
 
 from .base import IndexBase
@@ -66,7 +66,9 @@ class EmbeddingIndex(IndexBase):
         audio_embed: func.Function | None = None,
         video_embed: func.Function | None = None,
         document_embed: func.Function | None = None,
-        column: catalog.Column | None = None,  # Column being indexed; None during deserialization.
+        # the column being indexed, as an instance being built or as the metadata of one that exists;
+        # None during deserialization
+        column: 'catalog.Column | catalog.ColumnVersionMd | None' = None,
     ):
         if (
             column is not None
@@ -85,42 +87,9 @@ class EmbeddingIndex(IndexBase):
                 excs.ErrorCode.INVALID_ARGUMENT, f'Invalid metric {metric}, must be one of {metric_names}'
             )
 
-        self.embeddings = {}
-
-        # Resolve the specific embedding functions corresponding to the user-provided embedding functions.
-        # For string embeddings, for example, `string_embed` will be used if specified; otherwise, `embed` will
-        # be used as a fallback, if it has a matching signature.
-
-        for embed_type, embed_fn in (
-            (ts.ColumnType.Type.STRING, string_embed),
-            (ts.ColumnType.Type.IMAGE, image_embed),
-            (ts.ColumnType.Type.AUDIO, audio_embed),
-            (ts.ColumnType.Type.VIDEO, video_embed),
-            (ts.ColumnType.Type.DOCUMENT, document_embed),
-        ):
-            if embed_fn is not None:
-                # Embedding function for the requisite type is specified directly; it MUST be valid.
-                resolved_fn = self._resolve_embedding_fn(embed_fn, embed_type)
-                if resolved_fn is None:
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_CONFIGURATION,
-                        f'The function `{embed_fn.name}` is not a valid {embed_type.name.lower()} '
-                        f'embedding: it must take a single {embed_type.name.lower()} parameter',
-                    )
-                self.embeddings[embed_type] = resolved_fn
-            elif embed is not None:
-                # General `embed` is specified; see if it has a matching signature.
-                resolved_fn = self._resolve_embedding_fn(embed, embed_type)
-                if resolved_fn is not None:
-                    self.embeddings[embed_type] = resolved_fn
-
-        if embed is not None and len(self.embeddings) == 0:
-            # `embed` was specified and contains no matching signatures.
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_CONFIGURATION,
-                f'The function `{embed.name}` is not a valid embedding: '
-                'it must take a single string, image, audio, video, or document parameter',
-            )
+        self.embeddings = self.resolve_embeddings(
+            embed, string_embed, image_embed, audio_embed, video_embed, document_embed
+        )
 
         # an embedding index is persisted, so its function must be storable
         for embed_type, resolved_fn in self.embeddings.items():
@@ -161,7 +130,12 @@ class EmbeddingIndex(IndexBase):
                 excs.ErrorCode.INVALID_ARGUMENT, f"Invalid precision '{precision}'. Must be one of: {valid_values}"
             ) from None
 
-    def create_value_expr(self, c: catalog.Column) -> exprs.Expr:
+    @property
+    def uses_value_col(self) -> bool:
+        # the embeddings are always materialized in a value column
+        return True
+
+    def create_value_expr(self, c: catalog.ColumnVersionMd) -> exprs.Expr:
         if c.col_type._type not in (
             ts.ColumnType.Type.STRING,
             ts.ColumnType.Type.IMAGE,
@@ -175,11 +149,9 @@ class EmbeddingIndex(IndexBase):
                 f'Type `{c.col_type}` of column {c.name!r} is not a valid type for an embedding index.',
             )
 
-        col_md = c.column_version_md()
-
         # For ARRAY columns, return column reference directly - array already contains the embeddings.
         if c.col_type.is_array_type():
-            return exprs.ColumnRef(col_md)
+            return exprs.ColumnRef(c)
         # For non-array columns, apply the embedding function
         if c.col_type._type not in self.embeddings:
             raise excs.RequestError(
@@ -188,7 +160,7 @@ class EmbeddingIndex(IndexBase):
             )
 
         embed_fn = self.embeddings[c.col_type._type]
-        return embed_fn(exprs.ColumnRef(col_md))
+        return embed_fn(exprs.ColumnRef(c))
 
     def records_value_errors(self) -> bool:
         return True
@@ -199,11 +171,6 @@ class EmbeddingIndex(IndexBase):
         vector_length = val_col_type.shape[0]
         assert vector_length is not None
         assert vector_length > 0
-
-        # TODO(PXT-941): Revisit embedding index precision behavior for cloud launch
-        # CockroachDB doesn't have HALFVEC. For now, always use Vector type.
-        if Env.get().is_using_cockroachdb:
-            return pgvector.sqlalchemy.Vector(vector_length)
 
         match self.precision:
             case self.Precision.FP32:
@@ -261,7 +228,19 @@ class EmbeddingIndex(IndexBase):
             self._validate_query_vector(val, val_col_type)
             return val
         assert val_type._type in self.embeddings
-        embedding = self.embeddings[val_type._type].exec([val], {})
+        embed_fn = self.embeddings[val_type._type]
+        # a `.using()` embedding is a template that calls the underlying UDF, which identifies it
+        call = embed_fn.templates[0].expr if isinstance(embed_fn, func.ExprTemplateFunction) else None
+        udf = call.fn if isinstance(call, exprs.FunctionCall) else embed_fn
+        with (
+            telemetry.span(
+                f'pixeltable.udf.{udf.display_name}',
+                level=telemetry.DEBUG,
+                **telemetry_schemas.UdfCallAttrs(udf_path=udf.self_path),
+            ),
+            telemetry_schemas.udf_call(udf),
+        ):
+            embedding = embed_fn.exec([val], {})
         assert isinstance(embedding, np.ndarray)
         return embedding
 
@@ -270,15 +249,10 @@ class EmbeddingIndex(IndexBase):
 
         query is either a bound vector value or a bindparam of the index's vector type.
         """
-        # In arithmetic operations between floats and ints (or between vector and int), CockroachDB requires an explicit
-        # cast. Otherwise the query fails.
-        cast_ints = Env.get().is_using_cockroachdb
-        one = cast(1, sql.types.Float) if cast_ints else 1
-        neg_one = cast(-1, sql.types.Float) if cast_ints else -1
         if self.metric == self.Metric.COSINE:
-            return val_column.sa_col.cosine_distance(query) * neg_one + one
+            return val_column.sa_col.cosine_distance(query) * -1 + 1
         elif self.metric == self.Metric.IP:
-            return val_column.sa_col.max_inner_product(query) * neg_one
+            return val_column.sa_col.max_inner_product(query) * -1
         else:
             return val_column.sa_col.l2_distance(query)
 
@@ -298,6 +272,54 @@ class EmbeddingIndex(IndexBase):
     @classmethod
     def display_name(cls) -> str:
         return 'embedding'
+
+    @classmethod
+    def resolve_embeddings(
+        cls,
+        embed: func.Function | None = None,
+        string_embed: func.Function | None = None,
+        image_embed: func.Function | None = None,
+        audio_embed: func.Function | None = None,
+        video_embed: func.Function | None = None,
+        document_embed: func.Function | None = None,
+    ) -> dict[ts.ColumnType.Type, func.Function]:
+        """The embedding function serving each column type.
+
+        A per-type function is used where one is given; otherwise `embed` serves every type whose signature it
+        matches.
+        """
+        embeddings: dict[ts.ColumnType.Type, func.Function] = {}
+        for embed_type, embed_fn in (
+            (ts.ColumnType.Type.STRING, string_embed),
+            (ts.ColumnType.Type.IMAGE, image_embed),
+            (ts.ColumnType.Type.AUDIO, audio_embed),
+            (ts.ColumnType.Type.VIDEO, video_embed),
+            (ts.ColumnType.Type.DOCUMENT, document_embed),
+        ):
+            if embed_fn is not None:
+                # Embedding function for the requisite type is specified directly; it MUST be valid.
+                resolved_fn = cls._resolve_embedding_fn(embed_fn, embed_type)
+                if resolved_fn is None:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_CONFIGURATION,
+                        f'The function `{embed_fn.name}` is not a valid {embed_type.name.lower()} '
+                        f'embedding: it must take a single {embed_type.name.lower()} parameter',
+                    )
+                embeddings[embed_type] = resolved_fn
+            elif embed is not None:
+                # General `embed` is specified; see if it has a matching signature.
+                resolved_fn = cls._resolve_embedding_fn(embed, embed_type)
+                if resolved_fn is not None:
+                    embeddings[embed_type] = resolved_fn
+
+        if embed is not None and len(embeddings) == 0:
+            # `embed` was specified and contains no matching signatures.
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'The function `{embed.name}` is not a valid embedding: '
+                'it must take a single string, image, audio, video, or document parameter',
+            )
+        return embeddings
 
     @classmethod
     def _resolve_embedding_fn(cls, embed_fn: func.Function, expected_type: ts.ColumnType.Type) -> func.Function | None:

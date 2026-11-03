@@ -1,0 +1,106 @@
+name: Publish opentelemetry-instrumentation-pixeltable
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build from (for example v0.7.19)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.pypi.outputs.publish }}
+    env:
+      REF: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
+    steps:
+      # checkout fails if the tag does not exist
+      - name: Require a v* release tag
+        run: |
+          if [[ "$REF" != refs/tags/v* ]]; then
+            echo "::error::$REF is not a v* release tag"
+            exit 1
+          fi
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.REF }}
+          persist-credentials: false
+      # the repo allows only GitHub-owned actions and an allowlist, so uv comes from PyPI rather than setup-uv
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install uv
+        run: python -m pip install uv==0.13.5
+      - name: Build
+        working-directory: packages/opentelemetry-instrumentation-pixeltable
+        run: uv build --no-sources --out-dir ${{ github.workspace }}/dist
+      - name: Require the version to match the pixeltable[otel] pin
+        id: version
+        shell: python
+        run: |
+          import glob, os, tomllib
+
+          [wheel] = glob.glob('dist/*.whl')
+          version = os.path.basename(wheel).split('-')[1]
+          with open('pyproject.toml', 'rb') as f:
+              otel_extra = tomllib.load(f)['project']['optional-dependencies']['otel']
+          prefix = 'opentelemetry-instrumentation-pixeltable=='
+          pins = [dep.removeprefix(prefix) for dep in otel_extra if dep.startswith(prefix)]
+          if pins != [version]:
+              print(f'::error::built version {version}, but the otel extra pins {pins}')
+              raise SystemExit(1)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'version={version}\n')
+      - name: Check whether PyPI already has this version
+        id: pypi
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          status=$(curl -s -o /dev/null -w '%{http_code}' \
+            "https://pypi.org/pypi/opentelemetry-instrumentation-pixeltable/$VERSION/json")
+          case "$status" in
+            200) echo "$VERSION is already on PyPI"; echo 'publish=false' >> "$GITHUB_OUTPUT" ;;
+            404) echo 'publish=true' >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::PyPI returned HTTP $status"; exit 1 ;;
+          esac
+      # -I keeps the checkout's pixeltable/ directory off sys.path, so the import resolves to the installed wheels
+      - name: Install the wheel and load its entry point
+        if: steps.pypi.outputs.publish == 'true'
+        run: |
+          uv run --isolated --no-project --python 3.11 --with dist/*.whl python -I -c "
+          import importlib.metadata as md
+          [ep] = [ep for ep in md.entry_points(group='opentelemetry_instrumentor') if ep.name == 'pixeltable']
+          print(ep.load())
+          "
+      - uses: actions/upload-artifact@v4
+        if: steps.pypi.outputs.publish == 'true'
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install uv
+        run: python -m pip install uv==0.13.5
+      # exchanges the job's OIDC token with PyPI's trusted publisher; no API token involved
+      - name: Publish
+        run: uv publish --trusted-publishing always dist/*

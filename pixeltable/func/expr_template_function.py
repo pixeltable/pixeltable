@@ -90,7 +90,7 @@ class ExprTemplateFunction(Function):
             {param_name: default for param_name, default in template.defaults.items() if param_name not in bound_args}
         )
         result = template.expr.copy()
-        arg_exprs: dict[exprs.Expr, exprs.Expr] = {}
+        arg_exprs: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
         for param_name, arg in bound_args.items():
             param_expr = template.param_exprs[param_name]
             if not isinstance(arg, exprs.Expr):
@@ -123,7 +123,7 @@ class ExprTemplateFunction(Function):
             }
         )
         substituted_expr = self.template.expr.copy().substitute(
-            {self.template.param_exprs[name]: expr for name, expr in with_defaults.items()}
+            exprs.ExprDict[exprs.Expr]((self.template.param_exprs[name], expr) for name, expr in with_defaults.items())
         )
         return substituted_expr.col_type
 

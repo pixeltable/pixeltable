@@ -42,7 +42,7 @@ This complex "data plumbing" slows down development, increases costs, and makes 
 ## 💾 Installation
 
 ```python
-pip install pixeltable
+pip install -U pixeltable
 ```
 
 **Pixeltable is a database.** It stores metadata and computed results persistently, typically in a `.pixeltable` directory in your workspace. See [configuration](https://docs.pixeltable.com/overview/configuration) options for your setup.
@@ -157,7 +157,7 @@ With Pixeltable, you define your *entire* data processing and AI workflow declar
 
 **1. Multimodal Data Store and Data Transformation (Computed Column):**
 ```bash
-pip install pixeltable
+pip install -U pixeltable
 ```
 
 ```python
@@ -186,7 +186,7 @@ print(t.select(t.name, t.profit).collect())
 **2. Object Detection with [YOLOX](https://github.com/pixeltable/pixeltable-yolox):**
 
 ```bash
-pip install pixeltable pixeltable-yolox
+pip install -U pixeltable pixeltable-yolox
 ```
 
 ```python
@@ -221,7 +221,7 @@ print(t.select().collect())
 **3. Image Similarity Search (CLIP Embedding Index):**
 
 ```bash
-pip install pixeltable sentence-transformers
+pip install -U pixeltable sentence-transformers
 ```
 
 ```python
@@ -263,7 +263,7 @@ print(results_image)
 **4. Multimodal/Incremental RAG Workflow (Document Chunking & LLM Call):**
 
 ```bash
-pip install pixeltable openai spacy sentence-transformers
+pip install -U pixeltable openai spacy sentence-transformers
 ```
 
 ```bash

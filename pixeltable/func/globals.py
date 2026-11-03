@@ -1,4 +1,3 @@
-import importlib
 import inspect
 from types import ModuleType
 
@@ -6,13 +5,16 @@ import pixeltable.exceptions as excs
 
 
 def resolve_symbol(symbol_path: str) -> object | None:
+    # function_registry imports function, which imports this module
+    from .function_registry import FunctionRegistry
+
     path_elems = symbol_path.split('.')
     module: ModuleType | None = None
     i = len(path_elems) - 1
     while i > 0 and module is None:
         module_path = '.'.join(path_elems[:i])
         try:
-            module = importlib.import_module(module_path)
+            module = FunctionRegistry.get().import_module(module_path)
         except ModuleNotFoundError as e:
             if e.name != module_path and not module_path.startswith(f'{e.name}.'):
                 raise
@@ -23,6 +25,17 @@ def resolve_symbol(symbol_path: str) -> object | None:
     for el in path_elems[i:]:
         obj = getattr(obj, el)
     return obj
+
+
+def import_error_msg(e: ImportError) -> str:
+    """
+    str(e) minus the module's file path, which CPython appends to "cannot import name" errors; the result is
+    safe to show to remote callers.
+    """
+    msg = str(e)
+    if e.path is not None:
+        msg = msg.replace(f'({e.path})', '').replace(e.path, '').strip()
+    return msg
 
 
 def validate_symbol_path(fn_path: str) -> None:

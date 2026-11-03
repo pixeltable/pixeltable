@@ -7,9 +7,11 @@ import sqlalchemy as sql
 
 import pixeltable.type_system as ts
 from pixeltable import catalog
+from pixeltable.row import CellError
 
 from .column_ref import ColumnRef
-from .data_row import DataRow
+from .column_ref_by_name import ColumnRefByName
+from .data_row import DataRow, StoredError
 from .expr import Expr
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
@@ -28,7 +30,7 @@ class ColumnPropertyRef(Expr):
         LOCALPATH = 3
         CELLMD = 4  # JSON metadata for the cell, e.g. errortype, errormsg for media columns
 
-    def __init__(self, col_ref: ColumnRef, prop: Property):
+    def __init__(self, col_ref: ColumnRef | ColumnRefByName, prop: Property):
         super().__init__(ts.StringType(nullable=True))
         self.components = [col_ref]
         self.prop = prop
@@ -51,7 +53,7 @@ class ColumnPropertyRef(Expr):
 
     def __repr__(self) -> str:
         # Render from the component directly (not `self.col_ref`, which requires a real `ColumnRef`): a pre-
-        # substitution model value expression may carry a placeholder `ModelColumnRef` here, which renders as its
+        # substitution model value expression may carry a placeholder ColumnRefByName here, which renders as its
         # bare column name, identically to the `ColumnRef` it stands in for.
         return f'{self.components[0]}.{self.prop.name.lower()}'
 
@@ -84,8 +86,10 @@ class ColumnPropertyRef(Expr):
         return None
 
     @classmethod
-    def create_cellmd_exc(cls, exc: Exception) -> dict[str, str]:
+    def create_cellmd_exc(cls, exc: Exception) -> CellError:
         """Create a cellmd value from an exception."""
+        if isinstance(exc, StoredError):
+            return {'errortype': exc.errortype, 'errormsg': exc.errormsg}
         return {'errortype': type(exc).__name__, 'errormsg': str(exc)}
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

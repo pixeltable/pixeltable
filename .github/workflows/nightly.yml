@@ -10,6 +10,11 @@ on:
         description: 'Enable SSH debugging with tmate'
         required: false
         default: false
+      from_main:
+        type: boolean
+        description: 'Run tests from `main` instead of `release`'
+        required: false
+        default: false
 
 env:
   PXTTEST_IN_CI: 1
@@ -44,38 +49,38 @@ jobs:
       fail-fast: false
       matrix:
         # Test with a variety of different packages on ubuntu, with the minimum and maximum supported Python versions.
-        python-version: ["3.10", "3.13"]
+        python-version: ["3.11", "3.13"]
         package-configs:
           - ""
           - "lancedb pylance mcp opencv-python scenedetect"
-          - "anthropic fireworks-ai 'google-genai<1.72.0' groq jina mistralai openai replicate together"
-          - "fal-client reve runwayml twelvelabs voyageai"
+          - "anthropic fireworks-ai google-genai groq jina mistralai openai replicate together"
+          - "fal-client runwayml twelvelabs voyageai"
           - "huggingface-hub llama-cpp-python openai-whisper"
-          - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
+          - "datasets openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
           - "pixeltable-yolox"
         os: [ubuntu-24.04]
         include:
           # transformers-based tests need to run on a larger runner.
-          - python-version: "3.10"
-            package-configs: "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm"
+          - python-version: "3.11"
+            package-configs: "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm spacy"
             os: ubuntu-large
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: "whisperx transformers timm"
             os: ubuntu-large
           # Test the basic pixeltable installation on other platforms.
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: ""
             os: macos-15
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: ""
             os: macos-15-intel
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: ""
             os: windows-2025
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: ""
             os: ubuntu-24.04-arm
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: ""
             os: ubuntu-small-t4
 
@@ -89,7 +94,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: release
+          ref: ${{ inputs.from_main && 'main' || 'release' }}
       - name: Set up tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
         uses: mxschmitt/action-tmate@v3
@@ -104,25 +109,38 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache
           df -h
       - name: Install miniforge
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniforge-version: latest
-          activate-environment: pxt
-          conda-remove-defaults: true
+        # Remote ref, not ./: the default checkout is the release tag, which may not contain this action
+        uses: pixeltable/pixeltable/.github/actions/setup-miniforge@main
       - name: Install python
         run: |
           ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=${{ matrix.python-version }} pip
           conda info
       - name: Install tools and libraries
         # cmake is needed for certain CI environments where it is not preinstalled.
-        run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
-      - name: Delete source tree
-        run: rm -rf pixeltable  # Ensure we use pypi pixeltable package for testing, not local source tree
+        run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==7.1.1=gpl*'
+      - name: Build dashboard SPA
+        # The release wheel bundles the SPA, whose build output is gitignored; tests/pixeltable_cli/test_smoke.py
+        # requests it from the daemon of the installed package
+        if: ${{ inputs.from_main }}
+        run: |
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge nodejs
+          cd dashboard && npm install --silent && npm run build
       - name: Install dependencies
         run: |
+          # Pin pixeltable to the checkout: the source tree for main, else the latest version tag at or before it
+          # (the release tag can sit past its version tag)
+          if [[ '${{ inputs.from_main }}' == 'true' ]]; then
+            PXT='.'
+          else
+            PXT="pixeltable==$(git describe --tags --abbrev=0 --match 'v[0-9]*' | sed 's/^v//')"
+          fi
           python -m pip install --upgrade pip
-          python -m pip install pixeltable ${{ matrix.package-configs }}
-          python -m pip install filelock pytest pytest-xdist pytest-rerunfailures pytest-benchmark
+          # Retried, since a new release can take a few minutes to reach every PyPI mirror
+          ./scripts/retry.sh 3 60 python -m pip install "$PXT" ${{ matrix.package-configs }}
+          # PXT-1714: lift this pin when pytest-benchmark supports pytest 9.2.
+          python -m pip install filelock 'pytest>=9.0.3,<9.2' pytest-xdist pytest-rerunfailures pytest-benchmark
+      - name: Delete source tree
+        run: rm -rf pixeltable pixeltable_cli  # Ensure we use installed packages for testing, not local source tree
       - name: Install spaCy model
         if: ${{ contains(matrix.package-configs, 'spacy') }}
         run: python -m spacy download en_core_web_sm
@@ -154,7 +172,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04]
-        python-version: ["3.10", "3.13"]
+        python-version: ["3.11", "3.13"]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -165,7 +183,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: release
+          ref: ${{ inputs.from_main && 'main' || 'release' }}
       - name: Set up tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
         uses: mxschmitt/action-tmate@v3
@@ -179,14 +197,11 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache /opt/az /opt/microsoft
           df -h
       - name: Install miniforge
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniforge-version: latest
-          conda-remove-defaults: true
+        # Remote ref, not ./: the default checkout is the release tag, which may not contain this action
+        uses: pixeltable/pixeltable/.github/actions/setup-miniforge@main
       - name: Install ollama
         run: |
-          curl -fsSL https://ollama.com/install.sh | sh
-          ollama serve &  # Start the ollama server if it didn't start via install.sh
+          ./scripts/retry.sh 3 30 ./scripts/install-ollama.sh
           sleep 10  # Wait for the ollama server to start
           # Pull the models used for testing now, with retries, to safeguard against connection issues
           ./scripts/retry.sh 3 30 ollama pull 'qwen3:0.6b'

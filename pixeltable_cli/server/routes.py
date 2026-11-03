@@ -1,49 +1,78 @@
 import datetime
 import os
+import re
+import threading
+import time
 import typing
 import urllib.parse
+import uuid
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import PIL.Image
-import sqlalchemy as sa
+import pydantic
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.catalog import Path
+from pixeltable.catalog import Path, TableMetadata, fold_identifier
+from pixeltable.catalog.model import schema
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.service import auth, db, management_client, proxy_daemon, session_cache, trial
+from pixeltable.service.management_protocol import (
+    TRACE_ID_PATTERN,
+    CreateKeyRequest,
+    CreateOrgRequest,
+    DeleteKeyRequest,
+    DeleteSecretRequest,
+    GetDbRequest,
+    GetLogsRequest,
+    GetLogsResponse,
+    GetSpansRequest,
+    GetSpansResponse,
+    ListAllSecretsRequest,
+    ListDbRequest,
+    ListKeysRequest,
+    ListOrgsRequest,
+    SetSecretRequest,
+    UpdateKeyRequest,
+)
+from pixeltable.serving import service
 from pixeltable.types import TreeNode
-from pixeltable_cli import models
-from pixeltable_cli.utils import identity, validate_path_shape
+from pixeltable.utils.http import parse_duration_str
+from pixeltable_cli import models, types
+from pixeltable_cli.utils import PxtPath
 
-from . import bridge
+from . import STARTUP_IDENTITY, bridge
+from .daemon_state import config_fingerprint, state as daemon_state
 from .router import RawResponse, Request, Router
 
 router = Router()
 _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-# Freeze the identity fingerprint at import time so /health reports what the daemon was
-# launched with, not what os.environ looks like right now. Used to trigger a daemon restart.
-_IDENTITY: dict[str, Any] = identity()
+
+def _project_root() -> str | None:
+    # classvar, not instance var: /api/health answers before anything has needed an initialized Env,
+    # and initializing one here would hold up health while the daemon starts a database
+    # TODO: is that really necessary?
+    root = Config.get().project_root
+    return None if root is None else str(root)
 
 
-def _validate_path(path: str) -> str:
-    """Reject URL paths whose shape pixeltable would later reject with a generic error."""
-    if path == '':
-        return path
-    err = validate_path_shape(path)
-    if err is not None:
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, err)
-    return path
-
-
-@router.get('/api/health')
+@router.get('/api/health', checks_env=False)
 def health(_req: Request) -> models.HealthResponse:
-    return models.HealthResponse(ok=True, pid=os.getpid(), started_at=_STARTED_AT, **_IDENTITY)
+    return models.HealthResponse(
+        ok=True,
+        pid=os.getpid(),
+        started_at=_STARTED_AT,
+        in_flight=daemon_state.in_flight_requests(),
+        project_root=_project_root(),
+        **STARTUP_IDENTITY,
+    )
 
 
-@router.get('/api/status')
+@router.get('/api/status', checks_env=False)
 def status(req: Request) -> models.StatusResponse:
     sizes = req.query_bool('sizes')
     s = bridge.get_status()
@@ -55,7 +84,8 @@ def status(req: Request) -> models.StatusResponse:
         pid=os.getpid(),
         started_at=_STARTED_AT,
         home=cfg.get('home'),
-        db_url=_redact_db_password(cfg.get('db_url')),
+        project_root=cfg.get('project_root'),
+        db_url=cfg.get('db_url'),
         media_dir=media_dir,
         file_cache_dir=file_cache_dir,
         media_size_bytes=_dir_size(media_dir) if sizes else None,
@@ -65,7 +95,7 @@ def status(req: Request) -> models.StatusResponse:
     )
 
 
-@router.get('/api/config')
+@router.get('/api/config', checks_env=False)
 def config(_req: Request) -> models.ConfigResponse:
     # Two-layer redaction so a new sensitive key never silently leaks:
     # - params from registered API client factories
@@ -81,7 +111,7 @@ def config(_req: Request) -> models.ConfigResponse:
         elif is_sensitive:
             value = '<redacted>'
         else:
-            # ck.expected_type can be a parameterized generic (eg list[ServiceConfig]).
+            # ck.expected_type can be a parameterized generic (eg list[str]).
             # Config.get_value() coerces via `expected_type(value)`, which raises TypeError
             # for types.GenericAlias; collapse to the origin (eg list) for the lookup.
             coerce_type = typing.get_origin(ck.expected_type) or ck.expected_type
@@ -97,29 +127,53 @@ def config(_req: Request) -> models.ConfigResponse:
                 expected_type=getattr(ck.expected_type, '__name__', str(ck.expected_type)),
             )
         )
-    return models.ConfigResponse(config_file=str(Config.get().config_file), entries=entries)
-
-
-@router.get('/api/dirs')
-def list_root(req: Request) -> models.LsResponse:
-    return _list_dir(
-        '', tree=req.query_bool('tree'), details=req.query_bool('details'), counts=req.query_bool('counts')
+    return models.ConfigResponse(
+        config_file=str(Config.get().config_file),
+        entries=entries,
+        env_fingerprint=config_fingerprint(),
+        env_var_names=daemon_state.known_env_vars(),
     )
 
 
-@router.get('/api/dirs/{path:path}')
+@router.get('/api/dirs', checks_env=False)
 def list_dir(req: Request) -> models.LsResponse:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     return _list_dir(
         path, tree=req.query_bool('tree'), details=req.query_bool('details'), counts=req.query_bool('counts')
     )
+
+
+@router.get('/api/cwd', checks_env=False)
+def get_cwd(req: Request) -> models.CwdResponse:
+    return models.CwdResponse(uri=daemon_state.get_wd(req.headers.get('x-pxt-session')))
+
+
+@router.post('/api/cwd', checks_env=False)
+def set_cwd(req: Request) -> models.CwdResponse:
+    session = req.headers.get('x-pxt-session')
+    if session is None:
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'no session; cannot set a working directory')
+    resolved = req.resolve_path(req.body(models.CwdBody).uri)
+    if resolved == '':
+        # the catalog root is the default (no prefix), so a working directory that resolves to root clears it
+        daemon_state.clear_wd(session)
+        return models.CwdResponse(uri=None)
+    _require_dir(resolved)
+    daemon_state.set_wd(session, resolved)
+    return models.CwdResponse(uri=resolved)
+
+
+def _require_dir(path: str) -> None:
+    """Raise if path does not name an existing directory (reuses the ls tree navigation)."""
+    path_obj = Path.parse(path, allow_empty_path=True)
+    _get_dir_children(pxt.get_dir_tree(path_obj.uri_str), '/'.join(path_obj.components))
 
 
 def _list_dir(path: str, *, tree: bool, details: bool, counts: bool) -> models.LsResponse:
     # A hosted path (pxt://<org>:<db>/...) lists a remote catalog; split off its catalog-root URI so we
     # fetch that catalog's tree and navigate by the in-catalog remainder. catalog_root is '' for a local path.
     path_obj = Path.parse(path, allow_empty_path=True)
-    db_uri = path_obj.uri
+    db_uri = path_obj.uri_str
     relative_path = '/'.join(path_obj.components)
     full_tree = pxt.get_dir_tree(db_uri)
     nodes = _get_dir_children(full_tree, relative_path)
@@ -142,11 +196,12 @@ def _reroot(nodes: list[TreeNode], catalog_root: str) -> None:
             _reroot(n['entries'], catalog_root)
 
 
-@router.get('/api/tables/{path:path}/rows')
+@router.get('/api/tables/rows')
 def table_rows(req: Request) -> models.RowsResponse:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     n = req.query_int('n', default=10, ge=1, le=1000)
     cols_list = _split_csv(req.query_str('cols'))
+    cols_list = [fold_identifier(c) for c in cols_list] if cols_list is not None else None
     if cols_list is not None and len(cols_list) > 1000:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'too many columns requested (max 1000)')
 
@@ -175,33 +230,30 @@ def table_rows(req: Request) -> models.RowsResponse:
     return models.RowsResponse(columns=columns_list, rows=out_rows)
 
 
-@router.get('/api/tables/{path:path}/row')
+@router.get('/api/tables/row')
 def table_row(req: Request) -> models.GetResponse:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     pk = req.query_list('pk')
     if len(pk) == 0:
         raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, "missing or empty 'pk' query parameter")
     if any(v.strip() == '' for v in pk):
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "'pk' query parameter contains an empty value")
-    # PK values arrive as strings over HTTP; coerce numeric-looking ones to int/float so a
-    # PK column typed as Int compares correctly. String-typed PK columns whose values look
-    # like numbers (eg the string '42') are a documented limitation - there's no way to
-    # force a string interpretation from the URL.
-    pk_values: list[Any] = [_coerce_pk(v) for v in pk]
     cols_list = _split_csv(req.query_str('cols'))
+    cols_list = [fold_identifier(c) for c in cols_list] if cols_list is not None else None
 
     t = pxt.get_table(path)
     md = t.get_metadata()
     pk_names = md.get('primary_key')
     if pk_names is None or len(pk_names) == 0:
         raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT, f'{path}: no primary key declared; row lookup requires one'
+            excs.ErrorCode.INVALID_ARGUMENT, f'{path}: no primary key defined; row lookup requires one'
         )
-    if len(pk_values) != len(pk_names):
+    if len(pk) != len(pk_names):
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            f'{path}: expected {len(pk_names)} PK value(s) for {pk_names}, got {len(pk_values)}',
+            f'{path}: expected {len(pk_names)} PK value(s) for {pk_names}, got {len(pk)}',
         )
+    pk_values: list[Any] = [_coerce_pk(v, name, md['columns'][name]['type_']) for v, name in zip(pk, pk_names)]
 
     cols_md = md['columns']
     if cols_list is not None:
@@ -222,7 +274,7 @@ def table_row(req: Request) -> models.GetResponse:
     if len(result) == 0:
         return models.GetResponse(pk_columns=pk_names, row=None)
     if len(result) > 1:
-        raise excs.Error(
+        raise excs.InternalError(
             excs.ErrorCode.INTERNAL_ERROR,
             f'{path}: {len(pk_names)}-column PK match returned multiple rows; catalog corruption?',
         )
@@ -238,41 +290,27 @@ def table_row(req: Request) -> models.GetResponse:
     return models.GetResponse(pk_columns=pk_names, row=row)
 
 
-@router.get('/api/tables/{path:path}/count')
+@router.get('/api/tables/count')
 def table_count(req: Request) -> models.CountResponse:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     return models.CountResponse(path=path, count=pxt.get_table(path).count())
 
 
-@router.get('/api/tables/{path:path}/errors')
+@router.get('/api/tables/errors')
 def table_errors(req: Request) -> models.ErrorsResponse:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     col = req.query_str('col')
+    if col is not None:
+        col = fold_identifier(col)
     t = pxt.get_table(path)
     md = t.get_metadata()
 
     pk_names = md.get('primary_key')
     if pk_names is None or len(pk_names) == 0:
         raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT, f'{path}: no primary key declared; errors view requires one'
+            excs.ErrorCode.INVALID_ARGUMENT, f'{path}: no primary key defined; errors view requires one'
         )
-
-    if col is not None:
-        col_md = md['columns'].get(col)
-        if col_md is None:
-            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'unknown column: {col}')
-        if not (col_md['is_computed'] and col_md.get('is_stored')):
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT,
-                f'{col}: not a stored computed column (errors view only addresses those)',
-            )
-
-    # errortype/errormsg only apply to stored computed columns
-    computed = [
-        name
-        for name, c in md['columns'].items()
-        if c['is_computed'] and c.get('is_stored') and (col is None or name == col)
-    ]
+    computed = _stored_computed_columns(md, col)
     if len(computed) == 0:
         return models.ErrorsResponse(entries=[])
 
@@ -286,37 +324,101 @@ def table_errors(req: Request) -> models.ErrorsResponse:
         select_args += [t[c_name].errortype, t[c_name].errormsg]
     rows = t.where(where).select(*select_args).collect()
 
+    # only a failed column needs its defining base, which a pxt:// view reads over the network
+    failed = {c_name for r in rows for c_name in computed if r[f'{c_name}_errortype'] is not None}
+    bases = {c_name: _defining_base(md, c_name) for c_name in failed}
     entries: list[models.ErrorEntry] = []
     for r in rows:
         pk = {name: r[name] for name in pk_names}
         for c_name in computed:
             etype = r[f'{c_name}_errortype']
-            emsg = r[f'{c_name}_errormsg']
             if etype is not None:
-                entries.append(models.ErrorEntry(pk=pk, column=c_name, errortype=etype, errormsg=emsg))
+                base, recomputable = bases[c_name]
+                entries.append(
+                    models.ErrorEntry(
+                        pk=pk,
+                        column=c_name,
+                        errortype=etype,
+                        errormsg=r[f'{c_name}_errormsg'],
+                        defining_base=base,
+                        recomputable=recomputable,
+                    )
+                )
     return models.ErrorsResponse(entries=entries)
 
 
-@router.get('/api/tables/{path:path}/history')
+def _stored_computed_columns(md: TableMetadata, col: str | None) -> list[str]:
+    """The columns whose errors are listed: every stored computed column, or col, which must be one."""
+    if col is None:
+        # errortype/errormsg only apply to stored computed columns
+        return [name for name, c in md['columns'].items() if c['is_computed'] and c.get('is_stored')]
+    col_md = md['columns'].get(col)
+    if col_md is None:
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'unknown column: {col}')
+    if not (col_md['is_computed'] and col_md.get('is_stored')):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'{col}: not a stored computed column (errors view only addresses those)'
+        )
+    return [col]
+
+
+def _defining_base(md: TableMetadata, column: str) -> tuple[str | None, bool]:
+    """(the path of the base that defines a column a view inherits, or None for the table's own column; whether the
+    column's cells can be recomputed there, which a snapshot's cannot).
+
+    The defining base is the furthest one up whose column has the same `defined_in`: a query view's own column can
+    shadow a base column of the same name.
+    """
+    owner = md['columns'][column]['defined_in']
+    path = None
+    while md['base'] is not None:
+        base_md = pxt.get_table(md['base']).get_metadata()
+        base_col = base_md['columns'].get(column)
+        if base_col is None or base_col['defined_in'] != owner:
+            break
+        path, md = md['base'], base_md
+    # a snapshot's base is a versioned path, such as 'dir/t:5'
+    in_snapshot = md['is_snapshot'] or (
+        path is not None and Path.parse(path, allow_versioned_path=True).version is not None
+    )
+    return path, not in_snapshot
+
+
+@router.get('/api/tables/history', checks_env=False)
 def table_history(req: Request) -> models.HistoryResponse:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     n = req.query_int('n', default=None, ge=1)
     versions = pxt.get_table(path).get_versions(n)
     return models.HistoryResponse(versions=[dict(v) for v in versions])
 
 
-@router.post('/api/tables/{path:path}/drop')
+@router.post('/api/tables/drop')
 def drop_table(req: Request) -> models.DropResponse:
-    path = _validate_path(req.path_params['path'])
     body = req.body(models.DropBody)
+    path = req.resolve_path(body.path)
     pxt.drop_table(path, force=body.cascade)
     return models.DropResponse(path=path, dropped=True)
 
 
-@router.post('/api/tables/{path:path}/revert')
+@router.post('/api/tables/recompute')
+def recompute(req: Request) -> models.RecomputeResponse:
+    body = req.body(models.RecomputeBody)
+    path = req.resolve_path(body.path)
+    t = pxt.get_table(path)
+    status = t.recompute_columns(*body.columns, errors_only=body.errors_only, cascade=body.cascade)
+    return models.RecomputeResponse(
+        path=path,
+        columns=status.updated_cols,
+        num_rows=status.num_rows,
+        num_excs=status.num_excs,
+        cols_with_excs=status.cols_with_excs,
+    )
+
+
+@router.post('/api/tables/revert')
 def revert(req: Request) -> models.RevertResponse:
-    path = _validate_path(req.path_params['path'])
     body = req.body(models.RevertBody)
+    path = req.resolve_path(body.path)
     if body.steps < 1:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'steps must be >= 1')
     t = pxt.get_table(path)
@@ -331,26 +433,25 @@ def revert(req: Request) -> models.RevertResponse:
     return models.RevertResponse(path=path, from_version=from_version, to_version=to_version)
 
 
-@router.get('/api/tables/{path:path}')
+@router.get('/api/tables/describe', checks_env=False)
 def describe_table(req: Request) -> models.DescribeResponse:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     t = pxt.get_table(path)
     return models.DescribeResponse(text=repr(t), metadata=dict(t.get_metadata()))
 
 
-@router.get('/api/columns')
+@router.get('/api/columns', checks_env=False)
 def columns(req: Request) -> models.ColumnsResponse:
     path = req.query_str('path')
     computed = req.query_bool('computed')
     # An empty `?path=` is almost always an interpolated variable resolving to empty;
-    # treat it as a bad request rather than silently dumping the full catalog.
+    # treat it as a bad request rather than silently dumping the full catalog. Omitting it is the deliberate
+    # way to ask for everything, and resolves to the working directory when one is set.
     if path == '':
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT, "'path' query parameter is empty; omit it entirely for all tables"
         )
-    if path is not None:
-        _validate_path(path)
-    paths = _resolve_table_paths(path)
+    paths = _resolve_table_paths(req.resolve_path(path or ''))
     entries: list[models.ColumnEntry] = []
     for p in paths:
         try:
@@ -375,7 +476,7 @@ def columns(req: Request) -> models.ColumnsResponse:
     return models.ColumnsResponse(entries=entries)
 
 
-@router.get('/api/indexes')
+@router.get('/api/indexes', checks_env=False)
 def indexes(req: Request) -> models.IdxsResponse:
     path = req.query_str('path')
     embedding = req.query_bool('embedding')
@@ -383,16 +484,14 @@ def indexes(req: Request) -> models.IdxsResponse:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT, "'path' query parameter is empty; omit it entirely for all tables"
         )
-    if path is not None:
-        _validate_path(path)
-    paths = _resolve_table_paths(path)
+    paths = _resolve_table_paths(req.resolve_path(path or ''))
     entries: list[models.IdxEntry] = []
     for p in paths:
         try:
             md = pxt.get_table(p).get_metadata()
         except excs.NotFoundError:
             continue
-        for name, idx in md['indices'].items():
+        for name, idx in md['indexes'].items():
             if embedding and idx['index_type'] != 'embedding':
                 continue
             params = idx.get('parameters')
@@ -409,10 +508,10 @@ def indexes(req: Request) -> models.IdxsResponse:
     return models.IdxsResponse(entries=entries)
 
 
-@router.post('/api/dirs/{path:path}/drop')
+@router.post('/api/dirs/drop')
 def drop_dir(req: Request) -> models.DropResponse:
-    path = _validate_path(req.path_params['path'])
     body = req.body(models.DropBody)
+    path = req.resolve_path(body.path)
     pxt.drop_dir(path, force=body.cascade)
     return models.DropResponse(path=path, dropped=True)
 
@@ -420,61 +519,152 @@ def drop_dir(req: Request) -> models.DropResponse:
 @router.post('/api/move')
 def move(req: Request) -> models.MoveResponse:
     body = req.body(models.MoveBody)
-    pxt.move(body.path, body.new_path)
-    return models.MoveResponse(path=body.path, new_path=body.new_path)
+    src = req.resolve_path(body.path)
+    dst = req.resolve_path(body.new_path)
+    if not body.dry_run:
+        pxt.move(src, dst)
+    return models.MoveResponse(path=src, new_path=dst)
+
+
+@router.post('/api/schema/check')
+def schema_check(req: Request) -> types.CheckReport:
+    body = req.body(models.SchemaCheckBody)
+    return schema.schema_check(body.app_file)
+
+
+@router.post('/api/schema/diff')
+def schema_diff(req: Request) -> types.SchemaPlan:
+    body = req.body(models.SchemaDiffBody)
+    return schema.schema_diff(body.app_file, req.resolve_path(body.catalog_dir))
+
+
+@router.post('/api/schema/prune')
+def schema_prune(req: Request) -> types.SchemaPlan:
+    body = req.body(models.SchemaPruneBody)
+    return schema.schema_prune(body.app_file, req.resolve_path(body.catalog_dir))
 
 
 @router.post('/api/schema/update')
-def schema_update(req: Request) -> models.SchemaUpdateResponse:
+def schema_update(req: Request) -> types.SchemaPlan:
     body = req.body(models.SchemaUpdateBody)
-    created, existed = bridge.schema_update(body.schema_path, body.target)
-    tables = [models.SchemaUpdateEntry(path=p, action='created') for p in created]
-    tables += [models.SchemaUpdateEntry(path=p, action='exists') for p in existed]
-    return models.SchemaUpdateResponse(tables=tables)
+    applied = schema.schema_update(
+        body.app_file, req.resolve_path(body.catalog_dir), allow_destructive=body.allow_destructive
+    )
+    return applied
 
 
-@router.get('/api/dashboard/search')
+@router.post('/api/service/check')
+def service_check(req: Request) -> types.CheckReport:
+    body = req.body(models.ServiceCheckBody)
+    return service.service_check(body.app_file)
+
+
+@router.post('/api/service/diff')
+def service_diff(req: Request) -> types.ServicePlan:
+    body = req.body(models.ServiceDiffBody)
+    return service.service_diff(
+        body.app_file,
+        req.resolve_path(body.target),
+        service_name=body.service_name,
+        otel=body.otel,
+        keep_release=body.keep_release,
+    )
+
+
+@router.post('/api/service/update')
+def service_update(req: Request) -> types.ServicePlan:
+    body = req.body(models.ServiceUpdateBody)
+    applied = service.service_update(
+        body.app_file,
+        req.resolve_path(body.target),
+        service_name=body.service_name,
+        allow_destructive=body.allow_destructive,
+        otel=body.otel,
+        port=body.port,
+        keep_release=body.keep_release,
+        expected_generations=body.expected_generations,
+        wait=body.wait,
+    )
+    return applied
+
+
+@router.post('/api/service/prune')
+def service_prune(req: Request) -> types.ServicePlan:
+    body = req.body(models.ServicePruneBody)
+    return service.service_prune(body.app_file, req.resolve_path(body.target), dry_run=body.dry_run)
+
+
+@router.post('/api/service/stop')
+def service_stop(req: Request) -> list[types.ServiceChangeOp]:
+    body = req.body(models.ServiceStopBody)
+    return service.service_stop(body.names, project_root=body.project_root)
+
+
+@router.post('/api/service/restart')
+def service_restart(req: Request) -> list[types.ServiceChangeOp]:
+    body = req.body(models.ServiceRestartBody)
+    return service.service_restart(body.names)
+
+
+@router.post('/api/service/retry')
+def service_retry(req: Request) -> list[types.ServiceChangeOp]:
+    body = req.body(models.ServiceRestartBody)
+    return service.service_retry(body.names)
+
+
+@router.get('/api/service/list')
+def service_list(req: Request) -> list[types.ServiceInstance]:
+    target = req.query_str('target')
+    return service.service_list(None if target is None else req.resolve_path(target))
+
+
+@router.get('/api/dashboard/search', checks_env=False)
 def dashboard_search(req: Request) -> dict[str, Any]:
     q = req.query_str('q', default='') or ''
-    limit = req.query_int('limit', default=50, ge=1, le=100)
-    if q == '':
-        return {'query': '', 'directories': [], 'tables': [], 'columns': []}
-    return bridge.search(q, limit=limit)
+    additional_catalogs = req.query_list('catalogs')
+    return bridge.search(q, additional_db_uris=additional_catalogs or None)
 
 
-@router.get('/api/dashboard/tables/{path:path}/meta')
+@router.get('/api/dashboard/tables/meta', checks_env=False)
 def dashboard_table_meta(req: Request) -> dict[str, Any]:
-    path = _validate_path(req.path_params['path'])
-    return dict(pxt.get_table(path).get_metadata())
+    path = req.resolve_path(req.query_str('path') or '')
+    tbl = pxt.get_table(path)
+    md = dict(tbl.get_metadata())
+    md['row_count'] = tbl.count()
+    return md
 
 
-@router.get('/api/dashboard/tables/{path:path}/pipeline')
+@router.get('/api/dashboard/tables/pipeline', checks_env=False)
 def dashboard_pipeline(req: Request) -> dict[str, Any]:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     return bridge.get_pipeline(tbl_path=path)
 
 
-@router.get('/api/dashboard/pipeline')
-def dashboard_pipeline_root(_req: Request) -> dict[str, Any]:
-    return bridge.get_pipeline(tbl_path=None)
+@router.get('/api/dashboard/pipeline', checks_env=False)
+def dashboard_pipeline_root(req: Request) -> dict[str, Any]:
+    raw = req.query_str('path')
+    if raw is None or raw in ('', 'local'):
+        return bridge.get_pipeline(tbl_path=None)
+    return bridge.get_pipeline(tbl_path=req.resolve_path(raw))
 
 
-@router.get('/api/dashboard/tables/{path:path}/data')
+@router.get('/api/dashboard/tables/data')
 def dashboard_table_data(req: Request) -> dict[str, Any]:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
+    order_by = req.query_str('order_by')
     return bridge.get_table_data(
         path,
         offset=req.query_int('offset', default=0, ge=0),
         limit=req.query_int('limit', default=50, ge=1, le=500),
-        order_by=req.query_str('order_by'),
+        order_by=order_by,
         order_desc=req.query_bool('order_desc'),
         errors_only=req.query_bool('errors_only'),
     )
 
 
-@router.get('/api/dashboard/tables/{path:path}/export')
+@router.get('/api/dashboard/tables/export')
 def dashboard_table_export(req: Request) -> RawResponse:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     # Whole CSV is materialized in memory by bridge.export_table_csv before sending.
     # 100k is the documented upper bound; widen later if we move to chunked streaming.
     limit = req.query_int('limit', default=100_000, ge=1, le=100_000)
@@ -495,19 +685,21 @@ def dashboard_table_export(req: Request) -> RawResponse:
 _COUNT_POOL_WORKERS = 16
 
 
-def _coerce_pk(s: str) -> Any:
-    """Numeric-looking PK strings become int or float; everything else stays a string.
+_PK_PARSERS: dict[str, Callable[[str], Any]] = {'Int': int, 'Float': float, 'String': str, 'UUID': uuid.UUID}
 
-    PK values arrive untyped over HTTP, so we restore their natural type here.
-    """
-    try:
-        return int(s)
-    except ValueError:
-        pass
-    try:
-        return float(s)
-    except ValueError:
+
+def _coerce_pk(s: str, col_name: str, col_type: str) -> Any:
+    """Parse s as the declared type of column col_name."""
+    parser = _PK_PARSERS.get(col_type)
+    if parser is None:
         return s
+    try:
+        return parser(s)
+    except ValueError as e:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'{s!r} is not a valid {col_type} value for primary key column {col_name!r}',
+        ) from e
 
 
 def _split_csv(s: str | None) -> list[str] | None:
@@ -550,7 +742,7 @@ def _to_entry(node: TreeNode, details: bool) -> models.LsEntry:
     if details:
         md = pxt.get_table(node['path']).get_metadata()
         cols = md['columns']
-        indices = md['indices']
+        indices = md['indexes']
         entry.num_cols = len(cols)
         has_computed = any(c['is_computed'] for c in cols.values())
         entry.flags = ('c' if has_computed else '') + ('i' if len(indices) > 0 else '')
@@ -576,14 +768,12 @@ def _tbl_count(path: str) -> int | None:
         return None
 
 
-def _resolve_table_paths(path: str | None) -> list[str]:
-    """Resolve an optional path to the list of table paths it designates.
+def _resolve_table_paths(path: str) -> list[str]:
+    """Resolve a path to the list of table paths it designates.
 
-    None designates every table in the in-process catalog. A directory (including a hosted db root, e.g.
-    pxt://org:db) designates every table beneath it, recursively. Any other path designates a single table.
+    A directory (including the catalog root '' and a hosted db root, e.g. pxt://org:db) designates every table
+    beneath it, recursively. Any other path designates a single table.
     """
-    if path is None:
-        return _collect_from_tree(pxt.get_dir_tree(''), scope='')
     try:
         tree = pxt.get_dir_tree(path)
     except excs.NotFoundError:
@@ -627,11 +817,445 @@ def _dir_size(path: str | None) -> int | None:
     return total
 
 
-def _redact_db_password(url: str | None) -> str | None:
-    """Replace the password in a SQLAlchemy URL with '***'. Returns None if the URL can't be parsed."""
-    if url is None:
-        return None
+# Cloud management API proxy routes
+
+
+# Each device code from /api/login/start that a poll may still redeem, and its deadline on the
+# time.monotonic() clock. Redeeming another code would sign this machine in as whoever approved it.
+_issued_device_codes: dict[str, float] = {}
+_issued_device_codes_lock = threading.Lock()
+
+# the poll answers after which a device code can still be approved (RFC 8628 section 3.5)
+_PENDING_LOGIN = ('authorization_pending', 'slow_down')
+
+
+@router.post('/api/login/start')
+def login_start(_req: Request) -> models.LoginStartResponse:
+    start = auth.device_login_start(management_client.api_url())
+    now = time.monotonic()
+    with _issued_device_codes_lock:
+        for code, deadline in list(_issued_device_codes.items()):
+            if deadline <= now:
+                del _issued_device_codes[code]
+        _issued_device_codes[start.device_code] = now + start.expires_in
+    return start
+
+
+@router.post('/api/login/poll')
+def login_poll(req: Request) -> models.LoginPollResponse:
+    body = req.body(models.LoginPollBody)
+    with _issued_device_codes_lock:
+        deadline = _issued_device_codes.get(body.device_code)
+    if deadline is None or deadline <= time.monotonic():
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            'This sign-in code was not issued by this daemon, or it has expired. Run `pxt login` again.',
+        )
+    url = management_client.api_url()
+    # read before the poll, whose session replaces a trial's record
+    replaced = _cached_trial(url)
+    answer = auth.device_login_poll(url, body.client_id, body.device_code)
+    if not isinstance(answer, auth.TokenErrorResponse) or answer.code not in _PENDING_LOGIN:
+        with _issued_device_codes_lock:
+            _issued_device_codes.pop(body.device_code, None)
+    if isinstance(answer, auth.TokenErrorResponse):
+        return models.LoginPollResponse(status=answer.code, detail=answer.description)
+    removed = None if replaced is None else _removed_trial(replaced)
+    session, failure = _scoped_to_only_org(url, answer)
+    # A rejected switch deletes the session, and another sign-in can replace it, so the cache decides the answer.
+    cached = session_cache.load(url)
+    if cached is None:
+        detail = failure or f'This sign-in was signed out before it finished. {auth.SIGN_IN_AGAIN}'
+        return models.LoginPollResponse(status='signed_out', detail=detail, replaced_trial=removed)
+    if cached.refresh_token != session.refresh_token:
+        return models.LoginPollResponse(
+            status='superseded',
+            replaced_trial=removed,
+            detail='Another sign-in on this machine replaced this one. '
+            'Run `pxt whoami` to see which account is in use.',
+        )
+    return models.LoginPollResponse(
+        status='granted', email=session.email, organization_id=session.organization_id, replaced_trial=removed
+    )
+
+
+def _scoped_to_only_org(api_url: str, granted: session_cache.Session) -> tuple[session_cache.Session, str]:
+    """The session, and why the lookup or the switch failed: empty when neither did."""
+    cred = management_client.configured_credential()
+    # an API key outranks the session, so commands would not send a switched session
+    if granted.organization_id != '' or cred is None or cred.kind != 'session':
+        return granted, ''
+    sent = management_client.Credential('session', granted.access_token, f'your `pxt login` session for {api_url}')
     try:
-        return sa.make_url(url).render_as_string(hide_password=True)
-    except Exception:
+        org_id = _only_org_id(management_client.api_call(ListOrgsRequest(), credential=sent))
+        if org_id == '':
+            # TODO(pierrebrunelle): a member of several organizations stays unscoped, and needs an API key from one.
+            # Scope each command to the organization in its pxt:// URI once such members exist.
+            return granted, ''
+        return auth.rescope(api_url, org_id, expected=granted), ''
+    except (excs.Error, OSError) as e:
+        return granted, e.message if isinstance(e, excs.Error) else e.strerror or type(e).__name__
+
+
+def _only_org_id(answer: Any) -> str:
+    orgs = answer.get('orgs') if isinstance(answer, dict) else None
+    if not isinstance(orgs, list) or len(orgs) != 1 or not isinstance(orgs[0], dict):
+        return ''
+    org_id = orgs[0].get('org_id')
+    return org_id if isinstance(org_id, str) else ''
+
+
+def _trial_org(cached: session_cache.Trial) -> models.TrialOrg:
+    return models.TrialOrg(
+        org=cached.org,
+        org_id=cached.org_id,
+        db=cached.db,
+        expires_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(cached.expires_at)),
+        expired=cached.is_expired(),
+    )
+
+
+def _removed_trial(cached: session_cache.Trial) -> models.TrialOrgWithClaimUrl:
+    """A trial whose record is being removed, with the claim link that nothing on this machine keeps afterwards."""
+    return models.TrialOrgWithClaimUrl(**_trial_org(cached).model_dump(), claim_url=cached.claim_url)
+
+
+def _cached_trial(api_url: str) -> session_cache.Trial | None:
+    """The trial cached for api_url; None for a session, and for a file that is unreadable or other users can read."""
+    try:
+        cached = session_cache.load_credential(api_url)
+    except excs.AuthorizationError:
         return None
+    return cached if isinstance(cached, session_cache.Trial) else None
+
+
+@router.post('/api/trial')
+def new_trial(_req: Request) -> models.NewResponse:
+    url = management_client.api_url()
+    result = trial.new_trial(url)
+    return models.NewResponse(
+        trial=_trial_org(result.trial),
+        created=result.created,
+        claim_url=result.trial.claim_url if result.created else None,
+        api_url=url,
+        warnings=list(result.warnings),
+    )
+
+
+@router.get('/api/whoami')
+def whoami(req: Request) -> models.WhoamiResponse:
+    url = management_client.api_url()
+    cred = management_client.configured_credential()
+    # An API key takes precedence, and may belong to a different account than a cached session or trial.
+    cached = session_cache.load_credential(url) if cred is not None and cred.kind != 'api_key' else None
+    session = cached if isinstance(cached, session_cache.Session) else None
+
+    # A cached session says nothing about whether it still works: it can be revoked, and another
+    # device can rotate its refresh token away.
+    rejection = ''
+    note = ''
+    if not req.query_bool('offline') and cred is not None:
+        try:
+            management_client.api_call(ListOrgsRequest())
+        except excs.Error as e:
+            # A 401 arrives as ExternalServiceError, so the code separates a refused credential
+            # from an outage where the class does not. A 403 refuses the operation, not the credential.
+            if e.error_code == excs.ErrorCode.INSUFFICIENT_PRIVILEGES:
+                note = e.message
+            elif e.error_code in (excs.ErrorCode.PROVIDER_AUTH_ERROR, excs.ErrorCode.MISSING_CREDENTIALS):
+                rejection = e.message
+            else:
+                raise
+
+    return models.WhoamiResponse(
+        api_url=url,
+        email=session.email if session is not None else '',
+        organization_id=session.organization_id if session is not None else '',
+        using=cred.kind if cred is not None else 'none',
+        credential_source=cred.source if cred is not None else 'nothing',
+        accepted=cred is not None and rejection == '',
+        rejection=rejection,
+        note=note,
+        trial=_trial_org(cached) if isinstance(cached, session_cache.Trial) else None,
+    )
+
+
+@router.post('/api/logout')
+def logout(_req: Request) -> models.LogoutResponse:
+    url = management_client.api_url()
+    # the browser's sign-out needs the session id, so read it before clearing; clearing needs no network
+    session = session_cache.load_for_sign_out(url)
+    cached_trial = _cached_trial(url)
+    signed_out = session_cache.clear(url)
+    browser_url = ''
+    warning = ''
+    if session is not None:
+        try:
+            browser_url = auth.browser_logout_url(url, session)
+        except excs.Error as e:
+            warning = f'This machine is signed out, but the browser could not be signed out: {e.message}'
+    return models.LogoutResponse(
+        signed_out=signed_out,
+        browser_logout_url=browser_url,
+        warning=warning,
+        trial=None if cached_trial is None else _removed_trial(cached_trial),
+    )
+
+
+@router.get('/api/orgs')
+def list_orgs(_req: Request) -> dict[str, Any]:
+    return management_client.api_call(ListOrgsRequest())
+
+
+@router.post('/api/org/create')
+def create_org(req: Request) -> models.OrgCreateResponse:
+    body = req.body(CreateOrgRequest)
+    # read before the call, since the reply depends on which credential created the organization
+    cred = management_client.configured_credential()
+    created = management_client.api_call(body)
+    name = str(created.get('org') or body.org)
+    if cred is not None and cred.kind != 'session':
+        return models.OrgCreateResponse(
+            org=created,
+            warning=f'Your API key stays bound to its own organization, and outranks a `pxt login` session. '
+            f'To work in {name}, use a key created in {name}, or remove the API key ({cred.source}) and run '
+            '`pxt login`.',
+        )
+
+    # The control plane takes the organization from the token, so the session is renewed for the new one.
+    # The organization exists by now and create_org must not be repeated, so a failed switch is a warning.
+    org_id = str(created.get('org_id') or '')
+    if org_id == '':
+        return models.OrgCreateResponse(
+            org=created,
+            warning=f'Pixeltable Cloud did not return the id of {name}, so your `pxt login` session was not '
+            f'switched to it. Run `pxt login` to use {name}.',
+        )
+    try:
+        session = auth.rescope(management_client.api_url(), org_id)
+    except (excs.Error, OSError) as e:
+        reason = e.message if isinstance(e, excs.Error) else e.strerror or type(e).__name__
+        # an AuthorizationError already says how to sign in again
+        hint = '' if isinstance(e, excs.AuthorizationError) else f' Run `pxt login` to use {name}.'
+        return models.OrgCreateResponse(
+            org=created, warning=f'Your `pxt login` session could not switch to {name}: {reason}{hint}'
+        )
+    return models.OrgCreateResponse(org=created, session_organization_id=session.organization_id)
+
+
+@router.get('/api/org')
+def get_org(req: Request) -> dict[str, Any]:
+    org = req.query_str('org')
+    # the management API has no single-org read; pick the requested one out of the accessible orgs
+    orgs = management_client.api_call(ListOrgsRequest()).get('orgs', [])
+    if org is None:
+        if len(orgs) != 1:
+            names = ', '.join(sorted(o.get('org', '') for o in orgs))
+            raise excs.RequestError(
+                excs.ErrorCode.MISSING_REQUIRED, f'name the org: pxt://<org>. You have {len(orgs)}: {names}'
+            )
+        return {'org': orgs[0]}
+    result = next((o for o in orgs if o.get('org') == org), None)
+    if result is None:
+        raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f"Org '{org}' not found")
+    return {'org': result}
+
+
+@router.get('/api/dbs')
+def list_dbs(req: Request) -> dict[str, Any]:
+    return management_client.api_call(ListDbRequest(org=req.query_str('org')))
+
+
+@router.get('/api/secrets')
+def list_secrets(req: Request) -> dict[str, Any]:
+    return management_client.api_call(ListAllSecretsRequest(org=req.query_str('org'), db=req.query_str('db')))
+
+
+@router.post('/api/secrets')
+def set_secret(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(SetSecretRequest))
+
+
+@router.post('/api/secrets/delete')
+def delete_secret(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(DeleteSecretRequest))
+
+
+@router.get('/api/keys')
+def list_keys(_req: Request) -> dict[str, Any]:
+    return management_client.api_call(ListKeysRequest())
+
+
+@router.post('/api/key/create')
+def create_key(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(CreateKeyRequest))
+
+
+@router.post('/api/key/update')
+def update_key(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(UpdateKeyRequest))
+
+
+@router.post('/api/key/delete')
+def delete_key(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(DeleteKeyRequest))
+
+
+class _GetUsageRequest(pydantic.BaseModel):
+    operation_type: typing.Literal['get_usage'] = management_client.GET_USAGE
+
+
+@router.get('/api/usage')
+def get_usage(_req: Request) -> dict[str, Any]:
+    return management_client.api_call(_GetUsageRequest())
+
+
+@router.get('/api/db')
+def get_db(req: Request) -> dict[str, Any]:
+    """The database's report; with missing_ok, an empty one for a database that does not exist."""
+    request = GetDbRequest(org=req.required_query_str('org'), db=req.required_query_str('db'))
+    try:
+        return management_client.api_call(request)
+    except excs.ExternalServiceError as exc:
+        if exc.provider_http_status_code != 404 or not req.query_bool('missing_ok'):
+            raise
+        return {'report': {}, 'worker_status': []}
+
+
+def _lifecycle_response(db_uri: str, receipt: types.GenerationReceipt) -> models.DbLifecycleResponse:
+    db_path = Path.parse(db_uri, allow_empty_path=True)
+    try:
+        current = management_client.api_call(GetDbRequest(org=db_path.org, db=db_path.db))
+    except excs.ExternalServiceError as exc:
+        if exc.provider_http_status_code != 404:
+            raise
+        return models.DbLifecycleResponse(receipt=receipt)
+    return models.DbLifecycleResponse(
+        receipt=receipt, report=current.get('report') or {}, worker_status=current.get('worker_status') or []
+    )
+
+
+def _change_db_lifecycle(req: Request, action: db.DbAction) -> models.DbLifecycleResponse:
+    body = req.body(models.DbLifecycleBody)
+    return _lifecycle_response(body.db_uri, db.db_change_lifecycle(body.db_uri, action, wait=body.wait))
+
+
+@router.post('/api/db/delete')
+def delete_db(req: Request) -> models.DbLifecycleResponse:
+    return _change_db_lifecycle(req, 'delete')
+
+
+@router.post('/api/db/start')
+def start_db(req: Request) -> models.DbLifecycleResponse:
+    return _change_db_lifecycle(req, 'start')
+
+
+@router.post('/api/db/stop')
+def stop_db(req: Request) -> models.DbLifecycleResponse:
+    return _change_db_lifecycle(req, 'stop')
+
+
+@router.post('/api/db/restart')
+def restart_db(req: Request) -> models.DbLifecycleResponse:
+    return _change_db_lifecycle(req, 'restart')
+
+
+@router.post('/api/db/retry')
+def retry_db(req: Request) -> models.DbLifecycleResponse:
+    body = req.body(models.DbLifecycleBody)
+    return _lifecycle_response(body.db_uri, db.db_retry(body.db_uri, wait=body.wait))
+
+
+def _read_window(req: Request) -> tuple[int, int]:
+    """Return the since_seconds and limit of a read of logs or spans."""
+    since = req.query_str('since') or '1h'
+    since_seconds = parse_duration_str(since)
+    if since_seconds is None or since_seconds < 1:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f"'since' must be a duration such as 30s, 10m, 1h or 2d; got {since!r}"
+        )
+    limit = req.query_int('limit', default=200, ge=1, le=10000)
+    return int(since_seconds), limit
+
+
+@router.get('/api/logs')
+def get_logs(req: Request) -> dict[str, Any]:
+    """Return the log of a database's pod (org and db), or of one service (service)."""
+    since_seconds, limit = _read_window(req)
+    include_health = req.query_bool('include_health')
+    service_address = req.query_str('service')
+    if service_address is not None:
+        records = service.service_logs(
+            PxtPath(service_address), since_seconds=since_seconds, limit=limit, include_health=include_health
+        )
+        return GetLogsResponse(records=list(records)).model_dump(mode='json')
+    org, db_name = req.required_query_str('org'), req.required_query_str('db')
+    if org == 'local':
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'A database on this machine writes its log to {proxy_daemon.log_path(db_name)}. '
+            "'pxt db logs' reads the log of a Pixeltable Cloud database, such as pxt://org:db. "
+            "Run 'pxt new' to get a free Pixeltable Cloud trial database. "
+            "To deploy to a Pixeltable Cloud database, run 'pxt db update pxt://org:db'.",
+        )
+    return management_client.api_call(
+        GetLogsRequest(org=org, db=db_name, since_seconds=since_seconds, limit=limit, include_health=include_health)
+    )
+
+
+@router.get('/api/spans')
+def get_spans(req: Request) -> dict[str, Any]:
+    """Return the sampled spans of a database's pod (org and db), or of one service (service)."""
+    since_seconds, limit = _read_window(req)
+    trace_id = req.query_str('trace_id')
+    if trace_id is not None and re.fullmatch(TRACE_ID_PATTERN, trace_id) is None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f"'trace_id' must be 32 lowercase hex digits; got {trace_id!r}"
+        )
+    service_address = req.query_str('service')
+    if service_address is not None:
+        spans = service.service_spans(
+            PxtPath(service_address), since_seconds=since_seconds, limit=limit, trace_id=trace_id
+        )
+        return GetSpansResponse(spans=list(spans)).model_dump(mode='json')
+    org, db_name = req.required_query_str('org'), req.required_query_str('db')
+    if org == 'local':
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            'Reading the spans of a database on this machine is not supported. Set OTEL_SPAN_DUMP (the span_dump '
+            'option in the [otel] config section) to write them to a file.',
+        )
+    return management_client.api_call(
+        GetSpansRequest(org=org, db=db_name, since_seconds=since_seconds, limit=limit, trace_id=trace_id)
+    )
+
+
+# the verbs above forward a management-protocol request: the daemon is a pass-through to the control plane.
+# The three below read the project first, so they take a body of their own and call the bridge.
+@router.post('/api/db/diff')
+def db_diff(req: Request) -> types.DbPlan:
+    return db.db_diff(req.body(models.DbDiffBody).db_uri)
+
+
+@router.post('/api/db/update')
+def db_update(req: Request) -> types.DbPlan:
+    body = req.body(models.DbUpdateBody)
+    return db.db_update(
+        body.db_uri,
+        allow_destructive=body.allow_destructive,
+        expected_generation=body.expected_generation,
+        wait=body.wait,
+    )
+
+
+@router.post('/api/db/build-image')
+def db_build_image(req: Request) -> models.DbBuildImageResponse:
+    body = req.body(models.DbBuildImageBody)
+    ops, accepted = db.db_build_image(body.db_uri, wait=body.wait)
+    return models.DbBuildImageResponse(ops=ops, receipts=accepted)
+
+
+@router.post('/api/receipts')
+def receipts(req: Request) -> models.ReceiptsResponse:
+    body = req.body(models.ReceiptsBody)
+    return models.ReceiptsResponse(receipts=db.db_receipts(body.db_uri, body.receipts))

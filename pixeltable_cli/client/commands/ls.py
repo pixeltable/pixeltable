@@ -1,8 +1,9 @@
-import json
 from typing import Any
 
-from ..http import get, quote_path
+from pixeltable_cli import models
+
 from ..parser import Parser
+from ..utils import display_path, get_request, print_aligned, validate_path_arg
 
 EPILOG = """\
 Columns under -l:
@@ -32,15 +33,27 @@ def run(argv: list[str]) -> None:
 
     # Only -l/--long triggers the per-entry get_metadata() fetch. JSON consumers who want
     # the full schema info pass -l --json; bare --json stays cheap on large catalogs.
-    url = '/api/dirs' if args.path == '' else f'/api/dirs/{quote_path(args.path)}'
-    resp = get(url, params={'tree': args.tree or None, 'details': args.long or None, 'counts': args.counts or None})
+    # An empty path is sent as no path at all, so the daemon lists the session working directory
+    # (the catalog root when none is set).
+    path = validate_path_arg(args.path) if args.path != '' else None
+    resp = models.LsResponse.model_validate(
+        get_request(
+            '/api/dirs',
+            params={
+                'path': path,
+                'tree': args.tree or None,
+                'details': args.long or None,
+                'counts': args.counts or None,
+            },
+        )
+    )
 
     if args.as_json:
-        print(json.dumps(resp, indent=2))
+        print(resp.model_dump_json(indent=2))
         return
 
     if args.tree:
-        _print_tree(resp['tree'])
+        _print_tree(resp.tree)
         return
 
     headers = ['path', 'kind']
@@ -53,32 +66,18 @@ def run(argv: list[str]) -> None:
         right_align.update({len(headers) - 3, len(headers) - 2})
 
     rows: list[list[str]] = []
-    for e in resp['entries']:
-        row = [e['path'], e['kind']]
+    for e in resp.entries:
+        row = [display_path(e.path), e.kind]
         if args.counts:
-            row.append('' if e.get('num_rows') is None else str(e['num_rows']))
+            row.append('' if e.num_rows is None else str(e.num_rows))
         if args.long:
-            row.append('' if e.get('num_cols') is None else str(e['num_cols']))
-            row.append('' if e.get('last_version') is None else str(e['last_version']))
-            flags = e.get('flags')
+            row.append('' if e.num_cols is None else str(e.num_cols))
+            row.append('' if e.last_version is None else str(e.last_version))
+            flags = e.flags
             row.append(flags if flags is not None and flags != '' else '-')
         rows.append(row)
 
-    _print_aligned(headers, rows, right_align)
-
-
-def _print_aligned(headers: list[str], rows: list[list[str]], right_align: set[int]) -> None:
-    if len(rows) == 0:
-        return
-    widths = [max(len(c) for c in col) for col in zip(headers, *rows)]
-
-    def fmt(r: list[str]) -> str:
-        cells = [c.rjust(w) if i in right_align else c.ljust(w) for i, (c, w) in enumerate(zip(r, widths))]
-        return '  '.join(cells).rstrip()
-
-    print(fmt(headers))
-    for r in rows:
-        print(fmt(r))
+    print_aligned(headers, rows, right_align)
 
 
 def _print_tree(node: dict[str, Any], prefix: str = '') -> None:

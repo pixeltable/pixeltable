@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import itertools
 import logging
 from collections import deque
 from concurrent import futures
 from pathlib import Path
-from typing import AsyncIterator, Iterator
+from typing import AsyncGenerator, AsyncIterator, Iterator
 from uuid import UUID
 
-from pixeltable import exceptions as excs, exprs, telemetry
+from pixeltable import exceptions as excs, exprs, telemetry, telemetry_schemas
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.http import fetch_url, redact_url
 from pixeltable.utils.progress_reporter import ProgressReporter
@@ -95,37 +96,40 @@ class CachePrefetchNode(ExecNode):
             self.input_finished = True
             return None
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        input_iter = aiter(self.input)
-        with futures.ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
-            while True:
-                # Create work to fill the queue to the high water mark ... ?without overrunning the in-flight row limit.
-                while not self.input_finished and self.queued_work < self.QUEUE_DEPTH_HIGH_WATER:
-                    input_batch = await self.get_input_batch(input_iter)
-                    if input_batch is not None:
-                        self.__process_input_batch(input_batch, executor)
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
+        async with contextlib.aclosing(aiter(self.input)) as input_iter:
+            with futures.ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
+                while True:
+                    # Create work to fill the queue to the high water mark,
+                    # without overrunning the in-flight row limit.
+                    while not self.input_finished and self.queued_work < self.QUEUE_DEPTH_HIGH_WATER:
+                        input_batch = await self.get_input_batch(input_iter)
+                        if input_batch is not None:
+                            self.__process_input_batch(input_batch, executor)
 
-                # Wait for enough completions to enable more queueing or if we're done
-                while self.queued_work > self.QUEUE_DEPTH_LOW_WATER or (self.input_finished and self.queued_work > 0):
-                    done, _ = futures.wait(self.in_flight_requests, return_when=futures.FIRST_COMPLETED)
-                    self.__process_completions(done, ignore_errors=self.ctx.ignore_errors)
+                    # Wait for enough completions to enable more queueing or if we're done
+                    while self.queued_work > self.QUEUE_DEPTH_LOW_WATER or (
+                        self.input_finished and self.queued_work > 0
+                    ):
+                        done, _ = futures.wait(self.in_flight_requests, return_when=futures.FIRST_COMPLETED)
+                        self.__process_completions(done, ignore_errors=self.ctx.ignore_errors)
 
-                # Emit results to meet batch size requirements or empty the in-flight row queue
-                if self.__has_ready_batch() or (
-                    len(self.ready_rows) > 0 and self.input_finished and self.queued_work == 0
-                ):
-                    # create DataRowBatch from the first BATCH_SIZE ready rows
-                    batch = DataRowBatch(self.row_builder)
-                    rows = [self.ready_rows.popleft() for _ in range(min(self.BATCH_SIZE, len(self.ready_rows)))]
-                    for row in rows:
-                        assert row is not None
-                        batch.add_row(row)
-                    self.num_returned_rows += len(rows)
-                    _logger.debug(f'returning {len(rows)} rows')
-                    yield batch
+                    # Emit results to meet batch size requirements or empty the in-flight row queue
+                    if self.__has_ready_batch() or (
+                        len(self.ready_rows) > 0 and self.input_finished and self.queued_work == 0
+                    ):
+                        # create DataRowBatch from the first BATCH_SIZE ready rows
+                        batch = DataRowBatch(self.row_builder)
+                        rows = [self.ready_rows.popleft() for _ in range(min(self.BATCH_SIZE, len(self.ready_rows)))]
+                        for row in rows:
+                            assert row is not None
+                            batch.add_row(row)
+                        self.num_returned_rows += len(rows)
+                        _logger.debug(f'returning {len(rows)} rows')
+                        yield batch
 
-                if self.input_finished and self.queued_work == 0 and len(self.ready_rows) == 0:
-                    return
+                    if self.input_finished and self.queued_work == 0 and len(self.ready_rows) == 0:
+                        return
 
     def __has_ready_batch(self) -> bool:
         """True if there are >= BATCH_SIZES entries in ready_rows and the first BATCH_SIZE ones are all non-None"""
@@ -147,6 +151,7 @@ class CachePrefetchNode(ExecNode):
         file_cache = FileCache.get()
         num_objects = 0
         num_bytes = 0
+        bytes_per_tbl: dict[tuple[str, str], int] = {}  # (table name, table id) -> bytes fetched
 
         for f in done:
             url = self.in_flight_requests.pop(f)
@@ -156,12 +161,16 @@ class CachePrefetchNode(ExecNode):
             local_path: Path | None = None
             if tmp_path is not None:
                 num_objects += 1
-                num_bytes += tmp_path.stat().st_size
+                file_size = tmp_path.stat().st_size
+                num_bytes += file_size
 
                 # register the file with the cache for the first column in which it's missing
                 assert url in self.in_flight_urls
                 _, info = self.in_flight_urls[url][0]
-                local_path = file_cache.add(info.col.get_tbl().id, info.col.id, url, tmp_path)
+                tbl = info.col.get_tbl()
+                key = (tbl.name, str(tbl.id))
+                bytes_per_tbl[key] = bytes_per_tbl.get(key, 0) + file_size
+                local_path = file_cache.add(tbl.id, info.col.id, url, tmp_path)
                 _logger.debug(f'cached {redact_url(url)} as {local_path}')
 
             # add the local path/exception to the slots that reference the url
@@ -177,6 +186,8 @@ class CachePrefetchNode(ExecNode):
                     del self.in_flight_rows[id(row)]
                     self.__add_ready_row(row, state.idx)
 
+        for (table, table_id), n in bytes_per_tbl.items():
+            telemetry_schemas.media_fetched_bytes.add(n, table=table, table_id=table_id)
         if self.ctx.show_progress:
             self.progress_reporter.update(num_objects, num_bytes)
 
@@ -235,9 +246,13 @@ class CachePrefetchNode(ExecNode):
         hooks_token = telemetry.restore_context(hooks_ctx)
         safe_url = redact_url(url)
         try:
-            with telemetry.span('pixeltable.media.fetch', level=telemetry.DEBUG, url=safe_url):
+            with telemetry.span(
+                'pixeltable.media.fetch', level=telemetry.DEBUG, **telemetry_schemas.MediaFetchAttrs(url=safe_url)
+            ) as fetch_span:
                 try:
-                    return fetch_url(url), None
+                    tmp_path = fetch_url(url)
+                    telemetry.add_attrs(fetch_span, **telemetry_schemas.MediaFetchAttrs(bytes=tmp_path.stat().st_size))
+                    return tmp_path, None
                 except Exception as e:
                     # The original exception can repeat the signed URL; export only its type and the redacted URL.
                     raise excs.ExternalServiceError(

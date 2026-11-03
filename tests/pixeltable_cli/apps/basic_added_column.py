@@ -1,0 +1,61 @@
+"""basic.py plus one column: the additive drift a schema diff reports and update applies."""
+
+# ruff: noqa: F821  # a model body refers to its own columns by bare name
+
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+from apps.basic import excerpt
+from pixeltable.serving import FastAPIRouter
+
+TableModel = pxt.model_base()
+
+
+class Docs(TableModel, name='docs'):
+    doc_id = pxt.Column(type=pxt.Int, primary_key=True)
+    title: pxt.String
+    body: pxt.String | None
+    rating: pxt.Float | None
+    author: pxt.String | None
+    published: pxt.Bool
+    posted_at: pxt.Timestamp | None
+    tags: pxt.Json | None
+    title_upper = pxtf.string.upper(title)
+    summary = excerpt(title)
+    unstored = pxt.Column(value=pxtf.string.lower(title), stored=False)
+
+
+class Published(TableModel, name='published', base=Docs.where(Docs.published)):
+    """A view of the rows that satisfy a filter."""
+
+    headline = Docs.title_upper + '!'
+
+
+class Titles(TableModel, name='titles', base=Docs.select(Docs.doc_id, t=Docs.title)):
+    """A view that projects its base rather than inheriting every column."""
+
+    shouted = t + '!'  # type: ignore[name-defined]  # t is the select() alias, referenceable in the body
+
+
+ingest = FastAPIRouter(name='ingest')
+ingest.add_insert_route(
+    Docs,
+    path='/docs',
+    # every column the table requires has to be an input; the nullable ones may be left out
+    inputs=[Docs.doc_id, Docs.title, Docs.body, Docs.published],  # type: ignore[arg-type]
+    outputs=[Docs.title_upper, Docs.summary],
+)
+# a compute route builds a row without storing it; inputs beyond what its outputs need are accepted and ignored
+ingest.add_compute_route(
+    Docs,
+    path='/preview',
+    inputs=[Docs.doc_id, Docs.title, Docs.published],  # type: ignore[arg-type]
+    outputs=[Docs.summary],
+)
+# the row is identified by its primary key, which the request carries but which is not an input
+ingest.add_update_route(
+    Docs,
+    path='/docs/update',
+    inputs=[Docs.title],
+    outputs=[Docs.title_upper],  # type: ignore[arg-type]
+)
+ingest.add_delete_route(Docs, path='/docs/delete')

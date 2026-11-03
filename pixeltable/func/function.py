@@ -6,14 +6,14 @@ import itertools
 import typing
 from abc import ABC, abstractmethod
 from copy import copy
-from typing import TYPE_CHECKING, Any, Callable, Sequence, cast
+from typing import TYPE_CHECKING, Any, Callable, Self, Sequence, cast
 
 import sqlalchemy as sql
-from typing_extensions import Self
 
 from pixeltable import exceptions as excs, type_system as ts
+from pixeltable.config import Config
 
-from .globals import resolve_symbol
+from .globals import import_error_msg, resolve_symbol
 from .signature import Signature
 
 if TYPE_CHECKING:
@@ -543,12 +543,27 @@ class Function(ABC):
             instance = resolve_symbol(path)
             if isinstance(instance, Function):
                 return instance
+            elif instance is None:
+                # we couldn't resolve the path
+                detail = (
+                    '(There is no configured project root; did you forget to run `pxt init` in the '
+                    "project's top-level directory?)"
+                    if Config.get().project_root is None
+                    # the message is also shown to remote callers, so it must not contain the absolute path
+                    else 'A module outside the project root is only importable if it is installed.'
+                )
+                return InvalidFunction(path, d, f'{path!r} names no importable module. {detail}')
             else:
                 return InvalidFunction(
-                    path, d, f'the symbol {path!r} is no longer a UDF. (Was the `@pxt.udf` decorator removed?)'
+                    path, d, f'the symbol `{path}` is no longer a UDF. (Was the `@pxt.udf` decorator removed?)'
                 )
-        except (AttributeError, ImportError):
-            return InvalidFunction(path, d, f'the symbol {path!r} no longer exists. (Was the UDF moved or renamed?)')
+        except AttributeError:
+            return InvalidFunction(path, d, f'the symbol `{path}` no longer exists. (Was the UDF moved or renamed?)')
+        except ImportError as e:
+            # the module is still there but cannot be imported; the error text identifies the missing dependency
+            return InvalidFunction(
+                path, d, f'a module required by `{path}` could not be imported: {import_error_msg(e)}'
+            )
 
     def to_store(self) -> tuple[dict, bytes]:
         """

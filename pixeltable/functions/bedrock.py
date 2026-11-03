@@ -1,7 +1,7 @@
 """
 Pixeltable UDFs for AWS Bedrock AI models.
 In order to use them, you must
-first `pip install boto3` and configure your AWS credentials, as described in
+first configure your AWS credentials, as described in
 the [Working with Bedrock](https://docs.pixeltable.com/howto/providers/working-with-bedrock) tutorial.
 """
 
@@ -9,7 +9,9 @@ import asyncio
 import base64
 import io
 import json
+import logging
 import mimetypes
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
@@ -24,6 +26,7 @@ from pixeltable.config import Config
 from pixeltable.func import Tools
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.http import is_retryable_error
 from pixeltable.utils.image import default_format, to_base64, to_bytes
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageObjectAddress
@@ -32,6 +35,9 @@ if TYPE_CHECKING:
     from botocore.client import BaseClient
 
     from pixeltable.utils.s3_store import S3Store
+
+_logger = logging.getLogger(__name__)
+
 _ASYNC_INVOCATION_POLL_INTERVAL_SECS = 5.0
 
 _ASYNC_INVOCATION_TIMEOUT_SECS = 600.0
@@ -249,22 +255,27 @@ async def _bedrock_async_invocation(
     invocation_arn: str = response['invocationArn']
     invocation_id: str = invocation_arn.rsplit('/', maxsplit=1)[-1]
 
-    elapsed = 0.0
+    deadline = time.monotonic() + _ASYNC_INVOCATION_TIMEOUT_SECS
     result_prefix = f'{soa.prefix}{invocation_id}/'
     keys: list[str] = []
     try:
         while True:
             await asyncio.sleep(_ASYNC_INVOCATION_POLL_INTERVAL_SECS)
-            elapsed += _ASYNC_INVOCATION_POLL_INTERVAL_SECS
-            if elapsed > _ASYNC_INVOCATION_TIMEOUT_SECS:
+            if time.monotonic() > deadline:
                 raise pxt.ExternalServiceError(
                     pxt.ErrorCode.PROVIDER_TIMEOUT,
                     f'Async invocation {invocation_id} timed out after {_ASYNC_INVOCATION_TIMEOUT_SECS}s',
                     provider='bedrock',
                 )
-            job: dict[str, Any] = await asyncio.to_thread(
-                _bedrock_client().get_async_invoke, invocationArn=invocation_arn
-            )
+            try:
+                job: dict[str, Any] = await asyncio.to_thread(
+                    _bedrock_client().get_async_invoke, invocationArn=invocation_arn
+                )
+            except Exception as exc:
+                if is_retryable_error(exc)[0]:
+                    _logger.debug(f'Polling async invocation {invocation_id} failed, will poll again: {exc}')
+                    continue
+                raise
             status: str = job['status']
             if status == 'Completed':
                 break
@@ -279,7 +290,7 @@ async def _bedrock_async_invocation(
         keys = [obj['Key'] for obj in listed.get('Contents', [])]
         if not keys:
             raise pxt.ExternalServiceError(
-                pxt.ErrorCode.PROVIDER_ERROR,
+                pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
                 f'No output found at {output_location}/{invocation_id} after job {invocation_id} completed',
                 provider='bedrock',
             )
@@ -287,7 +298,7 @@ async def _bedrock_async_invocation(
         result_key = next((k for k in keys if not k.endswith('manifest.json')), None)
         if result_key is None:
             raise pxt.ExternalServiceError(
-                pxt.ErrorCode.PROVIDER_ERROR,
+                pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
                 f'No output file (only manifest) found for job {invocation_id}',
                 provider='bedrock',
             )
@@ -340,9 +351,9 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
     (set environment variable `BEDROCK_TEMP_LOCATION` or add `temp_location` to the `[bedrock]` section of
     your Pixeltable configuration file).
 
-    __Requirements:__
-
-    - `pip install boto3`
+    Request throttling:
+    Applies the rate limit set in the config (section `bedrock.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     Args:
         body: The prompt and inference parameters as a dictionary.
@@ -410,9 +421,7 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
         ...     ],
         ... }
         >>> tbl.add_computed_column(
-        ...     response=invoke_model(
-        ...         body, model_id='anthropic.claude-3-haiku-20240307-v1:0'
-        ...     )
+        ...     response=invoke_model(body, model_id='us.anthropic.claude-haiku-5-5')
         ... )
 
         Invoke Amazon Nova Lite with a video column:
@@ -450,15 +459,17 @@ async def invoke_model(body: dict, *, model_id: str) -> pxt.Json:
         ... )
         >>> tbl.add_computed_column(image=tbl.response['images'][0])
 
-        Invoke Amazon Nova Reel for video generation (auto-routes to async; requires `bedrock.temp_location`):
+        Invoke Luma Ray 2 for video generation (auto-routes to async; requires `bedrock.temp_location`).
+        Luma Ray 2 (`luma.ray-v2:0`) is available in `us-west-2`:
 
         >>> body = {
-        ...     'taskType': 'TEXT_VIDEO',
-        ...     'textToVideoParams': {'text': tbl.prompt},
-        ...     'videoGenerationConfig': {'durationSeconds': 6, 'fps': 24},
+        ...     'prompt': tbl.prompt,
+        ...     'aspect_ratio': '16:9',
+        ...     'duration': '5s',
+        ...     'resolution': '540p',
         ... }
         >>> tbl.add_computed_column(
-        ...     video=invoke_model(body, model_id='amazon.nova-reel-v1:1')
+        ...     video=invoke_model(body, model_id='luma.ray-v2:0')
         ... )
     """
     body = _apply_invoke_model_request_conversions(body, model_id)
@@ -514,9 +525,9 @@ async def converse(
     PIL images and media file paths in `messages[*].content[*].(image|video|audio).source.bytes`
     are converted to raw bytes automatically.
 
-    __Requirements:__
-
-    - `pip install boto3`
+    Request throttling:
+    Applies the rate limit set in the config (section `bedrock.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     Args:
         messages: Input messages.
@@ -533,14 +544,12 @@ async def converse(
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `anthropic.claude-3-haiku-20240307-v1:0`
+        Add a computed column that applies the model `us.anthropic.claude-haiku-5-5`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> msgs = [{'role': 'user', 'content': [{'text': tbl.prompt}]}]
         ... tbl.add_computed_column(
-        ...     response=converse(
-        ...         msgs, model_id='anthropic.claude-3-haiku-20240307-v1:0'
-        ...     )
+        ...     response=converse(msgs, model_id='us.anthropic.claude-haiku-5-5')
         ... )
 
         Pass an image via the Converse API:
@@ -604,9 +613,9 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
     <https://docs.aws.amazon.com/nova/latest/userguide/modality-embedding.html>
     <https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-embed.html>
 
-    __Requirements:__
-
-    - `pip install boto3`
+    Request throttling:
+    Applies the rate limit set in the config (section `bedrock.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     Args:
         text: Input text to embed.
@@ -634,8 +643,6 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
         ...     ),
         ... )
     """
-    from botocore.exceptions import ClientError
-
     body: dict[str, Any]
     if 'nova' in model_id:
         body = {
@@ -665,26 +672,26 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
         'accept': 'application/json',
     }
 
+    from botocore.exceptions import ClientError
+
     try:
         response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
-        response_bytes = await asyncio.to_thread(response['body'].read)
-        response_body = json.loads(response_bytes)
-        if 'nova' in model_id:
-            return np.array(response_body['embeddings'][0]['embedding'], dtype=np.float32)
-        elif 'cohere.embed' in model_id:
-            return np.array(response_body['embeddings']['float'][0], dtype=np.float32)
-        else:
-            return np.array(response_body['embedding'], dtype=np.float32)
-    except ClientError as e:
+    except ClientError as exc:
         raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_ERROR, f'Failed to generate embedding: {e}', provider='bedrock'
-        ) from e
+            pxt.ErrorCode.PROVIDER_ERROR, f'Failed to generate embedding: {exc}', provider='bedrock'
+        ) from exc
+    response_bytes = await asyncio.to_thread(response['body'].read)
+    response_body = json.loads(response_bytes)
+    if 'nova' in model_id:
+        return np.array(response_body['embeddings'][0]['embedding'], dtype=np.float32)
+    elif 'cohere.embed' in model_id:
+        return np.array(response_body['embeddings']['float'][0], dtype=np.float32)
+    else:
+        return np.array(response_body['embedding'], dtype=np.float32)
 
 
 @embed.overload
 async def _(image: PIL.Image.Image, *, model_id: str, dimensions: int | None = None) -> pxt.Array[(None,), np.float32]:
-    from botocore.exceptions import ClientError
-
     body: dict[str, Any]
     if 'nova' in model_id:
         body = {
@@ -713,20 +720,29 @@ async def _(image: PIL.Image.Image, *, model_id: str, dimensions: int | None = N
         'accept': 'application/json',
     }
 
+    from botocore.exceptions import ClientError
+
     try:
         response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
-        response_bytes = await asyncio.to_thread(response['body'].read)
-        response_body = json.loads(response_bytes)
-        if 'nova' in model_id:
-            return np.array(response_body['embeddings'][0]['embedding'], dtype=np.float32)
-        elif 'cohere.embed-v4' in model_id:
-            return np.array(response_body['embeddings']['float'][0], dtype=np.float32)
-        else:
-            return np.array(response_body['embedding'], dtype=np.float32)
-    except ClientError as e:
+    except ClientError as exc:
         raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_ERROR, f'Failed to generate embedding: {e}', provider='bedrock'
-        ) from e
+            pxt.ErrorCode.PROVIDER_ERROR, f'Failed to generate embedding: {exc}', provider='bedrock'
+        ) from exc
+    response_bytes = await asyncio.to_thread(response['body'].read)
+    response_body = json.loads(response_bytes)
+    if 'nova' in model_id:
+        return np.array(response_body['embeddings'][0]['embedding'], dtype=np.float32)
+    elif 'cohere.embed-v4' in model_id:
+        return np.array(response_body['embeddings']['float'][0], dtype=np.float32)
+    else:
+        return np.array(response_body['embedding'], dtype=np.float32)
+
+
+@invoke_model.resource_pool
+@converse.resource_pool
+@embed.resource_pool
+def _(model_id: str) -> str:
+    return f'request-rate:bedrock:{model_id}'
 
 
 @embed.conditional_return_type

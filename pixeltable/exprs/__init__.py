@@ -4,9 +4,10 @@ from .arithmetic_expr import ArithmeticExpr
 from .array_slice import ArraySlice
 from .column_property_ref import ColumnPropertyRef
 from .column_ref import ColumnRef
+from .column_ref_by_name import ColumnRefByName
 from .comparison import Comparison
 from .compound_predicate import CompoundPredicate
-from .data_row import ArrayMd, BinaryMd, CellMd, DataRow
+from .data_row import ArrayMd, BinaryMd, CellMd, DataRow, StoredError
 from .expr import Expr
 from .expr_dict import ExprDict
 from .expr_set import ExprSet

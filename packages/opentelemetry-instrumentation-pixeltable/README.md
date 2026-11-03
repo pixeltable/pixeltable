@@ -35,8 +35,10 @@ import opentelemetry.instrumentation.pixeltable as pxt_otel
 pxt_otel.init(endpoint='http://localhost:4318')
 ```
 
-Configuration is read from the `[otel]` section of Pixeltable's config (`~/.pixeltable/config.toml`),
-overridden by the standard `OTEL_EXPORTER_OTLP_*` environment variables.
+Configuration is read from the database's `[[pixeltable.database]]` entry (`db_exporter_otlp_endpoint`,
+`db_exporter_otlp_protocol`), then the standard `OTEL_EXPORTER_OTLP_*` environment variables, then the `[otel]`
+section of Pixeltable's config (`~/.pixeltable/config.toml`). On the pods of a hosted database, `init()` skips the
+entry's two fields and exports to the collector in the pod, at the address in the pod's environment.
 
 ## Per-provider LLM spans
 

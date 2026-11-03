@@ -24,7 +24,7 @@ from pixeltable.functions.date import (
 
 from ..utils import pxt_raises, validate_update_status
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 class TestDate:
@@ -33,7 +33,7 @@ class TestDate:
 
     def make_test_table(self) -> tuple[list[date], pxt.Table]:
         # Create a test table with a date column
-        t = pxt.create_table('test_tbl', {'dt': pxt.Date})
+        t = pxt.create_table('test_tbl', {'dt': pxt.Date | None})
         # Insert test data
         test_dts = [date.fromisoformat(dt) for dt in self.TEST_DATES]
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))

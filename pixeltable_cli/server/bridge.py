@@ -9,70 +9,24 @@ from __future__ import annotations
 
 import csv
 import datetime
-import importlib.util
 import io
 import json
 import logging
 import re
-import sys
-import threading
 import urllib.parse
 import urllib.request
-import uuid
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs
-from pixeltable.catalog import Path as CatalogPath
-from pixeltable.catalog.model import TableModelMeta
-from pixeltable.catalog.table_metadata import TableMetadata
+from pixeltable import exprs
+from pixeltable.catalog import Path, fold_identifier
 from pixeltable.config import Config
 from pixeltable.env import Env
 
 _logger = logging.getLogger(__name__)
 
-# A loaded schema file's directory is placed on the process-global sys.path so it can import sibling modules.
-# _sys_path_lock guards the (un)registration; _sys_path_added refcounts each directory we add, so concurrent loads
-# of the same directory share one entry that is removed only once the last of them finishes.
-_sys_path_lock = threading.Lock()
-_sys_path_added: dict[str, int] = {}
-
 if TYPE_CHECKING:
     from pixeltable import exprs
-
-
-def _add_to_sys_path(entry: str) -> bool:
-    """Register a directory on sys.path; return True if the caller must later release it.
-
-    Refcounts directories we add so concurrent loads share one entry; a directory already present externally is
-    left untouched (and not released).
-    """
-    with _sys_path_lock:
-        if entry in _sys_path_added:
-            _sys_path_added[entry] += 1
-            return True
-        if entry in sys.path:
-            return False
-        sys.path.append(entry)
-        _sys_path_added[entry] = 1
-        return True
-
-
-def _remove_from_sys_path(entry: str) -> None:
-    """Release a directory registered via _add_to_sys_path(); remove it once the last holder releases it."""
-    with _sys_path_lock:
-        n = _sys_path_added.get(entry)
-        if n is None:
-            return
-        if n > 1:
-            _sys_path_added[entry] = n - 1
-        else:
-            del _sys_path_added[entry]
-            try:
-                sys.path.remove(entry)
-            except ValueError:
-                pass
 
 
 def _build_select(
@@ -93,7 +47,7 @@ def _build_select(
 
     # Columns backed by a B-tree index can be ordered cheaply; the rest cannot.
     sorted_cols: set[str] = {
-        c for idx in md['indices'].values() if idx['index_type'] == 'btree' for c in idx['columns']
+        c for idx in md['indexes'].values() if idx['index_type'] == 'btree' for c in idx['columns']
     }
 
     for col_name, info in md['columns'].items():
@@ -107,6 +61,7 @@ def _build_select(
                 'is_media': is_media,
                 'is_computed': is_computed,
                 'is_stored': is_stored,
+                'is_iterator_col': info['is_iterator_col'],
                 'is_sorted': col_name in sorted_cols,
             }
         )
@@ -179,6 +134,7 @@ def get_table_data(
         query = query.where(error_predicate)
 
     if order_by is not None:
+        order_by = fold_identifier(order_by)
         # only sort by columns with a B-tree index; other columns would force a full sort
         order_col = next((c for c in columns if c['name'] == order_by), None)
         if order_col is not None and order_col['is_sorted']:
@@ -261,57 +217,61 @@ def export_table_csv(table_path: str, limit: int = 100_000) -> bytes:
     return buf.getvalue().encode('utf-8')
 
 
-def search(query: str, limit: int = 50) -> dict[str, Any]:
+def _search_catalog(root: str, query_lower: str, results: dict[str, Any]) -> None:
+    """Add the matches found under one catalog root to results, in place."""
+    for dir_path in pxt.list_dirs(root, recursive=True):
+        if query_lower in dir_path.lower():
+            results['directories'].append({'path': dir_path, 'name': dir_path.split('/')[-1]})
+
+    for tbl_path in pxt.list_tables(root, recursive=True):
+        # we get metadata for every table: a column match is only visible in the table's metadata
+        try:
+            tbl_md = pxt.get_table(tbl_path).get_metadata()
+        except Exception as e:
+            _logger.warning(f'Search: could not inspect {tbl_path}: {e}')
+            results['unavailable'].append({'path': tbl_path, 'kind': 'table', 'error': f'{type(e).__name__}: {e}'})
+            continue
+
+        if query_lower in tbl_path.lower():
+            results['tables'].append({'path': tbl_path, 'name': tbl_path.split('/')[-1], 'kind': tbl_md['kind']})
+
+        for col_name, col_info in tbl_md['columns'].items():
+            if query_lower in col_name.lower():
+                results['columns'].append(
+                    {
+                        'name': col_name,
+                        'table': tbl_path,
+                        'type': col_info['type_'],
+                        'is_computed': col_info['is_computed'],
+                    }
+                )
+
+
+def search(query: str, additional_db_uris: list[str] | None = None) -> dict[str, Any]:
     """
-    Search across directories, tables, and columns.
+    Search across directories, tables, and columns in the local catalog and any additional catalogs.
+
+    The local (in-process) catalog is always searched; additional_db_uris holds hosted db uris to
+    search as well. Result paths are full and resolvable in their catalog.
+
+    A catalog that cannot be listed, or an error in get_table(), is reported under 'unavailable'
+    rather than failing the search or appearing in the results with fabricated metadata.
     """
     query_lower = query.lower()
 
-    results: dict[str, Any] = {'query': query, 'directories': [], 'tables': [], 'columns': []}
+    results: dict[str, Any] = {'query': query, 'directories': [], 'tables': [], 'columns': [], 'unavailable': []}
 
-    # Search directories
-    all_dirs = pxt.list_dirs('', recursive=True)
-    for dir_path in all_dirs:
-        if query_lower in dir_path.lower():
-            results['directories'].append({'path': dir_path, 'name': dir_path.split('/')[-1]})
-            if len(results['directories']) >= limit:
-                break
+    # The local catalog is the empty root; each additional catalog is searched at its hosted-uri root.
+    roots = ['', *(additional_db_uris or [])]
 
-    # Search tables and their columns (single get_table call per table)
-    all_tables = pxt.list_tables('', recursive=True)
-    for tbl_path in all_tables:
-        tbl_name = tbl_path.split('/')[-1]
-        table_matches = query_lower in tbl_path.lower()
-
-        # Only fetch table metadata once, and only when needed
-        tbl_md: TableMetadata | None = None
-        if table_matches or len(results['columns']) < limit:
-            try:
-                tbl = pxt.get_table(tbl_path)
-                tbl_md = tbl.get_metadata()
-            except Exception:
-                # If we can't get metadata, record table match with defaults
-                if table_matches and len(results['tables']) < limit:
-                    results['tables'].append({'path': tbl_path, 'name': tbl_name, 'kind': 'table'})
-                continue
-
-        if table_matches and len(results['tables']) < limit and tbl_md:
-            results['tables'].append({'path': tbl_path, 'name': tbl_name, 'kind': tbl_md['kind']})
-
-        # Search columns within this table (reuse tbl_md)
-        if tbl_md and len(results['columns']) < limit:
-            for col_name, col_info in tbl_md['columns'].items():
-                if query_lower in col_name.lower():
-                    results['columns'].append(
-                        {
-                            'name': col_name,
-                            'table': tbl_path,
-                            'type': col_info['type_'],
-                            'is_computed': col_info['is_computed'],
-                        }
-                    )
-                    if len(results['columns']) >= limit:
-                        break
+    for root in roots:
+        try:
+            _search_catalog(root, query_lower, results)
+        except Exception as e:
+            _logger.warning(f'Search: could not list catalog {root or "local"}: {e}')
+            results['unavailable'].append(
+                {'path': root or 'local', 'kind': 'catalog', 'error': f'{type(e).__name__}: {e}'}
+            )
 
     return results
 
@@ -335,6 +295,17 @@ def _split_tbl_path(tbl_path: str) -> tuple[str, int | None]:
     if sep != '' and tail.isdigit():
         return head, int(tail)
     return tbl_path, None
+
+
+def _prefix_hosted_tbl_nodes(nodes: list[pxt.TableNode], db_uri: str) -> None:
+    """Hosted get_dir_tree paths are in-db; get_table needs the pxt:// prefix."""
+    if db_uri == '':
+        return
+    for n in nodes:
+        n['path'] = f'{db_uri}/{n["path"]}'
+        if n['base'] is not None:
+            base, ver = _split_tbl_path(n['base'])
+            n['base'] = f'{db_uri}/{base}' + (f':{ver}' if ver is not None else '')
 
 
 def _collect_pipeline_paths(table_nodes: list[pxt.TableNode], tbl_path: str) -> set[str] | None:
@@ -374,18 +345,28 @@ def _collect_pipeline_paths(table_nodes: list[pxt.TableNode], tbl_path: str) -> 
 def get_pipeline(tbl_path: str | None = None) -> dict[str, Any]:
     """Return DAG metadata for the Pipeline Inspector.
 
-    If tbl_path is None, returns the full catalog. If tbl_path is given, returns only the
-    connected component containing that table (transitive ancestors + the table + transitive
-    descendants). Returns an empty result if tbl_path is not in the catalog.
+    If tbl_path is None, '', or 'local', returns the full in-process catalog. A hosted catalog
+    root (`pxt://org:db`) returns that catalog's full DAG. A table path (local or hosted)
+    returns only the connected component containing that table (transitive ancestors + the
+    table + transitive descendants). Returns an empty result if tbl_path is not in the catalog.
     """
+    if tbl_path is None or tbl_path in ('', 'local'):
+        path_obj = Path.parse('', allow_empty_path=True)
+        scoped: str | None = None
+    else:
+        path_obj = Path.parse(tbl_path, allow_empty_path=True)
+        scoped = str(path_obj) if len(path_obj.components) > 0 else None
+
+    db_uri = path_obj.uri_str
     tbl_nodes: list[pxt.TableNode] = []
-    _collect_tbl_nodes(pxt.get_dir_tree(), tbl_nodes)
+    _collect_tbl_nodes(pxt.get_dir_tree(db_uri), tbl_nodes)
+    _prefix_hosted_tbl_nodes(tbl_nodes, db_uri)
 
     pipeline_paths: set[str] | None
-    if tbl_path is None:
+    if scoped is None:
         pipeline_paths = {n['path'] for n in tbl_nodes}
     else:
-        pipeline_paths = _collect_pipeline_paths(tbl_nodes, tbl_path)
+        pipeline_paths = _collect_pipeline_paths(tbl_nodes, scoped)
         if pipeline_paths is None:
             return {'nodes': [], 'edges': []}
 
@@ -420,7 +401,6 @@ def get_pipeline(tbl_path: str | None = None) -> dict[str, Any]:
                     computed_cols.append(col_name)
                 defined_in = info['defined_in']
 
-                value_expr = value_expr[:200] if value_expr is not None else None
                 func_type: str | None
                 if not is_computed and not is_iter_col:
                     func_type = None
@@ -458,7 +438,7 @@ def get_pipeline(tbl_path: str | None = None) -> dict[str, Any]:
 
             # indices: surface only embedding indices here, the dashboard doesn't want to know about B-trees
             indices: list[dict[str, Any]] = []
-            for idx_name, idx_info in md['indices'].items():
+            for idx_name, idx_info in md['indexes'].items():
                 if idx_info['index_type'] != 'embedding':
                     continue
                 params = idx_info['parameters']
@@ -553,9 +533,11 @@ def get_status() -> dict[str, Any]:
     try:
         env = Env.get()
         cfg = Config.get()
+        project_root = Config.get().project_root
         config_info = {
             'home': str(cfg.home),
-            'db_url': env.db_url,
+            'project_root': None if project_root is None else str(project_root),
+            'db_url': env.redacted_db_url,
             'media_dir': str(env.media_dir),
             'file_cache_dir': str(env.file_cache_dir),
             'is_local': env.is_local,
@@ -570,56 +552,3 @@ def get_status() -> dict[str, Any]:
         'total_errors': total_errors,
         'config': config_info,
     }
-
-
-def schema_update(schema_path: str, target: str) -> tuple[list[str], list[str]]:
-    """Create the tables defined by a class-based schema file under target (idempotent).
-
-    Returns (created, existing): absolute paths of the tables created now and those that already exist.
-    """
-    path = Path(schema_path)
-    if not path.is_file():
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'schema file not found: {schema_path}')
-
-    # load under a unique key so a user schema file can't shadow an existing module (eg, one named json.py); the
-    # key is unique per load, so this needs no synchronization
-    module_name = f'pxt_schema_{uuid.uuid4().hex}'
-    spec = importlib.util.spec_from_file_location(module_name, path)
-    if spec is None or spec.loader is None:
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'cannot load schema file: {schema_path}')
-    module = importlib.util.module_from_spec(spec)
-
-    # put the schema file's own directory on sys.path so it can import sibling modules next to it; only the
-    # sys.path (un)registration is synchronized, so concurrent loads still run exec_module() in parallel
-    sys_path_entry = str(path.parent)
-    needs_remove = _add_to_sys_path(sys_path_entry)
-    sys.modules[module_name] = module
-    try:
-        spec.loader.exec_module(module)
-    except Exception as e:
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'error loading {schema_path}: {e}') from e
-    finally:
-        sys.modules.pop(module_name, None)
-        if needs_remove:
-            _remove_from_sys_path(sys_path_entry)
-
-    # a model base carries __registered_models__ as its own class attribute, whereas the models defined
-    # on it merely inherit it
-    bases = [
-        v for v in vars(module).values() if isinstance(v, TableModelMeta) and '__registered_models__' in v.__dict__
-    ]
-    if len(bases) == 0:
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'no model_base() found in {schema_path}')
-
-    # only create the target directory when it names an in-catalog path; a bare catalog root (eg '' or
-    # 'pxt://org:db') has no directory to create
-    if len(CatalogPath.parse(target, allow_empty_path=True).components) > 0:
-        pxt.create_dir(target, parents=True, if_exists='ignore')
-
-    created: list[str] = []
-    existed: list[str] = []
-    for base in bases:
-        base_created, base_existed = base.create_all(target)
-        created.extend(base_created)
-        existed.extend(base_existed)
-    return created, existed

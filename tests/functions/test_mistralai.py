@@ -2,13 +2,25 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable.runtime import get_runtime, reset_runtime
 
 from ..utils import rerun_on_network_error, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
+
+
+class TestMistralClient:
+    def test_client_closed_on_reset(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('mistralai')
+        monkeypatch.setenv('MISTRAL_API_KEY', 'test-key')
+        config = get_runtime().get_client('mistral').sdk_configuration
+        http_clients = [config.client, config.async_client]
+        reset_runtime()
+        assert all(c.is_closed for c in http_clients)
 
 
 @pytest.mark.remote_api
+@pytest.mark.very_expensive
 @rerun_on_network_error()
 class TestMistral:
     def test_chat_completions(self, uses_db: None) -> None:
@@ -16,7 +28,7 @@ class TestMistral:
         skip_test_if_no_client('mistral')
         from pixeltable.functions.mistralai import chat_completions
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         msgs = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(output=chat_completions(messages=msgs, model='mistral-small-latest'))
         t.add_computed_column(
@@ -44,7 +56,7 @@ class TestMistral:
         skip_test_if_no_client('mistral')
         from pixeltable.functions.mistralai import fim_completions
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String, 'suffix': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None, 'suffix': pxt.String | None})
         t.add_computed_column(output=fim_completions(prompt=t.input, model='codestral-latest'))
         t.add_computed_column(
             output2=fim_completions(
@@ -80,7 +92,7 @@ class TestMistral:
         skip_test_if_no_client('mistral')
         from pixeltable.functions.mistralai import embeddings
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         t.add_computed_column(embed=embeddings(t.input, model='mistral-embed'))
         validate_update_status(t.insert(input='A chunk of text that will be embedded.'), 1)
         assert isinstance(t.embed.col_type, ts.ArrayType)

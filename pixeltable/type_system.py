@@ -11,33 +11,31 @@ import types
 import typing
 import urllib.request
 import uuid
+import warnings
 from pathlib import Path
-from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union
-
-import pgvector.sqlalchemy
-
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union, is_typeddict
 
 import av
 import numpy as np
+import pgvector.sqlalchemy
 import PIL.Image
 import pydantic
 import sqlalchemy as sql
-import typing_extensions
-from typing_extensions import NotRequired, _AnnotatedAlias, is_typeddict
+from typing_extensions import TypeForm, TypeIs
 
 import pixeltable.exceptions as excs
 from pixeltable.utils import parse_local_file_path
 
-# The TypedDict field markers Required/NotRequired affect a key's presence (recorded in __optional_keys__), not
-# the field's value type. They may be imported from typing_extensions or, on Python 3.11+, from typing; treat all
-# of those as equivalent.
-_TYPED_DICT_FIELD_MARKERS = {
-    NotRequired,
-    typing_extensions.Required,
-    getattr(typing, 'NotRequired', None),
-    getattr(typing, 'Required', None),
-} - {None}
+
+def is_type_form(x: object) -> TypeIs[TypeForm]:
+    """
+    Return True if `x` is a bare class such as `int`, or a subscripted form such as `list[int]`, `int | None`, or
+    `Annotated[int, ...]` (the form the `pxt.Int`-style aliases take).
+
+    This is narrower than the set of valid annotations: bare `None` returns False. `TypeForm` has no runtime
+    meaning, so this is the runtime counterpart to accepting a `TypeForm` parameter.
+    """
+    return isinstance(x, type) or typing.get_origin(x) is not None
 
 
 class ColumnType:
@@ -113,6 +111,17 @@ class ColumnType:
         else:
             return self.__class__(nullable=nullable)  # type: ignore[call-arg]
 
+    def with_open_dicts(self) -> ColumnType:
+        """Returns this type with every dict schema in it open."""
+        return self._with_dicts_closed(False)
+
+    def with_closed_dicts(self) -> ColumnType:
+        """Returns this type with every dict schema in it closed."""
+        return self._with_dicts_closed(True)
+
+    def _with_dicts_closed(self, closed: bool) -> ColumnType:
+        return self
+
     @classmethod
     def serialize_list(cls, type_list: list[ColumnType]) -> str:
         return json.dumps([t.as_dict() for t in type_list])
@@ -182,14 +191,8 @@ class ColumnType:
                 raise AssertionError(t)
 
     def __repr__(self) -> str:
-        return self._to_str(as_schema=False)
-
-    def _to_str(self, as_schema: bool) -> str:
         base_str = self._to_base_str()
-        if as_schema:
-            return base_str if self.nullable else f'Required[{base_str}]'
-        else:
-            return f'{base_str} | None' if self.nullable else base_str
+        return f'{base_str} | None' if self.nullable else base_str
 
     def _to_base_str(self) -> str:
         """
@@ -327,23 +330,20 @@ class ColumnType:
 
     @classmethod
     def from_python_type(
-        cls,
-        t: type | _GenericAlias,
-        nullable_default: bool = False,
-        allow_builtin_types: bool = True,
-        infer_pydantic_json: bool = False,
+        cls, t: TypeForm, allow_builtin_types: bool = True, infer_pydantic_json: bool = False
     ) -> ColumnType | None:
         """
         Convert a Python type into a Pixeltable `ColumnType` instance.
 
+        As in Python and Pydantic, a bare type such as `pxt.Int` is non-nullable; the nullable form is
+        `pxt.Int | None`.
+
         Args:
             t: The Python type.
-            nullable_default: If True, then the returned `ColumnType` will be nullable unless it is marked as
-                `Required`.
             allow_builtin_types: If True, then built-in types such as `str`, `int`, `float`, etc., will be
                 allowed (as in UDF definitions). If False, then only Pixeltable types such as `pxt.String`,
-                `pxt.Int`, etc., will be allowed (as in schema definitions). `Optional` and `Required`
-                designations will be allowed regardless.
+                `pxt.Int`, etc., will be allowed (as in schema definitions). `Optional` designations will be
+                allowed regardless.
             infer_pydantic_json: If True, accepts an extended set of built-ins (eg, Enum, Path) and returns the type to
                 which pydantic.BaseModel.model_dump(mode='json') serializes it.
         """
@@ -362,13 +362,18 @@ class ColumnType:
                     return underlying.copy(nullable=True)
         elif origin is Required:
             assert len(type_args) == 1
-            underlying = cls.from_python_type(
-                type_args[0], nullable_default=False, allow_builtin_types=allow_builtin_types
+            warnings.warn(
+                '`Required[T]` is deprecated and will be removed in a future version; use `T` instead. '
+                'Bare types such as `pxt.Int` are now non-nullable by default; use `pxt.Int | None` for a '
+                'nullable column.',
+                excs.PixeltableDeprecationWarning,
+                stacklevel=2,
             )
+            underlying = cls.from_python_type(type_args[0], allow_builtin_types=allow_builtin_types)
             if underlying is None:
                 return None
             return underlying.copy(nullable=False)
-        elif origin in _TYPED_DICT_FIELD_MARKERS:
+        elif origin is typing.Required or origin is typing.NotRequired:
             # Required[T]/NotRequired[T] mark a TypedDict field's key presence (recorded in __optional_keys__), so
             # the field's value type is simply T
             assert len(type_args) == 1
@@ -377,7 +382,7 @@ class ColumnType:
             origin = type_args[0]
             parameters = type_args[1]
             if isinstance(parameters, ColumnType):
-                return parameters.copy(nullable=nullable_default)
+                return parameters.copy(nullable=False)
         else:
             # It's something other than T | None, Required[T], or an explicitly annotated type.
             # for non-generic types, get_origin returns None, so we use the type itself as the origin
@@ -385,68 +390,62 @@ class ColumnType:
             if isinstance(origin, type):
                 if issubclass(origin, _PxtType):
                     # We always allow Pixeltable types
-                    return origin.as_col_type(nullable=nullable_default)
+                    return origin.as_col_type(nullable=False)
 
                 if is_typeddict(origin):
-                    # We always allow TypedDicts, including typing_extensions.TypedDict and TypedDict
-                    # subclasses (the pattern for mixing required and optional fields)
+                    # We always allow TypedDicts
                     assert isinstance(origin, type)
-                    return cls.__from_typed_dict(nullable_default, origin)
+                    return cls.__from_typed_dict(origin)
 
                 if issubclass(origin, pydantic.BaseModel):
                     # We always allow Pydantic models
-                    return cls.__from_pydantic_model_type(nullable_default, origin)
+                    return cls.__from_pydantic_model_type(origin)
 
             # Everything else is allowed only if allow_builtin_types=True
             if allow_builtin_types:
                 if origin is Literal and len(type_args) > 0:
-                    literal_type = cls.infer_common_literal_type(type_args)
-                    if literal_type is None:
-                        return None
-                    return literal_type.copy(nullable=(literal_type.nullable or nullable_default))
+                    # a `None` among the literals makes the inferred type nullable
+                    return cls.infer_common_literal_type(type_args)
                 if infer_pydantic_json and isinstance(t, type) and issubclass(t, enum.Enum):
-                    literal_type = cls.infer_common_literal_type(member.value for member in t)
-                    if literal_type is None:
-                        return None
-                    return literal_type.copy(nullable=(literal_type.nullable or nullable_default))
+                    return cls.infer_common_literal_type(member.value for member in t)
                 if infer_pydantic_json and t is Path:
-                    return StringType(nullable=nullable_default)
+                    return StringType(nullable=False)
                 if t is str:
-                    return StringType(nullable=nullable_default)
+                    return StringType(nullable=False)
                 if t is int:
-                    return IntType(nullable=nullable_default)
+                    return IntType(nullable=False)
                 if t is float:
-                    return FloatType(nullable=nullable_default)
+                    return FloatType(nullable=False)
                 if t is bool:
-                    return BoolType(nullable=nullable_default)
+                    return BoolType(nullable=False)
                 if t is datetime.datetime:
-                    return TimestampType(nullable=nullable_default)
+                    return TimestampType(nullable=False)
                 if t is datetime.date:
-                    return DateType(nullable=nullable_default)
+                    return DateType(nullable=False)
                 if t is uuid.UUID:
-                    return UUIDType(nullable=nullable_default)
+                    return UUIDType(nullable=False)
                 if t is bytes:
-                    return BinaryType(nullable=nullable_default)
+                    return BinaryType(nullable=False)
                 if t is PIL.Image.Image:
-                    return ImageType(nullable=nullable_default)
+                    return ImageType(nullable=False)
                 if origin is tuple:
-                    return cls.__from_tuple_type(nullable_default, type_args)
+                    return cls.__from_tuple_type(type_args)
                 if isinstance(origin, type) and issubclass(origin, Sequence):
-                    return cls.__from_list_type(nullable_default, type_args)
+                    return cls.__from_list_type(type_args)
                 if isinstance(origin, type) and issubclass(origin, Mapping):
                     # dict or Mapping that's not a TypedDict subclass; treat it is untyped JSON.
-                    return JsonType(nullable=nullable_default)
+                    return JsonType(nullable=False)
 
         return None
 
     @classmethod
-    def __from_tuple_type(cls, nullable_default: bool, type_args: tuple) -> JsonType:
+    def __from_tuple_type(cls, type_args: tuple) -> JsonType:
         # It's a type hint of the form `tuple[T1, T2, T3]` or `tuple[T, ...]`.
         # Technically this logic will also work for semi-variadic tuples (`tuple[T1, T2, ...]`) but Python
         # doesn't allow that syntax.
         if len(type_args) == 0:
             # treat unparameterized tuple as Json[(Json, ...)]
-            return JsonType(JsonType.TypeSchema([], variadic_type=JsonType()), nullable=nullable_default)
+            return JsonType(JsonType.TypeSchema([], variadic_type=JsonType()), nullable=False)
         variadic_type = None
         if len(type_args) > 0 and type_args[-1] is Ellipsis:
             if len(type_args) == 1:
@@ -466,11 +465,11 @@ class ColumnType:
                 type_spec=[cls.__from_python_type_or_exc(type_arg) for type_arg in type_args],
                 variadic_type=cls.__from_python_type_or_exc(variadic_type) if variadic_type is not None else None,
             ),
-            nullable=nullable_default,
+            nullable=False,
         )
 
     @classmethod
-    def __from_list_type(cls, nullable_default: bool, type_args: tuple) -> JsonType:
+    def __from_list_type(cls, type_args: tuple) -> JsonType:
         if len(type_args) > 1:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_TYPE,
@@ -478,14 +477,13 @@ class ColumnType:
             )
         if len(type_args) == 0 or type_args[0] is Any:
             # treat unparameterized list or list[Any] as Json[(Json, ...)]
-            return JsonType(JsonType.TypeSchema([], variadic_type=JsonType()), nullable=nullable_default)
+            return JsonType(JsonType.TypeSchema([], variadic_type=JsonType()), nullable=False)
         return JsonType(
-            JsonType.TypeSchema([], variadic_type=cls.__from_python_type_or_exc(type_args[0])),
-            nullable=nullable_default,
+            JsonType.TypeSchema([], variadic_type=cls.__from_python_type_or_exc(type_args[0])), nullable=False
         )
 
     @classmethod
-    def __from_python_type_or_exc(cls, t: type | _GenericAlias | None) -> ColumnType:
+    def __from_python_type_or_exc(cls, t: TypeForm | None) -> ColumnType:
         col_type = cls.from_python_type(t)
         if col_type is None:
             raise excs.RequestError(
@@ -494,10 +492,23 @@ class ColumnType:
         return col_type
 
     @classmethod
-    def __from_typed_dict(cls, nullable_default: bool, t: type) -> JsonType:
+    def __from_typed_dict(cls, t: type) -> JsonType:
         # It's a subclass of `TypedDict`.
+        try:
+            field_types = typing.get_type_hints(t, include_extras=True)
+        except NameError as e:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_TYPE, f'Cannot resolve the field types of TypedDict `{t.__name__}`: {e}'
+            ) from e
         type_spec: dict[str, ColumnType] = {}
-        for key, value in t.__annotations__.items():
+        optional_keys = set(getattr(t, '__optional_keys__', frozenset()))
+        for key, value in field_types.items():
+            # under `from __future__ import annotations`, __optional_keys__ ignores NotRequired and Required
+            qualifier = typing.get_origin(value)
+            if qualifier is typing.NotRequired:
+                optional_keys.add(key)
+            elif qualifier is typing.Required:
+                optional_keys.discard(key)
             col_type = cls.from_python_type(value)
             if col_type is None:
                 raise excs.RequestError(
@@ -506,13 +517,13 @@ class ColumnType:
                 )
             type_spec[key] = col_type
         return JsonType(
-            JsonType.TypeSchema(type_spec=type_spec, optional_keys=getattr(t, '__optional_keys__', frozenset())),
-            nullable=nullable_default,
+            JsonType.TypeSchema(type_spec=type_spec, optional_keys=frozenset(optional_keys)),
+            nullable=False,
             pretty_print_name=t.__name__,
         )
 
     @classmethod
-    def __from_pydantic_model_type(cls, nullable_default: bool, t: type[pydantic.BaseModel]) -> JsonType:
+    def __from_pydantic_model_type(cls, t: type[pydantic.BaseModel]) -> JsonType:
         fields: dict[str, ColumnType] = {}
         for name, info in t.model_fields.items():
             col_type = cls.from_python_type(info.annotation)
@@ -526,20 +537,18 @@ class ColumnType:
         optional_keys = frozenset(name for name, info in t.model_fields.items() if not info.is_required())
         return JsonType(
             JsonType.TypeSchema(type_spec=fields, optional_keys=optional_keys),
-            nullable=nullable_default,
+            nullable=False,
             pretty_print_name=t.__name__,
         )
 
     @classmethod
-    def normalize_type(
-        cls, t: ColumnType | type | _AnnotatedAlias, nullable_default: bool = False, allow_builtin_types: bool = True
-    ) -> ColumnType:
+    def normalize_type(cls, t: ColumnType | TypeForm, allow_builtin_types: bool = True) -> ColumnType:
         """
         Convert any type recognizable by Pixeltable to its corresponding ColumnType.
         """
         if isinstance(t, ColumnType):
             return t
-        col_type = cls.from_python_type(t, nullable_default, allow_builtin_types)
+        col_type = cls.from_python_type(t, allow_builtin_types)
         if col_type is None:
             cls.__raise_exc_for_invalid_type(t)
         return col_type
@@ -559,7 +568,7 @@ class ColumnType:
     ]
 
     @classmethod
-    def __raise_exc_for_invalid_type(cls, t: type | _AnnotatedAlias) -> None:
+    def __raise_exc_for_invalid_type(cls, t: TypeForm) -> None:
         for builtin_type, suggestion in cls.__TYPE_SUGGESTIONS:
             if t is builtin_type or (isinstance(t, type) and issubclass(t, builtin_type)):
                 name = t.__name__ if t.__module__ == 'builtins' else f'{t.__module__}.{t.__name__}'
@@ -578,7 +587,7 @@ class ColumnType:
         return cls.from_python_type(py_type) if py_type is not None else None
 
     @classmethod
-    def __json_schema_to_py_type(cls, schema: dict[str, Any]) -> type | _GenericAlias | None:
+    def __json_schema_to_py_type(cls, schema: dict[str, Any]) -> TypeForm | None:
         if 'type' in schema:
             if schema['type'] == 'null':
                 return type(None)
@@ -593,7 +602,8 @@ class ColumnType:
             if schema['type'] in ('array', 'object'):
                 return list
         elif 'anyOf' in schema:
-            subscripts = tuple(cls.__json_schema_to_py_type(subschema) for subschema in schema['anyOf'])
+            # We need to explicitly type `subscripts` as `Any` due to a silly mypy subscripting bug
+            subscripts: Any = tuple(cls.__json_schema_to_py_type(subschema) for subschema in schema['anyOf'])
             if all(subscript is not None for subscript in subscripts):
                 return Union[subscripts]
 
@@ -709,8 +719,8 @@ class ColumnType:
         # types that refer to external media files
         return self.is_image_type() or self.is_video_type() or self.is_audio_type() or self.is_document_type()
 
-    def supports_file_offloading(self) -> bool:
-        # types that can be offloaded to file-based storage via a CellMaterializationNode
+    def needs_cell_materialization(self) -> bool:
+        """True if this type requires cell materialization/reconstruction"""
         return self.is_array_type() or self.is_json_type() or self.is_binary_type()
 
     def to_sa_type(self) -> sql.types.TypeEngine:
@@ -1166,10 +1176,29 @@ class JsonType(ColumnType):
             type_schema = JsonType.TypeSchema(type_spec=[cls.infer_literal_type(item) for item in val])
         else:
             type_schema = JsonType.TypeSchema(
-                type_spec={key: cls.infer_literal_type(value) for key, value in val.items()}
+                type_spec={key: cls.infer_literal_type(value) for key, value in val.items()}, closed=True
             )
 
         return JsonType(type_schema, nullable)
+
+    def _with_dicts_closed(self, closed: bool) -> JsonType:
+        if self.type_schema is None:
+            return self
+        schema = self.type_schema
+        if isinstance(schema.type_spec, dict):
+            type_spec = {k: t._with_dicts_closed(closed) for k, t in schema.type_spec.items()}
+            schema = JsonType.TypeSchema(type_spec, optional_keys=schema.optional_keys, closed=closed)
+        else:
+            variadic_type = None if schema.variadic_type is None else schema.variadic_type._with_dicts_closed(closed)
+            items = [t._with_dicts_closed(closed) for t in schema.type_spec]
+            schema = JsonType.TypeSchema(items, variadic_type=variadic_type)
+        return JsonType(schema, nullable=self.nullable, pretty_print_name=self.pretty_print_name)
+
+    @staticmethod
+    def value_supertype(a: ColumnType, b: ColumnType) -> ColumnType:
+        """The supertype of two types of a value in a JSON schema; untyped Json if they have no other supertype."""
+        supertype = a.supertype(b)
+        return supertype if supertype is not None else JsonType(nullable=a.nullable or b.nullable)
 
     def _validate_literal(self, val: Any) -> None:
         if isinstance(val, tuple):
@@ -1236,12 +1265,14 @@ class JsonType(ColumnType):
             Example: `Json[(str, int, float, ...)]` would have type_spec = [StringType(), IntType()] and
                 variadic_type = FloatType(). (All nullable.)
         - A typed dictionary; in this case, type_spec is a dict mapping keys to their types, and optional_keys may
-            have elements indicating which keys are optional.
+            have elements indicating which keys are optional. Dictionary schemas may be open (allowing keys the
+            schema doesn't declare) or closed (disallowing them).
         """
 
         type_spec: list[ColumnType] | dict[str, ColumnType]
         variadic_type: ColumnType | None = None
         optional_keys: frozenset[str] = frozenset()
+        closed: bool = False
 
         def __post_init__(self) -> None:
             if isinstance(self.type_spec, list):
@@ -1250,6 +1281,7 @@ class JsonType(ColumnType):
                 assert all(col_type is not None for col_type in self.type_spec.values()), self.type_spec
             assert self.variadic_type is None or isinstance(self.variadic_type, ColumnType), self.variadic_type
             assert self.optional_keys is None or isinstance(self.optional_keys, frozenset), self.optional_keys
+            assert not self.closed or isinstance(self.type_spec, dict), self.type_spec
 
         def validate_literal(self, val: Any) -> None:
             if isinstance(self.type_spec, list):
@@ -1276,11 +1308,14 @@ class JsonType(ColumnType):
                         expected_type.validate_literal(val[key])
                     elif key not in self.optional_keys:
                         raise TypeError(f'Missing required key: {key!r}')
-                for key in val:
-                    if key not in self.type_spec:
-                        raise TypeError(f'Unexpected key: {key}')
+                if self.closed:
+                    for key in val:
+                        if key not in self.type_spec:
+                            raise TypeError(f'Unexpected key: {key!r}')
 
         def to_json_schema(self) -> dict[str, Any]:
+            # additionalProperties is False even for open schemas, a requirement of strict tool calling (which LLM tool
+            # parameters use)
             json_schema: dict[str, Any]
 
             if isinstance(self.type_spec, list):
@@ -1307,6 +1342,7 @@ class JsonType(ColumnType):
                 and self.type_spec == other.type_spec
                 and self.variadic_type == other.variadic_type
                 and self.optional_keys == other.optional_keys
+                and self.closed == other.closed
             )
 
         def __hash__(self) -> int:
@@ -1315,7 +1351,7 @@ class JsonType(ColumnType):
                 if isinstance(self.type_spec, list)
                 else hash(frozenset(self.type_spec.items()))
             )
-            return hash((type_spec_hash, self.variadic_type, self.optional_keys))
+            return hash((type_spec_hash, self.variadic_type, self.optional_keys, self.closed))
 
         def __repr__(self) -> str:
             if isinstance(self.type_spec, list):
@@ -1331,9 +1367,18 @@ class JsonType(ColumnType):
                 r = repr(self.type_spec)
                 if len(self.optional_keys) > 0:
                     r += f', optional_keys={sorted(self.optional_keys)}'
+                if self.closed:
+                    r += ', closed=True'
                 return r
 
         def superschema(self, other: JsonType.TypeSchema) -> JsonType.TypeSchema | None:
+            """
+            Returns the most specific schema that is a superschema of both, or None if there is none.
+
+            For two dict schemas, a key that both declare gets the supertype of its two types (untyped Json if there
+            is none) and is required only if both require it. A key that only one declares is kept, as optional, if
+            the other is closed, and dropped if it is open. The result is closed only if both are.
+            """
             if self == other:
                 return self
 
@@ -1380,28 +1425,26 @@ class JsonType(ColumnType):
                 return JsonType.TypeSchema(type_spec=joined_list, variadic_type=variadic_type)
 
             if isinstance(self.type_spec, dict) and isinstance(other.type_spec, dict):
-                # Start with self.type_spec.
-                joined_dict = self.type_spec.copy()
-
-                # Merge in the keys from other.type_spec.
-                for key, type_ in other.type_spec.items():
-                    if key in joined_dict:
-                        # key is in both type specs; form the supertype
-                        supertype = type_.supertype(joined_dict[key])
-                        if supertype is None:
-                            return None  # incompatible types for this key
-                        joined_dict[key] = supertype
-                    else:
-                        # key is only in other
-                        joined_dict[key] = type_
-
                 # If a key is optional in either self or other, it's optional in the supertype.
-                optional_keys = self.optional_keys | other.optional_keys
-                # Moreover, if it appears in one type_spec but not the other,
-                # it must also be optional in the supertype.
-                optional_keys |= frozenset(self.type_spec.keys()) ^ frozenset(other.type_spec.keys())
+                optional_keys = set(self.optional_keys | other.optional_keys)
+                joined_dict: dict[str, ColumnType] = {}
+                for key in [*self.type_spec, *(k for k in other.type_spec if k not in self.type_spec)]:
+                    if key in self.type_spec and key in other.type_spec:
+                        joined_dict[key] = JsonType.value_supertype(self.type_spec[key], other.type_spec[key])
+                    else:
+                        # The key is declared on one side only. If the other side is open, its values may have the
+                        # key with any type, so it's left undeclared; if closed, they don't have it, so it's optional.
+                        type_ = self.type_spec[key] if key in self.type_spec else other.type_spec[key]
+                        other_closed = other.closed if key in self.type_spec else self.closed
+                        if other_closed:
+                            joined_dict[key] = type_
+                            optional_keys.add(key)
 
-                return JsonType.TypeSchema(type_spec=joined_dict, optional_keys=frozenset(optional_keys))
+                return JsonType.TypeSchema(
+                    type_spec=joined_dict,
+                    optional_keys=frozenset(k for k in joined_dict if k in optional_keys),
+                    closed=self.closed and other.closed,
+                )
 
             return None
 
@@ -1415,7 +1458,7 @@ class JsonType(ColumnType):
                 # Postgres JSONB does not necessarily preserve the dictionary key ordering. We need to separately
                 # preserve it in order to get consistent output from t.describe() and related operations.
                 type_spec_key_order = list(self.type_spec.keys())
-            return {
+            d: dict[str, Any] = {
                 'type_spec': type_spec_d,
                 'type_spec_key_order': type_spec_key_order,
                 'variadic_type': self.variadic_type.as_dict() if self.variadic_type is not None else None,
@@ -1423,6 +1466,10 @@ class JsonType(ColumnType):
                 # canonical dict representation (i.e., list(self.optional_keys) would be functionally equivalent here)
                 'optional_keys': sorted(self.optional_keys),
             }
+            if self.closed:
+                # only when true, so that the stored form of an open schema is unchanged
+                d['closed'] = True
+            return d
 
         @classmethod
         def from_dict(cls, d: dict[str, Any]) -> JsonType.TypeSchema:
@@ -1443,6 +1490,7 @@ class JsonType(ColumnType):
                 type_spec=type_spec,
                 variadic_type=ColumnType.from_dict(variadic_type_d) if variadic_type_d is not None else None,
                 optional_keys=frozenset(d['optional_keys']),
+                closed=d.get('closed', False),
             )
 
 
@@ -1533,6 +1581,39 @@ class ArrayType(ColumnType):
         else:
             super_shape = tuple(n1 if n1 == n2 else None for n1, n2 in zip(self.shape, other.shape))
         return ArrayType(super_shape, super_dtype, nullable=(self.nullable or other.nullable))
+
+    def subscript_type(self, index: tuple[int | slice, ...]) -> ColumnType:
+        """
+        Return the type of `self[index]`, following numpy basic indexing: an `int` drops its dimension, a `slice`
+        retains it, and dimensions not covered by `index` are retained. An index that drops every dimension yields
+        the array's scalar dtype.
+        """
+        if self.shape is None:
+            return self
+        assert self.dtype is not None
+
+        if len(index) > len(self.shape):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'Too many indices for `{self}`: got {len(index)}; expected at most {len(self.shape)}',
+            )
+
+        result_shape: list[int | None] = []
+        for n, el in zip(self.shape, index):
+            if isinstance(el, int):
+                if n is not None and not -n <= el < n:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_ARGUMENT, f'Index {el} is out of bounds for `{self}`'
+                    )
+                continue
+            result_shape.append(None if n is None else len(range(*el.indices(n))))
+        result_shape.extend(self.shape[len(index) :])
+
+        if len(result_shape) == 0:
+            scalar_type = ColumnType.from_np_dtype(self.dtype, nullable=self.nullable)
+            assert scalar_type is not None, self.dtype
+            return scalar_type
+        return ArrayType(tuple(result_shape), self.dtype, nullable=self.nullable)
 
     def _as_dict(self) -> dict:
         result = super()._as_dict()
@@ -1871,8 +1952,10 @@ class _PxtType:
 
 class Required(_PxtType, typing.Generic[T]):
     """
-    Marker class to indicate that a column is non-nullable in a schema definition. This has no meaning as a type hint,
-    and is intended only for schema declarations.
+    Deprecated marker class to indicate that a column is non-nullable in a schema definition.
+
+    Bare types such as `pxt.Int` are non-nullable, so `Required[T]` is equivalent to `T`. Use `T | None` to declare a
+    nullable column.
     """
 
     @classmethod
@@ -1894,7 +1977,7 @@ Binary = typing.Annotated[bytes, BinaryType(nullable=False)]
 
 
 class Json(_PxtType):
-    def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
+    def __class_getitem__(cls, item: Any) -> TypeForm:
         """
         `item` (the type subscript) must be a valid Pixeltable JSON type specifier (see from_json_type_arg
         docstring for details).
@@ -1907,7 +1990,7 @@ class Json(_PxtType):
 
 
 class Array(np.ndarray, _PxtType):
-    def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
+    def __class_getitem__(cls, item: Any) -> TypeForm:  # type: ignore[override]
         """
         `item` (the type subscript) must be a tuple with at most two elements (in any order):
         - An optional tuple of `int | None`s, specifying the shape of the array
@@ -1920,7 +2003,7 @@ class Array(np.ndarray, _PxtType):
         params = item if isinstance(item, tuple) else (item,)
         shape: tuple | None = None
         dtype: ColumnType | np.dtype | None = None
-        if not any(isinstance(param, (type, _AnnotatedAlias)) for param in params):
+        if not any(typing.get_origin(param) is typing.Annotated or isinstance(param, type) for param in params):
             raise TypeError('Array type parameter must include a dtype.')
         for param in params:
             if isinstance(param, tuple):
@@ -1929,7 +2012,7 @@ class Array(np.ndarray, _PxtType):
                 if shape is not None:
                     raise TypeError(f'Duplicate Array type parameter: {param}')
                 shape = param
-            elif isinstance(param, (type, _AnnotatedAlias)):
+            elif typing.get_origin(param) is typing.Annotated or isinstance(param, type):
                 if dtype is not None:
                     raise TypeError(f'Duplicate Array type parameter: {param}')
                 if isinstance(param, type) and param in ARRAY_SUPPORTED_NUMPY_DTYPES:
@@ -1946,7 +2029,7 @@ class Array(np.ndarray, _PxtType):
 
 
 class Image(PIL.Image.Image, _PxtType):
-    def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
+    def __class_getitem__(cls, item: Any) -> TypeForm:
         """
         `item` (the type subscript) must be one of the following, or a tuple containing either or both in any order:
         - A 2-tuple of `int`s, specifying the size of the image

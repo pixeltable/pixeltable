@@ -1,0 +1,95 @@
+name: Bug report
+description: Something behaves differently from what the docs say
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most bugs we cannot reproduce turn out to be environment-dependent, so the version and
+        platform fields below matter as much as the description. For a question rather than a bug,
+        open a [Q&A discussion](https://github.com/pixeltable/pixeltable/discussions) instead.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: >
+        The smallest code or command sequence that shows the problem. If it involves an
+        application file, include it.
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Traceback or output
+      description: Paste the full traceback, or the command output. Redact any API keys.
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: pixeltable-version
+    attributes:
+      label: Pixeltable version
+      description: "`python -c 'import pixeltable; print(pixeltable.__version__)'`"
+      placeholder: "0.7.5"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      description: "`python --version`"
+      placeholder: "3.11.9"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS (Apple silicon)
+        - macOS (Intel)
+        - Windows
+        - Windows (WSL)
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it
+      options:
+        - pip
+        - pip with the serve extra
+        - uv
+        - conda or mamba
+        - from source
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I am on the latest release, or I have said above why I am not.
+          required: true
+        - label: I searched the existing issues and discussions.
+          required: true

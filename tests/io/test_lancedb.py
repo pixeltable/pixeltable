@@ -1,15 +1,17 @@
 import datetime
 import io
+import platform
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import PIL.Image
+import pytest
 
 import pixeltable as pxt
 
-from ..utils import pxt_raises, skip_test_if_not_installed
+from ..utils import DatabaseRoot, open_async_resources, pxt_raises, sigint_at_pos, skip_test_if_not_installed
 
 
 @pxt.udf
@@ -19,24 +21,25 @@ def udf_with_exc(i: int, val: int) -> int:
     return i
 
 
+@pytest.mark.db_roots('local', 'proxy', reason='lancedb dependencies are not installed on cloud tests')
 class TestLanceDb:
-    def test_export(self, make_catalog_path: Callable[[str], str], tmp_path: Path) -> None:
+    def test_export(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
         skip_test_if_not_installed('lance', 'lancedb')
-        import lancedb  # type: ignore[import-untyped]
+        import lancedb
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         n_rows = 1000
         schema = {
-            'row_id': pxt.Int,
-            'c_int': pxt.Int,
-            'c_float': pxt.Float,
-            'c_bool': pxt.Bool,
-            'c_string': pxt.String,
-            'c_timestamp': pxt.Timestamp,
-            'c_date': pxt.Date,
-            'c_json': pxt.Json,
-            'c_array': pxt.Array[(10,), pxt.Float],
-            'c_image': pxt.Image,
+            'row_id': pxt.Int | None,
+            'c_int': pxt.Int | None,
+            'c_float': pxt.Float | None,
+            'c_bool': pxt.Bool | None,
+            'c_string': pxt.String | None,
+            'c_timestamp': pxt.Timestamp | None,
+            'c_date': pxt.Date | None,
+            'c_json': pxt.Json | None,
+            'c_array': pxt.Array[(10,), pxt.Float] | None,
+            'c_image': pxt.Image | None,
         }
         t = pxt.create_table(p('test_export'), schema)
 
@@ -113,8 +116,52 @@ class TestLanceDb:
         pxt.io.export_lancedb(t, db_path, 'test', if_exists='append', batch_size_bytes=1024)
         validate_data('test', sorted(list(query.collect()) + list(t.collect()), key=lambda r: r['row_id']))
 
+        # lancedb fails while the query is still producing batches
+        with pytest.raises(ValueError, match="field 'k' does not exist"):
+            pxt.io.export_lancedb(t.select(k=t.row_id), db_path, 'test', if_exists='append', batch_size_bytes=1024)
+
         # error during export
         error_db_path = tmp_path / 'error_db'
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             pxt.io.export_lancedb(t.select(t.c_int, udf_with_exc(t.c_int, 100)), error_db_path, 'test')
         assert not error_db_path.exists()
+
+    def test_export_query_udf(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
+        """An export that calls a query UDF in every batch succeeds and leaves no event loop open."""
+        skip_test_if_not_installed('lance', 'lancedb')
+        import lancedb
+
+        p = db_root.make_catalog_path
+        n_rows = 5000
+        t = pxt.create_table(p('test_query_udf'), {'i': pxt.Int})
+        t.insert({'i': i} for i in range(n_rows))
+
+        @pxt.query
+        def rows_with_i(i: int) -> pxt.Query:
+            return t.where(t.i == i).select(t.i)
+
+        query = t.select(t.i, matches=rows_with_i(t.i))
+        db_path = tmp_path / 'test_lancedb'
+        open_before = open_async_resources()
+        pxt.io.export_lancedb(query, db_path, 'test', batch_size_bytes=1024)
+        pxt.io.export_lancedb(query, db_path, 'test', if_exists='append', batch_size_bytes=1024)
+        assert open_async_resources() == open_before
+
+        rows = lancedb.connect(str(db_path)).open_table('test').to_arrow().to_pylist()
+        expected = [{'i': i, 'matches': [i]} for i in range(n_rows)]
+        assert sorted(rows, key=lambda row: row['i']) == [row for row in expected for _ in range(2)]
+
+    @pytest.mark.skipif(platform.system() == 'Windows', reason='signal.pthread_kill() is POSIX only')
+    @pytest.mark.db_roots(
+        'local', reason='the UDF signals the main thread of this process; a proxy query runs in the server'
+    )
+    def test_export_interrupt(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
+        """Ctrl-C during an export raises KeyboardInterrupt and stops the query."""
+        skip_test_if_not_installed('lance', 'lancedb')
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_interrupt'), {'i': pxt.Int})
+        t.insert({'i': i} for i in range(5000))
+        open_before = open_async_resources()
+        with pytest.raises(KeyboardInterrupt):
+            pxt.io.export_lancedb(t.select(t.i, j=sigint_at_pos(t.i, 3000)), tmp_path / 'db', 'test')
+        assert open_async_resources() == open_before

@@ -22,8 +22,8 @@ ULIMIT_CMD := ulimit -n 4000;
 CMAKE_POLICY_VERSION_MINIMUM := 3.5
 
 # Dev dependency versions not handled by pyproject.toml
-UV_VERSION := 0.9.3
-FFMPEG_VERSION := 6.1.1=gpl*
+UV_VERSION := 0.12.3
+FFMPEG_VERSION := 7.1.1=gpl*
 MINTLIFY_VERSION := 4.2.506
 OTEL_PKG := packages/opentelemetry-instrumentation-pixeltable
 
@@ -94,7 +94,8 @@ endif
 	@python -m pip install -q uv==$(UV_VERSION)
 	@echo 'Installing conda packages ...'
 	@if ! which mamba >/dev/null 2>&1; then conda install -q -y -c conda-forge mamba; fi
-	@mamba install -q -y -c conda-forge libiconv 'ffmpeg==$(FFMPEG_VERSION)' quarto 'nodejs>=20' lychee 'cmake>=3.22'
+	@# mint doesn't run on Node.js 25 or later
+	@mamba install -q -y -c conda-forge libiconv 'ffmpeg==$(FFMPEG_VERSION)' quarto 'nodejs>=20,<25' lychee 'cmake>=3.22'
 	@echo 'Installing mintlify ...'
 	@if ! which mint >/dev/null 2>&1 || ! mint --version | grep -Fq '$(MINTLIFY_VERSION)'; then \
 		npm install --silent -g mint@$(MINTLIFY_VERSION); \
@@ -129,11 +130,11 @@ install-deps:
 	@python -m ipykernel install --user --name=pixeltable
 	@touch .make-install/others
 
-pixeltable/catalog/model.pyi: pixeltable/catalog/model.py pixeltable/catalog/table.py tool/generate_type_stubs.py
+pixeltable/catalog/model/definition.pyi: pixeltable/catalog/model/definition.py pixeltable/catalog/table.py tool/generate_type_stubs.py
 	@python tool/generate_type_stubs.py
 
 .PHONY: install
-install: setup-install .make-install/env .make-install/dashboard install-deps .make-install/others pixeltable/catalog/model.pyi
+install: setup-install .make-install/env .make-install/dashboard install-deps .make-install/others pixeltable/catalog/model/definition.pyi
 
 .PHONY: test
 test: pytest check
@@ -164,8 +165,13 @@ fullpytest: install
 .PHONY: slimpytest
 slimpytest: install
 	@echo 'Running `pytest` on a slim configuration ...'
-	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) \
-	    tests/test_{alter_column,catalog,dirs,env,exprs,function,index,snapshot,table,table_model,unversioned_table,view}.py
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) -k 'not cloud' \
+	    tests/test_{alter_column,array_type,catalog,component_view,concurrent,concurrent_model}.py \
+	    tests/test_{config,conftest,dirs,env}.py \
+	    tests/test_{exceptions,exprs,fault_injection,file_cache,function,history,index,iterator,mcp,path}.py \
+	    tests/test_{primary_key_index,query,sample,session_cache,snapshot,table,table_model,table_model_2,types,view}.py \
+	    tests/serving/test_fastapi.py tests/serving/test_fastapi_models.py tests/serving/test_hosted_openapi.py \
+	    tests/pixeltable_cli/test_{bridge,daemon,schema,service,smoke}.py
 
 .PHONY: nbtest
 nbtest: install
@@ -181,8 +187,8 @@ stresstest: install
 typecheck: install
 	@echo 'Running `mypy` ...'
 	@mypy pixeltable pixeltable_cli tests tool
-	# Separate direct check of model.py (which is shadowed by the generated model.pyi in the main run)
-	@mypy pixeltable/catalog/model.py
+	# Separate direct check of definition.py (which is shadowed by the generated definition.pyi in the main run)
+	@mypy pixeltable/catalog/model/definition.py
 	@echo 'Running `mypy` on $(OTEL_PKG) ...'
 	@MYPYPATH=$(OTEL_PKG)/src mypy --explicit-package-bases --namespace-packages \
 		$(OTEL_PKG)/src/opentelemetry/instrumentation/pixeltable $(OTEL_PKG)/tests
@@ -247,7 +253,9 @@ linkscheck: docs
 
 .PHONY: clean
 clean:
+	@rm -f pixeltable/catalog/model.pyi pixeltable/catalog/model/definition.pyi pixeltable/catalog/model/declaration.pyi || true
 	@rm -rf .make-install || true
+	@rm -rf .mypy_cache || true
 	@rm -rf pixeltable_cli/server/static || true
 	@rm -rf site || true
 	@rm -rf target || true

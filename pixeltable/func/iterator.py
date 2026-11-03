@@ -7,13 +7,12 @@ import typing
 from dataclasses import dataclass
 from textwrap import dedent
 from types import MethodType
-from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, TypeVar, overload
-
-from typing_extensions import Self
+from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, Self, TypeVar, overload
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
-from pixeltable.catalog.globals import _POS_COLUMN_NAME
-from pixeltable.func.globals import resolve_symbol
+from pixeltable.catalog.globals import _POS_COLUMN_NAME, fold_identifier, fold_mapping_keys
+from pixeltable.exprs.expr import ValidationError
+from pixeltable.func.globals import import_error_msg, resolve_symbol
 
 from .signature import Signature
 
@@ -67,6 +66,28 @@ class PxtIterator(abc.ABC, Iterator[T], Generic[T]):
         return None
 
 
+def _make_outputs(output_schema: dict[str, ts.ColumnType], unstored_cols: list[str]) -> dict[str, 'IteratorOutput']:
+    """Build the iterator's output map, keyed by the folded name of the view column each output becomes.
+
+    A component view exposes the pos column of its rowid; we create that column here, so it gets assigned a column id.
+    """
+    folded_name_to_col_schema = fold_mapping_keys({name: (name, col_type) for name, col_type in output_schema.items()})
+    unstored_cols = [fold_identifier(name) for name in unstored_cols]
+    if _POS_COLUMN_NAME in folded_name_to_col_schema:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'{_POS_COLUMN_NAME!r} is reserved and cannot be the name of an iterator output.',
+        )
+
+    # is_stored=False: it is not stored separately (it's already stored as part of the rowid).
+    outputs = {_POS_COLUMN_NAME: IteratorOutput(orig_name=_POS_COLUMN_NAME, is_stored=False, col_type=ts.IntType())}
+    for folded_name, (orig_name, col_type) in folded_name_to_col_schema.items():
+        outputs[folded_name] = IteratorOutput(
+            orig_name=orig_name, is_stored=(folded_name not in unstored_cols), col_type=col_type
+        )
+    return outputs
+
+
 class GeneratingFunction:
     """
     A function that evaluates to iterators over its inputs.
@@ -80,7 +101,6 @@ class GeneratingFunction:
     decorated_callable: Callable
     unstored_cols: list[str]
     fqn: str
-    name: str
     signature: Signature
     has_seek: bool
     is_legacy_retrofit: bool
@@ -91,12 +111,11 @@ class GeneratingFunction:
 
     def __init__(self, decorated_callable: Callable, unstored_cols: list[str], fqn: str | None = None) -> None:
         self.decorated_callable = decorated_callable
-        self.unstored_cols = unstored_cols
+        self.unstored_cols = [fold_identifier(name) for name in unstored_cols]
         if fqn is None:
             self.fqn = f'{decorated_callable.__module__}.{decorated_callable.__qualname__}'
         else:
             self.fqn = fqn
-        self.name = decorated_callable.__name__
         self._conditional_output_schema = None
         self._validate = None
         self.signature = Signature.create(decorated_callable, return_type=ts.JsonType())
@@ -110,6 +129,11 @@ class GeneratingFunction:
             )
 
         self.is_legacy_retrofit = False
+
+    @property
+    def name(self) -> str:
+        """The unqualified name, which is the last component of fqn."""
+        return self.fqn.rsplit('.', 1)[-1]
 
     def _infer_properties(self) -> None:
         self.py_sig = inspect.signature(self.decorated_callable, eval_str=True)
@@ -198,10 +222,10 @@ class GeneratingFunction:
             self._default_output_schema = None
             return
 
-        annotations = output_schema_type.__annotations__.items()
+        type_hints = typing.get_type_hints(output_schema_type, include_extras=True)
         self._default_output_schema = {}
-        for name, type_ in annotations:
-            if name == _POS_COLUMN_NAME:
+        for name, type_ in type_hints.items():
+            if fold_identifier(name) == _POS_COLUMN_NAME:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,
                     f'{_POS_COLUMN_NAME!r} is reserved and cannot be the name of an iterator output.',
@@ -210,7 +234,8 @@ class GeneratingFunction:
             if col_type is None:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_TYPE,
-                    f'Could not infer Pixeltable type for output field {name!r} (with Python type `{type_.__name__}`).'
+                    f'Could not infer Pixeltable type for output field {name!r} '
+                    f'(with Python type `{getattr(type_, "__name__", type_)}`).'
                     '\nThis field was mentioned in the return type '
                     f'`{output_schema_type.__module__}.{output_schema_type.__qualname__}` '
                     f'in function `{iter_fn.__module__}.{iter_fn.__qualname__}()`.',
@@ -271,18 +296,20 @@ class GeneratingFunction:
 
         output_schema = self.call_output_schema(bound_args)
 
-        # a component view exposes the pos column of its rowid;
-        # we create that column here, so it gets assigned a column id;
-        # stored=False: it is not stored separately (it's already stored as part of the rowid)
-        outputs = {_POS_COLUMN_NAME: IteratorOutput(orig_name=_POS_COLUMN_NAME, is_stored=False, col_type=ts.IntType())}
-        outputs.update(
-            {
-                name: IteratorOutput(orig_name=name, is_stored=(name not in self.unstored_cols), col_type=col_type)
-                for name, col_type in output_schema.items()
-            }
-        )
+        outputs = _make_outputs(output_schema, self.unstored_cols)
 
         return GeneratingFunctionCall(self, args, kwargs, bound_args, outputs, validation_error=None)
+
+    def create_iter(self, **kwargs: Any) -> PxtIterator[dict]:
+        """Validate kwargs and instantiate the iterator with them."""
+        kwargs_with_defaults = kwargs.copy()
+        for param_name, param in self.py_sig.parameters.items():
+            if param_name not in kwargs and param.default is not inspect.Parameter.empty:
+                kwargs_with_defaults[param_name] = param.default
+        if self._validate is not None:
+            self._validate(kwargs_with_defaults)
+
+        return self.decorated_callable(**kwargs)
 
     @classmethod
     def _retrofit(cls, iterator_cls: type['ComponentIterator']) -> 'GeneratingFunction':
@@ -301,6 +328,11 @@ class GeneratingFunction:
         it.call_output_schema = call_output_schema  # type: ignore[method-assign]
         it._validate = lambda _: None  # Validation in legacy iterators was done in output_schema()
         it.is_legacy_retrofit = True
+        # __new__() skips __init__(), so the fields it would have set are set here; a legacy iterator
+        # positions itself with set_pos() rather than seek()
+        it.has_seek = False
+        it._default_output_schema = None
+        it._conditional_output_schema = None
         return it
 
     # validate decorator
@@ -345,9 +377,14 @@ class GeneratingFunction:
                 d,
                 f'the symbol `{fqn}` is no longer a Pixeltable iterator. (Was the `@pxt.iterator` decorator removed?)',
             )
-        except (AttributeError, ImportError):
+        except AttributeError:
             return InvalidGeneratingFunction(
                 fqn, d, f'the symbol `{fqn}` no longer exists. (Was the iterator moved or renamed?)'
+            )
+        except ImportError as e:
+            # the module is still there but cannot be imported; the error text identifies the missing dependency
+            return InvalidGeneratingFunction(
+                fqn, d, f'a module required by `{fqn}` could not be imported: {import_error_msg(e)}'
             )
 
 
@@ -366,7 +403,7 @@ class InvalidGeneratingFunction(GeneratingFunction):
             excs.ErrorCode.INVALID_CONFIGURATION, f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}'
         )
 
-    def eval(self, bound_args: dict[str, Any]) -> PxtIterator[dict]:
+    def create_iter(self, **kwargs: Any) -> PxtIterator[dict]:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION, f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}'
         )
@@ -385,6 +422,80 @@ class InvalidGeneratingFunction(GeneratingFunction):
         return self.fn_dict
 
 
+@dataclass
+class IteratorValidationError(ValidationError):
+    """The iterator symbol referenced by a call could not be resolved."""
+
+    iterator_fqn: str
+    error_msg: str
+
+    def catalog_error_msg(self) -> str:
+        return f'The iterator `{self.iterator_fqn}` cannot be located, because\n{self.error_msg}'
+
+    def protocol_error_msg(self) -> str:
+        return (
+            f'The request references the iterator `{self.iterator_fqn}`, '
+            'but that iterator is not defined in the remote database.\n'
+            f'Reported error: {self.error_msg}'
+        )
+
+
+@dataclass
+class IteratorSignatureValidationError(ValidationError):
+    """The stored call pattern no longer binds to the iterator's signature."""
+
+    iterator_fqn: str
+    call_signature: str
+    code_signature: str
+
+    def catalog_error_msg(self) -> str:
+        return dedent(
+            f"""
+            The signature stored in the database for a call to `{self.iterator_fqn}` no longer
+            matches its signature as currently defined in the code. This probably means that the
+            code for `{self.iterator_fqn}` has changed in a backward-incompatible way.
+            Signature of iterator in the database: {self.call_signature}
+            Signature of iterator as currently defined in code: {self.code_signature}
+            """
+        ).strip()
+
+    def protocol_error_msg(self) -> str:
+        return dedent(
+            f"""
+            The request references the iterator `{self.iterator_fqn}`, but the signature of the iterator
+            in the remote database does not match its local definition.
+            Signature of the local iterator: {self.call_signature}
+            Signature of the remote iterator: {self.code_signature}
+            """
+        ).strip()
+
+
+@dataclass
+class OutputSchemaValidationError(ValidationError):
+    """A mismatch between the stored outputs of a call and the iterator's current output schema."""
+
+    iterator_fqn: str
+    detail_msg: str
+
+    def catalog_error_msg(self) -> str:
+        header = dedent(
+            f"""
+            The output schema stored in the database for a call to `{self.iterator_fqn}` no longer
+            matches its output schema as currently defined in the code. This probably means that the
+            code for `{self.iterator_fqn}` has changed in a backward-incompatible way.
+            """
+        ).strip()
+        return f'{header}\n{self.detail_msg}'
+
+    def protocol_error_msg(self) -> str:
+        return dedent(
+            f"""
+            The request references the iterator `{self.iterator_fqn}`, but the output schema of the iterator
+            in the remote database does not match its local definition.
+            """
+        ).strip()
+
+
 @dataclass(frozen=True)
 class GeneratingFunctionCall:
     it: GeneratingFunction
@@ -392,7 +503,7 @@ class GeneratingFunctionCall:
     kwargs: dict[str, exprs.Expr]
     bound_args: dict[str, exprs.Expr]
     outputs: dict[str, IteratorOutput] | None
-    validation_error: str | None
+    validation_error: ValidationError | None
 
     @property
     def is_valid(self) -> bool:
@@ -400,16 +511,7 @@ class GeneratingFunctionCall:
 
     def eval(self, bound_args: dict[str, Any]) -> PxtIterator[dict]:
         assert self.is_valid
-
-        # Run custom iterator validation on fully bound args
-        bound_args_with_defaults = bound_args.copy()
-        for param_name, param in self.it.py_sig.parameters.items():
-            if param_name not in bound_args and param.default is not inspect.Parameter.empty:
-                bound_args_with_defaults[param_name] = param.default
-        if self.it._validate is not None:
-            self.it._validate(bound_args_with_defaults)
-
-        return self.it.decorated_callable(**bound_args)
+        return self.it.create_iter(**bound_args)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -425,7 +527,7 @@ class GeneratingFunctionCall:
         args = [exprs.Expr.from_dict(arg_dict) for arg_dict in d['args']]
         kwargs = {k: exprs.Expr.from_dict(v_dict) for k, v_dict in d['kwargs'].items()}
         outputs: dict[str, IteratorOutput] | None = None
-        validation_error = None
+        validation_error: ValidationError | None = None
 
         if d['outputs'] is not None:
             outputs = {
@@ -433,7 +535,7 @@ class GeneratingFunctionCall:
             }
 
         if isinstance(it, InvalidGeneratingFunction):
-            validation_error = f'The iterator `{it.fqn}` cannot be located, because\n{it.error_msg}'
+            validation_error = IteratorValidationError(it.fqn, it.error_msg)
             # We can't instantiate the GeneratingFunction, so nothing more to do (we can't bind arguments nor
             # reconstruct outputs of legacy iterators).
             return cls(it, args, kwargs, {}, outputs, validation_error)
@@ -446,15 +548,7 @@ class GeneratingFunctionCall:
             args_str.extend(f'{name}: pxt.{arg.col_type}' for name, arg in kwargs.items())
             call_signature_str = f'({", ".join(args_str)}) -> ...'
             fn_signature_str = str(it.signature).removesuffix('pxt.Json') + '...'
-            validation_error = dedent(
-                f"""
-                The signature stored in the database for a call to `{it.fqn}` no longer
-                matches its signature as currently defined in the code. This probably means that the
-                code for `{it.fqn}` has changed in a backward-incompatible way.
-                Signature of iterator in the database: {call_signature_str}
-                Signature of iterator as currently defined in code: {fn_signature_str}
-                """
-            ).strip()
+            validation_error = IteratorSignatureValidationError(it.fqn, call_signature_str, fn_signature_str)
             return cls(it, args, kwargs, {}, outputs, validation_error)
 
         output_schema = it.call_output_schema(bound_args)
@@ -471,15 +565,7 @@ class GeneratingFunctionCall:
                 _, unstored_cols = it.decorated_callable.output_schema(literal_args)  # type: ignore[attr-defined]
             else:
                 unstored_cols = it.unstored_cols
-            outputs = {
-                _POS_COLUMN_NAME: IteratorOutput(orig_name=_POS_COLUMN_NAME, is_stored=False, col_type=ts.IntType())
-            }
-            outputs.update(
-                {
-                    name: IteratorOutput(orig_name=name, is_stored=(name not in unstored_cols), col_type=col_type)
-                    for name, col_type in output_schema.items()
-                }
-            )
+            outputs = _make_outputs(output_schema, unstored_cols)
         else:
             # Validate call_output_schema against stored outputs
             assert any(output.is_pos_column for output in outputs.values())
@@ -489,34 +575,25 @@ class GeneratingFunctionCall:
                 if output.orig_name not in output_schema:
                     # TODO: should we in fact allow this, and just put Nones in the column, to allow for
                     #     "deprecated" output columns?
-                    validation_error = dedent(
-                        f"""
-                        The output schema stored in the database for a call to `{it.fqn}` no longer
-                        matches its output schema as currently defined in the code. This probably means that the
-                        code for `{it.fqn}` has changed in a backward-incompatible way.
-                        The output field {output.orig_name!r} is no longer present in the output schema.
-                        """
-                    ).strip()
+                    validation_error = OutputSchemaValidationError(
+                        it.fqn, f'The output field {output.orig_name!r} is no longer present in the output schema.'
+                    )
                 elif not output.col_type.is_supertype_of(output_schema[output.orig_name]):
-                    validation_error = dedent(
-                        f"""
-                        The output schema stored in the database for a call to `{it.fqn}` no longer
-                        matches its output schema as currently defined in the code. This probably means that the
-                        code for `{it.fqn}` has changed in a backward-incompatible way.
-                        The type of output field {output.orig_name!r} is incompatible
-                        (expected `pxt.{output.col_type}`; got `pxt.{output_schema[output.orig_name]}`).
-                        """
-                    ).strip()
+                    validation_error = OutputSchemaValidationError(
+                        it.fqn,
+                        f'The type of output field {output.orig_name!r} is incompatible\n'
+                        f'(expected `pxt.{output.col_type}`; got `pxt.{output_schema[output.orig_name]}`).',
+                    )
 
         return cls(it, args, kwargs, bound_args, outputs, validation_error)
 
     def display_str(self) -> str:
-        # Build the iterator expression string: "iterator_name(arg1, arg2=expr2, ...)"
-        arg_strs: list[str] = []
-        for arg_expr in self.args:
-            arg_strs.append(arg_expr.display_str(inline=True))
-        for arg_name, arg_expr in self.kwargs.items():
-            arg_strs.append(f'{arg_name}={arg_expr.display_str(inline=True)}')
+        # Build the iterator expression string: "iterator_name(arg1, arg2=expr2, ...)". The keyword
+        # arguments are rendered in name order, so that the same call reads the same however it was written:
+        # a declaration is compared against a stored view by this string, and the two arrive here with the
+        # keywords in the order each was constructed with.
+        arg_strs: list[str] = [arg_expr.display_str(inline=True) for arg_expr in self.args]
+        arg_strs += [f'{name}={self.kwargs[name].display_str(inline=True)}' for name in sorted(self.kwargs)]
         return f'{self.it.name}({", ".join(arg_strs)})'
 
 

@@ -1,7 +1,6 @@
 import datetime
 import json
 import pathlib
-from typing import Callable
 
 import pytest
 
@@ -10,18 +9,18 @@ from pixeltable.config import Config
 
 from ..utils import (
     ALL_DATATYPES_SCHEMA,
+    DatabaseRoot,
     create_all_datatypes_tbl,
     get_image_files,
     rerun_on_network_error,
-    skip_test_if_not_installed,
     validate_update_status,
 )
 
 
 class TestJson:
-    def test_export_all_types(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_export_all_types(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Export a table with every supported type and verify the JSONL output."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = create_all_datatypes_tbl(name=p('all_datatype_tbl'))
         rows = t.order_by(t.row_id).collect()
 
@@ -58,26 +57,24 @@ class TestJson:
             for col_name in media_cols:
                 assert exp_row[col_name] == url_row[f'{col_name}_fileurl']
 
-    def test_export_non_serializable_json_errors(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
-    ) -> None:
+    def test_export_non_serializable_json_errors(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Exporting a JSON column with non-serializable values should raise an error."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = create_all_datatypes_tbl(name=p('all_datatype_tbl'), non_serializable_json=True)
         with pytest.raises(pxt.Error, match='not JSON-serializable'):
             pxt.io.export_json(t, tmp_path / 'should_fail.jsonl')
 
-    def test_export_with_nulls(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_export_with_nulls(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Verify null handling across multiple types."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(
             p('test_json_nulls'),
             {
-                'c_int': pxt.Int,
-                'c_string': pxt.String,
-                'c_float': pxt.Float,
-                'c_json': pxt.Json,
-                'c_timestamp': pxt.Timestamp,
+                'c_int': pxt.Int | None,
+                'c_string': pxt.String | None,
+                'c_float': pxt.Float | None,
+                'c_json': pxt.Json | None,
+                'c_timestamp': pxt.Timestamp | None,
             },
         )
         t.insert(
@@ -99,10 +96,10 @@ class TestJson:
         assert exported[0]['c_timestamp'] is None
         assert exported[1]['c_int'] is None
 
-    def test_export_with_query(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_export_with_query(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Test export with filtering and column selection."""
-        p = make_catalog_path
-        t = pxt.create_table(p('test_json_query'), {'c_int': pxt.Int, 'c_string': pxt.String})
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_json_query'), {'c_int': pxt.Int | None, 'c_string': pxt.String | None})
         rows = [{'c_int': i, 'c_string': f'row_{i}'} for i in range(10)]
         validate_update_status(t.insert(rows), expected_rows=10)
 
@@ -120,10 +117,10 @@ class TestJson:
         assert len(exported) == 10
         assert list(exported[0].keys()) == ['c_string']
 
-    def test_export_non_ascii(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_export_non_ascii(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Verify non-ASCII characters are preserved."""
-        p = make_catalog_path
-        t = pxt.create_table(p('test_json_encoding'), {'name': pxt.String})
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_json_encoding'), {'name': pxt.String | None})
         t.insert([{'name': 'Manwë'}, {'name': 'Fëanor'}])
 
         json_path = tmp_path / 'encoding.jsonl'
@@ -135,10 +132,12 @@ class TestJson:
         assert 'Manwë' in names
         assert 'Fëanor' in names
 
-    def test_round_trip(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_round_trip(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Export JSONL, re-import, and verify data matches."""
-        p = make_catalog_path
-        t = pxt.create_table(p('test_json_rt'), {'c_int': pxt.Int, 'c_string': pxt.String, 'c_float': pxt.Float})
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('test_json_rt'), {'c_int': pxt.Int | None, 'c_string': pxt.String | None, 'c_float': pxt.Float | None}
+        )
         t.insert([{'c_int': 1, 'c_string': 'hello', 'c_float': 1.5}, {'c_int': 2, 'c_string': 'world', 'c_float': 2.5}])
 
         json_path = tmp_path / 'round_trip.jsonl'
@@ -151,9 +150,9 @@ class TestJson:
 
         assert original == reimported
 
-    def test_round_trip_media(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_round_trip_media(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Export JSONL with media columns, re-import, and verify file URLs survive the round-trip."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = create_all_datatypes_tbl(name=p('all_datatype_tbl'))
 
         json_path = tmp_path / 'round_trip_media.jsonl'
@@ -171,10 +170,9 @@ class TestJson:
         assert original == reimported
 
     @rerun_on_network_error()
-    def test_export_remote_urls(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_export_remote_urls(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Verify that remote URLs (S3, HTTPS) are exported as-is."""
-        p = make_catalog_path
-        skip_test_if_not_installed('boto3')
+        p = db_root.make_catalog_path
         urls = {
             'c_video': 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4',
             'c_audio': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/audio/sample.flac',
@@ -182,7 +180,8 @@ class TestJson:
         }
 
         t = pxt.create_table(
-            p('test_json_remote'), {'c_video': pxt.Video, 'c_audio': pxt.Audio, 'c_document': pxt.Document}
+            p('test_json_remote'),
+            {'c_video': pxt.Video | None, 'c_audio': pxt.Audio | None, 'c_document': pxt.Document | None},
         )
         t.insert([urls])
 
@@ -195,25 +194,23 @@ class TestJson:
         for col, expected_url in urls.items():
             assert exported[0][col] == expected_url, f'{col}: expected {expected_url}, got {exported[0][col]}'
 
-    def test_export_unstored_media_expression_errors(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
-    ) -> None:
+    def test_export_unstored_media_expression_errors(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Exporting a media-typed expression that is not backed by a stored column should raise an error."""
-        p = make_catalog_path
-        t = pxt.create_table(p('test_json_transform'), {'img': pxt.Image})
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_json_transform'), {'img': pxt.Image | None})
         t.insert([{'img': get_image_files()[0]}])
 
         with pytest.raises(pxt.Error, match='Cannot export media expression'):
             pxt.io.export_json(t.select(t.img.rotate(90)), tmp_path / 'should_fail.jsonl')
 
-    @pytest.mark.local('uses a local-filesystem destination, which a hosted table does not support')
+    @pytest.mark.db_roots('local', reason='uses a local-filesystem destination, which a hosted table does not support')
     def test_export_computed_media_with_destination(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Computed media columns with a local file destination export their file URLs."""
         dest_path = Config.get().home / 'test-json-dest'
         dest_path.mkdir(parents=True, exist_ok=True)
         dest_uri = dest_path.as_uri()
 
-        t = pxt.create_table('test_json_computed_dest', {'img': pxt.Image})
+        t = pxt.create_table('test_json_computed_dest', {'img': pxt.Image | None})
         t.add_computed_column(rotated=t.img.rotate(90), destination=dest_uri)
         t.insert([{'img': f} for f in get_image_files()[:3]])
 

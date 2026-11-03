@@ -1,8 +1,7 @@
-import json
+from pixeltable_cli import models
 
-from ..confirm import confirm_or_exit
-from ..http import post, quote_path
 from ..parser import Parser
+from ..utils import confirm_or_exit, display_path, post_request, validate_path_arg
 
 EPILOG = """\
 Examples:
@@ -12,8 +11,8 @@ Examples:
   pxt drop my_dir/my_table --json -f
 
 Notes:
-  Refuses directories; use 'pxt rm' for those.
-  Without --cascade, will fail if dependent views exist (the error names them).
+  Refuses directories; use 'pxt drop-dir' for those.
+  Without --cascade, will fail if dependent views exist (the error lists them).
   Without -f, confirmation is read from the terminal; non-interactive callers must pass -f."""
 
 
@@ -35,8 +34,10 @@ def run(argv: list[str]) -> None:
 
     confirm_or_exit(f'drop table {args.path}?', args.force)
 
-    resp = post(f'/api/tables/{quote_path(args.path)}/drop', {'cascade': args.cascade})
+    resp = models.DropResponse.model_validate(
+        post_request('/api/tables/drop', {'path': validate_path_arg(args.path), 'cascade': args.cascade})
+    )
     if args.as_json:
-        print(json.dumps(resp, indent=2))
+        print(resp.model_dump_json(indent=2))
     else:
-        print(f'dropped {resp["path"]}')
+        print(f'dropped {display_path(resp.path)}')

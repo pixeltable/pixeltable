@@ -235,13 +235,28 @@ class Signature:
     def params_str(self) -> str:
         """Generates a user friendly string describing this signature's input parameters"""
         param_strs: list[str] = []
+        pending_pos_only_marker = False
+        needs_kw_only_marker = True
         for p in self.parameters.values():
+            if p.kind == inspect.Parameter.POSITIONAL_ONLY:
+                pending_pos_only_marker = True
+            elif pending_pos_only_marker:
+                param_strs.append('/')
+                pending_pos_only_marker = False
+            if p.kind == inspect.Parameter.VAR_POSITIONAL:
+                needs_kw_only_marker = False
+            elif p.kind == inspect.Parameter.KEYWORD_ONLY and needs_kw_only_marker:
+                param_strs.append('*')
+                needs_kw_only_marker = False
+
             if p.kind == inspect.Parameter.VAR_POSITIONAL:
                 param_strs.append(f'*{p.name}')
             elif p.kind == inspect.Parameter.VAR_KEYWORD:
                 param_strs.append(f'**{p.name}')
             else:
                 param_strs.append(f'{p.name}: pxt.{p.col_type}')
+        if pending_pos_only_marker:
+            param_strs.append('/')
         return ', '.join(param_strs)
 
     def return_str(self, pretty_print_json: bool = False) -> str:

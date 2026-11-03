@@ -348,6 +348,28 @@ class _PacketInfo(NamedTuple):
     mean_square: float = -1.0  # the packet's normalized energy
 
 
+def _set_flac_total_samples(path: str, num_samples: int) -> None:
+    """
+    Set the total sample count in a native FLAC file's STREAMINFO block, from which readers take the duration.
+
+    A remuxed segment carries its source's STREAMINFO, and with it the source's sample count. The block's MD5 of the
+    decoded audio no longer matches either, so it is zeroed, which marks it as unknown.
+    """
+    with open(path, 'r+b') as f:
+        # 'fLaC', then the first metadata block, which is always the 34-byte STREAMINFO (type 0)
+        header = f.read(42)
+        if len(header) < 42 or header[:4] != b'fLaC' or header[4] & 0x7F != 0 or header[5:8] != b'\x00\x00\x22':
+            return
+        # STREAMINFO bytes 10-17 pack the sample rate, channels and bits per sample above a 36-bit total sample count;
+        # a count that doesn't fit is written as 0, which means unknown
+        if not 0 <= num_samples < 2**36:
+            num_samples = 0
+        packed = int.from_bytes(header[18:26], 'big')
+        packed = (packed & ~(2**36 - 1)) | num_samples
+        f.seek(18)
+        f.write(packed.to_bytes(8, 'big') + bytes(16))
+
+
 class AudioSegment(TypedDict):
     segment_start: float
     segment_end: float
@@ -720,6 +742,10 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
                 packet.dts = None if info.dts is None else info.dts - start_pts
                 packet.duration = info.duration
                 output_container.mux(packet)
+        if self.in_stream.codec_context.name == 'flac':
+            end_pts = packet_info[-1].pts + packet_info[-1].duration
+            num_samples = round((end_pts - start_pts) * self.audio_time_base * self.in_stream.codec_context.sample_rate)
+            _set_flac_total_samples(segment_file, num_samples)
         return segment_file
 
     @classmethod

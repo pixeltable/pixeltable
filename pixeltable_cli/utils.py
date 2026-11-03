@@ -1,20 +1,32 @@
 """Primitives shared by the client and the in-process daemon: port, pidfile path,
-config-resolution helpers, and the identity fingerprint. Stdlib-only so the client side
-can import without pulling in pxt or pydantic."""
+config-resolution helpers, and the identity fingerprint. Stdlib-only so the client side can import without
+pulling in pxt or pydantic."""
 
+import contextlib
 import hashlib
 import importlib.metadata
 import os
 import re
+import site
 import sys
+import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple, NewType
 
 DEFAULT_PORT = 22089
+
+# a Pixeltable path encoded as a string. Distinct from str so that a filesystem path cannot be passed where one of
+# these is expected.
+PxtPath = NewType('PxtPath', str)
 
 # Mirrors pixeltable.catalog.path._URI_RE (duplicated so this module stays stdlib-only): a hosted path is
 # pxt://<org>:<db>/<in-catalog path>.
 _PXT_URI_RE = re.compile(r'^pxt://(?P<org>[^:/]+)(?::(?P<db>[^/]+))?(?:/(?P<rest>.*))?$')
+
+# A hosted organization or database name, as in pxt://org:db: lowercase letters, digits, and hyphens,
+# starting and ending with a letter or digit, at most 29 characters.
+_HOSTED_NAME_RE = re.compile(r'[a-z0-9]([a-z0-9-]*[a-z0-9])?')
+_HOSTED_NAME_MAX_LEN = 29
 
 
 def _resolve_pixeltable_home() -> str:
@@ -23,7 +35,7 @@ def _resolve_pixeltable_home() -> str:
 
 
 def _resolve_pixeltable_pgdata(home: str) -> str:
-    """Mirrors env.py: PIXELTABLE_PGDATA if set, else {home}/pgdata."""
+    """Mirrors how Env resolves pgdata_dir, except for pxt.init() overrides."""
     return str(Path(os.environ.get('PIXELTABLE_PGDATA') or f'{home}/pgdata').expanduser().resolve())
 
 
@@ -42,10 +54,71 @@ def get_port() -> int:
         raise RuntimeError(f'PXT_PORT must be an integer port; got {raw!r}') from None
 
 
-def pidfile_path() -> str:
-    """Per-port pidfile path. The port parameterization isolates daemons running on
-    different ports so they don't read or stomp each other's PID."""
-    return os.path.join(_resolve_pixeltable_home(), f'pxt-daemon-{get_port()}.pid')
+def pidfile_path(port: int | None = None) -> str:
+    """Pidfile path for a daemon on port, or on the one PXT_PORT names.
+
+    The port parameterization isolates daemons running on different ports so they don't read or stomp each
+    other's PID.
+    """
+    return os.path.join(_resolve_pixeltable_home(), f'pxt-daemon-{port if port is not None else get_port()}.pid')
+
+
+def working_dirs_path(port: int) -> str:
+    """Path of the file in which the daemon on port saves the working directories set with `pxt cd`."""
+    return os.path.join(_resolve_pixeltable_home(), f'pxt-daemon-{port}-working-dirs.json')
+
+
+class PxtUriParts(NamedTuple):
+    """The components of a pxt://<org>[:<db>][/<path>] URI.
+
+    path is returned as written: None when the URI has nothing past the org and db, and '' for a trailing '/'
+    with nothing after it.
+    """
+
+    org: str
+    db: str | None
+    path: str | None
+
+
+def split_pxt_uri(uri: str) -> PxtUriParts | None:
+    """Split a pxt:// URI into its components. Returns None if uri isn't a pxt:// URI."""
+    m = _PXT_URI_RE.match(uri)
+    if m is None:
+        return None
+    return PxtUriParts(m.group('org'), m.group('db'), m.group('rest'))
+
+
+def hosted_name_error(value: str, kind: str) -> str | None:
+    """Return why value is not a hosted organization or database name, or None if it is one.
+
+    kind begins the message, as in 'Database name'.
+    """
+    if len(value) > _HOSTED_NAME_MAX_LEN:
+        return f'{kind} must be at most {_HOSTED_NAME_MAX_LEN} characters (got {len(value)})'
+    # fullmatch(), since `$` in a match() pattern also matches before a trailing newline ('main\n')
+    if _HOSTED_NAME_RE.fullmatch(value) is None:
+        return (
+            f'{kind} {value!r} is invalid: use only lowercase letters, digits, and hyphens, '
+            'starting and ending with a letter or digit.'
+        )
+    return None
+
+
+def is_valid_identifier(name: str, *, allow_hyphens: bool = False) -> bool:
+    """Mirrors pixeltable.catalog.globals.is_valid_identifier(), which cannot be imported here."""
+    adj_name = name.replace('-', '_') if allow_hyphens else name
+    return adj_name.isidentifier() and name.isascii() and not name.startswith('-') and not name.startswith('_')
+
+
+def hosted_db_uri_error(org: str, db: str) -> str | None:
+    """Return why pxt://org:db cannot refer to a hosted database, or None if it can."""
+    for name, kind in ((org.lower(), 'organization name'), (db.lower(), 'database name')):
+        error = hosted_name_error(name, kind)
+        if error is None and not is_valid_identifier(name, allow_hyphens=True):
+            error = f'{kind} {name!r} is invalid: start it with a letter'
+        if error is not None:
+            return error
+    return None
 
 
 def validate_path_shape(path: str) -> str | None:
@@ -53,24 +126,106 @@ def validate_path_shape(path: str) -> str | None:
 
     A hosted URI pxt://<org>:<db>/<in-catalog path> is accepted; only its in-catalog portion is shape-checked
     here. The org/db and the overall URI form are validated by pixeltable when the path is resolved.
+
+    '.' and '..' are accepted as whole components; resolve_dot_segments() removes them before a path reaches
+    pixeltable, where a dot is still the legacy separator.
     """
     if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in path):
         return f'pxt paths must not contain control characters; got {path!r}'
     if path.startswith('pxt://'):
-        m = _PXT_URI_RE.match(path)
-        if m is None:
+        parts = split_pxt_uri(path)
+        if parts is None:
             return f'invalid URI; expected pxt://<org>:<db>/<path>, got {path!r}'
-        in_catalog = m.group('rest') or ''
+        in_catalog = parts.path or ''
     else:
         in_catalog = path
         if in_catalog.startswith('/'):
-            return f"pxt paths are relative; drop the leading '/' (use '' for root). Got {path!r}"
-    if '.' in in_catalog:
+            # a leading '/' marks an absolute path from the catalog root; accept it and validate the remainder
+            in_catalog = in_catalog[1:]
+    if any('.' in c and c not in ('.', '..') for c in in_catalog.split('/')):
         return f"pxt paths use '/' as the separator; got {path!r}"
     if in_catalog.endswith('/'):
         return f"pxt paths must not end with '/'; got {path!r}"
     if '//' in in_catalog:
         return f"pxt paths must not contain empty components ('//'); got {path!r}"
+    return None
+
+
+def resolve_dot_segments(path: str) -> str:
+    """Resolve '.' and '..' components of a pxt path, clamping at the catalog root.
+
+    '..' at the root keeps the root, as it does in a shell. A pxt:// prefix is preserved and never traversed
+    out of, so '..' cannot move between catalogs. Empty components are left in place for the shape check to
+    report.
+    """
+    prefix = ''
+    in_catalog = path
+    if path.startswith('pxt://'):
+        parts = split_pxt_uri(path)
+        if parts is None:
+            return path  # malformed URI; validate_path_shape() reports it
+        prefix = f'pxt://{parts.org}' + ('' if parts.db is None else f':{parts.db}')
+        in_catalog = parts.path or ''
+    if '.' not in in_catalog:
+        return path
+
+    components: list[str] = []
+    for c in in_catalog.split('/'):
+        if c == '.':
+            continue
+        if c == '..':
+            if len(components) > 0:
+                components.pop()
+            continue
+        components.append(c)
+    resolved = '/'.join(components)
+    if prefix == '':
+        return resolved
+    return prefix if resolved == '' else f'{prefix}/{resolved}'
+
+
+PROJECT_CONFIG_FILE = 'pixeltable.toml'
+PYPROJECT_FILE = 'pyproject.toml'
+
+
+def parse_toml(path: Path) -> dict[str, Any]:
+    """Duplicates config.py:_load_toml(), which cannot be imported here."""
+    try:
+        with open(path, 'rb') as fp:
+            return tomllib.load(fp)
+    except OSError as e:
+        raise RuntimeError(f'{path} cannot be read: {e.strerror or e}') from e
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
+        # tomllib decodes the file itself, so text that is not UTF-8 fails here rather than at the read
+        raise RuntimeError(f'{path} cannot be parsed: {e}') from e
+
+
+def find_project_root(start: Path) -> Path | None:
+    """Find the nearest directory holding one of the recognized project config files.
+
+    Duplicates config.py:_find_project_root(), which cannot be imported here.
+    """
+    start = start.resolve()
+    for dir in (start, *start.parents):
+        pixeltable_toml = dir / PROJECT_CONFIG_FILE
+        if pixeltable_toml.is_file():
+            _ = parse_toml(pixeltable_toml)
+            return dir
+        pyproject = dir / PYPROJECT_FILE
+        if pyproject.is_file():
+            parsed = parse_toml(pyproject)
+            tool = parsed.get('tool')
+            if isinstance(tool, dict) and 'pixeltable' in tool:
+                return dir
+    return None
+
+
+def project_root_error(root: Path, pixeltable_home: Path) -> str | None:
+    """Return why root cannot be a project root, or None if it can. root and pixeltable_home must be resolved."""
+    if Path.home().resolve().is_relative_to(root):
+        return 'the project would include every file in your home directory'
+    if root == pixeltable_home:
+        return 'it is the Pixeltable home, which stores the local database'
     return None
 
 
@@ -83,6 +238,7 @@ _IDENTITY_KEYS: tuple[str, ...] = (
     'pixeltable_pgdata',
     'pixeltable_config_file',
     'pixeltable_env',
+    'packages_fingerprint',
 )
 
 
@@ -100,6 +256,25 @@ def _pxt_install_dir() -> str | None:
     except importlib.metadata.PackageNotFoundError:
         return None
     return str(Path(str(dist.locate_file('pixeltable'))).resolve())
+
+
+def _packages_fingerprint() -> str:
+    """Hash the name and mtime of each distribution's metadata directory in the site-packages directories."""
+    dirs = set(site.getsitepackages())
+    if site.ENABLE_USER_SITE is True:
+        dirs.add(site.getusersitepackages())
+    listing: list[str] = []
+    for site_dir in dirs:
+        try:
+            with os.scandir(site_dir) as entries:
+                metadata_entries = [e for e in entries if e.name.endswith(('.dist-info', '.egg-info'))]
+        except OSError:
+            continue
+        for e in metadata_entries:
+            # an entry removed since the scan, or a dangling symlink, has no mtime
+            with contextlib.suppress(OSError):
+                listing.append(f'{e.name} {e.stat().st_mtime_ns}')
+    return value_fingerprint('\n'.join(sorted(listing)))
 
 
 # Env-var keys whose values may contain credentials and must not be returned verbatim
@@ -124,23 +299,38 @@ def _snapshot_pixeltable_env(environ: dict[str, str] | None = None) -> dict[str,
     return {k: _redact_env_value(k, env[k]) for k in sorted(env) if k.startswith('PIXELTABLE_')}
 
 
+def project_root() -> str | None:
+    """The project root at or above the working directory, and None when that chain marks no project."""
+    found = find_project_root(Path.cwd())
+    return None if found is None else str(found)
+
+
+def value_fingerprint(value: str) -> str:
+    """Hash value into a string short enough to print and to compare by eye."""
+    return hashlib.sha256(value.encode('utf-8')).hexdigest()[:12]
+
+
+def env_fingerprint(environ: dict[str, str] | None = None) -> dict[str, str]:
+    """Returns dict mapping every set environment variable to a hash of its value."""
+    env = os.environ if environ is None else environ
+    return {name: value_fingerprint(env[name]) for name in sorted(env) if env[name] != ''}
+
+
 def identity() -> dict[str, Any]:
-    pxt_version = _pxt_version()
-    pxt_install_dir = _pxt_install_dir()
-    # Surfacing this here turns a broken pixeltable install into one clear error instead
-    # of a daemon that 500s on every /health call and respawns in a tight loop.
-    if pxt_version is None or pxt_install_dir is None:
-        raise RuntimeError(
-            "pixeltable package metadata not found (importlib.metadata can't locate the "
-            "'pixeltable' distribution). Reinstall with: pip install --force-reinstall pixeltable"
-        )
+    """The fingerprint the client compares against a running daemon's.
+
+    pxt_version and pxt_install_dir are None where the served project is pixeltable itself: a hosted
+    image installs a project's dependencies, not the project. `pxt` ships in that distribution, so a
+    local client always resolves both.
+    """
     home = _resolve_pixeltable_home()
     return {
-        'pxt_version': pxt_version,
-        'pxt_install_dir': pxt_install_dir,
+        'pxt_version': _pxt_version(),
+        'pxt_install_dir': _pxt_install_dir(),
         'python_executable': sys.executable,
         'pixeltable_home': home,
         'pixeltable_pgdata': _resolve_pixeltable_pgdata(home),
         'pixeltable_config_file': _resolve_pixeltable_config_file(home),
         'pixeltable_env': _snapshot_pixeltable_env(),
+        'packages_fingerprint': _packages_fingerprint(),
     }

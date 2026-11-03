@@ -1,8 +1,8 @@
 from config import DIRECTORY
 from load_data import populate_pixeltable
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-mcp = FastMCP('JFK_Files')
+mcp = MCPServer('JFK_Files')
 
 # Load a smaller set of documents for quick testing and development
 documents = populate_pixeltable(num_docs=5)

@@ -1,7 +1,7 @@
-import json
+from pixeltable_cli import models
 
-from ..http import get, quote_path
 from ..parser import Parser
+from ..utils import get_request, validate_path_arg
 
 EPILOG = """\
 Examples:
@@ -15,9 +15,11 @@ def run(argv: list[str]) -> None:
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
-    resp = get(f'/api/tables/{quote_path(args.path)}/count')
+    resp = models.CountResponse.model_validate(
+        get_request('/api/tables/count', params={'path': validate_path_arg(args.path)})
+    )
 
     if args.as_json:
-        print(json.dumps(resp, indent=2))
+        print(resp.model_dump_json(indent=2))
     else:
-        print(resp['count'])
+        print(resp.count)

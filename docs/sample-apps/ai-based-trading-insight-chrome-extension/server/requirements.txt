@@ -2,6 +2,6 @@ fastapi
 pydantic
 pillow
 python-dotenv
-pixeltable
+pixeltable>=0.7.4
 anthropic
 uvicorn

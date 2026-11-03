@@ -1,6 +1,6 @@
 import random
 import time
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import PIL.Image
@@ -11,7 +11,7 @@ from pixeltable.env import Env
 from pixeltable.utils.local_store import LocalStore
 
 from .utils import (
-    CatalogMode,
+    DatabaseRoot,
     ReloadTester,
     assert_columns_eq,
     get_audio_files,
@@ -26,9 +26,9 @@ from .utils import (
 
 @pytest.mark.expensive  # Large data volumes involved; must run on larger instances
 class TestInlinedObjects:
-    def test_null_arrays(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
-        t = pxt.create_table(p('test_tbl'), {'i': pxt.Int, 'data': pxt.Array})
+    def test_null_arrays(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_tbl'), {'i': pxt.Int | None, 'data': pxt.Array | None})
         validate_update_status(
             t.insert(
                 {'i': i, 'data': np.random.rand(256, 256, 3).astype(np.float32) if i % 2 == 0 else None}
@@ -43,15 +43,22 @@ class TestInlinedObjects:
         assert all(row['data'] is not None for row in res)
         assert all(row['i'] % 2 == 0 for row in res)
 
-    def test_insert_arrays(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
+    def test_insert_arrays(self, db_root: DatabaseRoot) -> None:
         """Test storing arrays of various sizes and dtypes."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         reload_tester = ReloadTester()
 
         # 5 columns: cycle through different shapes and sizes in each row
         t = pxt.create_table(
             p('test'),
-            {'id': pxt.Int, 'ar1': pxt.Array, 'ar2': pxt.Array, 'ar3': pxt.Array, 'ar4': pxt.Array, 'ar5': pxt.Array},
+            {
+                'id': pxt.Int | None,
+                'ar1': pxt.Array | None,
+                'ar2': pxt.Array | None,
+                'ar3': pxt.Array | None,
+                'ar4': pxt.Array | None,
+                'ar5': pxt.Array | None,
+            },
         )
 
         vals = inf_array_iterator(
@@ -59,7 +66,7 @@ class TestInlinedObjects:
         )
         rows: list[dict[str, Any]] = [
             {'id': i, 'ar1': next(vals), 'ar2': next(vals), 'ar3': next(vals), 'ar4': next(vals), 'ar5': next(vals)}
-            for i in range(60)
+            for i in range(5 if db_root.is_cloud else 60)
         ]
         total_bytes = sum(
             row['ar1'].nbytes + row['ar2'].nbytes + row['ar3'].nbytes + row['ar4'].nbytes + row['ar5'].nbytes
@@ -74,7 +81,7 @@ class TestInlinedObjects:
         )
         validate_update_status(status, expected_rows=len(rows))
         tbl_id = t._id
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         res = reload_tester.run_query(t.order_by(t.id))
@@ -90,20 +97,20 @@ class TestInlinedObjects:
         reload_tester.run_reload_test()
 
         pxt.drop_table(p('test'))
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    def test_insert_binary(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
+    def test_insert_binary(self, db_root: DatabaseRoot) -> None:
         """Test storing binary data of various sizes."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         reload_tester = ReloadTester()
-        t = pxt.create_table(p('test'), {'id': pxt.Int, 'data': pxt.Binary})
+        t = pxt.create_table(p('test'), {'id': pxt.Int | None, 'data': pxt.Binary | None})
 
         rnd = random.Random(4171780)
         data = [rnd.randbytes(size) for size in (0, 2**10, 2**5, 2**20, 2**8)]
         validate_update_status(t.insert({'id': i, 'data': d} for i, d in enumerate(data)), expected_rows=len(data))
         tbl_id = t._id
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         res = reload_tester.run_query(t.order_by(t.id))
@@ -112,27 +119,27 @@ class TestInlinedObjects:
         reload_tester.run_reload_test()
 
         pxt.drop_table(p('test'))
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    def test_insert_inlined_objects(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
+    def test_insert_inlined_objects(self, db_root: DatabaseRoot) -> None:
         """Test storing lists and dicts with arrays of various sizes and dtypes."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
         rnd = random.Random(4171780)
 
-        schema = {
-            'id': pxt.Int,
-            'array_list': pxt.Json,
-            'array_dict': pxt.Json,
-            'img1': pxt.Image,
-            'img2': pxt.Image,
-            'img3': pxt.Image,
-            'img_list': pxt.Json,
-            'img_dict': pxt.Json,
-            'bytes_list': pxt.Json,
-            'bytes_dict': pxt.Json,
+        schema: dict[str, Any] = {
+            'id': pxt.Int | None,
+            'array_list': pxt.Json | None,
+            'array_dict': pxt.Json | None,
+            'img1': pxt.Image | None,
+            'img2': pxt.Image | None,
+            'img3': pxt.Image | None,
+            'img_list': pxt.Json | None,
+            'img_dict': pxt.Json | None,
+            'bytes_list': pxt.Json | None,
+            'bytes_dict': pxt.Json | None,
         }
         t = pxt.create_table(p('test'), schema)
 
@@ -142,7 +149,7 @@ class TestInlinedObjects:
         imgs = inf_image_iterator()
         rng = np.random.default_rng(0)
         rows: list[dict[str, Any]] = []
-        for i in range(10):
+        for i in range(2 if db_root.is_cloud else 10):
             img1 = next(imgs)
             img2 = next(imgs)
             img3 = next(imgs)
@@ -164,7 +171,7 @@ class TestInlinedObjects:
             )
         validate_update_status(t.insert(rows), expected_rows=len(rows))
         tbl_id = t._id
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         res = reload_tester.run_query(t.order_by(t.id))
@@ -188,29 +195,27 @@ class TestInlinedObjects:
         reload_tester.run_reload_test()
 
         pxt.drop_table(p('test'))
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    def test_nonstandard_json_construction(
-        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
-    ) -> None:
-        p = make_catalog_path
+    def test_nonstandard_json_construction(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
 
         # test list/dict construction
         # use 5 arrays to ensure every row sees a different combination of shapes and dtypes
-        schema = {
-            'id': pxt.Int,
-            'a1': pxt.Array,
-            'a2': pxt.Array,
-            'a3': pxt.Array,
-            'a4': pxt.Array,
-            'a5': pxt.Array,
-            'img1': pxt.Image,
-            'img2': pxt.Image,
-            'img3': pxt.Image,
-            'img4': pxt.Image,
+        schema: dict[str, Any] = {
+            'id': pxt.Int | None,
+            'a1': pxt.Array | None,
+            'a2': pxt.Array | None,
+            'a3': pxt.Array | None,
+            'a4': pxt.Array | None,
+            'a5': pxt.Array | None,
+            'img1': pxt.Image | None,
+            'img2': pxt.Image | None,
+            'img3': pxt.Image | None,
+            'img4': pxt.Image | None,
         }
         t = pxt.create_table(p('test'), schema)
         array_vals = inf_array_iterator(
@@ -230,7 +235,7 @@ class TestInlinedObjects:
                 'img3': next(imgs),
                 'img4': next(imgs),
             }
-            for i in range(100)
+            for i in range(2 if db_root.is_cloud else 100)
         ]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 
@@ -250,7 +255,7 @@ class TestInlinedObjects:
         )
 
         tbl_id = t._id
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         # list construction
@@ -292,15 +297,20 @@ class TestInlinedObjects:
         reload_tester.run_reload_test()
 
         pxt.drop_table(p('test'))
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    def test_samples(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_samples(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
 
-        schema = {'id': pxt.Int, 'c': pxt.Int, 'a': pxt.Array, 'd': pxt.Json}
+        schema: dict[str, Any] = {
+            'id': pxt.Int | None,
+            'c': pxt.Int | None,
+            'a': pxt.Array | None,
+            'd': pxt.Json | None,
+        }
         t = pxt.create_table(p('test'), schema)
 
         rows = [
@@ -351,15 +361,15 @@ class TestInlinedObjects:
 
         reload_tester.run_reload_test()
 
-    @pytest.mark.local('TODO: convert; file-path media in JSON not yet shipped over proxy')
-    def test_json_media(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    @pytest.mark.db_roots('local', reason='TODO: convert; file-path media in JSON not yet shipped over proxy')
+    def test_json_media(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
 
-        schema = {
-            'id': pxt.Int,
-            'media': pxt.Json[{'clip': pxt.Video, 'sound': pxt.Audio, 'doc': pxt.Document, 'label': str}],
+        schema: dict[str, Any] = {
+            'id': pxt.Int | None,
+            'media': pxt.Json[{'clip': pxt.Video, 'sound': pxt.Audio, 'doc': pxt.Document, 'label': str}] | None,
         }
-        t = pxt.create_table(p('test'), schema)
+        t = pxt.create_table(p('test'), schema, _is_data_versioned=is_data_versioned)
 
         videos = get_video_files()
         audios = get_audio_files()

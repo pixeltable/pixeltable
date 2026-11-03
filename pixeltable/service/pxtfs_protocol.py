@@ -25,8 +25,8 @@ class GetBucketCredentialsRequest(BaseModel):
     operation_type: Literal[PixeltableStoreOperationType.GET_BUCKET_CREDENTIALS] = (
         PixeltableStoreOperationType.GET_BUCKET_CREDENTIALS
     )
-    org_slug: str
-    db_slug: str
+    org: str
+    db: str
     bucket_name: str = 'home'
     prefix: str | None = None  # Optional path prefix within the home bucket
 
@@ -43,6 +43,7 @@ class GetBucketCredentialsResponse(BaseModel):
     ttl_seconds: int  # How long credentials are valid, in seconds
     prefix: str | None = None  # Prefix these credentials are scoped to
     no_space_left: bool = False  # True when storage quota is exceeded; only read and delete are allowed
+    no_space_detail: str | None = None  # with no_space_left, the control plane's text for the user
 
 
 class GetPresignedUrlRequest(BaseModel):
@@ -51,8 +52,8 @@ class GetPresignedUrlRequest(BaseModel):
     operation_type: Literal[PixeltableStoreOperationType.GET_PRESIGNED_URL] = (
         PixeltableStoreOperationType.GET_PRESIGNED_URL
     )
-    org_slug: str
-    db_slug: str
+    org: str
+    db: str
     bucket_name: str = 'home'
     key: str  # Object key within the home bucket
     method: Literal['get', 'put'] = 'get'  # HTTP method for the presigned URL

@@ -25,8 +25,6 @@
           <outline text="func|pixeltable.ls" />
           <outline text="func|pixeltable.move" />
           <outline text="func|pixeltable.init" />
-          <outline text="func|pixeltable.publish" />
-          <outline text="func|pixeltable.replicate" />
           <outline text="func|pixeltable.list_dirs" />
           <outline text="func|pixeltable.list_functions" />
           <outline text="func|pixeltable.list_tables" />
@@ -47,6 +45,7 @@
             <outline text="method|pixeltable.Table.add_column" />
             <outline text="method|pixeltable.Table.add_columns" />
             <outline text="method|pixeltable.Table.add_computed_column" />
+            <outline text="method|pixeltable.Table.alter_computed_column" />
             <outline text="method|pixeltable.Table.drop_column" />
             <outline text="method|pixeltable.Table.rename_column" />
             <outline text="method|pixeltable.Table.recompute_columns" />
@@ -54,6 +53,8 @@
             <outline text="method|pixeltable.Table.update" />
             <outline text="method|pixeltable.Table.batch_update" />
             <outline text="method|pixeltable.Table.delete" />
+            <outline text="method|pixeltable.Table.compute" />
+            <outline text="method|pixeltable.Table.add_btree_index" />
             <outline text="method|pixeltable.Table.add_embedding_index" />
             <outline text="method|pixeltable.Table.drop_embedding_index" />
             <outline text="method|pixeltable.Table.drop_index" />
@@ -105,7 +106,15 @@
             <outline text="method|pixeltable.ResultSet.to_pydantic" />
           </outline>
 
-          <outline text="class|pixeltable.Row" />
+          <outline text="class|pixeltable.Row">
+            <outline text="method|pixeltable.Row.to_json" />
+          </outline>
+
+          <outline text="class|pixeltable.RowBatch">
+            <outline text="method|pixeltable.RowBatch.to_json" />
+          </outline>
+
+          <outline text="class|pixeltable.CellError" />
 
           <outline text="class|pixeltable.ResultCursor">
             <outline text="method|pixeltable.ResultCursor.open" />
@@ -122,13 +131,18 @@
           </outline>
 
           <outline text="class|pixeltable.ColumnMetadata" />
+          <outline text="class|pixeltable.ConfigVar">
+            <outline text="method|pixeltable.ConfigVar.value" />
+          </outline>
           <outline text="class|pixeltable.DirContents" />
           <outline text="class|pixeltable.DirectoryNode" />
           <outline text="class|pixeltable.IndexMetadata" />
+          <outline text="class|pixeltable.Secret" />
           <outline text="class|pixeltable.TableMetadata" />
           <outline text="class|pixeltable.TableNode" />
           <outline text="class|pixeltable.TreeNode" />
           <outline text="class|pixeltable.UpdateStatus" />
+          <outline text="class|pixeltable.URI" />
           <outline text="class|pixeltable.VersionMetadata" />
         </outline>
         <outline text="class|pixeltable.types.ColumnSpec" />
@@ -409,7 +423,7 @@
           <outline text="udf|pixeltable.functions.gemini.embed_content" />
           <outline text="udf|pixeltable.functions.gemini.generate_content" />
           <outline text="udf|pixeltable.functions.gemini.generate_images" />
-          <outline text="udf|pixeltable.functions.gemini.generate_videos" />
+          <outline text="udf|pixeltable.functions.gemini.generate_video" />
           <outline text="udf|pixeltable.functions.gemini.generate_speech" />
           <outline text="udf|pixeltable.functions.gemini.transcribe" />
           <outline text="func|pixeltable.functions.gemini.invoke_tools" />
@@ -452,6 +466,7 @@
           <outline text="udf|pixeltable.functions.openai.image_edits" />
           <outline text="udf|pixeltable.functions.openai.image_variations" />
           <outline text="udf|pixeltable.functions.openai.moderations" />
+          <outline text="udf|pixeltable.functions.openai.decisions" />
           <outline text="func|pixeltable.functions.openai.invoke_tools" />
         </outline>
         <outline text="module|pixeltable.functions.openrouter">
@@ -459,9 +474,6 @@
         </outline>
         <outline text="module|pixeltable.functions.replicate">
           <outline text="udf|pixeltable.functions.replicate.run" />
-        </outline>
-        <outline text="module|pixeltable.functions.reve">
-          <outline text="udf|pixeltable.functions.reve.create" />
         </outline>
         <outline text="module|pixeltable.functions.runwayml">
           <outline text="udf|pixeltable.functions.runwayml.text_to_image" />
@@ -497,6 +509,9 @@
           <outline text="udf|pixeltable.functions.yolox.yolox" />
           <outline text="udf|pixeltable.functions.yolox.yolo_to_coco" />
         </outline>
+        <outline text="class|pixeltable.functions.whisper.WhisperSegment" />
+        <outline text="class|pixeltable.functions.whisper.WhisperTranscription" />
+        <outline text="class|pixeltable.functions.whisper.WhisperWord" />
       </outline>
 
       <!-- Serving group -->
@@ -542,6 +557,16 @@
           <outline text="func|pixeltable.telemetry.span_end" />
           <outline text="func|pixeltable.telemetry.span" />
           <outline text="func|pixeltable.telemetry.emit" />
+          <outline text="func|pixeltable.telemetry.spanned" />
+          <outline text="func|pixeltable.telemetry.func_span" />
+          <outline text="func|pixeltable.telemetry.counter" />
+          <outline text="func|pixeltable.telemetry.histogram" />
+          <outline text="class|pixeltable.telemetry.Counter">
+            <outline text="method|pixeltable.telemetry.Counter.add" />
+          </outline>
+          <outline text="class|pixeltable.telemetry.Histogram">
+            <outline text="method|pixeltable.telemetry.Histogram.record" />
+          </outline>
         </outline>
         <outline text="module|opentelemetry.instrumentation.pixeltable">
           <outline text="func|opentelemetry.instrumentation.pixeltable.init" />

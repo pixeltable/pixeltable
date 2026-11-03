@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import base64
+import copy
 import datetime
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterator
 
 import numpy as np
+import PIL.Image
 import sqlalchemy as sql
 
 import pixeltable.type_system as ts
@@ -43,6 +45,15 @@ class Literal(Expr):
             val = list(val)
         self.val = val
         self.id = self._create_id()
+
+    @property
+    def has_mutable_val(self) -> bool:
+        """True if val is a dict, list, ndarray or image, which a function can modify in place."""
+        return isinstance(self.val, (dict, list, np.ndarray, PIL.Image.Image))
+
+    def defensive_copy(self) -> Any:
+        """A defensive copy of val: a deep copy if val is mutable, val itself otherwise."""
+        return copy.deepcopy(self.val) if self.has_mutable_val else self.val
 
     def default_column_name(self) -> str | None:
         return 'Literal'
@@ -103,7 +114,15 @@ class Literal(Expr):
             encoded_val = self.val.tolist()
         else:
             encoded_val = self.val
-        return {'val': encoded_val, 'col_type': self.col_type.as_dict(), **super()._as_dict()}
+        # The type is stored with open dicts, as before closed schemas existed, so a literal's stored form is unchanged
+        # (TableModel compares stored value expressions); _from_dict() infers the type again from the value.
+        d = {'val': encoded_val, 'col_type': self.col_type.with_open_dicts().as_dict(), **super()._as_dict()}
+        if self.col_type.is_json_type():
+            # Postgres JSONB does not preserve dict key order
+            key_orders = _dict_key_orders(self.val)
+            if len(key_orders) > 0:
+                d['key_orders'] = key_orders
+        return d
 
     def as_literal(self) -> Literal | None:
         return self
@@ -135,5 +154,39 @@ class Literal(Expr):
             dtype = col_type.dtype  # possibly None
             array = np.array(val, dtype=dtype)
             return cls(array, col_type=col_type)
+        if col_type.is_json_type() and 'key_orders' in d:
+            key_orders = iter(d['key_orders'])
+            val = _apply_key_orders(val, key_orders)
+            assert next(key_orders, None) is None
+        if col_type.is_json_type() and isinstance(val, (dict, list)):
+            # the stored type has no closed schemas; inferring the type from the value restores them
+            return cls(val)
         # For all other types, val should already be in the right format
         return cls(val, col_type)
+
+
+def _dict_key_orders(val: Any) -> list[list[str]]:
+    """Returns the key list of every dict nested in val, in depth-first order."""
+    key_orders: list[list[str]] = []
+
+    def visit(v: Any) -> None:
+        if isinstance(v, dict):
+            key_orders.append(list(v.keys()))
+            for item in v.values():
+                visit(item)
+        elif isinstance(v, (list, tuple)):
+            for item in v:
+                visit(item)
+
+    visit(val)
+    return key_orders
+
+
+def _apply_key_orders(val: Any, key_orders: Iterator[list[str]]) -> Any:
+    if isinstance(val, dict):
+        keys = next(key_orders)
+        assert set(keys) == val.keys(), (keys, val)
+        return {key: _apply_key_orders(val[key], key_orders) for key in keys}
+    if isinstance(val, (list, tuple)):
+        return [_apply_key_orders(item, key_orders) for item in val]
+    return val

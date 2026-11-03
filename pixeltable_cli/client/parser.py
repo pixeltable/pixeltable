@@ -6,8 +6,12 @@ from typing import NoReturn
 class Parser(argparse.ArgumentParser):
     """ArgumentParser that appends the epilog (examples) to stderr on error."""
 
-    def __init__(self, *args: object, **kwargs: object) -> None:
+    # status to exit with on a usage error; overridable where 2 already carries another meaning
+    usage_exit_code: int
+
+    def __init__(self, *args: object, usage_exit_code: int = 2, **kwargs: object) -> None:
         kwargs.setdefault('formatter_class', argparse.RawDescriptionHelpFormatter)
+        self.usage_exit_code = usage_exit_code
         super().__init__(*args, **kwargs)  # type: ignore[arg-type]
 
     def error(self, message: str) -> NoReturn:
@@ -15,7 +19,7 @@ class Parser(argparse.ArgumentParser):
         sys.stderr.write(f'\n{self.prog}: error: {message}\n')
         if self.epilog is not None:
             sys.stderr.write(f'\n{self.epilog}\n')
-        sys.exit(2)
+        sys.exit(self.usage_exit_code)
 
 
 def parse_cols(arg: str | None, parser: Parser) -> list[str] | None:

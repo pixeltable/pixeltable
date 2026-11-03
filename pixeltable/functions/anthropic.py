@@ -2,7 +2,7 @@
 Pixeltable UDFs
 that wrap various endpoints from the Anthropic API. In order to use them, you must
 first `pip install anthropic` and configure your Anthropic credentials, as described in
-the [Working with Anthropic](https://docs.pixeltable.com/notebooks/integrations/working-with-anthropic) tutorial.
+the [Working with Anthropic](https://docs.pixeltable.com/howto/providers/working-with-anthropic) tutorial.
 """
 
 import datetime
@@ -10,10 +10,8 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any, Iterable, cast
 
-import httpx
-
 import pixeltable as pxt
-from pixeltable import env, exprs
+from pixeltable import env, exprs, telemetry_schemas
 from pixeltable.func import Tools
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
@@ -21,6 +19,7 @@ from pixeltable.utils.http import exponential_backoff
 
 if TYPE_CHECKING:
     import anthropic
+    import httpx2
 
 _logger = logging.getLogger(__name__)
 
@@ -28,11 +27,12 @@ _logger = logging.getLogger(__name__)
 @env.register_client('anthropic', credential_param='api_key')
 def _(api_key: str) -> 'anthropic.AsyncAnthropic':
     import anthropic
+    import httpx2
 
     return anthropic.AsyncAnthropic(
         api_key=api_key,
         # recommended to increase limits for async client to avoid connection errors
-        http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
+        http_client=httpx2.AsyncClient(limits=httpx2.Limits(max_keepalive_connections=100, max_connections=500)),
     )
 
 
@@ -41,7 +41,7 @@ def _anthropic_client() -> 'anthropic.AsyncAnthropic':
 
 
 def _get_header_info(
-    headers: httpx.Headers,
+    headers: 'httpx2.Headers',
 ) -> tuple[
     tuple[int, int, datetime.datetime] | None,
     tuple[int, int, datetime.datetime] | None,
@@ -188,8 +188,7 @@ async def messages(
         ...     response=messages(msgs, model='claude-3-5-sonnet-20241022')
         ... )
     """
-    if model_kwargs is None:
-        model_kwargs = {}
+    model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
     if tools is not None:
         # Reformat `tools` into Anthropic format
@@ -244,7 +243,10 @@ async def messages(
         reset_exc=is_retry,
     )
 
-    result_dict = json.loads(result.text)
+    result_dict = json.loads(await result.text())
+    telemetry_schemas.record_token_usage(
+        f'{__name__}.messages', model, result_dict.get('usage'), 'input_tokens', 'output_tokens'
+    )
     return result_dict
 
 
@@ -257,10 +259,13 @@ def _(model: str) -> str:
 def _(messages: list[dict[str, str]], max_tokens: int) -> dict[str, int]:
     input_len = 0
     for message in messages:
-        if 'role' in message:
-            input_len += len(message['role'])
-        if 'content' in message:
-            input_len += len(message['content'])
+        try:
+            if 'role' in message:
+                input_len += len(message['role'])
+            if 'content' in message:
+                input_len += len(message['content'])
+        except Exception:
+            pass  # best effort: skip what can't be read
     return {'requests': 1, 'input_tokens': int(input_len / 4), 'output_tokens': max_tokens}
 
 

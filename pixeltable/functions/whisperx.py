@@ -67,9 +67,10 @@ def transcribe(
             WhisperX default (`'nearest'`). Only valid if `diarize=True`.
         return_char_alignments: Whether to return character-level alignments. Defaults to `False`.
             Only valid if `diarize=True`.
-        diarization_model_name: The name of the diarization model to use. Defaults to
-            `pyannote/speaker-diarization-3.1`. Only valid if `diarize=True`.
-        num_speakers: The number of speakers to expect in the audio. By default, the model with try to detect the
+        diarization_model_name: The pyannote model WhisperX uses for diarization. If `None`, WhisperX
+            uses its default (`pyannote/speaker-diarization-community-1` on WhisperX 3.8 and later).
+            Only valid if `diarize=True`.
+        num_speakers: The number of speakers to expect in the audio. By default, the model will try to detect the
             number of speakers. Only valid if `diarize=True`.
         min_speakers: If specified, the minimum number of speakers to expect in the audio.
             Only valid if `diarize=True`.

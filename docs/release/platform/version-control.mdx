@@ -5,6 +5,10 @@ description: Automatic versioning, time travel queries, and full data lineage tr
 
 Pixeltable automatically tracks every change to your tables—data insertions, updates, deletions, and schema modifications. Query any point in history, undo mistakes, and maintain full reproducibility without manual version management.
 
+<Note>
+Put the table on a `TableModel` in `app.py` for an application. Inserts, updates, `history()`, and time travel below are runtime APIs and are the same in an app or a notebook.
+</Note>
+
 ## How it works
 
 Every operation that modifies a table creates a new version:
@@ -12,11 +16,20 @@ Every operation that modifies a table creates a new version:
 ```python
 import pixeltable as pxt
 
-# Version 0: Table created
-products = pxt.create_table('demo/products', {
-    'name': pxt.String,
-    'price': pxt.Float
-})
+TableModel = pxt.model_base()
+
+
+class Products(TableModel, name='products'):
+    name: pxt.String
+    price: pxt.Float
+```
+
+```bash
+pxt schema update app.py demo
+```
+
+```python
+products = pxt.get_table('demo.products')
 
 # Version 1: Data inserted
 products.insert([
@@ -24,7 +37,7 @@ products.insert([
     {'name': 'Gadget', 'price': 24.99}
 ])
 
-# Version 2: Schema changed
+# Version 2: Schema changed (notebook API; in app.py this is another computed column on the model)
 products.add_computed_column(price_with_tax=products.price * 1.08)
 
 # Version 3: Data updated

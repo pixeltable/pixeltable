@@ -1,21 +1,107 @@
 from __future__ import annotations
 
+import copy
 import inspect
 import sys
+from dataclasses import dataclass
 from textwrap import dedent
-from typing import Any, Sequence
-from uuid import UUID
+from typing import TYPE_CHECKING, Any, Literal as TypingLiteral, Sequence
 
 import sqlalchemy as sql
 
 from pixeltable import catalog, exceptions as excs, func, type_system as ts
 
 from .data_row import DataRow
-from .expr import Expr
+from .expr import Expr, ValidationError
 from .literal import Literal
 from .row_builder import RowBuilder
 from .rowid_ref import RowidRef
 from .sql_element_cache import SqlElementCache
+
+if TYPE_CHECKING:
+    from .expr_dict import ExprDict
+
+
+@dataclass
+class FunctionValidationError(ValidationError):
+    function_path: str
+    error_msg: str
+
+    def catalog_error_msg(self) -> str:
+        return (
+            dedent(
+                f"""
+                The UDF `{self.function_path}` cannot be located, because
+                {{error_msg}}
+                """
+            )
+            .strip()
+            .format(error_msg=self.error_msg)
+        )
+
+    def protocol_error_msg(self) -> str:
+        return (
+            f'The request references the UDF `{self.function_path}`, '
+            'but that UDF is not defined in the remote database.\n'
+            f'Reported error: {self.error_msg}'
+        )
+
+
+@dataclass
+class SignatureValidationError(ValidationError):
+    signature_type: TypingLiteral['signature', 'return type']
+    function_path: str
+    is_polymorphic: bool
+    expr_signature: str
+    code_signature: str
+
+    def catalog_error_msg(self) -> str:
+        signature_note_str = (
+            f'any of its {self.signature_type}s' if self.is_polymorphic else f'its {self.signature_type}'
+        )
+        return dedent(
+            f"""
+            The {self.signature_type} stored in the database for a UDF call to `{self.function_path}` no longer
+            matches {signature_note_str} as currently defined in the code. This probably means that the
+            code for `{self.function_path}` has changed in a backward-incompatible way.
+            {self.signature_type.capitalize()} of UDF call in the database: {self.expr_signature}
+            {self.signature_type.capitalize()} of UDF as currently defined in code: {self.code_signature}
+            """
+        ).strip()
+
+    def protocol_error_msg(self) -> str:
+        return dedent(
+            f"""
+            The request references the UDF `{self.function_path}`, but the {self.signature_type} of the UDF
+            in the remote database does not match its local definition.
+            {self.signature_type.capitalize()} of the local UDF: {self.expr_signature}
+            {self.signature_type.capitalize()} of the remote UDF: {self.code_signature}
+            """
+        ).strip()
+
+
+@dataclass
+class ImportValidationError(ValidationError):
+    function_path: str
+    import_error_msg: str
+
+    def catalog_error_msg(self) -> str:
+        return dedent(
+            f"""
+            A UDF call to `{self.function_path}` could not be fully resolved, because a module required
+            by the UDF could not be imported:
+            {self.import_error_msg}
+            """
+        ).strip()
+
+    def protocol_error_msg(self) -> str:
+        return dedent(
+            f"""
+            A UDF call to `{self.function_path}` could not be resolved because there are missing
+            dependencies in the remote database:
+            {self.import_error_msg}
+            """
+        ).strip()
 
 
 class FunctionCall(Expr):
@@ -44,7 +130,7 @@ class FunctionCall(Expr):
     aggregator: Any | None
     current_partition_vals: list[Any] | None
 
-    _validation_error: str | None
+    _validation_error: ValidationError | None
 
     def __init__(
         self,
@@ -55,7 +141,7 @@ class FunctionCall(Expr):
         order_by_clause: list[Any] | None = None,
         group_by_clause: list[Any] | None = None,
         is_method_call: bool = False,
-        validation_error: str | None = None,
+        validation_error: ValidationError | None = None,
     ):
         assert not fn.is_polymorphic
         assert all(isinstance(arg, Expr) for arg in args)
@@ -146,17 +232,25 @@ class FunctionCall(Expr):
 
     def _create_rowid_refs(self, tbl: catalog.Table) -> list[Expr]:
         path = tbl._tbl_path
-        return [
-            RowidRef(tbl=None, idx=i, tbl_id=path.tbl_id, normalized_base_id=path.rowid_normalized_base_id(i))
-            for i in range(path.num_rowid_columns())
-        ]
+        return [self._rowid_ref(path, i) for i in range(path.num_rowid_columns())]
 
-    def tbl_ids(self) -> set[UUID]:
-        ids = super().tbl_ids()
+    def _rowid_ref(self, path: catalog.TablePath, idx: int) -> RowidRef:
+        base = path.rowid_normalized_base(idx)
+        return RowidRef(
+            tbl=None,
+            idx=idx,
+            tbl_id=path.tbl_id,
+            effective_version=path.effective_version(),
+            normalized_base_id=base.tbl_id,
+            normalized_base_effective_version=base.effective_version(),
+        )
+
+    def tbl_keys(self) -> set[catalog.TableVersionKey]:
+        keys = super().tbl_keys()
         if isinstance(self.fn, func.QueryTemplateFunction):
             assert self.fn.template_query is not None
-            ids |= self.fn.template_query.referenced_tbl_ids()
-        return ids
+            keys |= self.fn.template_query.referenced_tbl_keys()
+        return keys
 
     def default_column_name(self) -> str | None:
         return self.fn.name
@@ -190,7 +284,7 @@ class FunctionCall(Expr):
     #     return f'FunctionCall(fn={self.fn!r}, args={self.args!r}, kwargs={self.kwargs!r})'
 
     @property
-    def validation_error(self) -> str | None:
+    def validation_error(self) -> ValidationError | None:
         return self._validation_error or super().validation_error
 
     def display_str(self, inline: bool = True) -> str:
@@ -207,7 +301,7 @@ class FunctionCall(Expr):
 
     def _print_args(self, start_idx: int = 0, inline: bool = True) -> str:
         arg_strs = [str(self.components[idx]) for idx in self.arg_idxs[start_idx:]]
-        arg_strs.extend([f'{param_name}={self.components[idx]}' for param_name, idx in self.kwarg_idxs.items()])
+        arg_strs.extend(f'{name}={self.components[idx]}' for name, idx in self.kwarg_idxs.items())
         if len(self.order_by) > 0:
             assert isinstance(self.fn, func.AggregateFunction)
             if self.fn.requires_order_by:
@@ -262,6 +356,10 @@ class FunctionCall(Expr):
     def is_agg_fn_call(self) -> bool:
         return isinstance(self.fn, func.AggregateFunction)
 
+    @property
+    def is_std_agg_fn_call(self) -> bool:
+        return self.is_agg_fn_call and not self.is_window_fn_call
+
     def get_agg_order_by(self) -> list[Expr]:
         assert self.is_agg_fn_call
         return self.order_by
@@ -295,8 +393,14 @@ class FunctionCall(Expr):
         Init agg state
         """
         assert self.is_agg_fn_call
+        self.aggregator = self._create_aggregator()
+
+    def _create_aggregator(self) -> func.Aggregator:
         assert isinstance(self.fn, func.AggregateFunction)
-        self.aggregator = self.fn.agg_class(**self.agg_init_args)
+        if self.fn.is_builtin:
+            return self.fn.agg_class(**self.agg_init_args)
+        # all aggregator instances share the Literal values in agg_init_args; non-builtins might modify them
+        return self.fn.agg_class(**copy.deepcopy(self.agg_init_args))
 
     @property
     def bound_args(self) -> dict[str, Expr]:
@@ -315,13 +419,15 @@ class FunctionCall(Expr):
                 raise AssertionError(f'{name}: {idx} (of type `{type(idx)}`)')
         return bound_args
 
-    def substitute(self, spec: dict[Expr, Expr]) -> Expr:
+    def substitute(self, spec: ExprDict[Expr]) -> Expr:
         """
         Substitution of FunctionCall arguments could cause the return value to become more specific, in the case
         where a variable is replaced with a specific value.
         """
         res = super().substitute(spec)
-        assert res is self
+        if res is not self:
+            # spec replaces this call; the replacement carries its own return type
+            return res
         if self.is_valid:
             # If this FunctionCall is valid, re-evaluate the call_return_type of the substituted expression. If the
             # FunctionCall is not valid, it isn't safe to do this. (Really we should be asserting that it *is* valid,
@@ -369,7 +475,7 @@ class FunctionCall(Expr):
         args: list[Any] = []
         parameters_by_pos = self.fn.signature.parameters_by_pos
         for idx in self.arg_idxs:
-            val = data_row[self.components[idx].slot_idx]
+            val = self._arg_val(data_row, idx)
             if (
                 val is None
                 and parameters_by_pos[idx].kind
@@ -386,7 +492,7 @@ class FunctionCall(Expr):
         for param_name, idx in self.kwarg_idxs.items():
             if param_name in init_param_names:
                 continue
-            val = data_row[self.components[idx].slot_idx]
+            val = self._arg_val(data_row, idx)
             if (
                 val is None
                 and parameters[param_name].kind
@@ -397,6 +503,13 @@ class FunctionCall(Expr):
             kwargs[param_name] = val
 
         return args, kwargs
+
+    def _arg_val(self, data_row: DataRow, component_idx: int) -> Any:
+        component = self.components[component_idx]
+        if isinstance(component, Literal) and not self.fn.is_builtin:
+            # a non-builtin function might modify its argument, and all rows and calls share a Literal's val
+            return component.defensive_copy()
+        return data_row[component.slot_idx]
 
     def get_param_values(self, param_names: Sequence[str], data_rows: list[DataRow]) -> list[dict[str, Any]]:
         """
@@ -435,7 +548,7 @@ class FunctionCall(Expr):
             fn_expr = self.components[self.fn_expr_idx]
             data_row[self.slot_idx] = data_row[fn_expr.slot_idx]
             return
-        elif self.is_agg_fn_call and not self.is_window_fn_call:
+        elif self.is_std_agg_fn_call:
             if self.aggregator is None:
                 pass
             data_row[self.slot_idx] = self.aggregator.value()
@@ -450,18 +563,17 @@ class FunctionCall(Expr):
 
         if self.is_window_fn_call:
             assert isinstance(self.fn, func.AggregateFunction)
-            agg_cls = self.fn.agg_class
             if self.has_group_by():
                 if self.current_partition_vals is None:
                     self.current_partition_vals = [None] * len(self.group_by)
                 partition_vals = [data_row[e.slot_idx] for e in self.group_by]
                 if partition_vals != self.current_partition_vals:
                     # new partition
-                    self.aggregator = agg_cls(**self.agg_init_args)
+                    self.aggregator = self._create_aggregator()
                     self.current_partition_vals = partition_vals
             elif self.aggregator is None:
-                self.aggregator = agg_cls(**self.agg_init_args)
-            self.aggregator.update(*args)
+                self.aggregator = self._create_aggregator()
+            self.aggregator.update(*args, **kwargs)
             data_row[self.slot_idx] = self.aggregator.value()
         else:
             data_row[self.slot_idx] = self.fn.exec(args, kwargs)
@@ -484,7 +596,9 @@ class FunctionCall(Expr):
         fn = func.Function.from_dict(d['fn'])
         return_type = ts.ColumnType.from_dict(d['return_type']) if d.get('return_type') is not None else None
         arg_idxs: list[int] = d['arg_idxs']
-        kwarg_idxs: dict[str, int] = d['kwarg_idxs']
+        # postgres may reorder the keys of a dict if stored in JSONB, so we normalize the dictionary order here;
+        # they are sorted by index order (the dictionary's integer values)
+        kwarg_idxs: dict[str, int] = dict(sorted(d['kwarg_idxs'].items(), key=lambda item: item[1]))
         group_by_start_idx: int = d['group_by_start_idx']
         group_by_stop_idx: int = d['group_by_stop_idx']
         order_by_start_idx: int = d['order_by_start_idx']
@@ -495,19 +609,10 @@ class FunctionCall(Expr):
         group_by_exprs = components[group_by_start_idx:group_by_stop_idx]
         order_by_exprs = components[order_by_start_idx:]
 
-        validation_error: str | None = None
+        validation_error: ValidationError | None
 
         if isinstance(fn, func.InvalidFunction):
-            validation_error = (
-                dedent(
-                    f"""
-                    The UDF '{fn.self_path}' cannot be located, because
-                    {{error_msg}}
-                    """
-                )
-                .strip()
-                .format(error_msg=fn.error_msg)
-            )
+            validation_error = FunctionValidationError(fn.self_path, fn.error_msg)
             return cls(fn, args, kwargs, return_type, is_method_call=is_method_call, validation_error=validation_error)
 
         # Now re-bind args and kwargs using the version of `fn` that is currently represented in code. This ensures
@@ -515,25 +620,19 @@ class FunctionCall(Expr):
         # serialized.
 
         resolved_fn: func.Function = fn
+        validation_error: ValidationError | None = None
 
         try:
             # Bind args and kwargs to the function signature in the current codebase.
             resolved_fn, bound_args = fn._bind_to_matching_signature(args, kwargs)
         except (TypeError, excs.Error):
-            signature_note_str = 'any of its signatures' if fn.is_polymorphic else 'its signature'
             args_str = [f'pxt.{arg.col_type}' for arg in args]
             args_str.extend(f'{name}: pxt.{arg.col_type}' for name, arg in kwargs.items())
-            call_signature_str = f'({", ".join(args_str)}) -> pxt.{return_type}'
-            fn_signature_str = f'{len(fn.signatures)} signatures' if fn.is_polymorphic else str(fn.signature)
-            validation_error = dedent(
-                f"""
-                The signature stored in the database for a UDF call to {fn.self_path!r} no longer
-                matches {signature_note_str} as currently defined in the code. This probably means that the
-                code for {fn.self_path!r} has changed in a backward-incompatible way.
-                Signature of UDF call in the database: {call_signature_str}
-                Signature of UDF as currently defined in code: {fn_signature_str}
-                """
-            ).strip()
+            expr_signature = f'({", ".join(args_str)}) -> pxt.{return_type}'
+            code_signature = f'{len(fn.signatures)} signatures' if fn.is_polymorphic else str(fn.signature)
+            validation_error = SignatureValidationError(
+                'signature', fn.self_path, fn.is_polymorphic, expr_signature, code_signature
+            )
         else:
             # Evaluate the call_return_type as defined in the current codebase.
             call_return_type: ts.ColumnType | None = None
@@ -547,13 +646,7 @@ class FunctionCall(Expr):
                 try:
                     call_return_type = resolved_fn.call_return_type(bound_args)
                 except ImportError as exc:
-                    validation_error = dedent(
-                        f"""
-                        A UDF call to {fn.self_path!r} could not be fully resolved, because a module required
-                        by the UDF could not be imported:
-                        {exc}
-                        """
-                    )
+                    validation_error = ImportValidationError(fn.self_path, str(exc))
 
             assert (call_return_type is None) != (validation_error is None)
 
@@ -562,7 +655,7 @@ class FunctionCall(Expr):
                 # way to infer it during DB migration, so we might encounter a stored return_type of None. If the
                 # resolution of call_return_type also fails, then we're out of luck; we have no choice but to
                 # fail-fast.
-                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, validation_error)
+                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, validation_error.catalog_error_msg())
 
             if call_return_type is not None:
                 # call_return_type resolution succeeded.
@@ -573,15 +666,9 @@ class FunctionCall(Expr):
                 elif not return_type.is_supertype_of(call_return_type, ignore_nullable=True):
                     # There is a return_type stored in metadata (schema version >= 25),
                     # and the stored return_type of the UDF call doesn't match the column type of the FunctionCall.
-                    validation_error = dedent(
-                        f"""
-                        The return type stored in the database for a UDF call to {fn.self_path!r} no longer
-                        matches its return type as currently defined in the code. This probably means that the
-                        code for {fn.self_path!r} has changed in a backward-incompatible way.
-                        Return type of UDF call in the database: {return_type}
-                        Return type of UDF as currently defined in code: {call_return_type}
-                        """
-                    ).strip()
+                    validation_error = SignatureValidationError(
+                        'return type', fn.self_path, fn.is_polymorphic, str(return_type), str(call_return_type)
+                    )
 
         assert return_type is not None  # Guaranteed by the above logic.
 

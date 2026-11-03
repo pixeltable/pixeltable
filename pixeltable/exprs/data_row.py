@@ -7,6 +7,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import numpy as np
 import pgvector.sqlalchemy
@@ -80,6 +81,18 @@ class CellMd:
         return x
 
 
+class StoredError(Exception):
+    """The error stored in a cell, packaged as an exception for propagation to dependent cells."""
+
+    errortype: str
+    errormsg: str
+
+    def __init__(self, errortype: str, errormsg: str) -> None:
+        super().__init__(errormsg)
+        self.errortype = errortype
+        self.errormsg = errormsg
+
+
 class DataRow:
     """
     Encapsulates all data and execution state needed by RowBuilder and DataRowBatch:
@@ -109,7 +122,9 @@ class DataRow:
     # expr evaluation state; indexed by slot idx
     vals: np.ndarray  # of object
     has_val: np.ndarray  # of bool
-    excs: np.ndarray  # of object
+    # A list, not an object ndarray: a recorded exception's traceback usually references this row (through the frame
+    # that caught it), and the cyclic GC can't traverse ndarrays, so that cycle would never be collected.
+    excs: list[Exception | None]
     missing_slots: np.ndarray  # of bool; number of missing dependencies
     missing_dependents: np.ndarray  # of int16; number of missing dependents
     is_scheduled: np.ndarray  # of bool; True if this slot is scheduled for evaluation
@@ -134,8 +149,12 @@ class DataRow:
     # exception handling under normal operation.
     _may_have_exc: bool
 
-    # the primary key of a store row is a sequence of ints (the number is different for table vs view)
-    pk: tuple[int, ...] | None
+    # The primary key of a store row:
+    # - pk[0] is a UUID on an operational table and an int on a data-versioned table
+    # - for operational tables, pk[1:] are component view positions (ints)
+    # - for data-versioned tables, pk[1:-1] are component view positions (ints)
+    # - for data-versioned tables, pk[-1] is v_min
+    pk: tuple[int | UUID, ...] | None
     # for nested rows (ie, those produced by JsonMapperDispatcher)
     parent_row: DataRow | None
     parent_slot_idx: int | None
@@ -174,7 +193,7 @@ class DataRow:
     def init(self, size: int) -> None:
         self.vals = np.full(size, None, dtype=object)
         self.has_val = np.zeros(size, dtype=bool)
-        self.excs = np.full(size, None, dtype=object)
+        self.excs = [None] * size
         self.missing_slots = np.zeros(size, dtype=bool)
         self.missing_dependents = np.zeros(size, dtype=np.int16)
         self.is_scheduled = np.zeros(size, dtype=bool)
@@ -193,7 +212,8 @@ class DataRow:
         if slot_idxs is not None:
             self.has_val[slot_idxs] = False
             self.vals[slot_idxs] = None
-            self.excs[slot_idxs] = None
+            for idx in np.arange(len(self.excs))[slot_idxs].tolist():
+                self.excs[idx] = None
             self.file_urls[slot_idxs] = None
             self.file_paths[slot_idxs] = None
         else:
@@ -219,7 +239,7 @@ class DataRow:
         target.file_urls = self.file_urls.copy()
         target.file_paths = self.file_paths.copy()
 
-    def set_pk(self, pk: tuple[int, ...]) -> None:
+    def set_pk(self, pk: tuple[int | UUID, ...]) -> None:
         self.pk = pk
 
     def has_exc(self, slot_idx: int | None = None) -> bool:
@@ -231,7 +251,7 @@ class DataRow:
 
         if slot_idx is not None:
             return self.excs[slot_idx] is not None
-        return (self.excs != None).any()
+        return any(exc is not None for exc in self.excs)
 
     def get_exc(self, slot_idx: int) -> Exception | None:
         exc = self.excs[slot_idx]
@@ -239,13 +259,12 @@ class DataRow:
         return exc
 
     def get_first_exc(self) -> Exception | None:
-        mask = self.excs != None
-        if not mask.any():
-            return None
-        return self.excs[mask][0]
+        return next((exc for exc in self.excs if exc is not None), None)
 
     def set_exc(self, slot_idx: int, exc: Exception) -> None:
-        assert self.excs[slot_idx] is None
+        if self.excs[slot_idx] is not None:
+            # a slot can receive an exception from each failing dependency and from its own evaluation
+            return
         self.excs[slot_idx] = exc
         self._may_have_exc = True
 
@@ -324,7 +343,7 @@ class DataRow:
                 assert self.file_urls[idx] is None and self.file_paths[idx] is None
                 if len(parsed.scheme) <= 1:
                     path = str(Path(val).absolute())  # Ensure we're using an absolute pathname.
-                    self.file_urls[idx] = urllib.parse.urljoin('file:', urllib.request.pathname2url(path))
+                    self.file_urls[idx] = Path(path).as_uri()
                     self.file_paths[idx] = path
                 else:  # file:// URL
                     self.file_urls[idx] = val
@@ -370,11 +389,3 @@ class DataRow:
 
         self.vals[index] = None
         return False
-
-    @property
-    def rowid(self) -> tuple[int, ...]:
-        return self.pk[:-1]
-
-    @property
-    def v_min(self) -> int:
-        return self.pk[-1]

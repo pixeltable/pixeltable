@@ -2,7 +2,7 @@
 Pixeltable UDFs
 that wrap various endpoints from the Voyage AI API. In order to use them, you must
 first `pip install voyageai` and configure your Voyage AI credentials, as described in
-the [Working with Voyage AI](https://docs.pixeltable.com/notebooks/integrations/working-with-voyageai) tutorial.
+the [Working with Voyage AI](https://docs.pixeltable.com/howto/providers/working-with-voyageai) tutorial.
 """
 
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
@@ -201,10 +201,7 @@ async def rerank(
         >>> queries.add_computed_column(candidates=get_candidates(queries.query))
         >>> queries.add_computed_column(
         ...     reranked=rerank(
-        ...         queries.query,
-        ...         queries.candidates.text,
-        ...         model='rerank-2.5',
-        ...         top_k=5,
+        ...         queries.query, queries.candidates, model='rerank-2.5', top_k=5
         ...     )
         ... )
     """

@@ -2,7 +2,9 @@ import logging
 import random
 import time
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock, Mock, patch
 
 import numpy as np
 import PIL.Image
@@ -10,8 +12,10 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable.runtime import get_runtime, reset_runtime
 
 from ..utils import (
+    DatabaseRoot,
     ensure_s3_pytest_resources_access,
     get_audio_files,
     get_image_files,
@@ -25,13 +29,103 @@ from ..utils import (
 )
 from .tool_utils import run_tool_invocations_test
 
-pytestmark = pytest.mark.local('UDF/integration test')
+if TYPE_CHECKING:
+    from google.genai import types
 
 _logger = logging.getLogger('pixeltable_test')
 
 
+class TestGeminiLocal:
+    """Tests that need no credentials or network, kept out of TestGemini so that its class markers don't deselect
+    them.
+
+    They cover what live calls can't produce on demand. One kind is responses that Gemini returns only in edge
+    cases: a blocked prompt, a candidate without content or parts, a blob without a MIME type. The other is a
+    deterministic check that the runtime closes the client's async resources. The session-teardown leak check sees
+    an unclosed client only while something keeps it alive, since the SDK closes a client when it's
+    garbage-collected.
+    """
+
+    @pytest.mark.parametrize('close_fails', [False, True])
+    # google-genai subclasses aiohttp.ClientSession for the session it opens
+    @pytest.mark.filterwarnings('ignore:Inheritance class AiohttpClientSession:DeprecationWarning')
+    def test_client_closed_on_reset(self, close_fails: bool, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('google.genai')
+        monkeypatch.setenv('GEMINI_API_KEY', 'test-key')
+        # the test keeps a reference to the client, as the traceback of a failed call does: the SDK closes a client
+        # that is garbage-collected while a loop runs, which would hide the leak
+        client = get_runtime().get_client('gemini')
+        if close_fails:
+            # a failure to close the sync client doesn't keep the async one open
+            monkeypatch.setattr(client, 'close', Mock(side_effect=RuntimeError('close failed')))
+        # no public accessors expose the SDK's async HTTP clients, so this reads the private attributes. The aiohttp
+        # session opens on the first request, on the runtime's loop; _get_aiohttp_session() opens it the same way.
+        http_client = client._api_client._async_httpx_client
+        aiohttp_session = get_runtime().event_loop.run_until_complete(client._api_client._get_aiohttp_session())
+        reset_runtime()
+        assert http_client.is_closed
+        assert aiohttp_session.closed
+
+    @pytest.mark.parametrize('outcome', ['blocked', 'no_content', 'no_parts', 'no_mime_type'])
+    def test_response_without_content(self, outcome: str, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A blocked prompt has no candidates, a candidate may have no content or content without parts, and a blob
+        may have no MIME type. Each is returned as is, without tool calls."""
+        skip_test_if_not_installed('google.genai')
+        from google.genai import types
+
+        from pixeltable.functions import gemini
+
+        response = self._mock_response(outcome, monkeypatch)
+        result = gemini.generate_content.exec(['Say something.'], {'model': 'gemini-test'})
+        assert result == response.model_dump()
+        assert gemini._gemini_response_to_pxt_tool_calls.exec([result], {}) is None
+        if outcome == 'blocked':
+            assert result['prompt_feedback']['block_reason'] == types.BlockedReason.SAFETY
+
+    def test_speech_blocked(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        skip_test_if_not_installed('google.genai')
+        from pixeltable.functions import gemini
+
+        self._mock_response('blocked', monkeypatch)
+        # generate_speech() is polymorphic, so this calls the single-voice overload's function directly
+        single_voice = gemini.generate_speech.py_fns[0]
+        with pxt_raises(pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, match='unexpected response structure'):
+            get_runtime().run_coro(single_voice('Say something.', model='gemini-test', voice='Kore'))
+
+    def _mock_response(self, outcome: str, monkeypatch: pytest.MonkeyPatch) -> 'types.GenerateContentResponse':
+        """Makes the gemini client return a response of the given shape, and returns that response."""
+        from google.genai import types
+
+        from pixeltable.functions import gemini
+
+        candidates = {
+            'blocked': None,
+            'no_content': [types.Candidate(finish_reason=types.FinishReason.SAFETY)],
+            'no_parts': [
+                types.Candidate(content=types.Content(role='model'), finish_reason=types.FinishReason.MAX_TOKENS)
+            ],
+            'no_mime_type': [
+                types.Candidate(
+                    content=types.Content(role='model', parts=[types.Part(inline_data=types.Blob(data=b'x'))])
+                )
+            ],
+        }[outcome]
+        prompt_feedback = (
+            types.GenerateContentResponsePromptFeedback(block_reason=types.BlockedReason.SAFETY)
+            if outcome == 'blocked'
+            else None
+        )
+        response = types.GenerateContentResponse(candidates=candidates, prompt_feedback=prompt_feedback)
+        client = SimpleNamespace(
+            aio=SimpleNamespace(models=SimpleNamespace(generate_content=AsyncMock(return_value=response)))
+        )
+        monkeypatch.setattr(gemini, '_genai_client', lambda: client)
+        return response
+
+
 @pytest.mark.remote_api
 @pytest.mark.very_expensive
+@pytest.mark.db_roots('local', reason='UDF/integration test')
 @rerun_on_network_error()
 class TestGemini:
     @pytest.mark.parametrize('model', ['gemini-2.5-flash-lite', 'gemini-3.1-pro-preview'])
@@ -42,7 +136,7 @@ class TestGemini:
 
         from pixeltable.functions.gemini import generate_content
 
-        t = pxt.create_table('test_tbl', {'contents': pxt.String, 'row_id': pxt.Int})
+        t = pxt.create_table('test_tbl', {'contents': pxt.String | None, 'row_id': pxt.Int | None})
         t.add_computed_column(output=generate_content(t.contents, model=model))
 
         if 'flash' in model:
@@ -90,14 +184,14 @@ class TestGemini:
 
         images = get_image_files()[:2]
 
-        t = pxt.create_table('test_tbl', {'id': pxt.Int, 'image': pxt.Image})
+        t = pxt.create_table('test_tbl', {'id': pxt.Int | None, 'image': pxt.Image | None})
         t.add_computed_column(
             output=generate_content([t.image, "Describe what's in this image."], model='gemini-2.5-flash-lite')
         )
         validate_update_status(t.insert({'id': n, 'image': image} for n, image in enumerate(images)), expected_rows=2)
         results = t.order_by(t.id).collect()
-        assert 'French horn' in results['output'][0]['candidates'][0]['content']['parts'][0]['text']
-        assert 'truck' in results['output'][1]['candidates'][0]['content']['parts'][0]['text']
+        assert 'french horn' in results['output'][0]['candidates'][0]['content']['parts'][0]['text'].lower()
+        assert 'truck' in results['output'][1]['candidates'][0]['content']['parts'][0]['text'].lower()
 
     def test_generate_content_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
@@ -112,7 +206,7 @@ class TestGemini:
         video_files.append('s3://pxt-test/pytest-resources/large_videos/6mb.mp4')
         video_files.append('s3://pxt-test/pytest-resources/large_videos/35mb.mp4')
 
-        t = pxt.create_table('test_tbl', {'id': pxt.Int, 'video': pxt.Video})
+        t = pxt.create_table('test_tbl', {'id': pxt.Int | None, 'video': pxt.Video | None})
         config = types.GenerateContentConfig(
             media_resolution='MEDIA_RESOLUTION_LOW', system_instruction='Analyze the visual content only. Ignore audio.'
         )
@@ -140,7 +234,7 @@ class TestGemini:
 
         from pixeltable.functions.gemini import generate_content, generate_images
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         t.add_computed_column(
             response=generate_content(
                 t.prompt, model='gemini-3.1-flash-image-preview', config={'response_modalities': ['IMAGE']}
@@ -158,7 +252,7 @@ class TestGemini:
         assert image.size[0] > 0 and image.size[1] > 0
 
         # Passing a Gemini image-generation model to `generate_images` (which is for Imagen) must fail.
-        t2 = pxt.create_table('test_tbl_fail', {'prompt': pxt.String})
+        t2 = pxt.create_table('test_tbl_fail', {'prompt': pxt.String | None})
         validate_update_status(t2.insert(prompt='anything'), expected_rows=1)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='Nano Banana'):
             t2.select(output=generate_images(t2.prompt, model='gemini-3.1-flash-image-preview')).collect()
@@ -169,7 +263,7 @@ class TestGemini:
         from pixeltable.functions import gemini
 
         def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
-            t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
+            t = pxt.create_table('test_tbl', {'prompt': pxt.String | None}, if_exists='replace')
             t.add_computed_column(
                 response=gemini.generate_content(t.prompt, model='gemini-3.1-flash-lite', tools=tools)
             )
@@ -178,6 +272,8 @@ class TestGemini:
 
         run_tool_invocations_test(make_table)
 
+    # TODO: Test in vertexai or deprecate the imagen UDFs
+    @pytest.mark.skip('google-genai 2.x reaches Imagen only in Vertex AI mode, not through the Developer API')
     def test_generate_images(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -185,7 +281,7 @@ class TestGemini:
 
         from pixeltable.functions.gemini import generate_images
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         t.add_computed_column(output=generate_images(t.prompt, model='imagen-4.0-generate-001'))
         config = GenerateImagesConfigDict(aspect_ratio='4:3')
         t.add_computed_column(output2=generate_images(t.prompt, model='imagen-4.0-generate-001', config=config))
@@ -197,87 +293,60 @@ class TestGemini:
         assert results['output'][0].size == (1024, 1024)
         assert results['output2'][0].size == (1280, 896)
 
-    @pytest.mark.very_expensive
-    @rerun_on_network_error(reruns_delay=30)
-    def test_generate_videos(self, uses_db: None) -> None:
+    @pytest.mark.parametrize(
+        ('with_images', 'delivery', 'aspect_ratio', 'resolution', 'width', 'height'),
+        [(False, 'inline', '16:9', '360p', 640, 360), (True, 'uri', '9:16', '720p', 720, 1280)],
+        ids=['text-inline', 'reference-images-uri'],
+    )
+    def test_generate_video(
+        self,
+        db_root: DatabaseRoot,
+        with_images: bool,
+        delivery: str,
+        aspect_ratio: str,
+        resolution: str,
+        width: int,
+        height: int,
+    ) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
-        from pixeltable.functions.gemini import generate_videos
+        from pixeltable.functions.gemini import generate_video
 
-        duration = 4
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'image': pxt.Image, 'video': pxt.Video})
-        t.add_computed_column(
-            output=generate_videos(
-                t.prompt, t.image, model='veo-3.0-generate-001', config={'duration_seconds': duration}
-            )
+        t = pxt.create_table(
+            db_root.make_catalog_path('test_tbl'),
+            {'prompt': pxt.String | None, 'ref1': pxt.Image | None, 'ref2': pxt.Image | None},
         )
-        prompts = [
-            {'prompt': 'A giant pixel floating over the open ocean in a sea of data to the sound of ambient music'},
-            {
-                'prompt': 'Giraffes are foraging in a lush savannah as the leaves sway in the wind',
-                'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000025.jpg',
-            },
-        ]
-
-        t.add_computed_column(metadata=t.output.get_metadata())
-        validate_update_status(t.insert(prompts), expected_rows=len(prompts))
-
-        results = t.collect()
-        for i in range(len(results)):
-            file_path = results['output'][i]
-            print(f'Generated video: {file_path}')
-            metadata = results['metadata'][i]
-            print(f'Generated video metadata: {metadata}')
-            assert Path(file_path).exists()
-
-            # Validate metadata
-            streams = metadata['streams']
-            video_stream = next(s for s in streams if s['type'] == 'video')
-            audio_stream = next(s for s in streams if s['type'] == 'audio')
-            assert len(streams) == 2, metadata
-            assert video_stream['height'] == 720, metadata
-            assert video_stream['duration_seconds'] == duration, metadata
-            assert audio_stream['duration_seconds'] == duration, metadata
-
-    @pytest.mark.very_expensive
-    @rerun_on_network_error(reruns_delay=30)
-    def test_generate_videos_reference_images(self, uses_db: None) -> None:
-        skip_test_if_not_installed('google.genai')
-        skip_test_if_no_client('gemini')
-        from pixeltable.functions.gemini import generate_videos
-
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'ref1': pxt.Image, 'ref2': pxt.Image})
         t.add_computed_column(
-            output=generate_videos(
+            output=generate_video(
                 t.prompt,
-                images=[t.ref1, t.ref2],
-                reference_types=['asset', 'asset'],
-                model='veo-3.1-generate-preview',
-                config={'duration_seconds': 8},
+                images=[t.ref1, t.ref2] if with_images else None,
+                model='gemini-omni-1.1-flash',
+                config={'aspect_ratio': aspect_ratio, 'resolution': resolution, 'delivery': delivery},
             )
         )
-        validate_update_status(
-            t.insert(
-                [
-                    {
-                        'prompt': 'A woman wearing the dress walks confidently through a sun-drenched lagoon',
-                        'ref1': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000025.jpg',
-                        'ref2': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',
-                    }
-                ]
-            ),
-            expected_rows=1,
-        )
-        results = t.collect()
-        file_path = results['output'][0]
-        assert Path(file_path).exists()
+        t.add_computed_column(metadata=t.output.get_metadata())
+        row = {'prompt': 'A gentle breeze moves through a sunny landscape. Slow cinematic camera pan.'}
+        if with_images:
+            row.update(
+                ref1=str(Path('docs/resources/images/000000000025.jpg').resolve()),
+                ref2=str(Path('docs/resources/images/000000000030.jpg').resolve()),
+            )
+        validate_update_status(t.insert([row]), expected_rows=1)
+        result = t.collect()[0]
+        assert Path(result['output']).is_file()
+        streams = result['metadata']['streams']
+        video_stream = next(s for s in streams if s['type'] == 'video')
+        assert video_stream['width'] == width
+        assert video_stream['height'] == height
+        assert video_stream['duration_seconds'] > 0
+        assert any(s['type'] == 'audio' for s in streams)
 
     def test_generate_speech(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
         from pixeltable.functions.gemini import generate_speech
 
-        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        t = pxt.create_table('test_tbl', {'text': pxt.String | None})
         t.add_computed_column(audio=generate_speech(t.text, model='gemini-3.1-flash-tts-preview', voice='Kore'))
         validate_update_status(t.insert(text='Hello, this is a test of Gemini text to speech.'), expected_rows=1)
         results = t.collect()
@@ -290,7 +359,7 @@ class TestGemini:
         skip_test_if_no_client('gemini')
         from pixeltable.functions.gemini import generate_speech
 
-        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        t = pxt.create_table('test_tbl', {'text': pxt.String | None})
         t.add_computed_column(
             audio=generate_speech(t.text, model='gemini-2.5-flash-preview-tts', voices={'Alice': 'Kore', 'Bob': 'Puck'})
         )
@@ -308,7 +377,7 @@ class TestGemini:
         from pixeltable.functions.gemini import transcribe
 
         audio_files = get_audio_files()
-        t = pxt.create_table('test_tbl', {'audio': pxt.Audio})
+        t = pxt.create_table('test_tbl', {'audio': pxt.Audio | None})
         t.add_computed_column(
             transcript=transcribe(t.audio, model='gemini-3-flash-preview', prompt='Transcribe this audio recording.')
         )
@@ -323,7 +392,7 @@ class TestGemini:
         skip_test_if_no_client('gemini')
         from pixeltable.functions.gemini import embed_content
 
-        t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String})
+        t = pxt.create_table('test', {'rowid': pxt.Int | None, 'text': pxt.String | None})
 
         # Test embeddings as computed columns
         t.add_computed_column(embed0=embed_content(t.text, model='gemini-embedding-2'))
@@ -387,7 +456,7 @@ class TestGemini:
         num_rows = 30
         model = 'gemini-2.5-flash-lite'
 
-        t = pxt.create_table('scheduler_tbl', {'word1': pxt.String, 'word2': pxt.String})
+        t = pxt.create_table('scheduler_tbl', {'word1': pxt.String | None, 'word2': pxt.String | None})
         t.add_computed_column(prompt='Use "' + t.word1 + '" and "' + t.word2 + '" in one short sentence.')
         t.add_computed_column(response=generate_content(t.prompt, model=model))
 
@@ -432,7 +501,7 @@ class TestGemini:
         #     next(file for file in get_documents() if 'Vector_database.pdf' in file),
         # )
 
-        t = pxt.create_table('test_tbl_image', {'id': pxt.Int, 'image': pxt.Image})
+        t = pxt.create_table('test_tbl_image', {'id': pxt.Int | None, 'image': pxt.Image | None})
         t.add_embedding_index(t.image, embedding=embed_content.using(model='gemini-embedding-2'))
         validate_update_status(t.insert({'id': n, 'image': image} for n, image in enumerate(images)), expected_rows=2)
 
@@ -450,7 +519,7 @@ class TestGemini:
         )
         assert res[1]['sim'] - res[0]['sim'] > 0.1  # as before, in reverse
 
-        t = pxt.create_table('test_tbl_audio', {'id': pxt.Int, 'audio': pxt.Audio})
+        t = pxt.create_table('test_tbl_audio', {'id': pxt.Int | None, 'audio': pxt.Audio | None})
         t.add_embedding_index(t.audio, embedding=embed_content.using(model='gemini-embedding-2'))
         validate_update_status(
             t.insert({'id': n, 'audio': audio_file} for n, audio_file in enumerate(audio)), expected_rows=2
@@ -467,7 +536,7 @@ class TestGemini:
         res = t.select(t.id, sim=t.audio.similarity(string='A recording of music playing')).order_by(t.id).collect()
         assert res[1]['sim'] - res[0]['sim'] > 0.1
 
-        t = pxt.create_table('test_tbl_video', {'id': pxt.Int, 'video': pxt.Video})
+        t = pxt.create_table('test_tbl_video', {'id': pxt.Int | None, 'video': pxt.Video | None})
         t.add_embedding_index(t.video, embedding=embed_content.using(model='gemini-embedding-2'))
         validate_update_status(
             t.insert({'id': n, 'video': video_file} for n, video_file in enumerate(video)), expected_rows=2

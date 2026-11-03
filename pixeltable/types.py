@@ -5,8 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, Union
 
+from typing_extensions import TypeForm
+
 if TYPE_CHECKING:
     from pixeltable import exprs
+    from pixeltable.config import URI, ConfigVar
 
 
 TableKind = Literal['table', 'view', 'snapshot']
@@ -54,7 +57,7 @@ class ColumnSpec(TypedDict, total=False):
     Exactly one of `type` or `value` must be included in the dictionary.
     """
 
-    type: type
+    type: TypeForm
     """The column type (e.g., `pxt.Image`, `str`). Required unless `value` is specified."""
     value: 'exprs.Expr'
     """A Pixeltable expression for computed columns. Mutually exclusive with `type`."""
@@ -64,7 +67,7 @@ class ColumnSpec(TypedDict, total=False):
     """Whether to store the column data. Defaults to `True`."""
     media_validation: Literal['on_read', 'on_write']
     """When to validate media; `'on_read'` or `'on_write'`."""
-    destination: str | Path
+    destination: str | Path | ConfigVar[URI]
     """
     Destination for storing computed output files. Only applicable for computed columns.
     Can be:

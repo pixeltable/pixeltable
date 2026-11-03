@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
 from typing import Any
 
-from pixeltable_cli.client.utils import ensure_running, fetch_health, kill_and_wait, read_pidfile
-from pixeltable_cli.utils import get_port, pidfile_path
+from pixeltable_cli.client.utils import (
+    describe_in_flight_requests,
+    ensure_running,
+    fetch_health,
+    kill_and_wait,
+    plural,
+    port_is_open,
+    read_pidfile,
+)
+from pixeltable_cli.utils import get_port, pidfile_path, working_dirs_path
 
 from ..parser import Parser
 
@@ -30,26 +39,31 @@ def run(argv: list[str]) -> None:
         '-f',
         '--force',
         action='store_true',
-        help='kill whichever PID is responding on the port even if it does not match the pidfile',
+        help='kill the daemon even if it is serving requests, or if the PID responding on the port does not '
+        'match the pidfile',
     )
-    sub.add_parser('restart', help='stop then start')
+    restart = sub.add_parser('restart', help='stop then start')
+    restart.add_argument('-f', '--force', action='store_true', help='restart even while the daemon is serving requests')
     status = sub.add_parser('status', help='print daemon info; exit 1 if no daemon is running')
     status.add_argument('--json', action='store_true', dest='as_json', help='emit the identity fingerprint as JSON')
 
     args = parser.parse_args(argv)
 
     if args.action == 'start':
-        _do_start()
+        _start()
     elif args.action == 'stop':
-        _do_stop(force=args.force)
+        _stop(force=args.force)
+        # a stop clears the working directories set with pxt cd; a restart keeps them
+        with contextlib.suppress(OSError):
+            os.remove(working_dirs_path(get_port()))
     elif args.action == 'restart':
-        _do_stop(force=False, ok_if_absent=True)
-        _do_start()
+        _stop(force=args.force, ok_if_absent=True)
+        _start()
     elif args.action == 'status':
-        _do_status(as_json=args.as_json)
+        _status(as_json=args.as_json)
 
 
-def _do_start() -> None:
+def _start() -> None:
     try:
         base = ensure_running()
     except RuntimeError as e:
@@ -61,9 +75,19 @@ def _do_start() -> None:
     print(f'pxt daemon up at {base}{suffix}')
 
 
-def _do_stop(force: bool, ok_if_absent: bool = False) -> None:
+def _stop(force: bool, ok_if_absent: bool = False) -> None:
     tracked_pid = read_pidfile()
     health = fetch_health()
+
+    in_flight = health.get('in_flight', []) if health is not None else []
+    if len(in_flight) > 0 and not force:
+        print(
+            f'pxt: the daemon is serving {plural(len(in_flight), "request")}: '
+            f'{describe_in_flight_requests(in_flight)}.\n'
+            'Wait for it to finish, or use --force.',
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     if tracked_pid is None and health is None:
         if ok_if_absent:
@@ -112,10 +136,19 @@ def _do_stop(force: bool, ok_if_absent: bool = False) -> None:
     print(f'pxt: stopped daemon (PID {pid_to_kill})')
 
 
-def _do_status(as_json: bool) -> None:
-    health = fetch_health()
+def _status(as_json: bool) -> None:
+    # a longer timeout than the default: a daemon serving a slow request answers late, and reporting it as
+    # absent would be wrong
+    health = fetch_health(timeout=5.0)
     if health is None:
-        print('pxt: no daemon running', file=sys.stderr)
+        if port_is_open():
+            print(
+                'pxt: the daemon is not answering; it is busy with a request. '
+                "Run 'pxt daemon status' again, or 'pxt daemon stop -f' to take it down.",
+                file=sys.stderr,
+            )
+        else:
+            print('pxt: no daemon running', file=sys.stderr)
         sys.exit(1)
 
     if as_json:
@@ -136,6 +169,7 @@ def _print_status_text(health: dict[str, Any]) -> None:
         ('Home', str(health.get('pixeltable_home'))),
         ('PgData', str(health.get('pixeltable_pgdata'))),
         ('Config', str(health.get('pixeltable_config_file'))),
+        ('Project', str(health.get('project_root'))),
     ]
     width = max(len(k) for k, _ in rows)
     for k, v in rows:

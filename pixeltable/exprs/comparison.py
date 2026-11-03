@@ -4,7 +4,6 @@ from typing import Any
 
 import sqlalchemy as sql
 
-import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 
 from .column_ref import ColumnRef
@@ -14,6 +13,7 @@ from .globals import ComparisonOperator
 from .literal import Literal
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
+from .variable import Variable
 
 
 class Comparison(Expr):
@@ -21,35 +21,21 @@ class Comparison(Expr):
     operator: ComparisonOperator
 
     def __init__(self, operator: ComparisonOperator, op1: Expr, op2: Expr):
-        from pixeltable import index
-
         super().__init__(ts.BoolType())
         self.operator = operator
 
-        # if this is a comparison of a column to a literal (ie, could be used as a search argument in an index lookup),
-        # normalize it to <column> <operator> <literal>.
-        if isinstance(op1, ColumnRef) and isinstance(op2, Literal):
+        # if this is a comparison of a column to a constant (ie, could be used as a search argument in an index lookup),
+        # normalize it to <column> <operator> <constant>.
+        if isinstance(op1, ColumnRef) and isinstance(op2, (Literal, Variable)):
             self.is_search_arg_comparison = True
             self.components = [op1, op2]
-        elif isinstance(op1, Literal) and isinstance(op2, ColumnRef):
+        elif isinstance(op1, (Literal, Variable)) and isinstance(op2, ColumnRef):
             self.is_search_arg_comparison = True
             self.components = [op2, op1]
             self.operator = self.operator.reverse()
         else:
             self.is_search_arg_comparison = False
             self.components = [op1, op2]
-
-        if (
-            self.is_search_arg_comparison
-            and self._op2.col_type.is_string_type()
-            and len(self._op2.val) >= index.BtreeIndex.MAX_STRING_LEN
-        ):
-            # we can't use an index for this after all
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'String literal too long for comparison against indexed column {self._op1.col_md.name!r} '
-                f'(max length is {index.BtreeIndex.MAX_STRING_LEN - 1})',
-            )
 
         self.id = self._create_id()
 
@@ -84,6 +70,30 @@ class Comparison(Expr):
             return True
         return (t1.is_date_type() or t1.is_timestamp_type()) and (t2.is_date_type() or t2.is_timestamp_type())
 
+    def _index_value_col(self) -> sql.Column | None:
+        """The value column of a B-tree index that can answer this comparison, or None if no such index is present"""
+        import pixeltable.index as index
+
+        if not self.is_search_arg_comparison:
+            return None
+        assert isinstance(self._op1, ColumnRef)
+        col = self._op1.col
+        tbl = col.get_tbl()
+        if not tbl.supports_idxs:
+            return None
+        idx_info = tbl.find_btree_index(col)
+        if idx_info is None or idx_info.val_col is None:
+            return None
+        if (
+            isinstance(self._op2, Literal)
+            and self._op2.col_type.is_string_type()
+            and len(self._op2.val) >= index.BtreeIndex.MAX_STRING_LEN
+        ):
+            # Strings are truncated in the value column, so a value column can be used only for comparisons with
+            # literals shorter than the limit.
+            return None
+        return idx_info.val_col.sa_col
+
     def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         import pixeltable.index as index
 
@@ -91,23 +101,36 @@ class Comparison(Expr):
             # e.g. string vs. json, or image vs. anything
             return None
 
-        left = sql_elements.get(self._op1)
-        if self.is_search_arg_comparison:
-            # reference the index value column if there is an index and this is not a snapshot
-            # (indices don't apply to snapshots)
-            tbl = self._op1.col.get_tbl()
-            idx_info = [
-                info for info in tbl.idxs_by_col.get(self._op1.col.qid, []) if isinstance(info.idx, index.BtreeIndex)
-            ]
-            if len(idx_info) > 0 and not tbl.is_snapshot:
-                # there shouldn't be multiple B-tree indices on a column
-                assert len(idx_info) == 1
-                left = idx_info[0].val_col.sa_col
-
         right = sql_elements.get(self._op2)
-        if left is None or right is None:
+        if right is None:
             return None
+        val_col = self._index_value_col()
+        if val_col is not None and isinstance(self._op2, Variable) and self._op1.col_type.is_string_type():
+            # It's a string comparison with a Variable (whose length is unknown in compile time), and there is a B-tree
+            # index on truncated values. Due to truncation, we cannot rely on the index value column alone for
+            # comparison, but we can optimize with it.
+            if self.operator == ComparisonOperator.NE:
+                # A B-tree index can't help with !=
+                val_col = None
+            else:
+                stored_col = sql_elements.get(self._op1)
+                if stored_col is None:
+                    return None
+                truncated = sql.func.left(right, index.BtreeIndex.MAX_STRING_LEN)
+                if self.operator == ComparisonOperator.EQ:
+                    idx_filter = val_col == truncated
+                elif self.operator in (ComparisonOperator.LT, ComparisonOperator.LE):
+                    idx_filter = val_col <= truncated
+                else:
+                    idx_filter = val_col >= truncated
+                return sql.and_(idx_filter, self._sql_comparison(stored_col, right))
 
+        left = val_col if val_col is not None else sql_elements.get(self._op1)
+        if left is None:
+            return None
+        return self._sql_comparison(left, right)
+
+    def _sql_comparison(self, left: sql.ColumnElement, right: sql.ColumnElement) -> sql.ColumnElement:
         if self.operator == ComparisonOperator.LT:
             return left < right
         if self.operator == ComparisonOperator.LE:

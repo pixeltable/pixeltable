@@ -3,9 +3,7 @@ from __future__ import annotations
 import enum
 import traceback
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, ClassVar, Iterator, NoReturn
-
-from typing_extensions import Self
+from typing import TYPE_CHECKING, Any, NoReturn, Self
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -20,6 +18,8 @@ class ErrorCode(enum.Enum):
     """
 
     http_status: int
+    # Tells the caller whether re-running the failed operation might succeed. Pixeltable's own internal retries follow
+    # separate rules.
     is_retryable: bool
 
     def __new__(cls, value: int, http_status: int, is_retryable: bool) -> Self:
@@ -69,6 +69,7 @@ class ErrorCode(enum.Enum):
     ALREADY_BOUND = 3015, 400, False
     SCHEMA_MISMATCH = 3016, 422, False
     FILE_CACHE_FULL = 3017, 507, False
+    DESTRUCTIVE_SCHEMA_CHANGE = 3018, 422, False
 
     # AuthorizationError (4xxx)
     INSUFFICIENT_PRIVILEGES = 4000, 403, False
@@ -81,14 +82,17 @@ class ErrorCode(enum.Enum):
     PROVIDER_BAD_REQUEST = 5003, 400, False
     PROVIDER_TIMEOUT = 5004, 504, True
     PROVIDER_OVERLOADED = 5005, 503, True
+    PROVIDER_UNEXPECTED_RESPONSE = 5006, 502, False
 
     # ServiceUnavailableError (6xxx)
     DATABASE_UNAVAILABLE = 6000, 503, True
     STORE_UNAVAILABLE = 6001, 503, True
+    JOB_REFUSED = 6002, 503, True
 
     # ConcurrencyError (7xxx)
     SERIALIZATION_FAILURE = 7000, 409, True
     CONCURRENT_MODIFICATION = 7001, 409, True
+    SCHEMA_CHANGE_IN_PROGRESS = 7002, 409, True
 
 
 class Error(Exception):
@@ -102,18 +106,16 @@ class Error(Exception):
     error_code: ErrorCode
     retry_after: float | None
 
-    # Diagnostic text (e.g. an evaluation-environment stack trace) shown when the error is rendered locally,
-    # but withheld from to_dict() so it never travels to a remote client.
+    # Diagnostic text (e.g. an evaluation-environment stack trace)
     detail: str | None
-
-    # Thousands digit of the ErrorCode values this class is allowed to carry.
-    # The base Error class carries the 0xxx generic codes; each subclass narrows to its own group.
-    _code_group: ClassVar[int] = 0
 
     def __init__(self, error_code: ErrorCode, message: str = '', *, retry_after: float | None = None) -> None:
         cls = type(self)
-        # make sure we got an error code appropriate for this exception class
-        assert error_code.value // 1000 == cls._code_group
+        # every error names what kind it is, so that a caller can catch one kind without catching all of them
+        assert cls is not Error, 'raise a subclass of Error, not Error itself'
+        # the class must match what _error_class() returns for the code, so an error keeps its class
+        # across a round trip; InternalError and UserError share group 0, so only the code separates them
+        assert cls is _error_class(error_code), f'{error_code.name} belongs to {_error_class(error_code).__name__}'
         super().__init__(message)
         self.error_code = error_code
         self.retry_after = retry_after
@@ -127,6 +129,10 @@ class Error(Exception):
     def __str__(self) -> str:
         return self.message if self.detail is None else f'{self.message}\n{self.detail}'
 
+    def __reduce__(self) -> tuple[Any, ...]:
+        """Supports copy and pickle, which would otherwise call __init__() with only the message."""
+        return _restore_error, (type(self), self.args), self.__dict__
+
     @property
     def http_status(self) -> int:
         return self.error_code.http_status
@@ -136,11 +142,17 @@ class Error(Exception):
         """
         If False, re-running the operation that caused this error without any changes is guaranteed to fail with the
         same error. If True, the error might be transient and the operation might succeed if retried.
+
+        This is guidance for the user. Pixeltable's own automatic retries follow separate rules.
         """
         return self.error_code.is_retryable
 
-    def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable representation for REST error responses."""
+    def to_dict(self, with_detail: bool = False) -> dict[str, Any]:
+        """Return a JSON-serializable representation for REST error responses.
+
+        Args:
+            with_detail: if True, include `detail` (diagnostic text that may contain stack traces or filesystem paths)
+        """
         d: dict[str, Any] = {
             'error_code': self.error_code.name,
             'message': self.message,
@@ -152,14 +164,19 @@ class Error(Exception):
             d['cause'] = self.__cause__.message
         if self.retry_after is not None:
             d['retry_after'] = self.retry_after
+        if with_detail and self.detail is not None:
+            d['detail'] = self.detail
         return d
+
+    def with_message(self, message: str) -> 'Error':
+        """Return a copy of this error with message, keeping retry_after and subclass fields but not detail."""
+        return Error.from_dict({**self.to_dict(), 'message': message})
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'Error':
         """Reconstruct an Error from to_dict() output."""
         code = ErrorCode[d['error_code']]
-        subclass = _error_subclasses_by_group().get(code.value // 1000, Error)
-        return subclass._reconstruct(code, d)
+        return _error_class(code)._reconstruct(code, d)
 
     @classmethod
     def _reconstruct(cls, error_code: ErrorCode, d: dict[str, Any]) -> 'Error':
@@ -171,16 +188,24 @@ class Error(Exception):
         return err
 
 
+def _restore_error(cls: type[Error], args: tuple[Any, ...]) -> Error:
+    return cls.__new__(cls, *args)
+
+
+class InternalError(Error):
+    """A Pixeltable-internal invalid state."""
+
+
+class UserError(Error):
+    """A user error that does not map to a more specific code."""
+
+
 class NotFoundError(Error):
     """Resource not found."""
-
-    _code_group = 1
 
 
 class AlreadyExistsError(Error):
     """Resource already exists."""
-
-    _code_group = 2
 
 
 class RequestError(Error):
@@ -192,22 +217,17 @@ class RequestError(Error):
     schema/validation codes -> 422, operation codes -> 400.
     """
 
-    _code_group = 3
-
 
 class AuthorizationError(Error):
     """Caller lacks permission for the requested operation."""
-
-    _code_group = 4
 
 
 class ExternalServiceError(Error):
     """An upstream provider or external store returned an error."""
 
-    _code_group = 5
-
     provider: str | None = None
     provider_http_status_code: int | None = None
+    provider_error_code: str | None = None  # e.g. Pixeltable Cloud's X-Pixeltable-Error-Code
 
     def __init__(
         self,
@@ -217,17 +237,21 @@ class ExternalServiceError(Error):
         retry_after: float | None = None,
         provider: str | None = None,
         status_code: int | None = None,
+        provider_error_code: str | None = None,
     ) -> None:
         super().__init__(error_code, message, retry_after=retry_after)
         self.provider = provider
         self.provider_http_status_code = status_code
+        self.provider_error_code = provider_error_code
 
-    def to_dict(self) -> dict[str, Any]:
-        d = super().to_dict()
+    def to_dict(self, with_detail: bool = False) -> dict[str, Any]:
+        d = super().to_dict(with_detail)
         if self.provider is not None:
             d['provider'] = self.provider
         if self.provider_http_status_code is not None:
             d['provider_http_status_code'] = self.provider_http_status_code
+        if self.provider_error_code is not None:
+            d['provider_error_code'] = self.provider_error_code
         return d
 
     @classmethod
@@ -236,19 +260,16 @@ class ExternalServiceError(Error):
         assert isinstance(err, ExternalServiceError)
         err.provider = d.get('provider')
         err.provider_http_status_code = d.get('provider_http_status_code')
+        err.provider_error_code = d.get('provider_error_code')
         return err
 
 
 class ServiceUnavailableError(Error):
-    """Database, store, or other infrastructure is unreachable."""
-
-    _code_group = 6
+    """Database, store, service instance or other infrastructure is temporarily unavailable."""
 
 
 class ConcurrencyError(Error):
     """Serialization failure, deadlock, or concurrent modification conflict."""
-
-    _code_group = 7
 
 
 class ExprEvalError(Exception):
@@ -303,7 +324,7 @@ def raise_from_expr_eval_err(e: ExprEvalError) -> NoReturn:
         nl = '\n'
         detail = f'Stack:\n{nl.join(stack_trace[-1:1:-1])}'
     if isinstance(e.exc, Error):
-        err: Error = type(e.exc)(e.exc.error_code, msg)
+        err: Error = e.exc.with_message(msg)
     else:
         err = RequestError(ErrorCode.UNSUPPORTED_OPERATION, msg)
     err.detail = detail
@@ -333,12 +354,24 @@ def is_table_not_found_error(e: BaseException) -> bool:
     return isinstance(e, Error) and e.error_code == ErrorCode.TABLE_NOT_FOUND
 
 
-def _error_subclasses_by_group() -> dict[int, type[Error]]:
-    """Map each error-code group (thousands digit) to its Error subclass.from_dict."""
+_BY_GROUP: dict[int, type[Error]] = {
+    1: NotFoundError,
+    2: AlreadyExistsError,
+    3: RequestError,
+    4: AuthorizationError,
+    5: ExternalServiceError,
+    6: ServiceUnavailableError,
+    7: ConcurrencyError,
+}
 
-    def subclasses(c: type[Error]) -> Iterator[type[Error]]:
-        yield c
-        for sub in c.__subclasses__():
-            yield from subclasses(sub)
 
-    return {c._code_group: c for c in subclasses(Error)}
+def _error_class(code: ErrorCode) -> type[Error]:
+    """Map an error code to the Error subclass that carries it.
+
+    InternalError and UserError share group 0, so that group is resolved by the code itself.
+    """
+    if code is ErrorCode.INTERNAL_ERROR:
+        return InternalError
+    if code is ErrorCode.GENERIC_USER_ERROR:
+        return UserError
+    return _BY_GROUP[code.value // 1000]

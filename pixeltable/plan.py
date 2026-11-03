@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Sequence, cast
+from typing import TYPE_CHECKING, Any, Iterable, Literal, NamedTuple, Sequence, cast
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -12,15 +12,14 @@ from pixeltable import catalog, exceptions as excs, exec, exprs
 from pixeltable.catalog import Column, TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
 from pixeltable.func.iterator import GeneratingFunctionCall
-from pixeltable.index import BtreeIndex
 from pixeltable.query_clauses import FromClause, SampleClause
 
 if TYPE_CHECKING:
     from pixeltable.io.data_sources import SqlDataSource
 
 
-def _is_agg_fn_call(e: exprs.Expr) -> bool:
-    return isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call and not e.is_window_fn_call
+def _is_std_agg_fn_call(e: exprs.Expr) -> bool:
+    return isinstance(e, exprs.FunctionCall) and e.is_std_agg_fn_call
 
 
 def _get_combined_ordering(
@@ -42,6 +41,24 @@ def _get_combined_ordering(
     elif len(o2) > prefix_len:
         result.extend(o2[prefix_len:])
     return result
+
+
+class UpdatePlan(NamedTuple):
+    """A plan that produces the new values of the existing rows."""
+
+    root: exec.ExecNode
+    # For batch updates: the node of the root's tree that records which rows of the batch it matched.
+    # None for other updates
+    row_update_node: exec.RowUpdateNode | None
+    # Data-versioned tables only: the rows to soft-delete before inserting their new versions
+    # None for operational tables
+    soft_delete_where_clause: sql.ColumnElement[bool] | None
+    # columns that are getting updated, including the recomputed ones
+    updated_cols: list[Column]
+    # user-visible columns that are being recomputed
+    recomputed_cols: list[Column]
+    # columns the plan produces new values for
+    set_cols: list[Column]
 
 
 class Analyzer:
@@ -131,9 +148,7 @@ class Analyzer:
         candidates = self.select_list
         agg_fn_calls = exprs.ExprSet(
             exprs.Expr.list_subexprs(
-                candidates,
-                expr_class=exprs.FunctionCall,
-                filter=lambda e: bool(e.is_agg_fn_call and not e.is_window_fn_call),
+                candidates, expr_class=exprs.FunctionCall, filter=lambda e: bool(e.is_std_agg_fn_call)
             )
         )
         self.agg_fn_calls = list(agg_fn_calls)
@@ -144,7 +159,10 @@ class Analyzer:
         )
         self.window_fn_calls = list(window_fn_calls)
         if len(self.agg_fn_calls) == 0:
-            # nothing to do
+            # distinct() is group_by() over the select list and has no aggregate calls. The grouping
+            # keys still have to be expressible in SQL; otherwise rows are not ordered and every input
+            # row is emitted.
+            self._validate_grouping_exprs()
             return
         # if we're doing grouping aggregation and don't have an explicit Group By clause, we're creating a single group
         if self.group_by_clause is None:
@@ -161,28 +179,40 @@ class Analyzer:
 
         # check that Where clause and filter doesn't contain aggregates
         if self.sql_where_clause is not None and any(
-            _is_agg_fn_call(e) for e in self.sql_where_clause.subexprs(expr_class=exprs.FunctionCall)
+            _is_std_agg_fn_call(e) for e in self.sql_where_clause.subexprs(expr_class=exprs.FunctionCall)
         ):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_EXPRESSION,
                 f'where() cannot contain aggregate functions: {self.sql_where_clause}',
             )
         if self.filter is not None and any(
-            _is_agg_fn_call(e) for e in self.filter.subexprs(expr_class=exprs.FunctionCall)
+            _is_std_agg_fn_call(e) for e in self.filter.subexprs(expr_class=exprs.FunctionCall)
         ):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_EXPRESSION, f'where() cannot contain aggregate functions: {self.filter}'
             )
 
-        # check that grouping exprs don't contain aggregates and can be expressed as SQL (we perform sort-based
-        # aggregation and rely on the SqlScanNode returning data in the correct order)
+        # sort-based aggregation relies on the SQL scan returning rows in group order
+        self._validate_grouping_exprs()
+
+    def _validate_grouping_exprs(self) -> None:
+        """Reject grouping keys that the SQL scan cannot order by.
+
+        Aggregation, including ``distinct()`` (which is ``group_by()`` over the select list), emits one
+        row each time the grouping key changes. A key that is not expressible in SQL is never ordered, so
+        the same value is returned once per input row.
+        """
+        if not self.group_by_clause:
+            return
         for e in self.group_by_clause:
             if not self.sql_elements.contains(e):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_EXPRESSION,
-                    f'Invalid grouping expression, needs to be expressible in SQL: {e}',
+                    f'Invalid grouping expression, needs to be expressible in SQL: {e}. '
+                    'Store the value in a computed column of a scalar type (cast with .astype() if needed) '
+                    'and use that column with distinct() or group_by().',
                 )
-            if e.contains_(filter=_is_agg_fn_call):
+            if e.contains_(filter=_is_std_agg_fn_call):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_EXPRESSION, f'Grouping expression contains aggregate function: {e}'
                 )
@@ -194,13 +224,13 @@ class Analyzer:
         """
         if e.id in grouping_expr_ids:
             return True, True
-        elif _is_agg_fn_call(e):
+        elif _is_std_agg_fn_call(e):
             for c in e.components:
                 _, is_input = self._determine_agg_status(c, grouping_expr_ids)
                 if not is_input:
                     raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid nested aggregates: {e}')
             return True, False
-        elif isinstance(e, exprs.Literal):
+        elif isinstance(e, (exprs.Literal, exprs.Variable)):
             return True, True
         elif isinstance(e, (exprs.ColumnRef, exprs.RowidRef)):
             # we already know that this isn't a grouping expr
@@ -208,11 +238,9 @@ class Analyzer:
         else:
             # an expression such as <grouping expr 1> + <grouping expr 2> can both be the output and input of agg
             assert len(e.components) > 0
-            component_is_output, component_is_input = zip(
-                *[self._determine_agg_status(c, grouping_expr_ids) for c in e.components]
-            )
-            is_output = component_is_output.count(True) == len(e.components)
-            is_input = component_is_input.count(True) == len(e.components)
+            statuses: list[tuple[bool, bool]] = [self._determine_agg_status(c, grouping_expr_ids) for c in e.components]
+            is_output = all(out for out, _ in statuses)
+            is_input = all(inp for _, inp in statuses)
             if not is_output and not is_input:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression, mixes aggregate with non-aggregate: {e}'
@@ -257,49 +285,52 @@ class Planner:
     ) -> exec.ExecNode:
         """Creates a plan for TableVersion.insert() from either in-memory rows or a SqlDataSource."""
         assert not tbl.is_view
-        plan, batch_size = cls._create_compute_plan(tbl, source, ignore_errors=ignore_errors, for_insert=True)
+        output_cols = cls._compute_output_cols(tbl, for_insert=True)
+        assert len(output_cols) > 0
+        cls.__check_valid_columns(tbl, output_cols, 'inserted into')
+
+        row_builder = exprs.RowBuilder([], output_cols, [], tbl)
+        plan, batch_size = cls._create_input_plan(tbl, source, row_builder)
+        computed_exprs = row_builder.output_exprs - row_builder.input_exprs
+        if len(computed_exprs) > 0:
+            plan = exec.ExprEvalNode(
+                row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False
+            )
+
         stored_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
-        if any(c.col_type.supports_file_offloading() for c in stored_cols):
+        if any(c.col_type.needs_cell_materialization() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
         plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=batch_size, ignore_errors=ignore_errors))
         plan = cls._add_save_node(plan)
         return plan
 
     @classmethod
-    def _create_compute_plan(
+    def _compute_output_cols(cls, tbl: catalog.TableVersion, for_insert: bool) -> list[Column]:
+        """Returns the columns of tbl to materialize when computing new rows for it.
+
+        If for_insert == True, only stored columns, incl. index value columns.
+        If for_insert == False, all columns except index value columns and undo columns.
+        """
+        if for_insert:
+            return [c for c in tbl.cols_by_id.values() if c.is_stored]
+        # for compute(), skip index val/undo cols
+        skipped_col_ids = {c.id for idx_info in tbl.idxs.values() for c in idx_info.columns}
+        return [c for c in tbl.cols_by_id.values() if c.id not in skipped_col_ids]
+
+    @classmethod
+    def _create_input_plan(
         cls,
         tbl: catalog.TableVersion,
         source: list[dict[str, Any]] | SqlDataSource,
-        ignore_errors: bool,
-        for_insert: bool,
+        row_builder: exprs.RowBuilder,
+        set_pk: bool = False,
     ) -> tuple[exec.ExecNode, int]:
         """
-        Creates a plan for materializing new rows for 'tbl', given the input 'source' (in-memory rows or a
-        SqlDataSource, containing values for the mutable columns). Returns the plan and its exec batch size.
-
-        If for_insert == True, materializes only stored computed columns, incl. index value columns.
-        If for_insert == False, materializes all computed columns except btree value columns and all undo columns.
+        Creates the input stage shared by insert/compute plans: materializes 'source' (in-memory rows or a
+        SqlDataSource, containing values for the mutable columns of 'tbl'), plus a prefetch node for media
+        inputs. Returns the plan and its exec batch size.
         """
         from pixeltable.io.data_sources import SqlDataSource
-
-        assert not tbl.is_view
-        output_cols: list[Column]
-        if for_insert:
-            output_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
-        else:
-            # skip btree val cols
-            skipped_col_ids = {
-                info.val_col.id for info in tbl.idxs_by_name.values() if isinstance(info.idx, BtreeIndex)
-            }
-            # skip all undo cols
-            skipped_col_ids |= {info.undo_col.id for info in tbl.idxs_by_name.values()}
-            output_cols = [c for c in tbl.cols_by_id.values() if c.id not in skipped_col_ids]
-
-        assert len(output_cols) > 0
-
-        cls.__check_valid_columns(tbl, output_cols, 'inserted into' if for_insert else 'computed for')
-
-        row_builder = exprs.RowBuilder([], output_cols, [], tbl, allow_unstored=not for_insert)
 
         plan: exec.ExecNode
         batch_size: int
@@ -308,27 +339,165 @@ class Planner:
             batch_size = 1024
         else:
             assert isinstance(source, list)
-            plan = exec.InMemoryDataNode(tbl.handle, source, row_builder)
+            plan = exec.InMemoryDataNode(tbl.handle, source, row_builder, set_pk=set_pk)
             batch_size = 0
 
         plan = cls._add_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)
-
-        computed_exprs = row_builder.output_exprs - row_builder.input_exprs
-        if len(computed_exprs) > 0:
-            # maintain input order: compute() callers map input rows to output rows positionally
-            plan = exec.ExprEvalNode(
-                row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=not for_insert
-            )
         return plan, batch_size
 
     @classmethod
+    def columns_to_compute(
+        cls, path: catalog.TablePath, outputs: Iterable[catalog.ColumnVersionMd] | None
+    ) -> list[catalog.ColumnVersionMd]:
+        """Return the columns a compute of `outputs` has to materialize.
+
+        These are the outputs themselves, every column their value expressions read, transitively, and the columns
+        read by the filter and iterator arguments of every view in `path`. `outputs` defaults to all columns
+        visible in `path`.
+        """
+        expr_dicts: list[dict[str, Any]] = []
+        # Walk the path from the view down to the base table and collect each view's filter and iterator arguments.
+        cur_path: catalog.TablePath | None = path
+        while cur_path is not None:
+            view_md = cur_path.view_md()
+            if view_md is not None:
+                if view_md.predicate is not None:
+                    expr_dicts.append(view_md.predicate)
+                if view_md.iterator_call is not None:
+                    expr_dicts.extend(view_md.iterator_call['args'])
+                    expr_dicts.extend(view_md.iterator_call['kwargs'].values())
+            cur_path = cur_path.base
+        refd_qcolids = sorted(
+            {qcolid for d in expr_dicts for qcolid in exprs.Expr.get_refd_column_ids(d)},
+            key=lambda qcolid: (qcolid.tbl_id, qcolid.col_id),
+        )
+
+        pending = list(path.column_md() if outputs is None else outputs)
+        pending.extend(path.get_column_md(qcolid) for qcolid in refd_qcolids)
+        result: dict[catalog.QColumnId, catalog.ColumnVersionMd] = {}
+        while len(pending) > 0:
+            col_md = pending.pop(0)
+            if col_md.qcolid in result:
+                continue
+            result[col_md.qcolid] = col_md
+            if col_md.schema_col.value_expr is not None:
+                value_qcolids = sorted(
+                    exprs.Expr.get_refd_column_ids(col_md.schema_col.value_expr),
+                    key=lambda qcolid: (qcolid.tbl_id, qcolid.col_id),
+                )
+                pending.extend(path.get_column_md(qcolid) for qcolid in value_qcolids)
+        return list(result.values())
+
+    @classmethod
+    def required_input_columns(
+        cls, path: catalog.TablePath, outputs: Iterable[catalog.ColumnVersionMd] | None
+    ) -> list[catalog.ColumnVersionMd]:
+        """Return the root table's stored, non-nullable columns that computing `outputs` reads.
+
+        These are the columns an input row must supply; `outputs` defaults to all columns visible in `path`.
+        """
+        root_id = path.root.tbl_id
+        return [
+            col_md
+            for col_md in cls.columns_to_compute(path, outputs)
+            if col_md.qcolid.tbl_id == root_id and not col_md.is_computed and not col_md.col_type.nullable
+        ]
+
+    @classmethod
     def create_compute_plan(
-        cls, tbl: catalog.TableVersion, rows: list[dict[str, Any]], ignore_errors: bool
+        cls,
+        path: catalog.TableVersionPath,
+        rows: list[dict[str, Any]],
+        ignore_errors: bool,
+        outputs: list[catalog.ColumnVersionMd] | None,
     ) -> exec.ExecNode:
-        """Creates a plan for TableVersion.compute(): like create_insert_plan but without persistence."""
-        assert not tbl.is_view
-        plan, _ = cls._create_compute_plan(tbl, rows, ignore_errors=ignore_errors, for_insert=False)
-        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=0, ignore_errors=ignore_errors))
+        """Creates a plan for LocalTable.compute(): propagation of input rows along the entire view chain.
+
+        The plan materializes 'outputs' (all columns if None) and the columns they read. Values in 'rows' for any
+        other column are ignored.
+
+        Plan shape:
+        - the input rows are handled identically to insert:
+            - InMemoryDataNode
+            - PrefetchNode
+        - each table in 'path' adds its incremental nodes:
+            - ExprEvalNode + FilterNode for view predicate enforcement
+            - ComponentIterationNode for component views
+            - ExprEvalNode to materialize computed columns, if any
+        """
+        tvs = list(reversed(path.get_tbl_versions()))  # base first
+        base_tv = tvs[0].get()
+        assert base_tv.is_insertable
+
+        required_col_names = [md.name for md in cls.required_input_columns(path, outputs)]
+        for row in rows:
+            missing_col_names = [name for name in required_col_names if name not in row]
+            if len(missing_col_names) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.MISSING_REQUIRED,
+                    f'Missing required column(s) ({", ".join(missing_col_names)}) in row {row}',
+                )
+
+        # columns to materialize, base to target; each level's columns are computed at that level's stage
+        compute_qids = {md.qcolid for md in cls.columns_to_compute(path, outputs)}
+        per_tbl_output_cols: list[list[Column]] = []
+        for tvh in tvs:
+            tv = tvh.get()
+            cols = [c for c in cls._compute_output_cols(tv, for_insert=False) if c.qid in compute_qids]
+            cls.__check_valid_columns(tv, cols, 'computed for')
+            cls.__check_valid_iterator(tv, tv.iterator_call, 'computed for')
+            per_tbl_output_cols.append(cols)
+        all_cols = [col for cols in per_tbl_output_cols for col in cols]
+
+        # view predicates and iterator args aren't column values; they need to be recorded explicitly
+        extra_exprs: list[exprs.Expr] = []
+        for tvh in tvs[1:]:
+            tv = tvh.get()
+            if tv.predicate is not None:
+                extra_exprs.append(tv.predicate)
+            if tv.is_component_view:
+                extra_exprs.append(tv.iterator_args_expr())
+        row_builder = exprs.RowBuilder(extra_exprs, all_cols, [], path.tbl_version.get(), allow_unstored=True)
+
+        resolve_cols = set(all_cols)
+
+        def recorded(e: exprs.Expr) -> exprs.Expr:
+            """Return the RowBuilder's recorded form of e."""
+            result = row_builder.unique_exprs[e.copy().resolve_computed_cols(resolve_cols=resolve_cols)]
+            assert result is not None
+            return result
+
+        # InMemoryDataNode requires a slot for every value it is given, so drop values for columns the plan doesn't read
+        input_col_names = {e.col_md.name for e in row_builder.input_exprs if isinstance(e, exprs.ColumnRef)}
+        rows = [{name: val for name, val in row.items() if name in input_col_names} for row in rows]
+        plan, _ = cls._create_input_plan(base_tv, rows, row_builder, set_pk=True)
+        # the plan preserves input row order (all ExprEvalNodes maintain input order), so output rows map
+        # positionally to input rows; avail: exprs whose slots are materialized so far
+        materialized = exprs.ExprSet(row_builder.input_exprs)
+        for tvh, output_cols in zip(tvs, per_tbl_output_cols):
+            tv = tvh.get()
+            if tv.is_view:
+                if tv.predicate is not None:
+                    pred = recorded(tv.predicate)
+                    if pred not in materialized:
+                        plan = exec.ExprEvalNode(row_builder, [pred], list(materialized), input=plan)
+                        materialized.add(pred)
+                    plan = exec.FilterNode(row_builder, pred, plan)
+                if tv.is_component_view:
+                    iterator_args = cast(exprs.InlineDict, recorded(tv.iterator_args_expr()))
+                    plan = exec.ComponentIterationNode(tvh, plan, iterator_args=iterator_args)
+
+            output_col_exprs: list[exprs.Expr] = []
+            for output_col in output_cols:
+                slot_idx = row_builder.table_columns[output_col]
+                output_col_exprs.append(row_builder.unique_exprs[slot_idx])
+            assert all(e is not None for e in output_col_exprs)
+            missing_output_exprs = exprs.ExprSet(e for e in output_col_exprs if e not in materialized)
+            if len(missing_output_exprs) > 0:
+                plan = exec.ExprEvalNode(row_builder, list(missing_output_exprs), list(materialized), input=plan)
+                materialized.update(missing_output_exprs)
+
+        plan.set_ctx(exec.ExecContext(row_builder, batch_size=0, ignore_errors=ignore_errors))
         return plan
 
     @classmethod
@@ -348,13 +517,12 @@ class Planner:
         # the pre-compile copies and don't carry slot_idx).
         compiled = query._create_query_plan()
         plan: exec.ExecNode = compiled.exec_root
-
-        needs_cell_materialization = False
-        for col_name, expr in zip(compiled.select_list_schema.keys(), compiled.select_list_exprs):
-            assert col_name in tbl.cols_by_name
-            col = tbl.cols_by_name[col_name]
-            plan.row_builder.add_table_column(col, expr.slot_idx)
-            needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
+        output_cols = [tbl.cols_by_name.get(col_name) for col_name in compiled.select_list_schema]
+        assert all(col is not None for col in output_cols)
+        plan.row_builder.set_table_output(
+            tbl, expr_cols=[(col, e.slot_idx) for col, e in zip(output_cols, compiled.select_list_exprs)]
+        )
+        needs_cell_materialization = any(col.col_type.needs_cell_materialization() for col in output_cols)
 
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
@@ -365,17 +533,29 @@ class Planner:
 
     @classmethod
     def _build_update_columns(
-        cls, target: catalog.TableVersion, updated_cols: set[Column], recomputed_cols: set[Column]
+        cls, target: catalog.TableVersion, updated_cols: set[Column], recomputed_cols: set[Column], return_rows: bool
     ) -> tuple[list[Column], list[exprs.Expr], list[Column]]:
         """Classifies columns for an update plan and builds recomputed/remap expressions.
 
         Mutates `recomputed_cols` in-place (adds changed index val cols, removes non-stored).
 
+        Args:
+            return_rows: if True, the plan produces complete rows that will be returned to the user
+
         Returns:
             - evaluated_cols: recomputed + remap columns (parallel with select_list)
             - select_list: resolved exprs for evaluated_cols
-            - identity_cols: unchanged stored columns
+            - identity_cols: stored columns the update doesn't change, whose current values the plan outputs:
+                - for a data-versioned table, to copy them into the new row versions
+                - if return_rows is True, to return complete rows
+              Empty otherwise, ie, for an operational table without return_rows.
         """
+        # Only a data-versioned table carries over index values, and it needs an undo column to do it.
+        assert all(
+            (info.undo_col is not None) == target.is_data_versioned
+            for info in target.idxs.values()
+            if info.val_col is not None
+        )
 
         # We always need to update all indices on any updated/recomputed column
         modified_base_cols = {c for c in updated_cols | recomputed_cols if c.get_tbl().id == target.id}
@@ -383,15 +563,24 @@ class Planner:
         recomputed_cols |= modified_val_cols
 
         # Building exclude lists for non-identity cols
-        unmodified_val_cols = {idx.val_col for idx in target.idxs.values()} - modified_val_cols
-        idx_undo_cols = {info.undo_col for info in target.idxs.values()}
+        unmodified_val_cols = target.idx_val_cols - modified_val_cols
 
         # we only need to recompute stored columns (unstored ones are substituted away)
         recomputed_cols -= {c for c in recomputed_cols if not c.is_stored}
         recomputed_base_cols = {col for col in recomputed_cols if col.get_tbl().id == target.id}
 
-        excluded = updated_cols | recomputed_cols | idx_undo_cols | unmodified_val_cols
-        identity_cols = [col for col in target.cols_by_id.values() if col.is_stored and col not in excluded]
+        # an unmodified val col is restored from its undo col if it has one, and otherwise keeps its value
+        remapped_val_cols = {
+            info.val_col
+            for info in target.idxs.values()
+            if info.val_col in unmodified_val_cols and info.undo_col is not None
+        }
+        excluded = updated_cols | recomputed_cols | target.idx_undo_cols | remapped_val_cols
+        identity_cols = (
+            [col for col in target.cols_by_id.values() if col.is_stored and col not in excluded]
+            if target.is_data_versioned or return_rows
+            else []
+        )
 
         evaluated_cols: list[Column] = []
         select_list: list[exprs.Expr] = []
@@ -405,7 +594,7 @@ class Planner:
 
         # Mapping undo columns into corresponding value columns
         for info in target.idxs.values():
-            if info.val_col in unmodified_val_cols:
+            if info.val_col in remapped_val_cols:
                 evaluated_cols.append(info.val_col)
                 select_list.append(exprs.ColumnRef(info.undo_col.column_version_md()))
 
@@ -417,8 +606,10 @@ class Planner:
         tbl: catalog.TableVersionPath,
         update_targets: dict[catalog.Column, exprs.Expr],
         recompute_targets: list[catalog.Column],
+        where: exprs.Expr | None,
         cascade: bool,
-    ) -> tuple[exec.ExecNode, list[str], list[catalog.Column]]:
+        return_rows: bool,
+    ) -> UpdatePlan:
         """Creates a plan to materialize updated rows.
 
         The plan:
@@ -428,10 +619,9 @@ class Planner:
           and copies the values of all other stored columns
         - if cascade is False, copies all columns that aren't update targets from the original rows
 
-        Returns:
-            - root node of the plan
-            - list of qualified column names that are getting updated
-            - list of user-visible columns that are being recomputed
+        Args:
+            where: restricts the update to the rows satisfying this predicate, which must be expressible in SQL
+            return_rows: if True, the plan produces complete rows to be returned to the user
         """
         # retrieve all stored cols and all target exprs
         assert isinstance(tbl, catalog.TableVersionPath)
@@ -446,42 +636,56 @@ class Planner:
         if cascade:
             recomputed_cols |= target.get_dependent_columns(updated_cols | recomputed_cols)
 
-        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(target, updated_cols, recomputed_cols)
+        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(
+            target, updated_cols, recomputed_cols, return_rows
+        )
 
         cls.__check_valid_columns(target, recomputed_cols, 'updated in')
 
         # Substitute update target exprs into recomputed exprs before building select_list
-        spec: dict[exprs.Expr, exprs.Expr] = {
-            exprs.ColumnRef(col.column_version_md()): e for col, e in update_targets.items()
-        }
+        spec = exprs.ExprDict[exprs.Expr](
+            (exprs.ColumnRef(col.column_version_md()), e) for col, e in update_targets.items()
+        )
         exprs.Expr.list_substitute(eval_exprs, spec)
         evaluated_cols: list[Column] = list(update_targets.keys()) + eval_cols
         select_list: list[exprs.Expr] = list(update_targets.values()) + eval_exprs
 
-        # Read from rows that were just deleted (expired) at the current version.
-        # The where clause was already applied during deletion; delete_rows() nullifies index value columns,
-        # which would cause the where clause to fail on the expired rows.
+        # A data-versioned table never modifies a row in place: the update "soft-deletes" the current versions of the
+        # matching rows (sets their v_max to the new table version, which keeps them visible to older versions) and
+        # inserts the plan's output as new row versions. An operational table updates its rows in place, so it needs
+        # no soft-delete predicate and applies `where` in the query plan instead.
+        soft_delete_where_clause: sql.ColumnElement[bool] | None = None
+        if target.is_data_versioned:
+            soft_delete_where_clause = sql.true() if where is None else where.sql_expr(exprs.SqlElementCache())
+            # sql_expr() returns None only for a predicate that needs Python evaluation
+            assert soft_delete_where_clause is not None
         plan = cls.create_query_plan(
             FromClause(tbls=[tbl]),
             select_list=select_list,
             columns=identity_cols,
+            where_clause=None if target.is_data_versioned else where,
             ignore_errors=True,
-            deleted_at_current_version=[tbl.tbl_version],
+            deleted_at_current_version=[tbl.tbl_version] if target.is_data_versioned else None,
         )
 
         # Register output columns with the row builder
-        plan.row_builder.add_table_columns(identity_cols)
-        for i, col in enumerate(evaluated_cols):
-            plan.row_builder.add_table_column(col, select_list[i].slot_idx)
+        plan.row_builder.set_table_output(
+            target,
+            identity_cols=identity_cols,
+            expr_cols=[(col, select_list[i].slot_idx) for i, col in enumerate(evaluated_cols)],
+        )
 
         plan = cls._add_cell_materialization_node(plan)
         plan = cls._add_save_node(plan)
 
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
-        return (
-            plan,
-            [f'{c.get_tbl().name}.{c.name}' for c in list(update_targets.keys()) + recomputed_user_cols],
-            recomputed_user_cols,
+        return UpdatePlan(
+            root=plan,
+            soft_delete_where_clause=soft_delete_where_clause,
+            updated_cols=list(update_targets.keys()) + recomputed_user_cols,
+            recomputed_cols=recomputed_user_cols,
+            set_cols=evaluated_cols,
+            row_update_node=None,
         )
 
     @classmethod
@@ -503,12 +707,15 @@ class Planner:
                         """
                     )
                     .strip()
-                    .format(validation_error=col.value_expr.validation_error),
+                    .format(validation_error=col.value_expr.validation_error.catalog_error_msg()),
                 )
 
     @classmethod
     def __check_valid_iterator(
-        cls, tbl: catalog.TableVersion, iterator: GeneratingFunctionCall | None, op_name: Literal['updated in']
+        cls,
+        tbl: catalog.TableVersion,
+        iterator: GeneratingFunctionCall | None,
+        op_name: Literal['updated in', 'computed for'],
     ) -> None:
         if iterator is None:
             return
@@ -524,7 +731,7 @@ class Planner:
                     """
                 )
                 .strip()
-                .format(validation_error=iterator.validation_error),
+                .format(validation_error=iterator.validation_error.catalog_error_msg()),
             )
 
     @classmethod
@@ -565,7 +772,7 @@ class Planner:
     def _add_cell_materialization_node(cls, input: exec.ExecNode) -> exec.ExecNode:
         # we need a CellMaterializationNode if any of the evaluated output columns are json or array-typed
         has_target_cols = any(
-            col.col_type.supports_file_offloading()
+            col.col_type.needs_cell_materialization()
             for col, slot_idx in input.row_builder.table_columns.items()
             if slot_idx is not None
         )
@@ -583,6 +790,8 @@ class Planner:
         1) all json-typed ColumnRefs that are not used as part of a JsonPath (the latter does its own reconstruction)
            or as part of a ColumnPropertyRef
         2) all array-typed ColumnRefs that are not used as part of a ColumnPropertyRef
+        The json-typed ColumnRefs that JsonPaths are anchored on also need the node, which loads their objects that are
+        stored in remote chunks.
         """
 
         def json_filter(e: exprs.Expr) -> bool:
@@ -605,13 +814,23 @@ class Planner:
 
         json_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=json_filter, traverse_matches=False))
         json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef)]
+        json_ref_ids = {e.id for e in json_refs}
+        json_path_anchors = [
+            e.anchor
+            for e in json_candidates
+            if isinstance(e, exprs.JsonPath)
+            and isinstance(e.anchor, exprs.ColumnRef)
+            and e.anchor.id not in json_ref_ids
+        ]
         array_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False))
         array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef)]
         binary_refs = list(
             exprs.Expr.list_subexprs(expr_list, exprs.ColumnRef, filter=binary_filter, traverse_matches=False)
         )
-        if len(json_refs) > 0 or len(array_refs) > 0 or len(binary_refs) > 0:
-            return exec.CellReconstructionNode(json_refs, array_refs, binary_refs, input.row_builder, input=input)
+        if len(json_refs) > 0 or len(json_path_anchors) > 0 or len(array_refs) > 0 or len(binary_refs) > 0:
+            return exec.CellReconstructionNode(
+                json_refs, array_refs, binary_refs, json_path_anchors, input.row_builder, input=input
+            )
         else:
             return input
 
@@ -622,14 +841,12 @@ class Planner:
         batch: list[dict[catalog.Column, exprs.Expr]],
         rowids: list[tuple[int, ...]],
         cascade: bool,
-    ) -> tuple[exec.ExecNode, exec.RowUpdateNode, sql.ColumnElement[bool], list[catalog.Column], list[catalog.Column]]:
-        """
-        Returns:
-        - root node of the plan to produce the updated rows
-        - RowUpdateNode of plan
-        - Where clause for deleting the current versions of updated rows
-        - list of columns that are getting updated
-        - list of user-visible columns that are being recomputed
+        return_rows: bool,
+    ) -> UpdatePlan:
+        """Creates a plan to materialize the rows updated by batch.
+
+        Args:
+            return_rows: if True, the plan produces complete rows to be returned to the user
         """
         assert isinstance(tbl, catalog.TableVersionPath)
         target = tbl.tbl_version.get()  # the one we need to update
@@ -647,7 +864,9 @@ class Planner:
         updated_cols = batch[0].keys() - target.primary_key_columns()
         recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
 
-        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(target, updated_cols, recomputed_cols)
+        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(
+            target, updated_cols, recomputed_cols, return_rows
+        )
 
         # Materialize as a list once for stable iteration order across parallel lists
         updated_cols_list = list(updated_cols)
@@ -662,28 +881,34 @@ class Planner:
         # - RowUpdateNode to update the retrieved rows
         # - ExprEvalNode to evaluate the remaining output exprs
         analyzer = Analyzer(FromClause(tbls=[tbl]), select_list)
-        all_sql_exprs = list(
-            exprs.Expr.list_subexprs(analyzer.all_exprs, filter=analyzer.sql_elements.contains, traverse_matches=False)
-        )
-        # Exclude recomputed-column expressions from sql_exprs: they must be re-evaluated by
-        # ExprEvalNode in Python after RowUpdateNode writes the new column values into the slots,
-        # not by SQL against the old row values that SqlLookupNode reads.
-        # Undo-col remapping expressions (eval_cols not in recomputed_cols) stay in sql_exprs.
-        recomputed_expr_ids = {expr.id for col, expr in zip(eval_cols, eval_exprs) if col in recomputed_cols}
-        sql_exprs = [e for e in all_sql_exprs if e.id not in recomputed_expr_ids]
-        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], sql_exprs, target)
+
+        # SqlLookupNode reads the old row values, and RowUpdateNode then writes the new values of the updated cols
+        # into their ColumnRef slots. Anything else that reads an updated col must therefore be evaluated by
+        # ExprEvalNode; excluding it here makes the traversal descend into it and fetch its inputs instead.
+        def is_sql_expr(e: exprs.Expr) -> bool:
+            if not analyzer.sql_elements.contains(e):
+                return False
+            if isinstance(e, exprs.ColumnRef):
+                return True
+            return not any(ref.col in updated_cols for ref in e.subexprs(expr_class=exprs.ColumnRef))
+
+        sql_exprs = list(exprs.Expr.list_subexprs(analyzer.all_exprs, filter=is_sql_expr, traverse_matches=False))
+        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], sql_exprs)
         analyzer.finalize(row_builder)
 
         cell_md_col_refs = cls._cell_md_col_refs(sql_exprs)
+        # when the batch is matched by primary key, RowUpdateNode reads the key from cell_vals, so the lookup must
+        # fetch the primary key columns even if they aren't identity cols
+        lookup_cols = identity_cols if len(rowids) > 0 else [*identity_cols, *target.primary_key_columns()]
         sql_lookup_node = exec.SqlLookupNode(
             tbl,
             row_builder,
             sql_exprs,
-            columns=identity_cols,
+            columns=lookup_cols,
             sa_key_cols=sa_key_cols,
             key_vals=key_vals,
             cell_md_col_refs=cell_md_col_refs,
-            deleted_at_current_version=[tbl.tbl_version],
+            deleted_at_current_version=[tbl.tbl_version] if target.is_data_versioned else None,
         )
         col_vals = [{col: row[col].val for col in updated_cols} for row in batch]
         row_update_node = exec.RowUpdateNode(tbl, key_vals, len(rowids) > 0, col_vals, row_builder, sql_lookup_node)
@@ -694,9 +919,11 @@ class Planner:
 
         # Register output columns with the row builder
         row_builder.set_slot_idxs(select_list, remove_duplicates=False)
-        plan.row_builder.add_table_columns(identity_cols)
-        for i, col in enumerate(evaluated_cols):
-            plan.row_builder.add_table_column(col, select_list[i].slot_idx)
+        plan.row_builder.set_table_output(
+            target,
+            identity_cols=identity_cols,
+            expr_cols=[(col, select_list[i].slot_idx) for i, col in enumerate(evaluated_cols)],
+        )
         ctx = exec.ExecContext(row_builder)
         # TODO: correct batch size?
         ctx.batch_size = 0
@@ -705,36 +932,44 @@ class Planner:
         plan = cls._add_cell_materialization_node(plan)
         plan = cls._add_save_node(plan)
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
-        return (
-            plan,
-            row_update_node,
-            sql_lookup_node.where_clause_element,
-            updated_cols_list + recomputed_user_cols,
-            recomputed_user_cols,
+        return UpdatePlan(
+            root=plan,
+            soft_delete_where_clause=sql_lookup_node.where_clause_element if target.is_data_versioned else None,
+            updated_cols=updated_cols_list + recomputed_user_cols,
+            recomputed_cols=recomputed_user_cols,
+            set_cols=evaluated_cols,
+            row_update_node=row_update_node,
         )
 
     @classmethod
     def create_view_update_plan(
-        cls, view: catalog.TableVersionPath, recompute_targets: list[catalog.Column]
+        cls,
+        view: catalog.TableVersionPath,
+        recompute_targets: list[catalog.Column],
+        created_at_current_version: list[catalog.TableVersionHandle],
     ) -> exec.ExecNode:
         """Creates a plan to materialize updated rows for a view, given that the base table has been updated.
         The plan:
-        - retrieves rows that are visible at the current version of the table and satisfy the view predicate
+        - retrieves the view rows that were deleted at its current version and satisfy the view predicate
         - materializes all stored columns and the update targets
 
         TODO: unify with create_view_load_plan()
 
+        Args:
+            created_at_current_version: bases restricted to the rows created at their current version; the plan
+                reads every other base at its visible rows
+
         Returns:
-            - root node of the plan
-            - list of qualified column names that are getting updated
-            - list of columns that are being recomputed
+            root node of the plan
         """
         assert isinstance(view, catalog.TableVersionPath)
         assert view.is_view
         target = view.tbl_version.get()
         recomputed_cols = set(recompute_targets)
 
-        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(target, set(), recomputed_cols)
+        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(
+            target, set(), recomputed_cols, return_rows=False
+        )
         # Identity columns are all other stored columns that aren't being recomputed
         # and go through select_list as ColumnRefs (no separate columns= path) unlike other update plans
         evaluated_cols: list[Column] = identity_cols + eval_cols
@@ -746,12 +981,13 @@ class Planner:
             select_list,
             where_clause=target.predicate,
             ignore_errors=True,
-            created_at_current_version=view.get_bases(),
+            created_at_current_version=created_at_current_version,
             deleted_at_current_version=[view.tbl_version],
         )
         # Register output columns with the row builder
-        for i, col in enumerate(evaluated_cols):
-            plan.row_builder.add_table_column(col, select_list[i].slot_idx)
+        plan.row_builder.set_table_output(
+            target, expr_cols=[(col, select_list[i].slot_idx) for i, col in enumerate(evaluated_cols)]
+        )
         plan = cls._add_cell_materialization_node(plan)
         plan = cls._add_save_node(plan)
 
@@ -759,17 +995,22 @@ class Planner:
 
     @classmethod
     def create_view_load_plan(
-        cls, view: catalog.TableVersionPath, propagates_insert: bool = False
-    ) -> tuple[exec.ExecNode, int]:
+        cls,
+        view: catalog.TableVersionPath,
+        created_at_current_version: list[catalog.TableVersionHandle] | None = None,
+        exclude_existing_rows: bool = False,
+    ) -> exec.ExecNode:
         """Creates a query plan for populating a view.
 
         Args:
             view: the view to populate
-            propagates_insert: if True, we're propagating a base update to this view
+            created_at_current_version: bases restricted to the rows created at their current version; the plan
+                reads every other base at its visible rows
+            exclude_existing_rows: if True, skip base rows for which the view already has a row that was deleted at
+                the view's current version
 
         Returns:
             - root node of the plan
-            - number of materialized values per row
         """
         assert isinstance(view, catalog.TableVersionPath)
         assert view.is_view
@@ -792,7 +1033,6 @@ class Planner:
         )
         row_builder = exprs.RowBuilder(base_analyzer.all_exprs, stored_cols, [], target, for_view_load=True)
 
-        # if we're propagating an insert, we only want to see those base rows that were created for the current version
         # execution plan:
         # 1. materialize exprs computed from the base that are needed for stored view columns
         # 2. if it's an iterator view, expand the base rows into component rows
@@ -815,7 +1055,8 @@ class Planner:
             analyzer=base_analyzer,
             eval_ctx=base_eval_ctx,
             with_pk=True,
-            created_at_current_version=view.get_bases() if propagates_insert else [],
+            created_at_current_version=created_at_current_version,
+            exclude_deleted_at_current_version=view.tbl_version if exclude_existing_rows else None,
         )
         exec_ctx = plan.ctx
         if target.is_component_view:
@@ -827,11 +1068,11 @@ class Planner:
 
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
-        if any(c.col_type.supports_file_offloading() for c in stored_cols):
+        if any(c.col_type.needs_cell_materialization() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
         plan = cls._add_save_node(plan)
 
-        return plan, len(row_builder.default_eval_ctx.target_exprs)
+        return plan
 
     @classmethod
     def _verify_join_clauses(cls, analyzer: Analyzer) -> None:
@@ -933,7 +1174,6 @@ class Planner:
         - materializes cell values of 'columns' (and their cellmd, if applicable) into DataRow.cell_vals/cell_md
 
         Updates 'select_list' in place to make it executable.
-        TODO: make created_at_current_version a flag and use the versions from tbl
         """
         if select_list is None:
             select_list = []
@@ -969,14 +1209,6 @@ class Planner:
             order_by_clause=order_by_clause,
             sample_clause=sample_clause,
         )
-        # If the from_clause has a single table, we can use it as the context table for the RowBuilder.
-        # Otherwise there is no context table, but that's ok, because the context table is only needed for
-        # table mutations, which can't happen during a join.
-        context_tbl = (
-            from_clause.tbls[0].tbl_version.get()
-            if len(from_clause.tbls) == 1 and isinstance(from_clause.tbls[0], catalog.TableVersionPath)
-            else None
-        )
         # Component views with unstored iterator columns need their (stored, live-versioned) iterator args retargeted
         # to the instances this query uses. Resolve each view against the from-clause path it is reached through, so
         # a base table appearing at different versions in different join branches binds correctly per branch.
@@ -986,7 +1218,7 @@ class Planner:
                 args = h.get().iterator_args_expr()
                 if args is not None:
                     iter_args[h.id] = args.retarget_path(p)
-        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [], context_tbl, iter_args=iter_args)
+        row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [], iter_args=iter_args)
 
         analyzer.finalize(row_builder)
         # select_list: we need to materialize everything that's been collected
@@ -1020,6 +1252,7 @@ class Planner:
         with_pk: bool = False,
         created_at_current_version: list[catalog.TableVersionHandle] | None = None,
         deleted_at_current_version: list[catalog.TableVersionHandle] | None = None,
+        exclude_deleted_at_current_version: catalog.TableVersionHandle | None = None,
     ) -> exec.ExecNode:
         """
         Create plan to materialize eval_ctx.
@@ -1027,7 +1260,6 @@ class Planner:
         Args:
             plan_target: if not None, generate a plan that materializes only expression that can be evaluted
                 in the context of that table version (eg, if 'tbl' is a view, 'plan_target' might be the base)
-        TODO: make created_at_current_version a flag and use the versions from tbl
         """
         if columns is None:
             columns = []
@@ -1045,14 +1277,23 @@ class Planner:
         cls._verify_join_clauses(analyzer)
 
         # materialized with SQL table scans (ie, single-table SELECT statements):
-        # - select list subexprs that aren't aggregates
+        # - Select list subexprs that aren't aggregates. In a grouping aggregation, only the args of aggregate and
+        # window function calls; the rest of the analyzer's select list is aggregate output, which is not allowed to be
+        # materialized in the inner scan.
         # - join clause subexprs
         # - subexprs of Where clause conjuncts that can't be run in SQL
         # - all grouping exprs
         # - all stratify exprs
+        select_list_inputs: list[exprs.Expr]
+        if analyzer.group_by_clause is None:
+            select_list_inputs = analyzer.select_list
+        else:
+            select_list_inputs = []
+            for fn_call in analyzer.agg_fn_calls + analyzer.window_fn_calls:
+                select_list_inputs.extend(fn_call.components)
         candidates = list(
             exprs.Expr.list_subexprs(
-                analyzer.select_list,
+                select_list_inputs,
                 filter=lambda e: (
                     sql_elements.contains(e)
                     and not e.contains_(cls=exprs.FunctionCall, filter=lambda e: bool(e.is_agg_fn_call))
@@ -1102,6 +1343,7 @@ class Planner:
                 cell_md_col_refs=cls._cell_md_col_refs(tbl_scan_exprs),
                 created_at_current_version=created_at_current_version,
                 deleted_at_current_version=deleted_at_current_version,
+                exclude_deleted_at_current_version=exclude_deleted_at_current_version,
             )
             tbl_scan_plans.append(plan)
 

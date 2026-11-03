@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import sys
 import time
-from typing import TYPE_CHECKING, Any, Iterable, NamedTuple, Sequence, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Collection, Iterable, NamedTuple, Sequence, TypeVar
 from uuid import UUID
 
 import numpy as np
@@ -11,10 +11,13 @@ import sqlalchemy as sql
 
 from pixeltable import catalog, exceptions as excs, exprs, utils
 from pixeltable.env import Env
+from pixeltable.row import CellError, RowBatch
+from pixeltable.type_system import ColumnType
 from pixeltable.utils.misc import non_none_dict_factory
 
 from .data_row import DataRow
 from .expr import Expr, ExprScope
+from .expr_dict import ExprDict
 from .expr_set import ExprSet
 
 if TYPE_CHECKING:
@@ -53,7 +56,8 @@ class OutputMapEntry(NamedTuple):
 
     col: catalog.Column
     slot_idx: int | None  # None for pass-through columns that don't need to get evaluated
-    display_name: str  # key in the output dict
+    display_name: str  # column name, or index name for an index value column
+    is_index_val: bool
 
 
 class RowBuilder:
@@ -80,10 +84,12 @@ class RowBuilder:
 
     input_exprs: ExprSet
 
-    tbl: catalog.TableVersion | None  # reference table of the RowBuilder; used to identify pk columns for writes
+    tbl: catalog.TableVersion | None  # the table the output columns are written to; None for a read-only plan
     for_view_load: bool  # True if this RowBuilder represents a view load
 
-    table_columns: dict[catalog.Column, int | None]  # value: slot idx, if the result of an expr
+    # value: slot idx, if the result of an expr, or None if it's an identity column, i.e. if its value is simply copied
+    # from the input
+    table_columns: dict[catalog.Column, int | None]
     default_eval_ctx: EvalCtx
     unstored_iter_args: dict[UUID, Expr]
     unstored_iter_outputs: dict[UUID, list['ColumnRef']]
@@ -116,8 +122,9 @@ class RowBuilder:
     table_row_output_vals: list[tuple[int, str]] | None
     table_row_output_error_vals: list[tuple[int, str]] | None
 
-    # for create_output_row(data_rows): mapping of col -> slot_idx, key in output row
-    data_row_output_map: list[OutputMapEntry] | None
+    # for create_row_batch(): per-output-column conversion info plus the batch's column types
+    row_batch_output_map: list[OutputMapEntry] | None
+    row_batch_col_types: dict[str, ColumnType] | None
 
     @dataclasses.dataclass
     class EvalCtx:
@@ -167,7 +174,8 @@ class RowBuilder:
         self.tbl = tbl
         self.table_columns = {}
         self.input_exprs = ExprSet()
-        validating_colrefs: dict[Expr, Expr] = {}  # key: non-validating colref, value: corresp. validating colref
+        # key: non-validating colref, value: corresp. validating colref
+        validating_colrefs: ExprDict[Expr] = ExprDict()
 
         for col in columns:
             expr: Expr
@@ -197,7 +205,7 @@ class RowBuilder:
                 else:
                     self.input_exprs.add(expr)
 
-            self.add_table_column(col, expr.slot_idx, allow_unstored=allow_unstored)
+            self._add_table_column(col, expr.slot_idx, allow_unstored=allow_unstored)
             self.output_exprs.add(expr)
 
         # default eval ctx: all output exprs
@@ -298,18 +306,36 @@ class RowBuilder:
         self.output_row_has_pk = None
         self.table_row_output_vals = None
         self.table_row_output_error_vals = None
-        self.data_row_output_map = None
+        self.row_batch_output_map = None
+        self.row_batch_col_types = None
 
-    def add_table_column(self, col: catalog.Column, slot_idx: int, *, allow_unstored: bool = False) -> None:
+    def set_table_output(
+        self,
+        tbl: catalog.TableVersion,
+        *,
+        identity_cols: Sequence[catalog.Column] = (),
+        expr_cols: Sequence[tuple[catalog.Column, int]] = (),
+    ) -> None:
+        """Record the table that receives the output columns, together with those columns.
+
+        Args:
+            tbl: the table the rows are written to
+            identity_cols: columns carried over from the input rows verbatim, not produced by an expr
+            expr_cols: columns paired with the slot idx of the expr that produces the value
+        """
+        assert self.tbl is None
+        assert len(self.table_columns) == 0
+        assert set(identity_cols).isdisjoint(col for col, _ in expr_cols), (tbl, identity_cols, expr_cols)
+        self.tbl = tbl
+        for col in identity_cols:
+            self.table_columns[col] = None
+        for col, slot_idx in expr_cols:
+            self._add_table_column(col, slot_idx)
+
+    def _add_table_column(self, col: catalog.Column, slot_idx: int, *, allow_unstored: bool = False) -> None:
         """Record an output column for which the value is produced via expr evaluation."""
-        assert self.tbl is not None
         assert allow_unstored or col.is_stored, col
         self.table_columns[col] = slot_idx
-
-    def add_table_columns(self, cols: list[catalog.Column]) -> None:
-        """Record output columns whose values are materialized into DataRow.cell_vals"""
-        for col in cols:
-            self.table_columns[col] = None
 
     @property
     def media_output_col_info(self) -> list[ColumnSlotIdx]:
@@ -557,33 +583,21 @@ class RowBuilder:
                         expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0
                     ) from exc
 
-    @overload
-    def create_output_rows(self, *, table_rows: list[list[Any]], has_pk: bool) -> list[dict[str, Any]]: ...
-
-    @overload
-    def create_output_rows(self, *, data_rows: list[DataRow], has_pk: bool) -> list[dict[str, Any]]: ...
-
-    def create_output_rows(
-        self, *, table_rows: list[list[Any]] | None = None, data_rows: list[DataRow] | None = None, has_pk: bool
-    ) -> list[dict[str, Any]]:
+    def create_output_rows(self, *, table_rows: list[list[Any]], has_pk: bool) -> list[dict[str, Any]]:
         """
-        Convert rows to output rows (as returned by Table.compute()/Table.insert(return_rows=True)).
+        Convert table rows to output rows (as returned by Table.insert(return_rows=True)).
 
         Output row format:
         - for a column value: <column name> -> column value
         - for an index value: <column name>:<index name> -> index value
         - for an error: <column name>:md -> {'errortype': ..., 'errormsg': ...}
         """
-        assert (table_rows is None) != (data_rows is None)
         if self.output_row_has_pk is None:
             self.output_row_has_pk = has_pk
         else:
             assert self.output_row_has_pk == has_pk, (self.output_row_has_pk, has_pk)
 
-        if table_rows is not None:
-            return self._convert_table_rows(table_rows, has_pk)
-        else:
-            return self._convert_data_rows(data_rows, has_pk)
+        return self._convert_table_rows(table_rows, has_pk)
 
     def _convert_table_rows(self, table_rows: list[list[Any]], has_pk: bool) -> list[dict[str, Any]]:
         """Convert table rows to output rows."""
@@ -593,9 +607,14 @@ class RowBuilder:
             self.table_row_output_error_vals = []
             self.output_row_has_pk = has_pk
             tbl_row_idx = len(self.tbl.store_tbl.pk_columns()) if has_pk else 0
-            # index value columns have name=None; key them by '<indexed col>:<index name>'.
-            idx_map = {info.val_col.id: (info.col.name, name) for name, info in self.tbl.idxs_by_name.items()}
-            undo_col_ids = {info.undo_col.id for info in self.tbl.idxs_by_name.values()}
+            # idx value column id -> (indexed column name, index name)
+            idx_map = {
+                info.val_col.id: (info.col.name, name)
+                for name, info in self.tbl.idxs_by_name.items()
+                if info.val_col is not None
+            }
+            # idx undo column ids
+            undo_col_ids = {c.id for c in self.tbl.idx_undo_cols}
 
             for col in self.table_columns:
                 if col.id in undo_col_ids:
@@ -606,6 +625,7 @@ class RowBuilder:
                     continue
 
                 if col.id in idx_map:
+                    # index value columns have no names; key their output values by '<indexed col>:<index name>'.
                     indexed_col_name, idx_name = idx_map[col.id]
                     display_name = f'{indexed_col_name}:{idx_name}'
                 else:
@@ -636,50 +656,79 @@ class RowBuilder:
             output_rows.append(row)
         return output_rows
 
-    def _convert_data_rows(self, rows: list[DataRow], has_pk: bool) -> list[dict[str, Any]]:
-        """Convert DataRows to output rows."""
-        if self.data_row_output_map is None:
-            self.output_row_has_pk = has_pk
-            self.data_row_output_map = []
-            # index value columns have name=None; key them by '<indexed col>:<index name>'.
-            idx_map = {info.val_col.id: (info.col.name, name) for name, info in self.tbl.idxs_by_name.items()}
-            undo_col_ids = {info.undo_col.id for info in self.tbl.idxs_by_name.values()}
+    def create_row_batch(
+        self, data_rows: list[DataRow], output_cols: Collection[catalog.Column] | None = None
+    ) -> RowBatch:
+        """Convert DataRows to a RowBatch.
 
+        Batch columns are the named table columns (restricted to output_cols if given; the restriction is
+        fixed on the first call); index values and per-cell error info go into each Row's
+        index_values/errors instead of the column namespace.
+        """
+        from pixeltable.exprs.column_property_ref import ColumnPropertyRef
+
+        if self.row_batch_output_map is None:
+            assert self.row_batch_col_types is None
+            self.row_batch_output_map = []
+            self.row_batch_col_types = {}
+            tbls = {col.get_tbl().id: col.get_tbl() for col in self.table_columns}
+            idx_names = {
+                info.val_col.qid: name
+                for tbl in tbls.values()
+                for name, info in tbl.idxs_by_name.items()
+                if info.val_col is not None
+            }
+            undo_col_qids = {c.qid for tbl in tbls.values() for c in tbl.idx_undo_cols}
             for col, slot_idx in self.table_columns.items():
-                if col.id in undo_col_ids:
+                if col.qid in undo_col_qids:
                     # skip undo cols
                     continue
-                if col.id in idx_map:
-                    indexed_col_name, idx_name = idx_map[col.id]
-                    display_name = f'{indexed_col_name}:{idx_name}'
-                else:
-                    display_name = col.name
-                self.data_row_output_map.append(OutputMapEntry(col, slot_idx, display_name))
+                idx_name = idx_names.get(col.qid)
+                if idx_name is not None:
+                    # index value columns have no names; key their output values by index name (unique within the table)
+                    self.row_batch_output_map.append(OutputMapEntry(col, slot_idx, idx_name, True))
+                elif output_cols is None or col in output_cols:
+                    self.row_batch_col_types[col.name] = col.col_type
+                    self.row_batch_output_map.append(OutputMapEntry(col, slot_idx, col.name, False))
 
         # bind to locals to avoid attribute lookups in the loop
-        output_map = self.data_row_output_map
+        output_map = self.row_batch_output_map
         # we need to convert sql.sql.null() values for jsonb columns back to Nones
         null_type = sql.sql.elements.Null
 
-        output_rows: list[dict[str, Any]] = []
-        for data_row in rows:
-            row: dict[str, Any] = {}
-            for col, slot_idx, display_name in output_map:
+        data: list[tuple[Any, ...]] = []
+        errors: list[dict[str, CellError]] = []
+        index_values: list[dict[str, Any]] = []
+        for data_row in data_rows:
+            row_vals: list[Any] = []
+            row_errors: dict[str, CellError] = {}
+            row_index_values: dict[str, Any] = {}
+            for col, slot_idx, display_name, is_index_val in output_map:
                 if slot_idx is not None and data_row.has_exc(slot_idx):
                     exc = data_row.get_exc(slot_idx)
                     assert exc is not None
-                    row[display_name] = None
-                    row[f'{display_name}:md'] = {'errortype': type(exc).__name__, 'errormsg': str(exc)}
+                    val = None
+                    row_errors[display_name] = ColumnPropertyRef.create_cellmd_exc(exc)
+                elif col.id in data_row.cell_vals:
+                    val = data_row.cell_vals[col.id]
+                elif col.col_type.is_array_type():
+                    # arrays are returned as ndarrays, not in their stored byte form
+                    assert slot_idx is not None
+                    val = data_row.vals[slot_idx]
                 else:
-                    if col.id in data_row.cell_vals:
-                        val = data_row.cell_vals[col.id]
-                    else:
-                        assert slot_idx is not None
-                        val = data_row.get_stored_val(slot_idx, col.sa_col_type)
-                    row[display_name] = None if type(val) is null_type else val
-            output_rows.append(row)
+                    assert slot_idx is not None
+                    val = data_row.get_stored_val(slot_idx, col.sa_col_type)
+                if type(val) is null_type:
+                    val = None
+                if is_index_val:
+                    row_index_values[display_name] = val
+                else:
+                    row_vals.append(val)
+            data.append(tuple(row_vals))
+            errors.append(row_errors)
+            index_values.append(row_index_values)
 
-        return output_rows
+        return RowBatch(data, self.row_batch_col_types, errors=errors, index_values=index_values)
 
     def create_store_table_row(
         self, data_row: DataRow, cols_with_excs: set[int] | None, pk: tuple[int | UUID, ...] | None
@@ -691,7 +740,17 @@ class RowBuilder:
         table_row: list[Any] = list(pk) if pk is not None else []
         # Nulls in JSONB columns need to be stored as sql.sql.null(), otherwise it stores a json 'null'
         for col, slot_idx in self.table_columns.items():
-            if col.id in data_row.cell_vals:
+            # a slot exception takes precedence over a materialized value (they can get generated out-of-order)
+            if slot_idx is not None and data_row.has_exc(slot_idx):
+                exc = data_row.get_exc(slot_idx)
+                num_excs += 1
+                if cols_with_excs is not None:
+                    cols_with_excs.add(col.id)
+                table_row.append(sql.sql.null() if col.col_type.is_json_type() else None)
+                if col.stores_cellmd:
+                    # exceptions get stored in the errortype/-msg properties of the cellmd column
+                    table_row.append(ColumnPropertyRef.create_cellmd_exc(exc))
+            elif col.id in data_row.cell_vals:
                 table_row.append(data_row.cell_vals[col.id])
                 if col.stores_cellmd:
                     if data_row.cell_md[col.id] is None:
@@ -701,21 +760,6 @@ class RowBuilder:
                         md = dataclasses.asdict(data_row.cell_md[col.id], dict_factory=non_none_dict_factory)
                         assert len(md) > 0
                         table_row.append(md)
-                if slot_idx is not None and data_row.has_exc(slot_idx):
-                    num_excs += 1
-                    if cols_with_excs is not None:
-                        cols_with_excs.add(col.id)
-                continue
-
-            if data_row.has_exc(slot_idx):
-                exc = data_row.get_exc(slot_idx)
-                num_excs += 1
-                if cols_with_excs is not None:
-                    cols_with_excs.add(col.id)
-                table_row.append(sql.sql.null() if col.col_type.is_json_type() else None)
-                if col.stores_cellmd:
-                    # exceptions get stored in the errortype/-msg properties of the cellmd column
-                    table_row.append(ColumnPropertyRef.create_cellmd_exc(exc))
             else:
                 val = data_row.get_stored_val(slot_idx, col.sa_col_type)
                 table_row.append(val)

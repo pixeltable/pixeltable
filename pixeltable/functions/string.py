@@ -764,7 +764,7 @@ def splitlines(self: str, keepends: bool = False) -> list[str]:
 
 
 @pxt.udf(is_method=True)
-def startswith(self: str, substr: str) -> int:
+def startswith(self: str, substr: str) -> bool:
     """
     Return `True` if string starts with `substr`, otherwise return `False`.
 

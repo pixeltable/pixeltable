@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import abc
 import logging
-import time
+import re
 from typing import Any, Iterator
 from uuid import UUID
 
 import psycopg
 import sqlalchemy as sql
 
-from pixeltable import catalog, exceptions as excs, telemetry
+from pixeltable import catalog, exceptions as excs, telemetry, telemetry_schemas
 from pixeltable.catalog.update_status import RowCountStats
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
@@ -30,38 +30,38 @@ class StoreBase:
     Each Pixeltable table or view is stored as a single store table whose name is derived from the
     table's UUID: ``tbl_<uuid_hex>`` for tables and ``view_<uuid_hex>`` for views.
 
-    ## Physical column layout
+    **Physical column layout**
 
     Columns always appear in this order:
 
     * rowid: identifies a logical row
     * pos_0, pos_1, ..., pos_N (component views only): the position of a component within its parent row
-    * v_min (versioned tables only): the table version at which the row was inserted
-    * v_max (versioned tables only): the table version at which the row was deleted. A row is live at version V when
-    v_min <= V < v_max.
+    * v_min (data-versioned tables only): the table version at which the row was inserted
+    * v_max (data-versioned tables only): the table version at which the row was deleted. A row is live at version V
+      when v_min <= V < v_max.
     * col_0, ..., col_N: user columns, i.e. all stored catalog columns, including cellmd columns, index value and undo
-    columns.
+      columns.
 
     The following column groups are recognized and exposed by this class:
 
     * rowid columns: rowid, pos_0, ..., pos_N
     * pk columns:
 
-      * versioned tables: rowid, pos_0, ..., pos_N, v_min
-      * unversioned tables: rowid, pos_0, ..., pos_N
-      * note: at present, the actual primary key constraint is created on unversioned tables only.
+      * data-versioned tables: rowid, pos_0, ..., pos_N, v_min
+      * operational tables: rowid, pos_0, ..., pos_N
+      * note: at present, the actual primary key constraint is created on operational tables only.
 
     * system columns:
 
-      * versioned tables: rowid, pos_0, ..., pos_N, v_min, v_max
-      * unversioned tables: rowid, pos_0, ..., pos_N
+      * data-versioned tables: rowid, pos_0, ..., pos_N, v_min, v_max
+      * operational tables: rowid, pos_0, ..., pos_N
     """
 
     tbl_version: catalog.TableVersionHandle
     sa_md: sql.MetaData
     sa_tbl: sql.Table | None
     _pk_cols: list[sql.Column]
-    # v_min_col and v_max_col exist only on versioned tables
+    # v_min_col and v_max_col exist only on data-versioned tables
     v_min_col: sql.Column | None
     v_max_col: sql.Column | None
 
@@ -99,7 +99,7 @@ class StoreBase:
         return f'{"view" if is_view else "tbl"}_{tbl_id.hex}'
 
     def system_columns(self) -> list[sql.Column]:
-        if self.tbl_version.get().is_versioned:
+        if self.tbl_version.get().is_data_versioned:
             return [*self._pk_cols, self.v_max_col]
         return self._pk_cols
 
@@ -107,12 +107,12 @@ class StoreBase:
         return self._pk_cols
 
     def rowid_columns(self) -> list[sql.Column]:
-        if self.tbl_version.get().is_versioned:
+        if self.tbl_version.get().is_data_versioned:
             return self._pk_cols[:-1]  # exclude v_min
         return self._pk_cols
 
     def _rowid_col_type(self) -> sql.types.TypeEngine[Any]:
-        if self.tbl_version.get().is_versioned:
+        if self.tbl_version.get().is_data_versioned:
             return sql.BigInteger()
         return sql.UUID()
 
@@ -132,8 +132,8 @@ class StoreBase:
                     f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r} '
                     'ORDER BY ordinal_position'
                 )
-                # System columns on a versioned table: rowid, [pos_0, pos_1, ...], v_min, v_max
-                # System columns on an unversioned table: rowid, [pos_0, pos_1, ...]
+                # System columns on a data-versioned table: rowid, [pos_0, pos_1, ...], v_min, v_max
+                # System columns on an operational table: rowid, [pos_0, pos_1, ...]
                 # System columns are always followed by at least one user column
                 col_names = [row[0] for row in conn.execute(sql.text(q)).fetchall()]
                 if len(col_names) == 0:
@@ -157,7 +157,7 @@ class StoreBase:
         else:
             rowid_cols = self._create_rowid_columns()
 
-        if self.tbl_version.get().is_versioned:
+        if self.tbl_version.get().is_data_versioned:
             self.v_min_col = sql.Column('v_min', sql.BigInteger, nullable=False)
             self.v_max_col = sql.Column(
                 'v_max', sql.BigInteger, nullable=False, server_default=str(schema.Table.MAX_VERSION)
@@ -168,6 +168,11 @@ class StoreBase:
             self._pk_cols = rowid_cols
             return rowid_cols
 
+    def pk_constraint_name(self, tbl_version: catalog.TableVersion) -> str:
+        """Name of the Postgres object enforcing the Pixeltable primary key."""
+        return f'pk_idx_{tbl_version.id.hex}'
+
+    @telemetry.spanned('pixeltable.store.create_sa_tbl', level=telemetry.DEBUG)
     def create_sa_tbl(self, tbl_version: catalog.TableVersion | None = None) -> None:
         """Create self.sa_tbl from self.tbl_version."""
         if tbl_version is None:
@@ -178,8 +183,8 @@ class StoreBase:
         for col_md in tbl_version.tbl_md.column_md.values():
             if not col_md.stored:
                 continue
-            # re-create sql.Column for each stored column, regardless of whether it already has sa_col set: it was bound
-            # to the last sql.Table version we created and cannot be reused
+            # re-create sql.Column for each stored column, regardless of whether it already has sa_col set:
+            # it was bound to the last sql.Table version we created and cannot be reused
             assert col_md.sa_col_type is not None
             store_name = catalog.Column.store_name_from_id(col_md.id)
             # all storage columns are nullable (we deal with null errors in Pixeltable directly)
@@ -206,40 +211,54 @@ class StoreBase:
         idx_name = f'sys_cols_idx_{tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, *system_cols))
 
-        if tbl_version.is_versioned:
+        if tbl_version.is_data_versioned:
             # v_min/v_max indices: speeds up base table scans needed to propagate a base table insert or delete
             idx_name = f'vmin_idx_{tbl_version.id.hex}'
             idxs.append(sql.Index(idx_name, self.v_min_col, postgresql_using=Env.get().dbms.version_index_type))
             idx_name = f'vmax_idx_{tbl_version.id.hex}'
             idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
-        # primary key index: partial unique btree on PK columns where v_max = MAX_VERSION (live rows only)
+        extra_constraints: list[sql.Constraint] = []
         primary_index = [col for col in tbl_version.cols_by_id.values() if col.is_pk]
         if len(primary_index) > 0:
-            assert tbl_version.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
-            pk_idx_exprs: list[sql.ColumnElement] = []
-            for col in primary_index:
-                if col.col_type.is_string_type():
-                    pk_idx_exprs.append(sql.func.left(col.sa_col, BtreeIndex.MAX_STRING_LEN))
-                else:
-                    pk_idx_exprs.append(col.sa_col)
-            idx_name = f'pk_idx_{tbl_version.id.hex}'
-            idxs.append(
-                sql.Index(
-                    idx_name,
-                    *pk_idx_exprs,
-                    unique=True,
-                    postgresql_using='btree',
-                    postgresql_where=(self.v_max_col == schema.Table.MAX_VERSION),
+            pk_name = self.pk_constraint_name(tbl_version)
+            if tbl_version.is_data_versioned:
+                # partial unique btree on PK columns where v_max = MAX_VERSION (live rows only), with long strings
+                # truncated
+                pk_idx_exprs: list[sql.ColumnElement] = []
+                for col in primary_index:
+                    if col.col_type.is_string_type():
+                        pk_idx_exprs.append(sql.func.left(col.sa_col, BtreeIndex.MAX_STRING_LEN))
+                    else:
+                        pk_idx_exprs.append(col.sa_col)
+                idxs.append(
+                    sql.Index(
+                        pk_name,
+                        *pk_idx_exprs,
+                        unique=True,
+                        postgresql_using='btree',
+                        postgresql_where=(self.v_max_col == schema.Table.MAX_VERSION),
+                    )
                 )
-            )
+            else:
+                # On an operational table, PK is represented by a Unique Constraint directly on PK columns.
+                extra_constraints.append(
+                    sql.UniqueConstraint(*[col.sa_col.name for col in primary_index], name=pk_name)
+                )
 
-        extra_constraints: list[sql.Constraint] = []
-        if not tbl_version.is_versioned:
-            # Add a PK constraint for an unversioned table
+        if not tbl_version.is_data_versioned:
+            # Add a PK constraint for an operational table
             extra_constraints.append(sql.PrimaryKeyConstraint(*[col.name for col in self._pk_cols]))
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs, *extra_constraints)
+
+    @classmethod
+    def drop(cls, tbl_id: UUID, is_view: bool) -> None:
+        """Drop the store table of the given table id in the current transaction."""
+        conn = get_runtime().conn
+        assert conn is not None
+        get_runtime().catalog.assert_store_schema_write_locked(tbl_id)
+        conn.execute(sql.text(f'DROP TABLE {cls.storage_name(tbl_id, is_view)}'))
 
     @abc.abstractmethod
     def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
@@ -249,52 +268,17 @@ class StoreBase:
     def _storage_name(self) -> str:
         """Return the name of the data store table"""
 
+    @telemetry.spanned('pixeltable.store.count', level=telemetry.DEBUG)
     def count(self) -> int:
         """Return the number of rows visible in self.tbl_version"""
         stmt = sql.select(sql.func.count('*')).select_from(self.sa_tbl)
-        if self.tbl_version.get().is_versioned:
+        if self.tbl_version.get().is_data_versioned:
             stmt = stmt.where(self.v_min_col <= self.tbl_version.get().version)
             stmt = stmt.where(self.v_max_col > self.tbl_version.get().version)
         conn = get_runtime().conn
         result = conn.execute(stmt).scalar_one()
         assert isinstance(result, int)
         return result
-
-    def _exec_if_not_exists(self, stmt: str, wait_for_table: bool) -> None:
-        """
-        Execute a statement containing 'IF NOT EXISTS' and ignore any duplicate object-related errors.
-
-        The statement needs to run in a separate transaction, because the expected error conditions will abort the
-        enclosing transaction (and the ability to run additional statements in that same transaction).
-        """
-        while True:
-            with get_runtime().begin_xact(for_write=True) as conn:
-                try:
-                    if wait_for_table and not Env.get().is_using_cockroachdb:
-                        # Try to lock the table to make sure that it exists. This needs to run in the same transaction
-                        # as 'stmt' to avoid a race condition.
-                        # TODO: adapt this for CockroachDB
-                        lock_stmt = f'LOCK TABLE {self._storage_name()} IN ACCESS EXCLUSIVE MODE'
-                        conn.execute(sql.text(lock_stmt))
-                    conn.execute(sql.text(stmt))
-                    return
-                except (sql.exc.IntegrityError, sql.exc.ProgrammingError) as e:
-                    Env.get().console_logger.info(f'{stmt} failed with: {e}')
-                    if (
-                        isinstance(e.orig, psycopg.errors.UniqueViolation)
-                        and 'duplicate key value violates unique constraint' in str(e.orig)
-                    ) or (
-                        isinstance(e.orig, (psycopg.errors.DuplicateObject, psycopg.errors.DuplicateTable))
-                        and 'already exists' in str(e.orig)
-                    ):
-                        # table already exists
-                        return
-                    elif isinstance(e.orig, psycopg.errors.UndefinedTable):
-                        # the Lock Table failed because the table doesn't exist yet; try again
-                        time.sleep(1)
-                        continue
-                    else:
-                        raise
 
     def _store_tbl_exists(self) -> bool:
         """Returns True if the store table exists, False otherwise."""
@@ -307,97 +291,83 @@ class StoreBase:
             return res == 1
 
     def create(self) -> None:
+        """Create the store table and its system and user indexes in the current transaction.
+
+        Call once, in the same transaction that inserts the table's metadata.
         """
-        Create or update store table to bring it in sync with self.sa_tbl. Idempotent.
-
-        This runs a sequence of DDL statements (Create Table, Alter Table Add Column, Create Index), each of which
-        is run in its own transaction.
-        """
-        postgres_dialect = sql.dialects.postgresql.dialect()
-
-        if not self._store_tbl_exists():
-            # run Create Table If Not Exists; we always need If Not Exists to avoid race conditions between concurrent
-            # Pixeltable processes
-            create_stmt = sql.schema.CreateTable(self.sa_tbl, if_not_exists=True).compile(dialect=postgres_dialect)
-            self._exec_if_not_exists(str(create_stmt), wait_for_table=False)
-        else:
-            # ensure that all columns exist by running Alter Table Add Column If Not Exists for all columns
-            for col in self.sa_tbl.columns:
-                stmt = self._add_column_stmt(col)
-                self._exec_if_not_exists(stmt, wait_for_table=True)
-            # TODO: do we also need to ensure that these columns are now visible (ie, is there another potential race
-            # condition here?)
-
-        # ensure that all system indices exist by running Create Index If Not Exists
-        for idx in self.sa_tbl.indexes:
-            create_idx_stmt = sql.schema.CreateIndex(idx, if_not_exists=True).compile(dialect=postgres_dialect)
-            self._exec_if_not_exists(str(create_idx_stmt), wait_for_table=True)
-
-        # ensure that all visible non-system indices exist by running appropriate create statements
-        for id in self.tbl_version.get().idxs:
-            self.create_index(id)
-
-    def create_index(self, idx_id: int) -> None:
-        """Create index if not exists"""
-        idx_info = self.tbl_version.get().idxs[idx_id]
-        stmt = idx_info.idx.sa_create_stmt(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col.sa_col)
-        self._exec_if_not_exists(str(stmt), wait_for_table=True)
-
-    def drop_index(self, idx_id: int) -> None:
-        """Drop index if exists"""
-        idx_info = self.tbl_version.get().idxs[idx_id]
-        store_index_name = self.tbl_version.get()._store_idx_name(idx_id)
-        stmt = idx_info.idx.sa_drop_stmt(store_index_name, idx_info.val_col.sa_col)
-        with get_runtime().begin_xact(for_write=True) as conn:
-            try:
-                conn.execute(sql.text(str(stmt)))
-            except (sql.exc.IntegrityError, sql.exc.ProgrammingError) as e:
-                Env.get().console_logger.info(f'{stmt} failed with: {e}')
-                if not isinstance(e.orig, psycopg.errors.UndefinedTable):
-                    raise
-                # Table no longer exists -- nothing to drop, ignore error
-
-    def validate(self) -> None:
-        """Validate store table against self.table_version"""
-        with get_runtime().begin_xact() as conn:
-            # check that all columns are present
-            q = f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r}'
-            store_col_info = {row[0] for row in conn.execute(sql.text(q)).fetchall()}
-            # check all stored columns, including dropped ones: they remain part of the physical table
-            tbl_col_info: set[str] = set()
-            for col_md in self.tbl_version.get().tbl_md.column_md.values():
-                if not col_md.stored:
-                    continue
-                tbl_col_info.add(catalog.Column.store_name_from_id(col_md.id))
-                if col_md.stores_cellmd:
-                    tbl_col_info.add(catalog.Column.cellmd_store_name_from_id(col_md.id))
-            assert tbl_col_info.issubset(store_col_info)
-
-            # check that all visible indices are present
-            q = f'SELECT indexname FROM pg_indexes WHERE tablename = {self._storage_name()!r}'
-            store_idx_names = {row[0] for row in conn.execute(sql.text(q)).fetchall()}
-            tbl_index_names = {
-                self.tbl_version.get()._store_idx_name(info.id) for info in self.tbl_version.get().idxs.values()
-            }
-            assert tbl_index_names.issubset(store_idx_names)
-
-    def drop(self) -> None:
-        """Drop store table"""
         conn = get_runtime().conn
-        drop_stmt = f'DROP TABLE IF EXISTS {self._storage_name()}'
-        conn.execute(sql.text(drop_stmt))
+        assert conn is not None
+        postgres_dialect = sql.dialects.postgresql.dialect()
+        create_stmt = sql.schema.CreateTable(self.sa_tbl).compile(dialect=postgres_dialect)
+        conn.execute(sql.text(str(create_stmt)))
+        for idx in self.sa_tbl.indexes:
+            create_idx_stmt = sql.schema.CreateIndex(idx).compile(dialect=postgres_dialect)
+            conn.execute(sql.text(str(create_idx_stmt)))
+        for idx_id in self.tbl_version.get().idxs:
+            _, idx_stmt = self._create_idx_stmt(idx_id)
+            conn.execute(sql.text(idx_stmt))
 
-    def _add_column_stmt(self, sa_col: sql.Column) -> str:
-        col_type_str = sa_col.type.compile(dialect=sql.dialects.postgresql.dialect())
-        return (
-            f'ALTER TABLE {self._storage_name()} ADD COLUMN IF NOT EXISTS '
-            f'{sa_col.name} {col_type_str} {"NOT " if not sa_col.nullable else ""} NULL'
+        # Index statement generation attaches Index objects to sa_tbl. Discard them so a transaction retry
+        # does not issue duplicate CREATE INDEX statements.
+        # TODO(PXT-1271): stop sa_create_stmt() from mutating the store table. That will make this rebuild unnecessary.
+        self.create_sa_tbl()
+
+    def _create_idx_stmt(self, idx_id: int) -> tuple[catalog.TableVersion.IndexInfo, str]:
+        """Return the index metadata and its CREATE INDEX statement."""
+        tv = self.tbl_version.get()
+        idx_info = tv.idxs[idx_id]
+        assert idx_info.indexed_sa_col.table is self.sa_tbl, idx_info
+        return idx_info, str(idx_info.idx.sa_create_stmt(tv._store_idx_name(idx_id), idx_info.indexed_sa_col))
+
+    @classmethod
+    def _index_row_size_error(cls, idx_info: catalog.TableVersion.IndexInfo) -> excs.RequestError:
+        """Construct the user-facing error for a Postgres 'index row size exceeds maximum' error on idx_info."""
+        return excs.RequestError(
+            excs.ErrorCode.CONSTRAINT_VIOLATION,
+            f'Value too large for the {idx_info.idx.display_name()} index on column {idx_info.col.name!r}',
         )
 
+    @telemetry.spanned('pixeltable.store.create_index', level=telemetry.DEBUG)
+    def create_index(self, idx_id: int) -> None:
+        """Create the index (if not exists) in the current transaction."""
+        idx_info, stmt = self._create_idx_stmt(idx_id)
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.StoreAttrs(index=idx_info.name))
+        conn = get_runtime().conn
+        assert conn is not None
+        get_runtime().catalog.assert_store_schema_write_locked(self.tbl_version.id)
+        try:
+            conn.execute(sql.text(stmt))
+        except sql.exc.OperationalError as e:
+            if (
+                isinstance(idx_info.idx, BtreeIndex)
+                and not idx_info.idx.uses_value_col
+                and isinstance(e.orig, psycopg.errors.ProgramLimitExceeded)
+            ):
+                # An existing value in the table is too long for the new b-tree index
+                raise self._index_row_size_error(idx_info) from e
+            raise
+
+    def drop_index(self, idx_id: int) -> None:
+        """Drop the index (if exists) in the current transaction."""
+        conn = get_runtime().conn
+        assert conn is not None
+        get_runtime().catalog.assert_store_schema_write_locked(self.tbl_version.id)
+        idx_info = self.tbl_version.get().idxs[idx_id]
+        store_index_name = self.tbl_version.get()._store_idx_name(idx_id)
+        conn.execute(idx_info.idx.sa_drop_stmt(store_index_name))
+
+        # Rebuild the sqlalchemy schema to discard any stray sql.Indexes still linked to it.
+        # TODO(PXT-1271): stop sa_create_stmt() from mutating the store table. That will make this rebuild unnecessary.
+        self.create_sa_tbl()
+
+    @telemetry.spanned('pixeltable.store.add_column', level=telemetry.DEBUG)
     def add_column(self, col: catalog.Column, if_not_exists: bool) -> None:
         """Add column(s) to the store-resident table based on a catalog column"""
         assert col.is_stored
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.StoreAttrs(column=col.name))
         conn = get_runtime().conn
+        assert conn is not None
+        get_runtime().catalog.assert_store_schema_write_locked(self.tbl_version.id)
         col_type_str = col.sa_col_type.compile(dialect=conn.dialect)
         if_not_exists_clause = 'IF NOT EXISTS' if if_not_exists else ''
         s_txt = (
@@ -418,14 +388,18 @@ class StoreBase:
 
     def drop_column(self, col: catalog.Column, if_exists: bool) -> None:
         """Execute Alter Table Drop Column statement"""
+        conn = get_runtime().conn
+        assert conn is not None
+        get_runtime().catalog.assert_store_schema_write_locked(self.tbl_version.id)
         if_exists_clause = 'IF EXISTS' if if_exists else ''
         s_txt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {if_exists_clause} {col.store_name()}'
         if col.stores_cellmd:
             s_txt += f' , DROP COLUMN {if_exists_clause} {col.cellmd_store_name()}'
         stmt = sql.text(s_txt)
         log_stmt(_logger, stmt)
-        get_runtime().conn.execute(stmt)
+        conn.execute(stmt)
 
+    @telemetry.spanned('pixeltable.store.write_column', nest_children=True)
     def write_column(self, col: catalog.Column, exec_plan: ExecNode, abort_on_exc: bool) -> int:
         """Populate store column of a computed column with values produced by an execution plan
 
@@ -436,6 +410,10 @@ class StoreBase:
             excs.Error if on_error='abort' and there was an exception during row evaluation
         """
         assert col.get_tbl().id == self.tbl_version.id
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.StoreAttrs(column=col.name))
+        conn = get_runtime().conn
+        assert conn is not None
+        get_runtime().catalog.assert_rows_write_locked(self.tbl_version.get())
         num_excs = 0
         num_rows = 0
         # create temp table to store output of exec_plan, with the same primary key as the store table
@@ -450,7 +428,6 @@ class StoreBase:
         tmp_col_names = [col.name for col in tmp_cols]
 
         tmp_tbl = sql.Table(tmp_name, self.sa_md, *tmp_cols, prefixes=['TEMPORARY'])
-        conn = get_runtime().conn
         tmp_tbl.create(bind=conn)
 
         row_builder = exec_plan.row_builder
@@ -467,16 +444,21 @@ class StoreBase:
                     num_rows += len(row_batch)
                     batch_table_rows: list[list[Any]] = []
 
-                    for row in row_batch:
-                        if abort_on_exc and row.has_exc():
-                            exc = row.get_first_exc()
-                            raise excs.RequestError(
-                                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                                f'Error while evaluating computed column {col.name!r}:\n{exc}',
-                            ) from exc
-                        table_row, num_row_exc = row_builder.create_store_table_row(row, None, row.pk)
-                        num_excs += num_row_exc
-                        batch_table_rows.append(table_row)
+                    with telemetry.span(
+                        'pixeltable.store.build_rows',
+                        level=telemetry.DEBUG,
+                        **telemetry_schemas.StoreAttrs(rows=len(row_batch)),
+                    ):
+                        for row in row_batch:
+                            if abort_on_exc and row.has_exc():
+                                exc = row.get_first_exc()
+                                raise excs.RequestError(
+                                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                                    f'Error while evaluating computed column {col.name!r}:\n{exc}',
+                                ) from exc
+                            table_row, num_row_exc = row_builder.create_store_table_row(row, None, row.pk)
+                            num_excs += num_row_exc
+                            batch_table_rows.append(table_row)
 
                     table_rows.extend(batch_table_rows)
 
@@ -509,24 +491,30 @@ class StoreBase:
 
             run_cleanup(remove_tmp_tbl, raise_error=False)
 
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.StoreAttrs(rows=num_rows))
         return num_excs
 
+    @telemetry.spanned('pixeltable.store.insert_rows', nest_children=True)
     def insert_rows(
         self,
         exec_plan: ExecNode,
-        v_min: int | None,
         rowids: Iterator[int] | None = None,
         abort_on_exc: bool = False,
         return_rows: bool = False,
     ) -> tuple[set[int], RowCountStats, list[dict[str, Any]] | None]:
-        """Insert rows into the store table and update the catalog table's md
+        """Insert rows into the store table and update the catalog table's md.
+
+        On a data-versioned table the new rows get the table's current version as their v_min.
+
         Returns:
             set of column ids that have exceptions, row count stats, newly inserted rows (if return_rows)
         """
-        versioned = self.tbl_version.get().is_versioned
-        assert (v_min is not None) == versioned
-        if not versioned:
-            assert rowids is None
+        assert get_runtime().in_xact
+        get_runtime().catalog.assert_rows_write_locked(self.tbl_version.get())
+        tbl_version = self.tbl_version.get()
+        is_data_versioned = tbl_version.is_data_versioned
+        v_min = tbl_version.version if is_data_versioned else None
+        assert is_data_versioned or rowids is None
         # TODO: total?
         num_excs = 0
         num_rows = 0
@@ -548,7 +536,11 @@ class StoreBase:
                 batch_table_rows: list[list[Any]] = []
 
                 # compute batch of rows and convert them into table rows
-                with telemetry.span('pixeltable.store.build_rows', level=telemetry.DEBUG, rows=len(row_batch)):
+                with telemetry.span(
+                    'pixeltable.store.build_rows',
+                    level=telemetry.DEBUG,
+                    **telemetry_schemas.StoreAttrs(rows=len(row_batch)),
+                ):
                     for row in row_batch:
                         # if abort_on_exc == True, we need to check for media validation exceptions
                         if abort_on_exc and row.has_exc():
@@ -556,15 +548,10 @@ class StoreBase:
                             raise exc
 
                         pk: tuple[int | UUID, ...]
-                        if versioned:
+                        if is_data_versioned:
                             rowid = (next(rowids),) if rowids is not None else row.pk[:-1]
                             pk = (*rowid, v_min)
                         else:
-                            # UUID7 appears to be a more performant choice for Postgresql, however for CockroachDB
-                            # UUID4 is recommended.
-                            assert not Env.get().is_using_cockroachdb, (
-                                'TODO: implement for unversioned tables [PXT-1101]'
-                            )
                             pk = (uuid7(),)
                         assert len(pk) == len(self._pk_cols)
                         table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, pk)
@@ -591,7 +578,10 @@ class StoreBase:
                 if return_rows:
                     inserted_rows.extend(row_builder.create_output_rows(table_rows=table_rows, has_pk=True))
 
-            row_counts = RowCountStats(ins_rows=num_rows, num_excs=num_excs, computed_values=0)
+            telemetry_schemas.rows_written.add(
+                num_rows, table=self.tbl_version.get().name, table_id=str(self.tbl_version.id)
+            )
+            row_counts = RowCountStats(ins_rows=num_rows, num_excs=num_excs)
 
             return cols_with_excs, row_counts, (inserted_rows if return_rows else None)
 
@@ -599,13 +589,13 @@ class StoreBase:
         assert len(table_rows) > 0
         conn = get_runtime().conn
         try:
-            with telemetry.span('pixeltable.sa.insert_rows'):
+            with telemetry.span('pixeltable.sa.insert_rows', **telemetry_schemas.StoreAttrs(rows=len(table_rows))):
                 conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
         except sql.exc.IntegrityError as e:
             if (
                 isinstance(e.orig, psycopg.errors.UniqueViolation)
                 and e.orig.diag.constraint_name is not None
-                and e.orig.diag.constraint_name.startswith('pk_idx_')
+                and e.orig.diag.constraint_name == self.pk_constraint_name(self.tbl_version.get())
             ):
                 detail = e.orig.diag.message_detail or ''
                 for col in self.tbl_version.get().primary_key_columns():
@@ -615,13 +605,16 @@ class StoreBase:
                 ) from e
             raise
         except sql.exc.OperationalError as e:
-            if isinstance(e.orig, psycopg.errors.ProgramLimitExceeded) and 'pk_idx_' in str(e.orig):
-                pk_col_names = [col.name for col in self.tbl_version.get().primary_key_columns()]
-                raise excs.RequestError(
-                    excs.ErrorCode.CONSTRAINT_VIOLATION,
-                    f'Primary key value too large for index: the combined size of the insert for columns '
-                    f'({", ".join(pk_col_names)}) exceeds the maximum btree index row size',
-                ) from e
+            if isinstance(e.orig, psycopg.errors.ProgramLimitExceeded):
+                pk_name = self.pk_constraint_name(self.tbl_version.get())
+                if re.search(rf'\b{re.escape(pk_name)}\b', str(e.orig)):
+                    pk_col_names = [col.name for col in self.tbl_version.get().primary_key_columns()]
+                    raise excs.RequestError(
+                        excs.ErrorCode.CONSTRAINT_VIOLATION,
+                        f'Primary key value too large for index: the combined size of the insert for columns '
+                        f'({", ".join(pk_col_names)}) exceeds the maximum btree index row size',
+                    ) from e
+            self._raise_if_index_row_too_large(e)
             raise
 
         # TODO: Inserting directly via psycopg delivers a small performance benefit, but is somewhat fraught due to
@@ -632,9 +625,143 @@ class StoreBase:
         # stmt_text = f'INSERT INTO {self.sa_tbl.name} ({col_names_str}) VALUES ({placeholders_str})'
         # conn.exec_driver_sql(stmt_text, table_rows)
 
+    @classmethod
+    def _update_bind_name(cls, store_col_name: str) -> str:
+        """Name of the SQL bind parameter used to supply the value for store_col_name.
+
+        The prefix keeps these from colliding with the parameters SQLAlchemy generates itself.
+        """
+        return f'_{store_col_name}'
+
+    @classmethod
+    def _bind_param(cls, sa_col: sql.Column) -> sql.BindParameter:
+        col_type = sa_col.type
+        if isinstance(col_type, sql.dialects.postgresql.JSONB):
+            # a Python None must be stored as a SQL NULL, not as a JSON 'null'
+            # TODO(PXT-1527): declare the store's JSONB columns with none_as_null=True and drop this override
+            col_type = sql.dialects.postgresql.JSONB(none_as_null=True)
+        return sql.bindparam(cls._update_bind_name(sa_col.name), type_=col_type)
+
+    def _create_update_stmt(self, set_col_names: list[str]) -> sql.Update:
+        pk_clause = sql.and_(*[c == self._bind_param(c) for c in self._pk_cols])
+        set_clause = {name: self._bind_param(self.sa_tbl.c[name]) for name in set_col_names}
+        return sql.update(self.sa_tbl).where(pk_clause).values(set_clause)
+
+    def update_rows(
+        self, exec_plan: ExecNode, set_cols: list[catalog.Column], return_rows: bool = False
+    ) -> tuple[set[int], RowCountStats, list[dict[str, Any]] | None]:
+        """Update rows of an operational table in place with the rows produced by exec_plan.
+
+        exec_plan produces one row per row to update, identified by its pk. Only the store columns of set_cols
+        are written; every other store column retains its current value.
+
+        Returns:
+            set of column ids that have exceptions, row count stats, updated rows (if return_rows)
+        """
+        assert not self.tbl_version.get().is_data_versioned
+        get_runtime().catalog.assert_rows_write_locked(self.tbl_version.get())
+        num_excs = 0
+        num_rows = 0
+        cols_with_excs: set[int] = set()
+        row_builder = exec_plan.row_builder
+
+        store_col_names = row_builder.store_column_names()
+        num_pk_cols = len(self._pk_cols)
+        assert store_col_names[:num_pk_cols] == [c.name for c in self._pk_cols]
+        set_col_names: set[str] = set()
+        for col in set_cols:
+            set_col_names.add(col.store_name())
+            if col.stores_cellmd:
+                set_col_names.add(col.cellmd_store_name())
+        set_col_idxs = [i for i, name in enumerate(store_col_names) if i >= num_pk_cols and name in set_col_names]
+        assert len(set_col_idxs) == len(set_col_names), (store_col_names, set_col_names)
+        param_idxs = [*range(num_pk_cols), *set_col_idxs]
+        bind_param_names = [self._update_bind_name(store_col_names[i]) for i in param_idxs]
+        # stmt can be None if the plan does not actually update anything in the store.
+        # But we still want to execute it:
+        # - exec_plan records which rows matched for `if_not_exists`
+        # - for row counts
+        # - for returned rows
+        # This is a legitimate use case that is supported by data-versioned tables.
+        stmt = self._create_update_stmt([store_col_names[i] for i in set_col_idxs]) if len(set_col_idxs) > 0 else None
+
+        table_rows: list[list[Any]] = []
+        bind_params: list[dict[str, Any]] = []
+        updated_rows: list[dict[str, Any]] = []
+
+        def flush() -> None:
+            nonlocal table_rows, bind_params
+            if stmt is not None:
+                self._sql_update(stmt, bind_params)
+            if return_rows:
+                updated_rows.extend(row_builder.create_output_rows(table_rows=table_rows, has_pk=True))
+            if progress_reporter is not None:
+                progress_reporter.update(len(bind_params))
+            table_rows = []
+            bind_params = []
+
+        def row_value_to_bind_param(val: Any) -> Any:
+            # a JSON null arrives as a SQL construct, which can't be a bind parameter value
+            # TODO(PXT-1527): remove once the row builder emits None for JSON nulls
+            if isinstance(val, sql.sql.elements.Null):
+                return None
+            return val
+
+        with exec_plan:
+            progress_reporter = exec_plan.ctx.add_progress_reporter(
+                f'Rows updated (table {self.tbl_version.get().name!r})', 'rows'
+            )
+
+            for row_batch in exec_plan:
+                num_rows += len(row_batch)
+                with telemetry.span('pixeltable.store.build_rows', level=telemetry.DEBUG, rows=len(row_batch)):
+                    for row in row_batch:
+                        assert len(row.pk) == num_pk_cols
+                        table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, row.pk)
+                        num_excs += num_row_exc
+                        if return_rows:
+                            table_rows.append(table_row)
+                        bind_params.append(
+                            {
+                                bind_param: row_value_to_bind_param(table_row[param_idx])
+                                for bind_param, param_idx in zip(bind_param_names, param_idxs)
+                            }
+                        )
+
+                if len(bind_params) >= self.__INSERT_BATCH_SIZE:
+                    flush()
+
+            if len(bind_params) > 0:
+                flush()
+
+        row_counts = RowCountStats(upd_rows=num_rows, num_excs=num_excs)
+        return cols_with_excs, row_counts, (updated_rows if return_rows else None)
+
+    def _sql_update(self, stmt: sql.Update, params: list[dict[str, Any]]) -> None:
+        assert len(params) > 0
+        conn = get_runtime().conn
+        try:
+            with telemetry.span('pixeltable.sa.update_rows'):
+                conn.execute(stmt, params)
+        except sql.exc.OperationalError as e:
+            self._raise_if_index_row_too_large(e)
+            raise
+
+    def _raise_if_index_row_too_large(self, e: sql.exc.OperationalError) -> None:
+        """Raise the user-facing error if e is a Postgres 'index row size exceeds maximum' error on this table."""
+        if not isinstance(e.orig, psycopg.errors.ProgramLimitExceeded):
+            return
+        msg = str(e.orig)
+        tv = self.tbl_version.get()
+        for idx_info in tv.idxs.values():
+            store_idx_name = tv._store_idx_name(idx_info.id)
+            # \b is a word boundary; it prevents 'idx_1' from matching 'idx_10'
+            if re.search(rf'\b{re.escape(store_idx_name)}\b', msg):
+                raise self._index_row_size_error(idx_info) from e
+
     def _versions_clause(self, versions: list[int | None], match_on_vmin: bool) -> sql.ColumnElement[bool]:
         """Return filter for base versions"""
-        assert self.tbl_version.get().is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
+        assert self.tbl_version.get().is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         v = versions[0]
         if v is None:
             # we're looking at live rows
@@ -649,16 +776,19 @@ class StoreBase:
         return sql.and_(clause, self.base._versions_clause(versions[1:], match_on_vmin))
 
     def delete_rows(self, where_clause: sql.ColumnElement[bool] | None) -> int:
-        """Delete rows in an unversioned table. Use soft_delete_rows for versioned tables."""
-        assert not self.tbl_version.get().is_versioned
+        """Delete rows in an operational table. Use soft_delete_rows for data-versioned tables."""
+        assert not self.tbl_version.get().is_data_versioned
+        conn = get_runtime().conn
+        assert conn is not None
+        get_runtime().catalog.assert_rows_write_locked(self.tbl_version.get())
         where_clause = sql.true() if where_clause is None else where_clause
         rowid_join_clause = self._rowid_join_predicate()
-        assert rowid_join_clause.compare(sql.true()), 'TODO: implement for unversioned tables [PXT-1101]'
-        conn = get_runtime().conn
+        assert rowid_join_clause.compare(sql.true()), 'TODO: implement for operational tables [PXT-1101]'
         stmt = sql.delete(self.sa_tbl).where(where_clause)
         log_explain(_logger, stmt, conn)
         return conn.execute(stmt).rowcount
 
+    @telemetry.spanned('pixeltable.store.soft_delete_rows')
     def soft_delete_rows(
         self,
         current_version: int,
@@ -666,7 +796,7 @@ class StoreBase:
         match_on_vmin: bool,
         where_clause: sql.ColumnElement[bool] | None,
     ) -> int:
-        """Mark rows as deleted in a versioned table. Only the rows that are live and were created prior to
+        """Mark rows as deleted in a data-versioned table. Only the rows that are live and were created prior to
         current_version are affected.
 
         Also: populate the undo columns
@@ -679,7 +809,10 @@ class StoreBase:
         Returns:
             number of deleted rows
         """
-        assert self.tbl_version.get().is_versioned
+        assert self.tbl_version.get().is_data_versioned
+        conn = get_runtime().conn
+        assert conn is not None
+        get_runtime().catalog.assert_rows_write_locked(self.tbl_version.get())
         where_clause = sql.true() if where_clause is None else where_clause
         version_clause = sql.and_(self.v_min_col < current_version, self.v_max_col == schema.Table.MAX_VERSION)
         rowid_join_clause = self._rowid_join_predicate()
@@ -688,10 +821,12 @@ class StoreBase:
         )
         set_clause: dict[sql.Column, int | sql.Column] = {self.v_max_col: current_version}
         for index_info in self.tbl_version.get().idxs_by_name.values():
-            # copy value column to undo column
-            set_clause[index_info.undo_col.sa_col] = index_info.val_col.sa_col
-            # set value column to NULL
-            set_clause[index_info.val_col.sa_col] = None
+            if index_info.undo_col is not None:
+                # The index maintains an index value column and an undo column.
+                # copy value column to undo column
+                set_clause[index_info.undo_col.sa_col] = index_info.val_col.sa_col
+                # set value column to NULL
+                set_clause[index_info.val_col.sa_col] = None
 
         stmt = (
             sql.update(self.sa_tbl)
@@ -701,13 +836,13 @@ class StoreBase:
             .where(rowid_join_clause)
             .where(base_versions_clause)
         )
-        conn = get_runtime().conn
         log_explain(_logger, stmt, conn)
         status = conn.execute(stmt)
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.StoreAttrs(rows=status.rowcount))
         return status.rowcount
 
     def dump_rows(self, version: int, filter_view: StoreBase, filter_view_version: int) -> Iterator[dict[str, Any]]:
-        assert self.tbl_version.get().is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
+        assert self.tbl_version.get().is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         filter_predicate = sql.and_(
             filter_view.v_min_col <= filter_view_version,
             filter_view.v_max_col > filter_view_version,

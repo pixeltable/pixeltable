@@ -5,9 +5,9 @@ import re
 
 from pixeltable import exceptions as excs
 
-from .globals import is_valid_identifier
+from .globals import fold_identifier, is_valid_identifier
 
-# pxt://<org>[:<db>][/<rest>] — org is a required slug, db an optional slug, rest the in-db path part
+# pxt://<org>[:<db>][/<rest>]: org is a required name, db an optional name, rest the in-db path part
 # (which may carry a trailing :version). The org:db colon lives in the netloc and never collides with
 # the version colon, which is in rest.
 _URI_RE = re.compile(r'^pxt://(?P<org>[^:/]+)(?::(?P<db>[^/]+))?(?:/(?P<rest>.*))?$')
@@ -31,7 +31,7 @@ class Path:
     Construct via parse() or from_components(), which apply context-specific rules.
     """
 
-    org: str | None = None  # None => in-process catalog (catalog_uri ''); a slug => remote/proxied catalog
+    org: str | None = None  # None: in-process catalog (catalog_uri ''); otherwise: hosted catalog
     db: str | None = None  # database within the org; always None when org is None, optional otherwise
     components: tuple[str, ...] = ()  # the empty tuple denotes the catalog root
     version: int | None = None
@@ -50,6 +50,20 @@ class Path:
         # the root is the empty tuple; every component of a non-root path must be a valid identifier
         if not all(is_valid_identifier(c, allow_hyphens=True) for c in self.components):
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {"/".join(self.components)}')
+
+        # This is a frozen dataclass, we have to use __setattr__ to update it.
+        if self.org is not None:
+            object.__setattr__(self, 'org', fold_identifier(self.org))
+        if self.db is not None:
+            object.__setattr__(self, 'db', fold_identifier(self.db))
+        object.__setattr__(self, 'components', tuple(fold_identifier(c) for c in self.components))
+
+    @classmethod
+    def dir_prefix(cls, catalog_dir: str) -> str:
+        """Validate and fold a directory path into the form a child path is appended to (empty, or ending in '/')."""
+        p = cls.parse(catalog_dir.rstrip('/'), allow_empty_path=True)
+        # the local root is the only directory with an empty prefix; a remote root still carries its pxt:// URI
+        return '' if p.is_root and p.is_local else f'{p}/'
 
     @classmethod
     def parse(cls, path: str, *, allow_empty_path: bool = False, allow_versioned_path: bool = False) -> Path:
@@ -79,18 +93,23 @@ class Path:
             except ValueError:
                 raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {path}') from None
 
-        # Split the in-db path part into components (dotted form accepted for backward compatibility).
+        # Split the in-db path part into components. Slash-separated is canonical;
+        # dotted form is accepted only when no slashes are present (backward compatibility).
         components: tuple[str, ...]
-        if '.' in path_part:
-            components = tuple(path_part.split('.'))
-        elif '/' in path_part:
+        if '/' in path_part:
             components = tuple(path_part.split('/'))
+        elif '.' in path_part:
+            components = tuple(path_part.split('.'))
         else:
             components = (path_part,) if path_part else ()
 
         if len(components) == 0 and not allow_empty_path:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {path}')
-        # component identifier validation is enforced by __post_init__ at construction
+        # validate components here (before calling __post_init__) so that if validation fails, the error message
+        # exactly matches the input
+        if not all(is_valid_identifier(c, allow_hyphens=True) for c in components):
+            raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {path}')
+
         if version is not None and not allow_versioned_path:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Versioned path not allowed here: {path}')
 
@@ -103,9 +122,10 @@ class Path:
         return cls(org=org, db=db, components=tuple(components), version=version)
 
     @classmethod
-    def is_pxt_uri(cls, s: str) -> bool:
-        """Return True if the string is a pxt:// URI or a recognized Pixeltable web URL."""
-        return s.startswith('pxt://') or any(s.startswith(p) for p in _URL_PREFIXES)
+    def localize(cls, path: str) -> str:
+        """Remove the pxt://org:db/ prefix from a path (if present)."""
+        p = Path.parse(path, allow_empty_path=True, allow_versioned_path=True)
+        return str(Path(components=p.components, version=p.version))
 
     @classmethod
     def _normalize(cls, s: str) -> str:
@@ -126,7 +146,7 @@ class Path:
         return Path(org=self.org, db=self.db)
 
     @property
-    def uri(self) -> str:
+    def uri_str(self) -> str:
         """The catalog this path lives in, as a URI string. Empty string for the in-process catalog."""
         if self.is_local:
             return ''
@@ -185,7 +205,7 @@ class Path:
             base = f'{base}:{self.version}'
         if self.org is None:
             return base
-        return self.uri if base == '' else f'{self.uri}/{base}'
+        return self.uri_str if base == '' else f'{self.uri_str}/{base}'
 
 
 ROOT_PATH = Path()

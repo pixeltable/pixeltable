@@ -77,7 +77,8 @@ class MetadataUtils:
         if old.col_type != new.col_type:
             type_ = ts.ColumnType.from_dict(new.col_type)
             diff.append(f'type changed to {type_!r}')
-        assert old.value_expr == new.value_expr, 'Not implemented: describe a value expression change'
+        if old.value_expr != new.value_expr:
+            diff.append('value expression changed')
         assert old.media_validation == new.media_validation, 'Not implemented: describe a media validation change'
         assert old.comment == new.comment, 'Not implemented: describe a comment change'
         assert old.custom_metadata == new.custom_metadata, 'Not implemented: describe a custom metadata change'
