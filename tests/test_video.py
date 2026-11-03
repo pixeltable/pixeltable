@@ -346,6 +346,9 @@ class TestVideo:
         resolved_paths = {Path(path).resolve() for path in video_paths}
 
         def open_videos() -> list[str]:
+            # on Windows, open_files() kills its helper threads with TerminateThread() and can leave the heap locked
+            if platform.system() == 'Windows':
+                return []
             return [f.path for f in psutil.Process().open_files() if Path(f.path).resolve() in resolved_paths]
 
         assert len(frames.where(frames.pos == 3).select(frames.frame).collect()) == len(video_paths)
