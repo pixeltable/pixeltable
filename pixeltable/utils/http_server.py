@@ -32,8 +32,9 @@ class AbsolutePathHandler(http.server.SimpleHTTPRequestHandler):
         """
         Refuses a request without the token, before any filesystem access.
 
-        Unlike the daemon, the server accepts any Host: a web page that rebinds its own host name to 127.0.0.1
-        can't learn the token, and the proxy of a port forwarder such as Codespaces sends its own host name.
+        Unlike the daemon, the server accepts any Host, because the proxy of a port forwarder such as Codespaces
+        sends its own host name. Only the token stops a web page that rebinds its host name to 127.0.0.1, so a
+        URL leaked from shared notebook output works from any page for the life of this process.
         """
         prefix = f'/{self.server.token}/'
         if not secrets.compare_digest(self.path[: len(prefix)].encode(), prefix.encode()):
