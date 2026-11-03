@@ -303,8 +303,9 @@ class TestTwelveLabs:
         res = v.select(embedding=v.video_segment.embedding()).collect()
         assert res['embedding'][0].shape == (512,)
 
-    @pytest.mark.skip(reason='feature broken: PXT-1234')
     def test_embed_large_media(self, uses_db: None, model_name: str) -> None:
+        if model_name == 'marengo3.5':
+            pytest.skip('Large media requires the Marengo 3.5 async embeddings API (PXT-1722)')
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')
         from pixeltable.functions.twelvelabs import embed
