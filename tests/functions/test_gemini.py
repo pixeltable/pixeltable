@@ -298,7 +298,7 @@ class TestGemini:
         [(False, 'inline', '16:9', '360p', 640, 360), (True, 'uri', '9:16', '720p', 720, 1280)],
         ids=['text-inline', 'reference-images-uri'],
     )
-    def test_generate_omni_video(
+    def test_generate_video(
         self,
         db_root: DatabaseRoot,
         with_images: bool,
@@ -310,14 +310,14 @@ class TestGemini:
     ) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
-        from pixeltable.functions.gemini import generate_omni_video
+        from pixeltable.functions.gemini import generate_video
 
         t = pxt.create_table(
             db_root.make_catalog_path('test_tbl'),
             {'prompt': pxt.String | None, 'ref1': pxt.Image | None, 'ref2': pxt.Image | None},
         )
         t.add_computed_column(
-            output=generate_omni_video(
+            output=generate_video(
                 t.prompt,
                 images=[t.ref1, t.ref2] if with_images else None,
                 model='gemini-omni-1.1-flash',

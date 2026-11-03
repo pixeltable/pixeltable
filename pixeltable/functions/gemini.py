@@ -22,7 +22,7 @@ import os
 import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Literal, Sequence, TypeVar, cast
+from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Sequence, cast
 
 import numpy as np
 import PIL.Image
@@ -48,9 +48,6 @@ _VIDEO_GENERATION_TIMEOUT_SECONDS = 300
 
 # Placeholder key used in first pass for large file uploads.
 _UPLOAD_PLACEHOLDER_KEY = '__google_genai_upload_ref__'
-
-# Used to generalize polling logic for long-running Gemini operations (e.g. video generation).
-T = TypeVar('T', bound='genai.types.Operation')
 
 
 @env.register_client('gemini', credential_param='api_key')
@@ -348,167 +345,8 @@ def _pil_to_gemini_image(image: PIL.Image.Image) -> 'genai.types.Image':
         return types.Image(image_bytes=buffer.getvalue(), mime_type='image/webp')
 
 
-async def _poll_gemini_operation(operation: T) -> T:
-    while not operation.done:
-        await asyncio.sleep(3)
-        operation = await _genai_client().aio.operations.get(operation)
-    return operation
-
-
-async def _generate_videos_impl(
-    model: str, prompt: str | None, image: 'genai.types.Image | None', config: 'genai.types.GenerateVideosConfig | None'
-) -> str:
-    """Shared implementation for video generation: submit request, poll for completion, download result."""
-    from google.genai import types
-
-    # the prompt/image parameters are deprecated in favor of source
-    source = types.GenerateVideosSource(prompt=prompt, image=image)
-    operation = await _genai_client().aio.models.generate_videos(model=model, source=source, config=config)
-
-    try:
-        operation = await asyncio.wait_for(_poll_gemini_operation(operation), timeout=_VIDEO_GENERATION_TIMEOUT_SECONDS)
-    except asyncio.TimeoutError as exc:
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_TIMEOUT,
-            f'Video generation timed out after {_VIDEO_GENERATION_TIMEOUT_SECONDS} seconds for Gemini model {model!r}.',
-            provider='gemini',
-        ) from exc
-
-    if operation.error:
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR, f'Video generation failed: {operation.error}', provider='gemini'
-        )
-
-    video = operation.response.generated_videos[0]
-
-    video_bytes = await _genai_client().aio.files.download(file=video.video)
-    assert video_bytes is not None
-
-    output_path = TempStore.create_path(extension='.mp4')
-    Path(output_path).write_bytes(video_bytes)
-    return str(output_path)
-
-
 @pxt.udf(is_deterministic=False)
-async def generate_videos(
-    prompt: str | None = None, image: PIL.Image.Image | None = None, *, model: str, config: dict | None = None
-) -> pxt.Video:
-    """
-    Generate videos through the Veo API.
-
-    Veo models in the Gemini Developer API have been shut down, and this function does not support downloading
-    Vertex AI results. For video generation through the Gemini Developer API, use
-    [`generate_omni_video()`][pixeltable.functions.gemini.generate_omni_video].
-
-    At least one of `prompt` or `image` must be provided. When `image` is a single image, it is used as the first
-    frame of the generated video. When `image` is a list of images, they are used as reference images to guide the
-    style or asset appearance throughout the video (Veo 3.1+). See the overloaded signature for details.
-
-    Request throttling:
-    Applies the rate limit set in the config (section `gemini.rate_limits`; use the model id as the key). If no rate
-    limit is configured, uses a default of 600 RPM.
-
-    __Requirements:__
-
-    - `pip install google-genai`
-
-    Args:
-        prompt: A text description of the videos to generate.
-        image: A single image to use as the first frame of the video, or as `images` a list of up to 3 reference images
-            for Veo 3.1 (see overloaded signature).
-        model: The model to use.
-        config: Configuration for generation, corresponding to keyword arguments of
-            `genai.types.GenerateVideosConfig`. For details on the parameters, see:
-            <https://googleapis.github.io/python-genai/genai.html#genai.types.GenerateVideosConfig>
-
-    Returns:
-        The generated video.
-
-    """
-    env.Env.get().require_package('google.genai')
-    from google.genai import types
-
-    resource_pool_id = f'rate-limits:gemini:{model}'
-    env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
-
-    if prompt is None and image is None:
-        raise excs.RequestError(
-            excs.ErrorCode.MISSING_REQUIRED, 'At least one of `prompt` or `image` must be provided.'
-        )
-
-    image_: types.Image | None = _pil_to_gemini_image(image) if image is not None else None
-    config_ = types.GenerateVideosConfig(**config) if config else None
-
-    return await _generate_videos_impl(model, prompt, image_, config_)
-
-
-@generate_videos.overload
-async def _(
-    prompt: str | None = None,
-    images: list[PIL.Image.Image] | None = None,
-    *,
-    model: str,
-    config: dict | None = None,
-    reference_types: list[Literal['style', 'asset']] | None = None,
-) -> pxt.Video:
-    """Overload that accepts a list of reference images for Veo 3.1+.
-
-    See [`generate_videos()`][pixeltable.functions.gemini.generate_videos] for current provider limitations.
-
-    Args:
-        prompt: A text description of the videos to generate.
-        images: A list of up to 3 reference images to guide style or asset appearance.
-        model: The model to use.
-        config: Configuration for generation.
-        reference_types: A list of reference types corresponding to each image. Each must be one of
-            `'style'` or `'asset'`. `'style'` is only supported on Vertex AI. If not provided, defaults to
-            `'asset'` for all images.
-    """
-    env.Env.get().require_package('google.genai')
-    from google.genai import types
-
-    resource_pool_id = f'rate-limits:gemini:{model}'
-    env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
-
-    if images is None:
-        images = []
-
-    if not images and prompt is None:
-        raise excs.RequestError(
-            excs.ErrorCode.MISSING_REQUIRED, 'At least one of `prompt` or `images` must be provided.'
-        )
-    if len(images) > 3:
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'At most 3 reference images are allowed, but {len(images)} were provided.',
-        )
-
-    if reference_types is None:
-        reference_types = ['asset'] * len(images)
-    elif len(reference_types) != len(images):
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT,
-            f'`reference_types` length ({len(reference_types)}) must match `images` length ({len(images)}).',
-        )
-
-    reference_images = [
-        types.VideoGenerationReferenceImage(image=_pil_to_gemini_image(img), reference_type=ref_type)
-        for img, ref_type in zip(images, reference_types)
-    ]
-
-    config_ = types.GenerateVideosConfig(**config) if config else types.GenerateVideosConfig()
-    config_.reference_images = reference_images
-
-    return await _generate_videos_impl(model, prompt, None, config_)
-
-
-@generate_videos.resource_pool
-def _(model: str) -> str:
-    return f'rate-limits:gemini:{model}'
-
-
-@pxt.udf(is_deterministic=False)
-async def generate_omni_video(
+async def generate_video(
     prompt: str | None = None, images: list[PIL.Image.Image] | None = None, *, model: str, config: dict | None = None
 ) -> pxt.Video:
     """
@@ -537,13 +375,13 @@ async def generate_omni_video(
         Generate a video from each prompt in an existing table:
 
         >>> tbl.add_computed_column(
-        ...     video=generate_omni_video(tbl.prompt, model='gemini-omni-1.1-flash')
+        ...     video=generate_video(tbl.prompt, model='gemini-omni-1.1-flash')
         ... )
 
         Animate reference images and set the output aspect ratio and resolution:
 
         >>> tbl.add_computed_column(
-        ...     video=generate_omni_video(
+        ...     video=generate_video(
         ...         tbl.prompt,
         ...         images=[tbl.image],
         ...         model='gemini-omni-1.1-flash',
@@ -568,7 +406,7 @@ async def generate_omni_video(
     if client.vertexai:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            'generate_omni_video() currently supports only the Gemini Developer API. '
+            'generate_video() currently supports only the Gemini Developer API. '
             'Unset GOOGLE_GENAI_USE_VERTEXAI and set GEMINI_API_KEY or GOOGLE_API_KEY to use it. '
             'If you need Vertex AI support, please open an issue at https://github.com/pixeltable/pixeltable/issues.',
         )
@@ -619,7 +457,7 @@ async def generate_omni_video(
         ) from exc
 
 
-@generate_omni_video.resource_pool
+@generate_video.resource_pool
 def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'
 
