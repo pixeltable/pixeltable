@@ -92,8 +92,8 @@ async def _wait_for_asset(client: 'twelvelabs.AsyncTwelveLabs', asset_id: str) -
         raise pxt.ExternalServiceError(
             pxt.ErrorCode.PROVIDER_TIMEOUT,
             f'Timed out after {timeout:g} seconds waiting for TwelveLabs asset {asset_id} to become ready. '
-            'Increase asset_processing_timeout in the [twelvelabs] config section '
-            '(or TWELVELABS_ASSET_PROCESSING_TIMEOUT) to extend the timeout.',
+            'Increase asset_processing_timeout in the [twelvelabs] config section to extend the timeout; '
+            'TWELVELABS_ASSET_PROCESSING_TIMEOUT overrides the config file.',
             provider='twelvelabs',
         ) from e
 
@@ -134,9 +134,9 @@ async def embed(text: str, image: pxt.Image | None = None, *, model_name: str) -
     Applies the rate limit set in the config (section `twelvelabs`, key `rate_limit`). If no rate
     limit is configured, uses a default of 600 RPM.
 
-    For large media uploads with Marengo 3.0, waits up to 600 seconds for each uploaded asset to become ready.
-    Increase `asset_processing_timeout` in the `twelvelabs` config section (or set
-    `TWELVELABS_ASSET_PROCESSING_TIMEOUT`) to change this timeout.
+    With Marengo 3.0, audio and video files over 2 MiB are uploaded first. The UDF waits for each uploaded
+    asset to become ready, subject to `asset_processing_timeout` in the `twelvelabs` config section.
+    `TWELVELABS_ASSET_PROCESSING_TIMEOUT` overrides the config file.
 
     __Requirements:__
 
