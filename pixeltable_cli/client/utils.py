@@ -63,6 +63,19 @@ def session_key() -> str:
     proc = psutil.Process(os.getppid())
     if _IS_WINDOWS:
         proc = proc.parent() or proc
+    return _process_key(proc)
+
+
+def session_is_live(session: str) -> bool:
+    """Whether session, a session_key() value, identifies a running shell."""
+    pid, _, _ = session.partition(':')
+    try:
+        return _process_key(psutil.Process(int(pid))) == session
+    except (ValueError, psutil.Error):
+        return False
+
+
+def _process_key(proc: psutil.Process) -> str:
     return f'{proc.pid}:{proc.create_time()}'
 
 
@@ -293,18 +306,36 @@ def kill_and_wait(pid: int, timeout: float = 5.0) -> None:
         pass
 
 
+class DaemonBusyError(RuntimeError):
+    """The daemon has to restart, but it is serving requests."""
+
+
+def describe_in_flight_requests(in_flight_requests: list[Any]) -> str:
+    """Describe each request in in_flight_requests by method, path and age."""
+    now = time.time()
+    return ', '.join(
+        f'{r["method"]} {r["path"]} ({now - r["started_at"]:.0f}s)' for r in in_flight_requests if isinstance(r, dict)
+    )
+
+
 def _restart_if_mismatched(health: dict[str, Any]) -> None:
     """Replace the daemon that reported health if it belongs to another install, environment or project."""
-    client_identity = identity()
-    diff = _identity_diff(client_identity, health)
+    diff = _identity_diff(identity(), health)
     if _serves_another_project(health):
         diff = [*diff, 'project_root']
     if len(diff) == 0:
         return
+    in_flight = health.get('in_flight', [])
+    if len(in_flight) > 0:
+        raise DaemonBusyError(
+            f'the daemon has to restart, but it is serving {plural(len(in_flight), "request")}: '
+            f'{describe_in_flight_requests(in_flight)}.\n'
+            'Retry when the daemon is idle, or run `pxt daemon restart -f`, which stops every request in progress.'
+        )
     # Identity mismatch: the daemon was launched against a different install or env snapshot than the
-    # client now sees (eg, after pip install -U pixeltable). Restart it ourselves rather than making
-    # the user do it: a non-None health response means fetch_health() already verified the responder is
-    # our daemon.
+    # client now sees (eg, after pip install -U pixeltable, or after installing another package). Restart it
+    # ourselves rather than making the user do it: a non-None health response means fetch_health() already
+    # verified the responder is our daemon.
     reported_pid = health.get('pid')
     # Refuse to target the process if its pid doesn't look real
     if not isinstance(reported_pid, int) or isinstance(reported_pid, bool) or reported_pid <= 0:
@@ -312,12 +343,13 @@ def _restart_if_mismatched(health: dict[str, Any]) -> None:
     kill_and_wait(reported_pid)
     spawn_detached()
     new_health = wait_for_health()
-    # Cross-verify: the new responder must have a fresh PID and an identity that fully matches the client.
+    # Cross-verify: the new responder must have a fresh PID and an identity that matches the client's.
     # Anything else means the restart did not actually swap in a daemon belonging to this install/env.
     if new_health.get('pid') == reported_pid:
         reason = f'new daemon kept the killed PID {reported_pid}'
     else:
-        new_diff = _identity_diff(client_identity, new_health)
+        # an install that overlaps the restart does not make the restart a failure
+        new_diff = [k for k in _identity_diff(identity(), new_health) if k != 'packages_fingerprint']
         if _serves_another_project(new_health):
             new_diff = [*new_diff, 'project_root']
         if len(new_diff) > 0:
@@ -455,6 +487,8 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None, params:
 def _send(method: str, path: str, body: dict[str, Any] | None, params: dict[str, Any] | None) -> Any:
     try:
         base = ensure_running()
+    except DaemonBusyError as e:
+        raise RequestFailedError(str(e), retryable=True, error_code='DAEMON_BUSY') from e
     except RuntimeError as e:
         # resending cannot start a daemon that just failed to
         raise RequestFailedError(str(e), retryable=False, error_code='DAEMON_UNREACHABLE') from e
