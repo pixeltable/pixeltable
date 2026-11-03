@@ -97,7 +97,7 @@ class _VlmRunClient:
     timeout: float
     _http: httpx.AsyncClient
 
-    def __init__(self, api_key: str, timeout: float, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(self, api_key: str, timeout: float) -> None:
         self.timeout = timeout
         # no read timeout: a request runs for up to ~150s before the gateway redirects it, a long poll holds the
         # connection while the job runs, and deadline() bounds the whole call
@@ -107,7 +107,6 @@ class _VlmRunClient:
             timeout=httpx.Timeout(None, connect=30.0),
             limits=httpx.Limits(max_keepalive_connections=100, max_connections=500),
             event_hooks={'request': [_require_https]},
-            transport=transport,
         )
 
     async def close(self) -> None:
