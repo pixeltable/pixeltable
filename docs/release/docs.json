@@ -328,6 +328,12 @@
             ]
           },
           {
+            "group": "Agent frameworks",
+            "pages": [
+              "integrations/pydantic-ai"
+            ]
+          },
+          {
             "group": "Observability",
             "pages": [
               "integrations/langfuse",
