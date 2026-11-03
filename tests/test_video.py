@@ -275,6 +275,8 @@ class TestVideo:
         Loads the first 20 frames of a video with various fps and num_frames settings, then queries for frames at
         specific positions and checks that the output is pixel-identical.
         """
+        if platform.system() == 'Windows' and db_root.id == 'proxy':
+            pytest.skip('PXT-1715: dropping a video table with an open media file hangs the proxy daemon on Windows')
         # It's important to run this test for all videos and for many kwargs combinations, since there are so many
         # edge cases when working with video data.
         p = db_root.make_catalog_path
@@ -464,8 +466,8 @@ class TestVideo:
         # get_metadata() returns correct type information
         expr = base_t.video.get_metadata().streams[0].frames
         assert expr.col_type.is_int_type()
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="cannot resolve 'not_an_attr'"):
-            _ = base_t.video.get_metadata().streams[0].not_an_attr
+        # metadata dicts are open, so a key that the schema doesn't declare resolves to untyped Json
+        assert repr(base_t.video.get_metadata().streams[0].not_an_attr.col_type) == 'Json | None'
 
     # window function that simply passes through the frame
     @pxt.uda(requires_order_by=True, allows_std_agg=False, allows_window=True)

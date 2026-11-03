@@ -27,7 +27,7 @@ import pixeltable_pgserver
 import psutil
 import sqlalchemy as sql
 import tzlocal
-from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
+from pillow_heif import register_heif_opener
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
 from pixeltable import exceptions as excs

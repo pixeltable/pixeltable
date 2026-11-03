@@ -38,7 +38,7 @@ from pixeltable.utils.object_stores import ObjectOps, ObjectPath, ObjectStoreBas
 
 from .column import Column
 from .globals import IfExistsParam, IfNotExistsParam
-from .types import TableVersionMd
+from .types import TableVersionKey, TableVersionMd
 
 if TYPE_CHECKING:
     from .catalog_base import CatalogBase
@@ -350,8 +350,8 @@ def _referenced_tbl_ids(expr: exprs.Expr) -> set[uuid.UUID]:
 
 def _export_table(tbl: InsertableTable, tmp_dir: FsPath) -> _TableExport:
     cat = get_runtime().catalog
-    # a single REPEATABLE READ transaction makes the metadata and the rows a snapshot of the same table state
-    with cat.begin_xact(for_write=False, read_tbl_ids=[tbl._id], isolation_level='REPEATABLE READ') as conn:
+    # a single transaction (REPEATABLE READ) makes the metadata and the rows a snapshot of the same table state
+    with cat.begin_data_read_xact(tbl_keys=[TableVersionKey(tbl._id, None)]) as conn:
         md = cat._collect_tbl_history(tbl._id, None)
         tv = tbl._tbl_version.get()
         # the destination cannot resolve a reference to another local table, such as a @pxt.query UDF's
@@ -457,14 +457,12 @@ def load_store_rows(
     Returns:
         {'placed_media': url -> stored url for each url in new_media, 'num_rows': the number of inserted rows}
     """
-    from .catalog import retry_loop
-
-    md = get_runtime().catalog.collect_tbl_history(tbl._id, None)
+    cat = get_runtime().catalog
+    md = cat.collect_tbl_history(tbl._id, None)
     # object store I/O runs outside of a transaction, so that it doesn't hold a db connection
     placed_media = _place_media(tbl._tbl_version.get(), md, rows_file, new_media)
 
-    @retry_loop(for_write=True, write_tbl_ids=[tbl._id])
-    def insert() -> int:
+    with cat.begin_data_write_xact(tvps=[tbl._tbl_version_path]):
         tv = tbl._tbl_version.get()
         # the client retries a request that gets a 5xx, so this call may repeat one that committed; a call's rows commit
         # together, so its first row tells (an index lookup: the system columns are indexed)
@@ -479,9 +477,8 @@ def load_store_rows(
                     excs.ErrorCode.INVALID_STATE,
                     f'load_store_rows(): {tv.name!r} already holds these rows; a call was repeated',
                 )
-        return _insert_rows(tv, md, rows_file, prev_media | placed_media)
-
-    return {'placed_media': placed_media, 'num_rows': insert()}
+        num_rows = _insert_rows(tv, md, rows_file, prev_media | placed_media)
+    return {'placed_media': placed_media, 'num_rows': num_rows}
 
 
 def _iter_rows(rows_file: str, columns: list[str] | None = None) -> Iterable[list[dict[str, Any]]]:

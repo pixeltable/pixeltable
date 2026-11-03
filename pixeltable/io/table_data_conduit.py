@@ -145,7 +145,8 @@ class TableDataConduit:
     def add_table_info(self, table: pxt.Table) -> None:
         """Add information about the table into which we are inserting data"""
         assert isinstance(table, pxt.Table)
-        self.pxt_schema = table._get_schema()
+        # inserts treat dict schemas as closed
+        self.pxt_schema = {name: col_type.with_closed_dicts() for name, col_type in table._get_schema().items()}
         self.pxt_pk = []
         for col_md in table._tbl_path.column_md():
             if col_md.name is None:
@@ -889,7 +890,8 @@ class PydanticTableDataConduit(TableDataConduit):
                         f'`{model_type.__name__}`',
                     )
             else:
-                if not pxt_col_type.is_supertype_of(inferred_pxt_type, ignore_nullable=True):
+                # the field's values come from model_dump(), so they have only the keys in its type
+                if not pxt_col_type.is_supertype_of(inferred_pxt_type.with_closed_dicts(), ignore_nullable=True):
                     raise excs.RequestError(
                         excs.ErrorCode.TYPE_MISMATCH,
                         f'Pydantic model `{model.__name__}` has incompatible type `{model_type.__name__}` '

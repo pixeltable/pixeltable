@@ -13,7 +13,6 @@ class TestHistory:
         """Print contents of UpdateStatus"""
         print(f'=========================== pr_us =========================== op: {op}')
         print(f'num_rows: {us.num_rows}')
-        print(f'num_computed_values: {us.num_computed_values}')
         print(f'num_excs: {us.num_excs}')
         print(f'updated_cols: {us.updated_cols}')
         print(f'cols_with_excs: {us.cols_with_excs}')

@@ -95,8 +95,7 @@ async def chat_completions(
         ...     )
         ... )
     """
-    if model_kwargs is None:
-        model_kwargs = {}
+    model_kwargs = {} if model_kwargs is None else dict(model_kwargs)
 
     if tools is not None:
         model_kwargs['tools'] = [{'type': 'function', 'function': tool} for tool in tools]
@@ -111,9 +110,7 @@ async def chat_completions(
             model_kwargs['tool_choice'] = {'type': 'function', 'function': {'name': tool_choice['tool']}}
 
     if tool_choice is not None and not tool_choice['parallel_tool_calls']:
-        if 'extra_body' not in model_kwargs:
-            model_kwargs['extra_body'] = {}
-        model_kwargs['extra_body']['parallel_tool_calls'] = False
+        model_kwargs['extra_body'] = {**model_kwargs.get('extra_body', {}), 'parallel_tool_calls': False}
 
     result = await _deepseek_client().chat.completions.with_raw_response.create(
         messages=messages, model=model, **model_kwargs

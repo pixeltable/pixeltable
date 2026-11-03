@@ -72,6 +72,7 @@ ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 TRIGGERS = ('pull_request', 'merge_group', 'schedule', 'workflow_dispatch')
 
 DEFAULT_XDIST_WORKERS = 'logical'  # one worker per vCPU; -n auto would be 2 on windows-2025 (physical cores)
+LARGE_RUNNER_XDIST_WORKERS = '8'
 
 
 class MatrixConfig(NamedTuple):
@@ -127,7 +128,7 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
             MatrixConfig('slim', 'py', platform, '3.11', pytest_options=slim_pytest) for platform in ALL_PLATFORMS
         )
         # Also exercise the newest supported Python on the main platform
-        configs.append(MatrixConfig('slim', 'py', MAIN_PLATFORM, '3.14', pytest_options=slim_pytest))
+        configs.append(MatrixConfig('slim', 'py', MAIN_PLATFORM, '3.15', pytest_options=slim_pytest))
 
     else:
         # A non-PR trigger: merge queue, workflow dispatch, or schedule.
@@ -135,7 +136,9 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
         configs.extend(MatrixConfig('standard', 'py', platform, '3.11') for platform in BASIC_PLATFORMS)
 
         configs.append(MatrixConfig('random-ops', 'random-ops', MAIN_PLATFORM, '3.11', uv_options='--no-dev'))
-        configs.append(MatrixConfig('otel', 'otel', MAIN_PLATFORM, '3.11', uv_options='--no-dev --extra otel'))
+        configs.append(
+            MatrixConfig('otel', 'otel', MAIN_PLATFORM, '3.11', uv_options='--no-dev --extra otel --extra serve')
+        )
 
         # force_all is set by the "Run on all platforms" checkbox on a workflow dispatch.
         if force_all or trigger == 'schedule':
@@ -146,7 +149,7 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
                     'ubuntu-large',
                     '3.11',
                     pytest_options=VERY_EXPENSIVE_PYTEST,
-                    xdist_workers='8',  # -n logical OOMs ubuntu-large; standard+ omits very_expensive tests
+                    xdist_workers=LARGE_RUNNER_XDIST_WORKERS,
                     pre_test_cmd='./scripts/log-memory.sh 15 &',
                 )
             )
@@ -155,19 +158,28 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
             configs.extend(MatrixConfig('standard', 'py', platform, '3.11') for platform in EXPENSIVE_PLATFORMS)
 
         else:
-            configs.append(MatrixConfig('standard+', 'py', 'ubuntu-large', '3.11', pytest_options=EXPENSIVE_PYTEST))
+            configs.append(
+                MatrixConfig(
+                    'standard+',
+                    'py',
+                    'ubuntu-large',
+                    '3.11',
+                    pytest_options=EXPENSIVE_PYTEST,
+                    xdist_workers=LARGE_RUNNER_XDIST_WORKERS,
+                )
+            )
             # Non-HF notebooks. HF-dependent notebooks are gated behind --include-expensive, which only the
             # scheduled run passes (see NB_TEST_OPTS in pytest.yml), so they are excluded here.
             configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.11'))
 
-        # Standard test suite on main & basic platforms on Python 3.14
-        configs.extend(MatrixConfig('standard', 'py', platform, '3.14') for platform in ALL_PLATFORMS)
+        # Standard test suite on main & basic platforms on Python 3.15
+        configs.extend(MatrixConfig('standard', 'py', platform, '3.15') for platform in ALL_PLATFORMS)
 
         # Standard test suite on Ubuntu on intermediate Python versions
-        configs.extend(MatrixConfig('standard', 'py', MAIN_PLATFORM, py) for py in ('3.11', '3.12', '3.13'))
+        configs.extend(MatrixConfig('standard', 'py', MAIN_PLATFORM, py) for py in ('3.12', '3.13', '3.14'))
 
-        # Minimal tests on Python 3.14
-        configs.append(MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.14', uv_options='--no-dev'))
+        # Minimal tests on Python 3.15
+        configs.append(MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.15', uv_options='--no-dev'))
 
         # Minimal tests on alternative platforms (we don't run the standard suite on these, since dev dependencies
         # can be hit-or-miss)

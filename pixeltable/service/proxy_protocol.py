@@ -41,13 +41,14 @@ from pixeltable.metadata import VERSION as MD_SCHEMA_VERSION, schema
 from pixeltable.query_clauses import SampleClause
 from pixeltable.row import RowBatch
 from pixeltable.utils import parse_local_file_path
+from pixeltable.utils.image import PNG_MODES
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectStoreBase, home_bucket_uri
 
 if TYPE_CHECKING:
     from pixeltable._query import Query
 
-PROTOCOL_VERSION = 7
+PROTOCOL_VERSION = 8
 
 
 def protocol_mismatch_message(client_version: int, server_version: int, catalog_uri: Path) -> str:
@@ -537,10 +538,19 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
         return {_TAG: 'ndarray', **_ref_fields(sink.add_scalar_bytes(buf.getvalue(), '.npy'))}
     if isinstance(obj, PIL.Image.Image):
         # an in-memory image; file-backed media travels as a path
-        buf = io.BytesIO()
-        fmt = obj.format or 'PNG'
-        obj.save(buf, format=fmt)
-        return {_TAG: 'image', 'format': fmt, **_ref_fields(sink.add_media_bytes(buf.getvalue(), f'.{fmt.lower()}'))}
+        if obj.mode in PNG_MODES and obj.width > 0 and obj.height > 0:
+            buf = io.BytesIO()
+            obj.save(buf, format='PNG')
+            return {_TAG: 'image', 'format': obj.format, **_ref_fields(sink.add_media_bytes(buf.getvalue(), '.png'))}
+        # raw pixels round-trip any image, including an empty one or one in mode HSV
+        return {
+            _TAG: 'rawimage',
+            'format': obj.format,
+            'mode': obj.mode,
+            'size': list(obj.size),
+            'palette': None if obj.palette is None else [obj.palette.mode, obj.getpalette(obj.palette.mode)],
+            **_ref_fields(sink.add_media_bytes(obj.tobytes(), '.bin')),
+        }
     if isinstance(obj, LocalFile):
         # carry the original file name so the receiver can restore it in error messages (its temp copy uses an
         # opaque name) and preserve the extension for media-type detection
@@ -654,11 +664,27 @@ def _deserialize(
             )
             return np.load(buf, allow_pickle=False)
         if tag == 'image':
+            # PNG data, which includes the mode, size and palette
             # a str v is an object key of an out-of-band media part, resolved to a pre-downloaded local path
             img = PIL.Image.open(
                 _remote_part_path(obj, remote_parts) if isinstance(v, str) else io.BytesIO(binary_parts[v])
             )
             img.load()  # read pixels now so the result doesn't depend on the transient buffer/file
+            # PIL.Image.open() sets format to 'PNG'; restore the sender's format
+            img.format = obj['format']  # type: ignore[misc]
+            return img
+        if tag == 'rawimage':
+            # pixels from Image.tobytes(); the mode, size and palette come from the tag
+            if isinstance(v, str):
+                with open(_remote_part_path(obj, remote_parts), 'rb') as f:
+                    data = f.read()
+            else:
+                data = binary_parts[v]
+            img = PIL.Image.frombytes(obj['mode'], tuple(obj['size']), data)
+            if obj['palette'] is not None:
+                palette_mode, palette = obj['palette']
+                img.putpalette(palette, palette_mode)
+            img.format = obj['format']  # type: ignore[misc]
             return img
         if tag == 'file':
             if isinstance(v, str):
@@ -724,7 +750,8 @@ def _deserialize(
             d = dict(v)
             d['rows'] = _deserialize(d['rows'], binary_parts)
             for field in ('row_count_stats', 'cascade_row_count_stats'):
-                d[field] = RowCountStats(**d[field])
+                # md_from_dict() ignores the unknown fields of a RowCountStats from an older server
+                d[field] = schema.md_from_dict(RowCountStats, d[field])
             return UpdateStatus(**d)
         if tag == 'RowBatch':
             return RowBatch(
@@ -768,7 +795,7 @@ def _remote_part_path(tag: dict[str, Any], remote_parts: dict[tuple[str, str | N
 
 
 # the tags whose 'v' is an object key when the value went out of band, and a part index when it did not
-_BINARY_TAGS = ('file', 'image', 'bytes', 'ndarray')
+_BINARY_TAGS = ('file', 'image', 'rawimage', 'bytes', 'ndarray')
 
 
 def collect_remote_keys(args: Any) -> list[tuple[str, str | None]]:
@@ -985,6 +1012,9 @@ def decode_body(body: bytes) -> tuple[bytes, list[bytes]]:
 
 # On macOS a socket write of more than INT_MAX bytes fails, so bodies are written in slices of this size.
 _BODY_CHUNK_SIZE = 16 * 2**20
+
+# How long the proxy daemon keeps an idle connection open; clients stop reusing one before then.
+KEEP_ALIVE_S = 5
 
 
 def iter_body_chunks(body: bytes) -> Iterator[memoryview]:
