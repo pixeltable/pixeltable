@@ -159,13 +159,13 @@ class Runtime:
                 )
             return CatalogProxy(catalog_uri, ProxyClient.local(f'http://127.0.0.1:{info["port"]}', db=catalog_uri.db))
 
-        # Remote database: connect via TLS to the proxy endpoint.
-        # Either kind works: the sidecar picks its validation path by the credential's shape. Passed
-        # as a callable because this client is cached and the tunnel reconnects: reading it once
-        # would pin a session token that expires long before the process does.
+        # Remote database: every request goes through the Cloud gateway with the credential. Either kind
+        # works: the gateway picks its validation path by the credential's shape. Passed as a callable
+        # because this client is cached: reading it once would pin a session token that expires long
+        # before the process does.
         purpose = f'connect to hosted database {catalog_uri!r}'
-        host, port = Env.get().proxy_endpoint(catalog_uri.org, catalog_uri.db)
-        client = ProxyClient.remote(catalog_uri.org, catalog_uri.db, lambda: resolve(purpose), host=host, port=port)
+        origin = Env.get().proxy_endpoint(catalog_uri.org, catalog_uri.db)
+        client = ProxyClient.remote(catalog_uri.org, catalog_uri.db, lambda: resolve(purpose), origin)
         return CatalogProxy(catalog_uri, client)
 
     @property
