@@ -5,6 +5,8 @@ from typing import Any
 
 import numpy as np
 import PIL.Image
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 import pytest
 
 import pixeltable as pxt
@@ -261,6 +263,21 @@ class TestCopyTable:
         assert pxt.get_table(p('dst')).columns() == ['other']
         assert _temporary_copies(db_root) == []
 
+    def test_copy_table_backfilled_media_version(self, db_root: DatabaseRoot) -> None:
+        """The files that a computed column wrote for the rows it filled are stored under the version that added it."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table('src', {'img': pxt.Image}, _is_data_versioned=True)
+        t.insert({'img': f} for f in get_image_files()[:2])
+        t.add_computed_column(rot=t.img.rotate(90))  # version 2, which fills the rows of version 1
+        t2 = pxt.copy_table('src', p('dst'))
+
+        def file_versions(tbl: pxt.Table) -> set[int]:
+            # a stored file is named <table prefix>_<column id>_<table version>_<suffix>
+            urls = tbl.select(tbl.rot.fileurl).collect()['rot_fileurl']
+            return {int(pathlib.PurePosixPath(url).name.split('_')[2]) for url in urls}
+
+        assert file_versions(t2) == file_versions(t) == {2}
+
     def test_copy_table_tmp_path_exists(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
         """A copy refuses a temporary path that names an existing table, and leaves that table as it is."""
         p = db_root.make_catalog_path
@@ -292,16 +309,28 @@ class TestCopyTable:
         rows_file = tmp_path / 'rows.parquet'
         rows_file.write_bytes(b'rows')
         for args in (
-            {'rows_file': daemon_file, 'new_media': {}, 'prev_media': {}, 'num_prev_rows': 0},
-            {
-                'rows_file': LocalFile(str(rows_file)),
-                'new_media': {'file:///img.jpg': daemon_file},
-                'prev_media': {},
-                'num_prev_rows': 0,
-            },
+            {'rows_file': daemon_file, 'new_media': {}, 'prev_media': {}},
+            {'rows_file': LocalFile(str(rows_file)), 'new_media': {'file:///img.jpg': daemon_file}, 'prev_media': {}},
         ):
             with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be uploaded files'):
                 t._dispatch('load_store_rows', args)
+
+    def test_load_store_rows_refuses_rows_beyond_history(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
+        """The destination refuses a row whose rowid a later insert into the table would assign."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table('src', {'id': pxt.Int}, _is_data_versioned=True)
+        t.insert({'id': i} for i in range(2))
+        t2 = pxt.copy_table('src', p('dst'))
+        assert isinstance(t2, TableProxy)
+        # the rows that the source inserts after the copy have the rowids that the copy assigns next
+        t.insert({'id': i} for i in range(2, 4))
+        assert isinstance(t, catalog.InsertableTable)
+        rows = pq.read_table(table_copy._export_table(t, tmp_path).chunks[0].rows_file)
+        rows_file = tmp_path / 'later_rows.parquet'
+        pq.write_table(rows.filter(pc.field('rowid') >= 2), rows_file)
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='is not a row of the history of'):
+            t2._dispatch('load_store_rows', {'rows_file': LocalFile(str(rows_file)), 'new_media': {}, 'prev_media': {}})
+        assert t2.count() == 2
 
     @pytest.mark.parametrize('tampered_arg', ['new_media', 'prev_media'])
     def test_load_store_rows_refuses_local_urls(
@@ -341,7 +370,7 @@ class TestCopyTable:
         monkeypatch.setattr(TableProxy, '_dispatch', load_twice)
         t = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
         t.insert({'id': i, 'img': f} for i, f in enumerate(get_image_files()[:3]))
-        with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='a call was repeated or skipped'):
+        with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='a call was repeated'):
             pxt.copy_table('src', p('dst'))
         assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
         assert _temporary_copies(db_root) == []

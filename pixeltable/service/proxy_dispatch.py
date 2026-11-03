@@ -22,6 +22,7 @@ import sqlalchemy as sql
 
 from pixeltable import exceptions as excs
 from pixeltable._query import Query
+from pixeltable._version import __version__
 from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_loop, table_copy
 from pixeltable.config import Config
 from pixeltable.env import Env
@@ -343,7 +344,7 @@ def _create_table_from_md(request: ProxyRequest) -> list:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
             f'Cannot create a table from metadata of version {request.schema_version} in a database of metadata '
-            f'version {MD_SCHEMA_VERSION}; use the Pixeltable version that the database runs.',
+            f'version {MD_SCHEMA_VERSION}; use the Pixeltable version that the database runs ({__version__}).',
         )
     kwargs = _deserialize_args(request)
     cat = get_runtime().catalog

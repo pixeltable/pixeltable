@@ -67,6 +67,8 @@ class _StoreColumn:
     is_media: bool
     is_computed: bool
     stores_cellmd: bool
+    # the table version that added the column; adding a computed column fills the existing rows with files of it
+    version_add: int
 
     @property
     def store_name(self) -> str:
@@ -89,6 +91,9 @@ def _store_columns(md: list[TableVersionMd]) -> list[_StoreColumn]:
             is_media=ts.ColumnType.from_dict(schema_cols[col_id].col_type).is_media_type(),
             is_computed=schema_cols[col_id].value_expr is not None,
             stores_cellmd=col_md.stores_cellmd,
+            version_add=min(
+                m.version_md.version for m in md if m.version_md.schema_version >= col_md.schema_version_add
+            ),
         )
         for col_id, col_md in md[0].tbl_md.column_md.items()
         if col_md.stored
@@ -416,7 +421,6 @@ def copy_table(tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path)
                         'rows_file': LocalFile(str(chunk.rows_file)),
                         'new_media': {url: LocalFile(path) for url, path in chunk.new_media.items()},
                         'prev_media': {url: uploaded[url] for url in chunk.prev_media},
-                        'num_prev_rows': num_rows,
                     },
                 )
                 uploaded.update(result['placed_media'])
@@ -427,11 +431,12 @@ def copy_table(tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path)
                     f'The copy of {tbl._display_str()} is incomplete: {num_rows} of {export.num_rows} rows were stored',
                 )
             dest_catalog.move(tmp_path, dest_path, IfExistsParam.ERROR, IfNotExistsParam.ERROR)
-        except BaseException:
+        except BaseException as e:
             try:
                 dest_catalog.drop_table(tmp_path, IfNotExistsParam.IGNORE, force=False)
             except Exception:
                 _logger.warning(f'Failed to drop the incomplete copy {tmp_path!r}', exc_info=True)
+                e.add_note(f'The incomplete copy {tmp_path!r} remains; drop it with pxt.drop_table().')
             raise
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -441,14 +446,13 @@ def copy_table(tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path)
 
 
 def load_store_rows(
-    tbl: InsertableTable, rows_file: str, new_media: dict[str, str], prev_media: dict[str, str], num_prev_rows: int
+    tbl: InsertableTable, rows_file: str, new_media: dict[str, str], prev_media: dict[str, str]
 ) -> dict[str, Any]:
     """Insert the store rows in the Parquet file rows_file into tbl, a copy that create_table_from_md() created.
 
     Args:
         new_media: url -> local path of each media file that these rows are the first to reference
         prev_media: url -> stored url of each media file that an earlier call stored and these rows reference
-        num_prev_rows: the number of rows that earlier calls inserted
 
     Returns:
         {'placed_media': url -> stored url for each url in new_media, 'num_rows': the number of inserted rows}
@@ -462,15 +466,19 @@ def load_store_rows(
     @retry_loop(for_write=True, write_tbl_ids=[tbl._id])
     def insert() -> int:
         tv = tbl._tbl_version.get()
-        # the client retries a request that gets a 5xx, so this call may repeat one that committed
-        stmt = sql.select(sql.func.count()).select_from(tv.store_tbl.sa_tbl)
-        num_rows = get_runtime().conn.execute(stmt).scalar_one()
-        if num_rows != num_prev_rows:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_STATE,
-                f'load_store_rows(): {tv.name!r} holds {num_rows} rows, not the {num_prev_rows} rows of the earlier '
-                'calls; a call was repeated or skipped',
-            )
+        # the client retries a request that gets a 5xx, so this call may repeat one that committed; a call's rows commit
+        # together, so its first row tells (an index lookup: the system columns are indexed)
+        sa_tbl = tv.store_tbl.sa_tbl
+        key_cols = [col.name for col in tv.store_tbl.pk_columns()]
+        first_rows = next(iter(_iter_rows(rows_file, key_cols)), [])
+        if len(first_rows) > 0:
+            key = (sa_tbl.c[name] == _from_arrow_value(first_rows[0][name], sa_tbl.c[name].type) for name in key_cols)
+            stmt = sql.select(sql.literal(1)).where(*key)
+            if get_runtime().conn.execute(stmt.limit(1)).first() is not None:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_STATE,
+                    f'load_store_rows(): {tv.name!r} already holds these rows; a call was repeated',
+                )
         return _insert_rows(tv, md, rows_file, prev_media | placed_media)
 
     return {'placed_media': placed_media, 'num_rows': insert()}
@@ -512,14 +520,15 @@ def _place_media(
             for col in media_cols:
                 url = row[col.store_name]
                 if url in new_media and url not in placements:
-                    placements[url] = (_media_destination(tv, col), col.col_id, version)
+                    placements[url] = (_media_destination(tv, col), col.col_id, max(version, col.version_add))
             for col in cellmd_cols:
                 cellmd = row[col.cellmd_store_name]
                 if cellmd is None:
                     continue
                 for url in json.loads(cellmd).get('file_urls') or ():
                     if url in new_media and url not in placements:
-                        placements[url] = (Env.get().cell_materialization_dest, col.col_id, version)
+                        placement = (Env.get().cell_materialization_dest, col.col_id, max(version, col.version_add))
+                        placements[url] = placement
 
     unreferenced = new_media.keys() - placements.keys()
     if len(unreferenced) > 0:
@@ -570,7 +579,9 @@ def _check_stored_url(tv: TableVersion, url: str, local_media_dirs: list[FsPath]
 def _insert_rows(tv: TableVersion, md: list[TableVersionMd], rows_file: str, media_urls: dict[str, str]) -> int:
     """Insert the store rows in rows_file into the store table of tv, rewriting each media url in media_urls.
 
-    Every local media url that the rows end up with must name a file in a media directory of tv.
+    In a data-versioned table, every row must be a row of tv's history: its rowid below tv's next rowid and its v_min
+    at most tv's version, so that a later insert does not reuse its rowid. Every local media url that the rows end up
+    with must name a file in a media directory of tv.
 
     Returns:
         the number of inserted rows
@@ -592,6 +603,11 @@ def _insert_rows(tv: TableVersion, md: list[TableVersionMd], rows_file: str, med
     for rows in _iter_rows(rows_file):
         store_rows: list[dict[str, Any]] = []
         for row in rows:
+            if tv.is_data_versioned and (row['rowid'] >= tv.next_row_id or row['v_min'] > tv.version):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'load_store_rows(): row {row["rowid"]} is not a row of the history of {tv.name!r}',
+                )
             store_row: dict[str, Any] = {}
             for name, val in row.items():
                 store_val = _from_arrow_value(val, sa_tbl.columns[name].type)
