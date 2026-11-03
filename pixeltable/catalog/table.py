@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import abc
-import dataclasses
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence, overload
 
 import pandas as pd
@@ -88,14 +87,10 @@ class Table(SchemaObject):
         """
         # TODO: return only the dependents whose value expression becomes nullable when col_name becomes nullable
         tbl_name = self.get_metadata()['name']
-        own_path = self._path()
-        # list_views() returns paths within this table's catalog
-        view_paths = [
-            dataclasses.replace(CatalogPath.parse(path), org=own_path.org, db=own_path.db) for path in self.list_views()
-        ]
+        cat = get_runtime().get_catalog(self._path())
         tbls: list[Table] = [self]
-        for path in view_paths:
-            view = get_runtime().get_catalog(path).get_table(path, IfNotExistsParam.ERROR)
+        for path in self.list_views():
+            view = cat.get_table(CatalogPath.parse(path), IfNotExistsParam.ERROR)
             assert view is not None
             tbls.append(view)
         dependents: set[str] = set()

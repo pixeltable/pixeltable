@@ -1294,7 +1294,7 @@ class Catalog(CatalogBase):
         self._column_dependencies[tbl_version.id] = dependencies
 
     def get_column_dependents(self, tbl_id: UUID, col_id: int) -> set[Column]:
-        """Return all Columns that transitively depend on the given column."""
+        """Return all Columns that directly depend on the given column."""
         assert self._column_dependents is not None
         dependents = self._column_dependents[QColumnId(tbl_id, col_id)]
         result: set[Column] = set()
@@ -1303,6 +1303,13 @@ class Catalog(CatalogBase):
             col = tv.cols_by_id[dependent.col_id]
             result.add(col)
         return result
+
+    def get_non_nullable_dependents(self, col: Column) -> list[str]:
+        """Return the qualified names of the non-nullable computed columns that directly depend on col."""
+        # TODO: return only the dependents whose value expression becomes nullable when col becomes nullable
+        # an iterator column also depends on col, but an iterator never receives None for a non-nullable parameter
+        dependents = self.get_column_dependents(col.get_tbl().id, col.id)
+        return sorted(c.qualified_name for c in dependents if c.is_computed and not c.col_type.nullable)
 
     def _mutable_view_tvs(self, tbl_version: TableVersion) -> Iterator[TableVersion]:
         """Return the TableVersions of all transitive mutable views of the given table."""
@@ -1965,17 +1972,16 @@ class Catalog(CatalogBase):
                     )
 
                 for name, (spec, _) in change_set['altered_columns'].items():
-                    # an entry without 'value' makes a data column nullable
+                    # an entry without 'value' is a data column that becomes nullable
                     if 'value' in spec:
                         continue
-                    dependents = tbl._non_nullable_dependents(name)
+                    dependents = self.get_non_nullable_dependents(tbl._tbl_version.get().cols_by_name[name])
                     if len(dependents) > 0:
                         raise excs.ConcurrencyError(
                             excs.ErrorCode.CONCURRENT_MODIFICATION,
                             f'Column {name!r} of table {str(change_set["path"])!r} gained non-nullable dependents '
                             f'while this update was in progress: {", ".join(dependents)}. {PY_RERUN_HINT}',
                         )
-
 
             # (tbl_version_path, tbl_version, TableSchemaChangeSet) tuple for each table in the model update
             tbl_info = list(

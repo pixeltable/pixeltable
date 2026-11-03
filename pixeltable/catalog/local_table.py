@@ -800,7 +800,7 @@ class LocalTable(Table):
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Column {col.name!r} type cannot be changed from {col.col_type} to {new_col_type}',
                 )
-            dependents = self._non_nullable_dependents(col.name)
+            dependents = get_runtime().catalog.get_non_nullable_dependents(col)
             if len(dependents) > 0:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
