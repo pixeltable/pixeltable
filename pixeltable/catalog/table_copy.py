@@ -16,9 +16,10 @@ import dataclasses
 import json
 import logging
 import shutil
+import urllib.parse
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path as FsPath
+from pathlib import Path as FsPath, PurePosixPath
 from typing import TYPE_CHECKING, Any, Iterable, Mapping
 
 import numpy as np
@@ -57,6 +58,8 @@ _MAX_CHUNK_MEDIA_BYTES = 512 * 2**20
 _MAX_UPLOAD_THREADS = 16
 # the number of missing media files an error lists
 _MAX_LISTED_FILES = 5
+# the TableMd.additional_md key that marks a table that create_table_from_md() created and finish_copy() did not finish
+_COPY_IN_PROGRESS = 'copy_in_progress'
 
 
 @dataclasses.dataclass(frozen=True)
@@ -146,6 +149,7 @@ def md_for_copy(
     tbl_md = copy_md[0].tbl_md
     tbl_md.name = name
     tbl_md.user = Env.get().user
+    tbl_md.additional_md[_COPY_IN_PROGRESS] = True
     for col_md in tbl_md.column_md.values():
         if (
             isinstance(col_md.destination, str)
@@ -169,6 +173,20 @@ def check_computed_columns(tv: TableVersion, src_name: str) -> None:
                 f'database.\n{validation_error.catalog_error_msg()}\n'
                 'You can use `pxt db update` to deploy the UDF to the database.',
             )
+
+
+def is_copy_in_progress(tbl_md: schema.TableMd) -> bool:
+    """Whether tbl_md is the metadata of a copy that create_table_from_md() created and finish_copy() did not finish.
+
+    Only load_store_rows() and finish_copy() write to such a table, so that a finished copy holds exactly the rows of
+    the copied table.
+    """
+    return tbl_md.additional_md.get(_COPY_IN_PROGRESS, False)
+
+
+def _check_copy_in_progress(tv: TableVersion, method: str) -> None:
+    if not is_copy_in_progress(tv.tbl_md):
+        raise excs.RequestError(excs.ErrorCode.INVALID_STATE, f'{method}(): {tv.name!r} is not a copy in progress')
 
 
 def _arrow_type(sa_type: sql.types.TypeEngine) -> pa.DataType:
@@ -235,7 +253,8 @@ class _Chunk:
 
 
 class _TableExport:
-    """Writes the store rows of a table into chunks and collects the local media files that they reference."""
+    """Writes the store rows of a table into chunks and collects the media files that they reference and that the copy
+    must store itself: local files, and objects that the source table stores under its table prefix."""
 
     md: list[TableVersionMd]
     chunks: list[_Chunk]
@@ -243,6 +262,7 @@ class _TableExport:
     missing_files: list[str]  # urls of local media files that don't exist
 
     _tmp_dir: FsPath
+    _tbl_prefix: str  # the source table's prefix in a media store
     _sa_cols: list[sql.Column]
     _arrow_schema: pa.Schema
     _media_cols: list[str]
@@ -258,6 +278,7 @@ class _TableExport:
         self.num_rows = 0
         self.missing_files = []
         self._tmp_dir = tmp_dir
+        self._tbl_prefix = ObjectPath.table_prefix(uuid.UUID(md[0].tbl_md.tbl_id))
         self._sa_cols = list(sa_tbl.columns)
         self._arrow_schema = pa.schema([(col.name, _arrow_type(col.type)) for col in self._sa_cols])
         cols = _store_columns(md)
@@ -294,19 +315,28 @@ class _TableExport:
     def _add_media_ref(self, url: str) -> None:
         assert self._chunk is not None
         path = parse_local_file_path(url)
-        if path is None:
-            return  # a remote url is copied as is
+        if path is None and not self._is_source_object(url):
+            return  # a remote url that the source table doesn't own is copied as is
         if url in self._exported_media:
             self._chunk.prev_media.add(url)
             return
         if url in self._chunk.new_media:
             return
-        if not path.is_file():
+        if path is None:
+            path = self._tmp_dir / f'media_{uuid.uuid4().hex}{PurePosixPath(urllib.parse.urlparse(url).path).suffix}'
+            ObjectOps.copy_object_to_local_file(url, path)
+        elif not path.is_file():
             if len(self.missing_files) < _MAX_LISTED_FILES:
                 self.missing_files.append(url)
             return
         self._chunk.new_media[url] = str(path)
         self._chunk.num_media_bytes += path.stat().st_size
+
+    def _is_source_object(self, url: str) -> bool:
+        """Whether url names an object that the source table stores under its table prefix, which the source's
+        drop_table() and revert() delete (ObjectPath.create_prefix_raw() names it <prefix>/../<prefix>_...)."""
+        url_path = PurePosixPath(urllib.parse.urlparse(url).path)
+        return self._tbl_prefix in url_path.parts and url_path.name.startswith(f'{self._tbl_prefix}_')
 
     def _write_batch(self) -> None:
         assert self._chunk is not None
@@ -411,8 +441,7 @@ def copy_table(tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path)
             # inside the try: the destination may have created the table even if its response is lost
             copy = dest_catalog.create_table_from_md(tmp_path, export.md)
             assert isinstance(copy, TableProxy)
-            uploaded: dict[str, str] = {}  # local url -> its url in the destination
-            num_rows = 0
+            uploaded: dict[str, str] = {}  # source url -> its url in the destination
             for i, chunk in enumerate(export.chunks):
                 _logger.debug(f'Copying rows chunk {i + 1}/{len(export.chunks)} ({chunk.num_rows} rows)')
                 result = copy._dispatch(
@@ -423,13 +452,8 @@ def copy_table(tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path)
                         'prev_media': {url: uploaded[url] for url in chunk.prev_media},
                     },
                 )
-                uploaded.update(result['placed_media'])
-                num_rows += result['num_rows']
-            if num_rows != export.num_rows:
-                raise excs.InternalError(
-                    excs.ErrorCode.INTERNAL_ERROR,
-                    f'The copy of {tbl._display_str()} is incomplete: {num_rows} of {export.num_rows} rows were stored',
-                )
+                uploaded.update(result)
+            copy._dispatch('finish_copy', {'num_rows': export.num_rows})
             dest_catalog.move(tmp_path, dest_path, IfExistsParam.ERROR, IfNotExistsParam.ERROR)
         except BaseException as e:
             try:
@@ -447,23 +471,26 @@ def copy_table(tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path)
 
 def load_store_rows(
     tbl: InsertableTable, rows_file: str, new_media: dict[str, str], prev_media: dict[str, str]
-) -> dict[str, Any]:
-    """Insert the store rows in the Parquet file rows_file into tbl, a copy that create_table_from_md() created.
+) -> dict[str, str]:
+    """Insert the store rows in the Parquet file rows_file into tbl, a copy in progress (see is_copy_in_progress()).
 
     Args:
         new_media: url -> local path of each media file that these rows are the first to reference
         prev_media: url -> stored url of each media file that an earlier call stored and these rows reference
 
     Returns:
-        {'placed_media': url -> stored url for each url in new_media, 'num_rows': the number of inserted rows}
+        url -> stored url, for each url in new_media
     """
     cat = get_runtime().catalog
+    # checked here as well, so that a refused call stores no media files
+    _check_copy_in_progress(tbl._tbl_version.get(), 'load_store_rows')
     md = cat.collect_tbl_history(tbl._id, None)
     # object store I/O runs outside of a transaction, so that it doesn't hold a db connection
     placed_media = _place_media(tbl._tbl_version.get(), md, rows_file, new_media)
 
     with cat.begin_data_write_xact(tvps=[tbl._tbl_version_path]):
         tv = tbl._tbl_version.get()
+        _check_copy_in_progress(tv, 'load_store_rows')
         # the client retries a request that gets a 5xx, so this call may repeat one that committed; a call's rows commit
         # together, so its first row tells (an index lookup: the system columns are indexed)
         sa_tbl = tv.store_tbl.sa_tbl
@@ -477,8 +504,29 @@ def load_store_rows(
                     excs.ErrorCode.INVALID_STATE,
                     f'load_store_rows(): {tv.name!r} already holds these rows; a call was repeated',
                 )
-        num_rows = _insert_rows(tv, md, rows_file, prev_media | placed_media)
-    return {'placed_media': placed_media, 'num_rows': num_rows}
+        _insert_rows(tv, md, rows_file, prev_media | placed_media)
+    return placed_media
+
+
+def finish_copy(tbl: InsertableTable, num_rows: int) -> None:
+    """Finish tbl, a copy in progress that load_store_rows() filled, after checking that it holds num_rows rows."""
+    from .catalog import retry_md_write_loop
+
+    @retry_md_write_loop(tvps=[tbl._tbl_version_path])
+    def finish() -> None:
+        tv = tbl._tbl_version.get()
+        _check_copy_in_progress(tv, 'finish_copy')
+        stmt = sql.select(sql.func.count()).select_from(tv.store_tbl.sa_tbl)
+        num_stored_rows = get_runtime().conn.execute(stmt).scalar_one()
+        if num_stored_rows != num_rows:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE,
+                f'finish_copy(): {tv.name!r} holds {num_stored_rows} rows, not the {num_rows} rows of the copied table',
+            )
+        del tv.tbl_md.additional_md[_COPY_IN_PROGRESS]
+        tv._write_md(new_version=False, new_schema_version=False)
+
+    finish()
 
 
 def _iter_rows(rows_file: str, columns: list[str] | None = None) -> Iterable[list[dict[str, Any]]]:
@@ -573,15 +621,12 @@ def _check_stored_url(tv: TableVersion, url: str, local_media_dirs: list[FsPath]
     return url
 
 
-def _insert_rows(tv: TableVersion, md: list[TableVersionMd], rows_file: str, media_urls: dict[str, str]) -> int:
+def _insert_rows(tv: TableVersion, md: list[TableVersionMd], rows_file: str, media_urls: dict[str, str]) -> None:
     """Insert the store rows in rows_file into the store table of tv, rewriting each media url in media_urls.
 
     In a data-versioned table, every row must be a row of tv's history: its rowid below tv's next rowid and its v_min
     at most tv's version, so that a later insert does not reuse its rowid. Every local media url that the rows end up
     with must name a file in a media directory of tv.
-
-    Returns:
-        the number of inserted rows
     """
     sa_tbl = tv.store_tbl.sa_tbl
     file_cols = pq.ParquetFile(rows_file).schema_arrow.names
@@ -596,7 +641,6 @@ def _insert_rows(tv: TableVersion, md: list[TableVersionMd], rows_file: str, med
     local_media_dirs = _local_media_dirs(tv, cols)
 
     conn = get_runtime().conn
-    num_rows = 0
     for rows in _iter_rows(rows_file):
         store_rows: list[dict[str, Any]] = []
         for row in rows:
@@ -618,5 +662,3 @@ def _insert_rows(tv: TableVersion, md: list[TableVersionMd], rows_file: str, med
                 store_row[name] = store_val
             store_rows.append(store_row)
         conn.execute(sql.insert(sa_tbl), store_rows)
-        num_rows += len(store_rows)
-    return num_rows

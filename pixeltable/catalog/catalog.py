@@ -1753,7 +1753,8 @@ class Catalog(CatalogBase):
     def create_table_from_md(self, path: Path, md: list[TableVersionMd]) -> LocalTable:
         """
         Creates a base table at path from md, the metadata of every version of another base table (as returned by
-        collect_tbl_history()). The new table has a new id, the history of md and an empty store table.
+        collect_tbl_history()). The new table has a new id, the history of md and an empty store table, and is marked
+        as a copy in progress until table_copy.finish_copy() (see table_copy.md_for_copy()).
         """
         from .table_copy import check_computed_columns, md_for_copy
 

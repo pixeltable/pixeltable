@@ -1,11 +1,12 @@
 import os
 import pathlib
 import shutil
+import uuid
 from typing import Any
 
 import numpy as np
 import PIL.Image
-import pyarrow.compute as pc
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
@@ -17,6 +18,7 @@ from pixeltable.catalog.catalog_proxy import CatalogProxy
 from pixeltable.catalog.table_proxy import TableProxy
 from pixeltable.service.proxy_protocol import LocalFile
 from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.object_stores import ObjectOps, StorageTarget
 
 from .utils import DatabaseRoot, get_image_files, pxt_raises
 
@@ -176,6 +178,51 @@ class TestCopyTable:
             list(t.where(t.id < 5).select(t.id, t.img, t.rot).order_by(t.id).collect()),
         )
 
+    def test_copy_table_source_bucket_media(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An object that the source stores under its table prefix in a bucket is uploaded, since the source's
+        drop_table() and revert() delete that prefix; a remote url outside of it is kept."""
+        p = db_root.make_catalog_path
+        img_file = get_image_files()[0]
+        downloaded: list[str] = []
+
+        def download(url: str, dest_path: pathlib.Path) -> None:
+            downloaded.append(url)
+            shutil.copy(img_file, dest_path)
+
+        # a bucket whose every object is img_file
+        monkeypatch.setattr(ObjectOps, 'copy_object_to_local_file', download)
+        t = pxt.create_table('src', {'img': pxt.Image})
+        prefix = t._id.hex
+        source_url = f's3://bucket/media/{prefix}/ab/abcd/{prefix}_1_1_{uuid.uuid4().hex}.jpg'
+        other_url = f's3://bucket/media/{uuid.uuid4().hex}.jpg'
+        t.insert([{'img': source_url}, {'img': other_url}])
+        downloaded.clear()
+        t2 = pxt.copy_table('src', p('dst'))
+        assert downloaded == [source_url]
+        urls = t2.select(t2.img.fileurl).collect()['img_fileurl']
+        assert other_url in urls and source_url not in urls
+        # the copy reads its own bytes of the object
+        pxt.drop_table('src')
+        FileCache.get().clear()
+        img = t2.where(t2.img.fileurl != other_url).select(t2.img).collect()[0]['img']
+        assert np.array_equal(np.asarray(img), np.asarray(PIL.Image.open(img_file)))
+
+    @pytest.mark.very_expensive
+    def test_copy_table_bucket_destination(self, db_root: DatabaseRoot) -> None:
+        """The copy keeps its own copy of the files that the source wrote to a bucket."""
+        from .test_destination import TestDestination  # imported here, so that pytest doesn't collect it twice
+
+        p = db_root.make_catalog_path
+        dest_uri = TestDestination.resolve_destination_uri(StorageTarget.S3_STORE)
+        t = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
+        t.add_computed_column(rot=t.img.rotate(90), destination=f'{dest_uri}/copy_table')
+        t.insert({'id': i, 'img': f} for i, f in enumerate(get_image_files()[:2]))
+        src_rows = list(t.select(t.id, t.rot).order_by(t.id).collect())
+        t2 = pxt.copy_table('src', p('dst'))
+        pxt.drop_table('src')
+        FileCache.get().clear()
+        _assert_same_rows(list(t2.select(t2.id, t2.rot).order_by(t2.id).collect()), src_rows)
+
     def test_copy_empty_table(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table('src', {'s': pxt.String})
@@ -315,22 +362,67 @@ class TestCopyTable:
             with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be uploaded files'):
                 t._dispatch('load_store_rows', args)
 
-    def test_load_store_rows_refuses_rows_beyond_history(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
-        """The destination refuses a row whose rowid a later insert into the table would assign."""
+    def test_load_store_rows_only_into_copy_in_progress(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
+        """A finished copy refuses rows, even rows inside its history."""
         p = db_root.make_catalog_path
         t = pxt.create_table('src', {'id': pxt.Int}, _is_data_versioned=True)
         t.insert({'id': i} for i in range(2))
         t2 = pxt.copy_table('src', p('dst'))
         assert isinstance(t2, TableProxy)
-        # the rows that the source inserts after the copy have the rowids that the copy assigns next
-        t.insert({'id': i} for i in range(2, 4))
         assert isinstance(t, catalog.InsertableTable)
         rows = pq.read_table(table_copy._export_table(t, tmp_path).chunks[0].rows_file)
-        rows_file = tmp_path / 'later_rows.parquet'
-        pq.write_table(rows.filter(pc.field('rowid') >= 2), rows_file)
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='is not a row of the history of'):
+        # a new (rowid, v_min) pair inside the history of the copy
+        rows_file = tmp_path / 'rows.parquet'
+        pq.write_table(rows.set_column(rows.schema.get_field_index('v_min'), 'v_min', pa.array([0, 0])), rows_file)
+        with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='is not a copy in progress'):
             t2._dispatch('load_store_rows', {'rows_file': LocalFile(str(rows_file)), 'new_media': {}, 'prev_media': {}})
         assert t2.count() == 2
+
+    def test_copy_in_progress_refuses_other_writes(
+        self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """While a copy is in progress, only the copy writes to its table, so the finished copy holds just its rows."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table('src', {'id': pxt.Int})
+        t.insert({'id': i} for i in range(2))
+        dispatch = TableProxy._dispatch
+        refused: list[bool] = []
+
+        def insert_before_finish(self: TableProxy, method: str, args: dict[str, Any]) -> Any:
+            if method == 'finish_copy':
+                with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'is a copy that copy_table\(\) has not finished'):
+                    self.insert([{'id': 100}])
+                refused.append(True)
+            return dispatch(self, method, args)
+
+        monkeypatch.setattr(TableProxy, '_dispatch', insert_before_finish)
+        t2 = pxt.copy_table('src', p('dst'))
+        assert refused == [True]
+        assert sorted(t2.collect()['id']) == [0, 1]
+
+    def test_load_store_rows_refuses_rows_beyond_history(
+        self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+    ) -> None:
+        """A copy refuses a row whose rowid a later insert into the copy would assign."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table('src', {'id': pxt.Int}, _is_data_versioned=True)
+        t.insert({'id': i} for i in range(2))
+        dispatch = TableProxy._dispatch
+
+        def shift_rowids(self: TableProxy, method: str, args: dict[str, Any]) -> Any:
+            if method == 'load_store_rows':
+                rows = pq.read_table(args['rows_file'].path)
+                rowid_idx = rows.schema.get_field_index('rowid')
+                shifted = pa.array([rowid + 100 for rowid in rows.column(rowid_idx).to_pylist()], pa.int64())
+                rows_file = tmp_path / 'shifted_rows.parquet'
+                pq.write_table(rows.set_column(rowid_idx, 'rowid', shifted), rows_file)
+                args = {**args, 'rows_file': LocalFile(str(rows_file))}
+            return dispatch(self, method, args)
+
+        monkeypatch.setattr(TableProxy, '_dispatch', shift_rowids)
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='is not a row of the history of'):
+            pxt.copy_table('src', p('dst'))
+        assert _temporary_copies(db_root) == []
 
     @pytest.mark.parametrize('tampered_arg', ['new_media', 'prev_media'])
     def test_load_store_rows_refuses_local_urls(

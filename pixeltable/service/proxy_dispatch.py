@@ -92,6 +92,11 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
                 snapshot_key = TablePathKey.from_dict(request.snapshot_path_key)
                 with cat.begin_md_read_xact():
                     md = cat.read_md_for_export(tbl)
+                if table_copy.is_copy_in_progress(md[0].tbl_md) and request.method not in _COPY_METHODS:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_STATE,
+                        f'{tbl._display_str()} is a copy that copy_table() has not finished; it cannot be changed',
+                    )
                 if snapshot_key != _current_key(md):
                     # return the current md and is_stale_md=True so the client refreshes and retries
                     return proxy_protocol.encode_response({'current_md': md, 'is_stale_md': True})
@@ -518,6 +523,12 @@ def _load_store_rows(request: ProxyRequest, tbl: LocalTable) -> Any:
     return table_copy.load_store_rows(tbl, **kwargs)
 
 
+def _finish_copy(request: ProxyRequest, tbl: LocalTable) -> Any:
+    if not isinstance(tbl, InsertableTable):
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Only a base table can be a copy in progress')
+    return table_copy.finish_copy(tbl, **_deserialize_args(request))
+
+
 def _compute(request: ProxyRequest, tbl: LocalTable) -> Any:
     kwargs = _deserialize_args(request)
     return tbl.compute(kwargs['rows'], outputs=kwargs['outputs'], on_error=kwargs['on_error'])
@@ -700,6 +711,9 @@ _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
     ('Query', 'count'): _query_count,
 }
 
+# The only mutations of a copy in progress (see table_copy.is_copy_in_progress())
+_COPY_METHODS: frozenset[str] = frozenset({'load_store_rows', 'finish_copy'})
+
 # Mutations are gated on schema-version staleness (handle() withholds + returns current_md if the client's
 # snapshot_path_key is behind); reads run unconditionally.
 _MUTATION_METHODS: frozenset[str] = frozenset(
@@ -711,6 +725,7 @@ _MUTATION_METHODS: frozenset[str] = frozenset(
         'insert_sql_source',
         'insert_query',
         'load_store_rows',
+        'finish_copy',
         'update',
         'delete',
         'batch_update',
@@ -747,6 +762,7 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'insert_query'): _insert_query,
     ('Table', 'compute'): _compute,
     ('Table', 'load_store_rows'): _load_store_rows,
+    ('Table', 'finish_copy'): _finish_copy,
     ('Table', 'update'): _update,
     ('Table', 'delete'): _delete,
     ('Table', 'batch_update'): _batch_update,
