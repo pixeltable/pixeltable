@@ -8,7 +8,7 @@ A [DSPy](https://dspy.ai) program retrieves passages, then a module such as `dsp
 The [DSPy RAG tutorial](https://dspy.ai/current/tutorials/rag/) calls any Python function as the retriever. `search()` is that function. It returns a `dspy.Prediction` whose `passages` list is the chunk text, the same attribute [`dspy.retrievers.Embeddings`](https://dspy.ai/api/tools/Embeddings/) returns. `dspy.Retrieve` reads a retrieval model from `dspy.settings.rm`. Leave that unset and call `search()` from the module.
 
 <Note>
-This page matches Pixeltable 0.7.22, DSPy 3.4.1, sentence-transformers 6.2.0, and mistune 3.4.0. The index uses `sentence-transformers/all-MiniLM-L6-v2`. The model runs locally, so retrieval needs no API key. The answer step below calls `dspy.LM('openai/gpt-4o-mini')`, which reads `OPENAI_API_KEY`. Other providers use the same call with a different model string ([connecting a language model](https://dspy.ai/current/getting-started/installation/)).
+This page matches Pixeltable 0.7.23, DSPy 3.4.1, sentence-transformers 6.2.0, and mistune 3.4.0. The index uses `sentence-transformers/all-MiniLM-L6-v2`. The model runs locally, so retrieval needs no API key. The answer step below calls `dspy.LM('openai/gpt-4o-mini')`, which reads `OPENAI_API_KEY`. Other providers use the same call with a different model string ([connecting a language model](https://dspy.ai/current/getting-started/installation/)).
 </Note>
 
 ## Install
