@@ -122,6 +122,7 @@ class CatalogProxy(CatalogBase):
         base: 'Query | None',
         idxs: list['IndexDefinition'],
         is_data_versioned: bool,
+        if_exists: IfExistsParam,
     ) -> tuple[Table, bool]:
         args = {
             'path': path,
@@ -135,6 +136,7 @@ class CatalogProxy(CatalogBase):
             'base': base.as_dict() if base is not None else None,
             'idxs': idxs,
             'is_data_versioned': is_data_versioned,
+            'if_exists': if_exists,
         }
         md, was_created = self.client.send_request('CatalogBase', 'create_from_model', args)
         return self._make_table(md, is_anon_snapshot=False), was_created

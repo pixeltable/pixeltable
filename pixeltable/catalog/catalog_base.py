@@ -72,6 +72,7 @@ class CatalogBase(abc.ABC):
         base: 'Query | None',
         idxs: list['IndexDefinition'],
         is_data_versioned: bool,
+        if_exists: IfExistsParam,
     ) -> tuple[Table, bool]: ...
 
     @abc.abstractmethod

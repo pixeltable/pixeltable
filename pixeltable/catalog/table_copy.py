@@ -8,6 +8,8 @@ copy_table() drives a copy from the source process with existing catalog operati
 create_table_from_md(): it exports the table into chunks (a Parquet file of store rows, plus the local media files
 those rows are the first to reference), creates the copy under a temporary name, loads each chunk into it with
 load_store_rows(), and moves it to its path. A failed copy drops the temporary table.
+
+create_table_like() creates an empty table with the columns, indexes and settings of another table.
 """
 
 from __future__ import annotations
@@ -29,21 +31,23 @@ import pyarrow.parquet as pq
 import sqlalchemy as sql
 from sqlalchemy.dialects.postgresql import JSONB
 
-from pixeltable import exceptions as excs, exprs, func, type_system as ts
+from pixeltable import exceptions as excs, exprs, func, index, type_system as ts
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
+from pixeltable.types import ColumnSpec
 from pixeltable.utils import parse_local_file_path
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, ObjectStoreBase, StorageTarget
 
 from .column import Column
 from .globals import IfExistsParam, IfNotExistsParam
+from .insertable_table import InsertableTable
+from .model.definition import BtreeIndex, EmbeddingIndex, IndexDefinition
 from .types import TableVersionKey, TableVersionMd
 
 if TYPE_CHECKING:
     from .catalog_base import CatalogBase
-    from .insertable_table import InsertableTable
     from .path import Path
     from .table import Table
     from .table_version import TableVersion
@@ -385,26 +389,30 @@ def _referenced_tbl_ids(expr: exprs.Expr) -> set[uuid.UUID]:
     return ids
 
 
+def _check_no_other_tbl_refs(tbl: InsertableTable, tv: TableVersion) -> None:
+    """Refuse tbl if a computed column of it references another table, which another database cannot resolve."""
+    for col in tv.cols_by_id.values():
+        if col.value_expr is None:
+            continue
+        other_ids = _referenced_tbl_ids(col.value_expr) - {tbl._id}
+        if len(other_ids) > 0:
+            other_id = next(iter(other_ids))
+            other = get_runtime().catalog.get_table_by_id(other_id)
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Cannot copy {tbl._display_str()}: the computed column {col.name!r} references '
+                f'{other._display_str() if other is not None else other_id}; only a table whose computed '
+                'columns reference no other table can be copied to another database',
+            )
+
+
 def _export_table(tbl: InsertableTable, tmp_dir: FsPath) -> _TableExport:
     cat = get_runtime().catalog
     # a single transaction (REPEATABLE READ) makes the metadata and the rows a snapshot of the same table state
     with cat.begin_data_read_xact(tbl_keys=[TableVersionKey(tbl._id, None)]) as conn:
         md = cat._collect_tbl_history(tbl._id, None)
         tv = tbl._tbl_version.get()
-        # the destination cannot resolve a reference to another local table, such as a @pxt.query UDF's
-        for col in tv.cols_by_id.values():
-            if col.value_expr is None:
-                continue
-            other_ids = _referenced_tbl_ids(col.value_expr) - {tbl._id}
-            if len(other_ids) > 0:
-                other_id = next(iter(other_ids))
-                other = cat.get_table_by_id(other_id)
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Cannot copy {tbl._display_str()}: the computed column {col.name!r} references '
-                    f'{other._display_str() if other is not None else other_id}; only a table whose computed '
-                    'columns reference no other table can be copied',
-                )
+        _check_no_other_tbl_refs(tbl, tv)
         store = tv.store_tbl
         export = _TableExport(md, store.sa_tbl, tmp_dir)
         # ordering by version means that the first row to reference a media file is from the earliest version that
@@ -418,14 +426,23 @@ def _export_table(tbl: InsertableTable, tmp_dir: FsPath) -> _TableExport:
     return export
 
 
-def copy_table(tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path) -> Table:
-    """Copy the local base table tbl to dest_path in dest_catalog, a hosted catalog."""
+def copy_table(
+    tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path, if_exists: IfExistsParam
+) -> tuple[Table, bool]:
+    """Copy the local base table tbl to dest_path in dest_catalog, a hosted catalog.
+
+    Returns (table, was_created).
+    """
     from pixeltable.service.proxy_protocol import LocalFile
 
     from .table_proxy import TableProxy
 
-    # fail before the export, rather than at the move that ends the copy
-    if dest_catalog.get_table(dest_path, IfNotExistsParam.IGNORE) is not None:
+    # 'error' and 'ignore' are decided before the export, so that no rows are copied for nothing. finish_copy() does
+    # the 'replace'.
+    existing = dest_catalog.get_table(dest_path, IfNotExistsParam.IGNORE)
+    if existing is not None and if_exists == IfExistsParam.IGNORE:
+        return existing, False
+    if existing is not None and if_exists == IfExistsParam.ERROR:
         raise excs.AlreadyExistsError(excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {dest_path!r} already exists.')
     tmp_dir = TempStore.create_path()
     tmp_dir.mkdir(parents=True)
@@ -463,7 +480,7 @@ def copy_table(tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path)
                 uploaded.update(result)
                 for path in downloads.values():
                     FsPath(path).unlink()
-            copy._dispatch('finish_copy', {'num_rows': export.num_rows, 'dest_path': dest_path})
+            copy._dispatch('finish_copy', {'num_rows': export.num_rows, 'dest_path': dest_path, 'if_exists': if_exists})
         except BaseException as e:
             try:
                 dest_catalog.drop_table(tmp_path, IfNotExistsParam.IGNORE, force=False)
@@ -475,7 +492,93 @@ def copy_table(tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path)
         shutil.rmtree(tmp_dir, ignore_errors=True)
     result_tbl = dest_catalog.get_table(dest_path, IfNotExistsParam.ERROR)
     assert result_tbl is not None
-    return result_tbl
+    return result_tbl, True
+
+
+def create_table_like(
+    tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path, if_exists: IfExistsParam
+) -> tuple[Table, bool]:
+    """Create an empty table at dest_path in dest_catalog with the columns, indexes and settings of the local base table
+    tbl, as CREATE TABLE ... LIKE does in SQL.
+
+    Returns (table, was_created).
+    """
+    tv = tbl._tbl_version.get()
+    is_other_db = dest_path.catalog_uri != tbl._path().catalog_uri
+    if is_other_db:
+        _check_no_other_tbl_refs(tbl, tv)
+
+    columns: dict[str, ColumnSpec] = {}
+    for col in tv.cols_by_name.values():
+        spec: ColumnSpec = {}
+        if col.value_expr is None:
+            spec['type'] = col.col_type  # type: ignore[typeddict-item]
+        else:
+            # A reference to a column of tbl becomes a reference by name, which the new table resolves to its own
+            # column. For example, t.s.upper() becomes ColumnRefByName('s').upper().
+            own_col_refs = [
+                ref for ref in col.value_expr.subexprs(exprs.ColumnRef) if ref.col_md.qcolid.tbl_id == tbl._id
+            ]
+            by_name = exprs.ExprDict[exprs.Expr](
+                (ref, exprs.ColumnRefByName(ref.col_md.name, ref.col_md.col_type)) for ref in own_col_refs
+            )
+            spec['value'] = col.value_expr.copy().substitute(by_name)
+            spec['stored'] = col.stored
+        if col.is_pk:
+            spec['primary_key'] = True
+        if col._media_validation is not None:
+            spec['media_validation'] = col._media_validation.name.lower()  # type: ignore[typeddict-item]
+        destination = col._explicit_destination
+        # Another database cannot reach a directory of this machine. The column takes that database's default.
+        is_local_dir = (
+            isinstance(destination, (str, FsPath))
+            and ObjectPath.parse_object_storage_addr(str(destination), False).storage_target
+            == StorageTarget.LOCAL_STORE
+        )
+        if destination is not None and not (is_other_db and is_local_dir):
+            spec['destination'] = destination
+        if col.custom_metadata is not None:
+            spec['custom_metadata'] = col.custom_metadata
+        if col.comment is not None:
+            spec['comment'] = col.comment
+        columns[col.name] = spec
+
+    idxs: list[IndexDefinition] = []
+    for info in tv.idxs_by_name.values():
+        idx_col = exprs.ColumnRefByName(info.col.name, info.col.col_type)
+        if isinstance(info.idx, index.EmbeddingIndex):
+            embeddings = info.idx.embeddings
+            idxs.append(
+                EmbeddingIndex(
+                    column=idx_col,
+                    string_embed=embeddings.get(ts.ColumnType.Type.STRING),
+                    image_embed=embeddings.get(ts.ColumnType.Type.IMAGE),
+                    audio_embed=embeddings.get(ts.ColumnType.Type.AUDIO),
+                    video_embed=embeddings.get(ts.ColumnType.Type.VIDEO),
+                    document_embed=embeddings.get(ts.ColumnType.Type.DOCUMENT),
+                    metric=info.idx.metric.name.lower(),  # type: ignore[arg-type]
+                    precision=info.idx.precision.value,
+                    name=info.name,
+                )
+            )
+        elif not tv.has_default_idxs:
+            # with has_default_idxs, the new table creates its B-tree indexes itself
+            idxs.append(BtreeIndex(column=idx_col))
+
+    return dest_catalog.create_from_model(
+        path=dest_path,
+        columns=columns,
+        display_name=tbl._display_str(),
+        has_default_idxs=tv.has_default_idxs,
+        media_validation=tv.media_validation,
+        comment=tv.comment,
+        custom_metadata=tv.custom_metadata,
+        iterator=None,
+        base=None,
+        idxs=idxs,
+        is_data_versioned=tv.is_data_versioned,
+        if_exists=if_exists,
+    )
 
 
 def _download(url: str, tmp_dir: FsPath) -> str:
@@ -524,16 +627,21 @@ def load_store_rows(
     return placed_media
 
 
-def finish_copy(tbl: InsertableTable, num_rows: int, dest_path: Path) -> None:
+def finish_copy(tbl: InsertableTable, num_rows: int, dest_path: Path, if_exists: IfExistsParam) -> None:
     """Finish tbl, a copy in progress that load_store_rows() filled: check that it holds num_rows rows, clear its mark
-    and move it to dest_path, in one transaction, so that no other write reaches it before it is at dest_path."""
+    and move it to dest_path, in one transaction, so that no other write reaches it before it is at dest_path.
+
+    With if_exists 'replace' or 'replace_force', the same transaction drops the table at dest_path, so that a failed
+    copy leaves that table as it was.
+    """
     from .catalog import retry_md_write_loop
 
     cat = get_runtime().catalog
     tbl_path = tbl._path()
     key = TableVersionKey(tbl._id, None)
+    is_replace = if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
 
-    @retry_md_write_loop(paths=[tbl_path, dest_path])
+    @retry_md_write_loop(paths=[tbl_path, dest_path], lock_path_subtree=is_replace)
     def finish() -> None:
         dest_obj = cat._get_schema_object(dest_path)
         if dest_obj is not None and dest_obj._id == tbl._id:
@@ -550,6 +658,8 @@ def finish_copy(tbl: InsertableTable, num_rows: int, dest_path: Path) -> None:
         del tbl_md.additional_md[_COPY_IN_PROGRESS]
         cat.write_tbl_md(tbl._id, None, tbl_md, None, None)
         cat._clear_tv_cache(key)
+        if is_replace:
+            cat._handle_path_collision(dest_path, InsertableTable, False, if_exists)
         cat._move(tbl_path, dest_path, IfExistsParam.ERROR, IfNotExistsParam.ERROR)
 
     finish()

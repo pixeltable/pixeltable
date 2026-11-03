@@ -51,7 +51,7 @@ def _assert_same_rows(rows1: list[dict[str, Any]], rows2: list[dict[str, Any]]) 
                 assert val1 == val2, name
 
 
-@pytest.mark.db_roots('proxy', 'cloud', reason='copy_table() copies a local table into a hosted database')
+@pytest.mark.db_roots('proxy', 'cloud', reason='create_table() copies a local table into a hosted database')
 class TestCopyTable:
     def test_copy_table(self, db_root: DatabaseRoot, is_data_versioned: bool, local_embed: pxt.Function) -> None:
         p = db_root.make_catalog_path
@@ -91,7 +91,7 @@ class TestCopyTable:
             t.select(t.rot.fileurl).collect()['rot_fileurl']
         )
 
-        t2 = pxt.copy_table('src', p('dst'))
+        t2 = pxt.create_table(p('dst'), source=pxt.get_table('src'))
 
         assert t2.count() == t.count() == 5
         _assert_same_rows(
@@ -162,7 +162,7 @@ class TestCopyTable:
         t.insert({'id': i, 'img': img_files[i % 2]} for i in range(5))
         t.insert({'id': i, 'img': img_files[i % 2]} for i in range(5, 9))
 
-        t2 = pxt.copy_table('src', p('dst'))
+        t2 = pxt.create_table(p('dst'), source=pxt.get_table('src'))
         assert num_chunks > 2
         _assert_same_rows(
             list(t2.select(t2.id, t2.img, t2.rot).order_by(t2.id).collect()),
@@ -198,7 +198,7 @@ class TestCopyTable:
         other_url = f's3://bucket/media/{uuid.uuid4().hex}.jpg'
         t.insert([{'img': source_url}, {'img': other_url}])
         downloaded.clear()
-        t2 = pxt.copy_table('src', p('dst'))
+        t2 = pxt.create_table(p('dst'), source=pxt.get_table('src'))
         # the export's transaction is closed: a download must not hold its locks and snapshot
         assert downloaded == [(source_url, False)]
         urls = t2.select(t2.img.fileurl).collect()['img_fileurl']
@@ -220,7 +220,7 @@ class TestCopyTable:
         t.add_computed_column(rot=t.img.rotate(90), destination=f'{dest_uri}/copy_table')
         t.insert({'id': i, 'img': f} for i, f in enumerate(get_image_files()[:2]))
         src_rows = list(t.select(t.id, t.rot).order_by(t.id).collect())
-        t2 = pxt.copy_table('src', p('dst'))
+        t2 = pxt.create_table(p('dst'), source=pxt.get_table('src'))
         pxt.drop_table('src')
         FileCache.get().clear()
         _assert_same_rows(list(t2.select(t2.id, t2.rot).order_by(t2.id).collect()), src_rows)
@@ -229,7 +229,7 @@ class TestCopyTable:
         p = db_root.make_catalog_path
         t = pxt.create_table('src', {'s': pxt.String})
         t.add_computed_column(upper=t.s.upper())
-        t2 = pxt.copy_table(t, p('dst'))
+        t2 = pxt.create_table(p('dst'), source=t)
         assert t2.count() == 0
         assert t2.get_versions() == t.get_versions()
         t2.insert([{'s': 'a'}])
@@ -237,20 +237,36 @@ class TestCopyTable:
 
     def test_copy_table_errors(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         p = db_root.make_catalog_path
+        kwargs: dict[str, Any]  # a case's table, as source or as schema_source
         t = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
         pxt.create_view('view', t)
         pxt.create_table(p('existing'), {'id': pxt.Int})
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='only base tables can be copied'):
-            pxt.copy_table('view', p('dst'))
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is not a path in a hosted database'):
-            pxt.copy_table('src', 'dst')
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is not a local table'):
-            pxt.copy_table(p('existing'), p('dst'))
+        # a view, as source and as schema_source
+        for like_arg in ('source', 'schema_source'):
+            kwargs = {like_arg: pxt.get_table('view')}
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='must be a base table on this machine'):
+                pxt.create_table(p('dst'), **kwargs)
+        # a hosted table as schema_source
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='must be a base table on this machine'):
+            pxt.create_table(p('dst'), schema_source=pxt.get_table(p('existing')))
+        # a query of another database, refused before anything is created (PXT-1718)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='from a query of another database'):
+            pxt.create_table(p('dst'), source=t.select(t.id))
+        # arguments that the new table takes from the source table
+        for like_arg in ('source', 'schema_source'):
+            kwargs = {like_arg: t}
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='cannot be combined with `comment`, `primary_key`'):
+                pxt.create_table(p('dst'), primary_key='id', comment='c', **kwargs)
+        # schema_source with another schema
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='Exactly one of `schema`, `source` or `schema_source`'):
+            pxt.create_table(p('dst'), {'id': pxt.Int}, schema_source=t)
+        assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
+
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
-            pxt.copy_table('src', p('existing'))
+            pxt.create_table(p('existing'), source=pxt.get_table('src'))
         with pxt_raises(pxt.ErrorCode.DIRECTORY_NOT_FOUND, match='does not exist'):
-            pxt.copy_table('src', p('no_dir/dst'))
+            pxt.create_table(p('no_dir/dst'), source=pxt.get_table('src'))
 
         # a computed column that references another table, which the destination doesn't have, through a @pxt.query
         # that is not the root of its expression
@@ -269,10 +285,17 @@ class TestCopyTable:
 
         t3.add_computed_column(r=outer(t3.n))
         for src in ('src2', 'src3'):
-            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"computed column 'r' references table 'src'"):
-                pxt.copy_table(src, p('dst'))
-            assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
-            assert _temporary_copies(db_root) == []
+            for like_arg in ('source', 'schema_source'):
+                kwargs = {like_arg: pxt.get_table(src)}
+                with pxt_raises(
+                    pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"computed column 'r' references table 'src'"
+                ):
+                    pxt.create_table(p('dst'), **kwargs)
+                assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
+                assert _temporary_copies(db_root) == []
+        # in this machine's database, a table like src2 can reference src
+        like_src2 = pxt.create_table('like_src2', schema_source=t2)
+        assert like_src2.columns() == t2.columns()
 
         # a referenced local media file that no longer exists
         img_path = tmp_path / 'img.jpg'
@@ -280,7 +303,7 @@ class TestCopyTable:
         t.insert([{'id': 0, 'img': str(img_path)}])
         img_path.unlink()
         with pxt_raises(pxt.ErrorCode.STORAGE_NOT_FOUND, match='no longer exist'):
-            pxt.copy_table('src', p('dst'))
+            pxt.create_table(p('dst'), source=pxt.get_table('src'))
         assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
 
     def test_copy_table_missing_udf(self, db_root: DatabaseRoot) -> None:
@@ -289,9 +312,99 @@ class TestCopyTable:
         t.add_computed_column(n1=local_only_udf(t.n))
         t.insert([{'n': 1}])
         with pxt_raises(pxt.ErrorCode.FUNCTION_NOT_FOUND, match=r"computed column 'n1'(.|\n)*pxt db update"):
-            pxt.copy_table('src', p('dst'))
+            pxt.create_table(p('dst'), source=pxt.get_table('src'))
         assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
         assert _temporary_copies(db_root) == []
+        with pxt_raises(pxt.ErrorCode.FUNCTION_NOT_FOUND):
+            pxt.create_table(p('dst'), schema_source=t)
+        assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
+
+    def test_copy_table_if_exists(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table('src', {'id': pxt.Int})
+        t.insert({'id': i} for i in range(3))
+        pxt.create_table(p('dst'), {'other': pxt.String}).insert([{'other': 'a'}])
+
+        # 'ignore' returns the existing table as it is
+        t2 = pxt.create_table(p('dst'), source=t, if_exists='ignore')
+        assert t2.columns() == ['other']
+
+        # a failed 'replace' leaves the existing table as it is: the copy replaces it only when it finishes
+        dispatch = TableProxy._dispatch
+
+        def fail_load(self: TableProxy, method: str, args: dict[str, Any]) -> Any:
+            if method == 'load_store_rows':
+                raise pxt.RequestError(pxt.ErrorCode.INVALID_STATE, 'injected failure')
+            return dispatch(self, method, args)
+
+        with monkeypatch.context() as m:
+            m.setattr(TableProxy, '_dispatch', fail_load)
+            with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='injected failure'):
+                pxt.create_table(p('dst'), source=t, if_exists='replace')
+        assert pxt.get_table(p('dst')).collect()['other'] == ['a']
+        assert _temporary_copies(db_root) == []
+
+        # 'replace' replaces it with the copy
+        t2 = pxt.create_table(p('dst'), source=t, if_exists='replace')
+        assert t2.columns() == ['id']
+        assert sorted(t2.collect()['id']) == [0, 1, 2]
+
+    def test_create_table_like(self, db_root: DatabaseRoot, is_data_versioned: bool, local_embed: pxt.Function) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            'src',
+            {'id': {'type': pxt.Int, 'primary_key': True}, 's': pxt.String, 'img': pxt.Image | None},
+            comment='source table',
+            custom_metadata={'k': 'v'},
+            media_validation='on_read',
+            _is_data_versioned=is_data_versioned,
+        )
+        t.add_computed_column(upper=t.s.upper(), comment='upper case')
+        t.add_computed_column(rot=t.img.rotate(90), stored=False)
+        t.add_embedding_index(t.s, embedding=local_embed, metric='ip', idx_name='s_idx')
+        t.add_btree_index(t.upper)
+        t.insert({'id': i, 's': f'text {i}'} for i in range(3))
+
+        def schema_md(tbl: pxt.Table) -> dict[str, Any]:
+            md = tbl.get_metadata()
+            # leave out the fields that hold the table's name or history
+            columns = {
+                name: {
+                    **col_md,
+                    'version_added': None,
+                    'defined_in': None,
+                    'depends_on': [col_name for _, col_name in col_md['depends_on'] or []],
+                }
+                for name, col_md in md['columns'].items()
+            }
+            settings = {
+                'comment': md['comment'],
+                'custom_metadata': md['custom_metadata'],
+                'media_validation': md['media_validation'],
+                'is_data_versioned': md['is_data_versioned'],
+            }
+            return {'columns': columns, 'indexes': md['indexes'], **settings}
+
+        # in a hosted database, and in this machine's database
+        for path in (p('dst'), 'like_src'):
+            t2 = pxt.create_table(path, schema_source=t)
+            assert schema_md(t2) == schema_md(t)
+            assert t2.count() == 0
+            assert len(t2.get_versions()) == 1
+            # the new table computes its computed columns and indexes its rows
+            t2.insert({'id': i, 's': f'text {i}'} for i in range(3))
+            assert t2.order_by(t2.id).select(t2.upper).collect()['upper'] == ['TEXT 0', 'TEXT 1', 'TEXT 2']
+            sim = t.s.similarity(string='text 1')
+            sim2 = t2.s.similarity(string='text 1')
+            assert list(t2.select(t2.id).order_by(sim2, asc=False).collect()) == list(
+                t.select(t.id).order_by(sim, asc=False).collect()
+            )
+
+        # if_exists: 'error' refuses the existing table, 'ignore' returns it, 'replace' creates an empty one
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="'dst' is an existing table"):
+            pxt.create_table(p('dst'), schema_source=t)
+        assert pxt.create_table(p('dst'), schema_source=t, if_exists='ignore').count() == 3
+        assert pxt.create_table(p('dst'), schema_source=t, if_exists='replace').count() == 0
 
     def test_copy_table_abort(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
         """A failed copy leaves nothing behind in the destination."""
@@ -309,7 +422,7 @@ class TestCopyTable:
 
         monkeypatch.setattr(TableProxy, '_dispatch', finish_after_conflict)
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
-            pxt.copy_table('src', p('dst'))
+            pxt.create_table(p('dst'), source=pxt.get_table('src'))
         assert pxt.get_table(p('dst')).columns() == ['other']
         assert _temporary_copies(db_root) == []
 
@@ -319,7 +432,7 @@ class TestCopyTable:
         t = pxt.create_table('src', {'img': pxt.Image}, _is_data_versioned=True)
         t.insert({'img': f} for f in get_image_files()[:2])
         t.add_computed_column(rot=t.img.rotate(90))  # version 2, which fills the rows of version 1
-        t2 = pxt.copy_table('src', p('dst'))
+        t2 = pxt.create_table(p('dst'), source=pxt.get_table('src'))
 
         def file_versions(tbl: pxt.Table) -> set[int]:
             # a stored file is named <table prefix>_<column id>_<table version>_<suffix>
@@ -345,7 +458,7 @@ class TestCopyTable:
 
         monkeypatch.setattr(CatalogProxy, 'get_table', occupy_tmp_path)
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
-            pxt.copy_table('src', p('dst'))
+            pxt.create_table(p('dst'), source=pxt.get_table('src'))
         assert len(occupied) == 1
         assert pxt.get_table(occupied[0]).columns() == ['other']
         assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
@@ -370,7 +483,7 @@ class TestCopyTable:
         p = db_root.make_catalog_path
         t = pxt.create_table('src', {'id': pxt.Int}, _is_data_versioned=True)
         t.insert({'id': i} for i in range(2))
-        t2 = pxt.copy_table('src', p('dst'))
+        t2 = pxt.create_table(p('dst'), source=pxt.get_table('src'))
         assert isinstance(t2, TableProxy)
         assert isinstance(t, catalog.InsertableTable)
         rows = pq.read_table(table_copy._export_table(t, tmp_path).chunks[0].rows_file)
@@ -393,15 +506,15 @@ class TestCopyTable:
 
         def write_before_finish(self: TableProxy, method: str, args: dict[str, Any]) -> Any:
             if method == 'finish_copy':
-                with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'is a copy that copy_table\(\) has not finished'):
+                with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'is a copy that create_table\(\) has not finished'):
                     self.insert([{'id': 100}])
-                with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'copy_table\(\) has not finished copying it'):
+                with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'create_table\(\) has not finished copying it'):
                     pxt.move(str(self._path()), p('moved'))
                 refused.append(True)
             return dispatch(self, method, args)
 
         monkeypatch.setattr(TableProxy, '_dispatch', write_before_finish)
-        t2 = pxt.copy_table('src', p('dst'))
+        t2 = pxt.create_table(p('dst'), source=pxt.get_table('src'))
         assert refused == [True]
         assert sorted(t2.collect()['id']) == [0, 1]
         assert pxt.get_table(p('moved'), if_not_exists='ignore') is None
@@ -427,7 +540,7 @@ class TestCopyTable:
 
         monkeypatch.setattr(TableProxy, '_dispatch', shift_rowids)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='is not a row of the history of'):
-            pxt.copy_table('src', p('dst'))
+            pxt.create_table(p('dst'), source=pxt.get_table('src'))
         assert _temporary_copies(db_root) == []
 
     @pytest.mark.parametrize('tampered_arg', ['new_media', 'prev_media'])
@@ -452,7 +565,7 @@ class TestCopyTable:
         t = pxt.create_table('src', {'img': pxt.Image})
         t.insert([{'img': img_file}, {'img': img_file}])
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='is not a media file of'):
-            pxt.copy_table('src', p('dst'))
+            pxt.create_table(p('dst'), source=pxt.get_table('src'))
         assert _temporary_copies(db_root) == []
 
     def test_finish_copy_repeated(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -467,7 +580,7 @@ class TestCopyTable:
 
         monkeypatch.setattr(TableProxy, '_dispatch', finish_twice)
         pxt.create_table('src', {'id': pxt.Int}).insert({'id': i} for i in range(3))
-        t2 = pxt.copy_table('src', p('dst'))
+        t2 = pxt.create_table(p('dst'), source=pxt.get_table('src'))
         assert sorted(t2.collect()['id']) == [0, 1, 2]
         assert _temporary_copies(db_root) == []
 
@@ -485,6 +598,6 @@ class TestCopyTable:
         t = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
         t.insert({'id': i, 'img': f} for i, f in enumerate(get_image_files()[:3]))
         with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='a call was repeated'):
-            pxt.copy_table('src', p('dst'))
+            pxt.create_table(p('dst'), source=pxt.get_table('src'))
         assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
         assert _temporary_copies(db_root) == []

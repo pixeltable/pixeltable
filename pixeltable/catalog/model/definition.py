@@ -830,6 +830,7 @@ class TableModelMeta(type):
             base=base,
             idxs=cls.__indexes__,
             is_data_versioned=table_spec['is_data_versioned'],
+            if_exists=catalog.IfExistsParam.IGNORE,
         )
 
         if was_created:

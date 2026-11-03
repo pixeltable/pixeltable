@@ -1450,7 +1450,7 @@ class Catalog(CatalogBase):
                 ):
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_STATE,
-                        f'Cannot move {src_obj._display_str()}: copy_table() has not finished copying it',
+                        f'Cannot move {src_obj._display_str()}: create_table() has not finished copying it',
                     )
                 self._move_table(
                     src_obj._id, new_path.name, dest_dir._id, is_pure_snapshot=src_obj._tbl_version is None
@@ -1950,6 +1950,7 @@ class Catalog(CatalogBase):
         base: 'pxt.Query | None',
         idxs: list[IndexDefinition],
         is_data_versioned: bool,
+        if_exists: IfExistsParam,
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 
@@ -1970,16 +1971,19 @@ class Catalog(CatalogBase):
             tbl_handle, columns, display_name, iterator, base, idxs, is_data_versioned
         )
 
-        # If the table already exists, rebind to it and report that nothing was created.
-        existing = self.get_table(path, IfNotExistsParam.IGNORE)
-        if existing is not None:
-            return existing, False
+        # _create_table() cannot ignore an existing table: the column references built above point at tbl_id, which
+        # the existing table does not have
+        if if_exists == IfExistsParam.IGNORE:
+            existing = self.get_table(path, IfNotExistsParam.IGNORE)
+            if existing is not None:
+                return existing, False
+            if_exists = IfExistsParam.ERROR
 
         if base is None:
             return self._create_table(
                 path=path,
                 columns=additional_cols,
-                if_exists=IfExistsParam.ERROR,
+                if_exists=if_exists,
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
@@ -2004,7 +2008,7 @@ class Catalog(CatalogBase):
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
-                if_exists=IfExistsParam.ERROR,
+                if_exists=if_exists,
                 additional_idxs=resolved_idxs,
                 explicit_tbl_id=tbl_id,
             )

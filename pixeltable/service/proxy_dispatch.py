@@ -95,7 +95,7 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
                 if table_copy.is_copy_in_progress(md[0].tbl_md) and request.method not in _COPY_METHODS:
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_STATE,
-                        f'{tbl._display_str()} is a copy that copy_table() has not finished; it cannot be changed',
+                        f'{tbl._display_str()} is a copy that create_table() has not finished; it cannot be changed',
                     )
                 if snapshot_key != _current_key(md):
                     # return the current md and is_stale_md=True so the client refreshes and retries
