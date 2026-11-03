@@ -93,13 +93,16 @@ class TestAlterColumn:
         validate_update_status(t.insert([{'id': 1, 'd': {'a': 1, 'b': 2}}, {'id': 2, 'd': None}]))
         assert v.order_by(v.id).select(v.b).collect()['b'] == [2, None]
 
-        # a non-nullable computed column of a view blocks the change
+        # a non-nullable computed column of a view blocks the change, but not one of a snapshot or of a view over one
         v.add_computed_column(next_id=v.id + 1)
+        snap_view = pxt.create_view(p('snap_view'), pxt.create_snapshot(p('snap'), t))
+        snap_view.add_computed_column(next_id=snap_view.id + 1)
+        pxt.create_snapshot(p('snap_with_col'), t, additional_columns={'next_id': t.id + 1})
         with pxt_raises(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"'id' cannot become nullable: non-nullable columns depend on it: test_view\.next_id",
-        ):
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"'id' cannot become nullable: non-nullable columns depend on it"
+        ) as info:
             t.alter_column('id', type_=pxt.Int | None)
+        assert info.value.message.endswith('depend on it: test_view.next_id')
 
         # an iterator emits no rows for a null argument, so the columns of a component view don't block it
         videos = pxt.create_table(p('videos'), {'video': pxt.Video})

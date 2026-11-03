@@ -425,6 +425,7 @@ class TableProxy(Table):
     def batch_update(
         self,
         rows: Iterable[dict[str, Any]],
+        *,
         cascade: bool = True,
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
         if_exists: Literal['update', 'ignore'] = 'update',

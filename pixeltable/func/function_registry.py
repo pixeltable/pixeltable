@@ -10,6 +10,7 @@ from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.types import FunctionKind
 
 from .function import Function
+from .globals import load_error_msg
 from .iterator import GeneratingFunction
 
 _FUNCTIONS_MODULE = 'pixeltable.functions'
@@ -138,11 +139,15 @@ class FunctionRegistry:
             return submodule
         try:
             return self.import_module(module)
-        except ModuleNotFoundError as e:
+        except Exception as e:
             # module is missing if e.name is module or one of its parents, such as 'a' for 'a.b'
-            if e.name is None or (module != e.name and not module.startswith(f'{e.name}.')):
-                raise
-            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'No module named {module!r}') from e
+            if (
+                isinstance(e, ModuleNotFoundError)
+                and e.name is not None
+                and (module == e.name or module.startswith(f'{e.name}.'))
+            ):
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'No module named {module!r}') from e
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, load_error_msg(module, e)) from e
 
     def _exported_functions(self, root: ModuleType) -> list[tuple[str, Function | GeneratingFunction]]:
         """Return the functions defined in root and its submodules, each under its shortest exported path."""

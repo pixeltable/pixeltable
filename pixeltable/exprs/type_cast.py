@@ -35,10 +35,11 @@ class TypeCast(Expr):
 
     def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         """
-        A cast from Bool to a number is exact in Postgres. Other casts are evaluated in Python, in order to sidestep
+        A cast from Bool to a number runs in Postgres, where it is exact, unless the operand is nullable and col_type
+        isn't: eval() then reports a None operand as an error. Other casts are evaluated in Python, in order to sidestep
         potentially thorny questions about consistency of doing type conversions in both Python and Postgres.
         """
-        if not self._casts_bool_to_number:
+        if not self._casts_bool_to_number or (self._op1.col_type.nullable and not self.col_type.nullable):
             return None
         operand = sql_elements.get(self._op1)
         if operand is None:

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import sys
 import typing
 
 import pixeltable as pxt
 from pixeltable.types import FunctionKind
+from pixeltable.utils.app_module import evict_modules
 from pixeltable_cli.utils import project_root
 
 from ..parser import Parser
@@ -54,16 +56,25 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--json', action='store_true', dest='as_json', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    # import a module by its path from the project root
-    root = project_root()
-    sys.path.insert(0, os.getcwd() if root is None else root)
     try:
+        root = project_root()
+    except RuntimeError as e:
+        print(f'pxt functions: {e}', file=sys.stderr)
+        sys.exit(EXIT_ERROR)
+    # import a module by its path from the project root
+    import_root = os.getcwd() if root is None else root
+    sys.path.insert(0, import_root)
+    try:
+        # an earlier pxt shell command may have imported modules under import_root; re-read their files
+        evict_modules(pathlib.Path(import_root))
         functions = pxt.list_functions(
             args.module, on=None if args.on is None else getattr(pxt, args.on), search=args.search, kind=args.kind
         )
     except pxt.Error as e:
         print(f'pxt functions: {e}', file=sys.stderr)
         sys.exit(EXIT_ERROR)
+    finally:
+        sys.path.remove(import_root)
 
     if args.as_json:
         print(json.dumps(functions, indent=2))

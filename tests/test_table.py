@@ -2539,6 +2539,9 @@ class TestTable:
         else:
             assert PIL.Image.open(res[1]['path']).size == res[1]['img'].size
 
+    @pytest.mark.db_roots(
+        'local', 'proxy', reason="copy_clip() runs in the database process, which can't see the client's temp dir"
+    )
     def test_temp_dir_file_paths(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'video': pxt.Video})
@@ -3212,10 +3215,9 @@ class TestTable:
         assert rows_by_id[4]['name'] == 'd'
         restore()
 
-        # backward compatibility: positional cascade/if_not_exists still work
-        status = t.batch_update([{'id': 1, 'name': 'pos'}], False, 'error')
-        assert status.rows is None  # default return_rows=False
-        assert status.num_rows == 1
+        # the parameters after rows are keyword-only
+        with pytest.raises(TypeError, match='takes 2 positional arguments but 3 were given'):
+            t.batch_update([{'id': 1, 'name': 'pos'}], False)  # type: ignore[misc]
 
     def test_batch_update_if_exists(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path

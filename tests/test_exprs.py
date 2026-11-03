@@ -1544,6 +1544,13 @@ class TestExprs:
         res = t.select(t.c4n_as_int).order_by(t.c2).limit(12).collect()
         assert res['c4n_as_int'] == [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, None, None]
 
+        # Cast nullable to required
+        status = t.add_computed_column(c4n_as_req_int=t.c4n.astype(pxt.Int), on_error='ignore')
+        assert status.num_excs == t.count() - 10
+        errormsgs = [msg for msg in t.select(out=t.c4n_as_req_int.errormsg).collect()['out'] if msg is not None]
+        assert len(errormsgs) == t.count() - 10
+        assert all('Expected non-None value' in msg for msg in errormsgs), errormsgs
+
     def test_format_expr(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         match = r'An f-string or str\.format\(\) on a Pixeltable expression produces one constant string'

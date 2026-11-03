@@ -27,6 +27,7 @@ from pixeltable.utils.object_stores import ObjectOps
 from .column import Column
 from .globals import (
     _ROWID_COLUMN_NAME,
+    PY_RERUN_HINT,
     IndexSpec,
     MediaValidation,
     fold_identifier,
@@ -956,7 +957,7 @@ class TableVersion:
         if self.schema_version != expected_schema_version:
             raise excs.ConcurrencyError(
                 excs.ErrorCode.CONCURRENT_MODIFICATION,
-                f'Table {self.name!r} was modified since update_all() computed its changes; re-run update_all().',
+                f'Table {self.name!r} was modified while this update was in progress. {PY_RERUN_HINT}',
             )
 
         self._validate_idx_drops(dropped_idx_ids)

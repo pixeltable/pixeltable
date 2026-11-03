@@ -38,12 +38,19 @@ class TestFunctions:
             """
         )
         monkeypatch.setattr(sys, 'path', list(sys.path))
+        path = list(sys.path)
 
         # outside a project, a module in the working directory
         (tmp_path / 'cli_functions_app.py').write_text(udf_src)
         monkeypatch.chdir(tmp_path)
         functions.run(['cli_functions_app'])
         assert capsys.readouterr().out == 'udf       cli_functions_app.shout(text: pxt.String) -> pxt.String\n'
+        assert sys.path == path
+
+        # pxt shell runs every command in one process: the next command reads the edited module
+        (tmp_path / 'cli_functions_app.py').write_text(udf_src.replace('shout', 'whisper'))
+        functions.run(['cli_functions_app'])
+        assert capsys.readouterr().out == 'udf       cli_functions_app.whisper(text: pxt.String) -> pxt.String\n'
 
         # in a project, the module path from the project root, from any of its directories
         project = tmp_path / 'project'
@@ -54,9 +61,30 @@ class TestFunctions:
         functions.run(['cli_functions_project_app'])
         assert capsys.readouterr().out == 'udf       cli_functions_project_app.shout(text: pxt.String) -> pxt.String\n'
 
-    def test_unknown_module(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_module_errors(
+        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         for module in ('no_such_module', 'no_such_module.sub'):
             with pytest.raises(SystemExit) as exc_info:
                 functions.run([module])
             assert exc_info.value.code == 1
             assert capsys.readouterr().err == f"pxt functions: No module named '{module}'\n"
+
+        # a module that fails to import
+        (tmp_path / 'cli_functions_broken.py').write_text("raise RuntimeError('no config')\n")
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(SystemExit) as exc_info:
+            functions.run(['cli_functions_broken'])
+        assert exc_info.value.code == 1
+        assert capsys.readouterr().err == 'pxt functions: error loading cli_functions_broken: RuntimeError: no config\n'
+
+    def test_malformed_project_config(
+        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config_file = tmp_path / 'pixeltable.toml'
+        config_file.write_text('[[')
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(SystemExit) as exc_info:
+            functions.run(['app'])
+        assert exc_info.value.code == 1
+        assert capsys.readouterr().err.startswith(f'pxt functions: {config_file} cannot be parsed: ')

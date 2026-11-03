@@ -285,6 +285,35 @@ class TestFunction:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="No module named 'no_such_module.sub'"):
             pxt.list_functions('no_such_module.sub')
 
+        # a module that fails to import
+        bad_udf_src = dedent(
+            """
+            import pixeltable as pxt
+
+
+            @pxt.udf
+            def f(x):
+                return x
+            """
+        )
+        broken_modules = {
+            'list_functions_missing_dep': (
+                'import no_such_dependency',
+                "ModuleNotFoundError: No module named 'no_such_dependency'",
+            ),
+            'list_functions_bad_udf': (bad_udf_src, "Cannot infer pixeltable type for parameter 'x'"),
+            'list_functions_syntax': ('def f(:', r'SyntaxError: invalid syntax \(list_functions_syntax.py, line 1\)'),
+            'list_functions_raises': ("raise RuntimeError('no config')", 'RuntimeError: no config'),
+        }
+        # a new sys.path entry: importlib cached the listing of tmp_path when it imported list_functions_app
+        (tmp_path / 'broken').mkdir()
+        for module, (src, _) in broken_modules.items():
+            (tmp_path / 'broken' / f'{module}.py').write_text(f'{src}\n')
+        monkeypatch.syspath_prepend(tmp_path / 'broken')
+        for module, (_, reason) in broken_modules.items():
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=f'error loading {module}: {reason}'):
+                pxt.list_functions(module)
+
     def test_eval_udf(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         assert pxt.eval_udf(pxtf.string.upper, 'abc') == 'ABC'

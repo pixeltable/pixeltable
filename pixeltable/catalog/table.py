@@ -83,8 +83,8 @@ class Table(SchemaObject):
         """
 
     def _non_nullable_dependents(self, col_name: str) -> list[str]:
-        """Return the qualified names of the non-nullable computed columns of this table and its views that reference
-        its column col_name directly.
+        """Return the qualified names of the non-nullable computed columns that reference column col_name of this table
+        directly, in this table and in live views (views w/o any snapshots on the path).
         """
         # TODO: return only the dependents whose value expression becomes nullable when col_name becomes nullable
         tbl_name = self.get_metadata()['name']
@@ -100,9 +100,12 @@ class Table(SchemaObject):
             tbls.append(view)
         dependents: set[str] = set()
         for tbl in tbls:
-            md = tbl.get_metadata()
-            if md['is_snapshot']:
+            # a snapshot or a view over one reads a fixed version of this table
+            version_key = tbl._tbl_path.find_tbl_version(self._id)
+            assert version_key is not None
+            if version_key.effective_version is not None:
                 continue
+            md = tbl.get_metadata()
             for name, col_md in md['columns'].items():
                 if (tbl_name, col_name) not in {tuple(dep) for dep in col_md['depends_on'] or []}:
                     continue
@@ -1149,6 +1152,7 @@ class Table(SchemaObject):
     def batch_update(
         self,
         rows: Iterable[dict[str, Any]],
+        *,
         cascade: bool = True,
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
         if_exists: Literal['update', 'ignore'] = 'update',

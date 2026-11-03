@@ -31,7 +31,15 @@ from pixeltable.utils.object_stores import PXT_BUCKETS_DIR
 from .catalog_base import CatalogBase
 from .column import Column
 from .dir import Dir
-from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation, fold_identifier
+from .globals import (
+    PY_RERUN_HINT,
+    DirEntry,
+    IfExistsParam,
+    IfNotExistsParam,
+    IndexSpec,
+    MediaValidation,
+    fold_identifier,
+)
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
 from .model import IndexDefinition, TableSchemaChangeSet, prepare_model, prepare_model_updates
@@ -1941,8 +1949,8 @@ class Catalog(CatalogBase):
                 if tbl is None:
                     raise excs.ConcurrencyError(
                         excs.ErrorCode.CONCURRENT_MODIFICATION,
-                        f'Table {str(change_set["path"])!r} was dropped since update_all() computed its changes; '
-                        'please re-run update_all().',
+                        f'Table {str(change_set["path"])!r} was dropped while this update was in progress. '
+                        f'{PY_RERUN_HINT}',
                     )
 
             # make sure that the tables to which we're applying the schema changes still have the same schema as
@@ -1952,9 +1960,22 @@ class Catalog(CatalogBase):
                 if tbl._tbl_version_path.schema_versions() != change_set['schema_versions']:
                     raise excs.ConcurrencyError(
                         excs.ErrorCode.CONCURRENT_MODIFICATION,
-                        f'Table {str(change_set["path"])!r} saw schema changes since update_all() computed '
-                        'its changes; re-run update_all().',
+                        f'Table {str(change_set["path"])!r} saw schema changes while this update was in progress. '
+                        f'{PY_RERUN_HINT}',
                     )
+
+                for name, (spec, _) in change_set['altered_columns'].items():
+                    # an entry without 'value' makes a data column nullable
+                    if 'value' in spec:
+                        continue
+                    dependents = tbl._non_nullable_dependents(name)
+                    if len(dependents) > 0:
+                        raise excs.ConcurrencyError(
+                            excs.ErrorCode.CONCURRENT_MODIFICATION,
+                            f'Column {name!r} of table {str(change_set["path"])!r} gained non-nullable dependents '
+                            f'while this update was in progress: {", ".join(dependents)}. {PY_RERUN_HINT}',
+                        )
+
 
             # (tbl_version_path, tbl_version, TableSchemaChangeSet) tuple for each table in the model update
             tbl_info = list(
@@ -2036,7 +2057,7 @@ class Catalog(CatalogBase):
             verb = 'was' if len(missing) == 1 else 'were'
             raise excs.ConcurrencyError(
                 excs.ErrorCode.CONCURRENT_MODIFICATION,
-                f'{subject} {verb} dropped or replaced since update_all() computed its changes; re-run update_all().',
+                f'{subject} {verb} dropped or replaced while this update was in progress. {PY_RERUN_HINT}',
             ) from e
 
     def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
