@@ -334,7 +334,7 @@ t.where(t.result == None).select(
   </Card>
 
   <Card title="Specify Array Shapes" icon="vector-square">
-    Specify a shape and dtype when your data requires them. Use `None` for variable dimensions: `pxt.Array[(None, 768), np.float32]`.
+    Embedding indexes require a fixed 1-D shape and a dtype: `pxt.Array[(768,), np.float32]`. Elsewhere, use `None` for variable dimensions: `pxt.Array[(None, 768), np.float32]`.
   </Card>
 
   <Card title="Handle Errors Gracefully" icon="triangle-exclamation">
