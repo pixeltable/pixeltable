@@ -15,6 +15,9 @@ from .sql import export_sql, import_sql
 __default_dir = {symbol for symbol in dir() if not symbol.startswith('_')}
 __removed_symbols = {
     'globals',
+    'export',
+    'schema',
+    'utils',
     'hf_datasets',
     'pandas',
     'parquet',
