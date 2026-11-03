@@ -4,6 +4,7 @@ Adapters for web serving frameworks.
 
 from typing import Any
 
+from pixeltable import exceptions as excs
 from pixeltable.serving.globals import SqlExport
 
 _NO_FASTAPI_MSG = "pixeltable.serving.FastAPIRouter requires fastapi; install it with `pip install 'pixeltable[serve]'`"
@@ -42,7 +43,7 @@ except ImportError:
 
         def __getattr__(self, attr_name: str) -> Any:
             if attr_name not in ROUTE_DEFINITION_METHODS:
-                raise ImportError(_NO_FASTAPI_MSG)
+                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, _NO_FASTAPI_MSG)
 
             def define(*args: Any, **kwargs: Any) -> Any:
                 # the decorator forms return the decorated function unchanged; the add_*_route forms ignore
