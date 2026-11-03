@@ -524,7 +524,7 @@ class ModalScheduler(Scheduler):
         return resource_pool.startswith(cls._POOL_PREFIX)
 
     async def _main_loop(self) -> None:
-        # a failed deploy fails the query; a failed call fails only its rows
+        # a failed connect() fails the query; a failed call fails only its rows
         await self.pool.connect()
         while True:
             item = await self.queue.get()

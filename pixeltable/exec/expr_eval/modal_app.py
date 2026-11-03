@@ -247,6 +247,8 @@ class ModalPool:
     async def connect(self) -> None:
         """Look up the Server's URL, deploying the App at the process's first call."""
         if self.url is None:
+            # raises MISSING_CREDENTIALS without a proxy token, before the deploy
+            get_runtime().get_client('modal')
             app = Env.get().get_resource_pool_info(_APP_REGISTRY_KEY, ModalApp)
             # a deploy takes seconds to minutes and calls Modal's blocking API
             app_name = await asyncio.to_thread(app.deploy)
