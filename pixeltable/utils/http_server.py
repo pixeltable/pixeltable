@@ -9,11 +9,8 @@ from typing import Any, BinaryIO
 
 _logger = logging.getLogger(__name__)
 
-# host names accepted in a request's Host header, with any port to allow port forwarding
-_LOOPBACK_HOSTS = ('127.0.0.1', 'localhost')
-
-# content types that a browser renders as a document able to run scripts
-_ACTIVE_CONTENT_TYPES = ('text/html', 'application/xhtml+xml', 'application/xml', 'text/xml', 'image/svg+xml')
+# content types that a browser renders as a document able to run scripts, along with every type ending in +xml
+_ACTIVE_CONTENT_TYPES = ('text/html', 'application/xml', 'text/xml')
 
 
 def get_file_uri(http_address: str, file_path: str) -> str:
@@ -33,15 +30,13 @@ class AbsolutePathHandler(http.server.SimpleHTTPRequestHandler):
 
     def send_head(self) -> io.BytesIO | BinaryIO | None:
         """
-        Refuses a request without the token, or one addressed to a host name other than loopback.
+        Refuses a request without the token, before any filesystem access.
 
-        Any process on this machine can reach the port, and a web page that rebinds its own host name to
-        127.0.0.1 sends that name as Host.
+        Unlike the daemon, the server accepts any Host: a web page that rebinds its own host name to 127.0.0.1
+        can't learn the token, and the proxy of a port forwarder such as Codespaces sends its own host name.
         """
-        host = (self.headers.get('Host') or '').lower().partition(':')[0]
         prefix = f'/{self.server.token}/'
-        has_token = secrets.compare_digest(self.path[: len(prefix)].encode(), prefix.encode())
-        if host not in _LOOPBACK_HOSTS or not has_token:
+        if not secrets.compare_digest(self.path[: len(prefix)].encode(), prefix.encode()):
             self.send_error(http.HTTPStatus.FORBIDDEN)
             return None
         return super().send_head()
@@ -73,7 +68,8 @@ class AbsolutePathHandler(http.server.SimpleHTTPRequestHandler):
     def send_header(self, keyword: str, value: str) -> None:
         super().send_header(keyword, value)
         # a script in a served document would run in this server's origin, with the token in its own URL
-        if keyword.lower() == 'content-type' and value.partition(';')[0] in _ACTIVE_CONTENT_TYPES:
+        ctype = value.partition(';')[0]
+        if keyword.lower() == 'content-type' and (ctype in _ACTIVE_CONTENT_TYPES or ctype.endswith('+xml')):
             super().send_header('Content-Security-Policy', 'sandbox')
 
     def log_message(self, format: str, *args: Any) -> None:

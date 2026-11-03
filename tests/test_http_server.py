@@ -56,20 +56,20 @@ def test_http_server_refusals(file_server: LoggingHTTPServer, tmp_path: pathlib.
     port = file_server.server_address[1]
     uri = get_file_uri(file_server.http_address, str(secret))
     assert _status(uri) == 200
-    assert _status(uri, host=f'LocalHost:{port + 1}') == 200
+    # the proxy of a port forwarder
+    assert _status(uri, host='forwarded.example') == 200
 
     assert _status(get_file_uri(f'http://127.0.0.1:{port}', str(secret))) == 403
     assert _status(get_file_uri(f'http://127.0.0.1:{port}/{file_server.token[:-1]}', str(secret))) == 403
     assert _status(f'http://127.0.0.1:{port}/{file_server.token}') == 403
-    # a web page that rebinds its own host name to 127.0.0.1
-    assert _status(uri, host=f'attacker.example:{port}') == 403
 
     assert _status(get_file_uri(file_server.http_address, str(tmp_path)) + '/') == 404
 
-    page = tmp_path / 'page.html'
-    page.write_text('<script>fetch("/")</script>')
-    with urllib.request.urlopen(get_file_uri(file_server.http_address, str(page))) as response:
-        assert response.headers['Content-Security-Policy'] == 'sandbox'
+    for name in ('page.html', 'image.svg'):
+        doc = tmp_path / name
+        doc.write_text('<script>fetch("/")</script>')
+        with urllib.request.urlopen(get_file_uri(file_server.http_address, str(doc))) as response:
+            assert response.headers['Content-Security-Policy'] == 'sandbox'
     with urllib.request.urlopen(uri) as response:
         assert 'Content-Security-Policy' not in response.headers
 
