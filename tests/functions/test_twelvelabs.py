@@ -37,7 +37,9 @@ def mock_embeddings(init_env: None, monkeypatch: pytest.MonkeyPatch) -> AsyncMoc
     client = SimpleNamespace(
         embed=SimpleNamespace(v_2=SimpleNamespace(create=create)),
         multipart_upload=SimpleNamespace(upload_file=AsyncMock(return_value=SimpleNamespace(asset_id='test-asset'))),
-        assets=SimpleNamespace(delete=AsyncMock()),
+        assets=SimpleNamespace(
+            retrieve=AsyncMock(return_value=SimpleNamespace(status='ready', error=None)), delete=AsyncMock()
+        ),
     )
     monkeypatch.setattr(twelvelabs, '_twelvelabs_client', lambda: client)
     return create
