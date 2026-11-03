@@ -3,7 +3,6 @@
 # Notebooks that are always skipped
 SKIP_NOTEBOOKS=(
     llm-tool-calling                # Relies on the user separately running an MCP server
-    video-generate-ai               # Its Veo models are shut down; generate_videos() doesn't support Gemini Omni yet
     working-with-bfl                # [PXT-1111] Out of credits
     working-with-fabric             # [PXT-1113] Requires Microsoft Fabric environment
     working-with-fiftyone           # [PXT-1117] Voxel51 is currently omitted from our dev env for security reasons
@@ -27,19 +26,20 @@ VERY_EXPENSIVE_NOTEBOOKS=(
     img-detection-vs-segmentation   # Resource intensive
     img-image-to-image              # Resource intensive
     object-detection-in-videos      # Resource intensive
-    working-with-gemini             # High dollar cost
-    working-with-fal                # [PXT-1233] fal.ai integration failing on CI
-    working-with-together           # Poor reliability
-    working-with-replicate          # Unreliable
+    video-generate-ai               # Video generation API calls
     working-with-anthropic
     working-with-bedrock
     working-with-deepseek
+    working-with-fal                # [PXT-1233] fal.ai integration failing on CI
     working-with-fireworks
+    working-with-gemini             # High dollar cost
     working-with-groq
     working-with-jina
     working-with-mistralai
     working-with-nebius
     working-with-openrouter
+    working-with-replicate          # Unreliable
+    working-with-together           # Poor reliability
     working-with-voyageai
 )
 
