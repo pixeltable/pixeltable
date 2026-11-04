@@ -8,8 +8,8 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 
 from .function import Function
-from .globals import validate_symbol_path
 from .signature import Parameter, Signature
+from .symbols import validate_symbol_path
 
 if TYPE_CHECKING:
     from pixeltable import exprs

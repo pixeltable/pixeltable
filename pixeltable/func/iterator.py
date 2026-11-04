@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, Self, TypeVa
 from pixeltable import exceptions as excs, exprs, type_system as ts
 from pixeltable.catalog.globals import _POS_COLUMN_NAME, fold_identifier, fold_mapping_keys
 from pixeltable.exprs.expr import ValidationError
-from pixeltable.func.globals import import_error_msg, resolve_symbol
+from pixeltable.func.symbols import import_error_msg, resolve_symbol
 
 from .signature import Signature
 

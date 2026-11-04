@@ -42,7 +42,7 @@ class PxtPlugin(Plugin):
     # APIs that accept a schema dict; see `mark_schema_dict_values`. Methods are matched on their unqualified
     # name, so that `Table` subclasses (`InsertableTable`, `TableProxy`, ...) are covered too.
     __SCHEMA_FUNCTION_FULLNAMES: ClassVar[frozenset[str]] = frozenset(
-        f'{pxt.__name__}.globals.{name}' for name in ('create_table', 'create_view', 'create_snapshot')
+        f'{pxt.__name__}.api.{name}' for name in ('create_table', 'create_view', 'create_snapshot')
     )
     __SCHEMA_METHOD_NAMES: ClassVar[frozenset[str]] = frozenset(('add_columns',))
 
