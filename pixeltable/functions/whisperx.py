@@ -11,7 +11,7 @@ import numpy as np
 import pixeltable as pxt
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.functions.util import resolve_torch_device
+from pixeltable.functions.model_support import resolve_torch_device
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:

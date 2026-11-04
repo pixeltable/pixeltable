@@ -8,8 +8,8 @@ from pixeltable import exceptions as excs, type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
-from .globals import ArithmeticOperator
 from .literal import Literal
+from .operators import ArithmeticOperator
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
