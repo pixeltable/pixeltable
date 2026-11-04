@@ -1442,6 +1442,16 @@ class Catalog(CatalogBase):
             # If src_obj is None, it means `if_not_exists='ignore'` and the source doesn't exist.
             # If dest_obj is None and src_obj is not None, then we can proceed with the move.
             if isinstance(src_obj, LocalTable):
+                from .table_copy import is_copy_in_progress
+
+                # only finish_copy() moves a copy in progress, once it has cleared the mark
+                if src_obj._tbl_version is not None and is_copy_in_progress(
+                    self.load_tbl_md(TableVersionKey(src_obj._id, None)).tbl_md
+                ):
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_STATE,
+                        f'Cannot move {src_obj._display_str()}: create_table() has not finished copying it',
+                    )
                 self._move_table(
                     src_obj._id, new_path.name, dest_dir._id, is_pure_snapshot=src_obj._tbl_version is None
                 )
@@ -1750,6 +1760,55 @@ class Catalog(CatalogBase):
 
         return get_tbl_fn(), is_created
 
+    def create_table_from_md(self, path: Path, md: list[TableVersionMd]) -> LocalTable:
+        """
+        Creates a base table at path from md, the metadata of every version of another base table (as returned by
+        collect_tbl_history()). The new table has a new id, the history of md and an empty store table, and is marked
+        as a copy in progress until table_copy.finish_copy() (see table_copy.md_for_copy()).
+        """
+        from .table_copy import check_computed_columns, md_for_copy
+
+        tbl_id = uuid4()
+        tbl_md, version_mds, schema_version_mds = md_for_copy(md, tbl_id, path.name)
+
+        # one transaction creates the metadata and the store table, so a failure leaves nothing behind and the table
+        # needs no pending ops
+        @retry_md_write_loop()
+        def create_fn() -> None:
+            self._handle_path_collision(path, InsertableTable, False, IfExistsParam.ERROR)
+            dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+            assert dir is not None
+            current_version_md = next(m for m in version_mds if m.version == tbl_md.current_version)
+            current_schema_version_md = next(
+                m for m in schema_version_mds if m.schema_version == tbl_md.current_schema_version
+            )
+            self.write_tbl_md(tbl_id, dir._id, tbl_md, current_version_md, current_schema_version_md)
+            for version_md in version_mds:
+                if version_md is not current_version_md:
+                    self.write_tbl_md(tbl_id, None, None, version_md, None)
+            for schema_version_md in schema_version_mds:
+                if schema_version_md is not current_schema_version_md:
+                    self.write_tbl_md(tbl_id, None, None, None, schema_version_md)
+            try:
+                with warnings.catch_warnings():
+                    # a computed column that cannot be evaluated refuses the copy, rather than warning
+                    warnings.simplefilter('ignore', excs.PixeltableWarning)
+                    tv = self._get_tbl_version(TableVersionKey(tbl_id, None))
+                check_computed_columns(tv, md[0].tbl_md.name)
+            finally:
+                self._clear_tv_cache(TableVersionKey(tbl_id, None))
+            self._create_store_tbl(tbl_md)
+
+        create_fn()
+
+        @retry_md_read_loop(tbl_keys=[TableVersionKey(tbl_id, None)])
+        def get_tbl_fn() -> LocalTable:
+            tbl = self.get_table_by_id(tbl_id)
+            assert tbl is not None
+            return tbl
+
+        return get_tbl_fn()
+
     def create_view(
         self,
         path: Path,
@@ -1891,6 +1950,7 @@ class Catalog(CatalogBase):
         base: 'pxt.Query | None',
         idxs: list[IndexDefinition],
         is_data_versioned: bool,
+        if_exists: IfExistsParam,
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 
@@ -1911,16 +1971,19 @@ class Catalog(CatalogBase):
             tbl_handle, columns, display_name, iterator, base, idxs, is_data_versioned
         )
 
-        # If the table already exists, rebind to it and report that nothing was created.
-        existing = self.get_table(path, IfNotExistsParam.IGNORE)
-        if existing is not None:
-            return existing, False
+        # _create_table() cannot ignore an existing table: the column references built above point at tbl_id, which
+        # the existing table does not have
+        if if_exists == IfExistsParam.IGNORE:
+            existing = self.get_table(path, IfNotExistsParam.IGNORE)
+            if existing is not None:
+                return existing, False
+            if_exists = IfExistsParam.ERROR
 
         if base is None:
             return self._create_table(
                 path=path,
                 columns=additional_cols,
-                if_exists=IfExistsParam.ERROR,
+                if_exists=if_exists,
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
@@ -1945,7 +2008,7 @@ class Catalog(CatalogBase):
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
-                if_exists=IfExistsParam.ERROR,
+                if_exists=if_exists,
                 additional_idxs=resolved_idxs,
                 explicit_tbl_id=tbl_id,
             )

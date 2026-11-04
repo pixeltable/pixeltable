@@ -22,10 +22,12 @@ import sqlalchemy as sql
 
 from pixeltable import exceptions as excs, telemetry, telemetry_schemas
 from pixeltable._query import Query
-from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_md_read_loop
+from pixeltable._version import __version__
+from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_md_read_loop, table_copy
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
+from pixeltable.metadata import VERSION as MD_SCHEMA_VERSION
 from pixeltable.row import RowBatch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.local_store import TempStore
@@ -90,6 +92,11 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
                 snapshot_key = TablePathKey.from_dict(request.snapshot_path_key)
                 with cat.begin_md_read_xact():
                     md = cat.read_md_for_export(tbl)
+                if table_copy.is_copy_in_progress(md[0].tbl_md) and request.method not in _COPY_METHODS:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_STATE,
+                        f'{tbl._display_str()} is a copy that create_table() has not finished; it cannot be changed',
+                    )
                 if snapshot_key != _current_key(md):
                     # return the current md and is_stale_md=True so the client refreshes and retries
                     return proxy_protocol.encode_response({'current_md': md, 'is_stale_md': True})
@@ -350,6 +357,25 @@ def _get_table_by_id(request: ProxyRequest) -> list | None:
     return load()
 
 
+def _create_table_from_md(request: ProxyRequest) -> list:
+    # md is written as received, so it must be of this database's metadata version
+    if request.schema_version != MD_SCHEMA_VERSION:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'Cannot create a table from metadata of version {request.schema_version} in a database of metadata '
+            f'version {MD_SCHEMA_VERSION}; use the Pixeltable version that the database runs ({__version__}).',
+        )
+    kwargs = _deserialize_args(request)
+    cat = get_runtime().catalog
+    tbl = cat.create_table_from_md(**kwargs)
+
+    @retry_md_read_loop(tbl_keys=[TableVersionKey(tbl._id, None)])
+    def load() -> list:
+        return cat.read_md_for_export(tbl)
+
+    return load()
+
+
 def _catalog_method(request: ProxyRequest) -> Any:
     """Generic handler for catalog methods whose return value is directly serializable."""
     method = getattr(get_runtime().catalog, request.method)
@@ -481,6 +507,26 @@ def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
     return tbl.insert(
         build(), on_error=kwargs['on_error'], print_stats=kwargs['print_stats'], return_rows=kwargs['return_rows']
     )
+
+
+def _load_store_rows(request: ProxyRequest, tbl: LocalTable) -> Any:
+    if not isinstance(tbl, InsertableTable):
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Store rows can only be loaded into a base table')
+    kwargs = _deserialize_args(request)
+    # the files must be ones that this request uploaded: a path that a caller names must not reach the daemon's own
+    # files
+    uploaded = request._uploaded_names.keys()
+    if kwargs['rows_file'] not in uploaded or not uploaded >= set(kwargs['new_media'].values()):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, 'load_store_rows(): the rows and media files must be uploaded files'
+        )
+    return table_copy.load_store_rows(tbl, **kwargs)
+
+
+def _finish_copy(request: ProxyRequest, tbl: LocalTable) -> Any:
+    if not isinstance(tbl, InsertableTable):
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Only a base table can be a copy in progress')
+    return table_copy.finish_copy(tbl, **_deserialize_args(request))
 
 
 def _compute(request: ProxyRequest, tbl: LocalTable) -> Any:
@@ -660,9 +706,13 @@ _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
     ('CatalogBase', 'get_dir_contents'): _catalog_method,
     ('CatalogBase', 'create_dir'): _catalog_method,
     ('CatalogBase', 'drop_dir'): _catalog_method,
+    ('CatalogBase', 'create_table_from_md'): _create_table_from_md,
     ('Query', 'collect'): _query_collect,
     ('Query', 'count'): _query_count,
 }
+
+# The only mutations of a copy in progress (see table_copy.is_copy_in_progress())
+_COPY_METHODS: frozenset[str] = frozenset({'load_store_rows', 'finish_copy'})
 
 # Mutations are gated on schema-version staleness (handle() withholds + returns current_md if the client's
 # snapshot_path_key is behind); reads run unconditionally.
@@ -674,6 +724,8 @@ _MUTATION_METHODS: frozenset[str] = frozenset(
         'insert_hf_dataset',
         'insert_sql_source',
         'insert_query',
+        'load_store_rows',
+        'finish_copy',
         'update',
         'delete',
         'batch_update',
@@ -709,6 +761,8 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'insert_sql_source'): _insert_sql_source,
     ('Table', 'insert_query'): _insert_query,
     ('Table', 'compute'): _compute,
+    ('Table', 'load_store_rows'): _load_store_rows,
+    ('Table', 'finish_copy'): _finish_copy,
     ('Table', 'update'): _update,
     ('Table', 'delete'): _delete,
     ('Table', 'batch_update'): _batch_update,
