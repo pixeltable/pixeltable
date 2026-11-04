@@ -489,6 +489,7 @@
         </outline>
         <outline text="module|pixeltable.functions.twelvelabs">
           <outline text="udf|pixeltable.functions.twelvelabs.embed" />
+          <outline text="iter|pixeltable.functions.twelvelabs.embed_iterator" />
         </outline>
         <outline text="module|pixeltable.functions.vllm">
           <outline text="udf|pixeltable.functions.vllm.chat_completions" />

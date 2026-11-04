@@ -162,7 +162,9 @@ class TestTwelveLabsLocal:
     def test_unsupported_options(self, mock_embeddings: AsyncMock, input_type: str, options: dict[str, Any]) -> None:
         from pixeltable.functions import twelvelabs
 
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='do not support start_sec, end_sec, or embedding_option'):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match='does not support start_sec, end_sec, or embedding_option'
+        ):
             asyncio.run(
                 twelvelabs.embed.py_fns[2 if input_type == 'audio' else 3]('unused', model_name='marengo3.5', **options)
             )
@@ -231,9 +233,9 @@ class TestTwelveLabsLocal:
 
 @pytest.mark.remote_api
 @pytest.mark.very_expensive
-@pytest.mark.parametrize('model_name', ['marengo3.0', 'marengo3.5'])
 @rerun_on_network_error()
 class TestTwelveLabs:
+    @pytest.mark.parametrize('model_name', ['marengo3.0', 'marengo3.5'])
     def test_embed_text(self, uses_db: None, model_name: str) -> None:
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')
@@ -254,6 +256,7 @@ class TestTwelveLabs:
         res = t.select(embedding=t.input.embedding()).collect()
         assert res['embedding'][0].shape == (512,)
 
+    @pytest.mark.parametrize('model_name', ['marengo3.0', 'marengo3.5'])
     def test_embed_image(self, uses_db: None, model_name: str) -> None:
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')
@@ -270,6 +273,76 @@ class TestTwelveLabs:
         res = t.select(embedding=t.image.embedding()).collect()
         assert res['embedding'][0].shape == (512,)
 
+    def test_embed_iterator_video(self, uses_db: None) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        skip_test_if_no_client('twelvelabs')
+        from pixeltable.functions.twelvelabs import embed, embed_iterator
+
+        t = pxt.create_table('videos', {'video': pxt.Video})
+        v = pxt.create_view('video_embeddings', t, iterator=embed_iterator(video=t.video, model_name='marengo3.5'))
+        v.add_embedding_index(v.embedding, embedding=embed.using(model_name='marengo3.5'))
+        t.insert(video=get_video_files(extension='.webm')[0])
+
+        rows = v.collect()
+        modalities = [row['embedding_option'] for row in rows]
+        # Multiple audio and visual embedding vectors
+        assert modalities.count('audio') >= 2
+        assert modalities.count('visual') >= 2
+        assert sum(row['start_sec'] is not None for row in rows) >= 2
+        assert sum(row['end_sec'] is not None for row in rows) >= 2
+        assert sum(row['start_sec'] == 0 and row['embedding_option'] == 'audio' for row in rows) == 1
+        assert sum(row['start_sec'] == 0 and row['embedding_option'] == 'visual' for row in rows) == 1
+        assert all(row['embedding'].shape == (512,) for row in rows)
+
+        # Test similarity. There's a guitar music in the background, but no guitars in sight.
+        similarity = v.embedding.similarity(string='guitar')
+        matches = (
+            v.select(v.embedding_option, v.embedding_scope, v.start_sec, v.end_sec, similarity=similarity)
+            .order_by(similarity, asc=False)
+            .collect()
+        )
+        assert matches[0]['embedding_option'] == 'audio'
+
+        similarity = v.embedding.similarity(string='spatula')
+        matches = (
+            v.select(v.embedding_option, v.embedding_scope, v.start_sec, v.end_sec, similarity=similarity)
+            .order_by(similarity, asc=False)
+            .collect()
+        )
+        assert matches[0]['embedding_option'] == 'visual'
+
+    def test_embed_iterator_video_options(self, uses_db: None) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        skip_test_if_no_client('twelvelabs')
+        from pixeltable.functions.twelvelabs import embed_iterator
+
+        media_kwargs: dict[str, Any] = {
+            'start_sec': 2.0,
+            'end_sec': 14.0,
+            'embedding_option': ['visual', 'audio'],
+            'embedding_scope': ['clip'],
+            'embedding_type': ['separate_embedding', 'fused_embedding'],
+            'segmentation': {'temporal': {'strategy': 'fixed', 'fixed': {'duration_sec': 4}}},
+            'time_based_metadata': [{'start': 2.0, 'end': 14.0, 'text': 'Cooking food while guitar music plays.'}],
+        }
+        t = pxt.create_table('videos', {'video': pxt.Video})
+        v = pxt.create_view(
+            'video_embeddings',
+            t,
+            iterator=embed_iterator(
+                video=t.video,
+                model_name='marengo3.5',
+                media_kwargs=media_kwargs,
+                embedding_dimension=256,
+                embedding_uncertainty=False,
+            ),
+        )
+        v.add_embedding_index(v.embedding)
+        t.insert(video=get_video_files(extension='.webm')[0])
+        rows = v.collect()
+        assert set({row['embedding_option'] for row in rows}) == {'audio', 'visual', 'fused'}
+
+    @pytest.mark.parametrize('model_name', ['marengo3.0', 'marengo3.5'])
     def test_embed_audio(self, uses_db: None, model_name: str) -> None:
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')
@@ -288,6 +361,7 @@ class TestTwelveLabs:
         res = v.select(embedding=v.audio_segment.embedding()).collect()
         assert res['embedding'][0].shape == (512,)
 
+    @pytest.mark.parametrize('model_name', ['marengo3.0', 'marengo3.5'])
     def test_embed_video(self, uses_db: None, model_name: str) -> None:
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')
@@ -305,9 +379,7 @@ class TestTwelveLabs:
         res = v.select(embedding=v.video_segment.embedding()).collect()
         assert res['embedding'][0].shape == (512,)
 
-    def test_embed_large_media(self, uses_db: None, model_name: str) -> None:
-        if model_name == 'marengo3.5':
-            pytest.skip('Large media requires the Marengo 3.5 async embeddings API (PXT-1722)')
+    def test_embed_large_media(self, uses_db: None) -> None:
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')
         from pixeltable.functions.twelvelabs import embed
@@ -315,6 +387,6 @@ class TestTwelveLabs:
         # Test that large media files that require multipart upload can be embedded successfully
         t = pxt.create_table('large_media_tbl', {'video': pxt.Video | None})
         t.insert(video='s3://pxt-test/pytest-resources/large_videos/6mb.mp4')
-        t.add_embedding_index(t.video, embedding=embed.using(model_name=model_name))
+        t.add_embedding_index(t.video, embedding=embed.using(model_name='marengo3.0'))
         res = t.select(embedding=t.video.embedding()).collect()
         assert res['embedding'][0].shape == (512,)

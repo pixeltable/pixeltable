@@ -9,17 +9,18 @@ import asyncio
 import os
 from base64 import b64encode
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Literal, Sequence
+from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Iterator, Literal, Sequence, TypedDict
 
 import numpy as np
 from tenacity import retry, retry_if_result, wait_exponential
 
 import pixeltable as pxt
-from pixeltable import env, type_system as ts
+from pixeltable import env, exprs, type_system as ts
 from pixeltable.config import Config
 from pixeltable.runtime import get_runtime
 from pixeltable.utils import av as av_utils
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.http import retry_if_retryable_error
 from pixeltable.utils.image import to_base64
 
 if TYPE_CHECKING:
@@ -28,6 +29,9 @@ if TYPE_CHECKING:
 
 
 TWELVELABS_INLINE_LIMIT_BYTES = 2 * 2**20
+# https://docs.twelvelabs.io/docs/concepts/upload-methods
+_ASYNC_INLINE_LIMIT_BYTES = 36 * 10**6
+_DEFAULT_EMBEDDING_DIMENSIONS = {'Marengo-retrieval-2.7': 1024, 'marengo3.0': 512, 'marengo3.5': 512}
 
 
 @env.register_client('twelvelabs', credential_param='api_key')
@@ -81,10 +85,17 @@ async def _asset_uploads(input_type: Literal['audio', 'video'], files: list[str]
         await asyncio.gather(*[client.assets.delete(asset_id) for asset_id in uploaded], return_exceptions=True)
 
 
-async def _wait_for_asset(client: 'twelvelabs.AsyncTwelveLabs', asset_id: str) -> None:
+def _timeout() -> float:
     timeout = Config.get().get_float_value('timeout', section='twelvelabs')
     if timeout is None:
-        timeout = 600
+        return 600
+    if timeout <= 0:
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_CONFIGURATION, 'twelvelabs.timeout must be positive.')
+    return timeout
+
+
+async def _wait_for_asset(client: 'twelvelabs.AsyncTwelveLabs', asset_id: str) -> None:
+    timeout = _timeout()
     try:
         async with asyncio.timeout(timeout):
             await _poll_until_ready(client, asset_id)
@@ -98,7 +109,10 @@ async def _wait_for_asset(client: 'twelvelabs.AsyncTwelveLabs', asset_id: str) -
         ) from e
 
 
-@retry(retry=retry_if_result(lambda ready: not ready), wait=wait_exponential(multiplier=2, min=2, max=30))
+@retry(
+    retry=retry_if_result(lambda ready: not ready) | retry_if_retryable_error,
+    wait=wait_exponential(multiplier=2, min=2, max=30),
+)
 async def _poll_until_ready(client: 'twelvelabs.AsyncTwelveLabs', asset_id: str) -> bool:
     asset = await client.assets.retrieve(asset_id)
     assert asset.status in ('processing', 'ready', 'failed'), f'Unexpected TwelveLabs asset status: {asset.status!r}'
@@ -124,8 +138,8 @@ async def embed(text: str, image: pxt.Image | None = None, *, model_name: str) -
 
     Marengo 3.5 uses the synchronous `multi_input` API. Images, audio, and video must be at most 32 MB.
     Audio and video must also be at most 30 seconds. Split longer files with `audio_splitter` or
-    `video_splitter` before embedding them. The `start_sec`,
-    `end_sec`, and `embedding_option` parameters are supported only with Marengo 3.0.
+    `video_splitter` before embedding them, or use `embed_iterator()` for asynchronous content embeddings.
+    The `start_sec`, `end_sec`, and `embedding_option` parameters are supported only with Marengo 3.0.
 
     Equivalent to the TwelveLabs Embed API:
     <https://docs.twelvelabs.io/sdk-reference/python/create-embeddings-v-2/create-sync-embeddings>
@@ -286,7 +300,7 @@ async def _embed_multi_input(
         size_bytes = len(b64_str) * 3 // 4 - (len(b64_str) - len(b64_str.rstrip('=')))
         if size_bytes > 32 * 2**20:
             raise pxt.RequestError(
-                pxt.ErrorCode.INVALID_ARGUMENT, 'Marengo 3.5 synchronous embeddings require media of at most 32 MB.'
+                pxt.ErrorCode.INVALID_ARGUMENT, 'embed() with Marengo 3.5 requires media of at most 32 MB.'
             )
         media_sources = [twelvelabs.MultiInputMediaSource(media_type=input_type, base_64_string=b64_str)]
     # Pass only fields that are set. An explicit None is serialized as JSON null, and the sync schema
@@ -321,8 +335,9 @@ async def _embed_av_multi_input(
     if start_sec is not None or end_sec is not None or embedding_option is not None:
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_ARGUMENT,
-            'Marengo 3.5 synchronous embeddings do not support start_sec, end_sec, or embedding_option. '
-            'Split the media with audio_splitter or video_splitter before embedding it.',
+            'embed() with Marengo 3.5 does not support start_sec, end_sec, or embedding_option. '
+            'Split the media with audio_splitter or video_splitter before embedding it, '
+            'or use embed_iterator(), which supports these options.',
         )
     b64_str = await asyncio.to_thread(_encode_short_media, file_path, input_type)
     return await _embed_multi_input(input_type=input_type, b64_str=b64_str)
@@ -332,8 +347,9 @@ def _encode_short_media(file_path: str, input_type: Literal['audio', 'video']) -
     if os.stat(file_path).st_size > 32 * 2**20:
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_ARGUMENT,
-            'Marengo 3.5 synchronous embeddings require media of at most 32 MB. '
-            'Split the media with audio_splitter or video_splitter before embedding it.',
+            'embed() with Marengo 3.5 requires media of at most 32 MB. '
+            'Split the media with audio_splitter or video_splitter before embedding it, '
+            'or use embed_iterator(), which accepts longer media.',
         )
     duration = (
         av_utils.get_audio_duration(file_path) if input_type == 'audio' else av_utils.get_video_duration(file_path)
@@ -343,9 +359,10 @@ def _encode_short_media(file_path: str, input_type: Literal['audio', 'video']) -
     if duration > 30:
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_ARGUMENT,
-            f'Marengo 3.5 synchronous embeddings require {input_type} of at most 30 seconds; '
+            f'embed() with Marengo 3.5 requires {input_type} of at most 30 seconds; '
             f'got {duration:.2f} seconds. '
-            'Split the media with audio_splitter or video_splitter before embedding it.',
+            'Split the media with audio_splitter or video_splitter before embedding it, '
+            'or use embed_iterator(), which accepts longer media.',
         )
     with open(file_path, 'rb') as fp:
         return b64encode(fp.read()).decode('utf-8')
@@ -404,13 +421,222 @@ async def _embed_av_content(
     return np.array(vector, dtype='float32')
 
 
+class EmbeddingResult(TypedDict):
+    """One embedding record returned by `embed_iterator()`."""
+
+    embedding: pxt.Array[(None,), np.float32]
+    embedding_option: str | None
+    """Provider modality label, such as `visual`, `audio`, or `fused`."""
+    embedding_scope: str | None
+    """Provider scope label: `clip` for a segment or `asset` for the entire file."""
+    start_sec: float | None
+    """Start of the embedded segment in seconds, or None if not returned by the provider."""
+    end_sec: float | None
+    """End of the embedded segment in seconds, or None if not returned by the provider."""
+    embedding_uncertainty: pxt.Array[(None,), np.float32] | None
+    """Optional per-dimension uncertainty; higher values indicate lower confidence in that dimension."""
+    metadata: pxt.Json | None
+    """Metadata for the input file, such as duration and requested modalities/scopes, shared by all its embeddings."""
+
+
+@pxt.iterator
+def embed_iterator(
+    *,
+    model_name: str,
+    audio: pxt.Audio | None = None,
+    video: pxt.Video | None = None,
+    media_kwargs: dict[str, Any] | None = None,
+    embedding_dimension: int | None = None,
+    embedding_uncertainty: bool | None = None,
+) -> Iterator[EmbeddingResult]:
+    """
+    Creates asynchronous audio or video embeddings, yielding one row per provider embedding record.
+
+    Wraps the TwelveLabs `embed.v_2.tasks.create` and `retrieve` endpoints:
+    <https://docs.twelvelabs.io/sdk-reference/python/create-embeddings-v-2/create-async-embeddings>
+
+    Embeds audio and video of any duration supported by the model. By default, returns embeddings for individual
+    segments and the whole file, with separate visual and audio embeddings for Marengo 3.5 video. Use `media_kwargs`
+    to choose modalities, scopes, and segmentation. The resulting vectors can be indexed for similarity search;
+    use `embed()` to create query embeddings.
+
+    The iterator waits up to 600 seconds per input file, including upload processing. Set
+    `timeout` in the `twelvelabs` config section to change this limit;
+    `TWELVELABS_TIMEOUT` overrides the config file.
+
+    The iterator processes input files sequentially and does not use the UDF request-rate resource pool.
+
+    __Requirements:__
+
+    - `pip install 'twelvelabs>=1.3.6'`
+
+    Args:
+        model_name: The embedding model (`marengo3.0` or `marengo3.5`).
+        audio: The audio file to embed. Specify exactly one of `audio` and `video`. A `None` value yields no rows.
+        video: The video file to embed. A `None` value yields no rows.
+        media_kwargs: Additional fields for the provider's `AsyncAudioInputRequest` or `AsyncVideoInputRequest`,
+            such as `start_sec`, `end_sec`, `embedding_option`, `embedding_scope`, `embedding_type`,
+            `segmentation`, and `time_based_metadata`. `media_source` is managed by Pixeltable and cannot be set here.
+        embedding_dimension: Output dimension. Must be constant. Omit to use the model's default; specify this
+            when indexing embeddings from an unrecognized model.
+        embedding_uncertainty: Whether to request per-dimension uncertainty. For audio and video, set
+            `media_kwargs['embedding_scope']` without `asset`; the default scope includes it and the request fails.
+
+    Examples:
+        Embed videos and index every returned vector:
+
+        >>> v = pxt.create_view(
+        ...     'video_embeddings',
+        ...     videos,
+        ...     iterator=embed_iterator(video=videos.video, model_name='marengo3.5'),
+        ... )
+        >>> v.add_embedding_index(
+        ...     v.embedding, embedding=embed.using(model_name='marengo3.5')
+        ... )
+
+        Limit processing to the first minute by passing provider options:
+
+        >>> clips = pxt.create_view(
+        ...     'first_minute_embeddings',
+        ...     videos,
+        ...     iterator=embed_iterator(
+        ...         video=videos.video,
+        ...         model_name='marengo3.5',
+        ...         media_kwargs={'end_sec': 60.0, 'embedding_scope': ['clip']},
+        ...     ),
+        ... )
+
+        Search the indexed embeddings:
+
+        >>> score = v.embedding.similarity(string='a dog barking')
+        >>> v.select(v.video, v.embedding_option, v.start_sec, score=score).order_by(
+        ...     score, asc=False
+        ... ).limit(10).collect()
+    """
+    file_path = audio if audio is not None else video
+    if file_path is None:
+        return
+    if media_kwargs is not None and 'media_source' in media_kwargs:
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'media_kwargs cannot override media_source.')
+    env.Env.get().require_package('twelvelabs', min_version=[1, 3, 6])
+    input_type: Literal['audio', 'video'] = 'audio' if audio is not None else 'video'
+    task_options = {'embedding_dimension': embedding_dimension, 'embedding_uncertainty': embedding_uncertainty}
+    result = get_runtime().run_coro(
+        _create_embedding_task(
+            file_path,
+            input_type,
+            model_name,
+            media_kwargs if media_kwargs is not None else {},
+            {k: v for k, v in task_options.items() if v is not None},
+        )
+    )
+    if not result.data:
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, 'TwelveLabs returned no embedding data.', provider='twelvelabs'
+        )
+    metadata = None if result.metadata is None else result.metadata.model_dump(mode='json')
+    for record in result.data:
+        yield EmbeddingResult(
+            embedding=np.array(record.embedding, dtype=np.float32),
+            embedding_option=record.embedding_option,
+            embedding_scope=record.embedding_scope,
+            start_sec=record.start_sec,
+            end_sec=record.end_sec,
+            embedding_uncertainty=(
+                None
+                if record.embedding_uncertainty is None
+                else np.array(record.embedding_uncertainty, dtype=np.float32)
+            ),
+            metadata=metadata,
+        )
+
+
+@embed_iterator.conditional_output_schema
+def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
+    if ('audio' in bound_args) == ('video' in bound_args):
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'Specify exactly one of audio and video.')
+    dimension_expr = bound_args.get('embedding_dimension')
+    dimension: int | None = None
+    if dimension_expr is not None:
+        if not isinstance(dimension_expr, exprs.Literal):
+            raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'embedding_dimension must be constant.')
+        if dimension_expr.val is not None:
+            dimension = dimension_expr.val
+    if dimension is not None and dimension <= 0:
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'embedding_dimension must be positive.')
+    if dimension is None:
+        model_expr = bound_args.get('model_name')
+        if isinstance(model_expr, exprs.Literal):
+            dimension = _DEFAULT_EMBEDDING_DIMENSIONS.get(model_expr.val)
+    return {
+        **EmbeddingResult.__annotations__,
+        'embedding': pxt.Array[(dimension,), np.float32],
+        'embedding_uncertainty': pxt.Array[(dimension,), np.float32] | None,
+    }
+
+
+async def _create_embedding_task(
+    file_path: str,
+    input_type: Literal['audio', 'video'],
+    model_name: str,
+    options: dict[str, Any],
+    task_options: dict[str, Any],
+) -> 'twelvelabs.EmbeddingTaskResponse':
+    import twelvelabs
+
+    timeout = _timeout()
+
+    async def embed_source(source: 'twelvelabs.MediaSource') -> 'twelvelabs.EmbeddingTaskResponse':
+        request_cls = twelvelabs.AsyncAudioInputRequest if input_type == 'audio' else twelvelabs.AsyncVideoInputRequest
+        request = request_cls(media_source=source, **options)
+        client = _twelvelabs_client()
+        kwargs = {input_type: request, **task_options}
+        task = await client.embed.v_2.tasks.create(input_type=input_type, model_name=model_name, **kwargs)
+        return await _poll_embedding_task(client, task.id)
+
+    try:
+        async with asyncio.timeout(timeout):
+            if os.stat(file_path).st_size <= _ASYNC_INLINE_LIMIT_BYTES:
+
+                def encode() -> str:
+                    with open(file_path, 'rb') as fp:
+                        return b64encode(fp.read()).decode('utf-8')
+
+                b64_str = await asyncio.to_thread(encode)
+                return await embed_source(twelvelabs.MediaSource(base_64_string=b64_str))
+            async with _asset_uploads(input_type, [file_path]) as asset_ids:
+                return await embed_source(twelvelabs.MediaSource(asset_id=asset_ids[0]))
+    except TimeoutError as e:
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_TIMEOUT,
+            f'Timed out after {timeout:g}s waiting for TwelveLabs embeddings. '
+            'Increase timeout in the [twelvelabs] config section to extend the timeout; '
+            'TWELVELABS_TIMEOUT overrides the config file.',
+            provider='twelvelabs',
+        ) from e
+
+
+@retry(
+    retry=retry_if_result(lambda result: result.status != 'ready') | retry_if_retryable_error,
+    wait=wait_exponential(multiplier=2, min=2, max=30),
+)
+async def _poll_embedding_task(
+    client: 'twelvelabs.AsyncTwelveLabs', task_id: str
+) -> 'twelvelabs.EmbeddingTaskResponse':
+    result = await client.embed.v_2.tasks.retrieve(task_id)
+    if result.status == 'failed':
+        message = result.error.message if result.error is not None else 'Unknown error'
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_ERROR, f'TwelveLabs embedding task failed: {message}', provider='twelvelabs'
+        )
+    return result
+
+
 @embed.conditional_return_type
 def _(model_name: str) -> ts.ArrayType:
-    if model_name == 'Marengo-retrieval-2.7':
-        return ts.ArrayType(shape=(1024,), dtype=np.dtype('float32'))
-    if model_name in ('marengo3.0', 'marengo3.5'):
-        return ts.ArrayType(shape=(512,), dtype=np.dtype('float32'))
-    return ts.ArrayType(dtype=np.dtype('float32'))
+    dimension = _DEFAULT_EMBEDDING_DIMENSIONS.get(model_name)
+    shape = None if dimension is None else (dimension,)
+    return ts.ArrayType(shape=shape, dtype=np.dtype('float32'))
 
 
 __all__ = local_public_names(__name__)
