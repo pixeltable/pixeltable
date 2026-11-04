@@ -44,7 +44,8 @@ def import_pandas(
         schema_overrides: If specified, then for each (name, type) pair in `schema_overrides`, the column with
             name `name` will be given type `type`, instead of being inferred from the `DataFrame`. The keys in
             `schema_overrides` should be the column names of the `DataFrame` (whether or not they are valid
-            Pixeltable identifiers).
+            Pixeltable identifiers). An `Int` column accepts an integer-valued float such as `1.0` and rejects
+            any other float.
 
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
@@ -177,12 +178,12 @@ def _df_row_to_pxt_row(
         nval: Any
         if pxt_type.is_float_type():
             nval = float(val)
-        elif isinstance(val, float) and np.isnan(val):
+        elif isinstance(val, (float, np.floating)) and np.isnan(val):
             # pandas uses NaN for empty cells, even for types other than float;
             # for any type but a float, convert these to None
             nval = None
         elif pxt_type.is_int_type():
-            nval = int(val)
+            nval = _coerce_pandas_int(val, pxt_name)
         elif pxt_type.is_bool_type():
             nval = bool(val)
         elif pxt_type.is_string_type():
@@ -217,3 +218,17 @@ def _df_row_to_pxt_row(
             nval = val
         pxt_row[pxt_name] = nval
     return pxt_row
+
+
+def _coerce_pandas_int(val: Any, col_name: str) -> int:
+    """Convert a DataFrame cell to a Python int.
+
+    An integer-valued float, such as ``1.0`` from a float64 column that contains nulls, converts exactly. Any other
+    float raises ``RequestError``, matching a dict insert of that value.
+    """
+    # 1.0 is already an integer; 1.9 is not, and must not be stored as 1.
+    if isinstance(val, (float, np.floating)) and not (bool(np.isfinite(val)) and int(val) == val):
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'Error in column {col_name}: expected int, got {type(val).__name__}'
+        )
+    return int(val)

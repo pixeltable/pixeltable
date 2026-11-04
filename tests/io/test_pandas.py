@@ -292,6 +292,35 @@ class TestPandas:
         t6.insert('docs/resources/rag-demo/Q-A-Rag.xlsx')
         assert t6.count() == 2 * 8
 
+    def test_import_pandas_int_override_float_values(self, db_root: DatabaseRoot) -> None:
+        """Float64 values overridden to Int import only when the conversion is exact."""
+        p = db_root.make_catalog_path
+
+        # gh-1886: int() used to truncate 1.9 to 1 and report 0 errors
+        lossy = pd.DataFrame({'pk': [1.9, 2.1], 'v': ['a', 'b']})
+        assert lossy['pk'].dtype == np.float64
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected int, got float'):
+            pxt.io.import_pandas(p('lossy_pk'), lossy, schema_overrides={'pk': pxt.Int}, primary_key='pk')
+        # table creation commits before the load; the load must not store the truncated keys
+        assert pxt.get_table(p('lossy_pk')).count() == 0
+
+        t_dict = pxt.create_table(p('dict_int'), {'pk': pxt.Int, 'v': pxt.String}, primary_key='pk')
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected int, got float'):
+            t_dict.insert([{'pk': 1.9, 'v': 'a'}])
+        assert t_dict.count() == 0
+
+        lossless = pd.DataFrame({'pk': [1.0, 2.0], 'v': ['a', 'b']})
+        assert lossless['pk'].dtype == np.float64
+        t = pxt.io.import_pandas(p('lossless_pk'), lossless, schema_overrides={'pk': pxt.Int}, primary_key='pk')
+        assert t._get_schema()['pk'] == ts.IntType(nullable=False)
+        assert sorted(row['pk'] for row in t.collect()) == [1, 2]
+
+        # a float64 column with nulls is how pandas represents an integer column that contains nulls
+        with_nulls = pd.DataFrame({'n': [1.0, None], 'v': ['a', 'b']})
+        assert with_nulls['n'].dtype == np.float64
+        t_nulls = pxt.io.import_pandas(p('int_nulls'), with_nulls, schema_overrides={'n': pxt.Int | None})
+        assert t_nulls.order_by(t_nulls.v).collect()['n'] == [1, None]
+
     def test_pandas_errors(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
 

@@ -116,9 +116,13 @@ class InsertableTableProxy(TableProxy):
                 extra_fields=kwargs,
             )
 
-        # source classification/error conditions are shared with the local insert path
+        # source classification/error conditions are shared with the local insert path.
+        # Normalize overrides to ColumnType: schema inference requires instances, not type markers.
         data_source = TableDataConduit.create(
-            source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
+            source,
+            source_format=source_format,
+            src_schema_overrides=self._normalize_schema_overrides(schema_overrides),
+            extra_fields=kwargs,
         )
 
         if isinstance(data_source, QueryTableDataConduit):
