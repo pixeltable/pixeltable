@@ -526,6 +526,7 @@ class LocalTable(Table):
 
         self._validate_column_schema(schema)
         schema = fold_mapping_keys(schema)
+        if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
 
         # a retry loop is necessary because drop column needs it
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
@@ -537,9 +538,7 @@ class LocalTable(Table):
             schema_copy = dict(schema)
 
             # handle existing columns based on if_exists parameter
-            cols_to_ignore = self._ignore_or_drop_existing_columns(
-                list(schema_copy.keys()), IfExistsParam.validated(if_exists, 'if_exists')
-            )
+            cols_to_ignore = self._ignore_or_drop_existing_columns(list(schema_copy.keys()), if_exists_)
             # if all columns to be added already exist and user asked to ignore
             # existing columns, there's nothing to do.
             for cname in cols_to_ignore:
@@ -558,7 +557,7 @@ class LocalTable(Table):
             return UpdateStatus()
 
         assert self._tbl_version is not None
-        get_runtime().catalog.add_columns(self._tbl_version_path, new_cols)
+        get_runtime().catalog.add_columns(self._tbl_version_path, new_cols, if_exists=if_exists_)
         FileCache.get().emit_eviction_warnings()
         # TODO: return the row count here?
         return UpdateStatus()

@@ -2073,11 +2073,33 @@ class Catalog(CatalogBase):
                 f'{subject} {verb} dropped or replaced since update_all() computed its changes; re-run update_all().',
             ) from e
 
-    def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
+    def add_columns(
+        self, tbl: TableVersionPath, cols: list[Column], if_exists: IfExistsParam = IfExistsParam.ERROR
+    ) -> None:
         @retry_md_write_loop(tvps=[tbl], lock_mutable_tree=False)
         def add_fn() -> None:
             tv = self._get_tbl_version(TableVersionKey(tbl.tbl_id, None))
-            md, ops = tv.add_columns_ops(cols)
+            # LocalTable.add_columns() resolved if_exists in a prior transaction. A concurrent writer can
+            # commit the same name in between, so re-validate against this freshly loaded TableVersion.
+            cols_to_add: list[Column] = []
+            for col in cols:
+                if col.name is not None and col.name in tv.cols_by_name:
+                    if if_exists == IfExistsParam.IGNORE:
+                        continue
+                    if if_exists == IfExistsParam.ERROR:
+                        raise excs.AlreadyExistsError(
+                            excs.ErrorCode.COLUMN_ALREADY_EXISTS, f'Duplicate column name: {col.name}'
+                        )
+                    # REPLACE / REPLACE_FORCE dropped the name in the earlier transaction; a concurrent
+                    # writer recreated it. Ask the caller to retry rather than mixing drop+add here.
+                    raise excs.ConcurrencyError(
+                        excs.ErrorCode.CONCURRENT_MODIFICATION,
+                        f'Column {col.name!r} was created by a concurrent operation; please retry.',
+                    )
+                cols_to_add.append(col)
+            if len(cols_to_add) == 0:
+                return
+            md, ops = tv.add_columns_ops(cols_to_add)
             md.tbl_md.pending_stmt = schema.TableStatement.ADD_COLUMNS
             self.write_tbl_md(
                 tbl.tbl_id,
