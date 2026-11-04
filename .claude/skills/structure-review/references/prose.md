@@ -4,14 +4,9 @@ Apply these checks in two places:
 - every comment, docstring, error message and doc line in the diff;
 - every sentence of your own review.
 
-Marcel treats generated prose as a defect. It was the whole reason for a CHANGES_REQUESTED in #1627:
-"Please revise/remove all Claude-generated junk prose, in comments and elsewhere. It's a clear tell of AI
-slop." Other examples are "don't leave llm-generated verbal spew in the code" (#1440) and "Garbled/backwards
-LLM grammar, please fix." (#1593).
-
-When you flag prose, quote the phrase and state which check it fails. Example: `"where media that names no
-destination goes": the noun phrase ends in a verb; say "media without a destination"`. Flag a pattern once,
-with "(here and everywhere else in this PR)".
+A sentence that fails a check below is a defect, not a nit. Quote the phrase and state which check it
+fails. Example: `"where media that names no destination goes": the noun phrase ends in a verb; say "media
+without a destination"`. Flag a pattern once, with "(here and everywhere else in this PR)".
 
 ## Sentence checks
 
@@ -70,9 +65,10 @@ Run these in order on each sentence:
 A TODO states what has to happen, not how the problem arises. Good: "TODO: Catalog needs to discard cached
 TableVersion that references reloaded modules".
 
-## Marcel's words
+## Examples
 
 - "'seam': don't leave llm-generated verbal spew in the code." (#1440)
+- "Garbled/backwards LLM grammar, please fix." (#1593)
 - "\"this process serves\": please remove vacuous filler commentary (what process if not this one?) left by
   Claude (here and everywhere else in this PR)." (#1604)
 - "This looks like LLM trash, commenting on caller logic. Nothing in this function guarantees that it runs

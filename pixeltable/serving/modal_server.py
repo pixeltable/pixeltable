@@ -19,7 +19,7 @@ from pixeltable import exceptions as excs, func
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.exec.expr_eval.modal_client import UdfCallRequest, UdfCallResponse
-from pixeltable.func.globals import resolve_symbol
+from pixeltable.func.symbols import resolve_symbol
 from pixeltable.utils.local_store import TempStore
 
 _logger = logging.getLogger('pixeltable')

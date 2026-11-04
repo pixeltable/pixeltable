@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import sys
-from typing import Any, AsyncIterator, Iterable, cast
+from typing import Any, AsyncGenerator, Iterable, cast
 
 from pixeltable import catalog, exceptions as excs, exprs, telemetry
 
@@ -82,7 +83,7 @@ class AggregationNode(ExecNode):
                 input_vals = [row[d.slot_idx] for d in fn_call.dependencies()]
                 raise excs.ExprEvalError(fn_call, expr_msg, exc, exc_tb, input_vals, row_num) from exc
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         limit = self._resolve_positive_int(self.limit, 'limit') if self.limit is not None else None
         if limit == 0:
             return
@@ -90,29 +91,30 @@ class AggregationNode(ExecNode):
         current_group: list[Any] | None = None  # the values of the group-by exprs
         num_input_rows = 0
         num_output_rows = 0
-        async for row_batch in self.input:
-            self.set_var_slots(row_batch)
-            num_input_rows += len(row_batch)
-            for row in row_batch:
-                group = [row[e.slot_idx] for e in self.group_by] if self.group_by is not None else None
+        async with contextlib.aclosing(aiter(self.input)) as input_iter:
+            async for row_batch in input_iter:
+                self.set_var_slots(row_batch)
+                num_input_rows += len(row_batch)
+                for row in row_batch:
+                    group = [row[e.slot_idx] for e in self.group_by] if self.group_by is not None else None
 
-                if current_group is None:
-                    current_group = group
-                    self._reset_agg_state(0)
+                    if current_group is None:
+                        current_group = group
+                        self._reset_agg_state(0)
 
-                if group != current_group:
-                    # we're entering a new group, emit a row for the previous one
-                    with telemetry.span('pixeltable.agg.finalize', level=telemetry.DEBUG):
-                        self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
-                    self.output_batch.add_row(prev_row)
-                    num_output_rows += 1
-                    if limit is not None and num_output_rows == limit:
-                        yield self.output_batch
-                        return
-                    current_group = group
-                    self._reset_agg_state(0)
-                self._update_agg_state(row, 0)
-                prev_row = row
+                    if group != current_group:
+                        # we're entering a new group, emit a row for the previous one
+                        with telemetry.span('pixeltable.agg.finalize', level=telemetry.DEBUG):
+                            self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
+                        self.output_batch.add_row(prev_row)
+                        num_output_rows += 1
+                        if limit is not None and num_output_rows == limit:
+                            yield self.output_batch
+                            return
+                        current_group = group
+                        self._reset_agg_state(0)
+                    self._update_agg_state(row, 0)
+                    prev_row = row
 
         if prev_row is not None:
             # emit the last group

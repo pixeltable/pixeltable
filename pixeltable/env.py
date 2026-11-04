@@ -1041,7 +1041,7 @@ class Env:
         """Return the udf_resources setting, keyed by each configured UDF's self_path."""
         # pixeltable.func imports this module
         from pixeltable import func
-        from pixeltable.func.globals import resolve_symbol
+        from pixeltable.func.symbols import resolve_symbol
 
         config = Config.get()
         setting = config.get_value('udf_resources', dict)

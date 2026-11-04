@@ -10,7 +10,7 @@ from typing import Any, Callable, Iterator, cast
 
 from pixeltable import env, exceptions as excs, exprs, func, telemetry, telemetry_schemas
 
-from .globals import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
+from .interfaces import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
 from .schedulers import ModalScheduler
 
 _logger = logging.getLogger(__name__)

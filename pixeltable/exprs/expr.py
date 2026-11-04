@@ -18,7 +18,8 @@ from typing_extensions import TypeForm
 from pixeltable import catalog, exceptions as excs, type_system as ts
 
 from .data_row import DataRow
-from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes, LogicalOperator, StringOperator
+from .literal_types import LiteralPythonTypes
+from .operators import ArithmeticOperator, ComparisonOperator, LogicalOperator, StringOperator
 
 if TYPE_CHECKING:
     from pixeltable import exprs, func

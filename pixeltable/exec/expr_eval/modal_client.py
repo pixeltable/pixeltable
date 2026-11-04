@@ -16,7 +16,7 @@ from pixeltable.env import Env, register_client
 from pixeltable.runtime import get_runtime
 from pixeltable.service import proxy_protocol
 
-from .globals import FnCallArgs
+from .interfaces import FnCallArgs
 
 _logger = logging.getLogger('pixeltable')
 

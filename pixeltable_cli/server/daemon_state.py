@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import itertools
+import logging
+import os
+import pathlib
 import threading
 import time
 from typing import Mapping
 
+import pydantic
+
 from pixeltable.config import VAR_ENV_PREFIX, Config, env_var_name
+from pixeltable_cli.client.utils import session_is_live
 from pixeltable_cli.models import InFlightRequest, Method
 from pixeltable_cli.utils import value_fingerprint
+
+_logger = logging.getLogger(__name__)
 
 
 def config_fingerprint() -> dict[str, str]:
@@ -40,6 +48,11 @@ def compare_env_values(other: Mapping[str, str], mine: Mapping[str, str]) -> tup
     return missing, differing
 
 
+class _SavedWorkingDirs(pydantic.BaseModel):
+    project_root: pathlib.Path | None
+    working_dirs: dict[str, str]  # per session id
+
+
 class DaemonState:
     """One daemon process's working directories, requests in flight and config values."""
 
@@ -48,6 +61,7 @@ class DaemonState:
     _next_request_id: itertools.count
     _env_fingerprint: dict[str, str] | None  # None until the values have been recorded
     _wd: dict[str, str]  # working directory per session id
+    _wd_file: str | None  # _save_wd() writes _wd here; None until load_wd()
 
     def __init__(self) -> None:
         self._in_flight = {}
@@ -55,6 +69,23 @@ class DaemonState:
         self._next_request_id = itertools.count()
         self._env_fingerprint = None
         self._wd = {}
+        self._wd_file = None
+
+    def load_wd(self, path: str) -> None:
+        """Restore the working directories saved at path for this project, and save them there from now on."""
+        wd: dict[str, str] = {}
+        try:
+            saved = _SavedWorkingDirs.model_validate_json(pathlib.Path(path).read_bytes())
+            if saved.project_root == Config.get().project_root:
+                wd = {session: uri for session, uri in saved.working_dirs.items() if session_is_live(session)}
+        except FileNotFoundError:
+            pass
+        except (OSError, pydantic.ValidationError):
+            _logger.warning('ignoring the working directories saved in %s', path, exc_info=True)
+        with self._lock:
+            self._wd = wd
+            self._wd_file = path
+            self._save_wd()
 
     def get_wd(self, session: str | None) -> str | None:
         """The working directory of the given session, if it set one."""
@@ -66,10 +97,25 @@ class DaemonState:
     def set_wd(self, session: str, uri: str) -> None:
         with self._lock:
             self._wd[session] = uri
+            self._save_wd()
 
     def clear_wd(self, session: str) -> None:
         with self._lock:
             self._wd.pop(session, None)
+            self._save_wd()
+
+    def _save_wd(self) -> None:
+        """Write _wd to _wd_file. Call it with _lock acquired."""
+        if self._wd_file is None:
+            return
+        tmp = f'{self._wd_file}.tmp'
+        saved = _SavedWorkingDirs(project_root=Config.get().project_root, working_dirs=self._wd)
+        try:
+            pathlib.Path(tmp).write_text(saved.model_dump_json(), encoding='utf-8')
+            os.replace(tmp, self._wd_file)
+        except OSError:
+            # the working directories still apply until the daemon restarts
+            _logger.warning('cannot save the working directories to %s', self._wd_file, exc_info=True)
 
     def begin_request(self, method: Method, path: str) -> int:
         """Register a request as in flight and return the id that end_request() takes."""
