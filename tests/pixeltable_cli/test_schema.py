@@ -235,6 +235,16 @@ class TestSchema:
             env_overrides={**env_overrides, 'PXT_PORT': str(daemon_port)},
         )
         assert [t['resolution'] for t in r.json['tables']] == ['create']
+        # the table now exists, so the update diffs the model against its metadata
+        r = cli(
+            'schema',
+            'update',
+            str(app),
+            target,
+            '--json',
+            env_overrides={**env_overrides, 'PXT_PORT': str(daemon_port)},
+        )
+        assert [t['resolution'] for t in r.json['tables']] == ['up_to_date']
 
         code = f"""
             import datetime

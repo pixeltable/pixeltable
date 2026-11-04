@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import abc
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 from .model import TableSchemaChangeSet
 
@@ -18,7 +18,8 @@ if TYPE_CHECKING:
     from .model import IndexDefinition
     from .path import Path
     from .table import Table
-    from .table_path import TablePath
+    from .table_metadata import TableMetadata
+    from .table_path import TableMdPath, TablePath
 
 
 class CatalogBase(abc.ABC):
@@ -83,6 +84,10 @@ class CatalogBase(abc.ABC):
     def get_table_by_id(
         self, tbl_id: UUID, version: int | None = None, ignore_if_dropped: bool = False
     ) -> Table | None: ...
+
+    @abc.abstractmethod
+    def get_table_paths_md(self, paths: Sequence[Path]) -> list[tuple[TableMdPath, TableMetadata] | None]:
+        """Read the metadata of the tables at `paths` in one transaction, with None for a path without a table."""
 
     @abc.abstractmethod
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None: ...

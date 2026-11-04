@@ -48,7 +48,7 @@ from .locking import (
 from .model import IndexDefinition, TableSchemaChangeSet, prepare_model, prepare_model_updates
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
-from .table_path import TablePath, TableVersionPath
+from .table_path import TableMdPath, TablePath, TableVersionPath
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import DeleteTableMdOp, OpStatus, TableOp
@@ -61,6 +61,7 @@ if TYPE_CHECKING:
     from pixeltable.plan import SampleClause
 
     from .. import exprs
+    from .table_metadata import TableMetadata
 
 
 _logger = logging.getLogger(__name__)
@@ -123,18 +124,13 @@ def _is_retryable_exc(e: BaseException) -> bool:
 
 
 def retry_md_read_loop(
-    *, tbl_keys: Collection[TableVersionKey] | None = None, is_local: bool = True
+    *, tbl_keys: Collection[TableVersionKey] | None = None
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Retry an operation that reads catalog metadata without reading table rows.
 
     `tbl_keys` identifies tables to refresh before running the operation. Any pending operations on those tables
     are finalized first.
-
-    With `is_local=False`, the operation reads a hosted catalog and runs without a local transaction or retries; each
-    of its requests runs in a transaction of its own.
     """
-    if not is_local:
-        return lambda op: op
     return _retry_loop(LockRequest(TblOpClass.MD_READ, read_tbl_keys=tbl_keys))
 
 
@@ -2143,6 +2139,24 @@ class Catalog(CatalogBase):
         # by another process.
         obj._tbl_version_path.clear_cached_md()
         return obj
+
+    def get_table_paths_md(self, paths: Sequence[Path]) -> list[tuple[TableMdPath, TableMetadata] | None]:
+        return [
+            None
+            if export is None
+            else (TableMdPath.from_md(export[0], is_anon_snapshot=False, catalog_uri=ROOT_PATH), export[1])
+            for export in self.get_table_paths_md_export(paths)
+        ]
+
+    @retry_md_read_loop()
+    def get_table_paths_md_export(
+        self, paths: Sequence[Path]
+    ) -> list[tuple[list[TableVersionMd], TableMetadata] | None]:
+        result: list[tuple[list[TableVersionMd], TableMetadata] | None] = []
+        for path in paths:
+            tbl = self.get_table(path, if_not_exists=IfNotExistsParam.IGNORE)
+            result.append(None if tbl is None else (self.read_md_for_export(tbl), tbl.get_metadata()))
+        return result
 
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
         @retry_md_write_loop(paths=[path], lock_path_subtree=True)

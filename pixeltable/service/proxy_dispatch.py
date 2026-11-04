@@ -351,6 +351,10 @@ def _get_table_by_id(request: ProxyRequest) -> list | None:
     return load()
 
 
+def _get_table_paths_md(request: ProxyRequest) -> list:
+    return get_runtime().catalog.get_table_paths_md_export(**proxy_protocol.deserialize_request(request))
+
+
 def _catalog_method(request: ProxyRequest) -> Any:
     """Generic handler for catalog methods whose return value is directly serializable."""
     method = getattr(get_runtime().catalog, request.method)
@@ -669,6 +673,7 @@ _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
     ('CatalogBase', 'update_from_model'): _update_from_model,
     ('CatalogBase', 'get_table'): _get_table,
     ('CatalogBase', 'get_table_by_id'): _get_table_by_id,
+    ('CatalogBase', 'get_table_paths_md'): _get_table_paths_md,
     ('CatalogBase', 'move'): _catalog_method,
     ('CatalogBase', 'drop_table'): _catalog_method,
     ('CatalogBase', 'get_dir_contents'): _catalog_method,
