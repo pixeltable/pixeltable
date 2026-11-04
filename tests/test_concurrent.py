@@ -2,12 +2,11 @@ import sys
 import threading
 import time
 import traceback
-from typing import Any, Callable, Literal, Sequence
+from typing import Callable, Literal, Sequence
 
 import pytest
 
 import pixeltable as pxt
-from pixeltable.catalog import Catalog
 
 from .utils import DatabaseRoot, DummyIterator, pxt_raises, run_workers, validate_update_status
 
@@ -465,39 +464,31 @@ class TestConcurrentOps:
         self._assert_no_errors(errors)
         assert dst.count() == 3
 
-    @pytest.mark.db_roots('local', reason='monkeypatches Catalog.add_columns to inject a TOC/TOU race')
-    @pytest.mark.parametrize('if_exists', ['ignore', 'error'])
+    @pytest.mark.parametrize('if_exists', ['ignore', 'error', 'replace'])
     def test_add_column_if_exists_race(
-        self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch, if_exists: Literal['ignore', 'error']
+        self, db_root: DatabaseRoot, if_exists: Literal['ignore', 'error', 'replace']
     ) -> None:
-        """if_exists is honored when the same name is added between the check and the write.
+        """Concurrent add_column() of the same name honors if_exists and does not raise AssertionError.
 
-        LocalTable.add_columns() resolves if_exists in one transaction, then Catalog.add_columns() writes
-        in a second. A concurrent add of the same name in between must be a no-op for if_exists='ignore'
-        and a user-facing pxt.Error for if_exists='error', never an AssertionError.
+        add_columns() checks if_exists and writes metadata in one transaction, so a second caller
+        waits for ACCESS EXCLUSIVE and then sees the committed name.
         """
         p = db_root.make_catalog_path
         path = p('race_cols')
         t = pxt.create_table(path, {'c1': pxt.Int | None})
         col_name = 'c_new'
-        orig = Catalog.add_columns
-        injected = False
 
-        def add_columns_after_concurrent_add(*args: Any, **kwargs: Any) -> None:
-            nonlocal injected
-            if not injected:
-                injected = True
-                other = pxt.get_table(path)
-                other.add_column(**{col_name: pxt.String | None})
-            orig(*args, **kwargs)
+        def worker(_tid: int) -> None:
+            t.add_column(**{col_name: pxt.String | None}, if_exists=if_exists)
 
-        monkeypatch.setattr(Catalog, 'add_columns', add_columns_after_concurrent_add)
-
-        if if_exists == 'ignore':
-            t.add_column(**{col_name: pxt.String | None}, if_exists='ignore')
+        errors = run_workers(worker, n_threads=2)
+        if if_exists == 'error':
+            assert len(errors) == 1
+            _, exc = errors[0]
+            assert isinstance(exc, pxt.Error)
+            assert exc.error_code is pxt.ErrorCode.COLUMN_ALREADY_EXISTS
+            assert f'Duplicate column name: {col_name}' in str(exc)
         else:
-            with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=f'Duplicate column name: {col_name}'):
-                t.add_column(**{col_name: pxt.String | None}, if_exists='error')
+            self._assert_no_errors(errors)
 
-        assert injected
         assert col_name in pxt.get_table(path).columns()

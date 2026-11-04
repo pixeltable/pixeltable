@@ -2073,48 +2073,23 @@ class Catalog(CatalogBase):
                 f'{subject} {verb} dropped or replaced since update_all() computed its changes; re-run update_all().',
             ) from e
 
-    def add_columns(
-        self, tbl: TableVersionPath, cols: list[Column], if_exists: IfExistsParam = IfExistsParam.ERROR
-    ) -> None:
-        @retry_md_write_loop(tvps=[tbl], lock_mutable_tree=False)
-        def add_fn() -> None:
-            tv = self._get_tbl_version(TableVersionKey(tbl.tbl_id, None))
-            # LocalTable.add_columns() resolved if_exists in a prior transaction. A concurrent writer can
-            # commit the same name in between, so re-validate against this freshly loaded TableVersion.
-            cols_to_add: list[Column] = []
-            for col in cols:
-                if col.name is not None and col.name in tv.cols_by_name:
-                    if if_exists == IfExistsParam.IGNORE:
-                        continue
-                    if if_exists == IfExistsParam.ERROR:
-                        raise excs.AlreadyExistsError(
-                            excs.ErrorCode.COLUMN_ALREADY_EXISTS, f'Duplicate column name: {col.name}'
-                        )
-                    # REPLACE / REPLACE_FORCE dropped the name in the earlier transaction; a concurrent
-                    # writer recreated it. Ask the caller to retry rather than mixing drop+add here.
-                    raise excs.ConcurrencyError(
-                        excs.ErrorCode.CONCURRENT_MODIFICATION,
-                        f'Column {col.name!r} was created by a concurrent operation; please retry.',
-                    )
-                cols_to_add.append(col)
-            if len(cols_to_add) == 0:
-                return
-            md, ops = tv.add_columns_ops(cols_to_add)
-            md.tbl_md.pending_stmt = schema.TableStatement.ADD_COLUMNS
-            self.write_tbl_md(
-                tbl.tbl_id,
-                dir_id=None,
-                tbl_md=md.tbl_md,
-                version_md=md.version_md,
-                schema_version_md=md.schema_version_md,
-                pending_ops=ops,
-            )
+    def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
+        """Write add-column metadata and pending store ops.
 
-        add_fn()
-        # force a reload in order to see the new columns/idxs
-        self._clear_tv_cache(TableVersionKey(tbl.tbl_id, None))
-        self._roll_forward()
-        tbl.clear_cached_md()  # force reload of metadata
+        Caller must be in a metadata write transaction and must call `_roll_forward()` after that
+        transaction commits.
+        """
+        tv = self._get_tbl_version(TableVersionKey(tbl.tbl_id, None))
+        md, ops = tv.add_columns_ops(cols)
+        md.tbl_md.pending_stmt = schema.TableStatement.ADD_COLUMNS
+        self.write_tbl_md(
+            tbl.tbl_id,
+            dir_id=None,
+            tbl_md=md.tbl_md,
+            version_md=md.version_md,
+            schema_version_md=md.schema_version_md,
+            pending_ops=ops,
+        )
 
     def _clear_tv_cache(self, key: TableVersionKey) -> None:
         if key in self._tbl_versions:

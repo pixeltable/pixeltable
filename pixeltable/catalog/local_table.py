@@ -44,7 +44,7 @@ from .globals import (
 from .table import Table
 from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
-from .types import QColumnId
+from .types import QColumnId, TableVersionKey
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
@@ -528,10 +528,13 @@ class LocalTable(Table):
         schema = fold_mapping_keys(schema)
         if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
 
-        # a retry loop is necessary because drop column needs it
-        # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
+        # Check if_exists, drop if needed, and write add-column metadata in this transaction.
+        # _roll_forward() runs after the transaction commits. lock_mutable_tree=True: drop_column()
+        # needs the tree lock.
+        cat = get_runtime().catalog
+
         @retry_md_write_loop(tvps=[self._tbl_version_path], lock_mutable_tree=True)
-        def do_add_columns() -> list[Column] | None:
+        def do_add_columns() -> bool:
             self._check_mutable('add columns to')
 
             # make a copy of schema so del operations below don't modify the caller's dict
@@ -545,20 +548,19 @@ class LocalTable(Table):
                 assert cname in schema_copy
                 del schema_copy[cname]
             if len(schema_copy) == 0:
-                return None
+                return False
             new_cols = [Column.create(name, spec) for name, spec in schema_copy.items()]
             for new_col in new_cols:
                 self._verify_column(new_col)
-            return new_cols
+            cat.add_columns(self._tbl_version_path, new_cols)
+            return True
 
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
-        new_cols = do_add_columns()
-        if new_cols is None:
-            return UpdateStatus()
-
-        assert self._tbl_version is not None
-        get_runtime().catalog.add_columns(self._tbl_version_path, new_cols, if_exists=if_exists_)
-        FileCache.get().emit_eviction_warnings()
+        if do_add_columns():
+            cat._clear_tv_cache(TableVersionKey(self._id, None))
+            cat._roll_forward()
+            self._tbl_version_path.clear_cached_md()
+            FileCache.get().emit_eviction_warnings()
         # TODO: return the row count here?
         return UpdateStatus()
 
