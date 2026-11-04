@@ -25,7 +25,7 @@ VIDEO = 'tests/data/videos/bangkok_half_res.mp4'
 
 
 class ModalCallCounter(logging.Handler):
-    """Counts the Modal calls per UDF path, from ModalPool.call()'s debug line."""
+    """Counts the Modal calls per UDF path, from ModalServerClient.call()'s debug line."""
 
     counts: collections.Counter[str]
 

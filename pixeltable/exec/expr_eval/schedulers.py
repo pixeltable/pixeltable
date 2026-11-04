@@ -7,7 +7,7 @@ import logging
 import math
 import sys
 import time
-from typing import TYPE_CHECKING, Any, Collection
+from typing import Any, Collection
 
 from pixeltable import env, exceptions as excs, func, telemetry, telemetry_schemas
 from pixeltable.config import Config
@@ -16,9 +16,7 @@ from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.http import exponential_backoff, is_retryable_error
 
 from .globals import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
-
-if TYPE_CHECKING:
-    from .modal_app import ModalPool
+from .modal_client import ModalServerClient
 
 _logger = logging.getLogger(__name__)
 
@@ -500,16 +498,13 @@ class ModalScheduler(Scheduler):
 
     _POOL_PREFIX = 'modal:'
 
-    pool: ModalPool
+    client: ModalServerClient
 
     def __init__(self, resource_pool: str, dispatcher: Dispatcher):
         super().__init__(resource_pool, dispatcher)
-        env.Env.get().require_package('modal')
-        from .modal_app import ModalPool  # modal is an optional package
-
         udf_path = resource_pool.removeprefix(self._POOL_PREFIX)
-        self.pool = env.Env.get().get_resource_pool_info(
-            resource_pool, lambda: ModalPool(udf_path, env.Env.get().udf_resources()[udf_path].timeout_seconds)
+        self.client = env.Env.get().get_resource_pool_info(
+            resource_pool, lambda: ModalServerClient(udf_path, env.Env.get().udf_resources()[udf_path].timeout_seconds)
         )
         loop_task = asyncio.create_task(self._main_loop())
         self.dispatcher.register_task(loop_task)
@@ -525,7 +520,7 @@ class ModalScheduler(Scheduler):
 
     async def _main_loop(self) -> None:
         # a failed connect() fails the query; a failed call fails only its rows
-        await self.pool.connect()
+        await self.client.connect()
         while True:
             item = await self.queue.get()
             task = asyncio.create_task(self._exec(item.request, item.exec_ctx))
@@ -548,7 +543,7 @@ class ModalScheduler(Scheduler):
                 ),
                 telemetry_schemas.udf_call(request.pxt_fn),
             ):
-                response = await self.pool.call(request)
+                response = await self.client.call(request)
                 if response.error is not None:
                     raise response.error
         except Exception as exc:
