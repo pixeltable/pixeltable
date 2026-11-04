@@ -25,7 +25,7 @@ from pixeltable.io.pandas import _df_check_primary_key_values, _df_row_to_pxt_ro
 from pixeltable.utils.http import fetch_url
 from pixeltable.utils.pydantic import is_json_convertible
 
-from .utils import normalize_schema_names
+from .schema import normalize_schema_names
 
 _logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ _logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
 
-    from pixeltable.globals import RowData, TableDataSource
+    from pixeltable.api import RowData, TableDataSource
 
 
 class TableDataConduitFormat(str, enum.Enum):
