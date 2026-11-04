@@ -15,7 +15,7 @@ from pixeltable.utils.progress_reporter import ProgressReporter
 from ..data_row_batch import DataRowBatch
 from ..exec_node import ExecNode
 from .evaluators import FnCallEvaluator, NestedRowList
-from .globals import ExprEvalCtx, Scheduler
+from .interfaces import ExprEvalCtx, Scheduler
 from .row_buffer import RowBuffer
 from .schedulers import SCHEDULERS
 
