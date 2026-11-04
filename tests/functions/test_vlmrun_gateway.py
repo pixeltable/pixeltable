@@ -8,6 +8,7 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
+from tests.functions.tool_utils import run_tool_invocations_test
 
 from ..utils import (
     TESTS_DIR,
@@ -99,6 +100,27 @@ class TestVlmrunGateway:
         for col in ('image_answer', 'video_answer'):
             assert row[col]['usage']['cost'] >= 0, col
         assert isinstance(json.loads(row['fields']['choices'][0]['message']['content'])['main_color'], str)
+
+    def test_tool_invocations(self, uses_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('vlmrun_gateway')
+        from pixeltable.functions.openai import invoke_tools
+        from pixeltable.functions.vlmrun_gateway import chat_completions
+
+        def make_table(tools: pxt.func.Tools, tool_choice: pxt.func.ToolChoice) -> pxt.Table:
+            t = pxt.create_table('test_tbl', {'prompt': pxt.String | None}, if_exists='replace')
+            t.add_computed_column(
+                response=chat_completions(
+                    messages=[{'role': 'user', 'content': t.prompt}],
+                    model='qwen/qwen3.8-27b',
+                    tools=tools,
+                    tool_choice=tool_choice,
+                )
+            )
+            t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+            return t
+
+        run_tool_invocations_test(make_table)
 
     def test_ocr(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
