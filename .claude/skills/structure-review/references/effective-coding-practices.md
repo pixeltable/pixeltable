@@ -1,5 +1,3 @@
-<!-- Marcel's guidelines, reproduced verbatim; typography converted to ASCII. The skill's principles build on them. -->
-
 # Effective Coding Practices
 
 ---

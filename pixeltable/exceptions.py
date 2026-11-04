@@ -92,6 +92,7 @@ class ErrorCode(enum.Enum):
     # ConcurrencyError (7xxx)
     SERIALIZATION_FAILURE = 7000, 409, True
     CONCURRENT_MODIFICATION = 7001, 409, True
+    SCHEMA_CHANGE_IN_PROGRESS = 7002, 409, True
 
 
 class Error(Exception):
@@ -166,6 +167,10 @@ class Error(Exception):
         if with_detail and self.detail is not None:
             d['detail'] = self.detail
         return d
+
+    def with_message(self, message: str) -> 'Error':
+        """Return a copy of this error with message, keeping retry_after and subclass fields but not detail."""
+        return Error.from_dict({**self.to_dict(), 'message': message})
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'Error':
@@ -321,8 +326,7 @@ def raise_from_expr_eval_err(e: ExprEvalError) -> NoReturn:
         nl = '\n'
         detail = f'Stack:\n{nl.join(stack_trace[-1:1:-1])}'
     if isinstance(e.exc, Error):
-        # a copy of e.exc with the new message, keeping retry_after and the ExternalServiceError provider fields
-        err: Error = Error.from_dict({**e.exc.to_dict(), 'message': msg})
+        err: Error = e.exc.with_message(msg)
     else:
         err = RequestError(ErrorCode.UNSUPPORTED_OPERATION, msg)
     err.detail = detail

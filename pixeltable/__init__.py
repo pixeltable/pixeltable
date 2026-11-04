@@ -48,7 +48,28 @@ from .func import (
     uda,
     udf,
 )
-from .globals import (
+from .row import CellError, Row, RowBatch
+from .type_system import (
+    UUID,
+    Array,
+    Audio,
+    Binary,
+    Bool,
+    Date,
+    Document,
+    Float,
+    Image,
+    Int,
+    Json,
+    Required,
+    String,
+    Timestamp,
+    Video,
+)
+from .types import FunctionInfo, FunctionKind, FunctionList
+
+# isort: split
+from .api import (
     DirContents,
     DirectoryNode,
     TableKind,
@@ -75,25 +96,6 @@ from .globals import (
     tool,
     tools,
 )
-from .row import CellError, Row, RowBatch
-from .type_system import (
-    UUID,
-    Array,
-    Audio,
-    Binary,
-    Bool,
-    Date,
-    Document,
-    Float,
-    Image,
-    Int,
-    Json,
-    Required,
-    String,
-    Timestamp,
-    Video,
-)
-from .types import FunctionInfo, FunctionKind, FunctionList
 
 # This import must go last to avoid circular imports.
 from . import functions, io, iterators  # isort: skip
@@ -104,6 +106,7 @@ from . import functions, io, iterators  # isort: skip
 __default_dir = {symbol for symbol in dir() if not symbol.startswith('_')}
 __removed_symbols = {
     '_query',
+    'api',
     'catalog',
     'env',
     'exceptions',

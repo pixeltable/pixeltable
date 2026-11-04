@@ -10,10 +10,10 @@ from pixeltable import catalog, exceptions as excs, type_system as ts
 from .column_ref import ColumnRef
 from .data_row import DataRow
 from .expr import Expr
-from .globals import print_slice
 from .json_mapper import JsonMapperDispatch
 from .object_ref import ObjectRef
 from .row_builder import RowBuilder
+from .slices import print_slice
 from .sql_element_cache import SqlElementCache
 
 if TYPE_CHECKING:

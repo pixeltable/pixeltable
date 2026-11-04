@@ -9,8 +9,8 @@ import pixeltable.type_system as ts
 from .column_ref import ColumnRef
 from .data_row import DataRow
 from .expr import Expr
-from .globals import ComparisonOperator
 from .literal import Literal
+from .operators import ComparisonOperator
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 from .variable import Variable

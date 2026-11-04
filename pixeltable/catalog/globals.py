@@ -14,7 +14,7 @@ from pixeltable.types import ColumnSpec
 
 if TYPE_CHECKING:
     from pixeltable import exprs, index
-    from pixeltable.globals import TableDataSource
+    from pixeltable.api import TableDataSource
 
     from .column import Column
     from .types import ColumnVersionMd

@@ -42,18 +42,14 @@ from pixeltable.serving import service
 from pixeltable.types import TreeNode
 from pixeltable.utils.http import parse_duration_str
 from pixeltable_cli import models, types
-from pixeltable_cli.utils import PxtPath, identity
+from pixeltable_cli.utils import PxtPath
 
-from . import bridge
+from . import STARTUP_IDENTITY, bridge
 from .daemon_state import config_fingerprint, state as daemon_state
 from .router import RawResponse, Request, Router
 
 router = Router()
 _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
-
-# Freeze the identity fingerprint at import time so /health reports what the daemon was
-# launched with, not what os.environ looks like right now. Used to trigger a daemon restart.
-_IDENTITY: dict[str, Any] = identity()
 
 
 def _project_root() -> str | None:
@@ -72,7 +68,7 @@ def health(_req: Request) -> models.HealthResponse:
         started_at=_STARTED_AT,
         in_flight=daemon_state.in_flight_requests(),
         project_root=_project_root(),
-        **_IDENTITY,
+        **STARTUP_IDENTITY,
     )
 
 

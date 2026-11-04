@@ -308,6 +308,37 @@ class TestSnapshot:
         v2 = pxt.get_table(p('v2'))
         verify(s1, s2, v1, v2)
 
+    def test_view_of_snapshot_with_columns(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'a': pxt.Int | None})
+        rows = [{'a': 1}, {'a': 2}, {'a': 3}]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+        s = pxt.create_snapshot(p('s'), t, additional_columns={'b': pxt.Int | None})
+        v = pxt.create_view(p('v'), s)
+
+        def verify(t: pxt.Table, s: pxt.Table, v: pxt.Table) -> None:
+            assert s.count() == len(rows)
+            res = v.select(v.a, v.b).order_by(v.a).collect()
+            assert res['a'] == [1, 2, 3]
+            assert res['b'] == [None, None, None]
+            if db_root.id == 'local':  # ViewProxy.get_base_table() is unimplemented
+                v_base = v.get_base_table()
+                assert v_base.columns() == s.columns()
+                assert v_base.count() == len(rows)
+                s_base = s.get_base_table()
+                assert s_base.columns() == ['a']
+                assert s_base.count() == t.count()
+
+        verify(t, s, v)
+
+        # move the base past the version the snapshot pins
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+        assert t.count() == 2 * len(rows)
+        verify(t, s, v)
+
+        reload_catalog()
+        verify(pxt.get_table(p('tbl')), pxt.get_table(p('s')), pxt.get_table(p('v')))
+
     def test_snapshot_of_view_chain(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'a': pxt.Int | None})

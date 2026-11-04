@@ -358,6 +358,8 @@ class TestOpenai:
         assert res[0]['output'] is None
         assert res[0]['tool_calls'] == {'server_state': ['Running (0x4171780)']}
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     @pytest.mark.parametrize('as_retrieval_udf', [False, True])
     def test_query_as_tool(self, as_retrieval_udf: bool, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
@@ -1221,17 +1223,22 @@ class TestOpenaiTypedDictAdherence:
         ours_fields, ours_optional = typed_dict_fields(ImagesResponse)
         sdk_fields = pydantic_model_fields(SdkImagesResponse)
 
-        overrides = {'data'}  # we re-type and guarantee non-null
-        # openai 3.24 no longer declares size; a missing key reads as null, which size allows
-        dropped_by_sdk = {'size'} - set(sdk_fields)
+        # data: re-typed to a non-null list of images.
+        # size: pydantic_model_fields() drops its str | Literal[...] | None annotation; str | None is the mirror.
+        overrides = {'data', 'size'}
         # declared by newer SDKs only, so a response from an older one lacks them
         added_by_sdk = {'safety_identifier'}  # openai>=3.33
-        # whether this SDK declares them comes from its raw fields, since pydantic_model_fields() drops a field whose
-        # annotation it can't convert, and that must fail the comparison below
         absent_from_sdk = added_by_sdk - set(SdkImagesResponse.model_fields)
-        assert set(ours_fields) - dropped_by_sdk - absent_from_sdk == set(sdk_fields), (
-            f'ImagesResponse field set drifted: ours={set(ours_fields)} sdk={set(sdk_fields)}'
+        assert set(ours_fields) - absent_from_sdk == set(SdkImagesResponse.model_fields), (
+            f'ImagesResponse field set drifted: ours={set(ours_fields)} sdk={set(SdkImagesResponse.model_fields)}'
         )
+        # SDK fields we couldn't convert must be in overrides
+        sdk_unconverted = set(SdkImagesResponse.model_fields) - set(sdk_fields)
+        assert sdk_unconverted <= overrides, (
+            f'Unhandled SDK fields (not convertible and not in overrides): {sdk_unconverted - overrides}'
+        )
+        # size is skipped in the loop below, so pin its mirror type here
+        assert self._normalize(ours_fields['size']) == self._normalize(ts.ColumnType.normalize_type(str | None))
         for name, sdk_type in sdk_fields.items():
             if name in overrides:
                 continue

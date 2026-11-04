@@ -14,8 +14,8 @@ from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.config import Config
 from pixeltable.types import FunctionInfo, FunctionKind
 
-from .globals import import_error_msg, resolve_symbol
 from .signature import Signature
+from .symbols import import_error_msg, resolve_symbol
 
 if TYPE_CHECKING:
     from pixeltable import exprs

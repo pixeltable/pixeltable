@@ -20,7 +20,7 @@ from pixeltable.catalog.model import diff
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.func import FunctionRegistry
-from pixeltable.func.globals import load_error_msg
+from pixeltable.func.symbols import load_error_msg
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.project import in_environment
 from pixeltable_cli.types import CheckReport, RouteSpec, ServiceSpec

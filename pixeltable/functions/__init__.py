@@ -6,7 +6,7 @@ This parent module contains general-purpose UDFs that apply to multiple data typ
 
 # ruff: noqa: F401
 
-from pixeltable.functions.util import CodecContextMetadata, ContainerMetadata, StreamMetadata
+from pixeltable.functions.media_metadata import CodecContextMetadata, ContainerMetadata, StreamMetadata
 from pixeltable.utils.code import local_public_names
 
 from . import (
@@ -41,6 +41,7 @@ from . import (
     timestamp,
     together,
     twelvelabs,
+    util,
     uuid,
     video,
     vision,
@@ -52,7 +53,9 @@ from . import (
 )
 from .globals import coalesce, count, filter, map, max, mean, min, sort, sum
 
-__all__ = local_public_names(__name__, exclude=['globals']) + local_public_names(globals.__name__)
+__all__ = local_public_names(__name__, exclude=['globals', 'media_metadata', 'model_support']) + local_public_names(
+    globals.__name__
+)
 
 
 def __dir__() -> list[str]:

@@ -12,7 +12,7 @@ argument-hint: "[<PR URL or number>]"
 
 # Address the review
 
-Digest all open review feedback as a single architectural signal, verify every reviewer claim against the code, and converge on the smallest change that satisfies the requirement. Pair this workflow with [`.claude/skills/challenge-the-design/SKILL.md`](../challenge-the-design/SKILL.md) and [`.claude/skills/articulate-the-abstraction/SKILL.md`](../articulate-the-abstraction/SKILL.md).
+Digest all open review feedback as a single architectural signal, verify every reviewer claim against the code, and converge on the smallest change that satisfies the requirement. Pair this workflow with [`.claude/skills/challenge-the-design/SKILL.md`](../challenge-the-design/SKILL.md) and [`.claude/skills/structure-review/SKILL.md`](../structure-review/SKILL.md).
 
 Never treat review threads as a line-by-line coding checklist. Multiple comments on the same component are evidence that the current abstraction is wrong, not a mandate to add defensive branches, helpers, or configuration flags. Agreement is not the default. Prefer candor and deletion over sycophancy.
 
@@ -52,8 +52,8 @@ Execute changes in strict footprint order so deletions dissolve downstream comme
 
 1. **Apply reverts and deletions first.** Strip rejected helpers, redundant validators, compatibility shims, and speculative branches. Mark remaining comments on deleted code as resolved by removal.
 2. **Apply first-principles replacements second.** Use existing repository primitives and data structures instead of adding new layers, state fields, or flags.
-3. **Apply local root-cause fixes last.** Keep the diff surgical and follow `AGENTS.md` and [`.claude/skills/articulate-the-abstraction/references/pixeltable-rules.md`](../articulate-the-abstraction/references/pixeltable-rules.md).
-4. **Enforce reader-load compression.** Apply the central act of `articulate-the-abstraction`: after your fix, every modified class and function must still be statable in one or two crisp sentences. If a fix does not lower reader load or fix a verified defect, revert it.
+3. **Apply local root-cause fixes last.** Keep the diff surgical and follow `AGENTS.md` and [`.claude/skills/structure-review/references/pixeltable-rules.md`](../structure-review/references/pixeltable-rules.md).
+4. **Enforce reader-load compression.** Apply the central act of `structure-review`: after your fix, every modified class and function must still be statable in one or two crisp sentences. If a fix does not lower reader load or fix a verified defect, revert it.
 
 ## 5. Prove it works and audit the footprint
 
