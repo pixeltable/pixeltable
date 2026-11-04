@@ -12,7 +12,6 @@ from .expr import Expr
 from .expr_dict import ExprDict
 from .expr_set import ExprSet
 from .function_call import FunctionCall
-from .globals import ArithmeticOperator, ComparisonOperator, LogicalOperator
 from .in_predicate import InPredicate
 from .inline_expr import InlineArray, InlineDict, InlineList
 from .is_null import IsNull
@@ -21,6 +20,7 @@ from .json_path import JsonPath
 from .literal import Literal
 from .method_ref import MethodRef
 from .object_ref import ObjectRef
+from .operators import ArithmeticOperator, ComparisonOperator, LogicalOperator
 from .row_builder import ColumnSlotIdx, ExecProfile, RowBuilder
 from .rowid_ref import RowidRef
 from .similarity_expr import SimilarityExpr

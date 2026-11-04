@@ -9,7 +9,7 @@ import pixeltable.type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
-from .globals import StringOperator
+from .operators import StringOperator
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
