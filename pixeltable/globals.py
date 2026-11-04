@@ -220,7 +220,8 @@ def create_table(
     """
     from pixeltable.io.utils import normalize_primary_key_parameter
 
-    if [schema, source, schema_source].count(None) != 2:
+    # compare with `is`, since a DataFrame source raises on ==
+    if sum(arg is not None for arg in (schema, source, schema_source)) != 1:
         raise excs.RequestError(
             excs.ErrorCode.MISSING_REQUIRED, 'Exactly one of `schema`, `source` or `schema_source` must be provided'
         )
@@ -262,6 +263,8 @@ def create_table(
         given_args = [name for name, value in args_from_like_tbl.items() if value is not None]
         if primary_key is not None and len(primary_key) > 0:
             given_args.append('primary_key')
+        if media_validation_ != catalog.MediaValidation.ON_WRITE:
+            given_args.append('media_validation')
         if has_default_idxs:
             given_args.append('has_default_idxs')
         if len(given_args) > 0:

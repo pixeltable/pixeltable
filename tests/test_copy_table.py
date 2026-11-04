@@ -183,6 +183,17 @@ class TestCopyTable:
         """An object that the source stores under its table prefix in a bucket is uploaded, since the source's
         drop_table() and revert() delete that prefix; a remote url outside of it is kept."""
         p = db_root.make_catalog_path
+        # each chunk carries one object
+        monkeypatch.setattr(table_copy, '_MAX_CHUNK_OBJECTS', 1)
+        num_chunks = 0
+        dispatch = TableProxy._dispatch
+
+        def count_chunks(self: TableProxy, method: str, args: dict[str, Any]) -> Any:
+            nonlocal num_chunks
+            num_chunks += method == 'load_store_rows'
+            return dispatch(self, method, args)
+
+        monkeypatch.setattr(TableProxy, '_dispatch', count_chunks)
         img_file = get_image_files()[0]
         downloaded: list[tuple[str, bool]] = []  # (url, whether a transaction is open)
 
@@ -194,15 +205,17 @@ class TestCopyTable:
         monkeypatch.setattr(ObjectOps, 'copy_object_to_local_file', download)
         t = pxt.create_table('src', {'img': pxt.Image})
         prefix = t._id.hex
-        source_url = f's3://bucket/media/{prefix}/ab/abcd/{prefix}_1_1_{uuid.uuid4().hex}.jpg'
+        source_urls = [f's3://bucket/media/{prefix}/ab/abcd/{prefix}_1_1_{uuid.uuid4().hex}.jpg' for _ in range(2)]
         other_url = f's3://bucket/media/{uuid.uuid4().hex}.jpg'
-        t.insert([{'img': source_url}, {'img': other_url}])
+        # the first chunk ends at the first object, and the second chunk holds the second object
+        t.insert([{'img': other_url}, {'img': source_urls[0]}, {'img': source_urls[1]}])
         downloaded.clear()
         t2 = pxt.create_table(p('dst'), source=pxt.get_table('src'))
         # the export's transaction is closed: a download must not hold its locks and snapshot
-        assert downloaded == [(source_url, False)]
+        assert sorted(downloaded) == sorted((url, False) for url in source_urls)
+        assert num_chunks == 2
         urls = t2.select(t2.img.fileurl).collect()['img_fileurl']
-        assert other_url in urls and source_url not in urls
+        assert other_url in urls and set(source_urls).isdisjoint(urls)
         # the copy reads its own bytes of the object
         pxt.drop_table('src')
         FileCache.get().clear()
@@ -256,8 +269,11 @@ class TestCopyTable:
         # arguments that the new table takes from the source table
         for like_arg in ('source', 'schema_source'):
             kwargs = {like_arg: t}
-            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='cannot be combined with `comment`, `primary_key`'):
-                pxt.create_table(p('dst'), primary_key='id', comment='c', **kwargs)
+            with pxt_raises(
+                pxt.ErrorCode.INVALID_ARGUMENT,
+                match='cannot be combined with `comment`, `primary_key`, `media_validation`',
+            ):
+                pxt.create_table(p('dst'), primary_key='id', comment='c', media_validation='on_read', **kwargs)
         # schema_source with another schema
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='Exactly one of `schema`, `source` or `schema_source`'):
             pxt.create_table(p('dst'), {'id': pxt.Int}, schema_source=t)
@@ -296,6 +312,18 @@ class TestCopyTable:
         # in this machine's database, a table like src2 can reference src
         like_src2 = pxt.create_table('like_src2', schema_source=t2)
         assert like_src2.columns() == t2.columns()
+        # ... but a table like src4 cannot take over a @pxt.query that reads src4 itself, in any database
+        t4 = pxt.create_table('src4', {'n': pxt.Int})
+
+        @pxt.query
+        def lookup4(n: int) -> pxt.Query:
+            return t4.where(t4.n == n).select(t4.n)
+
+        t4.add_computed_column(r=lookup4(t4.n))
+        for path in ('like_src4', p('dst')):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="calls a @pxt.query that reads table 'src4'"):
+                pxt.create_table(path, schema_source=t4)
+            assert pxt.get_table(path, if_not_exists='ignore') is None
 
         # a referenced local media file that no longer exists
         img_path = tmp_path / 'img.jpg'
@@ -342,6 +370,20 @@ class TestCopyTable:
             with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='injected failure'):
                 pxt.create_table(p('dst'), source=t, if_exists='replace')
         assert pxt.get_table(p('dst')).collect()['other'] == ['a']
+        assert _temporary_copies(db_root) == []
+
+        # 'ignore' returns a table that was created at the path during the copy, and drops the copy
+        pxt.drop_table(p('dst'))
+
+        def create_dst_before_finish(self: TableProxy, method: str, args: dict[str, Any]) -> Any:
+            if method == 'finish_copy':
+                pxt.create_table(p('dst'), {'other': pxt.String})
+            return dispatch(self, method, args)
+
+        with monkeypatch.context() as m:
+            m.setattr(TableProxy, '_dispatch', create_dst_before_finish)
+            t2 = pxt.create_table(p('dst'), source=t, if_exists='ignore')
+        assert t2.columns() == ['other']
         assert _temporary_copies(db_root) == []
 
         # 'replace' replaces it with the copy
@@ -421,7 +463,7 @@ class TestCopyTable:
             return dispatch(self, method, args)
 
         monkeypatch.setattr(TableProxy, '_dispatch', finish_after_conflict)
-        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="'dst' is an existing table"):
             pxt.create_table(p('dst'), source=pxt.get_table('src'))
         assert pxt.get_table(p('dst')).columns() == ['other']
         assert _temporary_copies(db_root) == []

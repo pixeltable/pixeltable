@@ -59,6 +59,9 @@ _ROW_BATCH_SIZE = 1_000
 # and statement timeout.
 _MAX_CHUNK_ROW_BYTES = 64 * 2**20
 _MAX_CHUNK_MEDIA_BYTES = 512 * 2**20
+# The export bounds the number of bucket objects in a chunk, since it cannot know an object's size before it downloads
+# the object, after the export's transaction.
+_MAX_CHUNK_OBJECTS = 64
 _MAX_UPLOAD_THREADS = 16
 # the number of missing media files an error lists
 _MAX_LISTED_FILES = 5
@@ -256,7 +259,7 @@ class _Chunk:
     # local media files that this chunk is the first to reference: url -> local path
     new_media: dict[str, str] = dataclasses.field(default_factory=dict)
     # urls of the source table's bucket objects that this chunk is the first to reference; they are downloaded for the
-    # chunk's upload, and their size is not part of num_media_bytes
+    # chunk's upload, and _MAX_CHUNK_OBJECTS bounds their number
     new_objects: set[str] = dataclasses.field(default_factory=set)
     # referenced urls of media files that an earlier chunk uploaded
     prev_media: set[str] = dataclasses.field(default_factory=set)
@@ -315,7 +318,11 @@ class _TableExport:
         self.num_rows += 1
         if len(self._batch) >= _ROW_BATCH_SIZE:
             self._write_batch()
-        if self._chunk.num_row_bytes >= _MAX_CHUNK_ROW_BYTES or self._chunk.num_media_bytes >= _MAX_CHUNK_MEDIA_BYTES:
+        if (
+            self._chunk.num_row_bytes >= _MAX_CHUNK_ROW_BYTES
+            or self._chunk.num_media_bytes >= _MAX_CHUNK_MEDIA_BYTES
+            or len(self._chunk.new_objects) >= _MAX_CHUNK_OBJECTS
+        ):
             self._finish_chunk()
 
     def finish(self) -> None:
@@ -377,11 +384,15 @@ class _TableExport:
 
 def _referenced_tbl_ids(expr: exprs.Expr) -> set[uuid.UUID]:
     """The ids of the tables that expr references, including through a @pxt.query at any depth."""
+    return exprs.Expr.list_tbl_ids(expr.subexprs()) | _queried_tbl_ids(expr)
+
+
+def _queried_tbl_ids(expr: exprs.Expr) -> set[uuid.UUID]:
+    """The ids of the tables that the @pxt.query calls in expr read, at any depth."""
     # Expr.tbl_ids() adds a @pxt.query's tables only for the call itself, and Query.referenced_tbl_ids() calls it
-    # only on clause roots, so visit every subexpr of expr and of each template query
+    # only on clause roots, so visit every subexpr of each template query
     ids: set[uuid.UUID] = set()
     for e in expr.subexprs():
-        ids |= e.tbl_ids()
         if isinstance(e, exprs.FunctionCall) and isinstance(e.fn, func.QueryTemplateFunction):
             assert e.fn.template_query is not None
             for clause_expr in e.fn.template_query._component_exprs():
@@ -480,7 +491,9 @@ def copy_table(
                 uploaded.update(result)
                 for path in downloads.values():
                     FsPath(path).unlink()
-            copy._dispatch('finish_copy', {'num_rows': export.num_rows, 'dest_path': dest_path, 'if_exists': if_exists})
+            is_moved = copy._dispatch(
+                'finish_copy', {'num_rows': export.num_rows, 'dest_path': dest_path, 'if_exists': if_exists}
+            )
         except BaseException as e:
             try:
                 dest_catalog.drop_table(tmp_path, IfNotExistsParam.IGNORE, force=False)
@@ -488,11 +501,14 @@ def copy_table(
                 _logger.warning(f'Failed to drop the incomplete copy {tmp_path!r}', exc_info=True)
                 e.add_note(f'The incomplete copy {tmp_path!r} remains; drop it with pxt.drop_table().')
             raise
+        if not is_moved:
+            # if_exists='ignore', and a table was created at dest_path during the copy
+            dest_catalog.drop_table(tmp_path, IfNotExistsParam.IGNORE, force=False)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
     result_tbl = dest_catalog.get_table(dest_path, IfNotExistsParam.ERROR)
     assert result_tbl is not None
-    return result_tbl, True
+    return result_tbl, is_moved
 
 
 def create_table_like(
@@ -513,6 +529,13 @@ def create_table_like(
         spec: ColumnSpec = {}
         if col.value_expr is None:
             spec['type'] = col.col_type  # type: ignore[typeddict-item]
+        elif tbl._id in _queried_tbl_ids(col.value_expr):
+            # the query's template is bound to tbl, so the new table would read tbl instead of itself
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Cannot create a table like {tbl._display_str()}: the computed column {col.name!r} calls a @pxt.query '
+                f'that reads {tbl._display_str()} itself.',
+            )
         else:
             # A reference to a column of tbl becomes a reference by name, which the new table resolves to its own
             # column. For example, t.s.upper() becomes ColumnRefByName('s').upper().
@@ -627,12 +650,13 @@ def load_store_rows(
     return placed_media
 
 
-def finish_copy(tbl: InsertableTable, num_rows: int, dest_path: Path, if_exists: IfExistsParam) -> None:
+def finish_copy(tbl: InsertableTable, num_rows: int, dest_path: Path, if_exists: IfExistsParam) -> bool:
     """Finish tbl, a copy in progress that load_store_rows() filled: check that it holds num_rows rows, clear its mark
     and move it to dest_path, in one transaction, so that no other write reaches it before it is at dest_path.
 
-    With if_exists 'replace' or 'replace_force', the same transaction drops the table at dest_path, so that a failed
-    copy leaves that table as it was.
+    The same transaction applies if_exists to a table at dest_path, so that a failed copy leaves that table as it was.
+
+    Returns whether tbl is at dest_path. It is not when if_exists is 'ignore' and a table is at dest_path.
     """
     from .catalog import retry_md_write_loop
 
@@ -642,10 +666,10 @@ def finish_copy(tbl: InsertableTable, num_rows: int, dest_path: Path, if_exists:
     is_replace = if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
 
     @retry_md_write_loop(paths=[tbl_path, dest_path], lock_path_subtree=is_replace)
-    def finish() -> None:
+    def finish() -> bool:
         dest_obj = cat._get_schema_object(dest_path)
         if dest_obj is not None and dest_obj._id == tbl._id:
-            return  # the client repeats a call that committed (it retries a 5xx)
+            return True  # the client repeats a call that committed (it retries a 5xx)
         tbl_md = _check_copy_in_progress(tbl._id, 'finish_copy')
         stmt = sql.select(sql.func.count()).select_from(tbl._tbl_version.get().store_tbl.sa_tbl)
         num_stored_rows = get_runtime().conn.execute(stmt).scalar_one()
@@ -655,14 +679,15 @@ def finish_copy(tbl: InsertableTable, num_rows: int, dest_path: Path, if_exists:
                 f'finish_copy(): {tbl_md.name!r} holds {num_stored_rows} rows, not the {num_rows} rows of the copied '
                 'table',
             )
+        if cat._handle_path_collision(dest_path, InsertableTable, False, if_exists) is not None:
+            return False
         del tbl_md.additional_md[_COPY_IN_PROGRESS]
         cat.write_tbl_md(tbl._id, None, tbl_md, None, None)
         cat._clear_tv_cache(key)
-        if is_replace:
-            cat._handle_path_collision(dest_path, InsertableTable, False, if_exists)
         cat._move(tbl_path, dest_path, IfExistsParam.ERROR, IfNotExistsParam.ERROR)
+        return True
 
-    finish()
+    return finish()
 
 
 def _iter_rows(rows_file: str, columns: list[str] | None = None) -> Iterable[list[dict[str, Any]]]:
