@@ -21,7 +21,7 @@ from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 from pixeltable.utils.local_store import TempStore
 
-from . import util
+from . import media_metadata as util
 
 
 @pxt.udf(is_method=True, run_in_thread=True)

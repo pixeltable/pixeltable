@@ -12,7 +12,7 @@ import PIL.Image
 import pixeltable as pxt
 import pixeltable.utils.av as av_utils
 from pixeltable.env import Env
-from pixeltable.functions import util
+from pixeltable.functions import media_metadata as util
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 

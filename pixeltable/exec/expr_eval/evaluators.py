@@ -14,7 +14,7 @@ import PIL.Image
 import pixeltable.type_system as ts
 from pixeltable import env, exceptions as excs, exprs, func, telemetry, telemetry_schemas
 
-from .globals import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
+from .interfaces import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
 
 _logger = logging.getLogger(__name__)
 

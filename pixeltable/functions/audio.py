@@ -17,7 +17,7 @@ from pixeltable.utils import av as av_utils
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 
-from . import util
+from . import media_metadata as util
 
 _logger = logging.getLogger(__name__)
 

@@ -9,8 +9,8 @@ import pixeltable.type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
-from .globals import print_slice
 from .row_builder import RowBuilder
+from .slices import print_slice
 from .sql_element_cache import SqlElementCache
 
 
