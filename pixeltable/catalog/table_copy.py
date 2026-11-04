@@ -389,13 +389,16 @@ def _referenced_tbl_ids(expr: exprs.Expr) -> set[uuid.UUID]:
 
 def _queried_tbl_ids(expr: exprs.Expr) -> set[uuid.UUID]:
     """The ids of the tables that the @pxt.query calls in expr read, at any depth."""
-    # Expr.tbl_ids() adds a @pxt.query's tables only for the call itself, and Query.referenced_tbl_ids() calls it
-    # only on clause roots, so visit every subexpr of each template query
+    # referenced_tbl_keys() holds the FROM tables, which a template such as t.limit(n) reads with no ColumnRef. It
+    # visits only the clause roots, so the subexprs of each clause are visited as well, for a @pxt.query that a clause
+    # calls.
     ids: set[uuid.UUID] = set()
     for e in expr.subexprs():
         if isinstance(e, exprs.FunctionCall) and isinstance(e.fn, func.QueryTemplateFunction):
-            assert e.fn.template_query is not None
-            for clause_expr in e.fn.template_query._component_exprs():
+            template_query = e.fn.template_query
+            assert template_query is not None
+            ids |= {key.tbl_id for key in template_query.referenced_tbl_keys()}
+            for clause_expr in template_query._component_exprs():
                 ids |= _referenced_tbl_ids(clause_expr)
     return ids
 

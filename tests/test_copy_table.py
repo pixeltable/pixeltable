@@ -319,11 +319,24 @@ class TestCopyTable:
         def lookup4(n: int) -> pxt.Query:
             return t4.where(t4.n == n).select(t4.n)
 
-        t4.add_computed_column(r=lookup4(t4.n))
-        for path in ('like_src4', p('dst')):
-            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="calls a @pxt.query that reads table 'src4'"):
-                pxt.create_table(path, schema_source=t4)
-            assert pxt.get_table(path, if_not_exists='ignore') is None
+        # reads src4 only through its FROM clause
+        @pxt.query
+        def first_rows4(n: int) -> pxt.Query:
+            return t4.limit(n)
+
+        @pxt.query
+        def other_rows4(n: int) -> pxt.Query:
+            return t4.where(t4.n != n).select()
+
+        for query in (lookup4, first_rows4, other_rows4):
+            t4.add_computed_column(r=query(t4.n))
+            for path in ('like_src4', p('dst')):
+                with pxt_raises(
+                    pxt.ErrorCode.UNSUPPORTED_OPERATION, match="calls a @pxt.query that reads table 'src4'"
+                ):
+                    pxt.create_table(path, schema_source=t4)
+                assert pxt.get_table(path, if_not_exists='ignore') is None
+            t4.drop_column('r')
 
         # a referenced local media file that no longer exists
         img_path = tmp_path / 'img.jpg'
