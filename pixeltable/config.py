@@ -1062,7 +1062,6 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
     'veo': {'rate_limits': 'Per-model rate limits for Veo API requests'},
     'vlmrun': {'api_key': 'VLM Run API key'},
     'vlmrun_gateway': {
-        'api_key': 'VLM Run API key for the Gateway (default: the vlmrun api_key)',
         'base_url': 'VLM Run Gateway base URL (default: https://gateway.vlm.run/v1/openai)',
         'rate_limit': 'Rate limit for VLM Run Gateway requests',
     },

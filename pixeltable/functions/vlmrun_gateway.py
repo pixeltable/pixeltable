@@ -4,8 +4,7 @@ Pixeltable UDFs that wrap the VLM Run Gateway API.
 The VLM Run Gateway is an OpenAI-compatible API in front of vision and speech models for OCR, visual question
 answering, detection, segmentation, pose estimation, embeddings and speech-to-text. In order to use it, you must
 first `pip install openai` and configure your VLM Run API key, either as the `VLMRUN_API_KEY` environment variable
-or as `api_key` in the `vlmrun` section of the Pixeltable config file. To use a separate key for the Gateway, set
-`VLMRUN_GATEWAY_API_KEY` or `api_key` in the `vlmrun_gateway` section. For details, see the
+or as `api_key` in the `vlmrun` section of the Pixeltable config file. For details, see the
 [VLM Run Gateway documentation](https://docs.vlm.run/gateway/introduction).
 """
 
@@ -82,22 +81,23 @@ class TranscriptionResponse(TypedDict, total=False):
 _EMBEDDING_DIMENSIONS = {'qwen/qwen3-vl-embedding-2b': 2048, 'google/embeddinggemma-2': 768}
 
 
-@register_client('vlmrun_gateway', credential_param='api_key')
-def _(api_key: str | None = None, base_url: str | None = None) -> 'openai.AsyncOpenAI':
+# The key is read from the `vlmrun` section, so one VLM Run key serves every VLM Run integration. The client keeps its
+# own name because its `base_url` and `rate_limit` belong to the Gateway: `VLMRUN_BASE_URL` is the vlmrun SDK's
+# setting for api.vlm.run.
+@register_client('vlmrun_gateway', credential_param=None)
+def _(base_url: str | None = None) -> 'openai.AsyncOpenAI':
     Env.get().require_package('openai', [3])
 
     import httpx2
     import openai
 
-    if api_key is None:
-        # The vlmrun section holds the account's VLM Run key; the Gateway uses it unless it has its own.
-        api_key = Config.get().get_string_value('api_key', section='vlmrun')
+    api_key = Config.get().get_string_value('api_key', section='vlmrun')
     if api_key is None:
         raise excs.AuthorizationError(
             excs.ErrorCode.MISSING_CREDENTIALS,
             '`vlmrun_gateway` client not initialized: no VLM Run API key is configured.\n'
             'To fix this, set the `VLMRUN_API_KEY` environment variable, or put `api_key` in the `vlmrun` section '
-            'of $PIXELTABLE_HOME/config.toml. Set `VLMRUN_GATEWAY_API_KEY` to use a separate key for the Gateway.',
+            'of $PIXELTABLE_HOME/config.toml.',
         )
     return openai.AsyncOpenAI(
         api_key=api_key,
