@@ -15,7 +15,7 @@ from pixeltable.utils import fault_injection
 from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.http import exponential_backoff, is_retryable_error
 
-from .globals import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
+from .interfaces import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
 
 _logger = logging.getLogger(__name__)
 

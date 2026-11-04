@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, AsyncIterator
+from typing import TYPE_CHECKING, AsyncGenerator
 
 import sqlalchemy as sql
 
@@ -70,7 +70,7 @@ class SqlDataNode(ExecNode):
             self.sql_source.select_stmt, execution_options={'stream_results': True}
         )
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         assert self._result is not None
         output_batch = DataRowBatch(self.row_builder)
         for sa_row in self._result:

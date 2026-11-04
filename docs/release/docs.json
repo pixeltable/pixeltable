@@ -324,12 +324,8 @@
           {
             "group": "Built-in Integrations",
             "pages": [
-              "integrations/frameworks"
-            ]
-          },
-          {
-            "group": "Agent frameworks",
-            "pages": [
+              "integrations/frameworks",
+              "integrations/dspy",
               "integrations/pydantic-ai"
             ]
           },

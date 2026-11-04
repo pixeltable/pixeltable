@@ -333,6 +333,8 @@ extraPaths = ["packages/opentelemetry-instrumentation-pixeltable/src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = '-v -m "not remote_api and not expensive and not very_expensive and not benchmark and not otel" --strict-markers'
+# Dump all thread stacks when a test runs longer than this many seconds; the test keeps running
+faulthandler_timeout = 600
 markers = [
     "expensive: marks tests as expensive to run",
     "very_expensive: marks tests as very expensive to run, or as depending on an unreliable external service",
