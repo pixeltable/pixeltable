@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from pixeltable.catalog import LocalTable
     from pixeltable.catalog.types import TableVersionMd
     from pixeltable.catalog.update_status import UpdateStatus
+    from pixeltable.utils.description_helper import DescriptionHelper
 
 
 def handle(request_json: str, request_parts: list[bytes], *, include_error_detail: bool = False) -> bytes:
@@ -608,6 +609,19 @@ def _describe(request: ProxyRequest, tbl: LocalTable) -> Any:
     return {'str': helper.to_string(), 'html': helper.to_html()}
 
 
+def _column_repr(request: ProxyRequest, tbl: LocalTable) -> Any:
+    return _column_description(request, tbl).to_string()
+
+
+def _column_repr_html(request: ProxyRequest, tbl: LocalTable) -> Any:
+    return _column_description(request, tbl).to_html()
+
+
+def _column_description(request: ProxyRequest, tbl: LocalTable) -> DescriptionHelper:
+    kwargs = _deserialize_args(request)
+    return tbl._column_description(kwargs['column'], Path.parse(kwargs['catalog_uri'], allow_empty_path=True))
+
+
 def _build_query(query_dict: dict) -> Query:
     # from_dict() loads metadata
     @retry_md_read_loop()
@@ -701,6 +715,8 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'get_metadata'): _get_metadata,
     ('Table', '_path'): _get_path,
     ('Table', 'describe'): _describe,
+    ('Table', '_column_repr'): _column_repr,
+    ('Table', '_column_repr_html'): _column_repr_html,
     ('Table', 'list_views'): _list_views,
     ('Table', 'get_versions'): _get_versions,
     ('Table', 'insert'): _insert,

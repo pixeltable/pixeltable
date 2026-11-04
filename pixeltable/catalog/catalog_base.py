@@ -92,7 +92,7 @@ class CatalogBase(abc.ABC):
 
     @abc.abstractmethod
     def get_dir_contents(
-        self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False
+        self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False, with_base_paths: bool = False
     ) -> dict[str, DirEntry]: ...
 
     @abc.abstractmethod

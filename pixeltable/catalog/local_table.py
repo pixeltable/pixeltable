@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import builtins
+import dataclasses
 import datetime
 import logging
 from pathlib import Path
@@ -41,6 +42,7 @@ from .globals import (
     fold_mapping_keys,
     is_valid_identifier,
 )
+from .path import ROOT_PATH
 from .table import Table
 from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
@@ -366,6 +368,32 @@ class LocalTable(Table):
                 helper.append(f'Comment: {self._get_comment()}')
             if self._get_custom_metadata():
                 helper.append(f'Custom Metadata: {Formatter.summarize_json(self._get_custom_metadata())}')
+            return helper
+
+        return retrying_read(op, tbl_keys=self._tbl_version_path.tbl_keys)
+
+    def _column_repr(self, column: ColumnRef) -> str:
+        return self._column_description(column).to_string()
+
+    def _column_repr_html(self, column: ColumnRef) -> str:
+        return self._column_description(column).to_html()
+
+    def _column_description(self, column: ColumnRef, catalog_uri: pxt.catalog.Path = ROOT_PATH) -> DescriptionHelper:
+        from pixeltable.catalog import retrying_read
+
+        def op() -> DescriptionHelper:
+            col_name = column.col_md.name
+            owner = get_runtime().catalog.get_table_by_id(column.col_md.qcolid.tbl_id)
+            assert owner is not None
+            owner_path = dataclasses.replace(owner._path(), org=catalog_uri.org, db=catalog_uri.db)
+            # TODO: is this what we want? it's printing the path of the containing table, not of the context table
+            helper = DescriptionHelper()
+            helper.append(f'Column\n{col_name!r}\n(of table {owner_path!r})')
+            col_df, _ = owner._col_descriptor([col_name])
+            helper.append(col_df)
+            idxs = owner._index_descriptor([col_name])
+            if len(idxs) > 0:
+                helper.append(idxs)
             return helper
 
         return retrying_read(op, tbl_keys=self._tbl_version_path.tbl_keys)

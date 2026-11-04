@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from typing import TYPE_CHECKING, Any, Mapping
 from uuid import UUID
 
@@ -174,13 +175,27 @@ class CatalogProxy(CatalogBase):
         )
 
     def get_dir_contents(
-        self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False
+        self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False, with_base_paths: bool = False
     ) -> dict[str, DirEntry]:
-        return self.client.send_request(
+        dir_entries: dict[str, DirEntry] = self.client.send_request(
             'CatalogBase',
             'get_dir_contents',
-            {'dir_path': dir_path, 'recursive': recursive, 'with_error_counts': with_error_counts},
+            {
+                'dir_path': dir_path,
+                'recursive': recursive,
+                'with_error_counts': with_error_counts,
+                'with_base_paths': with_base_paths,
+            },
         )
+        self._rebase_base_paths(dir_entries)
+        return dir_entries
+
+    def _rebase_base_paths(self, dir_entries: dict[str, DirEntry]) -> None:
+        # the server returns in-db paths
+        for entry in dir_entries.values():
+            if entry.base_path is not None:
+                entry.base_path = dataclasses.replace(entry.base_path, org=self.catalog_uri.org, db=self.catalog_uri.db)
+            self._rebase_base_paths(entry.dir_entries)
 
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
         return self.client.send_request(

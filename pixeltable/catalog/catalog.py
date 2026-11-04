@@ -123,13 +123,18 @@ def _is_retryable_exc(e: BaseException) -> bool:
 
 
 def retry_md_read_loop(
-    *, tbl_keys: Collection[TableVersionKey] | None = None
+    *, tbl_keys: Collection[TableVersionKey] | None = None, is_local: bool = True
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Retry an operation that reads catalog metadata without reading table rows.
 
     `tbl_keys` identifies tables to refresh before running the operation. Any pending operations on those tables
     are finalized first.
+
+    With `is_local=False`, the operation reads a hosted catalog and runs without a local transaction or retries; each
+    of its requests runs in a transaction of its own.
     """
+    if not is_local:
+        return lambda op: op
     return _retry_loop(LockRequest(TblOpClass.MD_READ, read_tbl_keys=tbl_keys))
 
 
@@ -380,8 +385,9 @@ class Catalog(CatalogBase):
         finally:
             self._tbl_md_read_allowed = False
 
+    @classmethod
     @contextmanager
-    def freeze(self) -> Iterator[None]:
+    def freeze(cls) -> Iterator[None]:
         """Prevent write transactions in this thread.
 
         Unaffected: reads and writes from other threads.
@@ -1388,14 +1394,21 @@ class Catalog(CatalogBase):
 
     @retry_md_read_loop()
     def get_dir_contents(
-        self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False
+        self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False, with_base_paths: bool = False
     ) -> dict[str, DirEntry]:
         dir = self._get_schema_object(dir_path, expected=Dir, raise_if_not_exists=True)
         error_counts = self._table_error_counts() if with_error_counts else None
-        return self._get_dir_contents(dir._id, recursive=recursive, error_counts=error_counts)
+        return self._get_dir_contents(
+            dir._id, recursive=recursive, error_counts=error_counts, with_base_paths=with_base_paths
+        )
 
     def _get_dir_contents(
-        self, dir_id: UUID, recursive: bool = False, *, error_counts: dict[UUID, int] | None = None
+        self,
+        dir_id: UUID,
+        recursive: bool = False,
+        *,
+        error_counts: dict[UUID, int] | None = None,
+        with_base_paths: bool = False,
     ) -> dict[str, DirEntry]:
         """Returns a dict mapping the entry names to DirEntry objects"""
         conn = get_runtime().conn
@@ -1407,7 +1420,9 @@ class Catalog(CatalogBase):
             dir = schema.Dir(**row._mapping)
             dir_contents: dict[str, DirEntry] = {}
             if recursive:
-                dir_contents = self._get_dir_contents(dir.id, recursive=True, error_counts=error_counts)
+                dir_contents = self._get_dir_contents(
+                    dir.id, recursive=True, error_counts=error_counts, with_base_paths=with_base_paths
+                )
             result[dir.md['name']] = DirEntry(dir=dir, dir_entries=dir_contents, table=None)
 
         q = sql.select(schema.Table).where(active_tbl_clause(dir_id=dir_id))
@@ -1415,7 +1430,19 @@ class Catalog(CatalogBase):
         for row in rows:
             tbl = schema.Table(**row._mapping)
             err_count = error_counts.get(tbl.id, 0) if error_counts is not None else None
-            result[tbl.md['name']] = DirEntry(dir=None, dir_entries={}, table=tbl, table_error_count=err_count)
+
+            base_path: Path | None = None
+            if with_base_paths and tbl.md['view_md'] is not None:
+                base_id, base_version = tbl.md['view_md']['base_versions'][0]
+                base_q = sql.select(schema.Table.dir_id, schema.Table.md['name'].astext).where(
+                    schema.Table.id == UUID(base_id)
+                )
+                base_dir_id, base_name = conn.execute(base_q).one()
+                base_path = dataclasses.replace(lookup_dir_path(base_dir_id).append(base_name), version=base_version)
+
+            result[tbl.md['name']] = DirEntry(
+                dir=None, dir_entries={}, table=tbl, table_error_count=err_count, base_path=base_path
+            )
 
         return result
 

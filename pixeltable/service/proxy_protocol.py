@@ -491,7 +491,7 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
             'v': {f.name: _serialize(getattr(obj, f.name), InlinePartSink()) for f in dataclasses.fields(obj)},
         }
     if isinstance(obj, DirEntry):
-        # only the fields any get_dir_contents() consumer reads: dir presence, table id/md, error count
+        # only the fields read by get_dir_contents() callers: dir presence, table id/md, error count, base path
         return {
             _TAG: 'DirEntry',
             'v': {
@@ -499,6 +499,7 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
                 'table': None if obj.table is None else {'id': _serialize(obj.table.id, sink), 'md': obj.table.md},
                 'dir_entries': {name: _serialize(child, sink) for name, child in obj.dir_entries.items()},
                 'table_error_count': obj.table_error_count,
+                'base_path': _serialize(obj.base_path, sink),
             },
         }
     if isinstance(obj, UpdateStatus):
@@ -745,6 +746,7 @@ def _deserialize(
                     id=_deserialize(table['id'], binary_parts, uploaded_names, remote_parts), md=table['md']
                 ),
                 table_error_count=v['table_error_count'],
+                base_path=_deserialize(v['base_path'], binary_parts, uploaded_names, remote_parts),
             )
         if tag == 'UpdateStatus':
             d = dict(v)

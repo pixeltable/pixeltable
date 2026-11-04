@@ -187,6 +187,12 @@ class TableProxy(Table):
     def _repr_html_(self) -> str:
         return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri_str})['html']
 
+    def _column_repr(self, column: ColumnRef) -> str:
+        return self._dispatch('_column_repr', {'column': column, 'catalog_uri': self._catalog_uri.uri_str})
+
+    def _column_repr_html(self, column: ColumnRef) -> str:
+        return self._dispatch('_column_repr_html', {'column': column, 'catalog_uri': self._catalog_uri.uri_str})
+
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset': ...
 
     def to_coco_dataset(self) -> Path: ...
