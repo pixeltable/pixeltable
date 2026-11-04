@@ -988,12 +988,10 @@ def ls(path: str = '') -> pd.DataFrame:
 
     path_obj = catalog.Path.parse(path, allow_empty_path=True)
     cat = get_runtime().get_catalog(path_obj)
-    dir_entries = cat.get_dir_contents(path_obj)
 
-    @retry_md_read_loop(is_local=path_obj.is_local)
     def op() -> list[list[str]]:
         rows: list[list[str]] = []
-        for name, entry in dir_entries.items():
+        for name, entry in cat.get_dir_contents(path_obj).items():
             if entry.dir is not None:
                 kind = 'dir'
                 version = ''
@@ -1014,7 +1012,8 @@ def ls(path: str = '') -> pd.DataFrame:
             rows.append([name, kind, version, base])
         return rows
 
-    rows = op()
+    # a hosted catalog answers each request in a transaction of its own
+    rows = retry_md_read_loop()(op)() if path_obj.is_local else op()
 
     rows = sorted(rows, key=lambda x: x[0])
     df = pd.DataFrame(

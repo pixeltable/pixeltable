@@ -315,6 +315,27 @@ class TestTimeZone:
         _reset_env(reinit=False, db_name=None)
 
 
+class TestEnsureConnected:
+    def test_failed_connect_starts_over(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        reset_runtime()
+        Config.init(reinit=True)
+        Env._init_env(reinit_db=False, connect=False)
+        env = Env.get()
+
+        def fail(self: Env) -> None:
+            raise RuntimeError('upgrade failed')
+
+        monkeypatch.setattr(Env, '_upgrade_metadata', fail)
+        with pytest.raises(RuntimeError, match='upgrade failed'):
+            env.ensure_connected()
+        assert env._sa_engine is None and env._db_url is None and env._dbms is None
+
+        monkeypatch.undo()
+        env.ensure_connected()
+        assert env.engine is not None
+        _reset_env(reinit=False, db_name=None)
+
+
 class TestPgdataDir:
     def test_pgdata_dir(self, uses_db: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """The embedded server runs in PIXELTABLE_PGDATA unless a config override names another directory."""

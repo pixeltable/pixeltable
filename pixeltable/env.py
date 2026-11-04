@@ -513,36 +513,44 @@ class Env:
         with self._db_lock:
             if self._db_connected:
                 return
-            self._init_db(Config.get())
+            try:
+                self._init_db(Config.get())
 
-            if reinit_db and not self.is_local:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    'Reinitializing pixeltable database is not supported when running in non-local environment',
-                )
+                if reinit_db and not self.is_local:
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        'Reinitializing pixeltable database is not supported when running in non-local environment',
+                    )
 
-            if self.is_local:
-                # Embedded postmaster: create or reset the database as needed.
-                if reinit_db and self._store_db_exists(self._db_name):
-                    self._drop_store_db()
+                if self.is_local:
+                    # Embedded postmaster: create or reset the database as needed.
+                    if reinit_db and self._store_db_exists(self._db_name):
+                        self._drop_store_db()
 
-                create_db = not self._store_db_exists(self._db_name)
-                if create_db:
-                    _logger.info(f'creating database at: {self.redacted_db_url}')
-                    self._create_store_db()
+                    create_db = not self._store_db_exists(self._db_name)
+                    if create_db:
+                        _logger.info(f'creating database at: {self.redacted_db_url}')
+                        self._create_store_db()
+                    else:
+                        _logger.info(f'found database at: {self.redacted_db_url}')
                 else:
-                    _logger.info(f'found database at: {self.redacted_db_url}')
-            else:
-                # External DB: pre-provisioned; no local setup needed.
-                _logger.info(f'Using external database at: {self.redacted_db_url}')
+                    # External DB: pre-provisioned; no local setup needed.
+                    _logger.info(f'Using external database at: {self.redacted_db_url}')
 
-            self._create_engine()
+                self._create_engine()
 
-            # Create catalog tables and system metadata
-            self._init_metadata()
+                # Create catalog tables and system metadata
+                self._init_metadata()
 
-            self.console_logger.info(f'Connected to Pixeltable database at: {self.redacted_db_url}')
-            self._upgrade_metadata()
+                self.console_logger.info(f'Connected to Pixeltable database at: {self.redacted_db_url}')
+                self._upgrade_metadata()
+            except BaseException:
+                # is_local and db_url must not answer for a database that is not connected; the next call starts over
+                if self._sa_engine is not None:
+                    self._sa_engine.dispose()
+                self._sa_engine = self._dbms = self._db_url = self._db_name = self._db_server = None
+                self._pgdata_dir = None
+                raise
             self._db_connected = True
 
     def _init_db(self, config: Config) -> None:
