@@ -492,3 +492,72 @@ class TestConcurrentOps:
             self._assert_no_errors(errors)
 
         assert col_name in pxt.get_table(path).columns()
+
+    def test_add_column_if_exists_race_partial_batch(self, db_root: DatabaseRoot) -> None:
+        """A raced name is dropped from a batch while the fresh names are still added.
+
+        With if_exists='ignore', a concurrent add of one batched name must not drop the rest of the
+        batch, and the raced column must exist once.
+        """
+        p = db_root.make_catalog_path
+        path = p('race_cols_partial')
+        t = pxt.create_table(path, {'c1': pxt.Int | None})
+        col_name = 'c_new'
+        fresh = 'c_fresh'
+
+        def worker(tid: int) -> None:
+            if tid == 0:
+                t.add_column(**{col_name: pxt.String | None}, if_exists='ignore')
+            else:
+                t.add_columns({col_name: pxt.String | None, fresh: pxt.Int | None}, if_exists='ignore')
+
+        errors = run_workers(worker, n_threads=2)
+        self._assert_no_errors(errors)
+        cols = pxt.get_table(path).columns()
+        assert col_name in cols
+        assert fresh in cols
+
+    @pytest.mark.parametrize('if_exists', ['ignore', 'error'])
+    def test_add_column_if_exists_race_view_base_column(
+        self, db_root: DatabaseRoot, if_exists: Literal['ignore', 'error']
+    ) -> None:
+        """if_exists on a view is honored when the base gains the same name concurrently.
+
+        add_columns() checks the visible schema, including base columns, in the same transaction as
+        the write and holds ACCESS SHARE on the base, so a concurrent base add cannot commit between
+        the check and the write.
+        """
+        p = db_root.make_catalog_path
+        base_path = p('race_base')
+        view_path = p('race_view')
+        base = pxt.create_table(base_path, {'c1': pxt.Int | None})
+        v = pxt.create_view(view_path, base)
+        col_name = 'c_new'
+
+        def worker(tid: int) -> None:
+            if tid == 0:
+                base.add_column(**{col_name: pxt.String | None})
+            else:
+                v.add_column(**{col_name: pxt.String | None}, if_exists=if_exists)
+
+        errors = run_workers(worker, n_threads=2)
+        error_by_tid = dict(errors)
+        assert 0 not in error_by_tid
+        view_md = pxt.get_table(view_path).get_metadata()
+        base_name = pxt.get_table(base_path).get_metadata()['name']
+        defined_in = view_md['columns'][col_name]['defined_in']
+        if if_exists == 'error' and defined_in == base_name:
+            assert 1 in error_by_tid
+            exc = error_by_tid[1]
+            assert isinstance(exc, pxt.Error)
+            assert exc.error_code is pxt.ErrorCode.COLUMN_ALREADY_EXISTS
+            assert f'Duplicate column name: {col_name}' in str(exc)
+        elif if_exists == 'error':
+            assert defined_in == view_md['name']
+            assert 1 not in error_by_tid
+        else:
+            self._assert_no_errors(errors)
+            assert defined_in in (base_name, view_md['name'])
+
+        assert col_name in pxt.get_table(base_path).columns()
+        assert col_name in pxt.get_table(view_path).columns()

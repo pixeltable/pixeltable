@@ -528,9 +528,9 @@ class LocalTable(Table):
         schema = fold_mapping_keys(schema)
         if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
 
-        # Check if_exists, drop if needed, and write add-column metadata in this transaction.
-        # _roll_forward() runs after the transaction commits. lock_mutable_tree=True: drop_column()
-        # needs the tree lock.
+        # Check if_exists against the visible schema (including base columns), drop if needed,
+        # and write add-column metadata in this transaction. _roll_forward() runs after the
+        # transaction commits. lock_mutable_tree=True: drop_column() needs the tree lock.
         cat = get_runtime().catalog
 
         @retry_md_write_loop(tvps=[self._tbl_version_path], lock_mutable_tree=True)
