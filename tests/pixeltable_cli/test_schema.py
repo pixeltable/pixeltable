@@ -1022,10 +1022,22 @@ class TestSchema:
         constants.write_text(
             dedent(
                 """
+                import random
+
                 import pixeltable as pxt
                 import pixeltable.functions as pxtf
 
                 TableModel = pxt.model_base()
+
+
+                @pxt.udf
+                def greeting() -> str:
+                    return 'hello'
+
+
+                @pxt.udf(is_deterministic=False)
+                def roll(sides: int) -> int:
+                    return random.randint(1, sides)
 
 
                 class Docs(TableModel, name='docs'):
@@ -1033,9 +1045,21 @@ class TestSchema:
                     label = str(title)
                     untitled = title is None
                     shout = pxtf.string.upper('hi')
+                    hello = greeting()
                     key = pxtf.uuid.uuid4()
                     created_at = pxtf.timestamp.now()
+                    dice = roll(6)
                     upper = pxtf.string.upper(title)
+
+
+                @pxt.query
+                def titles(title: str) -> pxt.Query:
+                    return Docs.where(Docs.title == title).select(Docs.title)
+
+
+                class Probe(TableModel, name='probe'):
+                    id = pxt.Column(type=pxt.Int, primary_key=True)
+                    intro_titles = titles('intro')
                 """
             ),
             encoding='utf-8',
@@ -1043,7 +1067,7 @@ class TestSchema:
         report = cli('schema', 'check', str(constants), '--json').json
         assert report['valid'], report
         flagged = [warning.split(' references no column')[0] for warning in report['warnings']]
-        assert flagged == ['Docs.label', 'Docs.untitled', 'Docs.shout'], report
+        assert flagged == ['Docs.label', 'Docs.untitled', 'Docs.shout', 'Docs.hello'], report
 
         # a file that modifies the catalog while importing
         ddl = project_dir / 'ddl.py'

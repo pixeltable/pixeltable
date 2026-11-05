@@ -732,14 +732,18 @@ class TableModelMeta(type):
     def constant_columns(cls) -> dict[str, exprs.Expr]:
         """Return the value expression of each computed column that references no column, by column name.
 
-        Excludes a value expression that calls a function without arguments, such as uuid4().
+        Excludes a value expression that calls a non-deterministic function, such as uuid4(), or a query function, which
+        reads another table.
         """
         constants: dict[str, exprs.Expr] = {}
         for name, col_spec in cls.__columns__.items():
             value = col_spec.get('value')
             if value is None or value.contains_(cls=exprs.ColumnRef) or value.contains_(cls=ColumnRefByName):
                 continue
-            if value.contains_(cls=exprs.FunctionCall, filter=lambda e: len(e.args) == 0 and len(e.kwargs) == 0):
+            if value.contains_(
+                cls=exprs.FunctionCall,
+                filter=lambda e: not e.fn.is_deterministic or isinstance(e.fn, func.QueryTemplateFunction),
+            ):
                 continue
             constants[name] = value
         return constants

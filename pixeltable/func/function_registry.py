@@ -10,8 +10,8 @@ from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.types import FunctionKind
 
 from .function import Function
-from .symbols import load_error_msg
 from .iterator import GeneratingFunction
+from .symbols import load_error_msg
 
 _FUNCTIONS_MODULE = 'pixeltable.functions'
 

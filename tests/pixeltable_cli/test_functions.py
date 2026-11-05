@@ -9,7 +9,11 @@ from pixeltable_cli.client.commands import functions
 
 
 class TestFunctions:
-    def test_filters(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_filters(
+        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # pxt functions unloads the modules under the working directory, which would include the test modules
+        monkeypatch.chdir(tmp_path)
         functions.run(['--on', 'Json'])
         lines = capsys.readouterr().out.splitlines()
         assert any(line.startswith('udf       pxt.Json.len() -> pxt.Int  # ') for line in lines)
@@ -64,6 +68,7 @@ class TestFunctions:
     def test_module_errors(
         self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        monkeypatch.chdir(tmp_path)
         for module in ('no_such_module', 'no_such_module.sub'):
             with pytest.raises(SystemExit) as exc_info:
                 functions.run([module])
@@ -72,7 +77,6 @@ class TestFunctions:
 
         # a module that fails to import
         (tmp_path / 'cli_functions_broken.py').write_text("raise RuntimeError('no config')\n")
-        monkeypatch.chdir(tmp_path)
         with pytest.raises(SystemExit) as exc_info:
             functions.run(['cli_functions_broken'])
         assert exc_info.value.code == 1
