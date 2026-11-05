@@ -508,10 +508,10 @@ class ColumnRef(Expr):
         return col_md.name if col_md.name is not None else f'<unnamed column {col_md.id}>'
 
     def __repr__(self) -> str:
-        return self._context_tbl()._column_repr(self)
+        return self._context_tbl()._column_description(self, html=False)
 
     def _repr_html_(self) -> str:
-        return self._context_tbl()._column_repr_html(self)
+        return self._context_tbl()._column_description(self, html=True)
 
     def prepare(self, args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         from pixeltable import store

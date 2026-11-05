@@ -60,7 +60,7 @@ def init(config_overrides: dict[str, Any] | None = None) -> None:
         >>> pxt.init({'openai.api_key': 'sk-...', 'pixeltable.db': 'my_db'})
     """
     Config.init(config_overrides if config_overrides is not None else {})
-    _ = get_runtime().catalog
+    Env.get()
 
 
 @telemetry.spanned('pixeltable.create_table', set_current=True)

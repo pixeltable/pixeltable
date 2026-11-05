@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import dataclasses
 from typing import TYPE_CHECKING, Any, Mapping, Sequence
 from uuid import UUID
 
@@ -175,8 +174,7 @@ class CatalogProxy(CatalogBase):
         return TableMdPath.from_md(md, is_anon_snapshot=False, catalog_uri=self.catalog_uri), tbl_md
 
     def _rebase_path(self, path_str: str) -> str:
-        path = Path.parse(path_str, allow_versioned_path=True)
-        return str(dataclasses.replace(path, org=self.catalog_uri.org, db=self.catalog_uri.db))
+        return str(Path.parse(path_str, allow_versioned_path=True).with_catalog(self.catalog_uri))
 
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
         self.client.send_request(
@@ -210,7 +208,7 @@ class CatalogProxy(CatalogBase):
         # the server returns in-db paths
         for entry in dir_entries.values():
             if entry.base_path is not None:
-                entry.base_path = dataclasses.replace(entry.base_path, org=self.catalog_uri.org, db=self.catalog_uri.db)
+                entry.base_path = entry.base_path.with_catalog(self.catalog_uri)
             self._rebase_base_paths(entry.dir_entries)
 
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:

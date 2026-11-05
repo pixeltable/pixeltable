@@ -352,7 +352,8 @@ class Env:
                 _ = ZoneInfo(tz_name)
             except (ZoneInfoNotFoundError, ValueError) as e:
                 raise excs.RequestError(
-                    excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid time zone in configuration: {tz_name!r}'
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f"Invalid value for configuration parameter 'pixeltable.time_zone': {tz_name}",
                 ) from e
         else:
             tz_name = tzlocal.get_localzone_name()

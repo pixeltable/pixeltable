@@ -176,6 +176,9 @@ class Path:
     def append(self, name: str) -> Path:
         return dataclasses.replace(self, components=(*self.components, name), version=None)
 
+    def with_catalog(self, catalog_uri: Path) -> Path:
+        return dataclasses.replace(self, org=catalog_uri.org, db=catalog_uri.db)
+
     def is_ancestor(self, other: Path, is_parent: bool = False) -> bool:
         """
         True if self as an ancestor path of other.

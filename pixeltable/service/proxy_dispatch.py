@@ -7,7 +7,6 @@ returns a serializable result; errors are returned as excs.Error.to_dict().
 from __future__ import annotations
 
 import contextlib
-import dataclasses
 import logging
 import pathlib
 import shutil
@@ -49,7 +48,6 @@ if TYPE_CHECKING:
     from pixeltable.catalog import LocalTable
     from pixeltable.catalog.types import TableVersionMd
     from pixeltable.catalog.update_status import UpdateStatus
-    from pixeltable.utils.description_helper import DescriptionHelper
 
 
 def handle(request_json: str, request_parts: list[bytes], *, include_error_detail: bool = False) -> bytes:
@@ -628,22 +626,16 @@ def _describe(request: ProxyRequest, tbl: LocalTable) -> Any:
     # rebase the title onto the client's catalog so it shows the table's full pxt:// path
     args = proxy_protocol.deserialize_request(request)
     catalog_uri = Path.parse(args['catalog_uri'], allow_empty_path=True)
-    display_path = dataclasses.replace(tbl._path(), org=catalog_uri.org, db=catalog_uri.db)
+    display_path = tbl._path().with_catalog(catalog_uri)
     helper = tbl._descriptors(path=display_path)
     return {'str': helper.to_string(), 'html': helper.to_html()}
 
 
-def _column_repr(request: ProxyRequest, tbl: LocalTable) -> Any:
-    return _column_description(request, tbl).to_string()
-
-
-def _column_repr_html(request: ProxyRequest, tbl: LocalTable) -> Any:
-    return _column_description(request, tbl).to_html()
-
-
-def _column_description(request: ProxyRequest, tbl: LocalTable) -> DescriptionHelper:
+def _column_description(request: ProxyRequest, tbl: LocalTable) -> Any:
     kwargs = _deserialize_args(request)
-    return tbl._column_description(kwargs['column'], Path.parse(kwargs['catalog_uri'], allow_empty_path=True))
+    return tbl._column_description(
+        kwargs['column'], kwargs['html'], Path.parse(kwargs['catalog_uri'], allow_empty_path=True)
+    )
 
 
 def _build_query(query_dict: dict) -> Query:
@@ -740,8 +732,7 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'get_metadata'): _get_metadata,
     ('Table', '_path'): _get_path,
     ('Table', 'describe'): _describe,
-    ('Table', '_column_repr'): _column_repr,
-    ('Table', '_column_repr_html'): _column_repr_html,
+    ('Table', '_column_description'): _column_description,
     ('Table', 'list_views'): _list_views,
     ('Table', 'get_versions'): _get_versions,
     ('Table', 'insert'): _insert,

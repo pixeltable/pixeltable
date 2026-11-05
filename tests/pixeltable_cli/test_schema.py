@@ -10,7 +10,10 @@ from typing import Callable
 import pytest
 
 import pixeltable as pxt
+from pixeltable.utils.fault_injection import FaultLocation
 
+from ..coordinator import MultiThreadedScenario
+from ..fault_injection import BlockFault
 from ..utils import (
     DatabaseRoot,
     LocalDbKind,
@@ -21,7 +24,7 @@ from ..utils import (
     run_in_new_process,
     skip_test_if_not_installed,
 )
-from .conftest import PxtRunner
+from .conftest import PxtResult, PxtRunner
 
 # A minimal schema, for the cases that assert on an error message rather than on what Pixeltable can express.
 # The breadth -- column types, computed columns, views, iterator views, indexes, media -- comes from the shared
@@ -1081,6 +1084,49 @@ class TestSchema:
         )
         r = cli('schema', 'check', str(app), check=False)
         assert r.returncode == 0, r.stderr
+
+    @pytest.mark.db_roots('local', reason='fault injection reaches only the in-process catalog')
+    def test_finalize_at_import(
+        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path, fault_injection: None
+    ) -> None:
+        """A file that reads a table at import finishes the table's crashed schema change."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('crashed'), {'a': pxt.Int})
+        t.insert({'a': i} for i in range(3))
+        app = project_dir / 'read_at_import.py'
+        app.write_text(
+            dedent(
+                f"""
+                import pixeltable as pxt
+
+                NUM_ROWS = pxt.get_table({p('crashed')!r}).count()
+
+                TableModel = pxt.model_base()
+
+
+                class Docs(TableModel, name='docs'):
+                    title: pxt.String
+                """
+            ),
+            encoding='utf-8',
+        )
+        # the blocked add_column() leaves its schema change unfinished, as a crashed process would
+        fault = BlockFault()
+        results: list[PxtResult] = []
+        (
+            MultiThreadedScenario()
+            .then_inject_fault(thread_id=0, loc=FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault=fault)
+            .then_run_until(
+                thread_id=0, name='add column', event=fault.reached, fn=lambda: t.add_column(b=pxt.Int | None)
+            )
+            .then_run(
+                thread_id=1, name='check', fn=lambda: results.append(cli('schema', 'check', str(app), check=False))
+            )
+            .then_unblock(thread_id=1, fault=fault)
+            .execute(timeout=60.0)
+        )
+        assert results[0].returncode == 0, results[0].stderr
+        assert t.select(t.b).collect()['b'] == [None, None, None]
 
     @pytest.mark.db_roots(
         'local', reason='the column is resolved in this process, so the report of a missing file lands here'

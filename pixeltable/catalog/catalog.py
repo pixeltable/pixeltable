@@ -386,8 +386,8 @@ class Catalog(CatalogBase):
     def freeze(cls) -> Iterator[None]:
         """Prevent catalog write transactions in this thread.
 
-        Unaffected: reads, writes from other threads, and writes through Runtime.begin_xact(), such as database setup
-        and create_user().
+        Unaffected: reads, writes from other threads, finishing a crashed schema change, and writes through
+        Runtime.begin_xact(), such as database setup and create_user().
         """
         token = _frozen.set(True)
         try:
@@ -491,7 +491,7 @@ class Catalog(CatalogBase):
         the caller's work are propagated; use a retry_*_loop() decorator if the whole operation needs to restart.
         """
         for_write = request.for_write
-        if for_write and _frozen.get():
+        if for_write and request.op_class is not TblOpClass.FINALIZE and _frozen.get():
             raise ProhibitedWriteError()
         if get_runtime().in_xact:
             # TODO(PXT-1278): restore _check_write_locks()'s check that the enclosing transaction holds all

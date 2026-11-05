@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import builtins
-import dataclasses
 import threading
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence
 from uuid import UUID
@@ -134,8 +133,7 @@ class TableProxy(Table):
 
     def _path(self) -> CatalogPath:
         # the server returns the in-db path (org/db dropped on the wire); rebase onto this proxy's catalog
-        server_path = self._dispatch('_path', {})
-        return dataclasses.replace(server_path, org=self._catalog_uri.org, db=self._catalog_uri.db)
+        return self._dispatch('_path', {}).with_catalog(self._catalog_uri)
 
     @property
     def _tbl_path(self) -> TableMdPath:
@@ -143,8 +141,7 @@ class TableProxy(Table):
 
     def _rebase_path(self, path_str: str) -> str:
         # the server emits in-db paths (org/db dropped on the wire); stamp this proxy's catalog back on
-        local_path = CatalogPath.parse(path_str, allow_versioned_path=True)
-        return str(dataclasses.replace(local_path, org=self._catalog_uri.org, db=self._catalog_uri.db))
+        return str(CatalogPath.parse(path_str, allow_versioned_path=True).with_catalog(self._catalog_uri))
 
     def get_metadata(self) -> 'TableMetadata':
         output = self._dispatch('get_metadata', {})
@@ -187,11 +184,10 @@ class TableProxy(Table):
     def _repr_html_(self) -> str:
         return self._dispatch('describe', {'catalog_uri': self._catalog_uri.uri_str})['html']
 
-    def _column_repr(self, column: ColumnRef) -> str:
-        return self._dispatch('_column_repr', {'column': column, 'catalog_uri': self._catalog_uri.uri_str})
-
-    def _column_repr_html(self, column: ColumnRef) -> str:
-        return self._dispatch('_column_repr_html', {'column': column, 'catalog_uri': self._catalog_uri.uri_str})
+    def _column_description(self, column: ColumnRef, html: bool) -> str:
+        return self._dispatch(
+            '_column_description', {'column': column, 'html': html, 'catalog_uri': self._catalog_uri.uri_str}
+        )
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset': ...
 

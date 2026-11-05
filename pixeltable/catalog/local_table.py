@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import abc
 import builtins
-import dataclasses
 import datetime
 import logging
 from pathlib import Path
@@ -372,20 +371,14 @@ class LocalTable(Table):
 
         return retrying_read(op, tbl_keys=self._tbl_version_path.tbl_keys)
 
-    def _column_repr(self, column: ColumnRef) -> str:
-        return self._column_description(column).to_string()
-
-    def _column_repr_html(self, column: ColumnRef) -> str:
-        return self._column_description(column).to_html()
-
-    def _column_description(self, column: ColumnRef, catalog_uri: pxt.catalog.Path = ROOT_PATH) -> DescriptionHelper:
+    def _column_description(self, column: ColumnRef, html: bool, catalog_uri: pxt.catalog.Path = ROOT_PATH) -> str:
         from pixeltable.catalog import retrying_read
 
         def op() -> DescriptionHelper:
             col_name = column.col_md.name
             owner = get_runtime().catalog.get_table_by_id(column.col_md.qcolid.tbl_id)
             assert owner is not None
-            owner_path = dataclasses.replace(owner._path(), org=catalog_uri.org, db=catalog_uri.db)
+            owner_path = owner._path().with_catalog(catalog_uri)
             # TODO: is this what we want? it's printing the path of the containing table, not of the context table
             helper = DescriptionHelper()
             helper.append(f'Column\n{col_name!r}\n(of table {owner_path!r})')
@@ -396,7 +389,8 @@ class LocalTable(Table):
                 helper.append(idxs)
             return helper
 
-        return retrying_read(op, tbl_keys=self._tbl_version_path.tbl_keys)
+        helper = retrying_read(op, tbl_keys=self._tbl_version_path.tbl_keys)
+        return helper.to_html() if html else helper.to_string()
 
     def _col_descriptor(self, columns: list[str] | None = None) -> tuple[pd.DataFrame, list[int] | None]:
         """Generates column descriptor DataFrame and a list of vertical separators.

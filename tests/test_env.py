@@ -312,7 +312,7 @@ class TestTimeZone:
         monkeypatch.setenv('PIXELTABLE_TIME_ZONE', 'Mars/Olympus_Mons')
         reset_runtime()
         Config.init(reinit=True)
-        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match="'Mars/Olympus_Mons'"):
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match="'pixeltable.time_zone': Mars/Olympus_Mons"):
             Env._init_env(reinit_db=False)
         monkeypatch.undo()
         _reset_env(reinit=False, db_name=None)
