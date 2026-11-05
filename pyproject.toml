@@ -265,6 +265,7 @@ exclude = [
     "/dashboard",
     "/docs",
     "/local",
+    "/modal-poc",
     "/tests",
     "/tool",
 ]

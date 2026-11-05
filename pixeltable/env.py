@@ -1078,7 +1078,7 @@ class Env:
                     f'{source}: {path!r} is async; only synchronous UDFs run on Modal',
                 )
             assert fn.self_path is not None
-            # a re-export resolves to the same UDF under another path
+            # a module that re-exports a UDF gives it a second path, which resolves to the same UDF
             if fn.self_path in configured_paths:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,

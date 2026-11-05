@@ -519,12 +519,16 @@ class ModalScheduler(Scheduler):
         return resource_pool.startswith(cls._POOL_PREFIX)
 
     async def _main_loop(self) -> None:
-        # a failed connect() fails the query; a failed call fails only its rows
+        # connect() deploys the App if this process hasn't yet; connecting at the first call avoids a deploy for a
+        # query without rows
+        item = await self.queue.get()
+        # an exception in connect() fails the query, while _exec() turns the exception of a call into errors of that
+        # call's rows
         await self.client.connect()
         while True:
-            item = await self.queue.get()
             task = asyncio.create_task(self._exec(item.request, item.exec_ctx))
             self.dispatcher.register_task(task)
+            item = await self.queue.get()
 
     async def _exec(self, request: FnCallArgs, exec_ctx: ExprEvalCtx) -> None:
         slot_idx = request.fn_call.slot_idx

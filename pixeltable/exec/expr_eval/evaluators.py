@@ -68,7 +68,8 @@ class FnCallEvaluator(Evaluator):
     fn_call: exprs.FunctionCall
     fn: func.CallableFunction
     scalar_py_fn: Callable | None  # only set for non-batching CallableFunctions
-    # ModalScheduler's pool for a UDF in udf_resources, else fn_call.resource_pool
+    # the resource pool whose scheduler runs the calls: ModalScheduler's pool for a UDF in udf_resources, else
+    # fn_call.resource_pool; None if the calls run in this process
     resource_pool: str | None
 
     # only set if fn.is_batched
