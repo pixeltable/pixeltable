@@ -82,7 +82,7 @@ async def _asset_uploads(input_type: Literal['audio', 'video'], files: list[str]
 
 
 async def _wait_for_asset(client: 'twelvelabs.AsyncTwelveLabs', asset_id: str) -> None:
-    timeout = Config.get().get_float_value('asset_processing_timeout', section='twelvelabs')
+    timeout = Config.get().get_float_value('timeout', section='twelvelabs')
     if timeout is None:
         timeout = 600
     try:
@@ -92,8 +92,8 @@ async def _wait_for_asset(client: 'twelvelabs.AsyncTwelveLabs', asset_id: str) -
         raise pxt.ExternalServiceError(
             pxt.ErrorCode.PROVIDER_TIMEOUT,
             f'Timed out after {timeout:g} seconds waiting for TwelveLabs asset {asset_id} to become ready. '
-            'Increase asset_processing_timeout in the [twelvelabs] config section to extend the timeout; '
-            'TWELVELABS_ASSET_PROCESSING_TIMEOUT overrides the config file.',
+            'Increase timeout in the [twelvelabs] config section to extend the timeout; '
+            'TWELVELABS_TIMEOUT overrides the config file.',
             provider='twelvelabs',
         ) from e
 
@@ -135,8 +135,8 @@ async def embed(text: str, image: pxt.Image | None = None, *, model_name: str) -
     limit is configured, uses a default of 600 RPM.
 
     With Marengo 3.0, audio and video files over 2 MiB are uploaded first. The UDF waits for each uploaded
-    asset to become ready, subject to `asset_processing_timeout` in the `twelvelabs` config section.
-    `TWELVELABS_ASSET_PROCESSING_TIMEOUT` overrides the config file.
+    asset to become ready, subject to `timeout` in the `twelvelabs` config section.
+    `TWELVELABS_TIMEOUT` overrides the config file.
 
     __Requirements:__
 
