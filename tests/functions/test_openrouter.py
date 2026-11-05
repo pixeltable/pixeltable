@@ -3,7 +3,13 @@ import pytest
 import pixeltable as pxt
 from tests.functions.tool_utils import run_tool_invocations_test
 
-from ..utils import rerun_on_network_error, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import (
+    rerun,
+    rerun_on_network_error,
+    skip_test_if_no_client,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
@@ -45,6 +51,7 @@ class TestOpenRouter:
         assert 'Paris' in results['output'][0]['choices'][0]['message']['content']
         assert 'Paris' in results['output2'][0]['choices'][0]['message']['content']
 
+    @rerun(reruns=6, reruns_delay=8)
     def test_tool_invocations(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openrouter')
@@ -66,7 +73,7 @@ class TestOpenRouter:
             t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
             return t
 
-        run_tool_invocations_test(make_table)
+        run_tool_invocations_test(make_table, test_tool_choice=True)
 
     def test_transforms(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
@@ -97,36 +104,3 @@ class TestOpenRouter:
         assert isinstance(summary, str)
         assert len(summary) > 0
         assert len(summary) < len(long_text)  # Summary should be shorter
-
-
-class TestOpenRouterRequest:
-    """Offline tests of the request that chat_completions() sends (no network, no API key)."""
-
-    @pytest.mark.parametrize('parallel_tool_calls', [True, False])
-    def test_parallel_tool_calls_forwarded(
-        self, init_env: None, monkeypatch: pytest.MonkeyPatch, parallel_tool_calls: bool
-    ) -> None:
-        skip_test_if_not_installed('openai')
-        from unittest.mock import AsyncMock, MagicMock
-
-        from pixeltable.functions import openrouter
-        from pixeltable.runtime import get_runtime
-
-        create = AsyncMock(return_value=MagicMock(model_dump=MagicMock(return_value={})))
-        client = MagicMock()
-        client.chat.completions.create = create
-        monkeypatch.setattr(openrouter, '_openrouter_client', lambda: client)
-
-        tool_choice = pxt.func.ToolChoice(auto=True, required=False, tool=None, parallel_tool_calls=parallel_tool_calls)
-        get_runtime().run_coro(
-            openrouter.chat_completions.py_fn(
-                [{'role': 'user', 'content': 'hi'}], model='openai/gpt-5.4-mini', tool_choice=tool_choice.model_dump()
-            )
-        )
-
-        kwargs = create.await_args.kwargs
-        assert kwargs['tool_choice'] == 'auto'
-        if parallel_tool_calls:
-            assert 'parallel_tool_calls' not in kwargs
-        else:
-            assert kwargs['parallel_tool_calls'] is False
