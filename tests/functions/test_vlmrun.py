@@ -25,6 +25,8 @@ from ..utils import (
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 _MODEL = 'vlmrun-orion-2:fast'
+# video and document generation on the fast tier returned made-up artifact ids in live tests
+_GENERATION_MODEL = 'vlmrun-orion-2:auto'
 
 
 def _smallest_pdf() -> str:
@@ -185,9 +187,9 @@ class TestVLMRun:
         skip_test_if_not_installed('vlmrun')
         skip_test_if_no_client('vlmrun')
         t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'image': pxt.Image, 'video': pxt.Video})
-        t.add_computed_column(from_text=pxtf.vlmrun.generate_video(t.prompt, model=_MODEL))
-        t.add_computed_column(from_image=pxtf.vlmrun.generate_video(t.prompt, image=t.image, model=_MODEL))
-        t.add_computed_column(from_video=pxtf.vlmrun.generate_video(t.prompt, video=t.video, model=_MODEL))
+        t.add_computed_column(from_text=pxtf.vlmrun.generate_video(t.prompt, model=_GENERATION_MODEL))
+        t.add_computed_column(from_image=pxtf.vlmrun.generate_video(t.prompt, image=t.image, model=_GENERATION_MODEL))
+        t.add_computed_column(from_video=pxtf.vlmrun.generate_video(t.prompt, video=t.video, model=_GENERATION_MODEL))
         for col in ('from_text', 'from_image', 'from_video'):
             t.add_computed_column(**{f'{col}_duration': pxtf.video.get_duration(t[col])})
         validate_update_status(
@@ -207,7 +209,7 @@ class TestVLMRun:
                 'Produce a redacted version of this PDF: draw black redaction boxes over all person names. '
                 'Return the rendered PDF file, not a text summary.',
                 t.doc,
-                model=_MODEL,
+                model=_GENERATION_MODEL,
             )
         )
         # document generation on a large document exceeds the provider's input-token limit

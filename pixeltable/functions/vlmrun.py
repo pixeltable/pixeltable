@@ -408,14 +408,21 @@ async def _resolve_messages(messages: list, client: _VlmRunClient, file_ids: lis
     return messages
 
 
-def _response_format(artifact: _Artifact) -> dict[str, Any]:
-    """Returns a `response_format` that asks for the id of one generated artifact."""
+def _response_format(artifact: _Artifact) -> tuple[str, dict[str, Any]]:
+    """Returns the key of the generated artifact in the response, and a `response_format` that asks for it."""
     from vlmrun.types import refs  # type: ignore[import-untyped]
 
-    ref_type = {'image': refs.ImageRef, 'video': refs.VideoRef, 'document': refs.DocumentRef}[artifact]
-    fields: dict[str, Any] = {artifact: (ref_type, ...)}
+    key: str = artifact
+    fields: dict[str, Any]
+    if artifact == 'video':
+        # asked for a VideoRef, the API returned made-up ids such as vid_abc123 in live tests, so this asks for the
+        # video's URL instead
+        key = 'url'
+        fields = {key: (str, pydantic.Field(..., description='The URL of the generated video'))}
+    else:
+        fields = {key: ({'image': refs.ImageRef, 'document': refs.DocumentRef}[artifact], ...)}
     output_model = pydantic.create_model(f'{artifact.title()}Output', **fields)
-    return {'type': 'json_schema', 'schema': output_model.model_json_schema()}
+    return key, {'type': 'json_schema', 'schema': output_model.model_json_schema()}
 
 
 def _check_model_kwargs(model_kwargs: dict[str, Any] | None, reserved: tuple[str, ...]) -> None:
@@ -442,6 +449,7 @@ async def _generate(
     _check_model_kwargs(model_kwargs, ('model', 'messages', 'response_format', 'toolsets'))
     body: dict[str, Any] = {} if model_kwargs is None else dict(model_kwargs)
     prefix, extension = _ARTIFACT_TYPES[artifact]
+    key, response_format = _response_format(artifact)
     client = _vlmrun_client()
     file_ids: list[str] = []
     try:
@@ -454,12 +462,12 @@ async def _generate(
             body.update(
                 model=model,
                 messages=[{'role': 'system', 'content': system_message}, {'role': 'user', 'content': content}],
-                response_format=_response_format(artifact),
+                response_format=response_format,
                 toolsets=[toolset],
             )
             result = await client.chat(body)
             try:
-                ref = json.loads(result['choices'][0]['message']['content'])[artifact]
+                ref = json.loads(result['choices'][0]['message']['content'])[key]
                 if isinstance(ref, dict):
                     ref = ref['id']
             except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
@@ -468,6 +476,7 @@ async def _generate(
                     f'VLM Run returned no {artifact}: {str(result)[:_MAX_DETAIL_LEN]}',
                     provider='vlmrun',
                 ) from exc
+            _logger.debug(f'VLM Run returned {artifact} {ref!r} in session {result.get("session_id")}')
             dest = TempStore.create_path(extension=extension)
             try:
                 await client.download(_media_ref(str(ref), prefix), result.get('session_id'), dest)
