@@ -49,6 +49,10 @@ _MEDIA_PART_TYPES = ('image_url', 'video_url', 'file_url')
 # An artifact can lag the completion that references it, so a 404 is retried for this long before it counts as a bad id
 _NOT_FOUND_GRACE = 60.0
 
+# VLM Run's SDK makes 5 attempts at a request that fails with a 5xx; an artifact or a media download that fails that
+# many times in a row counts as broken
+_MAX_CONSECUTIVE_5XX = 5
+
 # _poll() follows redirects itself, so it caps a chain of them as httpx does
 _MAX_REDIRECTS = 20
 
@@ -197,7 +201,7 @@ class _VlmRunClient:
         resp = await self._send('POST', 'openai/chat/completions', json=body)
         if resp.status_code == 303 and 'location' in resp.headers:
             # the gateway answers a request that runs longer than ~150s with the URL that will serve its result
-            resp = await self._poll(resp.url.join(resp.headers['location']))
+            resp = await self._poll(resp.url.join(resp.headers['location']), wait_out_5xx=True)
         return _json(resp)
 
     async def download(self, ref: str, session_id: str | None, dest: Path) -> None:
@@ -226,22 +230,31 @@ class _VlmRunClient:
             await self._poll('artifacts', params=params, dest=dest)
 
     async def _poll(
-        self, url: str | httpx.URL, *, params: dict[str, str] | None = None, dest: Path | None = None
+        self,
+        url: str | httpx.URL,
+        *,
+        params: dict[str, str] | None = None,
+        dest: Path | None = None,
+        wait_out_5xx: bool = False,
     ) -> httpx.Response:
         """GETs `url` until it returns a non-empty result, and returns that response.
 
         The result's body is streamed into `dest` if given, and read into the response otherwise. A failure that can
-        pass, such as a 5xx, a 429 or a dropped connection, is retried here until deadline() ends the call: the job
-        has already run, and an error the scheduler retries would rerun the call and pay for another generation.
+        pass, such as a 429 or a dropped connection, is retried here until deadline() ends the call: the job has
+        already run, and an error the scheduler retries would rerun the call and pay for another generation. A 5xx is
+        retried until `_MAX_CONSECUTIVE_5XX` come in a row, or with `wait_out_5xx` until the deadline, for the result
+        URL of a long-running request, which returns 5xx while its job is in progress.
         """
         start = time.monotonic()
         attempt = 0
         redirects = 0
+        consecutive_5xx = 0
         while True:
             delay: float | None = None
             try:
                 async with self._http.stream('GET', url, params=params) as resp:
                     status = resp.status_code
+                    consecutive_5xx = consecutive_5xx + 1 if status >= 500 else 0
                     if status in (200, 201) and dest is not None:
                         await _write_body(resp, dest)
                         if dest.stat().st_size > 0:
@@ -266,10 +279,18 @@ class _VlmRunClient:
                     elif (
                         status in (200, 201, 202, 204)  # 200 and 201 with an empty body
                         or (status == 404 and time.monotonic() - start < _NOT_FOUND_GRACE)
-                        # the result URL of a long-running request returns 5xx while its job is in progress
-                        or status >= 500
+                        or (status >= 500 and (wait_out_5xx or consecutive_5xx < _MAX_CONSECUTIVE_5XX))
                     ):
                         delay = _retry_info(resp).retry_delay
+                    elif status >= 500:
+                        # a code the scheduler doesn't retry, since a rerun would pay for another generation
+                        raise pxt.ExternalServiceError(
+                            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+                            f'VLM Run request to {resp.url.path} failed {consecutive_5xx} times in a row, last with '
+                            f'status {status}: {_error_detail(resp)}',
+                            provider='vlmrun',
+                            status_code=status,
+                        )
                     else:
                         error = _status_error(resp)
                         if error.error_code not in (pxt.ErrorCode.RATE_LIMITED, pxt.ErrorCode.PROVIDER_OVERLOADED):
