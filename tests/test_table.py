@@ -46,10 +46,12 @@ from .utils import (
     get_temp_store_count,
     get_video_files,
     make_tbl,
+    no_local_db_env,
     pxt_raises,
     read_data_file,
     reload_catalog,
     rerun_on_network_error,
+    run_in_new_process,
     sigint_at_pos,
     skip_test_if_not_installed,
     stock_price,
@@ -4406,6 +4408,35 @@ class TestTable:
             t.recompute_columns('i1', where=y.i == 0)
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r's\.upper is the method upper\(\)'):
             t.recompute_columns('i1', where=t.s.upper == 'a')
+
+    @pytest.mark.db_roots('proxy', 'cloud', reason='a process without a local database can only use a hosted catalog')
+    def test_pure_snapshot_column_in_new_process(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
+        """A process that loads a pure snapshot but not its base resolves the snapshot's columns in its catalog."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'i': pxt.Int})
+        t.add_computed_column(i1=t.i + 1)
+        # a pure snapshot (no added columns, no filter) has no columns of its own: s.i1 is a reference to t's column i1
+        s = pxt.create_snapshot(p('snap'), t)
+
+        # expected results, computed in this process, which created t and therefore knows that t is hosted:
+        # repr(s.i1) describes column i1 of t, and recompute() fails because a snapshot can't be recomputed
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='of a snapshot') as exc_info:
+            s.i1.recompute()
+        expected = [repr(s.i1), 'UNSUPPORTED_OPERATION', str(exc_info.value)]
+
+        # a new process loads only the snapshot, never t, and can't start a local database. The column operations
+        # must resolve t in the hosted catalog: if they went to the local catalog, they would try to start the local
+        # database, and the process would exit with that error.
+        # The process prints its results only from the except block: if recompute() succeeds, the process prints
+        # nothing and the test fails.
+        code = f"""
+            s = pxt.get_table({p('snap')!r})
+            try:
+                s.i1.recompute()
+            except pxt.Error as e:
+                print(json.dumps([repr(s.i1), e.error_code.name, str(e)]))
+        """
+        assert run_in_new_process(code, no_local_db_env('embedded', tmp_path)) == expected
 
     def __test_drop_column_if_not_exists(self, t: pxt.Table, non_existing_col: str | ColumnRef) -> None:
         """Test the if_not_exists parameter of drop_column API"""

@@ -41,8 +41,10 @@ class CatalogProxy(CatalogBase):
         self.client = client
 
     def _make_table(self, md: list[TableVersionMd], is_anon_snapshot: bool) -> Table:
+        # record the ancestors as well: computed columns can refer to base columns
+        for tbl_version_md in md:
+            Env.get().record_tbl_catalog_uri(UUID(tbl_version_md.tbl_md.tbl_id), self.catalog_uri)
         tbl_id = UUID(md[0].tbl_md.tbl_id)
-        Env.get().record_tbl_catalog_uri(tbl_id, self.catalog_uri)
 
         tbl_md_path = TableMdPath.from_md(md, is_anon_snapshot=is_anon_snapshot, catalog_uri=self.catalog_uri)
 
