@@ -196,7 +196,7 @@ class _VlmRunClient:
         """Creates a chat completion and returns the API response."""
         resp = await self._send('POST', 'openai/chat/completions', json=body)
         if resp.status_code == 303 and 'location' in resp.headers:
-            # the gateway answers a request that runs longer than ~150s with the URL that will serve its result
+            _logger.debug(f'VLM Run redirected a chat completion to {redact_url(resp.headers["location"])}')
             resp = await self._poll(resp.url.join(resp.headers['location']))
         return _json(resp)
 
