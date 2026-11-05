@@ -2502,6 +2502,7 @@ class Catalog(CatalogBase):
 
     def _move_dir(self, dir_id: UUID, new_name: str, new_parent_id: UUID) -> None:
         """Update parent_id/name for dir_id."""
+        assert self._is_dir_locked(new_parent_id), (dir_id, new_parent_id, self._xact_locks)
         stmt = (
             sql.update(schema.Dir)
             .where(schema.Dir.id == dir_id)

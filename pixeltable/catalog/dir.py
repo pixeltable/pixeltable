@@ -24,6 +24,8 @@ class Dir(SchemaObject):
         user = Env.get().user
         assert session is not None
         assert name == fold_identifier(name), name
+        cat = get_runtime().catalog
+        assert cat._is_dir_locked(parent_id), (parent_id, cat._xact_locks)
         dir_md = schema.DirMd(name=name, user=user, additional_md={})
         dir_record = schema.Dir(parent_id=parent_id, md=dataclasses.asdict(dir_md))
         session.add(dir_record)
