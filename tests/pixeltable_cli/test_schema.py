@@ -999,13 +999,6 @@ class TestSchema:
         assert (report['valid'], report['errors'], report['warnings']) == (True, [], [])
         assert report['file'] == apps('basic.py')
 
-        # a file that modifies the catalog while importing
-        ddl = project_dir / 'ddl.py'
-        ddl.write_text("import pixeltable as pxt\npxt.create_table('t', {'c': pxt.Int})\n", encoding='utf-8')
-        r = cli('schema', 'check', str(ddl), check=False)
-        assert r.returncode == 1
-        assert 'modifies the catalog while it is imported' in r.stderr
-
         # an empty file
         empty = project_dir / 'empty.py'
         empty.write_text('import pixeltable as pxt\n', encoding='utf-8')
@@ -1046,6 +1039,48 @@ class TestSchema:
         assert report['valid'], report
         assert len(report['warnings']) == 1, report
         assert "an import of 'psutil' reads" in report['warnings'][0]
+
+    @pytest.mark.db_roots('local', 'proxy', 'cloud-cli', reason='a hosted catalog refuses the write on its server')
+    def test_write_at_import(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
+        """Loading a file that writes to the catalog while it is imported is refused, and the write does not happen;
+        reading the catalog during the import is allowed."""
+        p = db_root.make_catalog_path
+        written = pxt.create_table(p('written_at_import'), {'c': pxt.Int})
+        written.insert(c=1)
+        created_path = p('created_at_import')
+        statements = {
+            'create_at_import.py': f"pxt.create_table({created_path!r}, {{'c': pxt.Int}})",
+            'insert_at_import.py': f'pxt.get_table({p("written_at_import")!r}).insert(c=1)',
+        }
+        for file_name, statement in statements.items():
+            app = project_dir / file_name
+            app.write_text(f'import pixeltable as pxt\n\n{statement}\n', encoding='utf-8')
+            r = cli('schema', 'check', str(app), check=False)
+            assert r.returncode == 1, r.stderr
+            assert 'modifies the catalog while it is imported' in r.stderr
+            assert f'line 3: {statement}' in r.stderr
+        assert pxt.get_table(created_path, if_not_exists='ignore') is None
+        assert written.count() == 1
+
+        app = project_dir / 'read_at_import.py'
+        app.write_text(
+            dedent(
+                f"""
+                import pixeltable as pxt
+
+                NUM_ROWS = pxt.get_table({p('written_at_import')!r}).count()
+
+                TableModel = pxt.model_base()
+
+
+                class Docs(TableModel, name='docs'):
+                    title: pxt.String
+                """
+            ),
+            encoding='utf-8',
+        )
+        r = cli('schema', 'check', str(app), check=False)
+        assert r.returncode == 0, r.stderr
 
     @pytest.mark.db_roots(
         'local', reason='the column is resolved in this process, so the report of a missing file lands here'

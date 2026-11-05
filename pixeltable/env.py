@@ -32,8 +32,10 @@ from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
+from pixeltable.utils import fault_injection
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import Dbms, PostgresqlDbms
+from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
 from pixeltable.utils.object_stores import (
     ObjectPath,
@@ -233,7 +235,7 @@ class Env:
 
     @property
     def db_url(self) -> str:
-        assert self._db_url is not None
+        assert self._db_connected
         return self._db_url
 
     @property
@@ -310,12 +312,12 @@ class Env:
 
     @property
     def dbms(self) -> Dbms:
-        assert self._dbms is not None
+        assert self._db_connected
         return self._dbms
 
     @property
     def is_local(self) -> bool:
-        assert self._db_url is not None  # is_local should be called only after db initialization
+        assert self._db_connected
         return self._db_server is not None
 
     def is_notebook(self) -> bool:
@@ -513,37 +515,56 @@ class Env:
         with self._db_lock:
             if self._db_connected:
                 return
-            self._init_db(Config.get())
-
-            if reinit_db and not self.is_local:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    'Reinitializing pixeltable database is not supported when running in non-local environment',
-                )
-
-            if self.is_local:
-                # Embedded postmaster: create or reset the database as needed.
-                if reinit_db and self._store_db_exists(self._db_name):
-                    self._drop_store_db()
-
-                create_db = not self._store_db_exists(self._db_name)
-                if create_db:
-                    _logger.info(f'creating database at: {self.redacted_db_url}')
-                    self._create_store_db()
-                else:
-                    _logger.info(f'found database at: {self.redacted_db_url}')
-            else:
-                # External DB: pre-provisioned; no local setup needed.
-                _logger.info(f'Using external database at: {self.redacted_db_url}')
-
-            self._create_engine()
-
-            # Create catalog tables and system metadata
-            self._init_metadata()
-
-            self.console_logger.info(f'Connected to Pixeltable database at: {self.redacted_db_url}')
-            self._upgrade_metadata()
+            try:
+                self._set_up_db(reinit_db)
+            except BaseException:
+                self._disconnect()
+                raise
             self._db_connected = True
+
+    def _set_up_db(self, reinit_db: bool) -> None:
+        self._init_db(Config.get())
+        is_local = self._db_server is not None
+        if reinit_db and not is_local:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'Reinitializing pixeltable database is not supported when running in non-local environment',
+            )
+
+        redacted_db_url = redact_db_url(self._db_url)
+        if is_local:
+            # Embedded postmaster: create or reset the database as needed.
+            if reinit_db and self._store_db_exists(self._db_name):
+                self._drop_store_db()
+
+            create_db = not self._store_db_exists(self._db_name)
+            if create_db:
+                _logger.info(f'creating database at: {redacted_db_url}')
+                self._create_store_db()
+            else:
+                _logger.info(f'found database at: {redacted_db_url}')
+        else:
+            # External DB: pre-provisioned; no local setup needed.
+            _logger.info(f'Using external database at: {redacted_db_url}')
+
+        self._create_engine()
+
+        # Create catalog tables and system metadata
+        self._init_metadata()
+
+        self.console_logger.info(f'Connected to Pixeltable database at: {redacted_db_url}')
+        fault_injection.process_fault(FaultLocation.ENV_SET_UP_DB_BEFORE_UPGRADE)
+        self._upgrade_metadata()
+
+    def _disconnect(self) -> None:
+        if self._sa_engine is not None:
+            self._sa_engine.dispose()
+        self._sa_engine = None
+        self._dbms = None
+        self._db_url = None
+        self._db_name = None
+        self._db_server = None
+        self._pgdata_dir = None
 
     def _init_db(self, config: Config) -> None:
         """
@@ -573,7 +594,7 @@ class Env:
                 # External PostgreSQL: database is pre-provisioned. Connect directly — no existence check needed.
             else:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Unsupported DBMS {dialect}')
-            _logger.info(f'Using database at: {self.redacted_db_url}')
+            _logger.info(f'Using database at: {redact_db_url(self._db_url)}')
         else:
             # the database name is an identifier, and is folded everywhere else it enters (Path, pxt localproxy)
             from pixeltable.catalog.globals import fold_identifier
@@ -624,7 +645,7 @@ class Env:
     def _create_engine(self) -> None:
         # Add timezone and application_name options to connection string
         assert self._default_time_zone is not None
-        updated_url = add_option_to_db_url(self.db_url, f'-c timezone={self._default_time_zone.key}')
+        updated_url = add_option_to_db_url(self._db_url, f'-c timezone={self._default_time_zone.key}')
         updated_url = add_option_to_db_url(updated_url, f'-c application_name={store_app_name()}')
 
         config = Config.get()
@@ -643,7 +664,7 @@ class Env:
             pool_pre_ping=True,
         )
 
-        _logger.info(f'Created SQLAlchemy engine at: {self.redacted_db_url}')
+        _logger.info(f'Created SQLAlchemy engine at: {redact_db_url(self._db_url)}')
         _logger.info(f'Engine dialect: {self._sa_engine.dialect.name}')
         _logger.info(f'Engine driver : {self._sa_engine.dialect.driver}')
         _logger.info(f'Engine connection pool: {pool_size} + {pool_max_overflow}')
@@ -680,7 +701,7 @@ class Env:
             engine.dispose()
 
         # enable pgvector
-        engine = sql.create_engine(self.db_url, future=True, isolation_level='AUTOCOMMIT')
+        engine = sql.create_engine(self._db_url, future=True, isolation_level='AUTOCOMMIT')
         try:
             with engine.begin() as conn:
                 conn.execute(sql.text('CREATE EXTENSION vector'))
@@ -1023,7 +1044,7 @@ class Env:
     @property
     def pgdata_dir(self) -> Path | None:
         """Data directory of the embedded Postgres server; None when Pixeltable uses an external database."""
-        assert self._db_url is not None  # pgdata_dir is known only after ensure_connected()
+        assert self._db_connected
         return self._pgdata_dir
 
     @property
@@ -1066,7 +1087,7 @@ class Env:
 
     @property
     def engine(self) -> sql.engine.base.Engine:
-        assert self._sa_engine is not None
+        assert self._db_connected
         return self._sa_engine
 
     def _clean_up(self) -> None:

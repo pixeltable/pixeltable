@@ -48,7 +48,7 @@ from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectSto
 if TYPE_CHECKING:
     from pixeltable._query import Query
 
-PROTOCOL_VERSION = 8
+PROTOCOL_VERSION = 9
 
 
 def protocol_mismatch_message(client_version: int, server_version: int, catalog_uri: Path) -> str:
@@ -410,6 +410,7 @@ class ProxyRequest(BaseModel):
 
     args: dict[str, Any]  # method kwargs
     request_id: str | None = None  # set for mutating methods (idempotency); unused for now
+    catalog_frozen: bool = False  # the client runs inside Catalog.freeze()
 
     # raw binary parts, referenced by index from the tagged values in args
     _binary_parts: list[bytes] = PrivateAttr(default_factory=list)
@@ -428,6 +429,7 @@ class ProxyResponse(TypedDict, total=False):
     # only one of these is set
     result: Any  # return value of the dispatched method
     error: dict[str, Any]  # excs.Error.to_dict(), set instead of result on failure
+    prohibited_write: bool  # the method attempted a write under the request's catalog_frozen
 
     # only set after a mutation or when is_stale_md == True
     current_md: list[TableVersionMd] | list[dict[str, Any]]
@@ -922,6 +924,7 @@ def response_body(
     error_json: bytes = b'null',
     current_md_json: bytes = b'null',
     is_stale_md: bool = False,
+    prohibited_write: bool = False,
 ) -> bytes:
     """The wire body for a response whose fields are already encoded.
 
@@ -936,6 +939,8 @@ def response_body(
     head += current_md_json
     head += b',"is_stale_md":'
     head += b'true' if is_stale_md else b'false'
+    head += b',"prohibited_write":'
+    head += b'true' if prohibited_write else b'false'
     head += b'}'
     return encode_body(bytes(head), parts)
 
@@ -952,6 +957,7 @@ def encode_response(response: ProxyResponse) -> bytes:
         error_json=b'null' if error is None else _dumps(error).encode(),
         current_md_json=current_md_json,
         is_stale_md=response.get('is_stale_md', False),
+        prohibited_write=response.get('prohibited_write', False),
     )
 
 

@@ -384,15 +384,20 @@ class Catalog(CatalogBase):
     @classmethod
     @contextmanager
     def freeze(cls) -> Iterator[None]:
-        """Prevent write transactions in this thread.
+        """Prevent catalog write transactions in this thread.
 
-        Unaffected: reads and writes from other threads.
+        Unaffected: reads, writes from other threads, and writes through Runtime.begin_xact(), such as database setup
+        and create_user().
         """
         token = _frozen.set(True)
         try:
             yield
         finally:
             _frozen.reset(token)
+
+    @classmethod
+    def is_frozen(cls) -> bool:
+        return _frozen.get()
 
     @contextmanager
     def begin_md_read_xact(self, *, tbl_keys: Collection[TableVersionKey] | None = None) -> Iterator[sql.Connection]:

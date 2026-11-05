@@ -10,15 +10,18 @@ import numpy as np
 import PIL.Image
 import pydantic
 import pytest
+import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import env, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
+from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 
+from .fault_injection import ExceptionFault
 from .utils import aux_db_name, pxt_raises, skip_test_if_not_local
 
 pytestmark = pytest.mark.db_roots('local', reason='exercises process-global Env/Config and runtime reset')
@@ -335,6 +338,30 @@ class TestPgdataDir:
         assert Env.get().pgdata_dir is None
         monkeypatch.undo()
         _reset_env(reinit=False, db_name=None)
+
+
+class TestEnsureConnected:
+    def test_failed_connect_starts_over(self, uses_db: None, fault_injection: None) -> None:
+        """A failed connect disposes its engine, and the next call connects."""
+        Env._init_env(connect=False)
+        fault = ExceptionFault(RuntimeError('injected connect failure'))
+        get_runtime().fault_manager.inject_fault(FaultLocation.ENV_SET_UP_DB_BEFORE_UPGRADE, fault)
+        disposed_dbs: list[str | None] = []
+
+        def record_disposal(engine: sql.engine.Engine) -> None:
+            disposed_dbs.append(engine.url.database)
+
+        sql.event.listen(sql.engine.Engine, 'engine_disposed', record_disposal)
+        try:
+            with pytest.raises(RuntimeError, match='injected connect failure'):
+                pxt.list_tables()
+        finally:
+            sql.event.remove(sql.engine.Engine, 'engine_disposed', record_disposal)
+
+        pxt.create_table('after_failed_connect', {'c': pxt.Int})
+        assert pxt.list_tables() == ['after_failed_connect']
+        assert Env.get().engine.url.database in disposed_dbs
+        fault.assert_count(1)
 
 
 class TestProxyEndpoint:

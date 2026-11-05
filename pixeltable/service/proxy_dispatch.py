@@ -6,6 +6,7 @@ returns a serializable result; errors are returned as excs.Error.to_dict().
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import logging
 import pathlib
@@ -22,7 +23,15 @@ import sqlalchemy as sql
 
 from pixeltable import exceptions as excs, telemetry, telemetry_schemas
 from pixeltable._query import Query
-from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_md_read_loop
+from pixeltable.catalog import (
+    Catalog,
+    InsertableTable,
+    Path,
+    ProhibitedWriteError,
+    TablePathKey,
+    TableVersionKey,
+    retry_md_read_loop,
+)
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
@@ -79,48 +88,8 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
             _logger.info('%s.%s error (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
             error = mismatch
             return proxy_protocol.encode_response({'error': error_dict})
-        table_handler = _TABLE_HANDLERS.get(key)
-        if table_handler is not None:
-            # Table method
-            assert request.path_key is not None and request.snapshot_path_key is not None
-            cat = get_runtime().catalog
-            tbl = _resolve_tbl(TablePathKey.from_dict(request.path_key))
-            is_mutation = request.method in _MUTATION_METHODS
-            if is_mutation:
-                # refuse to run if the client's snapshot_path_key is behind the current schema
-                snapshot_key = TablePathKey.from_dict(request.snapshot_path_key)
-                with cat.begin_md_read_xact():
-                    md = cat.read_md_for_export(tbl)
-                if snapshot_key != _current_key(md):
-                    # return the current md and is_stale_md=True so the client refreshes and retries
-                    return proxy_protocol.encode_response({'current_md': md, 'is_stale_md': True})
-
-            _prefetch_remote_parts(request)
-            result = _convert_result(key, table_handler(request, tbl))
-            if not is_mutation:
-                # a read leaves the schema unchanged, so the client's md stays valid; no need to send it back
-                return proxy_protocol.encode_response({'result': result})
-
-            # a mutation bumps the table version; return the new md so the client's path refreshes
-            with cat.begin_md_read_xact():
-                md = cat.read_md_for_export(tbl)
-            _logger.debug('%s.%s %s (%.2fs)', request.class_name, request.method, path_label, time.monotonic() - t0)
-            return proxy_protocol.encode_response({'result': result, 'current_md': md})
-
-        handler = _HANDLERS.get(key)
-        if handler is None:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported proxy method: {request.class_name}.{request.method}'
-            )
-        _prefetch_remote_parts(request)
-        result = handler(request)
-        body: bytes
-        if key in _BODY_METHODS:
-            body = result
-        else:
-            body = proxy_protocol.encode_response({'result': _convert_result(key, result)})
-        _logger.debug('%s.%s (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
-        return body
+        with Catalog.freeze() if request.catalog_frozen else contextlib.nullcontext():
+            return _dispatch(request, key, path_label, t0)
 
     except excs.Error as e:
         error = e
@@ -133,6 +102,11 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
         if 'cause' in error_dict:
             error_dict['cause'] = _restore_upload_names(error_dict['cause'], request._uploaded_names)
         return proxy_protocol.encode_response({'error': error_dict})
+
+    except ProhibitedWriteError as e:
+        error = e
+        _logger.info('%s.%s prohibited write (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
+        return proxy_protocol.encode_response({'prohibited_write': True})
 
     except Exception as e:
         error = e
@@ -166,6 +140,52 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
                 pathlib.Path(temp_path).unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+def _dispatch(request: ProxyRequest, key: tuple[str, str], path_label: Any, t0: float) -> bytes:
+    """Run the handler for key and return the encoded response body."""
+    table_handler = _TABLE_HANDLERS.get(key)
+    if table_handler is not None:
+        # Table method
+        assert request.path_key is not None and request.snapshot_path_key is not None
+        cat = get_runtime().catalog
+        tbl = _resolve_tbl(TablePathKey.from_dict(request.path_key))
+        is_mutation = request.method in _MUTATION_METHODS
+        if is_mutation:
+            # refuse to run if the client's snapshot_path_key is behind the current schema
+            snapshot_key = TablePathKey.from_dict(request.snapshot_path_key)
+            with cat.begin_md_read_xact():
+                md = cat.read_md_for_export(tbl)
+            if snapshot_key != _current_key(md):
+                # return the current md and is_stale_md=True so the client refreshes and retries
+                return proxy_protocol.encode_response({'current_md': md, 'is_stale_md': True})
+
+        _prefetch_remote_parts(request)
+        result = _convert_result(key, table_handler(request, tbl))
+        if not is_mutation:
+            # a read leaves the schema unchanged, so the client's md stays valid; no need to send it back
+            return proxy_protocol.encode_response({'result': result})
+
+        # a mutation bumps the table version; return the new md so the client's path refreshes
+        with cat.begin_md_read_xact():
+            md = cat.read_md_for_export(tbl)
+        _logger.debug('%s.%s %s (%.2fs)', request.class_name, request.method, path_label, time.monotonic() - t0)
+        return proxy_protocol.encode_response({'result': result, 'current_md': md})
+
+    handler = _HANDLERS.get(key)
+    if handler is None:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported proxy method: {request.class_name}.{request.method}'
+        )
+    _prefetch_remote_parts(request)
+    result = handler(request)
+    body: bytes
+    if key in _BODY_METHODS:
+        body = result
+    else:
+        body = proxy_protocol.encode_response({'result': _convert_result(key, result)})
+    _logger.debug('%s.%s (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
+    return body
 
 
 # each archive being localized occupies temp disk twice: the archive itself and its extracted members
