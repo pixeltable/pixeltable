@@ -90,6 +90,7 @@ class InsertableTable(LocalTable):
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -101,6 +102,7 @@ class InsertableTable(LocalTable):
         /,
         *,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -115,6 +117,7 @@ class InsertableTable(LocalTable):
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -123,6 +126,12 @@ class InsertableTable(LocalTable):
 
         self._validate_insert_source(source)
         fail_on_exception = OnErrorParam.fail_on_exception(on_error)
+        if if_exists not in ('error', 'ignore'):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f"insert(): if_exists must be 'error' or 'ignore', not {if_exists!r}; to update existing rows, use "
+                "batch_update(rows, if_not_exists='insert')",
+            )
 
         if source is None:
             source = [kwargs]
@@ -139,6 +148,7 @@ class InsertableTable(LocalTable):
             fail_on_exception=fail_on_exception,
             print_stats=print_stats,
             return_rows=return_rows,
+            skip_existing_keys=if_exists == 'ignore',
         )
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(status))
         return status
@@ -149,6 +159,7 @@ class InsertableTable(LocalTable):
         fail_on_exception: bool,
         print_stats: bool = False,
         return_rows: bool = False,
+        skip_existing_keys: bool = False,
     ) -> pxt.UpdateStatus:
         """Insert row batches into this table from a `TableDataConduit`."""
         from pixeltable.io.table_data_conduit import QueryTableDataConduit
@@ -158,6 +169,12 @@ class InsertableTable(LocalTable):
         query = data_source.pxt_query if isinstance(data_source, QueryTableDataConduit) else None
         read_tbl_keys = query.referenced_tbl_keys() if query is not None else None
         with get_runtime().catalog.begin_data_write_xact(read_tbl_keys=read_tbl_keys, tvps=[self._tbl_version_path]):
+            if skip_existing_keys and len(self._tbl_version.get().primary_key_columns()) == 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f"insert(): if_exists='ignore' matches rows by primary key, and {self._display_str()} does not "
+                    'have one',
+                )
             data_source.add_table_info(self)
             data_source.prepare_for_insert_into_table()
             # in on_error='abort' mode the exec raises the internal ExprEvalError on the first failing cell;
@@ -165,7 +182,11 @@ class InsertableTable(LocalTable):
             try:
                 if query is not None:
                     status += self._tbl_version.get().insert(
-                        source=None, query=query, print_stats=print_stats, fail_on_exception=fail_on_exception
+                        source=None,
+                        query=query,
+                        print_stats=print_stats,
+                        fail_on_exception=fail_on_exception,
+                        skip_existing_keys=skip_existing_keys,
                     )
                 else:
                     for row_batch in data_source.valid_row_batch():
@@ -175,6 +196,7 @@ class InsertableTable(LocalTable):
                             print_stats=print_stats,
                             fail_on_exception=fail_on_exception,
                             return_rows=return_rows,
+                            skip_existing_keys=skip_existing_keys,
                         )
             except excs.ExprEvalError as e:
                 excs.raise_from_expr_eval_err(e)

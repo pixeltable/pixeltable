@@ -1121,6 +1121,7 @@ class LocalTable(Table):
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -1132,6 +1133,7 @@ class LocalTable(Table):
         /,
         *,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -1146,6 +1148,7 @@ class LocalTable(Table):
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -1179,18 +1182,9 @@ class LocalTable(Table):
         *,
         cascade: bool = True,
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
-        if_exists: Literal['update', 'ignore'] = 'update',
         return_rows: bool = False,
     ) -> UpdateStatus:
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
-        if if_exists == 'ignore' and if_not_exists != 'insert':
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT,
-                f"batch_update(): if_exists='ignore' requires if_not_exists='insert'; with "
-                f'if_not_exists={if_not_exists!r}, the call would change nothing',
-            )
-        # rows that are only inserted may contain media, as in insert()
-        insert_only = if_exists == 'ignore'
         with get_runtime().catalog.begin_data_write_xact(tvps=[self._tbl_version_path]):
             self._check_mutable('update')
             rows = list(rows)
@@ -1209,16 +1203,10 @@ class LocalTable(Table):
             rowids: list[tuple[int, ...]] = []
             if len(pk_col_names) == 0 and not has_rowid:
                 raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'Table must have primary key for batch update')
-            if has_rowid and insert_only:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_ARGUMENT,
-                    f"batch_update(): if_exists='ignore' cannot be combined with {_ROWID_COLUMN_NAME}, which addresses "
-                    'existing rows only',
-                )
 
             for row_spec in rows:
                 col_vals = self._tbl_version.get()._validate_update_spec(
-                    row_spec, allow_pk=not has_rowid, allow_exprs=False, allow_media=insert_only
+                    row_spec, allow_pk=not has_rowid, allow_exprs=False, allow_media=False
                 )
                 if has_rowid:
                     # every row must specify _rowid if any does
@@ -1239,17 +1227,14 @@ class LocalTable(Table):
                 row_updates.append(col_vals)
 
             tv = self._tbl_version.get()
-            if insert_only:
-                result = tv.insert_new_rows(row_updates, return_rows=return_rows)
-            else:
-                result = tv.batch_update(
-                    row_updates,
-                    rowids,
-                    error_if_not_exists=if_not_exists == 'error',
-                    insert_if_not_exists=if_not_exists == 'insert',
-                    cascade=cascade,
-                    return_rows=return_rows,
-                )
+            result = tv.batch_update(
+                row_updates,
+                rowids,
+                error_if_not_exists=if_not_exists == 'error',
+                insert_if_not_exists=if_not_exists == 'insert',
+                cascade=cascade,
+                return_rows=return_rows,
+            )
             telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
             telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(result))
             FileCache.get().emit_eviction_warnings()

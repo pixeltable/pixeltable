@@ -282,16 +282,24 @@ class Analyzer:
 class Planner:
     @classmethod
     def create_insert_plan(
-        cls, tbl: catalog.TableVersion, source: list[dict[str, Any]] | SqlDataSource, ignore_errors: bool
+        cls,
+        tbl: catalog.TableVersion,
+        source: list[dict[str, Any]] | SqlDataSource,
+        ignore_errors: bool,
+        skip_existing_keys: bool = False,
     ) -> exec.ExecNode:
-        """Creates a plan for TableVersion.insert() from either in-memory rows or a SqlDataSource."""
+        """Creates a plan for TableVersion.insert() from either in-memory rows or a SqlDataSource.
+
+        With skip_existing_keys, the plan drops each row whose primary key is already in tbl, before computing its
+        computed columns.
+        """
         assert not tbl.is_view
         output_cols = cls._compute_output_cols(tbl, for_insert=True)
         assert len(output_cols) > 0
         cls.__check_valid_columns(tbl, output_cols, 'inserted into')
 
         row_builder = exprs.RowBuilder([], output_cols, [], tbl)
-        plan, batch_size = cls._create_input_plan(tbl, source, row_builder)
+        plan, batch_size = cls._create_input_plan(tbl, source, row_builder, skip_existing_keys=skip_existing_keys)
         computed_exprs = row_builder.output_exprs - row_builder.input_exprs
         if len(computed_exprs) > 0:
             plan = exec.ExprEvalNode(
@@ -325,6 +333,7 @@ class Planner:
         source: list[dict[str, Any]] | SqlDataSource,
         row_builder: exprs.RowBuilder,
         set_pk: bool = False,
+        skip_existing_keys: bool = False,
     ) -> tuple[exec.ExecNode, int]:
         """
         Creates the input stage shared by insert/compute plans: materializes 'source' (in-memory rows or a
@@ -343,6 +352,9 @@ class Planner:
             plan = exec.InMemoryDataNode(tbl.handle, source, row_builder, set_pk=set_pk)
             batch_size = 0
 
+        if skip_existing_keys:
+            # ahead of the prefetch node: a skipped row's media isn't fetched
+            plan = exec.AntiJoinNode(tbl.handle, row_builder, plan)
         plan = cls._add_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)
         return plan, batch_size
 
@@ -510,7 +522,7 @@ class Planner:
 
     @classmethod
     def create_query_insert_plan(
-        cls, tbl: catalog.TableVersion, query: 'pxt.Query', ignore_errors: bool
+        cls, tbl: catalog.TableVersion, query: 'pxt.Query', ignore_errors: bool, skip_existing_keys: bool = False
     ) -> exec.ExecNode:
         assert not tbl.is_view
         # The compiled plan owns the planner-mutated select-list exprs (with slot_idx assigned).
@@ -523,6 +535,8 @@ class Planner:
         plan.row_builder.set_table_output(
             tbl, expr_cols=[(col, e.slot_idx) for col, e in zip(output_cols, compiled.select_list_exprs)]
         )
+        if skip_existing_keys:
+            plan = exec.AntiJoinNode(tbl.handle, plan.row_builder, plan)
         needs_cell_materialization = any(col.col_type.needs_cell_materialization() for col in output_cols)
 
         if needs_cell_materialization:

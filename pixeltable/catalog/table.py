@@ -795,6 +795,7 @@ class Table(SchemaObject):
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -806,6 +807,7 @@ class Table(SchemaObject):
         /,
         *,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -820,6 +822,7 @@ class Table(SchemaObject):
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -875,6 +878,15 @@ class Table(SchemaObject):
                 - If `on_error='ignore'`, then execution will continue and the rows will be inserted. Any cells
                     with errors will have a `None` value for that cell, with information about the error stored in the
                     corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
+            if_exists: Determines the behavior for a row whose primary key is already in the table:
+
+                - `'error'`: Raise an error.
+                - `'ignore'`: Skip the row and leave the existing row unchanged. A skipped row's computed columns are
+                    not evaluated, and `UpdateStatus.row_count_stats.skipped_rows` counts the skipped rows. If several
+                    rows share a new key, the first one is inserted. The table needs a primary key.
+
+                To update the existing rows instead, use [`batch_update()`][pixeltable.Table.batch_update] with
+                `if_not_exists='insert'`.
             print_stats: If `True`, print statistics about the cost of computed columns.
             return_rows: If `True`, populate `UpdateStatus.rows` with one dict per inserted row, mapping column names
                 to their stored or computed values. If `False` (default), `UpdateStatus.rows` is `None`.
@@ -905,6 +917,11 @@ class Table(SchemaObject):
             Insert rows from a CSV file:
 
             >>> tbl.insert('path/to/file.csv')
+
+            Insert the rows of a CSV file whose primary key is not yet in the table; running the same call again
+            inserts nothing:
+
+            >>> tbl.insert('path/to/file.csv', if_exists='ignore')
 
             Insert Pydantic model instances into a table with two `pxt.Int` columns `a` and `b`:
 
@@ -1150,27 +1167,22 @@ class Table(SchemaObject):
         *,
         cascade: bool = True,
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
-        if_exists: Literal['update', 'ignore'] = 'update',
         return_rows: bool = False,
     ) -> UpdateStatus:
-        """Update or insert rows of this table, matching them by primary key.
+        """Update rows in this table.
 
         Args:
             rows: an Iterable of dictionaries containing values for the updated columns plus values for the primary key
                   columns.
             cascade: if True, also update all computed columns that transitively depend on the updated columns.
-            if_not_exists: Specifies the behavior if a row does not exist:
+            if_not_exists: Specifies the behavior if a row to update does not exist:
 
                 - `'error'`: Raise an error.
                 - `'ignore'`: Skip the row silently.
                 - `'insert'`: Insert the row.
-            if_exists: Specifies the behavior if a row already exists:
 
-                - `'update'`: Update the row.
-                - `'ignore'`: Leave the row and its computed columns untouched. This requires `if_not_exists='insert'`,
-                    and the rows may then contain media values, as in `insert()`.
             return_rows: If `True`, populate `UpdateStatus.rows` with one dict per affected row, mapping column
-                names to their new stored values. Newly inserted rows are included.
+                names to their new stored values. Rows newly inserted via `if_not_exists='insert'` are included.
                 If `False` (default), `UpdateStatus.rows` is `None`.
 
         Examples:
@@ -1192,18 +1204,6 @@ class Table(SchemaObject):
             ...         {'id': 1, 'name': 'Alice', 'age': 30},
             ...         {'id': 3, 'name': 'Bob', 'age': 40},
             ...     ],
-            ...     if_not_exists='insert',
-            ... )
-
-            Load a batch that may repeat rows loaded before: insert the new ids, and leave the existing rows and their
-            computed columns untouched:
-
-            >>> tbl.batch_update(
-            ...     [
-            ...         {'id': 1, 'name': 'Alice', 'age': 30},
-            ...         {'id': 4, 'name': 'Carol', 'age': 50},
-            ...     ],
-            ...     if_exists='ignore',
             ...     if_not_exists='insert',
             ... )
         """

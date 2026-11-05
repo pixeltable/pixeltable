@@ -81,6 +81,13 @@ def random_value(s: str) -> float:
 
 
 @pxt.udf
+def refuse_x(s: str) -> str:
+    if s == 'x':
+        raise ValueError("refuse_x(): 'x'")
+    return s
+
+
+@pxt.udf
 def copy_clip(video: pxt.Video, out_dir: str) -> pxt.Video:
     clip_path = Path(out_dir) / f'{uuid.uuid4()}.mp4'
     shutil.copy(video, clip_path)
@@ -3224,7 +3231,7 @@ class TestTable:
         with pytest.raises(TypeError, match='takes 2 positional arguments but 3 were given'):
             t.batch_update([{'id': 1, 'name': 'pos'}], False)  # type: ignore[misc]
 
-    def test_batch_update_if_exists(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+    def test_insert_if_exists(self, db_root: DatabaseRoot, is_data_versioned: bool, tmp_path: Path) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(
             p('test'),
@@ -3233,90 +3240,88 @@ class TestTable:
             _is_data_versioned=is_data_versioned,
         )
         t.add_computed_column(tag=random_value(t.name))
+        t.add_computed_column(checked=refuse_x(t.name))
         t.insert([{'id': 1, 'name': 'a'}, {'id': 2, 'name': 'b'}])
         tags = {r['id']: r['tag'] for r in t.select(t.id, t.tag).collect()}
 
-        # if_exists='ignore': new keys are inserted; existing rows and their computed columns stay unchanged
-        status = t.batch_update(
-            [{'id': 1, 'name': 'x'}, {'id': 3, 'name': 'c'}],
-            if_exists='ignore',
-            if_not_exists='insert',
-            return_rows=True,
-        )
-        assert status.num_rows == 1
+        # the row with an existing key is skipped without evaluating its computed columns, where refuse_x() would fail
+        status = t.insert([{'id': 1, 'name': 'x'}, {'id': 3, 'name': 'c'}], if_exists='ignore', return_rows=True)
+        assert (status.num_rows, status.row_count_stats.skipped_rows) == (1, 1)
         assert status.rows is not None and [r['id'] for r in status.rows] == [3]
         assert t.where(t.id == 1).select(t.name, t.tag).collect()[0] == {'name': 'a', 'tag': tags[1]}
-        assert t.count() == 3
-        # only existing keys
-        status = t.batch_update(
-            [{'id': 1, 'name': 'x'}, {'id': 3, 'name': 'y'}],
-            if_exists='ignore',
-            if_not_exists='insert',
-            return_rows=True,
-        )
-        assert status.num_rows == 0
+        # running the same call again inserts nothing
+        status = t.insert([{'id': 1, 'name': 'x'}, {'id': 3, 'name': 'c'}], if_exists='ignore', return_rows=True)
+        assert (status.num_rows, status.row_count_stats.skipped_rows) == (0, 2)
         assert status.rows == []
-        status = t.batch_update(
-            [{'id': 2, 'name': 'y'}, {'id': 4, 'name': 'd'}], if_exists='ignore', if_not_exists='insert'
-        )
-        assert status.num_rows == 1
+        assert t.count() == 3
 
-        # the batch applies row by row: a repeated new key keeps its first row, as an upsert keeps its last
-        status = t.batch_update(
-            [{'id': 6, 'name': 'f'}, {'id': 6, 'name': 'f2'}], if_exists='ignore', if_not_exists='insert'
-        )
-        assert status.num_rows == 1
-        t.batch_update([{'id': 7, 'name': 'g'}, {'id': 7, 'name': 'g2'}], if_not_exists='insert')
-        assert t.where(t.id >= 6).select(t.id, t.name).order_by(t.id).collect()['name'] == ['f', 'g2']
-        t.where(t.id >= 6).delete()
+        # if several rows share a new key, the first one is inserted
+        status = t.insert([{'id': 6, 'name': 'f'}, {'id': 6, 'name': 'f2'}], if_exists='ignore')
+        assert (status.num_rows, status.row_count_stats.skipped_rows) == (1, 1)
+        assert t.where(t.id == 6).select(t.name).collect()['name'] == ['f']
 
-        # with another if_not_exists, if_exists='ignore' would change nothing
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="requires if_not_exists='insert'"):
-            t.batch_update([{'id': 8, 'name': 'h'}], if_exists='ignore')
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="requires if_not_exists='insert'"):
-            t.batch_update([{'id': 8, 'name': 'h'}], if_exists='ignore', if_not_exists='ignore')
+        # the single-row form
+        status = t.insert(id=7, name='g', if_exists='ignore')
+        assert status.num_rows == 1
+        status = t.insert(id=7, name='x', if_exists='ignore')
+        assert (status.num_rows, status.row_count_stats.skipped_rows) == (0, 1)
+
+        # a CSV file
+        csv_path = tmp_path / 'rows.csv'
+        csv_path.write_text('id,name\n1,x\n8,h\n', encoding='utf-8')
+        status = t.insert(str(csv_path), if_exists='ignore')
+        assert (status.num_rows, status.row_count_stats.skipped_rows) == (1, 1)
+        assert t.where(t.id == 8).select(t.name).collect()['name'] == ['h']
+
+        # a query
+        src = pxt.create_table(p('src'), {'id': pxt.Int, 'name': pxt.String})
+        src.insert([{'id': 2, 'name': 'x'}, {'id': 9, 'name': 'i'}])
+        status = t.insert(src.select(src.id, src.name), if_exists='ignore')
+        assert (status.num_rows, status.row_count_stats.skipped_rows) == (1, 1)
+        assert t.where(t.id == 2).select(t.name).collect()['name'] == ['b']
 
         # a deleted row no longer exists
-        t.where(t.id == 4).delete()
-        t.batch_update([{'id': 4, 'name': 'd2'}], if_exists='ignore', if_not_exists='insert')
-        assert t.where(t.id == 4).select(t.name).collect()['name'] == ['d2']
+        t.where(t.id == 3).delete()
+        status = t.insert([{'id': 3, 'name': 'c2'}], if_exists='ignore')
+        assert status.num_rows == 1
+        assert t.where(t.id == 3).select(t.name).collect()['name'] == ['c2']
 
-        # the default if_exists='update' with if_not_exists='insert' is an upsert, which recomputes the updated row
-        t.batch_update([{'id': 1, 'name': 'a2'}, {'id': 5, 'name': 'e'}], if_not_exists='insert')
-        row = t.where(t.id == 1).select(t.name, t.tag).collect()[0]
-        assert row['name'] == 'a2' and row['tag'] != tags[1]
-        assert t.count() == 5
-
-        # rows that are only inserted accept media; an update still refuses it
+        # a new row may contain media
         img = get_image_files()[0]
-        t.batch_update([{'id': 6, 'name': 'f', 'img': img}], if_exists='ignore', if_not_exists='insert')
-        assert t.where(t.id == 6).select(t.img).collect()[0]['img'] is not None
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'img' is a media column"):
-            t.batch_update([{'id': 7, 'name': 'g', 'img': img}], if_not_exists='insert')
+        t.insert([{'id': 10, 'name': 'j', 'img': img}], if_exists='ignore')
+        assert t.where(t.id == 10).select(t.img).collect()[0]['img'] is not None
+
+        # if_exists='error' (the default) refuses an existing key
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key value'):
+            t.insert([{'id': 1, 'name': 'a'}])
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="if_exists must be 'error' or 'ignore'"):
+            t.insert([{'id': 1, 'name': 'a'}], if_exists='update')  # type: ignore[call-overload]
 
         if is_data_versioned:
-            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='_rowid'):
-                t.batch_update([{'name': 'z', '_rowid': (1,)}], if_exists='ignore', if_not_exists='insert')
-
             # a view sees the inserted rows; views of operational tables are not supported yet (PXT-1101)
             v = pxt.create_view(p('test_view'), t)
-            t.batch_update([{'id': 1, 'name': 'x'}, {'id': 9, 'name': 'i'}], if_exists='ignore', if_not_exists='insert')
-            assert v.where(v.id == 9).count() == 1
+            t.insert([{'id': 1, 'name': 'x'}, {'id': 11, 'name': 'k'}], if_exists='ignore')
+            assert v.where(v.id == 11).count() == 1
 
-        # a composite key
+        # a composite key with a timestamp
+        ts = datetime.datetime(2024, 1, 1, 12, 0)
         pairs = pxt.create_table(
             p('pairs'),
-            {'a': pxt.Int, 'b': pxt.String, 'v': pxt.Int},
-            primary_key=['a', 'b'],
+            {'at': pxt.Timestamp, 'b': pxt.String, 'v': pxt.Int},
+            primary_key=['at', 'b'],
             _is_data_versioned=is_data_versioned,
         )
-        pairs.insert([{'a': 1, 'b': 'x', 'v': 1}])
-        pairs.batch_update(
-            [{'a': 1, 'b': 'x', 'v': 9}, {'a': 1, 'b': 'y', 'v': 2}], if_exists='ignore', if_not_exists='insert'
-        )
+        pairs.insert([{'at': ts, 'b': 'x', 'v': 1}])
+        status = pairs.insert([{'at': ts, 'b': 'x', 'v': 9}, {'at': ts, 'b': 'y', 'v': 2}], if_exists='ignore')
+        assert (status.num_rows, status.row_count_stats.skipped_rows) == (1, 1)
         assert pairs.order_by(pairs.b).select(pairs.b, pairs.v).collect()['v'] == [1, 2]
 
-    def test_batch_update_if_exists_many_keys(self, db_root: DatabaseRoot) -> None:
+        # a table without a primary key
+        no_pk = pxt.create_table(p('no_pk'), {'id': pxt.Int}, _is_data_versioned=is_data_versioned)
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="if_exists='ignore' matches rows by primary key"):
+            no_pk.insert([{'id': 1}], if_exists='ignore')
+
+    def test_insert_if_exists_many_keys(self, db_root: DatabaseRoot) -> None:
         # 4 key columns for each of 20,000 keys exceed Postgres's limit of 65535 bind parameters per statement
         p = db_root.make_catalog_path
         t = pxt.create_table(
@@ -3325,11 +3330,22 @@ class TestTable:
             primary_key=['a', 'b', 'c', 'd'],
         )
         rows = [{'a': i, 'b': i + 1, 'c': i + 2, 'd': i + 3, 'name': 'x'} for i in range(20_000)]
-        status = t.batch_update(rows, if_exists='ignore', if_not_exists='insert')
+        status = t.insert(rows, if_exists='ignore')
         assert status.num_rows == 20_000
-        status = t.batch_update(rows, if_exists='ignore', if_not_exists='insert')
-        assert status.num_rows == 0
+        status = t.insert(rows, if_exists='ignore')
+        assert (status.num_rows, status.row_count_stats.skipped_rows) == (0, 20_000)
         assert t.count() == 20_000
+
+        # the same keys from a query
+        copy = pxt.create_table(
+            p('copy'),
+            {'a': pxt.Int, 'b': pxt.Int, 'c': pxt.Int, 'd': pxt.Int, 'name': pxt.String},
+            primary_key=['a', 'b', 'c', 'd'],
+        )
+        copy.insert([rows[0]])
+        status = copy.insert(t.select(t.a, t.b, t.c, t.d, t.name), if_exists='ignore')
+        assert (status.num_rows, status.row_count_stats.skipped_rows) == (19_999, 1)
+        assert copy.count() == 20_000
 
     def test_update_return_rows(
         self, db_root: DatabaseRoot, is_data_versioned: bool, local_embed: pxt.Function

@@ -26,6 +26,7 @@ class ExecContext:
     pk_clause: list[sql.ClauseElement] | None
     ignore_errors: bool
     random_seed: int  # general-purpose source of randomness with execution scope
+    num_skipped_rows: int  # input rows dropped by AntiJoinNode
 
     def __init__(
         self,
@@ -58,6 +59,7 @@ class ExecContext:
         self.pk_clause = pk_clause
         self.ignore_errors = ignore_errors
         self.random_seed = random.getrandbits(63)
+        self.num_skipped_rows = 0
 
     def reset(self) -> None:
         """Clear per-execution state so a cached plan can be re-executed without leaking
@@ -65,6 +67,7 @@ class ExecContext:
         self.progress = None
         self.progress_reporters = {}
         self.profile = exprs.ExecProfile(self.row_builder)
+        self.num_skipped_rows = 0
 
     def add_progress_reporter(self, desc: str, unit_1: str, unit_2: str | None = None) -> ProgressReporter | None:
         """Records new ProgressReporter for the given desc/units, or returns the existing one."""

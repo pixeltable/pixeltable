@@ -581,7 +581,9 @@ class StoreBase:
             telemetry_schemas.rows_written.add(
                 num_rows, table=self.tbl_version.get().name, table_id=str(self.tbl_version.id)
             )
-            row_counts = RowCountStats(ins_rows=num_rows, num_excs=num_excs)
+            row_counts = RowCountStats(
+                ins_rows=num_rows, num_excs=num_excs, skipped_rows=exec_plan.ctx.num_skipped_rows
+            )
 
             return cols_with_excs, row_counts, (inserted_rows if return_rows else None)
 

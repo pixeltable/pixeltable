@@ -59,9 +59,6 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
-# bind parameters per key lookup statement; Postgres allows at most 65535, and the from clause binds some as well
-_KEY_LOOKUP_BIND_PARAMS = 10_000
-
 
 def _plan_node_names(plan: 'exec.ExecNode') -> list[str]:
     """Node class names in plan-chain order (consumer first), for PlanAttrs.nodes."""
@@ -1299,9 +1296,12 @@ class TableVersion:
         print_stats: bool = False,
         fail_on_exception: bool = True,
         return_rows: bool = False,
+        skip_existing_keys: bool = False,
     ) -> UpdateStatus:
         """
         Insert rows into this table from an explicit list of dicts, a Query, or a SqlDataSource.
+
+        With skip_existing_keys, a row whose primary key is already in the table is not inserted.
         """
         from pixeltable.plan import Planner
 
@@ -1310,9 +1310,13 @@ class TableVersion:
         assert (source is None) != (query is None)
         with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
             if query is not None:
-                plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
+                plan = Planner.create_query_insert_plan(
+                    self, query, ignore_errors=not fail_on_exception, skip_existing_keys=skip_existing_keys
+                )
             else:
-                plan = Planner.create_insert_plan(self, source, ignore_errors=not fail_on_exception)
+                plan = Planner.create_insert_plan(
+                    self, source, ignore_errors=not fail_on_exception, skip_existing_keys=skip_existing_keys
+                )
             telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(plan)))
 
         rowid_gen: Iterator[int] | None = None
@@ -1476,37 +1480,6 @@ class TableVersion:
                 )
                 result += insert_status.to_cascade()
         return result
-
-    def insert_new_rows(self, batch: list[dict[Column, exprs.Expr]], return_rows: bool) -> UpdateStatus:
-        """Insert the rows of batch whose primary key is not in the table, leaving the existing rows untouched.
-
-        Each row of batch maps Columns, including all primary key columns, to Literals.
-        """
-        from pixeltable.exec import SqlNode
-
-        pk_cols = self.primary_key_columns()
-        key_vals = [tuple(row[col].val for col in pk_cols) for row in batch]
-        sa_key_cols = [col.sa_col for col in pk_cols]
-        # the lookup binds one parameter per key column per key
-        keys_per_lookup = _KEY_LOOKUP_BIND_PARAMS // len(pk_cols)
-        existing: set[tuple] = set()
-        for start in range(0, len(key_vals), keys_per_lookup):
-            stmt = sql.select(*sa_key_cols).where(
-                sql.tuple_(*sa_key_cols).in_(key_vals[start : start + keys_per_lookup])
-            )
-            # restricts the lookup to the rows visible at the current version
-            stmt = SqlNode.create_from_clause(self.path, stmt)
-            existing.update(tuple(row) for row in get_runtime().conn.execute(stmt))
-        new_rows: list[dict[str, Any]] = []
-        for key, row in zip(key_vals, batch):
-            if key in existing:
-                continue
-            # keep only the first row of a repeated key
-            existing.add(key)
-            new_rows.append({col.name: val_expr.val for col, val_expr in row.items()})
-        if len(new_rows) == 0:
-            return UpdateStatus(rows=[] if return_rows else None)
-        return self.insert(new_rows, None, print_stats=False, fail_on_exception=False, return_rows=return_rows)
 
     def _update_rows(self, plan: 'exec.ExecNode', set_cols: list[Column], return_rows: bool) -> UpdateStatus:
         assert not self.is_data_versioned

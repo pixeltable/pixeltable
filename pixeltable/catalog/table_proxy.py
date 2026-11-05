@@ -319,6 +319,7 @@ class TableProxy(Table):
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -428,12 +429,11 @@ class TableProxy(Table):
         *,
         cascade: bool = True,
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
-        if_exists: Literal['update', 'ignore'] = 'update',
         return_rows: bool = False,
     ) -> UpdateStatus:
         bound_args = self._dispatch_args(locals())
         self._check_mutable('update')
-        bound_args['rows'] = self._convert_local_paths(rows)
+        bound_args['rows'] = list(rows)
         return self._dispatch('batch_update', bound_args)
 
     def recompute_columns(
