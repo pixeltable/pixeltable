@@ -43,6 +43,25 @@ def _(obj: sql.ColumnElement) -> sql.ColumnElement:
     return obj.cast(sql.Text)
 
 
+@pxt.udf
+def loads(s: str) -> pxt.Json | None:
+    """
+    Parse a JSON string. The string `'null'` gives `None`.
+
+    Equivalent to [`json.loads()`](https://docs.python.org/3/library/json.html#json.loads).
+
+    Args:
+        s: A JSON-formatted string.
+
+    Returns:
+        The parsed JSON value.
+
+    Examples:
+        >>> t.add_computed_column(boxes=pxtf.json.loads(t.boxes_text))
+    """
+    return json.loads(s)
+
+
 def _jsonb_object_length(obj: sql.ColumnElement) -> sql.ColumnElement:
     """SQL expression for the number of keys in a jsonb object."""
     return sql.select(sql.func.count()).select_from(sql.func.jsonb_object_keys(obj)).scalar_subquery()

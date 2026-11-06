@@ -9,26 +9,26 @@ from .expr_dict import ExprDict
 class SqlElementCache:
     """Cache of sql.ColumnElements for exprs"""
 
-    cache: dict[int, sql.ColumnElement | None]  # key: Expr.id
+    cache: dict[int, sql.ColumnElement | None]  # key: Expr._expr_id
 
     def __init__(self, elements: ExprDict[sql.ColumnElement] | None = None):
         self.cache = {}
         if elements is not None:
             for e, el in elements.items():
-                self.cache[e.id] = el
+                self.cache[e._expr_id] = el
 
     def extend(self, elements: ExprDict[sql.ColumnElement]) -> None:
         for e, el in elements.items():
-            self.cache[e.id] = el
+            self.cache[e._expr_id] = el
 
     def get(self, e: Expr) -> sql.ColumnElement | None:
         """Returns the sql.ColumnElement for the given Expr, or None if Expr.to_sql() returns None."""
         try:
-            return self.cache[e.id]
+            return self.cache[e._expr_id]
         except KeyError:
             pass
         el = e.sql_expr(self)
-        self.cache[e.id] = el
+        self.cache[e._expr_id] = el
         return el
 
     def contains(self, item: Expr) -> bool:

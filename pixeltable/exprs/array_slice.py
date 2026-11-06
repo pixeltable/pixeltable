@@ -24,7 +24,7 @@ class ArraySlice(Expr):
         super().__init__(arr.col_type.subscript_type(index))
         self.components = [arr]
         self.index = index
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     def __repr__(self) -> str:
         index_strs: list[str] = []
@@ -33,7 +33,7 @@ class ArraySlice(Expr):
                 index_strs.append(str(el))
             if isinstance(el, slice):
                 index_strs.append(print_slice(el))
-        return f'{self._array}[{", ".join(index_strs)}]'
+        return f'{self._array!s}[{", ".join(index_strs)}]'
 
     @property
     def _array(self) -> Expr:

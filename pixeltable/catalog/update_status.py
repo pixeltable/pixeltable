@@ -18,6 +18,7 @@ class RowCountStats:
     del_rows: int = 0  # rows deleted
     upd_rows: int = 0  # rows updated
     num_excs: int = 0  # total number of exceptions
+    skipped_rows: int = 0  # rows not inserted because their primary key is already in the table
 
     @property
     def num_rows(self) -> int:
@@ -29,7 +30,11 @@ class RowCountStats:
         This is used when an insert operation is treated as an update.
         """
         return RowCountStats(
-            ins_rows=0, del_rows=self.del_rows, upd_rows=self.upd_rows + self.ins_rows, num_excs=self.num_excs
+            ins_rows=0,
+            del_rows=self.del_rows,
+            upd_rows=self.upd_rows + self.ins_rows,
+            num_excs=self.num_excs,
+            skipped_rows=self.skipped_rows,
         )
 
     def __add__(self, other: 'RowCountStats') -> 'RowCountStats':
@@ -41,6 +46,7 @@ class RowCountStats:
             del_rows=self.del_rows + other.del_rows,
             upd_rows=self.upd_rows + other.upd_rows,
             num_excs=self.num_excs + other.num_excs,
+            skipped_rows=self.skipped_rows + other.skipped_rows,
         )
 
 
@@ -137,6 +143,9 @@ class UpdateStatus:
             msg += f' in {duration:.2f} s'
             if duration > 0:
                 msg += f' ({self.num_rows / duration:.2f} rows/s)'
+        num_skipped = self.row_count_stats.skipped_rows
+        if num_skipped > 0:
+            msg += f'; skipped {num_skipped} existing row{"" if num_skipped == 1 else "s"}'
         return msg
 
     @classmethod
@@ -154,6 +163,8 @@ class UpdateStatus:
             messages.append(f'{self.__cnt_str(stats.del_rows, "row")} deleted')
         if stats.upd_rows > 0:
             messages.append(f'{self.__cnt_str(stats.upd_rows, "row")} updated')
+        if stats.skipped_rows > 0:
+            messages.append(f'{self.__cnt_str(stats.skipped_rows, "existing row")} skipped')
         if stats.num_excs > 0:
             messages.append(self.__cnt_str(stats.num_excs, 'exception'))
         p.text(', '.join(messages) + '.' if len(messages) > 0 else 'No rows affected.')

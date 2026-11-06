@@ -258,6 +258,62 @@ def _(val: sql.ColumnElement) -> sql.ColumnElement | None:
     return sql.sql.func.avg(val)
 
 
+@func.udf
+def coalesce(*values: Any) -> ts.Json | None:
+    """
+    Return the first of the arguments that is not `None`, or `None` if all of them are; the result type is the common
+    supertype of the argument types.
+
+    For an `Int` and a `Float` argument, the result type is `Float`. It is nullable only if all arguments are.
+
+    Examples:
+        The reviewed label where there is one, else the model's label:
+
+        >>> t.add_computed_column(
+        ...     label=pxtf.coalesce(t.reviewed_label, t.predicted_label)
+        ... )
+
+        A default for a missing value:
+
+        >>> t.select(
+        ...     display_name=pxtf.coalesce(t.nickname, t.name, 'unknown')
+        ... ).collect()
+    """
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+@coalesce.conditional_return_type
+def _(values: exprs.Expr) -> ts.ColumnType:
+    # the arguments arrive as one list expression, a Literal if all of them are constants
+    if isinstance(values, exprs.InlineList):
+        types = [value.col_type for value in values.components]
+    else:
+        assert isinstance(values, exprs.Literal)
+        types = [exprs.Expr.from_object(value).col_type for value in values.val]
+    supertype = ts.ColumnType.common_supertype(types)
+    if supertype is None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_TYPE,
+            f'coalesce(): the argument types have no common supertype: {", ".join(str(t) for t in types)}',
+        )
+    return supertype.copy(nullable=all(t.nullable for t in types))
+
+
+@coalesce.to_sql
+def _(*values: sql.ColumnElement) -> sql.ColumnElement | None:
+    sql_type = values[0].type
+    # Postgres converts arguments of different SQL types to a common type, or rejects them
+    if any(type(value.type) is not type(sql_type) for value in values):
+        return None
+    # the stored form of a JSON, array or binary value differs from the value
+    if isinstance(sql_type, (sql.JSON, sql.LargeBinary)):
+        return None
+    return sql.sql.func.coalesce(*values)
+
+
 def _relative_path_root(expr: exprs.Expr) -> exprs.Expr:
     """A relative-path root typed as the element type of the list that expr produces (untyped if unknown)."""
     element_type = expr.col_type.array_element_type() if isinstance(expr.col_type, ts.JsonType) else None

@@ -7,8 +7,10 @@ import pandas as pd
 from typing_extensions import TypeForm
 
 from pixeltable import exceptions as excs
+from pixeltable.runtime import get_runtime
 
-from .globals import is_valid_identifier
+from .globals import IfNotExistsParam, is_valid_identifier
+from .path import Path as CatalogPath
 from .schema_object import SchemaObject
 
 if TYPE_CHECKING:
@@ -78,6 +80,35 @@ class Table(SchemaObject):
         Returns:
             A list of view paths.
         """
+
+    def _non_nullable_dependents(self, col_name: str) -> list[str]:
+        """Return the qualified names of the non-nullable computed columns that reference column col_name of this table
+        directly, in this table and in live views (views w/o any snapshots on the path).
+        """
+        # TODO: return only the dependents whose value expression becomes nullable when col_name becomes nullable
+        tbl_name = self.get_metadata()['name']
+        cat = get_runtime().get_catalog(self._path())
+        tbls: list[Table] = [self]
+        for path in self.list_views():
+            view = cat.get_table(CatalogPath.parse(path), IfNotExistsParam.ERROR)
+            assert view is not None
+            tbls.append(view)
+        dependents: set[str] = set()
+        for tbl in tbls:
+            # a snapshot or a view over one reads a fixed version of this table
+            version_key = tbl._tbl_path.find_tbl_version(self._id)
+            assert version_key is not None
+            if version_key.effective_version is not None:
+                continue
+            md = tbl.get_metadata()
+            for name, col_md in md['columns'].items():
+                if (tbl_name, col_name) not in {tuple(dep) for dep in col_md['depends_on'] or []}:
+                    continue
+                col_version_md = tbl._tbl_path.get_column_md_by_name(name)
+                assert col_version_md is not None
+                if not col_version_md.col_type.nullable:
+                    dependents.add(f'{col_md["defined_in"]}.{name}')
+        return sorted(dependents)
 
     def select(self, *items: Any, **named_items: Any) -> 'Query':
         """Select columns or expressions from this table.
@@ -442,16 +473,16 @@ class Table(SchemaObject):
     def alter_column(self, column: str | ColumnRef, *, type_: TypeForm) -> None:
         """Alter the type of a column.
 
-        Currently, the only supported change is widening a non-computed column from non-nullable to
-        nullable.
+        The only supported change makes a non-computed column nullable. It fails if a non-nullable computed column of
+        this table or of one of its views references the column.
 
         Args:
             column: The name or reference of the column to alter.
             type_: The new type for the column.
 
         Raises:
-            Error: If the column does not exist, is a computed column, if `type_` is not a supported widening of the
-            current type, or if the change cannot be performed for any other reason.
+            Error: If the column does not exist, is a computed or primary key column, if `type_` is not the column's
+            type made nullable, or if a non-nullable computed column references the column.
 
         Examples:
             Make a previously non-nullable column nullable:
@@ -764,6 +795,7 @@ class Table(SchemaObject):
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -775,6 +807,7 @@ class Table(SchemaObject):
         /,
         *,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -789,6 +822,7 @@ class Table(SchemaObject):
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -844,6 +878,15 @@ class Table(SchemaObject):
                 - If `on_error='ignore'`, then execution will continue and the rows will be inserted. Any cells
                     with errors will have a `None` value for that cell, with information about the error stored in the
                     corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
+            if_exists: Determines the behavior for a row whose primary key is already in the table:
+
+                - `'error'`: Raise an error.
+                - `'ignore'`: Skip the row and leave the existing row unchanged. A skipped row's computed columns are
+                    not evaluated, and `UpdateStatus.row_count_stats.skipped_rows` counts the skipped rows. If several
+                    rows share a new key, the first one is inserted. The table needs a primary key.
+
+                To update the existing rows instead, use [`batch_update()`][pixeltable.Table.batch_update] with
+                `if_not_exists='insert'`.
             print_stats: If `True`, print statistics about the cost of computed columns.
             return_rows: If `True`, populate `UpdateStatus.rows` with one dict per inserted row, mapping column names
                 to their stored or computed values. If `False` (default), `UpdateStatus.rows` is `None`.
@@ -874,6 +917,11 @@ class Table(SchemaObject):
             Insert rows from a CSV file:
 
             >>> tbl.insert('path/to/file.csv')
+
+            Insert the rows of a CSV file whose primary key is not yet in the table; running the same call again
+            inserts nothing:
+
+            >>> tbl.insert('path/to/file.csv', if_exists='ignore')
 
             Insert Pydantic model instances into a table with two `pxt.Int` columns `a` and `b`:
 
@@ -1116,6 +1164,7 @@ class Table(SchemaObject):
     def batch_update(
         self,
         rows: Iterable[dict[str, Any]],
+        *,
         cascade: bool = True,
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
         return_rows: bool = False,

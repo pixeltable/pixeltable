@@ -84,7 +84,7 @@ class ModelQuery(QueryBase):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
                     f'{model_name}: `base` select() list may contain only direct column references '
-                    f'or named expressions, but contains an anonymous compound expression: {item}\n'
+                    f'or named expressions, but contains an anonymous compound expression: {item!s}\n'
                     f'Use kwargs syntax to give it an explicit name: select(my_name=...)',
                 )
 
@@ -120,7 +120,7 @@ class ModelQuery(QueryBase):
         # a similarity expression names its indexed column and the table version holding the index, neither of
         # which a substitution by column name reaches
         defined_path = self._from_clause.tbls[0]
-        for sim in {s.id: s for e in self._component_exprs() for s in e.subexprs(exprs.SimilarityExpr)}.values():
+        for sim in {s._expr_id: s for e in self._component_exprs() for s in e.subexprs(exprs.SimilarityExpr)}.values():
             assert sim.qcol_id is not None
             if sim.qcol_id.tbl_id == path.tbl_id:
                 continue  # already indexed against this path

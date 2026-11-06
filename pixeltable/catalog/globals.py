@@ -21,6 +21,9 @@ if TYPE_CHECKING:
 
 _T = TypeVar('_T')
 
+# closing line of an error raised while update_all() applies its changes, phrased for the Python API
+PY_RERUN_HINT = 'Re-run `update_all()`.'
+
 # name of the position column in a component view
 _POS_COLUMN_NAME = 'pos'
 _ROWID_COLUMN_NAME = '_rowid'

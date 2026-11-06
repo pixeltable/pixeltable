@@ -51,7 +51,7 @@ from . import (
     whisperx,
     yolox,
 )
-from .globals import count, filter, map, max, mean, min, sort, sum
+from .globals import coalesce, count, filter, map, max, mean, min, sort, sum
 
 __all__ = local_public_names(__name__, exclude=['globals', 'media_metadata', 'model_support']) + local_public_names(
     globals.__name__

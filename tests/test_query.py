@@ -344,7 +344,7 @@ class TestQuery:
 
     def test_expr_unique_id(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
-        # Multiple constants with the same string representation but different types must be unique (expr.id)
+        # Multiple constants with the same string representation but different types must be unique (Expr._expr_id)
         res = t.select(t.c2, t.c1, t.c1 == '2', t.c1 < '4', t.c2 == 4).limit(4).collect()
         print(res)
         assert len(res) == 4
