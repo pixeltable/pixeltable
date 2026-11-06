@@ -1025,6 +1025,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'api_key': 'Nebius Token Factory API key',
         'rate_limit': 'Rate limit for Nebius Token Factory API requests',
     },
+    'ollama': {'host': 'Ollama server URL'},
     'openai': {
         'api_key': 'OpenAI API key',
         'base_url': 'OpenAI API base URL',
@@ -1058,9 +1059,17 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'api_key': 'Together API key',
         'rate_limits': 'Per-model category rate limits for Together API requests',
     },
-    'twelvelabs': {'api_key': 'TwelveLabs API key', 'rate_limit': 'Rate limit for TwelveLabs API requests'},
+    'twelvelabs': {
+        'api_key': 'TwelveLabs API key',
+        'rate_limit': 'Rate limit for TwelveLabs API requests',
+        'timeout': 'Seconds to wait for an uploaded TwelveLabs asset to become ready (default: 600)',
+    },
     'veo': {'rate_limits': 'Per-model rate limits for Veo API requests'},
-    'vlmrun': {'api_key': 'VLM Run API key'},
+    'vlmrun': {
+        'api_key': 'VLM Run API key',
+        'rate_limit': 'Rate limit for VLM Run API requests',
+        'timeout': 'Maximum seconds for one VLM Run call, including its uploads, polling and download (default: 1800)',
+    },
     'vlmrun_gateway': {
         'base_url': 'VLM Run Gateway base URL (default: https://gateway.vlm.run/v1/openai)',
         'rate_limit': 'Rate limit for VLM Run Gateway requests',

@@ -12,9 +12,11 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Literal, Sequence
 
 import numpy as np
+from tenacity import retry, retry_if_result, wait_exponential
 
 import pixeltable as pxt
 from pixeltable import env, type_system as ts
+from pixeltable.config import Config
 from pixeltable.runtime import get_runtime
 from pixeltable.utils import av as av_utils
 from pixeltable.utils.code import local_public_names
@@ -70,10 +72,44 @@ async def _asset_uploads(input_type: Literal['audio', 'video'], files: list[str]
         upload_results = await asyncio.gather(*tasks)
         uploaded = [u.asset_id for u in upload_results]
 
+        for asset_id in uploaded:
+            await _wait_for_asset(client, asset_id)
+
         yield uploaded
 
     finally:
         await asyncio.gather(*[client.assets.delete(asset_id) for asset_id in uploaded], return_exceptions=True)
+
+
+async def _wait_for_asset(client: 'twelvelabs.AsyncTwelveLabs', asset_id: str) -> None:
+    timeout = Config.get().get_float_value('timeout', section='twelvelabs')
+    if timeout is None:
+        timeout = 600
+    try:
+        async with asyncio.timeout(timeout):
+            await _poll_until_ready(client, asset_id)
+    except TimeoutError as e:
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_TIMEOUT,
+            f'Timed out after {timeout:g} seconds waiting for TwelveLabs asset {asset_id} to become ready. '
+            'Increase timeout in the [twelvelabs] config section to extend the timeout; '
+            'TWELVELABS_TIMEOUT overrides the config file.',
+            provider='twelvelabs',
+        ) from e
+
+
+@retry(retry=retry_if_result(lambda ready: not ready), wait=wait_exponential(multiplier=2, min=2, max=30))
+async def _poll_until_ready(client: 'twelvelabs.AsyncTwelveLabs', asset_id: str) -> bool:
+    asset = await client.assets.retrieve(asset_id)
+    assert asset.status in ('processing', 'ready', 'failed'), f'Unexpected TwelveLabs asset status: {asset.status!r}'
+    if asset.status == 'failed':
+        message = '' if asset.error is None else f': {asset.error.message}'
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_ERROR,
+            f'TwelveLabs asset {asset_id} processing failed{message}',
+            provider='twelvelabs',
+        )
+    return asset.status == 'ready'
 
 
 @pxt.udf(resource_pool='request-rate:twelvelabs')
@@ -97,6 +133,10 @@ async def embed(text: str, image: pxt.Image | None = None, *, model_name: str) -
     Request throttling:
     Applies the rate limit set in the config (section `twelvelabs`, key `rate_limit`). If no rate
     limit is configured, uses a default of 600 RPM.
+
+    With Marengo 3.0, audio and video files over 2 MiB are uploaded first. The UDF waits for each uploaded
+    asset to become ready, subject to `timeout` in the `twelvelabs` config section.
+    `TWELVELABS_TIMEOUT` overrides the config file.
 
     __Requirements:__
 

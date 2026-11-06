@@ -1,6 +1,6 @@
 ---
 title: 'Ecosystem'
-description: 'AI provider computed columns, DSPy and Agno retrievers, and observability traces'
+description: 'AI provider computed columns, DSPy, Agno and Pydantic AI Harness, and observability traces'
 ---
 
 Each AI provider is a function you assign as a computed column on a `TableModel`. Create the table with `pxt schema update`. In notebooks you can still call `add_computed_column()`. Each provider page lists its API key and optional extras.
@@ -206,6 +206,14 @@ Platforms that host or route many models from a shared catalog.
   >
     Runway video generation
   </Card>
+
+  <Card
+    title="VLM Run"
+    icon="eye"
+    href="/howto/providers/working-with-vlmrun"
+  >
+    Multimodal AI for image generation, annotation, video generation, and document understanding
+  </Card>
 </CardGroup>
 
 ## Local LLM runtimes
@@ -313,6 +321,13 @@ Already on Agno? Keep it. The cookbook stores the agent's knowledge through the 
     href="https://github.com/agno-agi/agno/blob/main/cookbook/07_knowledge/05_integrations/rag/local_rag_langchain_pixeltable.py"
   >
     Local RAG: an Agno agent searches a Pixeltable embedding index through langchain-pixeltable
+  </Card>
+  <Card
+    title="Pydantic AI Harness"
+    icon="robot"
+    href="/integrations/pydantic-ai"
+  >
+    Read-only catalog tools and a memory table for a Harness agent
   </Card>
 </CardGroup>
 
