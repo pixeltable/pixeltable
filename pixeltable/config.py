@@ -1058,7 +1058,11 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'api_key': 'Together API key',
         'rate_limits': 'Per-model category rate limits for Together API requests',
     },
-    'twelvelabs': {'api_key': 'TwelveLabs API key', 'rate_limit': 'Rate limit for TwelveLabs API requests'},
+    'twelvelabs': {
+        'api_key': 'TwelveLabs API key',
+        'rate_limit': 'Rate limit for TwelveLabs API requests',
+        'timeout': 'Seconds to wait for an uploaded TwelveLabs asset to become ready (default: 600)',
+    },
     'veo': {'rate_limits': 'Per-model rate limits for Veo API requests'},
     'voyage': {'api_key': 'Voyage AI API key', 'rate_limit': 'Rate limit for Voyage AI API requests'},
     'pypi': {'api_key': 'PyPI API key (for internal use only)'},
