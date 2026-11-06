@@ -516,6 +516,8 @@ def list_iterator(
     All of the inputs must be *typed* `Json` expressions. Untyped Json will be rejected (the type schema is
     necessary in order for Pixeltable to determine the types of the output columns).
 
+    If any input list is null for a row, that row produces no output rows.
+
     Args:
         elements: A list of dictionaries to iterate over. The dictionary keys will be used as column names in the
             output. Cannot be specified together with keyword arguments.
@@ -528,12 +530,10 @@ def list_iterator(
                 elements from shorter lists.
         **kwargs: One or more lists to iterate over. The kwarg names will be used as column names in the output.
             Cannot be specified together with `elements`.
-
-    A null input list produces no output rows.
     """
     if builtins.len(kwargs) == 0:
         # Positional form is used, e.g. list_iterator(t.col)
-        # elements is None if the argument is null for this row, e.g. a null cell or a computed column that failed
+        # elements is None if the argument is null for this base row
         if elements is not None:
             yield from elements
 

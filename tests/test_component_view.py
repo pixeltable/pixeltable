@@ -571,7 +571,7 @@ class TestComponentView:
         validate_update_status(t.insert({'i': i} for i in range(4, 8)))
         assert v.where(v.i >= 4).count() == 4 + 6
 
-        # compute() follows on_error instead
+        # compute() honors on_error instead
         assert [row['icol'] for row in v.compute([{'i': 1}, {'i': 2}], on_error='ignore')] == [0, 1]
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='odd'):
             v.compute([{'i': 1}], on_error='abort')
