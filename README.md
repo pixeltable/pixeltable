@@ -123,12 +123,16 @@ We're database people, so our answer was to make the database track dependencies
 | Store files and their results | A bucket plus a metadata table | Typed file references and computed results in the same row |
 | Split documents or sample frames | A preprocessing job | Views of chunks or frames, updated with the source table |
 | Call models | Jobs and scripts that track what ran | Computed columns with stored results |
+| Explore and query the results | Scripts that download the files and redo the frames in a notebook | Query any column from Python or a notebook. Remote files go into a local cache on first read, and frames are extracted from the video as you read them |
 | Search the results | A vector database you keep in sync | An embedding index maintained by the table |
 | Serve the results | API handlers over those systems | `FastAPIRouter` routes declared next to the tables |
 | Let an agent call tools | An agent loop that keeps its state in memory | A computed column runs the tools the model picked (`invoke_tools`), and the calls and their results are columns on the message's row |
 | Remember across sessions | A chat-history cache and a second vector store | A memory table with an embedding index, recalled by a `@pxt.query` in a computed column |
 | Trace a running app | A tracing SDK per vendor, with logs somewhere else | OpenTelemetry spans for each table, row, column and UDF (`pxt service update --otel`, `pixeltable[otel]`) |
-| Analyze and audit | A warehouse export, and history rebuilt from logs | Query the tables where they are. Each change is a version (`history()`, `pxt revert`), and `export_sql()` or `export_parquet()` copies the data out |
+| Evaluate model output | Model outputs copied out of logs into an eval notebook | Store the model's full response as a JSON column and query its fields (`response.usage`). An eval is one more computed column |
+| Rerun what failed | A dead-letter queue and a script to replay it | Cells that fail under `on_error='ignore'` keep their error. `pxt errors` lists them (the table needs a primary key) and prints the `pxt recompute --errors-only` that reruns just those. `pxt computed` shows each column's definition |
+| Send results elsewhere | An ETL job into another database, and a sync to the bucket | `export_sql()` or `export_parquet()` copies a table or query out. A computed column's `destination=` writes its files to your own bucket |
+| Analyze and audit | A warehouse export, and history rebuilt from logs | Query the tables where they are. Each change is a version (`history()`, `pxt revert`) |
 
 If you already use Pinecone, Postgres, LangGraph or Airflow, [Migrate to Pixeltable](https://docs.pixeltable.com/howto/coming-from) shows how the corresponding work looks here.
 
