@@ -27,7 +27,7 @@ import pixeltable_pgserver
 import psutil
 import sqlalchemy as sql
 import tzlocal
-from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
+from pillow_heif import register_heif_opener
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
 from pixeltable import exceptions as excs
@@ -465,6 +465,14 @@ class Env:
         sql_logger.addHandler(fh)
         sql_logger.propagate = False
         self._managed_logging_handlers.append((sql_logger, fh))
+
+        # Configure psycopg logging. Its warnings (e.g. Pipeline.__exit__ noise) belong in the log file, not on
+        # the user's console.
+        psycopg_logger = logging.getLogger('psycopg')
+        init_log_level(psycopg_logger, config, 'psycopg_log_level', default=logging.WARNING)
+        psycopg_logger.addHandler(fh)
+        psycopg_logger.propagate = False
+        self._managed_logging_handlers.append((psycopg_logger, fh))
 
         # configure pyav logging
         av_logfilename = self._logfilename.replace('.log', '_av.log')

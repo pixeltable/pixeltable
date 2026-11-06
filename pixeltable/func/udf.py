@@ -10,8 +10,8 @@ from pixeltable.utils.system import is_interactive_env
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplate, ExprTemplateFunction
 from .function_registry import FunctionRegistry
-from .globals import validate_symbol_path
 from .signature import Parameter, Signature
+from .symbols import validate_symbol_path
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -259,7 +259,7 @@ def make_function(
         # in the registry if the cell is re-run, so it carries a path for serialization but is not registered
         # TODO: remove this when removing support for inlined udfs in notebooks
         if decorated_fn.__module__ != '__main__':
-            FunctionRegistry.get().register_function(function_path, result)
+            FunctionRegistry.get().register_function(function_path, result, decorated_fn.__module__)
 
     return result
 
@@ -320,7 +320,7 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         )
         # method/property dispatch requires registration in the type-method registry
         if (is_method or is_property) and function_path is not None:
-            FunctionRegistry.get().register_function(function_path, result)
+            FunctionRegistry.get().register_function(function_path, result, py_fn.__module__)
         return result
 
     if len(args) == 1:

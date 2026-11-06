@@ -3,6 +3,7 @@
 import json
 import pathlib
 import re
+import shlex
 from textwrap import dedent
 from typing import Callable
 
@@ -216,24 +217,33 @@ class TestSchema:
         assert "column 'body' will be dropped  DESTRUCTIVE" in r.stdout
         assert 'body' in pxt.get_table(f'{target}/docs').columns()
 
-        # the refusal is machine-readable too: the plan comes back with the destructive ops marked refused
+        # the refusal is machine-readable too: the plan comes back with the destructive ops marked refused, and the
+        # error document's fields at its top level
         r = cli('schema', 'update', str(schema_file), target, '--json', check=False)
         assert r.returncode == 3
         docs_plan = next(t for t in r.json['tables'] if t['path'] == f'{target}/docs')
         assert docs_plan['status'] == 'refused'
         assert [op['status'] for op in docs_plan['ops']] == ['refused', 'refused']
+        assert r.json['error_code'] == 'DESTRUCTIVE_SCHEMA_CHANGE'
+        assert r.json['retryable'] is False
+        assert [shlex.split(step['command']) for step in r.json['next']] == [
+            ['pxt', 'schema', 'update', str(schema_file), target, '--json', '--allow-destructive', '-f']
+        ]
 
-        # permitted but not confirmed, the refusal is the same plan, not a separate error document
+        # permitted but not confirmed: the same plan, with the confirmation's fields
         r = cli('schema', 'update', str(schema_file), target, '--allow-destructive', '--json', check=False)
         assert r.returncode == 3
         docs_plan = next(t for t in r.json['tables'] if t['path'] == f'{target}/docs')
         assert [op['status'] for op in docs_plan['ops']] == ['refused', 'refused']
+        assert r.json['error_code'] == 'CONFIRMATION_REQUIRED'
         assert r.next_commands == [
             ['pxt', 'schema', 'update', str(schema_file), target, '--allow-destructive', '--json', '-f']
         ]
+        assert [shlex.split(step['command']) for step in r.json['next']] == r.next_commands
 
         r = cli('schema', 'update', str(schema_file), target, '-n', '--json', check=False)
         assert r.returncode == 2
+        assert 'error_code' not in r.json
         assert [op['status'] for t in r.json['tables'] for op in t['ops']] == ['skipped', 'skipped']
 
         # -n applies nothing, even with the drop permitted and confirmed
@@ -513,6 +523,8 @@ class TestSchema:
 
         assert_in_agreement(cli, apps('search.py'), target)
 
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_query_udf_column(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A column that calls a query udf reads that udf's table."""
         target = db_root.make_catalog_path('retrieval')
@@ -868,6 +880,11 @@ class TestSchema:
             r = cli('schema', 'update', str(app_file), target, check=False)
             assert r.returncode == 1
             assert f'refused   {target}/docs' in r.stdout
+            assert r.next_commands == [['pxt', 'db', 'update', db_root.base_uri]]
+            r = cli('schema', 'update', str(app_file), target, '--json', check=False)
+            assert r.returncode == 1
+            assert r.json['error_code'] == 'PLAN_BLOCKED'
+            assert [step['command'] for step in r.json['next']] == [f'pxt db update {db_root.base_uri}']
             # nothing was created, so the table is still pending
             r = cli('schema', 'diff', str(app_file), target, '--json', check=False)
             assert [t['resolution'] for t in r.json['tables']] == ['create']

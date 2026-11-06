@@ -116,6 +116,17 @@ class TestDbRetryDeletion:
 
 
 class TestErrorCode:
+    def test_a_snippet_to_paste_stays_clean(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """A message ending in lines to paste, such as a TOML entry, gets its code on a line of its own (PXT-1616)."""
+        message = (
+            "422 no [[pixeltable.database]] entry for 'pxt://acme:main'; add one to pixeltable.toml:\n"
+            '  [[pixeltable.database]]\n'
+            "  name = 'pxt://acme:main'"
+        )
+        utils.RequestFailedError(message, 422, retryable=False, error_code='INVALID_CONFIGURATION').report()
+        lines = capsys.readouterr().err.splitlines()
+        assert lines[-2:] == ["  name = 'pxt://acme:main'", '[INVALID_CONFIGURATION]']
+
     def test_daemon_error(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """A daemon error keeps its error_code: at the end of the text line, and in the --json document."""
         missing = db_root.make_catalog_path('cli_code_missing/t')
@@ -1130,6 +1141,7 @@ class TestErrors:
             ['pxt', 'recompute', p('cli_errs/bad'), 'b', '--errors-only', '-f'],
             ['pxt', 'recompute', p('cli_errs/bad'), 'c', '--errors-only', '-f'],
         ]
+        assert ': 1 row updated' in cli('recompute', p('cli_errs/bad'), 'b', '--errors-only', '-f').stdout
 
         # --col filters to one stored computed column: an existing column with errors comes back,
         # and asking for the other computed column also returns its errors.
@@ -1703,12 +1715,15 @@ class TestCli:
         assert r.returncode == 2
         assert 'unknown command' in r.stderr
         assert 'did you mean' not in r.stderr
+        assert 'on Python' in r.stderr
 
         # a misspelled command, and a verb typed without its command
         for typed, expected in (('dorp', ['drop']), ('logs', ['db logs', 'service logs'])):
             r = cli(typed, check=False)
             assert r.returncode == 2
-            suggested = [line.removeprefix('did you mean: pxt ') for line in r.stderr.splitlines()[1:]]
+            suggested = [
+                line.removeprefix('did you mean: pxt ') for line in r.stderr.splitlines() if 'did you mean' in line
+            ]
             assert suggested == expected
             # each suggestion is a command pxt has
             for suggestion in suggested:

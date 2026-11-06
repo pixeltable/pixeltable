@@ -7,10 +7,9 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from http import HTTPStatus
 from pathlib import Path
 from random import random
-from typing import Any
+from typing import Any, NamedTuple
 
 import requests
 from requests.adapters import HTTPAdapter, Retry
@@ -77,15 +76,19 @@ SESSION = new_session()
 
 DOWNLOAD_USER_AGENT = 'Pixeltable/1.0 (https://pixeltable.com)'
 
-_RETRIABLE_ERROR_INDICATORS = (
-    'rate limit',
-    'too many requests',
-    '429',
-    'quota exceeded',
-    'throttled',
-    'rate exceeded',
-    'connection error',
-    'timed out',
+_RETRIABLE_ERROR_INDICATORS = re.compile(
+    '|'.join(
+        (
+            'rate limit',
+            'connection err',
+            'too many requests',
+            '(?:quota|rate) exceed',
+            'throttled',
+            'timed out',
+            # \b skips 429 inside a longer number, such as an AWS account id
+            r'\b429\b',
+        )
+    )
 )
 _RETRY_AFTER_PATTERNS = (
     r'retry after (\d+(?:\.\d+)?)\s*seconds?',
@@ -93,12 +96,32 @@ _RETRY_AFTER_PATTERNS = (
     r'wait (\d+(?:\.\d+)?)\s*seconds?',
     r'retry-after:\s*(\d+(?:\.\d+)?)',
 )
-_RETRIABLE_HTTP_STATUSES: dict[str, int] = {
-    'TOO_MANY_REQUESTS': HTTPStatus.TOO_MANY_REQUESTS.value,
-    'SERVICE_UNAVAILABLE': HTTPStatus.SERVICE_UNAVAILABLE.value,
-    'REQUEST_TIMEOUT': HTTPStatus.REQUEST_TIMEOUT.value,
-    'GATEWAY_TIMEOUT': HTTPStatus.GATEWAY_TIMEOUT.value,
-}
+_RETRIABLE_ERROR_CODES = frozenset(
+    code.upper()
+    for code in (
+        '408',
+        '429',
+        '503',
+        '504',
+        'REQUEST_TIMEOUT',
+        'TOO_MANY_REQUESTS',
+        'SERVICE_UNAVAILABLE',
+        'GATEWAY_TIMEOUT',
+        'Throttling',
+        'ThrottlingException',
+        'ThrottledException',
+        'RequestThrottledException',
+        'TooManyRequestsException',
+        'ProvisionedThroughputExceededException',
+        'RequestLimitExceeded',
+        'SlowDown',
+    )
+)
+
+
+class RetryInfo(NamedTuple):
+    is_retryable: bool
+    retry_delay: float | None
 
 
 def redact_url(url: str) -> str:
@@ -112,55 +135,78 @@ def redact_url(url: str) -> str:
     return urllib.parse.urlunsplit((parsed.scheme, netloc, parsed.path, '', ''))
 
 
-def is_retryable_error(exc: Exception) -> tuple[bool, float | None]:
+def is_retryable_error(exc: Exception) -> RetryInfo:
     """
     Attempts to guess if the exception indicates a retryable error.
     If that is the case, returns True and the retry delay in seconds.
     """
+    aws_info = _retry_info_from_aws_response(getattr(exc, 'response', None))
+    if aws_info is not None:
+        return aws_info
 
-    # Check for HTTP status TOO_MANY_REQUESTS in various exception classes.
+    # Check for retryable HTTP status codes in various exception classes.
     # We look for attributes that contain status codes, instead of checking the type of the exception,
     # in order to handle a wider variety of exception classes.
-    err_md = _extract_error_metadata(exc)
-    if (err_md is None or not err_md[0]) and hasattr(exc, 'response'):
-        err_md = _extract_error_metadata(exc.response)
+    attr_info = _retry_info_from_attrs(exc)
+    if (attr_info is None or not attr_info.is_retryable) and hasattr(exc, 'response'):
+        attr_info = _retry_info_from_attrs(exc.response)
 
-    if err_md is not None and err_md[0]:
-        retry_after = err_md[1]
-        return err_md[0], retry_after if retry_after is not None and retry_after >= 0 else None
+    if attr_info is not None and attr_info.is_retryable:
+        retry_after = attr_info.retry_delay
+        return RetryInfo(True, retry_after if retry_after is not None and retry_after >= 0 else None)
 
     # Transport-level failures are retryable.
     if isinstance(exc, (urllib.error.URLError, ConnectionError, TimeoutError)) and not isinstance(
         exc, urllib.error.HTTPError
     ):
-        return True, None
+        return RetryInfo(True, None)
 
     # Check common rate limit keywords in exception message
     error_msg = str(exc).lower()
-    if any(indicator in error_msg for indicator in _RETRIABLE_ERROR_INDICATORS):
+    if _RETRIABLE_ERROR_INDICATORS.search(error_msg) is not None:
         retry_delay = _extract_retry_delay_from_message(error_msg)
-        return True, retry_delay if retry_delay is not None and retry_delay >= 0 else None
+        return RetryInfo(True, retry_delay if retry_delay is not None and retry_delay >= 0 else None)
 
-    return False, None
+    return RetryInfo(False, None)
 
 
 retry_if_retryable_error = retry_if_exception(lambda exc: isinstance(exc, Exception) and is_retryable_error(exc)[0])
 
 
-def _extract_error_metadata(obj: Any) -> tuple[bool, float | None] | None:
+def _retry_info_from_attrs(obj: Any) -> RetryInfo | None:
+    """
+    Extract retry information from the status code and header attributes of an arbitrary response or exception object.
+
+    Returns None if `obj` has neither a status code nor a retry delay header.
+    """
+    codes = [getattr(obj, attr) for attr in ('status', 'code', 'status_code') if hasattr(obj, attr)]
     is_retryable: bool | None = None
-    retry_delay: float | None = None
-    for attr in ['status', 'code', 'status_code']:
-        if hasattr(obj, attr):
-            is_retryable = getattr(obj, attr) in _RETRIABLE_HTTP_STATUSES.values()
-            is_retryable |= str(getattr(obj, attr)).upper() in _RETRIABLE_HTTP_STATUSES
+    if len(codes) > 0:
+        is_retryable = any(str(code).upper() in _RETRIABLE_ERROR_CODES for code in codes)
+    retry_delay = _extract_retry_delay_from_headers(getattr(obj, 'headers', None))
+    if retry_delay is not None:
+        is_retryable = True
 
-    if hasattr(obj, 'headers'):
-        retry_delay = _extract_retry_delay_from_headers(obj.headers)
-        if retry_delay is not None:
-            is_retryable = True
+    return RetryInfo(is_retryable, retry_delay) if is_retryable is not None else None
 
-    return (is_retryable, retry_delay) if is_retryable is not None else None
+
+def _retry_info_from_aws_response(response: Any) -> RetryInfo | None:
+    """
+    Extract retry information from the `response` of an error that looks like botocore `ClientError`.
+
+    Returns None if `response` is not a botocore error response.
+    """
+    if not isinstance(response, dict):
+        return None
+    error = response.get('Error')
+    http_response = response.get('ResponseMetadata')
+    if not isinstance(error, dict) or not isinstance(http_response, dict):
+        return None
+    retry_delay = _extract_retry_delay_from_headers(http_response.get('HTTPHeaders'))
+    if retry_delay is not None and retry_delay >= 0:
+        return RetryInfo(True, retry_delay)
+    codes = (http_response.get('HTTPStatusCode'), error.get('Code'))
+    return RetryInfo(any(str(code).upper() in _RETRIABLE_ERROR_CODES for code in codes), None)
 
 
 def _extract_retry_delay_from_headers(headers: Any | None) -> float | None:

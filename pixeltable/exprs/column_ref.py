@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import Any, Iterator, Sequence, cast
+from typing import Any, Sequence, cast
 from uuid import UUID
 
 import numpy as np
@@ -62,8 +62,8 @@ class ColumnRef(Expr):
     base_rowid_len: int  # number of rowid columns in the base table
 
     # execution state
-    base_rowid: Sequence[Any | None]
-    iterator: Iterator
+    base_rowid: Sequence[Any | None]  # rowid of iterator's base row
+    iterator: func.PxtIterator | None
     pos_idx: int
 
     def __init__(self, col_md: catalog.ColumnVersionMd, perform_validation: bool = False):
@@ -175,12 +175,11 @@ class ColumnRef(Expr):
 
     def recompute(self, *, cascade: bool = True, errors_only: bool = False) -> catalog.UpdateStatus:
         cat = get_runtime().catalog
-        with cat.begin_xact(for_write=False):
+        with cat.begin_md_read_xact():
             tbl = cat.get_table_by_id(self.col_md.tbl_id)
             tvp = tbl._tbl_version_path
 
-        # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        with cat.begin_xact(for_write=True, write_tvps=[tvp], lock_mutable_tree=True):
+        with cat.begin_data_write_xact(tvps=[tvp]):
             col = self.col
             tbl_version = col.tbl_handle.get()
             if tbl_version.id != self.col_md.tbl_id:
@@ -531,7 +530,7 @@ class ColumnRef(Expr):
 
     def _descriptors(self) -> DescriptionHelper:
         col_name = self.col_md.name
-        with get_runtime().catalog.begin_xact():
+        with get_runtime().catalog.begin_md_read_xact():
             tbl = get_runtime().catalog.get_table_by_id(self.col_md.qcolid.tbl_id)
         # TODO: is this what we want? it's printing the path of the containing table, not of the context table
         helper = DescriptionHelper()
@@ -553,6 +552,16 @@ class ColumnRef(Expr):
         self.base_rowid = [None] * self.base_rowid_len
         assert isinstance(col.get_tbl().store_tbl, store.StoreComponentView)
         self.pos_idx = cast(store.StoreComponentView, col.get_tbl().store_tbl).pos_col_idx
+
+    def release(self) -> None:
+        super().release()
+        self._close_iterator()
+
+    def _close_iterator(self) -> None:
+        if self.iterator is not None:
+            self.iterator.close()
+            self.iterator = None
+            self.base_rowid = [None] * self.base_rowid_len
 
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         if self.perform_validation:
@@ -600,6 +609,7 @@ class ColumnRef(Expr):
             assert self.iter_arg_ctx is not None
             row_builder.eval(data_row, self.iter_arg_ctx)
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
+            self._close_iterator()
             self.iterator = col.get_tbl().iterator_call.eval(iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
         # Use the iterator's own field names (orig_name), which are not the folded column names

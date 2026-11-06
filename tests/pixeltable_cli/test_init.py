@@ -67,6 +67,34 @@ class TestInit:
         assert str(tmp_path) in r.stderr
         assert not (nested / 'pixeltable.toml').exists()
 
+    def test_home_roots_are_refused(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+        """A project root at or above the home directory, or at the Pixeltable home, is refused."""
+        home = tmp_path / 'me'
+        home.mkdir()
+        pixeltable_home = tmp_path / 'pxt'
+        pixeltable_home.mkdir()
+        # Path.home() reads HOME on POSIX and USERPROFILE on Windows
+        env = {'HOME': str(home), 'USERPROFILE': str(home), 'PIXELTABLE_HOME': str(pixeltable_home)}
+        for cwd, problem in (
+            (home, 'the project would include every file in your home directory'),
+            (tmp_path, 'the project would include every file in your home directory'),
+            (pixeltable_home, 'it is the Pixeltable home'),
+        ):
+            r = cli('init', cwd=cwd, env_overrides=env, check=False)
+            assert r.returncode == 3
+            assert f'{cwd} cannot be a project root: {problem}' in r.stderr
+            assert not (cwd / 'pixeltable.toml').exists()
+
+        config_file = home / 'pixeltable.toml'
+        config_file.write_text('', encoding='utf-8')
+        app_dir = home / 'my_app'
+        app_dir.mkdir()
+        for cwd in (home, app_dir):
+            r = cli('init', cwd=cwd, env_overrides=env, check=False)
+            assert r.returncode == 3
+            assert f'Remove the project configuration from {config_file}' in r.stderr
+        assert not (app_dir / 'pixeltable.toml').exists()
+
     def test_unusable_directory(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
         """A directory whose name is not an identifier is reported when it contains Python files."""
         (tmp_path / 'ad gen').mkdir()

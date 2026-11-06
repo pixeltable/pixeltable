@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import contextlib
+import queue
 import shutil
+from concurrent import futures
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.env import Env
+
+if TYPE_CHECKING:
+    import pyarrow as pa
+
+_END = object()
 
 
 def export_lancedb(
@@ -40,9 +48,7 @@ def export_lancedb(
     Env.get().require_package('lance')
     Env.get().require_package('lancedb')
 
-    import lancedb  # type: ignore[import-untyped]
-
-    from pixeltable.utils.arrow import to_record_batches
+    import lancedb
 
     if if_exists not in ('error', 'overwrite', 'append'):
         raise excs.RequestError(
@@ -80,12 +86,49 @@ def export_lancedb(
 
         if lance_tbl is None or if_exists == 'overwrite':
             mode = 'overwrite' if lance_tbl is not None else 'create'
-            _ = db.create_table(table_name, to_record_batches(query, batch_size_bytes), mode=mode)
+            _write_batches(query, batch_size_bytes, lambda batches: db.create_table(table_name, batches, mode=mode))
         else:
-            lance_tbl.add(to_record_batches(query, batch_size_bytes))
+            _write_batches(query, batch_size_bytes, lance_tbl.add)
 
     except Exception as e:
         # cleanup
         if not db_exists:
             shutil.rmtree(db_uri)
         raise e
+
+
+def _write_batches(query: pxt.Query, batch_size_bytes: int, write: Callable[[Iterator[pa.RecordBatch]], Any]) -> None:
+    """Compute the query's record batches and pass an iterator over them to write(), which runs on a new thread.
+
+    lancedb advances the iterator on its own threads, so the query runs on the calling thread instead.
+    """
+    from pixeltable.utils.arrow import to_record_batches
+
+    # maxsize=2: overlap computing the next batch with lancedb's processing of the current one
+    batches: queue.Queue = queue.Queue(maxsize=2)
+
+    def queued_batches() -> Iterator[pa.RecordBatch]:
+        while (batch := batches.get()) is not _END:
+            if batch is None:
+                raise RuntimeError('export_lancedb() stopped')
+            yield batch
+
+    def drain(_: futures.Future) -> None:
+        # write() no longer reads the queue; unblock put()
+        with contextlib.suppress(queue.Empty):
+            while True:
+                batches.get_nowait()
+
+    with futures.ThreadPoolExecutor(max_workers=1) as executor:
+        writer = executor.submit(write, queued_batches())
+        writer.add_done_callback(drain)
+        try:
+            for batch in to_record_batches(query, batch_size_bytes):
+                if writer.done():
+                    break
+                batches.put(batch)
+            batches.put(_END)
+        except BaseException:
+            batches.put(None)  # makes write() fail
+            raise
+        writer.result()

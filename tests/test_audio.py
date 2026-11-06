@@ -9,7 +9,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exprs
-from pixeltable.functions import util as functions_util
+from pixeltable.functions import media_metadata as functions_util
 from pixeltable.functions.audio import audio_splitter, encode_audio
 from pixeltable.utils import av as av_utils
 
@@ -134,8 +134,8 @@ class TestAudio:
         # get_metadata() returns correct type information
         expr = base_t.audio.get_metadata().streams[0].duration_seconds
         assert expr.col_type.is_float_type()
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="cannot resolve 'not_an_attr'"):
-            _ = base_t.audio.get_metadata().streams[0].not_an_attr
+        # metadata dicts are open, so a key that the schema doesn't declare resolves to untyped Json
+        assert repr(base_t.audio.get_metadata().streams[0].not_an_attr.col_type) == 'Json | None'
 
     def __has_audio(self, path: str) -> bool:
         with av.open(path) as container:

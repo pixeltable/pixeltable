@@ -264,6 +264,9 @@ class TestQuery:
             exc_info.value
         )
 
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'f\.floor is the method floor\(\)'):
+            _ = t1.join(t2, on=t2.f.floor == t1.i).collect()
+
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t1.join(t2, on=t2.id).join(t3, on=t3.id).collect()
         assert "ambiguous column reference: 'id'" in str(exc_info.value)
@@ -334,6 +337,10 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION) as exc_info:
             _ = t.order_by(datetime.datetime.now()).collect()  # type: ignore[arg-type]
         assert 'Invalid expression' in str(exc_info.value)
+
+        # uncalled method in order_by()
+        with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'c1\.upper is the method upper\(\)'):
+            _ = t.order_by(t.c1.upper).collect()
 
     def test_expr_unique_id(self, test_tbl: pxt.Table) -> None:
         t = test_tbl

@@ -7,6 +7,10 @@ You'll install Pixeltable, write one file, create its table, start its service a
 
 <Steps>
   <Step title="Install Pixeltable">
+    <Warning>
+      Pixeltable needs Python 3.11 or later. On an older Python, `pip` installs an older Pixeltable without an error, and `pxt init` then prints `unknown command`. Run `python --version` first. If it prints 3.10 or older, use the uv tab below, or install Python 3.11 or later and put it first on your PATH.
+    </Warning>
+
     Make a folder for the project, with a virtual environment in it:
 
     <Tabs>
@@ -16,7 +20,7 @@ You'll install Pixeltable, write one file, create its table, start its service a
         cd my-app
         python -m venv .venv
         source .venv/bin/activate   # Windows: .venv\Scripts\activate
-        pip install 'pixeltable[serve]'
+        pip install -U 'pixeltable[serve]'
         ```
       </Tab>
       <Tab title="uv">
@@ -25,12 +29,12 @@ You'll install Pixeltable, write one file, create its table, start its service a
         cd my-app
         uv venv --python 3.12
         source .venv/bin/activate   # Windows: .venv\Scripts\activate
-        uv pip install 'pixeltable[serve]'
+        uv pip install -U 'pixeltable[serve]'
         ```
       </Tab>
     </Tabs>
 
-    The package installs the `pxt` command. The `[serve]` extra adds FastAPI and uvicorn, which `pxt service` uses to serve your routes. If you only plan to insert from Python, `pip install pixeltable` is enough and you can skip the service steps below.
+    The package installs the `pxt` command. The `[serve]` extra adds FastAPI and uvicorn, which `pxt service` uses to serve your routes. If you only plan to insert from Python, `pip install -U pixeltable` is enough and you can skip the service steps below.
   </Step>
   <Step title="Make the folder a project">
     ```bash

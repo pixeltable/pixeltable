@@ -23,7 +23,7 @@ Inspect `git diff <merge-base>...HEAD` and `git diff <pre-fix-head>...HEAD`:
 ## 3. Code & Prose Deslop Pass
 
 - Strip defensive checks, casts, or explanatory comments added only to appease a review thread. Keep comments only for constraints, non-obvious choices, or invariants (`AGENTS.md`).
-- Audit all draft thread replies and summary prose against [`.claude/skills/articulate-the-abstraction/references/prose.md`](../../articulate-the-abstraction/references/prose.md):
+- Audit all draft thread replies and summary prose against [`.claude/skills/structure-review/references/prose.md`](../../structure-review/references/prose.md):
   - Cut sycophancy ("Good catch", "You're right", "Thanks for pointing this out").
   - Use ASCII typography only (no em-dashes).
   - Lead with the action or disproof and cite `file:line` ("`review_json()` returns None when the fence does not parse, at `.github/scripts/post_claude_review.py:35`." or "Not applicable: `review_json()` already returns None for a fence that does not parse, at `.github/scripts/post_claude_review.py:35`.").

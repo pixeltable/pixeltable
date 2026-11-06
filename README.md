@@ -15,7 +15,7 @@
 Pixeltable is an open-source multimodal database you use from Python. Build AI apps on video, images, audio and documents without writing scripts to keep files, model outputs and search indexes in sync.
 
 ```bash
-pip install 'pixeltable[serve]'
+pip install -U 'pixeltable[serve]'
 ```
 
 [**Quickstart**](https://docs.pixeltable.com/overview/quick-start) |
@@ -80,7 +80,7 @@ api.add_query_route(path='/search', query=search)
 You need Python 3.11 or later and an OpenAI API key. From the same folder, run:
 
 ```bash
-pip install 'pixeltable[serve]' openai
+pip install -U 'pixeltable[serve]' openai
 export OPENAI_API_KEY=sk-...        # set this before the first pxt command
 pxt init                            # makes this folder a project
 pxt schema update app.py my_app     # creates the table and its index

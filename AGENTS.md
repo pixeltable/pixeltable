@@ -21,6 +21,8 @@ of longer guides; Codex and Claude do not automatically apply Copilot's path-spe
 | Dashboard or dashboard-facing server APIs | `dashboard/DESIGN.md` and `dashboard/ARCHITECTURE.md` |
 | Environment setup or PR workflow | `CONTRIBUTING.md` and `Makefile` |
 
+When asked to review with structure-review, follow `.claude/skills/structure-review/SKILL.md`.
+
 ## Development
 
 - Keep changes surgical and preserve unrelated work. Read affected call sites and existing tests before adding abstractions.
@@ -48,6 +50,8 @@ of longer guides; Codex and Claude do not automatically apply Copilot's path-spe
   Ordinary Python checks remain valid outside the DSL.
 - UDF annotations determine column types. Non-nullable parameters short-circuit null arguments to null;
   nullable parameters let the UDF handle null. Review schema semantics even if mypy passes.
+- Built-in UDFs and aggregates (anything under `pixeltable.`) must not modify their arguments: unlike
+  user functions, they receive a constant argument's shared value rather than a copy.
 - Application files declare `TableModel` tables and `FastAPIRouter` routes; indexes belong in `__indexes__`.
   Tests, notebooks and REPLs may use `pxt.create_table()` and incremental schema APIs.
 - Model columns are non-nullable by default (`pxt.String`); nullable columns use `pxt.String | None`.

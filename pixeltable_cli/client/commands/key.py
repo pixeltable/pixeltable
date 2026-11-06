@@ -47,7 +47,7 @@ The organization must be your own - the one your credential belongs to. Keys are
 across both kinds, so a name always identifies one key. Every member of the organization sees every
 key, can change any runtime key's grants, and can delete any key.
 
-Keys with grants are a preview: Pixeltable Cloud refuses them until they are enabled for your
+Keys with grants: Pixeltable Cloud refuses them until they are enabled for your
 organization.
 
 The secret is printed once, by `create`, and cannot be retrieved afterwards. `update` edits grants

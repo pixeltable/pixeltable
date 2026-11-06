@@ -51,10 +51,21 @@ class TestNebius:
             }
         ]
         t.add_computed_column(response=chat_completions(msgs, model='openbmb/MiniCPM-V-4_5'))
+        nested_msgs = [
+            {
+                'role': 'user',
+                'content': [
+                    {'type': 'text', 'text': "What's in this image?"},
+                    {'type': 'image_url', 'image_url': {'url': t.image}},
+                ],
+            }
+        ]
+        t.add_computed_column(response_2=chat_completions(nested_msgs, model='openbmb/MiniCPM-V-4_5'))
 
         validate_update_status(t.insert(image=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH)), 1)
         result = t.collect()
         assert 'broccoli' in result['response'][0]['choices'][0]['message']['content'].lower()
+        assert 'broccoli' in result['response_2'][0]['choices'][0]['message']['content'].lower()
 
     def test_embeddings(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')

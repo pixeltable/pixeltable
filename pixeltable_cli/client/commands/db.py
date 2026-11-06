@@ -1,4 +1,4 @@
-"""`pxt db {diff,update,list,status,logs,start,stop,restart,retry,build-image,delete}` - manage hosted databases."""
+"""`pxt db {diff,update,list,status,logs,spans,start,stop,restart,retry,build-image,delete}` - manage hosted dbs."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from ..hosted import (
     print_db,
     print_logs,
     print_receipt,
+    print_spans,
     resolve_db_uri,
     spinner,
 )
@@ -32,6 +33,7 @@ from ..utils import (
     confirm_or_exit,
     get_request,
     post_request,
+    print_json,
     print_json_schema,
     print_next,
     refuse_destructive,
@@ -49,6 +51,8 @@ Examples:
   pxt db status --json-schema  # the schema of its --json output, on its own
   pxt db logs pxt://org:db              # what the database's pod logged in the last hour
   pxt db logs pxt://org:db --since 10m --tail 50
+  pxt db spans pxt://org:db             # the sampled trace spans of the database's pod in the last hour
+  pxt db spans pxt://org:db --trace 4bf92f3577b34da6a3ce929d0e0e4736
   pxt db start pxt://org:db
   pxt db stop pxt://org:db
   pxt db restart pxt://org:db   # cycle its pods onto the image and project it runs
@@ -69,7 +73,7 @@ disk_gb, workers). 'diff' compares the entry against the database; 'update' appl
 Secrets are set separately, with 'pxt secret'.
 
 Pixeltable Cloud applies an accepted update, start, stop, restart, retry, image build or delete even if the
-command exits early: Ctrl-C only stops the waiting, and --no-wait returns once the change is accepted.
+command exits early: Ctrl-C or SIGTERM only stops the waiting, and --no-wait returns once the change is accepted.
 Rerunning the same update reports the change already accepted, and retries it if it failed.
 
 Exit status of diff and update: 0 in agreement, 2 changes pending, 3 refused, 1 error.
@@ -134,6 +138,10 @@ def run(argv: list[str]) -> None:
     p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     add_logs_args(p)
 
+    p = sub.add_parser('spans', help="read the sampled trace spans of the database's pod")
+    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
+    add_logs_args(p, spans=True)
+
     for verb, help_text in (
         ('start', 'start (wake) a stopped hosted database'),
         ('stop', 'stop (sleep) a running hosted database'),
@@ -168,6 +176,8 @@ def run(argv: list[str]) -> None:
         _status(args)
     elif args.action == 'logs':
         _logs(args)
+    elif args.action == 'spans':
+        _spans(args)
     elif args.action in ('start', 'stop', 'restart', 'retry'):
         _change_lifecycle(args)
     elif args.action == 'build-image':
@@ -201,6 +211,11 @@ def _status(args: argparse.Namespace) -> None:
 def _logs(args: argparse.Namespace) -> None:
     org, db = resolve_db_uri(args.db_uri, prog='pxt db logs')
     print_logs({'org': org, 'db': db}, args)
+
+
+def _spans(args: argparse.Namespace) -> None:
+    org, db = resolve_db_uri(args.db_uri, prog='pxt db spans')
+    print_spans({'org': org, 'db': db}, args)
 
 
 def _add_no_wait(p: argparse.ArgumentParser) -> None:
@@ -289,7 +304,7 @@ def _update(args: argparse.Namespace) -> None:
             'pxt db update',
             plan.summary.destructive,
             force=args.force,
-            on_refusal=lambda: _print_plan(plan, as_json=True) if args.json_output else None,
+            on_refusal=lambda error: _print_plan(plan, as_json=True, error=error) if args.json_output else None,
         )
     what = f'{plan.summary.ops} change(s)' if plan.exists else f'create {plan.db_uri} and apply it'
     minutes = ', which rebuilds the image and takes several minutes' if plan.summary.rebuild else ''
@@ -297,7 +312,7 @@ def _update(args: argparse.Namespace) -> None:
         f'apply {what} to {plan.db_uri}{minutes}?',
         args.force,
         # text mode printed the pending plan above; --json skipped it, so a refusal still emits it
-        on_refusal=lambda: _print_plan(plan, as_json=True) if args.json_output else None,
+        on_refusal=lambda error: _print_plan(plan, as_json=True, error=error) if args.json_output else None,
     )
 
     update = {
@@ -337,7 +352,7 @@ def _await(db_uri: str, receipts: list[GenerationReceipt], args: argparse.Namesp
     """The receipts once settled, or as accepted under --no-wait."""
     if not args.wait:
         return receipts
-    return await_receipts(db_uri, receipts, show=not args.json_output, status_command=f'pxt db status {db_uri}')
+    return await_receipts(db_uri, receipts, status_command=f'pxt db status {db_uri}')
 
 
 def _db_report(db_uri: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -363,9 +378,9 @@ _PENDING: dict[Resolution, str] = {
 }
 
 
-def _print_plan(plan: DbPlan, *, as_json: bool, applied: bool = False) -> None:
+def _print_plan(plan: DbPlan, *, as_json: bool, applied: bool = False, error: dict[str, Any] | None = None) -> None:
     if as_json:
-        print(plan.model_dump_json(indent=2))
+        print_json(plan.model_dump(mode='json'), error)
         return
     resolution = plan.resolution
     state = (plan.status or _PENDING[resolution]) if applied else _PENDING[resolution]

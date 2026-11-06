@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import inspect
 import logging
+import math
 import mimetypes
 import os
 import re
@@ -45,7 +46,7 @@ from pydantic.fields import FieldInfo
 from typing_extensions import TypeForm
 
 import pixeltable as pxt
-from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
+from pixeltable import catalog, exceptions as excs, exprs, func, telemetry, type_system as ts
 from pixeltable.catalog import fold_identifier, model
 from pixeltable.catalog.model.query import ModelQuery
 from pixeltable.config import Config
@@ -319,6 +320,7 @@ def _route_table_path(target: RouteTarget) -> catalog.TablePath:
     return target._tbl_path
 
 
+@telemetry.spanned('pixeltable.route.check_schema', nest_children=True)
 def _validate_registered_schema(tbl: pxt.Table, schema_version: int) -> None:
     """Raise 409 if the table's schema changed since the route's contract was frozen.
 
@@ -516,18 +518,37 @@ def _unlink_tmp_paths(tmp_paths: list[Path]) -> None:
 
 
 def _run_endpoint_op(
-    endpoint_op: Callable[..., T], kwargs: dict[str, Any], tmp_paths: list[Path], media: _ResponseMedia
+    endpoint_op: Callable[..., T],
+    route: _RegisteredRoute,
+    kwargs: dict[str, Any],
+    tmp_paths: list[Path],
+    media: _ResponseMedia,
+    telemetry_ctx: telemetry.CtxSnapshot | None = None,
 ) -> T:
+    # a background job runs on an executor thread, so it restores the request's context to join its trace
+    ctx_token = telemetry.restore_context(telemetry_ctx)
     try:
-        result = endpoint_op(kwargs, media.url_for)
-        # the response carries the urls before the client can fetch them, so the uploads only need to finish here
-        media.flush()
+        # an operation span, so that the route's work outside its table operation (eg the schema check before an
+        # insert) is traced rather than dropped
+        with telemetry.span('pixeltable.route', set_current=True, route=route.display_name):
+            result = endpoint_op(kwargs, media.url_for)
+            # the response carries the urls before the client can fetch them, so the uploads only need to finish here
+            media.flush()
         return result
     except Exception as e:
         _unlink_tmp_paths(tmp_paths)
         if isinstance(e, pxt.Error):
-            raise HTTPException(status_code=e.http_status, detail=e.to_dict()) from e
+            raise _http_exception(e) from e
         raise
+    finally:
+        telemetry.exit_context(ctx_token)
+
+
+def _http_exception(e: pxt.Error) -> HTTPException:
+    """The response for e: its status, its to_dict() as detail, and Retry-After when it has a retry_after."""
+    # Retry-After takes whole seconds
+    headers = None if e.retry_after is None else {'Retry-After': str(math.ceil(e.retry_after))}
+    return HTTPException(status_code=e.http_status, detail=e.to_dict(), headers=headers)
 
 
 class PxtEndpoint:
@@ -583,10 +604,10 @@ class PxtEndpoint:
                 if origin.scheme != 'https' or not origin.netloc or origin.path or origin.query or origin.fragment:
                     raise ValueError('PIXELTABLE_PUBLIC_ORIGIN must be an HTTPS origin')
                 job_url = f'{public_origin}{urllib.parse.urlsplit(job_url).path}'
-            self.router._submit_job(job_id, self.endpoint_op, kwargs, tmp_paths, media)
+            self.router._submit_job(job_id, self.endpoint_op, self.route, kwargs, tmp_paths, media)
             return BackgroundJobResponse(id=job_id, job_url=job_url)
         else:
-            return _run_endpoint_op(self.endpoint_op, kwargs, tmp_paths, media)
+            return _run_endpoint_op(self.endpoint_op, self.route, kwargs, tmp_paths, media)
 
 
 class FastAPIRouter(fastapi.APIRouter):
@@ -2220,9 +2241,16 @@ class FastAPIRouter(fastapi.APIRouter):
                 template_query, return_fileresponse=return_fileresponse
             )
 
+        # the query's operation span, with the tables and row count that Query.collect() records
+        @telemetry.spanned('pixeltable.collect', set_current=True)
+        def collect(call_kwargs: dict[str, Any]) -> pxt.ResultSet:
+            query = self._query_binding(route.route_id)
+            result_set = query._collect(args=call_kwargs)
+            query._record_query_attrs(len(result_set))
+            return result_set
+
         def run_query(call_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
-            result_set = self._query_binding(route.route_id)._collect(args=call_kwargs)
-            rows = list(result_set)
+            rows = list(collect(call_kwargs))
 
             if single_row and len(rows) == 0:
                 raise HTTPException(status_code=404, detail='query returned no rows')
@@ -2890,28 +2918,37 @@ class FastAPIRouter(fastapi.APIRouter):
         self,
         job_id: str,
         endpoint_op: Callable[..., Any],
+        route: _RegisteredRoute,
         kwargs: dict[str, Any],
         tmp_paths: list[Path],
         media: _ResponseMedia,
     ) -> None:
         """Run endpoint_op as the background job job_id. Raises a 503 if this router takes no more jobs."""
+        # captured on the request thread, so that the job's spans join the request's trace
+        telemetry_ctx = telemetry.capture_context()
         refusal: HTTPException | None = None
         with self._jobs_lock:
             self._prune_jobs(time.monotonic())
             if self._draining:
-                refusal = HTTPException(
-                    status_code=503,
-                    detail='the service instance is shutting down',
-                    headers={'Retry-After': str(_DRAINING_RETRY_AFTER_S)},
+                refusal = _http_exception(
+                    excs.ServiceUnavailableError(
+                        excs.ErrorCode.JOB_REFUSED,
+                        'the service instance is shutting down',
+                        retry_after=_DRAINING_RETRY_AFTER_S,
+                    )
                 )
             elif sum(1 for job in self._jobs.values() if job.finished_at is None) >= _MAX_PENDING_JOBS:
-                refusal = HTTPException(
-                    status_code=503,
-                    detail=f'the service instance is at its limit of {_MAX_PENDING_JOBS} unfinished background jobs',
-                    headers={'Retry-After': str(_JOB_LIMIT_RETRY_AFTER_S)},
+                refusal = _http_exception(
+                    excs.ServiceUnavailableError(
+                        excs.ErrorCode.JOB_REFUSED,
+                        f'the service instance is at its limit of {_MAX_PENDING_JOBS} unfinished background jobs',
+                        retry_after=_JOB_LIMIT_RETRY_AFTER_S,
+                    )
                 )
             else:
-                job = _Job(self._executor.submit(_run_endpoint_op, endpoint_op, kwargs, tmp_paths, media))
+                job = _Job(
+                    self._executor.submit(_run_endpoint_op, endpoint_op, route, kwargs, tmp_paths, media, telemetry_ctx)
+                )
                 self._jobs[job_id] = job
                 self._has_run_jobs = True
         if refusal is not None:

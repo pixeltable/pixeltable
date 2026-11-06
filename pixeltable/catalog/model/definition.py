@@ -47,6 +47,8 @@ from ..utils import create_table_version_md
 from .resolution import prepare_model
 
 if TYPE_CHECKING:
+    from pixeltable._query_base import QueryBase
+
     from .query import ModelQuery
 
 # the model each defined path was synthesized for, keyed by its synthesized table id; a query over a model
@@ -452,36 +454,18 @@ class _ModelNamespace(dict):
 
 
 def bind_query_templates(e: exprs.Expr, catalog_dir: str | None) -> exprs.Expr:
-    """Rebind QueryTemplateFunction calls of ModelQuery instances to the equivalent Query of the bound model.
+    """Replace each ModelQuery template in e's QueryTemplateFunction calls with ModelQuery.bind_unresolved(catalog_dir).
 
-    With `catalog_dir=None`, each Query is over its model's defined shape rather than over a table.
+    With `catalog_dir=None`, the replacement is ModelQuery.to_defined_query().
     """
     from .query import ModelQuery
 
-    subst: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
-    for fn_call in e.subexprs(exprs.FunctionCall):
-        fn = fn_call.fn
-        if not isinstance(fn, func.QueryTemplateFunction) or not isinstance(fn.template_query, ModelQuery):
-            continue
-        assert fn_call.group_by_start_idx == fn_call.group_by_stop_idx  # a query udf takes no window clause
-        rebound = func.QueryTemplateFunction(
-            fn.template_query.to_defined_query() if catalog_dir is None else fn.template_query.bind(catalog_dir),
-            list(fn.signature.parameters.values()),
-            path=fn.self_path,
-            name=fn.self_name,
-            comment=fn.comment(),
-        )
-        # we need to substitute the FunctionCall itself, not just the Function instance
-        subst[fn_call] = rebound(*fn_call.args, **fn_call.kwargs)
-    if len(subst) == 0:
-        return e
-    result = e.substitute(subst)
-    # substitute() returns a replacement without descending into it, so a call nested in another one is missed
-    assert not any(
-        isinstance(c.fn, func.QueryTemplateFunction) and isinstance(c.fn.template_query, ModelQuery)
-        for c in result.subexprs(exprs.FunctionCall)
-    )
-    return result
+    def bound_query(template_query: QueryBase) -> pxt.Query | None:
+        if not isinstance(template_query, ModelQuery):
+            return None
+        return template_query.to_defined_query() if catalog_dir is None else template_query.bind_unresolved(catalog_dir)
+
+    return func.substitute_template_queries(e, bound_query)
 
 
 class TableModelMeta(type):
@@ -565,7 +549,7 @@ class TableModelMeta(type):
                         f'`model_base()` as `{cls_name}`.',
                     )
 
-            # A view is always of the same kind as its base. Operational views aren't supported yet.
+            # A view always has the same versioning as its base. Operational views aren't supported yet.
             if base is not None and not _is_data_versioned:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'{display_name}: operational views are not supported yet.'
@@ -573,7 +557,7 @@ class TableModelMeta(type):
             if base is not None and not base.model_cls.__table_spec__['is_data_versioned']:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'{display_name}: the base table and the view have mismatching is_data_versioned',
+                    f'{display_name}: the view and its base table must have the same `_is_data_versioned` value',
                 )
 
             # Validate iterator

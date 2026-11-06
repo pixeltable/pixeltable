@@ -22,7 +22,7 @@ import os
 import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Literal, Sequence, TypeVar
+from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Sequence, cast
 
 import numpy as np
 import PIL.Image
@@ -44,11 +44,10 @@ _logger = logging.getLogger(__name__)
 # Max raw file size (bytes) for inline data; larger files use the Files API.
 GEMINI_INLINE_LIMIT_BYTES = 4 * 2**20
 
+_VIDEO_GENERATION_TIMEOUT_SECONDS = 300
+
 # Placeholder key used in first pass for large file uploads.
 _UPLOAD_PLACEHOLDER_KEY = '__google_genai_upload_ref__'
-
-# Used to generalize polling logic for long-running Gemini operations (e.g. video generation).
-T = TypeVar('T', bound='genai.types.Operation')
 
 
 @env.register_client('gemini', credential_param='api_key')
@@ -226,8 +225,7 @@ async def _gemini_file_uploads(files: list[str]) -> AsyncIterator[list['genai.ty
                     )
                 tasks.append(client.aio.files.upload(file=file, config={'mime_type': mime_type}))
             uploaded = await asyncio.gather(*tasks)
-            # poll till server finished uploading files (state is ACTIVE)
-            await _poll_until_active(async_client=client.aio, uploaded=uploaded, files=files)
+            await _poll_until_active(client.aio, uploaded, labels=files)
 
         yield uploaded
 
@@ -347,174 +345,119 @@ def _pil_to_gemini_image(image: PIL.Image.Image) -> 'genai.types.Image':
         return types.Image(image_bytes=buffer.getvalue(), mime_type='image/webp')
 
 
-async def _poll_gemini_operation(operation: T) -> T:
-    while not operation.done:
-        await asyncio.sleep(3)
-        operation = await _genai_client().aio.operations.get(operation)
-    return operation
-
-
-async def _generate_videos_impl(
-    model: str, prompt: str | None, image: 'genai.types.Image | None', config: 'genai.types.GenerateVideosConfig | None'
-) -> str:
-    """Shared implementation for video generation: submit request, poll for completion, download result."""
-    from google.genai import types
-
-    # the prompt/image parameters are deprecated in favor of source
-    source = types.GenerateVideosSource(prompt=prompt, image=image)
-    operation = await _genai_client().aio.models.generate_videos(model=model, source=source, config=config)
-
-    try:
-        operation = await asyncio.wait_for(_poll_gemini_operation(operation), timeout=300)
-    except asyncio.TimeoutError as exc:
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_TIMEOUT,
-            f'Video generation timed out after 300 seconds for Gemini model {model!r}.',
-            provider='gemini',
-        ) from exc
-
-    if operation.error:
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR, f'Video generation failed: {operation.error}', provider='gemini'
-        )
-
-    video = operation.response.generated_videos[0]
-
-    video_bytes = await _genai_client().aio.files.download(file=video.video)
-    assert video_bytes is not None
-
-    output_path = TempStore.create_path(extension='.mp4')
-    Path(output_path).write_bytes(video_bytes)
-    return str(output_path)
-
-
 @pxt.udf(is_deterministic=False)
-async def generate_videos(
-    prompt: str | None = None, image: PIL.Image.Image | None = None, *, model: str, config: dict | None = None
+async def generate_video(
+    prompt: str | None = None, images: list[PIL.Image.Image] | None = None, *, model: str, config: dict | None = None
 ) -> pxt.Video:
     """
-    Generates videos based on a text description and configuration. For additional details, see:
-    <https://ai.google.dev/gemini-api/docs/video>
+    Generate a video with Gemini Omni through the Interactions API. For additional details, see:
+    <https://ai.google.dev/gemini-api/docs/omni>
 
-    At least one of `prompt` or `image` must be provided. When `image` is a single image, it is used as the first
-    frame of the generated video. When `image` is a list of images, they are used as reference images to guide the
-    style or asset appearance throughout the video (Veo 3.1+). See the overloaded signature for details.
-
-    Request throttling:
-    Applies the rate limit set in the config (section `veo.rate_limits`; use the model id as the key). If no rate
-    limit is configured, uses a default of 600 RPM.
+    Requires the Gemini Developer API (Google AI Studio credentials). At least one of `prompt` or `images`
+    must be provided. Images guide the generated video according to the prompt.
 
     __Requirements:__
 
-    - `pip install google-genai`
+    - `pip install 'google-genai>=2.22'`
 
     Args:
-        prompt: A text description of the videos to generate.
-        image: A single image to use as the first frame of the video, or as `images` a list of up to 3 reference images
-            for Veo 3.1 (see overloaded signature).
-        model: The model to use.
-        config: Configuration for generation, corresponding to keyword arguments of
-            `genai.types.GenerateVideosConfig`. For details on the parameters, see:
-            <https://googleapis.github.io/python-genai/genai.html#genai.types.GenerateVideosConfig>
+        prompt: A text description of the video to generate.
+        images: Optional reference images to send with the prompt. Elements must not be NULL.
+        model: The model to use, such as `'gemini-omni-1.1-flash'`.
+        config: Fields of the Interactions API video `response_format`. For example,
+            `{'aspect_ratio': '9:16', 'resolution': '1080p'}`. `type` is set to `'video'` automatically.
+            `delivery` defaults to `'uri'`; `'inline'` returns base64 data instead. Both are saved as a local video.
 
     Returns:
         The generated video.
 
     Examples:
-        Add a computed column that applies the model `veo-3.0-generate-001`
-        to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
+        Generate a video from each prompt in an existing table:
 
         >>> tbl.add_computed_column(
-        ...     response=generate_videos(tbl.prompt, model='veo-3.0-generate-001')
+        ...     video=generate_video(tbl.prompt, model='gemini-omni-1.1-flash')
         ... )
 
-        Use reference images with Veo 3.1 to guide video generation:
+        Animate reference images and set the output aspect ratio and resolution:
 
         >>> tbl.add_computed_column(
-        ...     response=generate_videos(
+        ...     video=generate_video(
         ...         tbl.prompt,
-        ...         images=[tbl.ref_img1, tbl.ref_img2],
-        ...         reference_types=['asset', 'asset'],
-        ...         model='veo-3.1-generate-preview',
+        ...         images=[tbl.image],
+        ...         model='gemini-omni-1.1-flash',
+        ...         config={'aspect_ratio': '9:16', 'resolution': '1080p'},
         ...     )
         ... )
     """
-    env.Env.get().require_package('google.genai')
+    env.Env.get().require_package('google.genai', min_version=[2, 22])
     from google.genai import types
 
     resource_pool_id = f'rate-limits:gemini:{model}'
     env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
 
-    if prompt is None and image is None:
-        raise excs.RequestError(
-            excs.ErrorCode.MISSING_REQUIRED, 'At least one of `prompt` or `image` must be provided.'
-        )
-
-    image_: types.Image | None = _pil_to_gemini_image(image) if image is not None else None
-    config_ = types.GenerateVideosConfig(**config) if config else None
-
-    return await _generate_videos_impl(model, prompt, image_, config_)
-
-
-@generate_videos.overload
-async def _(
-    prompt: str | None = None,
-    images: list[PIL.Image.Image] | None = None,
-    *,
-    model: str,
-    config: dict | None = None,
-    reference_types: list[Literal['style', 'asset']] | None = None,
-) -> pxt.Video:
-    """Overload that accepts a list of reference images for Veo 3.1+.
-
-    Args:
-        prompt: A text description of the videos to generate.
-        images: A list of up to 3 reference images to guide style or asset appearance.
-        model: The model to use.
-        config: Configuration for generation.
-        reference_types: A list of reference types corresponding to each image. Each must be one of
-            `'style'` or `'asset'`. `'style'` is only supported on Vertex AI. If not provided, defaults to
-            `'asset'` for all images.
-    """
-    env.Env.get().require_package('google.genai')
-    from google.genai import types
-
-    resource_pool_id = f'rate-limits:gemini:{model}'
-    env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
-
-    if images is None:
-        images = []
-
-    if not images and prompt is None:
+    if prompt is None and not images:
         raise excs.RequestError(
             excs.ErrorCode.MISSING_REQUIRED, 'At least one of `prompt` or `images` must be provided.'
         )
-    if len(images) > 3:
+    for i, image in enumerate(images or []):
+        if image is None:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'`images[{i}]` must not be NULL.')
+    client = _genai_client()
+    if client.vertexai:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'At most 3 reference images are allowed, but {len(images)} were provided.',
+            'generate_video() currently supports only the Gemini Developer API. '
+            'Unset GOOGLE_GENAI_USE_VERTEXAI and set GEMINI_API_KEY or GOOGLE_API_KEY to use it. '
+            'If you need Vertex AI support, please open an issue at https://github.com/pixeltable/pixeltable/issues.',
         )
 
-    if reference_types is None:
-        reference_types = ['asset'] * len(images)
-    elif len(reference_types) != len(images):
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT,
-            f'`reference_types` length ({len(reference_types)}) must match `images` length ({len(images)}).',
+    contents: list[dict[str, str]] = []
+    if prompt is not None:
+        contents.append({'type': 'text', 'text': prompt})
+    for image in images or []:
+        image_ = _pil_to_gemini_image(image)
+        assert image_.image_bytes is not None and image_.mime_type is not None
+        contents.append(
+            {
+                'type': 'image',
+                'data': base64.b64encode(image_.image_bytes).decode('ascii'),
+                'mime_type': image_.mime_type,
+            }
         )
 
-    reference_images = [
-        types.VideoGenerationReferenceImage(image=_pil_to_gemini_image(img), reference_type=ref_type)
-        for img, ref_type in zip(images, reference_types)
-    ]
+    try:
+        async with asyncio.timeout(_VIDEO_GENERATION_TIMEOUT_SECONDS):
+            # create() also supports streams; this request returns a complete interaction.
+            interaction = cast(
+                'genai.interactions.Interaction',
+                await client.aio.interactions.create(
+                    model=model, input=contents, response_format={'delivery': 'uri', **(config or {}), 'type': 'video'}
+                ),
+            )
+            video = interaction.output_video
+            if video is None or not (video.data or video.uri):
+                raise excs.ExternalServiceError(
+                    excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+                    f'Gemini Omni returned no video (status={interaction.status!r}, errors={interaction.errors!r}).',
+                    provider='gemini',
+                )
+            output_path = TempStore.create_path(extension='.mp4')
+            if video.data:
+                output_path.write_bytes(base64.b64decode(video.data))
+            else:
+                assert video.uri is not None
+                await _poll_until_active(client.aio, [types.File(name=video.uri)])
+                await client.aio.files.download(file=video.uri, destination=output_path)
+            return str(output_path)
+    except TimeoutError as exc:
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_TIMEOUT,
+            f'Video generation timed out after {_VIDEO_GENERATION_TIMEOUT_SECONDS} seconds for Gemini model {model!r}.',
+            provider='gemini',
+        ) from exc
 
-    config_ = types.GenerateVideosConfig(**config) if config else types.GenerateVideosConfig()
-    config_.reference_images = reference_images
 
-    return await _generate_videos_impl(model, prompt, None, config_)
-
-
-@generate_videos.resource_pool
+@generate_video.resource_pool
 def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'
 
@@ -575,7 +518,7 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
         data = response.candidates[0].content.parts[0].inline_data.data
     except (IndexError, AttributeError, TypeError) as exc:
         raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR,
+            excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
             f'Gemini TTS returned unexpected response structure for model {model}.',
             provider='gemini',
         ) from exc
@@ -646,7 +589,7 @@ async def _(text: str, *, model: str, voices: dict[str, str], config: dict | Non
         data = response.candidates[0].content.parts[0].inline_data.data
     except (IndexError, AttributeError, TypeError) as exc:
         raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR,
+            excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
             f'Gemini multi-speaker TTS returned unexpected response structure for model {model}.',
             provider='gemini',
         ) from exc
@@ -869,7 +812,7 @@ async def _embed_content(
     result = await client.aio.models.embed_content(model=model, contents=contents_, config=config_)
     if len(result.embeddings) != len(contents):
         raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR,
+            excs.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
             f'Unexpected response from Gemini server: number of embeddings returned ({len(result.embeddings)}) '
             f'does not match request batch size ({len(contents)}).',
             provider='gemini',
@@ -952,23 +895,22 @@ def _is_processing(remote_files: list['genai.types.File']) -> bool:
 
 
 def _handle_polling_timeout(retry_state: RetryCallState) -> None:
-    """Triggered when timeout is reached."""
+    """Report files that have not finished server-side processing."""
     from google.genai import types
 
     remote_files: list[types.File] = retry_state.outcome.result()
 
-    # Extract files from the keyword arguments
-    files: list[str] = retry_state.kwargs.get('files', [])
-    stuck_details = []
+    labels: list[str] | None = retry_state.kwargs.get('labels')
+    pending_details = []
     for i, file in enumerate(remote_files):
         if file.state != types.FileState.ACTIVE:
-            local_path = files[i] if i < len(files) else 'Unknown path'
-            stuck_details.append(f'{local_path} (ID: {file.name}, State: {file.state.name})')
-
-    detail_str = '\n- '.join(stuck_details)
+            label = f'{labels[i]} (ID: {file.name})' if labels is not None else file.name
+            state = file.state.name if file.state is not None else 'UNKNOWN'
+            pending_details.append(f'{label} (state={state})')
+    detail_str = '\n- '.join(pending_details)
     raise excs.ExternalServiceError(
         excs.ErrorCode.PROVIDER_TIMEOUT,
-        f'Timeout: failed to upload {len(stuck_details)}/{len(remote_files)} file(s):\n- {detail_str}',
+        f'Timed out waiting for Gemini to process {len(pending_details)}/{len(remote_files)} file(s):\n- {detail_str}',
         provider='gemini',
     )
 
@@ -980,19 +922,18 @@ def _handle_polling_timeout(retry_state: RetryCallState) -> None:
     retry_error_callback=_handle_polling_timeout,
 )
 async def _poll_until_active(
-    async_client: 'genai.client.AsyncClient', uploaded: list['genai.types.File'], files: list[str]
+    async_client: 'genai.client.AsyncClient', files: list['genai.types.File'], *, labels: list[str] | None = None
 ) -> list['genai.types.File']:
+    """Wait for uploaded or generated files to become active, using optional input labels in errors."""
     from google.genai import types
 
-    # Collect statuses for all uploaded files
-    remote_files = await asyncio.gather(*[async_client.files.get(name=f.name) for f in uploaded])
+    assert labels is None or len(labels) == len(files)
+    remote_files = await asyncio.gather(*[async_client.files.get(name=f.name) for f in files])
     for i, file in enumerate(remote_files):
         if file.state == types.FileState.FAILED:
-            # Fail immediately
+            label = f'{labels[i]} (ID: {file.name})' if labels is not None else file.name
             raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_ERROR,
-                f'Server processing failed for {files[i]} ({file.name})',
-                provider='gemini',
+                excs.ErrorCode.PROVIDER_ERROR, f'Gemini file processing failed for {label}.', provider='gemini'
             )
     return remote_files
 

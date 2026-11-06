@@ -47,16 +47,14 @@ class HealthResponse(BaseModel):
     pid: int
     started_at: str
 
-    # Identity fingerprint: every field below is captured once at daemon startup and reported
-    # verbatim on each /health call. The client computes the same fingerprint locally (without
-    # importing pixeltable) and restarts the daemon on any mismatch, so the daemon never keeps
-    # serving requests against a stale install or a stale snapshot of the environment.
+    # Identity fingerprint: every field below is captured once, at daemon startup
     pxt_install_dir: str | None = None
     python_executable: str
     pixeltable_home: str
     pixeltable_pgdata: str
     pixeltable_config_file: str
     project_root: str | None = None
+    packages_fingerprint: str
 
     # requests being served right now, oldest first
     in_flight: list[InFlightRequest] = Field(default_factory=list)
@@ -222,7 +220,6 @@ class RecomputeResponse(BaseModel):
     path: str
     columns: list[str]  # <table>.<column> for each recomputed column, and for each dependent that cascaded
     num_rows: int
-    num_computed_values: int
     num_excs: int
     cols_with_excs: list[str]
 

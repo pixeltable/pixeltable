@@ -1,3 +1,6 @@
+import _thread
+import asyncio
+import contextlib
 import math
 import os
 import platform
@@ -6,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable, Literal
 
 import PIL.Image
+import psutil
 import pytest
 
 import pixeltable as pxt
@@ -32,9 +36,33 @@ from .utils import (
     pxt_raises,
     reload_catalog,
     rerun_on_network_error,
+    sigint_at_pos,
     skip_test_if_not_installed,
     validate_update_status,
 )
+
+
+@pxt.udf
+def fail_at_pos_5(pos: int) -> int:
+    if pos == 5:
+        raise ValueError('pos 5')
+    return pos
+
+
+@pxt.udf
+async def slow_from_pos(pos: int, first_slow_pos: int) -> int:
+    if pos >= first_slow_pos:
+        await asyncio.sleep(60)
+    return pos
+
+
+@pxt.udf
+async def interrupt_at_pos(pos: int, interrupt_pos: int, num_interrupts: int = 1) -> int:
+    if pos == interrupt_pos:
+        for _ in range(num_interrupts):
+            _thread.interrupt_main()
+        await asyncio.sleep(60)
+    return pos
 
 
 class TestVideo:
@@ -308,6 +336,105 @@ class TestVideo:
                         # Ensure we get the bitmap-identical frame
                         assert selected_frame == frames[pos]
 
+    @pytest.mark.db_roots('local', reason='checks the open files of this process; a proxy query runs in the server')
+    def test_frame_view_open_files(self, uses_db: None) -> None:
+        """Queries and computed columns over frames leave no video file open, also when they stop early or fail."""
+        video_paths = get_video_files(extension='.mp4')
+        videos = pxt.create_table('videos', {'video': pxt.Video})
+        frames = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, fps=1))
+        videos.insert({'video': path} for path in video_paths)
+        resolved_paths = {Path(path).resolve() for path in video_paths}
+
+        def open_videos() -> list[str]:
+            # on Windows, open_files() kills its helper threads with TerminateThread() and can leave the heap locked
+            if platform.system() == 'Windows':
+                return []
+            return [f.path for f in psutil.Process().open_files() if Path(f.path).resolve() in resolved_paths]
+
+        assert len(frames.where(frames.pos == 3).select(frames.frame).collect()) == len(video_paths)
+        assert open_videos() == []
+
+        num_frames = frames.count()
+        assert len(frames.select(frames.frame).collect()) == num_frames
+        assert open_videos() == []
+
+        query = frames.select(frames.frame)
+        query.collect()
+        query.collect()
+        assert open_videos() == []
+
+        assert len(frames.where(frames.frame.width > 0).select(frames.frame).limit(2).collect()) == 2
+        assert open_videos() == []
+
+        assert len(frames.group_by(videos).select(pxtf.max(frames.frame.width)).limit(1).collect()) == 1
+        assert open_videos() == []
+
+        @pxt.query
+        def first_frames(video: pxt.Video) -> pxt.Query:
+            return frames.where((frames.video == video) & (frames.pos < 3)).select(frames.frame)
+
+        res = videos.select(first_frames(videos.video)).collect()
+        assert [len(frame_rows) for frame_rows in res['first_frames']] == [3] * len(video_paths)
+        assert open_videos() == []
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='pos 5'):
+            frames.select(frames.frame, fail_at_pos_5(frames.pos)).collect()
+        assert open_videos() == []
+
+        validate_update_status(frames.add_computed_column(width=frames.frame.width), expected_rows=num_frames)
+        assert open_videos() == []
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='pos 5'):
+            frames.add_computed_column(x=fail_at_pos_5(frames.pos) + frames.frame.width, on_error='abort')
+        assert open_videos() == []
+
+        with frames.select(frames.frame).cursor() as cursor:
+            for _ in cursor:
+                break
+        assert open_videos() == []
+
+        for _ in frames.select(frames.frame).cursor():
+            break
+        assert open_videos() == []
+
+        # with all frames of a video, a cursor stops while the query is still producing rows
+        one_video = pxt.create_table('one_video', {'video': pxt.Video})
+        one_video.insert(video=video_paths[0])
+        all_frames = pxt.create_view('all_frames', one_video, iterator=frame_iterator(one_video.video))
+
+        async def query_from_a_running_loop() -> None:  # noqa: RUF029
+            assert len(frames.select(frames.frame).collect()) == num_frames
+            for _ in all_frames.select(all_frames.frame).cursor():
+                break
+            # the first batch completes; the cursor stops while the next one waits for slow_from_pos()
+            first_slow_pos = pxt.exec.ExprEvalNode.BATCH_SIZE
+            for _ in all_frames.select(all_frames.frame, slow_from_pos(all_frames.pos, first_slow_pos)).cursor():
+                break
+
+        asyncio.run(query_from_a_running_loop())
+        assert open_videos() == []
+
+        # all_frames has one row with each pos, so each query gets one interrupt: in the first batch or a later one
+        for interrupt_pos in (5, 3 * pxt.exec.ExprEvalNode.BATCH_SIZE):
+            with pytest.raises(KeyboardInterrupt):
+                all_frames.select(all_frames.frame, interrupt_at_pos(all_frames.pos, interrupt_pos)).collect()
+            assert open_videos() == []
+
+        # a second Ctrl-C while the query stops
+        with pytest.raises(KeyboardInterrupt):
+            all_frames.select(all_frames.frame, interrupt_at_pos(all_frames.pos, 5, num_interrupts=2)).collect()
+        assert open_videos() == []
+
+        if platform.system() != 'Windows':  # signal.pthread_kill() is POSIX only
+
+            async def collect_from_a_running_loop() -> None:  # noqa: RUF029
+                all_frames.select(all_frames.frame, sigint_at_pos(all_frames.pos, 5)).collect()
+
+            # asyncio.run() would turn the first SIGINT into a cancellation of its main task
+            with contextlib.closing(asyncio.new_event_loop()) as loop, pytest.raises(KeyboardInterrupt):
+                loop.run_until_complete(collect_from_a_running_loop())
+            assert open_videos() == []
+
     def test_keyframes_only(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         path = get_video_files()[0]
@@ -464,8 +591,8 @@ class TestVideo:
         # get_metadata() returns correct type information
         expr = base_t.video.get_metadata().streams[0].frames
         assert expr.col_type.is_int_type()
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="cannot resolve 'not_an_attr'"):
-            _ = base_t.video.get_metadata().streams[0].not_an_attr
+        # metadata dicts are open, so a key that the schema doesn't declare resolves to untyped Json
+        assert repr(base_t.video.get_metadata().streams[0].not_an_attr.col_type) == 'Json | None'
 
     # window function that simply passes through the frame
     @pxt.uda(requires_order_by=True, allows_std_agg=False, allows_window=True)
@@ -677,9 +804,13 @@ class TestVideo:
     # TODO: Not working with VFR sample video or .mpg samples (PXT-986, PXT-987)
     @pytest.mark.db_roots('local', reason='pure UDF test')
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
-    def test_segment_video_duration(self, mode: Literal['fast', 'accurate'], uses_db: None) -> None:
+    def test_segment_video_duration(self, mode: Literal['fast', 'accurate'], uses_db: None, tmp_path: Path) -> None:
         t = pxt.create_table('test_segments', {'video': pxt.Video | None})
-        t.insert({'video': f} for f in get_video_files(include_vfr=False, include_mpgs=False))
+        video_files = [
+            *get_video_files(include_vfr=False, include_mpgs=False),
+            generate_test_video(tmp_path, duration=12.0, fps=30),
+        ]
+        t.insert({'video': f} for f in video_files)
 
         duration = t.video.get_metadata().streams[0].duration_seconds
         result = (
@@ -709,9 +840,12 @@ class TestVideo:
     # TODO: Not working with .mpg samples (PXT-987)
     @pytest.mark.db_roots('local', reason='pure UDF test')
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
-    def test_segment_video_segment_times(self, mode: Literal['fast', 'accurate'], uses_db: None) -> None:
+    def test_segment_video_segment_times(
+        self, mode: Literal['fast', 'accurate'], uses_db: None, tmp_path: Path
+    ) -> None:
         t = pxt.create_table('test_segments', {'video': pxt.Video | None})
-        t.insert([{'video': f} for f in get_video_files(include_mpgs=False)])
+        video_files = [*get_video_files(include_mpgs=False), generate_test_video(tmp_path, duration=12.0, fps=30)]
+        t.insert([{'video': f} for f in video_files])
 
         duration = t.video.get_metadata().streams[0].duration_seconds
         segment_times = [6.0, 11.0, 16.0]
@@ -980,9 +1114,9 @@ class TestVideo:
     )
     @pytest.mark.db_roots('local', reason='TODO: convert; video-splitter view')
     def test_video_splitter_duration(
-        self, segment_duration: float, mode: Literal['fast', 'accurate'], uses_db: None
+        self, segment_duration: float, mode: Literal['fast', 'accurate'], uses_db: None, tmp_path: Path
     ) -> None:
-        video_filepaths = get_video_files(include_mpgs=False)
+        video_filepaths = [*get_video_files(include_mpgs=False), generate_test_video(tmp_path, duration=12.0, fps=30)]
         overlaps = [0.0, 1.0, 4.0] if mode == 'fast' else [None]
         eps = 0.1 if mode == 'fast' else 0.0
         for min_segment_duration in [None, 0.0, segment_duration]:
@@ -1007,10 +1141,10 @@ class TestVideo:
     @pytest.mark.db_roots('local', reason='TODO: convert; video-splitter view')
     @pytest.mark.parametrize('segment_times,mode', [([6.0, 11.0, 16.0], 'fast'), ([6.0, 11.0, 16.0], 'accurate')])
     def test_video_splitter_segment_times(
-        self, segment_times: list[float], mode: Literal['fast', 'accurate'], uses_db: None
+        self, segment_times: list[float], mode: Literal['fast', 'accurate'], uses_db: None, tmp_path: Path
     ) -> None:
         eps = 0.1 if mode == 'fast' else 0.0
-        video_filepaths = get_video_files(include_mpgs=False)
+        video_filepaths = [*get_video_files(include_mpgs=False), generate_test_video(tmp_path, duration=12.0, fps=30)]
         t = pxt.create_table('videos', {'video': pxt.Video | None})
         t.insert({'video': p} for p in video_filepaths)
         s = pxt.create_view('segments', t, iterator=video_splitter(t.video, segment_times=segment_times, mode=mode))

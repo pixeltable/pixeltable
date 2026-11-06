@@ -7,7 +7,7 @@ description: 'Multimodal database, orchestration, and serving in one file, by th
 Pixeltable is an open-source multimodal database you use from Python. You declare tables, computed columns and HTTP routes in one file, `app.py`. Insert a row and Pixeltable runs the model calls, stores the results and updates the indexes, with no scripts to keep files, results and embeddings in sync.
 
 ```bash
-pip install 'pixeltable[serve]'
+pip install -U 'pixeltable[serve]'
 ```
 
 [Quickstart](/overview/quick-start) · [How it works](/overview/how-it-works) · [Pixeltable Cloud](/cloud)
@@ -71,7 +71,7 @@ api.add_query_route(path='/search', query=search)
 ```
 
 ```bash Run it
-pip install 'pixeltable[serve]' openai
+pip install -U 'pixeltable[serve]' openai
 export OPENAI_API_KEY=sk-...        # set this before the first pxt command
 pxt init                            # makes this folder a project
 pxt schema update app.py my_app     # creates the table and its index

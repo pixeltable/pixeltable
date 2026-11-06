@@ -1,5 +1,5 @@
 import logging
-from typing import Any, AsyncIterator
+from typing import Any, AsyncGenerator
 
 from pixeltable import catalog, exprs
 from pixeltable.utils.local_store import TempStore
@@ -99,6 +99,6 @@ class InMemoryDataNode(ExecNode):
         self.output_batch = None
         self._is_closed = True
 
-    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+    async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         _logger.debug(f'InMemoryDataNode: created row batch with {len(self.output_batch)} rows')
         yield self.output_batch

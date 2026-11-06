@@ -37,10 +37,10 @@ COMMANDS: dict[str, str] = {
     'daemon': 'control the daemon (start/stop/restart/status)',
     'localproxy': 'manage local proxy daemons (create/start/stop/delete)',
     'dashboard': 'print and open the dashboard URL',
-    'db': 'manage hosted databases (diff/update/list/status/logs/start/stop/restart/retry/build-image/delete)',
+    'db': 'manage hosted databases (diff/update/list/status/logs/spans/start/stop/restart/retry/build-image/delete)',
     'service': (
         'run the services defined in an application file '
-        '(diff/update/run/prune/stop/restart/retry/list/logs/check/example)'
+        '(diff/update/run/prune/stop/restart/retry/list/logs/spans/check/example)'
     ),
     'org': 'manage organizations (create/list/status)',
     'secret': "manage an org's or a database's secrets (list/set/delete)",
@@ -79,6 +79,8 @@ def dispatch(cmd: str, argv: list[str]) -> None:
         print(f'pxt: unknown command: {cmd}', file=sys.stderr)
         for suggestion in _suggestions(cmd):
             print(f'did you mean: pxt {suggestion}', file=sys.stderr)
+        version = importlib.metadata.version('pixeltable')
+        print(f'running pxt {version} on Python {sys.version.split()[0]}', file=sys.stderr)
         sys.exit(2)
     from pixeltable_cli.client import utils
 

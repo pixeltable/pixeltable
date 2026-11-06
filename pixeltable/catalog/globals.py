@@ -14,7 +14,7 @@ from pixeltable.types import ColumnSpec
 
 if TYPE_CHECKING:
     from pixeltable import exprs, index
-    from pixeltable.globals import TableDataSource
+    from pixeltable.api import TableDataSource
 
     from .column import Column
     from .types import ColumnVersionMd
@@ -169,7 +169,8 @@ def col_type_from_spec(column_spec: ColumnSpec) -> ts.ColumnType:
     if 'type' in column_spec:
         return ts.ColumnType.normalize_type(column_spec['type'], allow_builtin_types=False)
     assert 'value' in column_spec
-    return column_spec['value'].col_type
+    # as in Column, a column's type is open
+    return column_spec['value'].col_type.with_open_dicts()
 
 
 def normalize_schema(schema: Mapping[str, TypeForm | ColumnSpec | exprs.Expr]) -> dict[str, ColumnSpec]:

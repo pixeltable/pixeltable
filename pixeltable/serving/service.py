@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import dataclasses
+import shlex
 from pathlib import Path
 from typing import Literal, Sequence
 
 from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.service.db import db_fingerprint
-from pixeltable.service.management_protocol import LogRecord
+from pixeltable.service.management_protocol import LogRecord, SpanRecord
 from pixeltable.service.resources import ServiceResources
 from pixeltable.service.service_md import LocalServiceInstanceRecord
 from pixeltable.utils.app_module import (
@@ -246,13 +247,25 @@ def service_retry(names: list[str]) -> list[ServiceChangeOp]:
 
 def service_logs(target: PxtPath, *, since_seconds: int, limit: int, include_health: bool) -> Sequence[LogRecord]:
     """Return the log records of the service instance at target."""
+    instance = _resolve_one_service_instance(target)
+    return instance.logs(since_seconds=since_seconds, limit=limit, include_health=include_health)
+
+
+def service_spans(target: PxtPath, *, since_seconds: int, limit: int, trace_id: str | None) -> Sequence[SpanRecord]:
+    """Return the sampled spans of the service instance at target."""
+    instance = _resolve_one_service_instance(target)
+    return instance.spans(since_seconds=since_seconds, limit=limit, trace_id=trace_id)
+
+
+def _resolve_one_service_instance(target: PxtPath) -> service_instance.ServiceInstance:
+    """Return the one service instance at target, which must not match several."""
     found = _resolve_service_instances(target)
     if len(found) == 0:
         raise excs.NotFoundError(excs.ErrorCode.SERVICE_NOT_FOUND, f'No service {target!r} is running')
     if len(found) > 1:
         found_at = ', '.join(sorted(f'{i.base_path}/{i.service_name}'.lstrip('/') for i in found))
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{target!r} is ambiguous; it names {found_at}')
-    return found[0].logs(since_seconds=since_seconds, limit=limit, include_health=include_health)
+    return found[0]
 
 
 def _resolve_service_instances(
@@ -432,7 +445,8 @@ def _service_diff(
         ops.append(ServiceChangeOp.release_changed())
 
     if app_info.model_mismatch_reason is not None:
-        command = f'pxt schema update {app_info.app_file}' + ('' if target == '' else f' {target}')
+        # quoted: the next: line and --json's next run it as a shell command, and a project path may hold a space
+        command = shlex.join(['pxt', 'schema', 'update', str(app_info.app_file), *([] if target == '' else [target])])
         ops.append(ServiceChangeOp.blocked_schema(name, app_info.model_mismatch_reason, command))
 
     if hosted and receipt is not None and not receipt.observed and len(ops) == 0:
