@@ -11,6 +11,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.functions.audio import audio_splitter
+from pixeltable.functions.json import list_iterator
 from pixeltable.functions.video import video_splitter
 from pixeltable.runtime import get_runtime, reset_runtime
 
@@ -276,7 +277,6 @@ class TestTwelveLabs:
     def test_async_embed_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')
-        from pixeltable.functions.json import list_iterator
         from pixeltable.functions.twelvelabs import async_embed, embed
 
         t = pxt.create_table('videos', {'video': pxt.Video})
@@ -316,7 +316,6 @@ class TestTwelveLabs:
     def test_async_embed_video_options(self, uses_db: None) -> None:
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')
-        from pixeltable.functions.json import list_iterator
         from pixeltable.functions.twelvelabs import async_embed
 
         media_kwargs: dict[str, Any] = {
