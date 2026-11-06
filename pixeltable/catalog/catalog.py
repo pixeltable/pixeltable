@@ -168,8 +168,6 @@ def _retry_loop(request: LockRequest) -> Callable[[Callable[..., T]], Callable[.
             cat = get_runtime().catalog
             # a retry loop is reentrant
             if cat._in_retry_loop:
-                # TODO(PXT-1278): restore _check_write_locks()'s check that the enclosing transaction holds all
-                # required locks.
                 return op(*args, **kwargs)
             num_retries = 0
             while True:
@@ -487,8 +485,6 @@ class Catalog(CatalogBase):
         if for_write and _frozen.get():
             raise ProhibitedWriteError()
         if get_runtime().in_xact:
-            # TODO(PXT-1278): restore _check_write_locks()'s check that the enclosing transaction holds all
-            # required locks.
             yield get_runtime().conn
             return
 
@@ -2506,6 +2502,7 @@ class Catalog(CatalogBase):
 
     def _move_dir(self, dir_id: UUID, new_name: str, new_parent_id: UUID) -> None:
         """Update parent_id/name for dir_id."""
+        assert self._is_dir_locked(new_parent_id), (dir_id, new_parent_id, self._xact_locks)
         stmt = (
             sql.update(schema.Dir)
             .where(schema.Dir.id == dir_id)
@@ -2934,6 +2931,7 @@ class Catalog(CatalogBase):
 
     def delete_current_tbl_version_md(self, tbl_id: UUID) -> None:
         """Removes 'current_version' from stored metadata for table and resets the table to current_version - 1"""
+        assert self._is_tbl_locked(tbl_id, TblLockMode.EXCLUSIVE), (tbl_id, self._xact_locks)
         conn = get_runtime().conn
         q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
         tbl_md = conn.execute(q).one()[0]
@@ -2983,7 +2981,7 @@ class Catalog(CatalogBase):
 
     def store_update_status(self, tbl_id: UUID, version: int, status: UpdateStatus) -> None:
         """Update the TableVersion.md.update_status field"""
-        assert self._in_write_xact
+        assert self._is_tbl_locked(tbl_id, TblLockMode.EXCLUSIVE), (tbl_id, self._xact_locks)
         conn = get_runtime().conn
 
         stmt = (
