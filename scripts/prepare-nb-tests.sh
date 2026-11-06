@@ -40,6 +40,7 @@ VERY_EXPENSIVE_NOTEBOOKS=(
     working-with-openrouter
     working-with-replicate          # Unreliable
     working-with-together           # Poor reliability
+    working-with-vlmrun
     working-with-voyageai
 )
 
