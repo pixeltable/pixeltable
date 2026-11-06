@@ -776,7 +776,8 @@ async def _(
 
 @embeddings.conditional_return_type
 def _(model: str, model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
-    dim = (model_kwargs or {}).get('dimensions') or _EMBEDDING_DIMENSIONS.get(model)
+    # the same field precedence as the request, where `extra_body` overrides the top level
+    dim = (_body(model_kwargs) or {}).get('dimensions') or _EMBEDDING_DIMENSIONS.get(model)
     return ts.ArrayType((dim,), dtype=np.dtype('float32'), nullable=False)
 
 
