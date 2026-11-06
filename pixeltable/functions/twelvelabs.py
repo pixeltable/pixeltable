@@ -98,7 +98,7 @@ async def _wait_for_asset(client: 'twelvelabs.AsyncTwelveLabs', asset_id: str) -
     timeout = _timeout()
     try:
         async with asyncio.timeout(timeout):
-            await _poll_until_ready(client, asset_id)
+            asset = await _poll_asset(client, asset_id)
     except TimeoutError as e:
         raise pxt.ExternalServiceError(
             pxt.ErrorCode.PROVIDER_TIMEOUT,
@@ -107,15 +107,6 @@ async def _wait_for_asset(client: 'twelvelabs.AsyncTwelveLabs', asset_id: str) -
             'TWELVELABS_TIMEOUT overrides the config file.',
             provider='twelvelabs',
         ) from e
-
-
-@retry(
-    retry=retry_if_result(lambda ready: not ready) | retry_if_retryable_error,
-    wait=wait_exponential(multiplier=2, min=2, max=30),
-)
-async def _poll_until_ready(client: 'twelvelabs.AsyncTwelveLabs', asset_id: str) -> bool:
-    asset = await client.assets.retrieve(asset_id)
-    assert asset.status in ('processing', 'ready', 'failed'), f'Unexpected TwelveLabs asset status: {asset.status!r}'
     if asset.status == 'failed':
         message = '' if asset.error is None else f': {asset.error.message}'
         raise pxt.ExternalServiceError(
@@ -123,7 +114,21 @@ async def _poll_until_ready(client: 'twelvelabs.AsyncTwelveLabs', asset_id: str)
             f'TwelveLabs asset {asset_id} processing failed{message}',
             provider='twelvelabs',
         )
-    return asset.status == 'ready'
+
+
+@retry(
+    retry=retry_if_result(lambda asset: asset.status == 'processing') | retry_if_retryable_error,
+    wait=wait_exponential(multiplier=2, min=2, max=30),
+)
+async def _poll_asset(client: 'twelvelabs.AsyncTwelveLabs', asset_id: str) -> 'twelvelabs.AssetDetail':
+    asset = await client.assets.retrieve(asset_id)
+    if asset.status not in ('processing', 'ready', 'failed'):
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            f'Unexpected TwelveLabs asset status: {asset.status!r}',
+            provider='twelvelabs',
+        )
+    return asset
 
 
 @pxt.udf(resource_pool='request-rate:twelvelabs')
@@ -592,7 +597,13 @@ async def _create_embedding_task(
         client = _twelvelabs_client()
         kwargs = {input_type: request, **task_options}
         task = await client.embed.v_2.tasks.create(input_type=input_type, model_name=model_name, **kwargs)
-        return await _poll_embedding_task(client, task.id)
+        result = await _poll_embedding_task(client, task.id)
+        if result.status == 'failed':
+            message = result.error.message if result.error is not None else 'Unknown error'
+            raise pxt.ExternalServiceError(
+                pxt.ErrorCode.PROVIDER_ERROR, f'TwelveLabs embedding task failed: {message}', provider='twelvelabs'
+            )
+        return result
 
     try:
         async with asyncio.timeout(timeout):
@@ -617,17 +628,18 @@ async def _create_embedding_task(
 
 
 @retry(
-    retry=retry_if_result(lambda result: result.status != 'ready') | retry_if_retryable_error,
+    retry=retry_if_result(lambda result: result.status == 'processing') | retry_if_retryable_error,
     wait=wait_exponential(multiplier=2, min=2, max=30),
 )
 async def _poll_embedding_task(
     client: 'twelvelabs.AsyncTwelveLabs', task_id: str
 ) -> 'twelvelabs.EmbeddingTaskResponse':
     result = await client.embed.v_2.tasks.retrieve(task_id)
-    if result.status == 'failed':
-        message = result.error.message if result.error is not None else 'Unknown error'
+    if result.status not in ('processing', 'ready', 'failed'):
         raise pxt.ExternalServiceError(
-            pxt.ErrorCode.PROVIDER_ERROR, f'TwelveLabs embedding task failed: {message}', provider='twelvelabs'
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            f'Unexpected TwelveLabs embedding task status: {result.status!r}',
+            provider='twelvelabs',
         )
     return result
 
