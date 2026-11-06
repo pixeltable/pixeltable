@@ -576,6 +576,33 @@ class TestComponentView:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='odd'):
             v.compute([{'i': 1}], on_error='abort')
 
+    def test_failed_view_column(self, db_root: DatabaseRoot) -> None:
+        # a deterministic view column over base columns is evaluated before the iterator; its error must survive
+        # the copy into each view row
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'i': pxt.Int})
+        t.insert([{'i': 3}])
+        v = pxt.create_view(p('view'), t, iterator=simple_iterator(t.i), additional_columns={'c': fail_on_odd(t.i)})
+        status = t.insert([{'i': 5}, {'i': 2}], on_error='ignore')
+        assert status.num_excs == 5
+        res = v.order_by(v.i, v.icol).select(v.i, v.c, v.c.errortype).collect()
+        assert res['i'] == [2, 2, 3, 3, 3, 5, 5, 5, 5, 5]
+        assert res['c'] == [2, 2] + [None] * 8
+        assert res['c_errortype'] == [None, None] + ['ValueError'] * 8
+
+    def test_wrapped_nondeterministic_view_column(self, db_root: DatabaseRoot) -> None:
+        # a deterministic function of a nondeterministic value is nondeterministic, and is evaluated per view row
+        expr = pxtf.uuid.uuid4().to_string()
+        assert not expr.is_deterministic
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'i': pxt.Int})
+        t.insert([{'i': 3}])
+        v = pxt.create_view(p('view'), t, iterator=simple_iterator(t.i), additional_columns={'id': expr})
+        t.insert([{'i': 2}])
+        ids = v.select(v.id).collect()['id']
+        assert len(ids) == 5
+        assert len(set(ids)) == 5
+
     def test_update_iterator_param(self, db_root: DatabaseRoot) -> None:
         """Updating a base table column used as an iterator parameter re-evaluates the iterator."""
         p = db_root.make_catalog_path
