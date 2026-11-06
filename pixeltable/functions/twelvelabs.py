@@ -715,14 +715,17 @@ async def _run_embedding_task(
     import twelvelabs
 
     timeout = _timeout()
+    client = _twelvelabs_client()
 
-    async def embed_source(source: 'twelvelabs.MediaSource') -> 'twelvelabs.EmbeddingTaskResponse':
+    async def create_task(source: 'twelvelabs.MediaSource') -> str:
         request_cls = twelvelabs.AsyncAudioInputRequest if input_type == 'audio' else twelvelabs.AsyncVideoInputRequest
         request = request_cls(media_source=source, **options)
-        client = _twelvelabs_client()
         kwargs = {input_type: request, **task_options}
         task = await client.embed.v_2.tasks.create(input_type=input_type, model_name=model_name, **kwargs)
-        result = await _poll_embedding_task(client, task.id)
+        return task.id
+
+    async def wait_for_task(task_id: str) -> 'twelvelabs.EmbeddingTaskResponse':
+        result = await _poll_embedding_task(client, task_id)
         if result.status == 'failed':
             message = result.error.message if result.error is not None else 'Unknown error'
             # not PROVIDER_ERROR: the scheduler would retry it, and each retry creates and bills a new task
@@ -741,10 +744,12 @@ async def _run_embedding_task(
                     with open(file_path, 'rb') as fp:
                         return b64encode(fp.read()).decode('utf-8')
 
-                b64_str = await asyncio.to_thread(encode)
-                return await embed_source(twelvelabs.MediaSource(base_64_string=b64_str))
+                # the base64 payload (up to ~48 MB) is passed as a temporary, so it is released before polling
+                task_id = await create_task(twelvelabs.MediaSource(base_64_string=await asyncio.to_thread(encode)))
+                return await wait_for_task(task_id)
             async with _asset_uploads(input_type, [file_path]) as asset_ids:
-                return await embed_source(twelvelabs.MediaSource(asset_id=asset_ids[0]))
+                task_id = await create_task(twelvelabs.MediaSource(asset_id=asset_ids[0]))
+                return await wait_for_task(task_id)
     except TimeoutError as e:
         raise pxt.ExternalServiceError(
             pxt.ErrorCode.PROVIDER_TIMEOUT,
