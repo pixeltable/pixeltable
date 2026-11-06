@@ -10,8 +10,8 @@ from pixeltable.utils.system import is_interactive_env
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplate, ExprTemplateFunction
 from .function_registry import FunctionRegistry
-from .globals import validate_symbol_path
 from .signature import Parameter, Signature
+from .symbols import validate_symbol_path
 
 if TYPE_CHECKING:
     from pixeltable import exprs

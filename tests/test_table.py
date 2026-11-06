@@ -1,8 +1,10 @@
 import datetime
 import enum
+import errno
 import json
 import math
 import os
+import platform
 import random
 import re
 import uuid
@@ -34,18 +36,23 @@ from .utils import (
     assert_resultset_eq,
     assert_table_metadata_eq,
     check_media_store_count,
+    check_temp_store_count,
     create_table_data,
     create_test_tbl,
     get_audio_files,
     get_documents,
     get_image_files,
     get_multimedia_commons_video_uris,
+    get_temp_store_count,
     get_video_files,
     make_tbl,
+    no_local_db_env,
     pxt_raises,
     read_data_file,
     reload_catalog,
     rerun_on_network_error,
+    run_in_new_process,
+    sigint_at_pos,
     skip_test_if_not_installed,
     stock_price,
     validate_repr,
@@ -3603,6 +3610,241 @@ class TestTable:
         assert (err.provider, err.provider_http_status_code, err.provider_error_code) == ('gemini', 500, 'X')
         assert err.retry_after == 3
 
+    def test_unsaveable_image(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
+        """A computed image that cannot be saved aborts the operation or, with on_error='ignore', is a cell error."""
+        p = db_root.make_catalog_path
+        img_file = sample_file_server.url(get_image_files()[0], db_root)
+        t = pxt.create_table(p('test_unsaveable'), {'id': pxt.Int, 'photo': pxt.Image, 'box': pxt.Json})
+        box = [t.box[i].astype(pxt.Int) for i in range(4)]
+        t.add_computed_column(hero=t.photo.crop(box))
+        t.add_computed_column(hero_w=t.hero.width)
+        t.add_computed_column(hero_md=t.hero.get_metadata())
+        t.add_computed_column(hero_a=fill_3x4(t.hero_w))
+        # a zero-area box crops to an empty image
+        rows = [
+            {'id': 0, 'photo': img_file, 'box': [0, 0, 0, 0]},
+            {'id': 1, 'photo': img_file, 'box': [0, 0, 100, 100]},
+        ]
+        msg = "Error while saving column 'hero': cannot write empty image"
+
+        with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=msg):
+            t.insert(rows)
+        assert t.count() == 0
+
+        status = t.insert(rows, on_error='ignore')
+        assert status.num_rows == 2
+        assert status.num_excs == 4
+        assert set(status.cols_with_excs) == {
+            'test_unsaveable.hero',
+            'test_unsaveable.hero_w',
+            'test_unsaveable.hero_md',
+            'test_unsaveable.hero_a',
+        }
+        res = (
+            t.select(
+                t.hero,
+                t.hero_w,
+                t.hero_md,
+                t.hero_a,
+                err_type=t.hero.errortype,
+                err_msg=t.hero.errormsg,
+                w_msg=t.hero_w.errormsg,
+                md_msg=t.hero_md.errormsg,
+                a_msg=t.hero_a.errormsg,
+            )
+            .order_by(t.id)
+            .collect()
+        )
+        assert res[0] == {
+            'hero': None,
+            'hero_w': None,
+            'hero_md': None,
+            'hero_a': None,
+            'err_type': 'RequestError',
+            'err_msg': msg,
+            'w_msg': msg,
+            'md_msg': msg,
+            'a_msg': msg,
+        }
+        assert res[1]['hero'].size == (100, 100)
+        assert res[1]['hero_w'] == 100
+        assert res[1]['hero_md']['width'] == 100
+        assert np.array_equal(res[1]['hero_a'], np.full((3, 4), 100))
+        assert res[1]['err_msg'] is None
+        # an empty image can't be saved, but a query returns it
+        assert t.where(t.id == 0).select(img=t.photo.crop(box)).collect()[0]['img'].size == (0, 0)
+
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Error while saving column 'hero2': cannot write empty image"
+        ):
+            t.add_computed_column(hero2=t.photo.crop(box))
+        status = t.add_computed_column(hero2=t.photo.crop(box), on_error='ignore')
+        assert status.num_excs == 1
+        assert status.cols_with_excs == ['test_unsaveable.hero2']
+        assert t.where(t.hero2.errormsg != None).select(t.id).collect()['id'] == [0]
+
+    def test_unsaveable_image_in_json(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
+        """An image in JSON that cannot be saved aborts the operation or, with on_error='ignore', is a cell error."""
+        p = db_root.make_catalog_path
+        img_file = sample_file_server.url(get_image_files()[0], db_root)
+        t = pxt.create_table(p('test_unsaveable_json'), {'id': pxt.Int, 'photo': pxt.Image, 'box': pxt.Json})
+        box = [t.box[i].astype(pxt.Int) for i in range(4)]
+        t.add_computed_column(j={'hero': t.photo.crop(box), 'id': t.id})
+        t.add_computed_column(j_id=t.j['id'])
+        rows = [
+            {'id': 0, 'photo': img_file, 'box': [0, 0, 0, 0]},
+            {'id': 1, 'photo': img_file, 'box': [0, 0, 100, 100]},
+        ]
+        msg = "Error while saving column 'j': cannot write empty image"
+
+        with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=msg):
+            t.insert(rows)
+        assert t.count() == 0
+
+        status = t.insert(rows, on_error='ignore')
+        assert status.num_rows == 2
+        assert status.num_excs == 2
+        assert set(status.cols_with_excs) == {'test_unsaveable_json.j', 'test_unsaveable_json.j_id'}
+        res = t.select(t.j, t.j_id, j_msg=t.j.errormsg, id_msg=t.j_id.errormsg).order_by(t.id).collect()
+        assert res[0] == {'j': None, 'j_id': None, 'j_msg': msg, 'id_msg': msg}
+        assert res[1]['j']['hero'].size == (100, 100)
+        assert res[1]['j_id'] == 1
+        assert res[1]['j_msg'] is None
+
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Error while saving column 'j2': cannot write empty image"
+        ):
+            t.add_computed_column(j2={'hero': t.photo.crop(box)})
+        status = t.add_computed_column(j2={'hero': t.photo.crop(box)}, on_error='ignore')
+        assert status.num_excs == 1
+        assert status.cols_with_excs == ['test_unsaveable_json.j2']
+        assert t.where(t.j2.errormsg != None).select(t.id).collect()['id'] == [0]
+
+    def test_unsaveable_image_literal(self, db_root: DatabaseRoot) -> None:
+        """An inserted image that cannot be saved aborts the insert or, with on_error='ignore', is a cell error."""
+        t = pxt.create_table(db_root.make_catalog_path('test_unsaveable_literal'), {'id': pxt.Int, 'img': pxt.Image})
+        t.add_computed_column(img_md=t.img.get_metadata())
+        t.add_computed_column(img_a=fill_3x4(t.img.width))
+        rows = [
+            {'id': 0, 'img': PIL.Image.new('RGB', (0, 0))},
+            {'id': 1, 'img': PIL.Image.new('RGB', (8, 8))},
+            {'id': 2, 'img': PIL.Image.new('HSV', (8, 8))},
+            {'id': 3, 'img': PIL.Image.new('RGBA', (0, 0))},
+        ]
+        msg = "Error while saving column 'img': cannot write empty image"
+        hsv_msg = "Error while saving column 'img': cannot write mode HSV as TIFF"
+        tmp_count = get_temp_store_count(t, db_root)
+
+        for row, row_msg in [(rows[0], msg), (rows[2], hsv_msg), (rows[3], msg)]:
+            with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=row_msg):
+                t.insert([row])
+        status = t.insert(rows, on_error='ignore')
+        assert status.num_rows == 4
+        assert status.num_excs == 9
+        res = (
+            t.select(t.img, t.img_md, t.img_a, err_msg=t.img.errormsg, md_msg=t.img_md.errormsg, a_msg=t.img_a.errormsg)
+            .order_by(t.id)
+            .collect()
+        )
+        assert res[0] == {'img': None, 'img_md': None, 'img_a': None, 'err_msg': msg, 'md_msg': msg, 'a_msg': msg}
+        assert res[3] == res[0]
+        assert res[1]['img'].size == (8, 8)
+        assert res[1]['img_md'] == {'width': 8, 'height': 8, 'mode': 'RGB', 'bits': None, 'format': None}
+        assert np.array_equal(res[1]['img_a'], np.full((3, 4), 8))
+        assert res[2] == {
+            'img': None,
+            'img_md': None,
+            'img_a': None,
+            'err_msg': hsv_msg,
+            'md_msg': hsv_msg,
+            'a_msg': hsv_msg,
+        }
+        # no insert leaves a partial file in the TempStore
+        check_temp_store_count(t, tmp_count, db_root)
+
+    @pytest.mark.db_roots('local', reason='monkeypatches os.fsync in-process')
+    def test_temp_store_write_failure(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A failed TempStore write aborts the insert or, with on_error='ignore', is a cell error."""
+        t = pxt.create_table(db_root.make_catalog_path('test_temp_write'), {'img': pxt.Image})
+        tmp_count = get_temp_store_count(t, db_root)
+
+        def fail_fsync(fd: int) -> None:
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+        monkeypatch.setattr(os, 'fsync', fail_fsync)
+        msg = "Error while saving column 'img': No space left on device"
+        detail = '[Errno 28] No space left on device'
+        with pxt_raises(pxt.ErrorCode.STORE_UNAVAILABLE, match=re.escape(msg)) as exc_info:
+            t.insert(img=PIL.Image.new('RGB', (8, 8)))
+        assert exc_info.value.message == msg
+        assert exc_info.value.detail == detail
+        status = t.insert(img=PIL.Image.new('RGB', (8, 8)), on_error='ignore')
+        assert status.num_excs == 1
+        res = t.select(t.img, err_type=t.img.errortype, err_msg=t.img.errormsg).collect()
+        assert res[0] == {'img': None, 'err_type': 'ServiceUnavailableError', 'err_msg': f'{msg}\n{detail}'}
+        check_temp_store_count(t, tmp_count, db_root)
+
+    def test_image_modes(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
+        """Computed, inserted and queried images keep their mode, and their pixels when stored losslessly."""
+        p = db_root.make_catalog_path
+        img_file = get_image_files()[0]
+        lossy_modes = {'l': 'L', 'rgb': 'RGB', 'cmyk': 'CMYK'}
+        lossless_modes = {
+            'bw': '1',
+            'la': 'LA',
+            'p': 'P',
+            'pa': 'PA',
+            'i': 'I',
+            'f': 'F',
+            'i16': 'I;16',
+            'i16b': 'I;16B',
+            'lab': 'LAB',
+        }
+        stored_modes = lossy_modes | lossless_modes
+        queried_modes = stored_modes | {'hsv': 'HSV'}
+        # img_file is grayscale, and Pillow 10.3 cannot convert L to LAB
+        with PIL.Image.open(img_file) as src:
+            rgb_src = src.convert('RGB')
+        expected = {col_name: rgb_src.convert(mode) for col_name, mode in queried_modes.items()}
+        transparent = {'l_t': expected['l'].copy(), 'rgb_t': expected['rgb'].copy(), 'p_t': expected['p'].copy()}
+        for img in transparent.values():
+            img.info['transparency'] = img.getpixel((0, 0))
+        transparent['p_alpha'] = expected['p'].copy()
+        transparent['p_alpha'].info['transparency'] = bytes(range(256))  # an alpha value per palette entry
+
+        schema = (
+            {'img': pxt.Image}
+            | {f'{col_name}_in': pxt.Image for col_name in stored_modes}
+            | dict.fromkeys(transparent, pxt.Image)
+        )
+        t = pxt.create_table(p('test_image_modes'), schema)
+        rgb = t.img.convert('RGB')
+        for col_name, mode in stored_modes.items():
+            t.add_computed_column(**{col_name: rgb.convert(mode)})
+        t.add_computed_column(j={'p': rgb.convert('P'), 'f': rgb.convert('F'), 'la': rgb.convert('LA')})
+        values = {f'{col_name}_in': expected[col_name] for col_name in stored_modes}
+        t.insert([{'img': sample_file_server.url(img_file, db_root), **values, **transparent}])
+
+        row = t.select().collect()[0]
+        for col_name, mode in stored_modes.items():
+            for img in [row[col_name], row[f'{col_name}_in']]:
+                assert img.mode == mode
+                if col_name in lossless_modes:
+                    assert np.array_equal(np.asarray(img), np.asarray(expected[col_name]))
+        for key in ['p', 'f', 'la']:
+            assert row['j'][key].mode == expected[key].mode
+            assert np.array_equal(np.asarray(row['j'][key]), np.asarray(expected[key]))
+        for col_name, img in transparent.items():
+            assert row[col_name].mode == img.mode
+            assert np.array_equal(np.asarray(row[col_name].convert('RGBA')), np.asarray(img.convert('RGBA')))
+
+        # a query result is not saved, so it keeps its pixels in every mode
+        row = t.select(**{col_name: rgb.convert(mode) for col_name, mode in queried_modes.items()}).collect()[0]
+        for col_name, mode in queried_modes.items():
+            assert row[col_name].mode == mode
+            assert np.array_equal(np.asarray(row[col_name]), np.asarray(expected[col_name]))
+            assert row[col_name].getpalette() == expected[col_name].getpalette()
+
     # TODO: cannot be converted: KeyboardInterrupt injection is client-process-local and does not reach the daemon
     @pytest.mark.db_roots(
         'local', reason='KeyboardInterrupt injection is client-process-local and does not reach the daemon'
@@ -3619,6 +3861,13 @@ class TestTable:
         assert results[0] == {'c1': 999}
         assert len(results.schema) == 1
         assert results.schema.get('cc1') is None
+
+        # Ctrl-C in a later batch
+        if platform.system() != 'Windows':  # signal.pthread_kill() is POSIX only
+            with pytest.raises(KeyboardInterrupt):
+                t.add_computed_column(cc1=sigint_at_pos(t.c1, 3 * pxt.exec.ExprEvalNode.BATCH_SIZE), on_error='ignore')
+            assert 'cc1' not in t.columns()
+            assert t.count() == 1000
 
     def _test_computed_img_cols(self, t: pxt.Table, stores_img_col: bool, db_root: DatabaseRoot) -> None:
         # over the proxy, img (inserted from local file paths) is shipped and persisted in the daemon media store,
@@ -3993,23 +4242,22 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
-    recompute_udf_increment = 0
-    recompute_udf_error_val: int | None = None
-
     @staticmethod
     @pxt.udf
-    def recompute_int_udf(i: int) -> int:
-        if TestTable.recompute_udf_error_val is not None and i % TestTable.recompute_udf_error_val == 0:
+    def recompute_int_udf(i: int, params: pxt.Json) -> int:
+        error_val = params[0]['error_val']
+        if error_val is not None and i % error_val == 0:
             raise RuntimeError(f'Error in recompute_udf for value {i}')
-        return i + TestTable.recompute_udf_increment
+        return i + params[0]['incr']
 
     @staticmethod
     @pxt.udf
-    def recompute_str_udf(s: str) -> str:
+    def recompute_str_udf(s: str, params: pxt.Json) -> str:
         i = int(s)
-        if TestTable.recompute_udf_error_val is not None and i % TestTable.recompute_udf_error_val == 0:
+        error_val = params[0]['error_val']
+        if error_val is not None and i % error_val == 0:
             raise RuntimeError(f'Error in recompute_udf for value {i}')
-        return str(i + TestTable.recompute_udf_increment)
+        return str(i + params[0]['incr'])
 
     def test_recompute_keeps_input_error(self, db_root: DatabaseRoot) -> None:
         """A recompute passes on an input cell's stored error to the cells computed from it, as the insert did."""
@@ -4039,22 +4287,33 @@ class TestTable:
         assert (status.num_excs, status.cols_with_excs) == (1, ['tbl.b'])
         assert t.select(t.b, t.note).collect()[0] == {'b': None, 'note': inserted['img_errormsg']}
 
-    # TODO: cannot be converted because the UDF reads client-process-local class attributes the daemon cannot see
-    @pytest.mark.db_roots('local', reason='UDF reads client-process-local class attributes the daemon cannot see')
-    def test_recompute_column(self, uses_db: None, is_data_versioned: bool) -> None:
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
+    def test_recompute_column(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
+        # the UDFs' state lives in a table, where a hosted catalog's server can read it
+        params = pxt.create_table(p('recompute_params'), {'incr': pxt.Int, 'error_val': pxt.Int | None})
+        params.insert(incr=0, error_val=None)
+
+        @pxt.query
+        def recompute_params() -> pxt.Query:
+            return params.select(params.incr, params.error_val)
+
         t = pxt.create_table(
-            'recompute_test', schema={'i': pxt.Int | None, 's': pxt.String | None}, _is_data_versioned=is_data_versioned
+            p('recompute_test'),
+            schema={'i': pxt.Int | None, 's': pxt.String | None},
+            _is_data_versioned=is_data_versioned,
         )
-        status = t.add_computed_column(i1=self.recompute_int_udf(t.i))
+        status = t.add_computed_column(i1=self.recompute_int_udf(t.i, recompute_params()))
         assert status.num_excs == 0
         t.add_btree_index('i1')
-        status = t.add_computed_column(s1=self.recompute_str_udf(t.s))
+        status = t.add_computed_column(s1=self.recompute_str_udf(t.s, recompute_params()))
         assert status.num_excs == 0
         status = t.add_computed_column(i2=t.i1 * 2)
         assert status.num_excs == 0
         # TODO(PXT-1277): View support for operational tables
         v = (
-            pxt.create_view('recompute_view', base=t.where(t.i < 20), additional_columns={'i3': t.i2 + 1})
+            pxt.create_view(p('recompute_view'), base=t.where(t.i < 20), additional_columns={'i3': t.i2 + 1})
             if is_data_versioned
             else None
         )
@@ -4077,14 +4336,14 @@ class TestTable:
             assert result['i3'] == [2 * (i + i2_incr) + 1 for i in v_i_range], 'i3'
 
         # recompute without propagation
-        TestTable.recompute_udf_increment = 1
+        params.update({'incr': 1})
         status = t.recompute_columns(t.i1, cascade=False)
         assert status.num_rows == 100
         assert set(status.updated_cols) == {'recompute_test.i1'}
         validate(1, 0)
 
         # recompute without propagation, with predicate
-        TestTable.recompute_udf_increment = 0
+        params.update({'incr': 0})
         status = t.recompute_columns(t.i1, where=t.i < 10, cascade=False)
         assert status.num_rows == 10
         assert set(status.updated_cols) == {'recompute_test.i1'}
@@ -4092,14 +4351,14 @@ class TestTable:
         validate(1, 0, t_interval=(11, 100))
 
         # recompute with propagation, via a ColumnRef
-        TestTable.recompute_udf_increment = 1
+        params.update({'incr': 1})
         status = t.i1.recompute()
         assert status.num_rows == 100 + view_rows(20)
         assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2'} | view_cols
         validate(1, 1)
 
         # recompute with propagation and predicate, via a Query
-        TestTable.recompute_udf_increment = 0
+        params.update({'incr': 0})
         status = t.where(t.i < 10).recompute_columns(t.i1, cascade=True)
         assert status.num_rows == 10 + view_rows(10)
         assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2'} | view_cols
@@ -4107,15 +4366,14 @@ class TestTable:
         validate(1, 1, t_interval=(11, 100))
 
         # recompute multiple columns
-        TestTable.recompute_udf_increment = 1
+        params.update({'incr': 1})
         status = t.recompute_columns('i1', t.s1)
         assert status.num_rows == 100 + view_rows(20)
         assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_test.s1'} | view_cols
         validate(1, 1)
 
         # add some errors
-        TestTable.recompute_udf_increment = 0
-        TestTable.recompute_udf_error_val = 10
+        params.update({'incr': 0, 'error_val': 10})
         status = t.recompute_columns('i1')
         assert status.num_rows == 100 + view_rows(20)
         # i1 and its index value col (data-versioned only), plus i2 (i2 has no indexes)
@@ -4130,7 +4388,7 @@ class TestTable:
         assert t.where(t.i2.errortype == None).count() == 90
 
         # recompute errors
-        TestTable.recompute_udf_error_val = None
+        params.update({'error_val': None})
         status = t.recompute_columns(t.i1, where=t.i < 10, errors_only=True)
         assert status.num_rows == 1 + view_rows(1)
         assert status.num_excs == 0
@@ -4149,19 +4407,50 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot use errors_only=True with multiple columns'):
             t.recompute_columns(t.i1, t.s1, errors_only=True)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="not bound by table 'recompute_test'"):
-            y = pxt.create_table('other_table', {'i': pxt.Int | None})
+            y = pxt.create_table(p('other_table'), {'i': pxt.Int | None})
             t.recompute_columns('i1', where=y.i == 0)
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r's\.upper is the method upper\(\)'):
             t.recompute_columns('i1', where=t.s.upper == 'a')
 
         if v is not None:
+            s = pxt.create_snapshot(p('recompute_snap'), t, additional_columns={'i4': t.i2 + 1})
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='of a snapshot'):
-                s = pxt.create_snapshot('recompute_snap', t, additional_columns={'i4': t.i2 + 1})
                 s.recompute_columns(s.i4)
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='of a snapshot'):
+                s.i4.recompute()
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot recompute column of a base'):
                 v.recompute_columns(v.i1)
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot recompute column of a base'):
                 v.i1.recompute()
+
+    @pytest.mark.db_roots('proxy', 'cloud', reason='a process without a local database can only use a hosted catalog')
+    def test_pure_snapshot_column_in_new_process(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
+        """A process that loads a pure snapshot but not its base resolves the snapshot's columns in its catalog."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'i': pxt.Int})
+        t.add_computed_column(i1=t.i + 1)
+        # a pure snapshot (no added columns, no filter) has no columns of its own: s.i1 is a reference to t's column i1
+        s = pxt.create_snapshot(p('snap'), t)
+
+        # expected results, computed in this process, which created t and therefore knows that t is hosted:
+        # repr(s.i1) describes column i1 of t, and recompute() fails because a snapshot can't be recomputed
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='of a snapshot') as exc_info:
+            s.i1.recompute()
+        expected = [repr(s.i1), 'UNSUPPORTED_OPERATION', str(exc_info.value)]
+
+        # a new process loads only the snapshot, never t, and can't start a local database. The column operations
+        # must resolve t in the hosted catalog: if they went to the local catalog, they would try to start the local
+        # database, and the process would exit with that error.
+        # The process prints its results only from the except block: if recompute() succeeds, the process prints
+        # nothing and the test fails.
+        code = f"""
+            s = pxt.get_table({p('snap')!r})
+            try:
+                s.i1.recompute()
+            except pxt.Error as e:
+                print(json.dumps([repr(s.i1), e.error_code.name, str(e)]))
+        """
+        assert run_in_new_process(code, no_local_db_env('embedded', tmp_path)) == expected
 
     def __test_drop_column_if_not_exists(self, t: pxt.Table, non_existing_col: str | ColumnRef) -> None:
         """Test the if_not_exists parameter of drop_column API"""
@@ -4527,24 +4816,38 @@ class TestTable:
                       c8  Array[(2, 3), int64]    test_tbl  [[1, 2, 3], [4, 5, 6]]""",
         )
 
-        # The remaining cases aren't supported over a hosted (proxy) catalog yet:
-        # - ColumnRef.__repr__ renders its owner table client-side via the local catalog plus the
-        #   LocalTable-only _col_descriptor/_index_descriptor, neither of which a proxy column's table satisfies
-        # - the iterator view over a snapshot-of-a-view renders an ancestor chain the proxy md export doesn't carry
-        if db_root.id != 'local':
-            return
-
+        # test case: columns of a view, described through their owner table
         validate_repr(
             v2.c1,
-            """
+            f"""
             Column
             'c1'
-            (of table 'test_tbl')
+            (of table '{p('test_tbl')}')
 
              Column Name    Type    Source Computed With                      Comment
             -------------------------------------------------------------------------
                       c1  String  test_tbl                String column with no nulls""",
         )
+        validate_repr(
+            v2.c2,
+            f"""
+            Column
+            'c2'
+            (of table '{p('test_tbl')}')
+
+             Column Name Type    Source Computed With Comment
+            -----------------------------------------------------
+                      c2  Int  test_tbl
+
+             Index Name Column   Type
+            -------------------------
+                 c2_idx     c2  btree""",
+        )
+
+        # Not supported over a hosted (proxy) catalog yet: the proxy md export lacks the ancestor chain of an
+        # iterator view over a snapshot of a view
+        if db_root.id != 'local':
+            return
 
         iterator_view_1 = pxt.create_view(p('iterator_view_1'), s1, iterator=DummyIterator(s1.c2))
         validate_repr(

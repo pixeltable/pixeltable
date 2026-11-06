@@ -22,7 +22,7 @@ from .utils import create_table_version_md
 
 if TYPE_CHECKING:
     from pixeltable import exprs
-    from pixeltable.globals import TableDataSource
+    from pixeltable.api import TableDataSource
     from pixeltable.io.data_sources import SqlDataSource
     from pixeltable.io.table_data_conduit import TableDataConduit
 

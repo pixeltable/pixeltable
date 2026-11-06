@@ -324,7 +324,9 @@
           {
             "group": "Built-in Integrations",
             "pages": [
-              "integrations/frameworks"
+              "integrations/frameworks",
+              "integrations/dspy",
+              "integrations/pydantic-ai"
             ]
           },
           {

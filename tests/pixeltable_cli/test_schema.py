@@ -10,9 +10,21 @@ from typing import Callable
 import pytest
 
 import pixeltable as pxt
+from pixeltable.utils.fault_injection import FaultLocation
 
-from ..utils import DatabaseRoot, get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
-from .conftest import PxtRunner
+from ..coordinator import MultiThreadedScenario
+from ..fault_injection import BlockFault
+from ..utils import (
+    DatabaseRoot,
+    LocalDbKind,
+    get_audio_files,
+    get_documents,
+    get_video_files,
+    no_local_db_env,
+    run_in_new_process,
+    skip_test_if_not_installed,
+)
+from .conftest import PxtResult, PxtRunner
 
 # A minimal schema, for the cases that assert on an error message rather than on what Pixeltable can express.
 # The breadth -- column types, computed columns, views, iterator views, indexes, media -- comes from the shared
@@ -180,6 +192,71 @@ class TestSchema:
         assert 'shouted' in docs.columns()
         assert docs.select(docs.shouted).collect()['shouted'] == ['hello world!']
         assert_in_agreement(cli, str(schema_file), target)
+
+    @pytest.mark.db_roots(
+        'proxy', 'cloud-cli', reason='the commands under test reach a hosted catalog, and must not need the local one'
+    )
+    @pytest.mark.parametrize('local_db', ['embedded', 'external'])
+    def test_update_without_local_db(
+        self,
+        cli: PxtRunner,
+        db_root: DatabaseRoot,
+        project_dir: pathlib.Path,
+        session_project: pathlib.Path,
+        daemon_port: int,
+        tmp_path: pathlib.Path,
+        local_db: LocalDbKind,
+    ) -> None:
+        """Create tables in a hosted catalog, then insert and read rows, from processes that have no local database."""
+        app = project_dir / 'app.py'
+        app.write_text(
+            dedent(
+                """
+                import datetime
+
+                import pixeltable as pxt
+
+                TableModel = pxt.model_base()
+
+
+                class Events(TableModel, name='events'):
+                    at: pxt.Timestamp
+                    recent = at > datetime.datetime(2024, 1, 1)
+                """
+            ),
+            encoding='utf-8',
+        )
+        target = db_root.make_catalog_path('events_app')
+        env_overrides = no_local_db_env(local_db, tmp_path)
+        # a daemon of its own, started without a local database
+        r = cli(
+            'schema',
+            'update',
+            str(app),
+            target,
+            '--json',
+            env_overrides={**env_overrides, 'PXT_PORT': str(daemon_port)},
+        )
+        assert [t['resolution'] for t in r.json['tables']] == ['create']
+        # the table now exists, so the update diffs the model against its metadata
+        r = cli(
+            'schema',
+            'update',
+            str(app),
+            target,
+            '--json',
+            env_overrides={**env_overrides, 'PXT_PORT': str(daemon_port)},
+        )
+        assert [t['resolution'] for t in r.json['tables']] == ['up_to_date']
+
+        code = f"""
+            import datetime
+
+            events = pxt.get_table({f'{target}/events'!r})
+            events.insert(at=datetime.datetime(2025, 1, 1))
+            print(json.dumps(events.select(events.recent).collect()['recent']))
+        """
+        assert run_in_new_process(code, env_overrides, session_project) == [True]
 
     def test_evolution(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """Editing the file under data: an added column is applied as it stands, a dropped one is refused."""
@@ -925,13 +1002,6 @@ class TestSchema:
         assert (report['valid'], report['errors'], report['warnings']) == (True, [], [])
         assert report['file'] == apps('basic.py')
 
-        # a file that modifies the catalog while importing
-        ddl = project_dir / 'ddl.py'
-        ddl.write_text("import pixeltable as pxt\npxt.create_table('t', {'c': pxt.Int})\n", encoding='utf-8')
-        r = cli('schema', 'check', str(ddl), check=False)
-        assert r.returncode == 1
-        assert 'modifies the catalog while it is imported' in r.stderr
-
         # an empty file
         empty = project_dir / 'empty.py'
         empty.write_text('import pixeltable as pxt\n', encoding='utf-8')
@@ -972,6 +1042,91 @@ class TestSchema:
         assert report['valid'], report
         assert len(report['warnings']) == 1, report
         assert "an import of 'psutil' reads" in report['warnings'][0]
+
+    @pytest.mark.db_roots('local', 'proxy', 'cloud-cli', reason='a hosted catalog refuses the write on its server')
+    def test_write_at_import(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
+        """Loading a file that writes to the catalog while it is imported is refused, and the write does not happen;
+        reading the catalog during the import is allowed."""
+        p = db_root.make_catalog_path
+        written = pxt.create_table(p('written_at_import'), {'c': pxt.Int})
+        written.insert(c=1)
+        created_path = p('created_at_import')
+        statements = {
+            'create_at_import.py': f"pxt.create_table({created_path!r}, {{'c': pxt.Int}})",
+            'insert_at_import.py': f'pxt.get_table({p("written_at_import")!r}).insert(c=1)',
+        }
+        for file_name, statement in statements.items():
+            app = project_dir / file_name
+            app.write_text(f'import pixeltable as pxt\n\n{statement}\n', encoding='utf-8')
+            r = cli('schema', 'check', str(app), check=False)
+            assert r.returncode == 1, r.stderr
+            assert 'modifies the catalog while it is imported' in r.stderr
+            assert f'line 3: {statement}' in r.stderr
+        assert pxt.get_table(created_path, if_not_exists='ignore') is None
+        assert written.count() == 1
+
+        app = project_dir / 'read_at_import.py'
+        app.write_text(
+            dedent(
+                f"""
+                import pixeltable as pxt
+
+                NUM_ROWS = pxt.get_table({p('written_at_import')!r}).count()
+
+                TableModel = pxt.model_base()
+
+
+                class Docs(TableModel, name='docs'):
+                    title: pxt.String
+                """
+            ),
+            encoding='utf-8',
+        )
+        r = cli('schema', 'check', str(app), check=False)
+        assert r.returncode == 0, r.stderr
+
+    @pytest.mark.db_roots('local', reason='fault injection reaches only the in-process catalog')
+    def test_finalize_at_import(
+        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path, fault_injection: None
+    ) -> None:
+        """A file that reads a table at import finishes the table's crashed schema change."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('crashed'), {'a': pxt.Int})
+        t.insert({'a': i} for i in range(3))
+        app = project_dir / 'read_at_import.py'
+        app.write_text(
+            dedent(
+                f"""
+                import pixeltable as pxt
+
+                NUM_ROWS = pxt.get_table({p('crashed')!r}).count()
+
+                TableModel = pxt.model_base()
+
+
+                class Docs(TableModel, name='docs'):
+                    title: pxt.String
+                """
+            ),
+            encoding='utf-8',
+        )
+        # the blocked add_column() leaves its schema change unfinished, as a crashed process would
+        fault = BlockFault()
+        results: list[PxtResult] = []
+        (
+            MultiThreadedScenario()
+            .then_inject_fault(thread_id=0, loc=FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault=fault)
+            .then_run_until(
+                thread_id=0, name='add column', event=fault.reached, fn=lambda: t.add_column(b=pxt.Int | None)
+            )
+            .then_run(
+                thread_id=1, name='check', fn=lambda: results.append(cli('schema', 'check', str(app), check=False))
+            )
+            .then_unblock(thread_id=1, fault=fault)
+            .execute(timeout=60.0)
+        )
+        assert results[0].returncode == 0, results[0].stderr
+        assert t.select(t.b).collect()['b'] == [None, None, None]
 
     @pytest.mark.db_roots(
         'local', reason='the column is resolved in this process, so the report of a missing file lands here'

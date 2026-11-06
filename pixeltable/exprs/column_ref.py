@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import Any, Iterator, Sequence, cast
+from typing import Any, Sequence, cast
 from uuid import UUID
 
 import numpy as np
@@ -14,8 +14,6 @@ import pixeltable.type_system as ts
 from pixeltable import func
 from pixeltable.runtime import get_runtime
 
-from ..utils.description_helper import DescriptionHelper
-from ..utils.filecache import FileCache
 from ..utils.http import fetch_url
 from .data_row import DataRow
 from .expr import Expr
@@ -62,8 +60,8 @@ class ColumnRef(Expr):
     base_rowid_len: int  # number of rowid columns in the base table
 
     # execution state
-    base_rowid: Sequence[Any | None]
-    iterator: Iterator
+    base_rowid: Sequence[Any | None]  # rowid of iterator's base row
+    iterator: func.PxtIterator | None
     pos_idx: int
 
     def __init__(self, col_md: catalog.ColumnVersionMd, perform_validation: bool = False):
@@ -173,22 +171,14 @@ class ColumnRef(Expr):
 
         return super().__getattr__(name)
 
-    def recompute(self, *, cascade: bool = True, errors_only: bool = False) -> catalog.UpdateStatus:
-        cat = get_runtime().catalog
-        with cat.begin_md_read_xact():
-            tbl = cat.get_table_by_id(self.col_md.tbl_id)
-            tvp = tbl._tbl_version_path
+    def _context_tbl(self) -> catalog.Table:
+        # resolve the table through its owning catalog, which may be a proxy
+        tbl = get_runtime().get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
+        assert tbl is not None
+        return tbl
 
-        with cat.begin_data_write_xact(tvps=[tvp]):
-            col = self.col
-            tbl_version = col.tbl_handle.get()
-            if tbl_version.id != self.col_md.tbl_id:
-                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot recompute column of a base.')
-            if tbl_version.is_snapshot:
-                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot recompute column of a snapshot.')
-            status = tbl_version.recompute_columns([col.name], errors_only=errors_only, cascade=cascade)
-            FileCache.get().emit_eviction_warnings()
-            return status
+    def recompute(self, *, cascade: bool = True, errors_only: bool = False) -> catalog.UpdateStatus:
+        return self._context_tbl().recompute_columns(self, errors_only=errors_only, cascade=cascade)
 
     def similarity(
         self,
@@ -437,11 +427,7 @@ class ColumnRef(Expr):
         from pixeltable.index import EmbeddingIndex
 
         if _tbl_path is None:
-            # Resolve the table through its owning catalog (which may be a proxy) so the index lookup works
-            # uniformly for local and hosted tables. get_table_by_id() manages its own transaction.
-            tbl = get_runtime().get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
-            assert tbl is not None
-            _tbl_path = tbl._tbl_path
+            _tbl_path = self._context_tbl()._tbl_path
         # get_idx_md() resolves the concrete index, raising if idx is ambiguous or doesn't exist.
         idx_md = _tbl_path.get_idx_md(self.col_md.qcolid, idx, EmbeddingIndex)
 
@@ -505,8 +491,7 @@ class ColumnRef(Expr):
 
         from pixeltable.index import EmbeddingIndex
 
-        tbl = get_runtime().get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
-        assert tbl is not None
+        tbl = self._context_tbl()
         idx_md = tbl._tbl_path.get_idx_md(self.col_md.qcolid, idx, EmbeddingIndex)
         val_qcolid = catalog.QColumnId(UUID(idx_md.indexed_col_tbl_id), idx_md.index_val_col_id)
         return ColumnRef(tbl._tbl_path.get_column_md(val_qcolid))
@@ -523,24 +508,10 @@ class ColumnRef(Expr):
         return col_md.name if col_md.name is not None else f'<unnamed column {col_md.id}>'
 
     def __repr__(self) -> str:
-        return self._descriptors().to_string()
+        return self._context_tbl()._column_description(self, html=False)
 
     def _repr_html_(self) -> str:
-        return self._descriptors().to_html()
-
-    def _descriptors(self) -> DescriptionHelper:
-        col_name = self.col_md.name
-        with get_runtime().catalog.begin_md_read_xact():
-            tbl = get_runtime().catalog.get_table_by_id(self.col_md.qcolid.tbl_id)
-        # TODO: is this what we want? it's printing the path of the containing table, not of the context table
-        helper = DescriptionHelper()
-        helper.append(f'Column\n{col_name!r}\n(of table {tbl._path()!r})')
-        col_df, _ = tbl._col_descriptor([col_name])
-        helper.append(col_df)
-        idxs = tbl._index_descriptor([col_name])
-        if len(idxs) > 0:
-            helper.append(idxs)
-        return helper
+        return self._context_tbl()._column_description(self, html=True)
 
     def prepare(self, args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         from pixeltable import store
@@ -552,6 +523,16 @@ class ColumnRef(Expr):
         self.base_rowid = [None] * self.base_rowid_len
         assert isinstance(col.get_tbl().store_tbl, store.StoreComponentView)
         self.pos_idx = cast(store.StoreComponentView, col.get_tbl().store_tbl).pos_col_idx
+
+    def release(self) -> None:
+        super().release()
+        self._close_iterator()
+
+    def _close_iterator(self) -> None:
+        if self.iterator is not None:
+            self.iterator.close()
+            self.iterator = None
+            self.base_rowid = [None] * self.base_rowid_len
 
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         if self.perform_validation:
@@ -599,6 +580,7 @@ class ColumnRef(Expr):
             assert self.iter_arg_ctx is not None
             row_builder.eval(data_row, self.iter_arg_ctx)
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
+            self._close_iterator()
             self.iterator = col.get_tbl().iterator_call.eval(iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
         # Use the iterator's own field names (orig_name), which are not the folded column names

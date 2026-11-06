@@ -13,7 +13,7 @@ def _(conn: sql.Connection) -> None:
 
 def __substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
     from pixeltable import func
-    from pixeltable.func.globals import resolve_symbol
+    from pixeltable.func.symbols import resolve_symbol
 
     if (
         isinstance(v, dict)

@@ -42,6 +42,7 @@ from tenacity import (
 )
 
 from pixeltable import exceptions as excs
+from pixeltable.catalog.catalog import Catalog, ProhibitedWriteError
 from pixeltable.catalog.path import Path as CatalogPath
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.row import RowBatch
@@ -737,6 +738,7 @@ class ProxyClient:
             args=wire_args,
             path_key=None if path_key is None else path_key.as_dict(),
             snapshot_path_key=None if snapshot_key is None else snapshot_key.as_dict(),
+            catalog_frozen=Catalog.is_frozen(),
         )
         body = encode_body(request.model_dump_json().encode(), parts)
         response_head, response_parts = decode_body(self._transport.post(body))
@@ -760,6 +762,8 @@ class ProxyClient:
 
         A daemon from before those fields leaves the two numbers only in the sentence.
         """
+        if response.get('prohibited_write', False):
+            raise ProhibitedWriteError()
         error = response.get('error')
         if not isinstance(error, dict):
             if error is not None:
