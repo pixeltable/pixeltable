@@ -357,10 +357,11 @@ class TestTwelveLabs:
             video_embed=async_embed_asset.using(model_name='marengo3.5'),
             string_embed=embed.using(model_name='marengo3.5'),
         )
-        cooking = get_video_files(extension='.webm')[0]
-        # embed() rejects Marengo 3.5 video longer than 30 seconds
-        test_pattern = generate_test_video(tmp_path, duration=45.0)
-        validate_update_status(t.insert([{'video': cooking}, {'video': test_pattern}]), expected_rows=2)
+        cooking_video = get_video_files(extension='.webm')[0]
+        generated_video = generate_test_video(tmp_path, duration=45.0)
+        # the similarity check below identifies the cooking video by its .webm extension
+        assert not generated_video.endswith('.webm')
+        validate_update_status(t.insert([{'video': cooking_video}, {'video': generated_video}]), expected_rows=2)
 
         res = t.select(embedding=t.video.embedding()).collect()
         assert all(embedding.shape == (512,) for embedding in res['embedding'])
@@ -375,7 +376,6 @@ class TestTwelveLabs:
 
         t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         t.add_computed_column(embedding=async_embed_asset(t.audio, model_name='marengo3.5'))
-        # 60 seconds: embed() rejects Marengo 3.5 audio longer than 30 seconds
         validate_update_status(t.insert(audio=get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')), 1)
         res = t.select(t.embedding).collect()
         assert res['embedding'][0].shape == (512,)
