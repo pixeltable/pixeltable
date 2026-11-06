@@ -131,6 +131,7 @@
                       "sdk/latest/twelvelabs",
                       "sdk/latest/vllm",
                       "sdk/latest/vlmrun",
+                      "sdk/latest/vlmrun_gateway",
                       "sdk/latest/voyageai",
                       "sdk/latest/whisper",
                       "sdk/latest/whisperx",
@@ -380,6 +381,7 @@
               "howto/providers/working-with-twelvelabs",
               "howto/providers/working-with-vllm",
               "howto/providers/working-with-vlmrun",
+              "howto/providers/working-with-vlmrun-gateway",
               "howto/providers/working-with-voyageai",
               "howto/working-with-fiftyone"
             ]
