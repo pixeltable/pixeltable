@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import os
 import subprocess
 import sys
@@ -362,6 +363,31 @@ class TestEnsureConnected:
         assert pxt.list_tables() == ['after_failed_connect']
         assert Env.get().engine.url.database in disposed_dbs
         fault.assert_count(1)
+
+    def test_concurrent_first_connect(self, uses_db: None) -> None:
+        """Processes that connect to a new database at the same time all succeed."""
+        dbname = aux_db_name('concurrent')
+        _reset_env(reinit=True, db_name=dbname)
+        Env.get()._drop_store_db()
+        # all processes connect at once, racing to create the database
+        script = 'import sys\nimport pixeltable as pxt\nprint(flush=True)\nsys.stdin.readline()\npxt.list_tables()'
+        procs = [
+            subprocess.Popen(
+                (sys.executable, '-c', script),
+                env={**os.environ, 'PIXELTABLE_DB': dbname},
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for _ in range(8)
+        ]
+        for proc in procs:
+            assert proc.stdout is not None
+            proc.stdout.readline()
+        with concurrent.futures.ThreadPoolExecutor(len(procs)) as pool:
+            errors = list(pool.map(lambda proc: proc.communicate('\n')[1], procs))
+        assert all(proc.returncode == 0 for proc in procs), errors
 
 
 class TestProxyEndpoint:

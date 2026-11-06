@@ -19,7 +19,7 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, Literal, NamedTuple, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, NamedTuple, TypeVar, overload
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -535,15 +535,16 @@ class Env:
         redacted_db_url = redact_db_url(self._db_url)
         if is_local:
             # Embedded postmaster: create or reset the database as needed.
-            if reinit_db and self._store_db_exists(self._db_name):
-                self._drop_store_db()
+            with self._store_db_lock():
+                if reinit_db and self._store_db_exists(self._db_name):
+                    self._drop_store_db()
 
-            create_db = not self._store_db_exists(self._db_name)
-            if create_db:
-                _logger.info(f'creating database at: {redacted_db_url}')
-                self._create_store_db()
-            else:
-                _logger.info(f'found database at: {redacted_db_url}')
+                create_db = not self._store_db_exists(self._db_name)
+                if create_db:
+                    _logger.info(f'creating database at: {redacted_db_url}')
+                    self._create_store_db()
+                else:
+                    _logger.info(f'found database at: {redacted_db_url}')
         else:
             # External DB: pre-provisioned; no local setup needed.
             _logger.info(f'Using external database at: {redacted_db_url}')
@@ -676,6 +677,17 @@ class Env:
         self._db_name = db_name
         self._db_url = self._db_server.get_uri(database=db_name, driver='psycopg')
         self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
+
+    @contextlib.contextmanager
+    def _store_db_lock(self) -> Iterator[None]:
+        """Serialize creating and dropping this Env's database across processes."""
+        engine = sql.create_engine(self._dbms.default_system_db_url(), future=True)
+        try:
+            with engine.begin() as conn:
+                conn.execute(sql.text('SELECT pg_advisory_xact_lock(hashtext(:db_name))'), {'db_name': self._db_name})
+                yield
+        finally:
+            engine.dispose()
 
     def _store_db_exists(self, db_name: str) -> bool:
         """Whether `db_name`, defaulting to this Env's database, exists in the store."""
