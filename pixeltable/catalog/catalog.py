@@ -2146,12 +2146,14 @@ class Catalog(CatalogBase):
         return obj
 
     def get_table_paths_md(self, paths: Sequence[Path]) -> list[tuple[TableMdPath, TableMetadata] | None]:
-        return [
-            None
-            if export is None
-            else (TableMdPath.from_md(export[0], is_anon_snapshot=False, catalog_uri=ROOT_PATH), export[1])
-            for export in self.get_table_paths_md_export(paths)
-        ]
+        result: list[tuple[TableMdPath, TableMetadata] | None] = []
+        for export in self.get_table_paths_md_export(paths):
+            if export is None:
+                result.append(None)
+            else:
+                md, tbl_md = export
+                result.append((TableMdPath.from_md(md, is_anon_snapshot=False, catalog_uri=ROOT_PATH), tbl_md))
+        return result
 
     @retry_md_read_loop()
     def get_table_paths_md_export(

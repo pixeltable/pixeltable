@@ -19,6 +19,7 @@ from .path import Path as CatalogPath
 from .table import Table
 from .table_path import TableMdPath, TablePathKey
 from .types import TableVersionKey, TableVersionMd
+from .utils import rebase_table_md
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -139,17 +140,8 @@ class TableProxy(Table):
     def _tbl_path(self) -> TableMdPath:
         return self._tbl_md_path
 
-    def _rebase_path(self, path_str: str) -> str:
-        # the server emits in-db paths (org/db dropped on the wire); stamp this proxy's catalog back on
-        return str(CatalogPath.parse(path_str, allow_versioned_path=True).with_catalog(self._catalog_uri))
-
     def get_metadata(self) -> 'TableMetadata':
-        output = self._dispatch('get_metadata', {})
-        # every path-valued field comes back as an in-db path; rebase each onto this proxy's catalog
-        output['path'] = self._rebase_path(output['path'])
-        if output['base'] is not None:
-            output['base'] = self._rebase_path(output['base'])
-        return output
+        return rebase_table_md(self._dispatch('get_metadata', {}), self._catalog_uri)
 
     def __getattr__(self, name: str) -> 'exprs.ColumnRef':
         if name.startswith('_'):

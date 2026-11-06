@@ -10,6 +10,7 @@ from .insertable_table_proxy import InsertableTableProxy
 from .model import TableSchemaChangeSet
 from .path import Path
 from .table_path import TableMdPath
+from .utils import rebase_table_md
 from .view_proxy import ViewProxy
 
 if TYPE_CHECKING:
@@ -169,14 +170,10 @@ class CatalogProxy(CatalogBase):
         return [None if export is None else self._table_path_md(*export) for export in exports]
 
     def _table_path_md(self, md: list[TableVersionMd], tbl_md: TableMetadata) -> tuple[TableMdPath, TableMetadata]:
-        # the server returns in-db paths
-        tbl_md['path'] = self._rebase_path(tbl_md['path'])
-        if tbl_md['base'] is not None:
-            tbl_md['base'] = self._rebase_path(tbl_md['base'])
-        return TableMdPath.from_md(md, is_anon_snapshot=False, catalog_uri=self.catalog_uri), tbl_md
-
-    def _rebase_path(self, path_str: str) -> str:
-        return str(Path.parse(path_str, allow_versioned_path=True).with_catalog(self.catalog_uri))
+        return (
+            TableMdPath.from_md(md, is_anon_snapshot=False, catalog_uri=self.catalog_uri),
+            rebase_table_md(tbl_md, self.catalog_uri),
+        )
 
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
         self.client.send_request(
