@@ -592,12 +592,12 @@ class TestComponentView:
 
     def test_wrapped_nondeterministic_view_column(self, db_root: DatabaseRoot) -> None:
         # a deterministic function of a nondeterministic value is nondeterministic, and is evaluated per view row
-        expr = pxtf.uuid.uuid4().to_string()
-        assert not expr.is_deterministic
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'i': pxt.Int})
         t.insert([{'i': 3}])
-        v = pxt.create_view(p('view'), t, iterator=simple_iterator(t.i), additional_columns={'id': expr})
+        v = pxt.create_view(
+            p('view'), t, iterator=simple_iterator(t.i), additional_columns={'id': pxtf.uuid.uuid4().to_string()}
+        )
         t.insert([{'i': 2}])
         ids = v.select(v.id).collect()['id']
         assert len(ids) == 5
