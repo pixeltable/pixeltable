@@ -455,7 +455,8 @@ def embed_iterator(
     embedding_uncertainty: bool | None = None,
 ) -> Iterator[EmbeddingResult]:
     """
-    Creates asynchronous audio or video embeddings, yielding one row per provider embedding record.
+    Creates audio or video embeddings using the TwelveLabs async embeddings API, yielding one row per provider
+    embedding record.
 
     Wraps the TwelveLabs `embed.v_2.tasks.create` and `retrieve` endpoints:
     <https://docs.twelvelabs.io/sdk-reference/python/create-embeddings-v-2/create-async-embeddings>
@@ -527,7 +528,7 @@ def embed_iterator(
     input_type: Literal['audio', 'video'] = 'audio' if audio is not None else 'video'
     task_options = {'embedding_dimension': embedding_dimension, 'embedding_uncertainty': embedding_uncertainty}
     result = get_runtime().run_coro(
-        _create_embedding_task(
+        _run_embedding_task(
             file_path,
             input_type,
             model_name,
@@ -580,7 +581,7 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
     }
 
 
-async def _create_embedding_task(
+async def _run_embedding_task(
     file_path: str,
     input_type: Literal['audio', 'video'],
     model_name: str,
