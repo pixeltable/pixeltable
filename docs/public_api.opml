@@ -490,6 +490,7 @@
         <outline text="module|pixeltable.functions.twelvelabs">
           <outline text="udf|pixeltable.functions.twelvelabs.embed" />
           <outline text="udf|pixeltable.functions.twelvelabs.async_embed" />
+          <outline text="udf|pixeltable.functions.twelvelabs.async_embed_asset" />
         </outline>
         <outline text="module|pixeltable.functions.vllm">
           <outline text="udf|pixeltable.functions.vllm.chat_completions" />

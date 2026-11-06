@@ -16,6 +16,8 @@ from pixeltable.functions.video import video_splitter
 from pixeltable.runtime import get_runtime, reset_runtime
 
 from ..utils import (
+    generate_test_video,
+    get_audio_file,
     get_audio_files,
     get_image_files,
     get_video_files,
@@ -343,6 +345,40 @@ class TestTwelveLabs:
         rows = v.collect()
         assert set({row['embedding_option'] for row in rows}) == {'audio', 'visual', 'fused'}
         assert all(row['embedding'].shape == (256,) for row in rows)
+
+    def test_async_embed_asset_video(self, uses_db: None, tmp_path: Path) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        skip_test_if_no_client('twelvelabs')
+        from pixeltable.functions.twelvelabs import async_embed_asset, embed
+
+        t = pxt.create_table('videos', {'video': pxt.Video})
+        t.add_embedding_index(
+            t.video,
+            video_embed=async_embed_asset.using(model_name='marengo3.5'),
+            string_embed=embed.using(model_name='marengo3.5'),
+        )
+        cooking = get_video_files(extension='.webm')[0]
+        # embed() rejects Marengo 3.5 video longer than 30 seconds
+        test_pattern = generate_test_video(tmp_path, duration=45.0)
+        validate_update_status(t.insert([{'video': cooking}, {'video': test_pattern}]), expected_rows=2)
+
+        res = t.select(embedding=t.video.embedding()).collect()
+        assert all(embedding.shape == (512,) for embedding in res['embedding'])
+        similarity = t.video.similarity(string='cooking food on a grill')
+        res = t.select(t.video, similarity=similarity).order_by(similarity, asc=False).collect()
+        assert res['video'][0].endswith('.webm')
+
+    def test_async_embed_asset_audio(self, uses_db: None) -> None:
+        skip_test_if_not_installed('twelvelabs')
+        skip_test_if_no_client('twelvelabs')
+        from pixeltable.functions.twelvelabs import async_embed_asset
+
+        t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        t.add_computed_column(embedding=async_embed_asset(t.audio, model_name='marengo3.5'))
+        # 60 seconds: embed() rejects Marengo 3.5 audio longer than 30 seconds
+        validate_update_status(t.insert(audio=get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')), 1)
+        res = t.select(t.embedding).collect()
+        assert res['embedding'][0].shape == (512,)
 
     @pytest.mark.parametrize('model_name', ['marengo3.0', 'marengo3.5'])
     def test_embed_audio(self, uses_db: None, model_name: str) -> None:

@@ -560,6 +560,92 @@ def _(model_name: str, embedding_dimension: int | None) -> ts.ColumnType:
     return ts.JsonType.from_json_type_arg([record_type])
 
 
+@pxt.udf(is_deterministic=True, resource_pool='request-rate:twelvelabs')
+async def async_embed_asset(video: pxt.Video, *, model_name: str) -> pxt.Array[np.float32]:
+    """
+    Creates a single embedding vector for a whole video or audio input using the TwelveLabs async embeddings API.
+
+    Wraps the TwelveLabs `embed.v_2.tasks.create` and `retrieve` endpoints:
+    <https://docs.twelvelabs.io/sdk-reference/python/create-embeddings-v-2/create-async-embeddings>
+
+    Embeds audio and video of any duration supported by the model, and returns the provider's asset-scope
+    embedding: for video, one fused embedding that combines the visual and audio content; for audio, one audio
+    embedding. Unlike `embed()`, it accepts Marengo 3.5 media longer than 30 seconds or larger than 32 MB. Use it
+    to index media, together with `embed()` to create query embeddings. Use `async_embed()` to get embeddings for
+    individual segments.
+
+    Request throttling:
+    Applies the rate limit set in the config (section `twelvelabs`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
+
+    The UDF waits up to 600 seconds per input, including upload processing. Set `timeout` in the `twelvelabs`
+    config section to change this limit; `TWELVELABS_TIMEOUT` overrides the config file.
+
+    __Requirements:__
+
+    - `pip install 'twelvelabs>=1.3.6'`
+
+    Args:
+        video: The video to embed. An overload accepts `audio` instead.
+        model_name: The embedding model (`marengo3.0` or `marengo3.5`).
+
+    Returns:
+        The embedding vector for the whole input.
+
+    Examples:
+        Index a video column, using `embed()` for text queries:
+
+        >>> TableModel = pxt.model_base()
+        ...
+        ...
+        ... class Videos(TableModel, name='videos'):
+        ...     video: pxt.Video
+        ...     __indexes__ = [
+        ...         pxt.EmbeddingIndex(
+        ...             video,
+        ...             video_embed=async_embed_asset.using(model_name='marengo3.5'),
+        ...             string_embed=embed.using(model_name='marengo3.5'),
+        ...         )
+        ...     ]
+
+        Search the index:
+
+        >>> score = Videos.video.similarity(string='a dog barking')
+        >>> Videos.select(Videos.video, score=score).order_by(score, asc=False).limit(
+        ...     10
+        ... ).collect()
+    """
+    return await _async_embed_asset(video, 'video', model_name)
+
+
+@async_embed_asset.overload
+async def _(audio: pxt.Audio, *, model_name: str) -> pxt.Array[np.float32]:
+    return await _async_embed_asset(audio, 'audio', model_name)
+
+
+@async_embed_asset.conditional_return_type
+def _(model_name: str) -> ts.ArrayType:
+    dimension = _DEFAULT_EMBEDDING_DIMENSIONS.get(model_name)
+    shape = None if dimension is None else (dimension,)
+    return ts.ArrayType(shape=shape, dtype=np.dtype('float32'))
+
+
+async def _async_embed_asset(
+    file_path: str, input_type: Literal['audio', 'video'], model_name: str
+) -> pxt.Array[np.float32]:
+    media_kwargs: dict[str, Any] = {'embedding_scope': ['asset'], 'embedding_option': [input_type]}
+    if input_type == 'video':
+        media_kwargs.update(embedding_option=['visual', 'audio'], embedding_type=['fused_embedding'])
+    records = await _async_embed(file_path, input_type, model_name, media_kwargs, None, None)
+    if len(records) != 1:
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            f'Expected a single asset embedding from TwelveLabs; got {len(records)}.',
+            provider='twelvelabs',
+        )
+    return records[0]['embedding']
+
+
 async def _async_embed(
     file_path: str,
     input_type: Literal['audio', 'video'],
