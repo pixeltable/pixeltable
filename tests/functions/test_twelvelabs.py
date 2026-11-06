@@ -273,13 +273,15 @@ class TestTwelveLabs:
         res = t.select(embedding=t.image.embedding()).collect()
         assert res['embedding'][0].shape == (512,)
 
-    def test_embed_iterator_video(self, uses_db: None) -> None:
+    def test_async_embed_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')
-        from pixeltable.functions.twelvelabs import embed, embed_iterator
+        from pixeltable.functions.json import list_iterator
+        from pixeltable.functions.twelvelabs import async_embed, embed
 
         t = pxt.create_table('videos', {'video': pxt.Video})
-        v = pxt.create_view('video_embeddings', t, iterator=embed_iterator(video=t.video, model_name='marengo3.5'))
+        t.add_computed_column(embeddings=async_embed(t.video, model_name='marengo3.5'))
+        v = pxt.create_view('video_embeddings', t, iterator=list_iterator(t.embeddings))
         v.add_embedding_index(v.embedding, embedding=embed.using(model_name='marengo3.5'))
         t.insert(video=get_video_files(extension='.webm')[0])
 
@@ -311,10 +313,11 @@ class TestTwelveLabs:
         )
         assert matches[0]['embedding_option'] == 'visual'
 
-    def test_embed_iterator_video_options(self, uses_db: None) -> None:
+    def test_async_embed_video_options(self, uses_db: None) -> None:
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')
-        from pixeltable.functions.twelvelabs import embed_iterator
+        from pixeltable.functions.json import list_iterator
+        from pixeltable.functions.twelvelabs import async_embed
 
         media_kwargs: dict[str, Any] = {
             'start_sec': 2.0,
@@ -326,17 +329,16 @@ class TestTwelveLabs:
             'time_based_metadata': [{'start': 2.0, 'end': 14.0, 'text': 'Cooking food while guitar music plays.'}],
         }
         t = pxt.create_table('videos', {'video': pxt.Video})
-        v = pxt.create_view(
-            'video_embeddings',
-            t,
-            iterator=embed_iterator(
-                video=t.video,
+        t.add_computed_column(
+            embeddings=async_embed(
+                t.video,
                 model_name='marengo3.5',
                 media_kwargs=media_kwargs,
                 embedding_dimension=256,
                 embedding_uncertainty=False,
-            ),
+            )
         )
+        v = pxt.create_view('video_embeddings', t, iterator=list_iterator(t.embeddings))
         v.add_embedding_index(v.embedding)
         t.insert(video=get_video_files(extension='.webm')[0])
         rows = v.collect()
