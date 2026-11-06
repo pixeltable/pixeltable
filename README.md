@@ -121,10 +121,14 @@ We're database people, so our answer was to make the database track dependencies
 | You need to | Usually | With Pixeltable |
 |---|---|---|
 | Store files and their results | A bucket plus a metadata table | Typed file references and computed results in the same row |
+| Split documents or sample frames | A preprocessing job | Views of chunks or frames, updated with the source table |
 | Call models | Jobs and scripts that track what ran | Computed columns with stored results |
 | Search the results | A vector database you keep in sync | An embedding index maintained by the table |
-| Split documents or sample frames | A preprocessing job | Views of chunks or frames, updated with the source table |
 | Serve the results | API handlers over those systems | `FastAPIRouter` routes declared next to the tables |
+| Let an agent call tools | An agent loop that keeps its state in memory | A computed column runs the tools the model picked (`invoke_tools`), and the calls and their results are columns on the message's row |
+| Remember across sessions | A chat-history cache and a second vector store | A memory table with an embedding index, recalled by a `@pxt.query` in a computed column |
+| Trace a running app | A tracing SDK per vendor, with logs somewhere else | OpenTelemetry spans for each table, row, column and UDF (`pxt service update --otel`, `pixeltable[otel]`) |
+| Analyze and audit | A warehouse export, and history rebuilt from logs | Query the tables where they are. Each change is a version (`history()`, `pxt revert`), and `export_sql()` or `export_parquet()` copies the data out |
 
 If you already use Pinecone, Postgres, LangGraph or Airflow, [Migrate to Pixeltable](https://docs.pixeltable.com/howto/coming-from) shows how the corresponding work looks here.
 
@@ -132,7 +136,7 @@ If you already use Pinecone, Postgres, LangGraph or Airflow, [Migrate to Pixelta
 
 - [RAG over documents](https://docs.pixeltable.com/use-cases/multimodal-backend), with chunks and embeddings updated as documents arrive or leave.
 - [Video and image pipelines](https://docs.pixeltable.com/use-cases/media-processing), with frames, transcripts and detections.
-- [Agents](https://docs.pixeltable.com/use-cases/agentic-workflows) whose tool calls are rows you can query later.
+- [Agents](https://docs.pixeltable.com/use-cases/agentic-workflows) whose tool calls and results are columns you can query later.
 
 Pixeltable fits best when files or prompts keep changing. If you don't want a typed schema, it's the wrong tool. It won't make your models better, and evaluation is still yours to manage. [Why Pixeltable](https://docs.pixeltable.com/overview/pixeltable) goes into the trade-offs.
 
