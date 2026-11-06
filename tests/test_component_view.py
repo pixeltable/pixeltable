@@ -149,6 +149,20 @@ class colliding_iterator(pxt.PxtIterator):
         pass
 
 
+@pxt.udf
+def fail_on_odd(i: int) -> int:
+    if i % 2 == 1:
+        raise ValueError('odd')
+    return i
+
+
+@pxt.udf(is_deterministic=False)
+def fail_on_odd_nondeterministic(i: int) -> int:
+    if i % 2 == 1:
+        raise ValueError('odd')
+    return i
+
+
 class TestComponentView:
     @pytest.mark.skip(reason='surfaces a bug (DuplicateAlias)')
     def test_same_base_join(self, db_root: DatabaseRoot) -> None:
@@ -543,6 +557,24 @@ class TestComponentView:
 
         # the second attempt succeeds
         _ = pxt.create_view(p('view'), t, iterator=error_iterator(t.i, 100))
+
+    @pytest.mark.parametrize('deterministic', [True, False])
+    def test_failed_iterator_args(self, db_root: DatabaseRoot, deterministic: bool) -> None:
+        # a failed iterator argument produces no view rows for that base row
+        # deterministic and non-deterministic UDFs take different paths
+        fn = fail_on_odd if deterministic else fail_on_odd_nondeterministic
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'i': pxt.Int})
+        t.insert({'i': i} for i in range(4))
+        v = pxt.create_view(p('view'), t, iterator=simple_iterator(fn(t.i)))
+        assert v.order_by(v.i, v.icol).select(v.i, v.icol).collect()['i'] == [2, 2]
+        validate_update_status(t.insert({'i': i} for i in range(4, 8)))
+        assert v.where(v.i >= 4).count() == 4 + 6
+
+        # compute() follows on_error instead
+        assert [row['icol'] for row in v.compute([{'i': 1}, {'i': 2}], on_error='ignore')] == [0, 1]
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='odd'):
+            v.compute([{'i': 1}], on_error='abort')
 
     def test_update_iterator_param(self, db_root: DatabaseRoot) -> None:
         """Updating a base table column used as an iterator parameter re-evaluates the iterator."""
