@@ -27,6 +27,8 @@ pip install 'pixeltable[serve]'
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml?query=branch%3Amain)
+[![nightly status](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml)
+[![stress-tests status](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml)
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 [![Python](https://img.shields.io/pypi/pyversions/pixeltable)](https://pypi.org/project/pixeltable/)
 
@@ -84,8 +86,6 @@ pxt init                            # makes this folder a project
 pxt schema update app.py my_app     # creates the table and its index
 pxt service update app.py my_app    # starts the service and prints its URL
 ```
-
-If the local daemon is already running, run `pxt daemon restart` after exporting the key, before the schema and service commands.
 
 Replace `PORT` with the printed port and `talk.mp4` with your recording:
 
