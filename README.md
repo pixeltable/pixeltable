@@ -7,7 +7,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/table-build-dark.svg">
-  <img align="right" width="420" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/table-build-light.svg" alt="Animation: app.py declares a videos table one line at a time. The class creates the table and three video rows, the transcript and summary columns compute for every row, and a /search route answers from the same table.">
+  <img align="right" width="420" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/table-build-light.svg" alt="Animation: app.py declares a videos table one line at a time. Three videos are inserted, the transcript and summary columns fill in for each row, and a POST to /search returns the matching video from the same table.">
 </picture>
 
 ### Multimodal database, orchestration, and serving in one file, by the co-creators of Apache Parquet and Impala.
