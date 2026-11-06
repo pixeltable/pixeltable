@@ -7,8 +7,7 @@ import pytest
 from ..utils import skip_test_if_no_client, skip_test_if_not_installed
 
 
-@pytest.mark.remote_api
-@pytest.mark.very_expensive  # Spawns a subprocess that runs a live LLM request
+@pytest.mark.skip_merge_queue  # Spawns a subprocess that runs a live LLM request
 class TestPerftestTool:
     def test_perftest_tool(self) -> None:
         skip_test_if_not_installed('openai')

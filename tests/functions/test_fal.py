@@ -24,8 +24,7 @@ class TestFalClient:
         assert http_client.is_closed
 
 
-@pytest.mark.very_expensive
-@pytest.mark.remote_api
+@pytest.mark.expensive
 @rerun_on_network_error()
 class TestFal:
     def test_text_to_image(self, uses_db: None) -> None:

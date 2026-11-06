@@ -7,8 +7,7 @@ from ..utils import rerun_on_network_error, skip_test_if_no_client, skip_test_if
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
-@pytest.mark.remote_api
-@pytest.mark.very_expensive  # Not really "very expensive", but Together AI is too unreliable for merge queue
+@pytest.mark.skip_merge_queue
 @rerun_on_network_error()
 class TestTogether:
     def test_completions(self, uses_db: None) -> None:

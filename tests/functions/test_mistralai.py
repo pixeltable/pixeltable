@@ -19,8 +19,7 @@ class TestMistralClient:
         assert all(c.is_closed for c in http_clients)
 
 
-@pytest.mark.remote_api
-@pytest.mark.very_expensive
+@pytest.mark.skip_merge_queue
 @rerun_on_network_error()
 class TestMistral:
     def test_chat_completions(self, uses_db: None) -> None:

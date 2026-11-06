@@ -35,7 +35,7 @@ def skip_test_if_no_sam3() -> None:
         pytest.skip(f'SAM 3 is not available in transformers {transformers.__version__}')
 
 
-@pytest.mark.very_expensive  # Downloads Hugging Face models
+@pytest.mark.skip_merge_queue  # Downloads Hugging Face models
 @rerun_on_network_error()
 @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
 class TestHuggingface:
@@ -199,6 +199,7 @@ class TestHuggingface:
         # Test appropriate typing
         assert t.get_metadata()['columns']['featured_object']['type_'] == 'String | None'
 
+    @pytest.mark.resource_intensive
     def test_detr_for_segmentation(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
@@ -688,6 +689,7 @@ class TestHuggingface:
         # Verify we got a modified image
         assert result['modified_image'] is not None
 
+    @pytest.mark.resource_intensive
     @pytest.mark.xdist_group('large_model')
     def test_image_to_video(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_no_config('token', 'hf')

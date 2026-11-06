@@ -18,7 +18,7 @@ def cleanup_llama_cpp() -> Iterator[None]:
     llama_cpp.cleanup()
 
 
-@pytest.mark.very_expensive
+@pytest.mark.skip_merge_queue
 @rerun_on_network_error()
 class TestLlamaCpp:
     @pytest.mark.xdist_group('large_model')

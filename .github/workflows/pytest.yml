@@ -11,24 +11,30 @@ name: tests
 #   - The 'slim' subset of the unit tests (SLIM_TESTS in tool/ci_tool.py) with Python 3.11 on ubuntu-24.04,
 #     macos-15, and windows-2025 runners, plus with Python 3.15 on ubuntu-24.04.
 #
-# In merge queue, instead of the slim tests:
-#   - The full unit test suite with Python 3.11 on macos-15 and windows-2025 runners.
-#   - The unit test suite including expensive tests, with Python 3.11 on ubuntu-large.
+# In merge queue, instead of the slim tests, the unit tests without the skip_merge_queue, expensive, very_expensive and
+# resource_intensive markers:
+#   - Python 3.11 on ubuntu-24.04, macos-15, and windows-2025 runners.
 #   - Random ops, and the OpenTelemetry instrumentation tests.
 #   - Python 3.15 on ubuntu-24.04, macos-15, and windows-2025 runners.
 #   - Python 3.12, 3.13, and 3.14 on ubuntu-24.04.
 #   - Minimal Pixeltable with Python 3.15 on ubuntu-24.04.
 #   - Minimal Pixeltable with Python 3.11 on ubuntu-24.04-arm and macos-15-intel.
 #   - Minimal Pixeltable with an S3 media destination (only when AWS credentials are available).
-#   - Notebook tests, excluding Hugging Face-dependent notebooks.
+#   - Notebook tests on ubuntu-large, excluding Hugging Face-dependent notebooks.
 #
-# On a weekly schedule, all of the merge queue configurations are run (against branch 'main'), except that:
-#   - The ubuntu-large run and the notebook tests also include very expensive tests, Hugging Face-dependent
-#     notebooks, and other expensive notebooks.
-#   - Python 3.11 additionally runs on ubuntu-small-t4 (equipped with an NVIDIA T4 GPU).
+# On a daily schedule (against branch 'main'), the merge queue configurations except the notebook tests, with these
+# changes:
+#   - Every unit test configuration also runs the skip_merge_queue tests.
+#   - Python 3.11 on ubuntu-24.04 (standard+) also runs the expensive tests.
+#   - The resource_intensive tests run on ubuntu-large, and nowhere else.
+#
+# On Tuesdays, the scheduled run is the weekly run, with these additions:
+#   - The very_expensive tests on Python 3.11 on ubuntu-24.04 (standard++).
+#   - Notebook tests on ubuntu-large, including Hugging Face-dependent and other expensive notebooks.
+#   - Python 3.11 on ubuntu-small-t4 (equipped with an NVIDIA T4 GPU).
 #
 # A workflow_dispatch trigger will emulate the merge queue tests by default, but can be optionally
-#     selected to run all configurations including ubuntu-t4.
+#     selected to run the weekly configurations.
 #
 # Github Actions secrets are unavailable on PRs; hence any tests that require API keys will be skipped.
 # Secrets are available on all other triggers.
@@ -43,7 +49,8 @@ on:
   merge_group:
     types: [checks_requested]
   schedule:
-    - cron: "24 1 * * 2"  # Tuesday at 01:24 UTC
+    - cron: "24 1 * * 0,1,3-6"  # 01:24 UTC, except Tuesdays
+    - cron: "24 1 * * 2"  # Tuesdays at 01:24 UTC: the weekly run; generate-matrix passes --force-all for it
   workflow_dispatch:
     inputs:
       enable_tmate:
@@ -67,8 +74,8 @@ env:
   PXTTEST_IN_CI: 1
   MINTLIFY_VERSION: 4.2.506
   # HF-dependent notebooks (--include-expensive) and resource/dollar-heavy notebooks (--include-very-expensive) run
-  # only on the scheduled tier (or a run-on-all-platforms dispatch). The merge queue runs the remaining non-HF
-  # notebooks; PRs run none.
+  # only on the weekly scheduled run (or a run-on-all-platforms dispatch). The merge queue runs the remaining non-HF
+  # notebooks; PRs and the other scheduled runs run none.
   NB_TEST_OPTS: >-
     ${{ (github.event_name == 'schedule' || inputs.run_on_all_platforms) && '--include-very-expensive --include-expensive' || '' }}
   UV_VERSION: 0.12.3
@@ -135,7 +142,7 @@ jobs:
       - name: Generate test matrix
         id: set-matrix
         run: |
-          ARGS=${{ github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms && '--force-all' || '' }}
+          ARGS=${{ ((github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms) || github.event.schedule == '24 1 * * 2') && '--force-all' || '' }}
           python tool/ci_tool.py generate-matrix "$GITHUB_OUTPUT" ${{ github.event_name }} $ARGS
 
   tests:
@@ -247,9 +254,6 @@ jobs:
           # xdist workers are measured; other triggers avoid the tracing overhead.
           PYTEST_COVERAGE_OPTS: >-
             ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '--cov=pixeltable --cov-report=term-missing' || '' }}
-        # Run the tests with the 'expensive' marker only once, on ubuntu-24.04 with Python 3.11. The other tests
-        # (including tests with the 'remote_api' marker that are not also marked 'expensive') will run on all matrix
-        # configurations.
         # --basetemp pins pytest's temp root dir so that the Archive step below works on all platforms
         # -n comes from the matrix
         run: |

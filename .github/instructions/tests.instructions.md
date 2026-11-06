@@ -12,8 +12,11 @@ applyTo: "tests/**"
   `@pytest.mark.db_roots('local', reason='...')`. The reason explains the restriction or is `TODO: convert`.
 - Use `pxt_raises(..., match=...)` for Pixeltable errors, and `pytest.raises(..., match=...)` for other
   exceptions. Verify meaningful error text.
-- New tests making live third-party model/service calls need `remote_api` and `very_expensive`; mocked
-  calls need neither. Register new markers in `pyproject.toml`; put new markers on classes/methods.
+- Mark new tests that make live third-party model/service calls or download models `skip_merge_queue`,
+  unless the service is reliable enough for the merge queue (as OpenAI's is). High-dollar calls (image or
+  video generation) take `expensive` or `very_expensive` instead, and tests that exceed a standard
+  GitHub-hosted runner's memory or disk take `resource_intensive`. Register new markers in `pyproject.toml`;
+  put new markers on classes/methods.
 - Scope backend restrictions with `db_roots`; gate a single parametrization inside the test instead of
   applying `skipif`/`xfail` to every variant.
 - For catalog-parametrized media tests, use `sample_file_server.url(path, db_root)` so hosted modes get

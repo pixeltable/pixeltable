@@ -28,7 +28,6 @@ pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 _logger = logging.getLogger('pixeltable_test')
 
 
-@pytest.mark.remote_api
 @rerun_on_network_error()
 class TestOpenai:
     @pytest.mark.expensive

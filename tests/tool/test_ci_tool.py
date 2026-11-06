@@ -3,16 +3,18 @@ import pytest
 from tool.ci_tool import (
     ALTERNATIVE_PLATFORMS,
     BASIC_PLATFORMS,
+    DEFAULT_PYTEST,
     EXPENSIVE_PLATFORMS,
     EXPENSIVE_PYTEST,
     MAIN_PLATFORM,
+    RESOURCE_INTENSIVE_PYTEST,
+    SCHEDULED_PYTEST,
     TRIGGERS,
     VERY_EXPENSIVE_PYTEST,
     build_configs,
 )
 
-# The triggers under which a fully populated matrix is generated; 'pull_request' deliberately runs a reduced one.
-FULL_TRIGGERS = tuple(t for t in TRIGGERS if t != 'pull_request')
+TIERED_PYTEST = (EXPENSIVE_PYTEST, VERY_EXPENSIVE_PYTEST, RESOURCE_INTENSIVE_PYTEST)
 
 
 class TestBuildConfigs:
@@ -44,19 +46,27 @@ class TestBuildConfigs:
         names = [cfg.display_name for cfg in build_configs(trigger, force_all=True, has_aws_credentials=True)]
         assert len(names) == len(set(names)), sorted(names)
 
-    def test_schedule_matches_forced_dispatch(self) -> None:
-        assert build_configs('schedule', force_all=False, has_aws_credentials=False) == build_configs(
+    def test_weekly_schedule_matches_forced_dispatch(self) -> None:
+        assert build_configs('schedule', force_all=True, has_aws_credentials=False) == build_configs(
             'workflow_dispatch', force_all=True, has_aws_credentials=False
         )
 
-    @pytest.mark.parametrize('trigger', FULL_TRIGGERS)
-    def test_expensive_tests_run_exactly_once(self, trigger: str) -> None:
-        for force_all in (False, True):
-            configs = build_configs(trigger, force_all=force_all, has_aws_credentials=False)
-            expensive = [cfg for cfg in configs if cfg.pytest_options in (EXPENSIVE_PYTEST, VERY_EXPENSIVE_PYTEST)]
-            assert len(expensive) == 1, [cfg.display_name for cfg in expensive]
-            if force_all or trigger == 'schedule':
-                assert expensive[0].pytest_options == VERY_EXPENSIVE_PYTEST
+    @pytest.mark.parametrize(
+        ('trigger', 'force_all', 'tiered'),
+        [
+            ('merge_group', False, ()),
+            ('workflow_dispatch', False, ()),
+            ('schedule', False, (EXPENSIVE_PYTEST, RESOURCE_INTENSIVE_PYTEST)),
+            ('schedule', True, (VERY_EXPENSIVE_PYTEST, RESOURCE_INTENSIVE_PYTEST)),
+            ('workflow_dispatch', True, (VERY_EXPENSIVE_PYTEST, RESOURCE_INTENSIVE_PYTEST)),
+        ],
+    )
+    def test_tiered_tests_run_only_when_scheduled(self, trigger: str, force_all: bool, tiered: tuple[str, ...]) -> None:
+        configs = build_configs(trigger, force_all=force_all, has_aws_credentials=True)
+        py_options = [cfg.pytest_options for cfg in configs if cfg.test_category == 'py']
+        assert sorted(opts for opts in py_options if opts in TIERED_PYTEST) == sorted(tiered)
+        untiered = SCHEDULED_PYTEST if trigger == 'schedule' or force_all else DEFAULT_PYTEST
+        assert {opts for opts in py_options if opts not in TIERED_PYTEST} == {untiered}
 
     def test_unknown_trigger_is_rejected(self) -> None:
         with pytest.raises(AssertionError):
