@@ -6,6 +6,7 @@ from typing import Any, AsyncGenerator
 import sqlalchemy as sql
 
 from pixeltable import catalog, exprs
+from pixeltable.index.btree import BtreeIndex
 from pixeltable.runtime import get_runtime
 
 from .data_row_batch import DataRowBatch
@@ -25,6 +26,8 @@ class AntiJoinNode(ExecNode):
     tbl: catalog.TableVersionHandle
     pk_cols: list[catalog.Column]
     pk_slot_idxs: list[int]
+    # per key column: True if the unique index stores a prefix of the string, as for a data-versioned table
+    pk_col_is_prefix: list[bool]
     keys_per_lookup: int
     seen_keys: set[tuple[Any, ...]]
 
@@ -34,6 +37,8 @@ class AntiJoinNode(ExecNode):
         self.pk_cols = tbl.get().primary_key_columns()
         assert len(self.pk_cols) > 0
         self.pk_slot_idxs = [row_builder.table_columns[col] for col in self.pk_cols]
+        is_data_versioned = tbl.get().is_data_versioned
+        self.pk_col_is_prefix = [is_data_versioned and col.col_type.is_string_type() for col in self.pk_cols]
         # a lookup binds one parameter per key column per key
         self.keys_per_lookup = _KEY_LOOKUP_BIND_PARAMS // len(self.pk_cols)
         self.seen_keys = set()
@@ -64,7 +69,10 @@ class AntiJoinNode(ExecNode):
         """Return the primary key of row, or None if a key column has an error."""
         if any(row.has_exc(slot_idx) for slot_idx in self.pk_slot_idxs):
             return None
-        return tuple(row[slot_idx] for slot_idx in self.pk_slot_idxs)
+        return tuple(
+            row[slot_idx][: BtreeIndex.MAX_STRING_LEN] if is_prefix else row[slot_idx]
+            for slot_idx, is_prefix in zip(self.pk_slot_idxs, self.pk_col_is_prefix)
+        )
 
     def _new_rows(self, rows: list[tuple[tuple[Any, ...] | None, exprs.DataRow]]) -> DataRowBatch:
         """Return the rows whose key is neither in tbl nor in an earlier row, and the rows without a key."""
@@ -85,7 +93,10 @@ class AntiJoinNode(ExecNode):
         assert len(keys) <= self.keys_per_lookup
         if len(keys) == 0:
             return set()
-        sa_key_cols = [col.sa_col for col in self.pk_cols]
+        sa_key_cols = [
+            sql.func.left(col.sa_col, BtreeIndex.MAX_STRING_LEN) if is_prefix else col.sa_col
+            for col, is_prefix in zip(self.pk_cols, self.pk_col_is_prefix)
+        ]
         stmt = sql.select(*sa_key_cols).where(sql.tuple_(*sa_key_cols).in_(keys))
         # restricts the lookup to the rows visible at the current version
         stmt = SqlNode.create_from_clause(self.tbl.get().path, stmt)

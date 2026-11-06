@@ -572,6 +572,29 @@ class TestTableModel:
         assert op.model == {'value': "{'text': content, 'type': 'text', 'meta': {'zzz': 1, 'aaa': 2}}"}
         assert op.existing == {'value': "{'type': 'text', 'text': content, 'meta': {'zzz': 1, 'aaa': 2}}"}
 
+    def test_signature_shaped_literal_diff(self, db_root: DatabaseRoot) -> None:
+        """A constant dict with the keys of a UDF signature is compared as a constant."""
+        p = db_root.make_catalog_path
+        root = p('')
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            content: pxt.String
+            payload = {'text': content, 'sig': {'return_type': {'kind': 'none'}, 'parameters': [], 'is_batched': False}}
+
+        TableModel.create_all(root)
+        assert TableModel.get_model_diff(root)['docs'].resolution == 'up_to_date'
+
+        TableModelV2 = pxt.model_base()
+
+        class DocsV2(TableModelV2, name='docs'):
+            content: pxt.String
+            payload = {'text': content, 'sig': {'return_type': {'kind': 'some'}, 'parameters': [], 'is_batched': False}}
+
+        diff = TableModelV2.get_model_diff(root)['docs']
+        assert diff.resolution == 'update_additive'
+        assert [(op.name, op.op) for op in diff.ops] == [('payload', 'alter')]
+
     def test_json_type_key_order_diff(self, db_root: DatabaseRoot) -> None:
         """PXT-1549: reordering keys in a Json type schema is not a column type change."""
         p = db_root.make_catalog_path

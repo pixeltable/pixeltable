@@ -1340,6 +1340,7 @@ class TableVersion:
                 rowids=rowid_gen,
                 abort_on_exc=fail_on_exception,
                 return_rows=return_rows,
+                skip_existing_keys=skip_existing_keys,
             )
             return result
 
@@ -1352,6 +1353,7 @@ class TableVersion:
         print_stats: bool = False,
         abort_on_exc: bool = False,
         return_rows: bool = False,
+        skip_existing_keys: bool = False,
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
         if self.is_data_versioned:
@@ -1359,7 +1361,11 @@ class TableVersion:
             self.bump_version(timestamp, bump_schema_version=False)
         exec_plan.ctx.title = self.display_str()
         cols_with_excs, row_counts, rows = self.store_tbl.insert_rows(
-            exec_plan, rowids=rowids, abort_on_exc=abort_on_exc, return_rows=return_rows
+            exec_plan,
+            rowids=rowids,
+            abort_on_exc=abort_on_exc,
+            return_rows=return_rows,
+            skip_existing_keys=skip_existing_keys,
         )
         result = UpdateStatus(
             cols_with_excs=self._cols_with_excs_names(cols_with_excs), rows=rows, row_count_stats=row_counts

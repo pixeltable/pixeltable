@@ -82,6 +82,18 @@ class TestFunctions:
         assert exc_info.value.code == 1
         assert capsys.readouterr().err == 'pxt functions: error loading cli_functions_broken: RuntimeError: no config\n'
 
+        # with --json, the error is also a JSON document on stdout
+        with pytest.raises(SystemExit) as exc_info:
+            functions.run(['no_such_module', '--json'])
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert json.loads(captured.out) == {
+            'error_code': 'INVALID_ARGUMENT',
+            'message': "No module named 'no_such_module'",
+            'retryable': False,
+        }
+        assert captured.err == "pxt functions: No module named 'no_such_module'\n"
+
     def test_malformed_project_config(
         self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -92,3 +104,10 @@ class TestFunctions:
             functions.run(['app'])
         assert exc_info.value.code == 1
         assert capsys.readouterr().err.startswith(f'pxt functions: {config_file} cannot be parsed: ')
+
+        with pytest.raises(SystemExit) as exc_info:
+            functions.run(['app', '--json'])
+        assert exc_info.value.code == 1
+        doc = json.loads(capsys.readouterr().out)
+        assert (doc['error_code'], doc['retryable']) == ('INVALID_CONFIGURATION', False)
+        assert doc['message'].startswith(f'{config_file} cannot be parsed: ')

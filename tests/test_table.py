@@ -3316,10 +3316,34 @@ class TestTable:
         assert (status.num_rows, status.row_count_stats.skipped_rows) == (1, 1)
         assert pairs.order_by(pairs.b).select(pairs.b, pairs.v).collect()['v'] == [1, 2]
 
+        # string keys that are longer than the prefix in a data-versioned table's unique index
+        long_keys = pxt.create_table(
+            p('long_keys'), {'s': pxt.String, 'v': pxt.Int}, primary_key='s', _is_data_versioned=is_data_versioned
+        )
+        status1 = long_keys.insert(
+            [{'s': 'a' * 256 + 'x', 'v': 1}, {'s': 'a' * 256 + 'y', 'v': 2}, {'s': 'b', 'v': 3}], if_exists='ignore'
+        )
+        status2 = long_keys.insert([{'s': 'a' * 256 + 'z', 'v': 4}, {'s': 'b', 'v': 5}], if_exists='ignore')
+        counts = [(status.num_rows, status.row_count_stats.skipped_rows) for status in (status1, status2)]
+        if is_data_versioned:
+            # the index stores the first 256 characters, so the three long keys are one key
+            assert counts == [(2, 1), (0, 2)]
+            assert long_keys.count() == 2
+        else:
+            assert counts == [(3, 0), (1, 1)]
+            assert long_keys.count() == 4
+
         # a table without a primary key
         no_pk = pxt.create_table(p('no_pk'), {'id': pxt.Int}, _is_data_versioned=is_data_versioned)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="if_exists='ignore' matches rows by primary key"):
             no_pk.insert([{'id': 1}], if_exists='ignore')
+
+        # a Json key
+        json_key = pxt.create_table(
+            p('json_key'), {'k': pxt.Json, 'v': pxt.Int}, primary_key='k', _is_data_versioned=is_data_versioned
+        )
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="does not support the Json primary key column 'k'"):
+            json_key.insert([{'k': {'a': 1}, 'v': 1}], if_exists='ignore')
 
     def test_insert_if_exists_many_keys(self, db_root: DatabaseRoot) -> None:
         # 4 key columns for each of 20,000 keys exceed Postgres's limit of 65535 bind parameters per statement

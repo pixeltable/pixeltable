@@ -152,7 +152,8 @@ class InlineDict(Expr):
         for key, val in d.items():
             if not isinstance(key, str):
                 raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Dictionary requires string keys; {key} has type {type(key)}'
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Dictionary requires string keys; {key!s} has type {type(key)}',
                 )
             self.keys.append(key)
             exprs.append(Expr.from_object(val))

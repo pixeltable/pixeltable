@@ -14,7 +14,7 @@ from pixeltable.utils.app_module import evict_modules
 from pixeltable_cli.utils import project_root
 
 from ..parser import Parser
-from ..utils import EXIT_ERROR
+from ..utils import EXIT_ERROR, flush_stdout, print_error_document
 
 TYPE_NAMES = (
     'Array',
@@ -59,8 +59,7 @@ def run(argv: list[str]) -> None:
     try:
         root = project_root()
     except RuntimeError as e:
-        print(f'pxt functions: {e}', file=sys.stderr)
-        sys.exit(EXIT_ERROR)
+        _fail(str(e), 'INVALID_CONFIGURATION', args.as_json)
     # import a module by its path from the project root
     import_root = os.getcwd() if root is None else root
     sys.path.insert(0, import_root)
@@ -71,8 +70,7 @@ def run(argv: list[str]) -> None:
             args.module, on=None if args.on is None else getattr(pxt, args.on), search=args.search, kind=args.kind
         )
     except pxt.Error as e:
-        print(f'pxt functions: {e}', file=sys.stderr)
-        sys.exit(EXIT_ERROR)
+        _fail(str(e), e.error_code.name, args.as_json, retryable=e.is_retryable)
     finally:
         sys.path.remove(import_root)
 
@@ -82,3 +80,11 @@ def run(argv: list[str]) -> None:
         print('pxt functions: no function matches', file=sys.stderr)
     else:
         print(functions)
+
+
+def _fail(message: str, error_code: str, as_json: bool, *, retryable: bool = False) -> typing.NoReturn:
+    if as_json:
+        print_error_document(error_code, message, retryable=retryable)
+    flush_stdout()
+    print(f'pxt functions: {message}', file=sys.stderr)
+    sys.exit(EXIT_ERROR)

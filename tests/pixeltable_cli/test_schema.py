@@ -958,8 +958,8 @@ class TestSchema:
                 prompt: pxt.String
                 response = chat_response(prompt)
                 text = response.content[0].text
-                # a JSON literal can have a return_type key too
-                extra = response.get('extra', {'return_type': {'kind': 'none'}})
+                # a JSON literal can have the keys of a UDF signature too
+                extra = response.get('extra', {'return_type': {'kind': 'none'}, 'parameters': [], 'is_batched': False})
 
 
             class Docs(TableModel, name='docs'):

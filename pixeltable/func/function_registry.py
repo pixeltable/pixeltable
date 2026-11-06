@@ -121,11 +121,12 @@ class FunctionRegistry:
         if kind is not None:
             entries = [(path, fn) for path, fn in entries if fn.kind == kind]
         if search is not None:
-            search = search.lower()
+            # a phrase can span a docstring's line break
+            search = ' '.join(search.lower().split())
             entries = [
                 (path, fn)
                 for path, fn in entries
-                if search in path.lower() or ((doc := fn.comment()) is not None and search in doc.lower())
+                if search in path.lower() or search in ' '.join((fn.comment() or '').lower().split())
             ]
         return sorted(entries, key=lambda entry: entry[0])
 

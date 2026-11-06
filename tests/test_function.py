@@ -220,6 +220,11 @@ class TestFunction:
             pxt.list_functions(search='coalesce')
         )
 
+        # a phrase that wraps across lines of the docstring
+        assert 'pixeltable.functions.timestamp.strptime' in {
+            info['path'] for info in pxt.list_functions(search='default time zone')
+        }
+
         detectors = pxt.list_functions(search='DETR')
         assert (
             'huggingface.detr_for_object_detection(image: pxt.Image, *, model_id: pxt.String, threshold: pxt.Float = '

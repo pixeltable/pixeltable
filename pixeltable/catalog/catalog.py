@@ -437,17 +437,22 @@ class Catalog(CatalogBase):
 
     @contextmanager
     def begin_data_write_xact(
-        self, *, read_tbl_keys: Collection[TableVersionKey] | None = None, tvps: Collection[TableVersionPath]
+        self,
+        *,
+        read_tbl_keys: Collection[TableVersionKey] | None = None,
+        tvps: Collection[TableVersionPath],
+        read_committed: bool = False,
     ) -> Iterator[sql.Connection]:
         """Open a transaction to insert, update, or delete rows.
 
         Lock each target and all its mutable views, since writes propagate to those views. `read_tbl_keys` identifies
-        additional tables read by the operation, such as the source of an insert from a query.
+        additional tables read by the operation, such as the source of an insert from a query. With `read_committed`,
+        a new transaction runs at READ COMMITTED instead of the default isolation level.
         """
         request = LockRequest(
             TblOpClass.DATA_WRITE, read_tbl_keys=read_tbl_keys, write_tvps=tvps, lock_mutable_tree=True
         )
-        with self._begin_xact(request) as conn:
+        with self._begin_xact(request, read_committed=read_committed) as conn:
             yield conn
 
     @contextmanager
@@ -487,7 +492,12 @@ class Catalog(CatalogBase):
 
     @contextmanager
     def _begin_xact(
-        self, request: LockRequest, *, convert_db_excs: bool = True, finalize_pending_ops: bool = True
+        self,
+        request: LockRequest,
+        *,
+        convert_db_excs: bool = True,
+        finalize_pending_ops: bool = True,
+        read_committed: bool = False,
     ) -> Iterator[sql.Connection]:
         """Open or join a catalog transaction and yield its connection after lock setup.
 
@@ -500,6 +510,8 @@ class Catalog(CatalogBase):
 
         When `convert_db_excs` is True, translate supported database errors to Pixeltable exceptions. Errors during
         the caller's work are propagated; use a retry_*_loop() decorator if the whole operation needs to restart.
+
+        When `read_committed` is True, a new transaction runs at READ COMMITTED instead of the default isolation level.
         """
         for_write = request.for_write
         if for_write and _frozen.get():
@@ -551,7 +563,9 @@ class Catalog(CatalogBase):
                 self._column_dependents = None
                 has_exc = False
 
-                with get_runtime().begin_xact(for_write=for_write) as conn:
+                with get_runtime().begin_xact(
+                    for_write=for_write, isolation_level='READ COMMITTED' if read_committed else None
+                ) as conn:
                     with self._allow_tbl_md_read():
                         try:
                             xact_locks.acquire()

@@ -168,13 +168,13 @@ class InsertableTable(LocalTable):
         status = pxt.UpdateStatus()
         query = data_source.pxt_query if isinstance(data_source, QueryTableDataConduit) else None
         read_tbl_keys = query.referenced_tbl_keys() if query is not None else None
-        with get_runtime().catalog.begin_data_write_xact(read_tbl_keys=read_tbl_keys, tvps=[self._tbl_version_path]):
-            if skip_existing_keys and len(self._tbl_version.get().primary_key_columns()) == 0:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_ARGUMENT,
-                    f"insert(): if_exists='ignore' matches rows by primary key, and {self._display_str()} does not "
-                    'have one',
-                )
+        # ON CONFLICT DO NOTHING skips a concurrent writer's key only under READ COMMITTED, not REPEATABLE READ
+        read_committed = skip_existing_keys and not self._tbl_version_path.is_data_versioned()
+        with get_runtime().catalog.begin_data_write_xact(
+            read_tbl_keys=read_tbl_keys, tvps=[self._tbl_version_path], read_committed=read_committed
+        ):
+            if skip_existing_keys:
+                self._validate_key_matching()
             data_source.add_table_info(self)
             data_source.prepare_for_insert_into_table()
             # in on_error='abort' mode the exec raises the internal ExprEvalError on the first failing cell;
@@ -204,6 +204,22 @@ class InsertableTable(LocalTable):
         Env.get().console_logger.info(status.insert_msg(start_ts))
         FileCache.get().emit_eviction_warnings()
         return status
+
+    def _validate_key_matching(self) -> None:
+        """Raise an error if insert(if_exists='ignore') cannot match this table's rows by primary key."""
+        pk_cols = self._tbl_version.get().primary_key_columns()
+        if len(pk_cols) == 0:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f"insert(): if_exists='ignore' matches rows by primary key, and {self._display_str()} does not "
+                'have one',
+            )
+        for col in pk_cols:
+            if col.col_type.is_json_type() or col.col_type.is_array_type():
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f"insert(): if_exists='ignore' does not support the {col.col_type} primary key column {col.name!r}",
+                )
 
     def _insert_sql_source(
         self,

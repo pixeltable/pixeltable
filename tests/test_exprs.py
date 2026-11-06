@@ -613,6 +613,8 @@ class TestExprs:
         query = t.select({'a': t.c1, 'b': {'c': t.c2}, 'd': 1, 'e': {'f': 2}})
         result = query.show()
         print(result)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Dictionary requires string keys; c1 has type'):
+            t.select({t.c1: 1})
 
     def test_constant_literals(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
@@ -771,6 +773,8 @@ class TestExprs:
 
     def test_json_path(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Invalid json list index: c2'):
+            _ = t.c6.f5[t.c2]
         t.add_computed_column(attr=t.c6.f5)
         t.add_computed_column(item=t['c6']['f5'])
         t.add_computed_column(index=t['c6'].f5[2])
@@ -1723,6 +1727,15 @@ class TestExprs:
 
         t.c2.apply(f8)
 
+    def test_varargs_none(self, db_root: DatabaseRoot) -> None:
+        """A None argument in *args reaches the UDF."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'a': pxt.String, 'b': pxt.String | None})
+        t.insert([{'a': 'x', 'b': None}, {'a': 'y', 'b': 'z'}])
+        # _join_parts(sep, *parts): *parts receives (t.b, t.a, t.b), which is (None, 'x', None) in the first row
+        res = t.order_by(t.a).select(joined=_join_parts('-', t.b, t.a, t.b)).collect()
+        assert res['joined'] == ['x', 'z-y-z']
+
     def test_nonmodule_function_errors(self, db_root: DatabaseRoot) -> None:
         # a function without a fully-qualified path (from apply() or defined in a notebook) can only be stored as a
         # pickled body; every persistence site must reject it with a clear message
@@ -2449,6 +2462,11 @@ def udf1(x: int, y: str) -> str:
 @pxt.udf
 def _kwarg_order_udf(x: int, *, alpha: int, b: int, gamma_delta: int) -> int:
     return x + alpha + b + gamma_delta
+
+
+@pxt.udf
+def _join_parts(sep: str, *parts: str | None) -> str:
+    return sep.join(part for part in parts if part is not None)
 
 
 @pxt.udf

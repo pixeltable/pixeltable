@@ -348,6 +348,9 @@ def _value_dicts_match(model: Any, existing: Any) -> bool:
     if isinstance(model, dict) and isinstance(existing, dict):
         if model.keys() != existing.keys():
             return False
+        # a constant can have the keys of a signature
+        if model.get('_classname') == 'Literal':
+            return model == existing
         has_return_type = model.get('_classname') == 'FunctionCall' or func.Signature.is_signature_dict(model)
         for key, model_val in model.items():
             existing_val = existing[key]
