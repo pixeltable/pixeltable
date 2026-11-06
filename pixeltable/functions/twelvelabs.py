@@ -676,7 +676,8 @@ def _(model_name: str) -> ts.ArrayType:
     return ts.ArrayType(shape=shape, dtype=np.dtype('float32'))
 
 
-__all__ = local_public_names(__name__)
+_class_names = ['EmbeddingResult']
+__all__ = local_public_names(__name__) + _class_names
 
 
 def __dir__() -> list[str]:

@@ -342,6 +342,7 @@ class TestTwelveLabs:
         t.insert(video=get_video_files(extension='.webm')[0])
         rows = v.collect()
         assert set({row['embedding_option'] for row in rows}) == {'audio', 'visual', 'fused'}
+        assert all(row['embedding'].shape == (256,) for row in rows)
 
     @pytest.mark.parametrize('model_name', ['marengo3.0', 'marengo3.5'])
     def test_embed_audio(self, uses_db: None, model_name: str) -> None:
