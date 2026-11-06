@@ -67,6 +67,7 @@ from ..utils import (
     get_video_files,
     home_bucket_uri,
     new_db_uri,
+    no_local_db_env,
     pxt_raises,
     skip_test_if_not_installed,
 )
@@ -1461,7 +1462,9 @@ class TestService:
 class TestCloudService:
     """`pxt service` against a hosted database."""
 
-    def test_service_lifecycle(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
+    def test_service_lifecycle(
+        self, cli: PxtRunner, project: pathlib.Path, current_db: str, daemon_port: int, tmp_path: pathlib.Path
+    ) -> None:
         app_file = str(project / APP_FILE)
         schema_update(cli, project, app_file, current_db)
         # the database is shared, so it serves whatever routes the run before this one left registered
@@ -1493,6 +1496,9 @@ class TestCloudService:
         service_update(cli, project, app_file, current_db)
         reconciled = service_diff(cli, project, app_file, current_db)
         assert reconciled['in_agreement'], reconciled['services']
+        # a daemon of its own, started without a local database, finds the services in agreement too
+        no_local_db = {**no_local_db_env('embedded', tmp_path), 'PXT_PORT': str(daemon_port)}
+        assert service_diff(cli, project, app_file, current_db, env_overrides=no_local_db)['in_agreement']
 
         # stopping keeps the registration, so an update starts it again
         cli('service', 'stop', f'{current_db}/ingest', cwd=project)

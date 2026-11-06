@@ -15,12 +15,11 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 from pixeltable import exceptions as excs
-from pixeltable.catalog import ProhibitedWriteError, is_valid_identifier, model
+from pixeltable.catalog import Catalog, ProhibitedWriteError, is_valid_identifier, model
 from pixeltable.catalog.model import diff
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.func import FunctionRegistry
-from pixeltable.runtime import get_runtime
 from pixeltable.utils.project import in_environment
 from pixeltable_cli.types import CheckReport, RouteSpec, ServiceSpec
 
@@ -65,11 +64,9 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
     path = Path(file).resolve()
     name = module_name(file, subject=subject)
 
-    # resolve the catalog first: initializing it writes, which freeze() would refuse
-    catalog = get_runtime().catalog
     try:
         registry = FunctionRegistry.get()
-        with _lock, catalog.freeze():
+        with _lock, Catalog.freeze():
             _evict_project_modules()
             # a file written after this process started is invisible to a finder that cached its directory
             importlib.invalidate_caches()

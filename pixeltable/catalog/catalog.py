@@ -48,7 +48,7 @@ from .locking import (
 from .model import IndexDefinition, TableSchemaChangeSet, prepare_model, prepare_model_updates
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
-from .table_path import TablePath, TableVersionPath
+from .table_path import TableMdPath, TablePath, TableVersionPath
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import DeleteTableMdOp, OpStatus, TableOp
@@ -61,6 +61,7 @@ if TYPE_CHECKING:
     from pixeltable.plan import SampleClause
 
     from .. import exprs
+    from .table_metadata import TableMetadata
 
 
 _logger = logging.getLogger(__name__)
@@ -378,17 +379,23 @@ class Catalog(CatalogBase):
         finally:
             self._tbl_md_read_allowed = False
 
+    @classmethod
     @contextmanager
-    def freeze(self) -> Iterator[None]:
-        """Prevent write transactions in this thread.
+    def freeze(cls) -> Iterator[None]:
+        """Prevent catalog write transactions in this thread.
 
-        Unaffected: reads and writes from other threads.
+        Unaffected: reads, writes from other threads, finishing a crashed schema change, and writes through
+        Runtime.begin_xact(), such as database setup and create_user().
         """
         token = _frozen.set(True)
         try:
             yield
         finally:
             _frozen.reset(token)
+
+    @classmethod
+    def is_frozen(cls) -> bool:
+        return _frozen.get()
 
     @contextmanager
     def begin_md_read_xact(self, *, tbl_keys: Collection[TableVersionKey] | None = None) -> Iterator[sql.Connection]:
@@ -482,7 +489,7 @@ class Catalog(CatalogBase):
         the caller's work are propagated; use a retry_*_loop() decorator if the whole operation needs to restart.
         """
         for_write = request.for_write
-        if for_write and _frozen.get():
+        if for_write and request.op_class is not TblOpClass.FINALIZE and _frozen.get():
             raise ProhibitedWriteError()
         if get_runtime().in_xact:
             yield get_runtime().conn
@@ -1384,14 +1391,21 @@ class Catalog(CatalogBase):
 
     @retry_md_read_loop()
     def get_dir_contents(
-        self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False
+        self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False, with_base_paths: bool = False
     ) -> dict[str, DirEntry]:
         dir = self._get_schema_object(dir_path, expected=Dir, raise_if_not_exists=True)
         error_counts = self._table_error_counts() if with_error_counts else None
-        return self._get_dir_contents(dir._id, recursive=recursive, error_counts=error_counts)
+        return self._get_dir_contents(
+            dir._id, recursive=recursive, error_counts=error_counts, with_base_paths=with_base_paths
+        )
 
     def _get_dir_contents(
-        self, dir_id: UUID, recursive: bool = False, *, error_counts: dict[UUID, int] | None = None
+        self,
+        dir_id: UUID,
+        recursive: bool = False,
+        *,
+        error_counts: dict[UUID, int] | None = None,
+        with_base_paths: bool = False,
     ) -> dict[str, DirEntry]:
         """Returns a dict mapping the entry names to DirEntry objects"""
         conn = get_runtime().conn
@@ -1403,7 +1417,9 @@ class Catalog(CatalogBase):
             dir = schema.Dir(**row._mapping)
             dir_contents: dict[str, DirEntry] = {}
             if recursive:
-                dir_contents = self._get_dir_contents(dir.id, recursive=True, error_counts=error_counts)
+                dir_contents = self._get_dir_contents(
+                    dir.id, recursive=True, error_counts=error_counts, with_base_paths=with_base_paths
+                )
             result[dir.md['name']] = DirEntry(dir=dir, dir_entries=dir_contents, table=None)
 
         q = sql.select(schema.Table).where(active_tbl_clause(dir_id=dir_id))
@@ -1411,7 +1427,19 @@ class Catalog(CatalogBase):
         for row in rows:
             tbl = schema.Table(**row._mapping)
             err_count = error_counts.get(tbl.id, 0) if error_counts is not None else None
-            result[tbl.md['name']] = DirEntry(dir=None, dir_entries={}, table=tbl, table_error_count=err_count)
+
+            base_path: Path | None = None
+            if with_base_paths and tbl.md['view_md'] is not None:
+                base_id, base_version = tbl.md['view_md']['base_versions'][0]
+                base_q = sql.select(schema.Table.dir_id, schema.Table.md['name'].astext).where(
+                    schema.Table.id == UUID(base_id)
+                )
+                base_dir_id, base_name = conn.execute(base_q).one()
+                base_path = dataclasses.replace(lookup_dir_path(base_dir_id).append(base_name), version=base_version)
+
+            result[tbl.md['name']] = DirEntry(
+                dir=None, dir_entries={}, table=tbl, table_error_count=err_count, base_path=base_path
+            )
 
         return result
 
@@ -2112,6 +2140,26 @@ class Catalog(CatalogBase):
         # by another process.
         obj._tbl_version_path.clear_cached_md()
         return obj
+
+    def get_table_paths_md(self, paths: Sequence[Path]) -> list[tuple[TableMdPath, TableMetadata] | None]:
+        result: list[tuple[TableMdPath, TableMetadata] | None] = []
+        for export in self.get_table_paths_md_export(paths):
+            if export is None:
+                result.append(None)
+            else:
+                md, tbl_md = export
+                result.append((TableMdPath.from_md(md, is_anon_snapshot=False, catalog_uri=ROOT_PATH), tbl_md))
+        return result
+
+    @retry_md_read_loop()
+    def get_table_paths_md_export(
+        self, paths: Sequence[Path]
+    ) -> list[tuple[list[TableVersionMd], TableMetadata] | None]:
+        result: list[tuple[list[TableVersionMd], TableMetadata] | None] = []
+        for path in paths:
+            tbl = self.get_table(path, if_not_exists=IfNotExistsParam.IGNORE)
+            result.append(None if tbl is None else (self.read_md_for_export(tbl), tbl.get_metadata()))
+        return result
 
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
         @retry_md_write_loop(paths=[path], lock_path_subtree=True)
