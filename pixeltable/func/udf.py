@@ -75,7 +75,7 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
         substitute_fn = kwargs.pop('substitute_fn', None)
         is_method = kwargs.pop('is_method', None)
         is_property = kwargs.pop('is_property', None)
-        is_deterministic = kwargs.pop('is_deterministic', None)
+        is_deterministic = kwargs.pop('is_deterministic', True)
         resource_pool = kwargs.pop('resource_pool', None)
         type_substitutions = kwargs.pop('type_substitutions', None)
         display_name = kwargs.pop('display_name', None)
