@@ -34,6 +34,12 @@ _ASYNC_INLINE_LIMIT_BYTES = 36 * 10**6
 _DEFAULT_EMBEDDING_DIMENSIONS = {'Marengo-retrieval-2.7': 1024, 'marengo3.0': 512, 'marengo3.5': 512}
 
 
+def _embedding_array_type(model_name: str) -> ts.ArrayType:
+    dimension = _DEFAULT_EMBEDDING_DIMENSIONS.get(model_name)
+    shape = None if dimension is None else (dimension,)
+    return ts.ArrayType(shape=shape, dtype=np.dtype('float32'))
+
+
 @env.register_client('twelvelabs', credential_param='api_key')
 def _(api_key: str) -> 'twelvelabs.AsyncTwelveLabs':
     import twelvelabs
@@ -143,7 +149,7 @@ async def embed(text: str, image: pxt.Image | None = None, *, model_name: str) -
 
     Marengo 3.5 uses the synchronous `multi_input` API. Images, audio, and video must be at most 32 MB.
     Audio and video must also be at most 30 seconds. Split longer files with `audio_splitter` or
-    `video_splitter` before embedding them, or use `async_embed()` for longer media.
+    `video_splitter` before embedding them, or use `async_embed_asset()` to embed longer media into a single vector.
     The `start_sec`, `end_sec`, and `embedding_option` parameters are supported only with Marengo 3.0.
 
     Equivalent to the TwelveLabs Embed API:
@@ -354,7 +360,7 @@ def _encode_short_media(file_path: str, input_type: Literal['audio', 'video']) -
             pxt.ErrorCode.INVALID_ARGUMENT,
             'embed() with Marengo 3.5 requires media of at most 32 MB. '
             'Split the media with audio_splitter or video_splitter before embedding it, '
-            'or use async_embed(), which accepts longer media.',
+            'or use async_embed_asset(), which accepts longer media.',
         )
     duration = (
         av_utils.get_audio_duration(file_path) if input_type == 'audio' else av_utils.get_video_duration(file_path)
@@ -367,7 +373,7 @@ def _encode_short_media(file_path: str, input_type: Literal['audio', 'video']) -
             f'embed() with Marengo 3.5 requires {input_type} of at most 30 seconds; '
             f'got {duration:.2f} seconds. '
             'Split the media with audio_splitter or video_splitter before embedding it, '
-            'or use async_embed(), which accepts longer media.',
+            'or use async_embed_asset(), which accepts longer media.',
         )
     with open(file_path, 'rb') as fp:
         return b64encode(fp.read()).decode('utf-8')
@@ -469,8 +475,8 @@ async def async_embed(
     Applies the rate limit set in the config (section `twelvelabs`, key `rate_limit`). If no rate
     limit is configured, uses a default of 600 RPM.
 
-    The UDF waits up to 600 seconds per input, including upload processing. Set `timeout` in the `twelvelabs`
-    config section to change this limit; `TWELVELABS_TIMEOUT` overrides the config file.
+    The UDF waits for each input up to the `timeout` set in the `twelvelabs` config section (default: 600 seconds),
+    including upload processing; `TWELVELABS_TIMEOUT` overrides the config file.
 
     __Requirements:__
 
@@ -578,8 +584,8 @@ async def async_embed_asset(video: pxt.Video, *, model_name: str) -> pxt.Array[n
     Applies the rate limit set in the config (section `twelvelabs`, key `rate_limit`). If no rate
     limit is configured, uses a default of 600 RPM.
 
-    The UDF waits up to 600 seconds per input, including upload processing. Set `timeout` in the `twelvelabs`
-    config section to change this limit; `TWELVELABS_TIMEOUT` overrides the config file.
+    The UDF waits for each input up to the `timeout` set in the `twelvelabs` config section (default: 600 seconds),
+    including upload processing; `TWELVELABS_TIMEOUT` overrides the config file.
 
     __Requirements:__
 
@@ -623,19 +629,21 @@ async def _(audio: pxt.Audio, *, model_name: str) -> pxt.Array[np.float32]:
     return await _async_embed_asset(audio, 'audio', model_name)
 
 
-@async_embed_asset.conditional_return_type
-def _(model_name: str) -> ts.ArrayType:
-    dimension = _DEFAULT_EMBEDDING_DIMENSIONS.get(model_name)
-    shape = None if dimension is None else (dimension,)
-    return ts.ArrayType(shape=shape, dtype=np.dtype('float32'))
+async_embed_asset.conditional_return_type(_embedding_array_type)
 
 
 async def _async_embed_asset(
     file_path: str, input_type: Literal['audio', 'video'], model_name: str
 ) -> pxt.Array[np.float32]:
-    media_kwargs: dict[str, Any] = {'embedding_scope': ['asset'], 'embedding_option': [input_type]}
+    media_kwargs: dict[str, Any]
     if input_type == 'video':
-        media_kwargs.update(embedding_option=['visual', 'audio'], embedding_type=['fused_embedding'])
+        media_kwargs = {
+            'embedding_scope': ['asset'],
+            'embedding_option': ['visual', 'audio'],
+            'embedding_type': ['fused_embedding'],
+        }
+    else:
+        media_kwargs = {'embedding_scope': ['asset'], 'embedding_option': ['audio']}
     records = await _async_embed(file_path, input_type, model_name, media_kwargs, None, None)
     if len(records) != 1:
         raise pxt.ExternalServiceError(
@@ -668,6 +676,15 @@ async def _async_embed(
     if not result.data:
         raise pxt.ExternalServiceError(
             pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, 'TwelveLabs returned no embedding data.', provider='twelvelabs'
+        )
+    dimension = (
+        embedding_dimension if embedding_dimension is not None else _DEFAULT_EMBEDDING_DIMENSIONS.get(model_name)
+    )
+    if dimension is not None and any(len(record.embedding) != dimension for record in result.data):
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            f'Expected {dimension}-dimensional embeddings from TwelveLabs.',
+            provider='twelvelabs',
         )
     metadata = None if result.metadata is None else result.metadata.model_dump(mode='json')
     return [
@@ -731,7 +748,7 @@ async def _run_embedding_task(
     except TimeoutError as e:
         raise pxt.ExternalServiceError(
             pxt.ErrorCode.PROVIDER_TIMEOUT,
-            f'Timed out after {timeout:g}s waiting for TwelveLabs embeddings. '
+            f'Timed out after {timeout:g} seconds waiting for TwelveLabs embeddings. '
             'Increase timeout in the [twelvelabs] config section to extend the timeout; '
             'TWELVELABS_TIMEOUT overrides the config file.',
             provider='twelvelabs',
@@ -755,11 +772,7 @@ async def _poll_embedding_task(
     return result
 
 
-@embed.conditional_return_type
-def _(model_name: str) -> ts.ArrayType:
-    dimension = _DEFAULT_EMBEDDING_DIMENSIONS.get(model_name)
-    shape = None if dimension is None else (dimension,)
-    return ts.ArrayType(shape=shape, dtype=np.dtype('float32'))
+embed.conditional_return_type(_embedding_array_type)
 
 
 _class_names = ['EmbeddingResult']
