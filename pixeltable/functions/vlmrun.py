@@ -11,7 +11,6 @@ import copy
 import json
 import logging
 import re
-import time
 import urllib.parse
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Generator, Literal
@@ -24,7 +23,7 @@ import pixeltable as pxt
 from pixeltable.env import Env, register_client
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
-from pixeltable.utils.http import RetryInfo, exponential_backoff, is_retryable_error, redact_url
+from pixeltable.utils.http import is_retryable_error, redact_url
 from pixeltable.utils.local_store import TempStore
 
 if TYPE_CHECKING:
@@ -46,18 +45,9 @@ _SUPPORTED_EXTENSIONS = frozenset(
 # Content part types whose value can come from a Pixeltable media column
 _MEDIA_PART_TYPES = ('image_url', 'video_url', 'file_url')
 
-# An artifact can lag the completion that references it, so a 404 is retried for this long before it counts as a bad id
-_NOT_FOUND_GRACE = 60.0
-
-# _poll() follows redirects itself, so it caps a chain of them as httpx does
-_MAX_REDIRECTS = 20
-
 _MAX_DETAIL_LEN = 500
 
 _Artifact = Literal['image', 'video', 'document']
-
-# An artifact id is a type prefix and this, as in img_a1b2c3
-_ARTIFACT_ID_SUFFIX = r'_\w{6}'
 
 # id prefix and file extension of each kind of generated artifact
 _ARTIFACT_TYPES: dict[_Artifact, tuple[str, str]] = {
@@ -91,9 +81,8 @@ async def _require_https(request: httpx.Request) -> None:  # noqa: RUF029  # Asy
 
 
 class _VlmRunClient:
-    """Client for the VLM Run API. Uploads and deletes files with the vlmrun SDK. Chat completions, polling and
-    downloads go through a connection pool of its own: the SDK's chat client follows the 303 that answers a
-    long-running request, where this client polls the result URL instead."""
+    """Client for the VLM Run API. Uploads and deletes files with the vlmrun SDK, and makes chat completions and
+    artifact downloads with a connection pool of its own."""
 
     timeout: float
     _sdk: 'vlmrun.client.VLMRun'
@@ -105,8 +94,8 @@ class _VlmRunClient:
         self.timeout = timeout
         # require_api_key=False skips the key check over the network that the SDK otherwise makes here
         self._sdk = VLMRun(api_key=api_key, base_url=str(_BASE_URL).rstrip('/'), require_api_key=False)
-        # no read timeout: a request runs for up to ~150s before the gateway redirects it, a long poll holds the
-        # connection while the job runs, and deadline() bounds the whole call
+        # no read timeout: a document generation request stayed open for 14 minutes in a live run, and deadline()
+        # bounds the whole call
         self._http = httpx.AsyncClient(
             base_url=_BASE_URL,
             auth=_ApiKeyAuth(api_key),
@@ -194,105 +183,46 @@ class _VlmRunClient:
 
     async def chat(self, body: dict[str, Any]) -> dict[str, Any]:
         """Creates a chat completion and returns the API response."""
-        resp = await self._send('POST', 'openai/chat/completions', json=body)
-        if resp.status_code == 303 and 'location' in resp.headers:
-            _logger.debug(f'VLM Run redirected a chat completion to {redact_url(resp.headers["location"])}')
-            resp = await self._poll(resp.url.join(resp.headers['location']))
-        return _json(resp)
+        return _json(await self._send('POST', 'openai/chat/completions', json=body))
 
-    async def download(self, ref: str, session_id: str | None, dest: Path) -> None:
-        """Downloads a generated artifact, given its id or URL, into `dest`."""
-        if ref.startswith('https://'):
-            await self._poll(ref, dest=dest)
-            return
+    async def download(self, artifact_id: str, session_id: str | None, dest: Path) -> None:
+        """Downloads a generated artifact into `dest`.
+
+        A failure raises an error that the scheduler doesn't retry, since the generation has already run and a rerun
+        would pay for another.
+        """
         if session_id is None:
             raise pxt.ExternalServiceError(
                 pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
                 'VLM Run returned an artifact without a session_id',
                 provider='vlmrun',
             )
-        params = {'object_id': ref, 'session_id': session_id}
-        if ref.startswith('url_'):
-            # the body of a url_ artifact is the media's URL
-            url = (await self._poll('artifacts', params=params)).text.strip()
-            if not url.startswith('https://'):
-                raise pxt.ExternalServiceError(
-                    pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
-                    f'VLM Run artifact {ref} holds a URL that is not https: {redact_url(url)[:_MAX_DETAIL_LEN]}',
-                    provider='vlmrun',
-                )
-            await self._poll(url, dest=dest)
-        else:
-            await self._poll('artifacts', params=params, dest=dest)
-
-    async def _poll(
-        self, url: str | httpx.URL, *, params: dict[str, str] | None = None, dest: Path | None = None
-    ) -> httpx.Response:
-        """GETs `url` until it returns a non-empty result, and returns that response.
-
-        The result's body is streamed into `dest` if given, and read into the response otherwise. A 429 or a dropped
-        connection is retried here until deadline() ends the call; any other failure, a 5xx included, raises an error
-        that the scheduler doesn't retry, since the job has already run and a rerun would pay for another generation.
-        """
-        start = time.monotonic()
-        attempt = 0
-        redirects = 0
-        while True:
-            delay: float | None = None
-            try:
-                async with self._http.stream('GET', url, params=params) as resp:
-                    status = resp.status_code
-                    if status in (200, 201) and dest is not None:
-                        await _write_body(resp, dest)
-                        if dest.stat().st_size > 0:
-                            return resp
-                    else:
-                        await resp.aread()
-                        if status in (200, 201) and len(resp.content.strip()) > 0:
-                            return resp
-                    if resp.is_redirect:
-                        next_url = resp.url.join(resp.headers['location'])
-                        # a redirect to the same URL means that the result isn't ready yet, so only new URLs count
-                        if next_url != resp.url:
-                            redirects += 1
-                            if redirects > _MAX_REDIRECTS:
-                                raise pxt.ExternalServiceError(
-                                    pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
-                                    f'VLM Run redirected more than {_MAX_REDIRECTS} times, last to '
-                                    f'{redact_url(str(next_url))[:_MAX_DETAIL_LEN]}',
-                                    provider='vlmrun',
-                                )
-                        url, params = next_url, None
-                    elif (
-                        status in (200, 201, 202, 204)  # 200 and 201 with an empty body
-                        or (status == 404 and time.monotonic() - start < _NOT_FOUND_GRACE)
-                    ):
-                        delay = _retry_info(resp).retry_delay
-                    elif status >= 500:
-                        raise pxt.ExternalServiceError(
-                            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
-                            f'VLM Run request to {resp.url.path} failed with status {status}: {_error_detail(resp)}',
-                            provider='vlmrun',
-                            status_code=status,
-                        )
-                    else:
-                        error = _status_error(resp)
-                        if error.error_code not in (pxt.ErrorCode.RATE_LIMITED, pxt.ErrorCode.PROVIDER_OVERLOADED):
-                            raise error
-                        delay = error.retry_after
-                    _logger.debug(f'VLM Run result at {resp.url.path} not ready (status {status})')
-            except httpx.TransportError as exc:
-                # a long poll can outlast the connection
-                _logger.debug(f'Polling VLM Run result failed, will poll again: {exc!r}')
-            # a Retry-After, as on a 429 or a 503, sets the least wait
-            await asyncio.sleep(max(0.0 if delay is None else delay, exponential_backoff(attempt)))
-            attempt += 1
+        params = {'object_id': artifact_id, 'session_id': session_id}
+        try:
+            # the artifacts endpoint redirects to the artifact's storage location
+            async with self._http.stream('GET', 'artifacts', params=params, follow_redirects=True) as resp:
+                if not resp.is_success:
+                    await resp.aread()
+                    raise pxt.ExternalServiceError(
+                        pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+                        f'Download of VLM Run artifact {artifact_id} failed with status {resp.status_code}: '
+                        f'{_error_detail(resp)}',
+                        provider='vlmrun',
+                        status_code=resp.status_code,
+                    )
+                await _write_body(resp, dest)
+        except httpx.TransportError as exc:
+            raise pxt.ExternalServiceError(
+                pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+                f'Download of VLM Run artifact {artifact_id} failed: {exc!r}',
+                provider='vlmrun',
+            ) from exc
 
 
 @register_client('vlmrun', credential_param='api_key')
 def _(api_key: str, timeout: float | None = None) -> _VlmRunClient:
     Env.get().require_package('vlmrun', [0, 9, 3])
-    return _VlmRunClient(api_key, timeout=600.0 if timeout is None else timeout)
+    return _VlmRunClient(api_key, timeout=1800.0 if timeout is None else timeout)
 
 
 def _vlmrun_client() -> _VlmRunClient:
@@ -305,13 +235,11 @@ async def _write_body(resp: httpx.Response, dest: Path) -> None:
             await asyncio.to_thread(f.write, chunk)
 
 
-def _retry_info(resp: httpx.Response) -> RetryInfo:
-    return is_retryable_error(httpx.HTTPStatusError(f'status {resp.status_code}', request=resp.request, response=resp))
-
-
 def _status_error(resp: httpx.Response) -> pxt.ExternalServiceError:
     status = resp.status_code
-    retryable, retry_after = _retry_info(resp)
+    retryable, retry_after = is_retryable_error(
+        httpx.HTTPStatusError(f'status {status}', request=resp.request, response=resp)
+    )
     code: pxt.ErrorCode
     if status in (401, 403):
         code = pxt.ErrorCode.PROVIDER_AUTH_ERROR
@@ -362,22 +290,15 @@ def _json(resp: httpx.Response) -> dict[str, Any]:
     return result
 
 
-def _media_ref(ref: str, prefix: str) -> str:
-    """Returns the artifact id or https URL in a reference to generated media with the given artifact id prefix.
-
-    An artifact id can come with a file extension, as in `vid_a1b2c3.mp4`, and a `url_` artifact stands for any type.
-    """
-    ref = ref.strip()
-    m = re.fullmatch(rf'((?:{prefix}|url){_ARTIFACT_ID_SUFFIX})(?:\.\w+)?', ref)
-    if m is not None:
-        return m.group(1)
-    if ref.startswith('https://'):
-        return ref
-    raise pxt.ExternalServiceError(
-        pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
-        f'VLM Run returned an unrecognized media reference: {ref[:_MAX_DETAIL_LEN]!r}',
-        provider='vlmrun',
-    )
+def _artifact_id(ref: str, prefix: str) -> str:
+    """Returns `ref` if it is the id of an artifact with the given type prefix, as in `img_a1b2c3`."""
+    if re.fullmatch(rf'{prefix}_\w{{6}}', ref) is None:
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+            f'VLM Run returned an unrecognized artifact id: {ref[:_MAX_DETAIL_LEN]!r}',
+            provider='vlmrun',
+        )
+    return ref
 
 
 async def _resolve_messages(messages: list, client: _VlmRunClient, file_ids: list[str]) -> list:
@@ -484,7 +405,7 @@ async def _generate(
             _logger.debug(f'VLM Run returned {artifact} {ref!r} in session {result.get("session_id")}')
             dest = TempStore.create_path(extension=extension)
             try:
-                await client.download(_media_ref(str(ref), prefix), result.get('session_id'), dest)
+                await client.download(_artifact_id(str(ref), prefix), result.get('session_id'), dest)
             except BaseException:
                 # including cancellation by deadline(): nothing downstream knows the path of a partial download
                 dest.unlink(missing_ok=True)

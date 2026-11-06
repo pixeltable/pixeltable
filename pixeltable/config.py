@@ -1064,7 +1064,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
     'vlmrun': {
         'api_key': 'VLM Run API key',
         'rate_limit': 'Rate limit for VLM Run API requests',
-        'timeout': 'Maximum seconds for one VLM Run call, including its uploads, polling and download (default: 600)',
+        'timeout': 'Maximum seconds for one VLM Run call, including its uploads, polling and download (default: 1800)',
     },
     'voyage': {'api_key': 'Voyage AI API key', 'rate_limit': 'Rate limit for Voyage AI API requests'},
     'pypi': {'api_key': 'PyPI API key (for internal use only)'},
