@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar
-
-from pydantic import AliasChoices, ConfigDict, Field
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from IPython.lib.pretty import RepresentationPrinter
@@ -16,18 +14,9 @@ class RowCountStats:
     Statistics about the counts of rows affected by a table operation.
     """
 
-    # Keep persisted metadata and proxy wire names stable across the Python API rename.
-    __pydantic_config__: ClassVar[ConfigDict] = ConfigDict(serialize_by_alias=True)
-
-    inserted_rows: Annotated[
-        int, Field(validation_alias=AliasChoices('inserted_rows', 'ins_rows'), serialization_alias='ins_rows')
-    ] = 0
-    deleted_rows: Annotated[
-        int, Field(validation_alias=AliasChoices('deleted_rows', 'del_rows'), serialization_alias='del_rows')
-    ] = 0
-    updated_rows: Annotated[
-        int, Field(validation_alias=AliasChoices('updated_rows', 'upd_rows'), serialization_alias='upd_rows')
-    ] = 0
+    inserted_rows: int = 0
+    deleted_rows: int = 0
+    updated_rows: int = 0
     num_excs: int = 0  # total number of exceptions
 
     @property

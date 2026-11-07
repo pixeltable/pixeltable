@@ -2937,7 +2937,7 @@ class Catalog(CatalogBase):
             if len(version_rows) == 0:
                 # It's a new table version; insert a new record in the DB for it.
                 tbl_version_record = schema.TableVersion(
-                    tbl_id=tbl_id, version=version_md.version, md=schema.md_to_dict(version_md)
+                    tbl_id=tbl_id, version=version_md.version, md=dataclasses.asdict(version_md)
                 )
                 session.add(tbl_version_record)
             else:
@@ -2945,7 +2945,7 @@ class Catalog(CatalogBase):
                 assert len(version_rows) == 1  # must be unique
                 version_record = version_rows[0]
                 # Validate that the only field that can change is 'additional_md'.
-                assert version_record.md == schema.md_to_dict(
+                assert version_record.md == dataclasses.asdict(
                     dataclasses.replace(version_md, additional_md=version_record.md['additional_md'])
                 ), (
                     'Table version already exists in store. Expected no change outside of additional_md, '
@@ -2953,7 +2953,7 @@ class Catalog(CatalogBase):
                 )
                 result = session.execute(
                     sql.update(schema.TableVersion.__table__)
-                    .values({schema.TableVersion.md: schema.md_to_dict(version_md)})
+                    .values({schema.TableVersion.md: dataclasses.asdict(version_md)})
                     .where(schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version_md.version)
                 )
                 assert isinstance(result, sql.CursorResult)
@@ -3035,7 +3035,7 @@ class Catalog(CatalogBase):
         stmt = (
             sql.update(schema.TableVersion)
             .where(schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version)
-            .values(md=schema.TableVersion.md.op('||')({'update_status': schema.md_to_dict(status)}))
+            .values(md=schema.TableVersion.md.op('||')({'update_status': dataclasses.asdict(status)}))
         )
 
         res = conn.execute(stmt)

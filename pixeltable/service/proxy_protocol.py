@@ -506,8 +506,6 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
         }
     if isinstance(obj, UpdateStatus):
         d = dataclasses.asdict(obj)
-        for field in ('row_count_stats', 'cascade_row_count_stats'):
-            d[field] = schema.md_to_dict(getattr(obj, field))
         d['rows'] = _serialize(obj.rows, sink)  # returned rows may hold non-JSON scalars (timestamps, etc.)
         return {_TAG: 'UpdateStatus', 'v': d}
     if isinstance(obj, RowBatch):

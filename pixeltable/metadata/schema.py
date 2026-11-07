@@ -45,7 +45,7 @@ def md_from_dict(type_: type[T], data: Any) -> T:
 
 def md_to_dict(obj: Any) -> dict:
     """Serialize an md dataclass instance (with nested dataclasses) to a JSON-able dict."""
-    # JSON mode normalizes nested dataclasses and honors their serialization aliases.
+    # dump_python(mode='json') matches dataclasses.asdict()'s output
     return _md_adapter(type(obj)).dump_python(obj, mode='json')
 
 
