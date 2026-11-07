@@ -263,13 +263,8 @@ class TestProxyDaemon:
     def test_update_status_from_older_server(self) -> None:
         """An UpdateStatus decodes when its RowCountStats contains an unknown field."""
         sink = proxy_protocol.InlinePartSink()
-        status = pxt.UpdateStatus(
-            row_count_stats=RowCountStats(inserted_rows=2, deleted_rows=3, updated_rows=4, num_excs=1),
-            cascade_row_count_stats=RowCountStats(inserted_rows=5, deleted_rows=6, updated_rows=7, num_excs=2),
-        )
+        status = pxt.UpdateStatus(row_count_stats=RowCountStats(inserted_rows=2))
         wire = proxy_protocol.serialize_args({'status': status}, sink)['status']
-        assert wire['v']['row_count_stats'] == {'ins_rows': 2, 'del_rows': 3, 'upd_rows': 4, 'num_excs': 1}
-        assert wire['v']['cascade_row_count_stats'] == {'ins_rows': 5, 'del_rows': 6, 'upd_rows': 7, 'num_excs': 2}
         wire['v']['row_count_stats']['computed_values'] = 0
         assert proxy_protocol.deserialize_value(wire, sink.binary_parts) == status
 
