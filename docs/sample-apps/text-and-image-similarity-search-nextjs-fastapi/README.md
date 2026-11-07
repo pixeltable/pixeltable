@@ -7,14 +7,14 @@ This application demonstrates building a multimodal similarity search system usi
 ![App Screenshot](frontend/screenshot.png)
 
 **Functionality:**
-- **Video Frame Search:** Ingests videos, automatically extracts frames using `FrameIterator`, generates CLIP embeddings, and enables text/image similarity search across frames via an embedding index.
+- **Video Frame Search:** Ingests videos, automatically extracts frames using `frame_iterator()`, generates CLIP embeddings, and enables text/image similarity search across frames via an embedding index.
 - **Tagged Image Search:** Allows uploading images with multiple tags (stored as `pxt.Json`), generates CLIP embeddings, and supports text/image similarity search.
 - **Frontend Interaction:** Provides a React-based UI for uploading, searching, and browsing results grouped by tags.
 
 ## Key Pixeltable Concepts Demonstrated
 
 - **Declarative Data Loading:** Defining tables with `pxt.Video` and `pxt.Image` types automatically handles media ingestion.
-- **Automated Data Transformation:** Using `FrameIterator` in a `pxt.create_view` call triggers automatic frame extraction upon video insertion.
+- **Automated Data Transformation:** Using `frame_iterator()` in a `pxt.create_view` call triggers automatic frame extraction upon video insertion.
 - **Embedding Index Integration:** `add_embedding_index` automatically computes and indexes embeddings (using OpenAI CLIP via `pixeltable.functions.huggingface.clip`) for new video frames and images.
 - **Efficient Similarity Search:** Leveraging the `similarity()` method on indexed image columns for fast, cross-modal (text-to-image, image-to-image) search.
 - **Flexible Data Types:** Utilizing `pxt.Json` for storing lists of tags.
