@@ -28,6 +28,7 @@ class CallableFunction(Function):
     self_name: str | None
     _display_name: str | None
     batch_size: int | None
+    run_in_thread: bool
 
     def __init__(
         self,
@@ -40,6 +41,7 @@ class CallableFunction(Function):
         is_method: bool = False,
         is_property: bool = False,
         is_deterministic: bool = True,
+        run_in_thread: bool = False,
     ):
         assert len(signatures) > 0
         assert len(signatures) == len(py_fns)
@@ -52,6 +54,7 @@ class CallableFunction(Function):
         self.self_name = self_name
         self._display_name = display_name
         self.batch_size = batch_size
+        self.run_in_thread = run_in_thread
         self.__doc__ = self.py_fns[0].__doc__
         super().__init__(
             signatures,

@@ -14,10 +14,8 @@ import pgvector.sqlalchemy
 import PIL.Image
 import sqlalchemy as sql
 
-import pixeltable.utils.image as image_utils
-from pixeltable import catalog, env, exceptions as excs
+from pixeltable import catalog, env
 from pixeltable.telemetry import SpanHandle
-from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.misc import non_none_dict_factory
 
 
@@ -391,22 +389,3 @@ class DataRow:
 
         self.vals[index] = None
         return False
-
-    def save_media_to_temp(self, index: int, col: catalog.Column) -> str:
-        """Save the media object in the column to the TempStore.
-        Objects cannot be saved directly to general destinations."""
-        assert col.col_type.is_media_type()
-        val = self.vals[index]
-        format = None
-        if isinstance(val, PIL.Image.Image):
-            format = image_utils.default_format(val)
-            try:
-                val = image_utils.to_bytes(val, format)
-            except Exception as e:
-                raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, str(e)) from e
-        filepath, url = TempStore.save_media_object(
-            val, col.tbl_handle.id, col.id, col.get_tbl().version, format=format
-        )
-        self.file_paths[index] = str(filepath) if filepath is not None else None
-        self.vals[index] = None
-        return url
