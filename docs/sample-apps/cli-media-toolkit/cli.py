@@ -635,21 +635,21 @@ def delete(target, title, type, delete_all, force):
             if not force and not click.confirm('Delete ALL media items?'):
                 return
             result = table.delete()
-            deleted_count = result.row_count_stats.del_rows
+            deleted_count = result.row_count_stats.deleted_rows
             click.echo(f'Deleted {deleted_count} items')
 
         elif type:
             if not force and not click.confirm(f'Delete all {type} items?'):
                 return
             result = table.where(table.media_type == type).delete()
-            deleted_count = result.row_count_stats.del_rows
+            deleted_count = result.row_count_stats.deleted_rows
             click.echo(f'Deleted {deleted_count} {type} items')
 
         elif title:
             if not force and not click.confirm(f'Delete items with title "{title}"?'):
                 return
             result = table.where(table.title.contains(title)).delete()
-            deleted_count = result.row_count_stats.del_rows
+            deleted_count = result.row_count_stats.deleted_rows
             click.echo(f"Deleted {deleted_count} items matching '{title}'")
 
         elif target and target.isdigit():

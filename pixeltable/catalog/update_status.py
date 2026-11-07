@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
+
+from pydantic import AliasChoices, Field
 
 if TYPE_CHECKING:
     from IPython.lib.pretty import RepresentationPrinter
@@ -14,14 +16,15 @@ class RowCountStats:
     Statistics about the counts of rows affected by a table operation.
     """
 
-    ins_rows: int = 0  # rows inserted
-    del_rows: int = 0  # rows deleted
-    upd_rows: int = 0  # rows updated
+    # Validation aliases preserve counts in history saved before these fields were renamed.
+    inserted_rows: Annotated[int, Field(validation_alias=AliasChoices('inserted_rows', 'ins_rows'))] = 0
+    deleted_rows: Annotated[int, Field(validation_alias=AliasChoices('deleted_rows', 'del_rows'))] = 0
+    updated_rows: Annotated[int, Field(validation_alias=AliasChoices('updated_rows', 'upd_rows'))] = 0
     num_excs: int = 0  # total number of exceptions
 
     @property
     def num_rows(self) -> int:
-        return self.ins_rows + self.del_rows + self.upd_rows
+        return self.inserted_rows + self.deleted_rows + self.updated_rows
 
     def insert_to_update(self) -> 'RowCountStats':
         """
@@ -29,7 +32,10 @@ class RowCountStats:
         This is used when an insert operation is treated as an update.
         """
         return RowCountStats(
-            ins_rows=0, del_rows=self.del_rows, upd_rows=self.upd_rows + self.ins_rows, num_excs=self.num_excs
+            inserted_rows=0,
+            deleted_rows=self.deleted_rows,
+            updated_rows=self.updated_rows + self.inserted_rows,
+            num_excs=self.num_excs,
         )
 
     def __add__(self, other: 'RowCountStats') -> 'RowCountStats':
@@ -37,9 +43,9 @@ class RowCountStats:
         Add the stats from two RowCountStats objects together.
         """
         return RowCountStats(
-            ins_rows=self.ins_rows + other.ins_rows,
-            del_rows=self.del_rows + other.del_rows,
-            upd_rows=self.upd_rows + other.upd_rows,
+            inserted_rows=self.inserted_rows + other.inserted_rows,
+            deleted_rows=self.deleted_rows + other.deleted_rows,
+            updated_rows=self.updated_rows + other.updated_rows,
             num_excs=self.num_excs + other.num_excs,
         )
 
@@ -148,12 +154,12 @@ class UpdateStatus:
         messages = []
         # Combine row count stats and cascade row count stats
         stats = self.row_count_stats + self.cascade_row_count_stats
-        if stats.ins_rows > 0:
-            messages.append(f'{self.__cnt_str(stats.ins_rows, "row")} inserted')
-        if stats.del_rows > 0:
-            messages.append(f'{self.__cnt_str(stats.del_rows, "row")} deleted')
-        if stats.upd_rows > 0:
-            messages.append(f'{self.__cnt_str(stats.upd_rows, "row")} updated')
+        if stats.inserted_rows > 0:
+            messages.append(f'{self.__cnt_str(stats.inserted_rows, "row")} inserted')
+        if stats.deleted_rows > 0:
+            messages.append(f'{self.__cnt_str(stats.deleted_rows, "row")} deleted')
+        if stats.updated_rows > 0:
+            messages.append(f'{self.__cnt_str(stats.updated_rows, "row")} updated')
         if stats.num_excs > 0:
             messages.append(self.__cnt_str(stats.num_excs, 'exception'))
         p.text(', '.join(messages) + '.' if len(messages) > 0 else 'No rows affected.')
@@ -163,4 +169,4 @@ class UpdateStatus:
         """
         Returns the number of Pixeltable rows that were updated as a result of the operation.
         """
-        return (self.row_count_stats + self.cascade_row_count_stats).upd_rows
+        return (self.row_count_stats + self.cascade_row_count_stats).updated_rows
