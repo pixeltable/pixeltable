@@ -1933,17 +1933,6 @@ class _PxtType:
         raise NotImplementedError()
 
 
-_RequiredT = typing.TypeVar('_RequiredT')
-
-
-class _LegacyRequired(typing.Generic[_RequiredT]):
-    """Deserialization target for Required annotations in older pickled UDFs."""
-
-
-# Old pickles resolve this module-level name; it is not exported by pixeltable.
-Required = _LegacyRequired
-
-
 String = typing.Annotated[str, StringType(nullable=False)]
 Int = typing.Annotated[int, IntType(nullable=False)]
 Float = typing.Annotated[float, FloatType(nullable=False)]
