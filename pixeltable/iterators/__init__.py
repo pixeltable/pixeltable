@@ -1,16 +1,8 @@
-"""Iterators for splitting media and documents into components."""
-# ruff: noqa: F401
+"""Compatibility support for custom legacy iterators."""
 
-from .audio import AudioSplitter
 from .base import ComponentIterator
-from .document import DocumentSplitter
-from .image import TileIterator
-from .string import StringSplitter
-from .video import FrameIterator, VideoSplitter
 
-__default_dir = {symbol for symbol in dir() if not symbol.startswith('_')}
-__removed_symbols = {'base', 'document', 'video'}
-__all__ = sorted(__default_dir - __removed_symbols)
+__all__ = ['ComponentIterator']
 
 
 def __dir__() -> list[str]:
