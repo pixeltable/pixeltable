@@ -28,6 +28,8 @@ pip install -U 'pixeltable[serve]'
 [![Python](https://img.shields.io/pypi/pyversions/pixeltable)](https://pypi.org/project/pixeltable/)
 
 <picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/stack-slider-narrow-dark.svg">
+  <source media="(max-width: 600px)" srcset="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/stack-slider-narrow-light.svg">
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/stack-slider-dark.svg">
   <img width="100%" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/stack-slider-light.svg" alt="Animation: a handle sweeps between two drawings of the same 13 jobs a request needs. Usually, they run across 12 systems (a bucket, a metadata database, queues and workers, a vector database, an API service and more) that your app talks to one by one. With Pixeltable, they live in one app.py, with its videos table and the APIs the other jobs use.">
 </picture>

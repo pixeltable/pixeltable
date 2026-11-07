@@ -1,13 +1,15 @@
 // Renders the README's images, each in a light and a dark file chosen with <picture>:
 // - the hero, pixeltable.com's before/after slider (StackSlider.tsx in pixeltable-cloud) as an animated SVG, with
 //   the README's app.py on the Pixeltable side
+// - a narrow hero for phones (<picture>'s max-width sources): the jobs as one list, each wiping from the systems it
+//   usually takes to the line it takes in Pixeltable (RequestLifecycle.tsx's content)
 // - the logo, on a plate of the page color
 // <picture> follows the browser's color scheme, not the GitHub theme, and PyPI drops <source>, so either file can
 // land on either page color; each one carries its own background. GitHub shows README SVGs as images: CSS
 // animations play, scripts and web fonts do not. Every element's base style is the resting frame, so reduced
-// motion (animations off) and PyPI show both sides.
+// motion (animations off) and PyPI show it whole.
 //
-//   node build-readme-images.mjs        writes stack-slider-{light,dark}.svg and logo-{light,dark}.svg here
+//   node build-readme-images.mjs        writes stack-slider{,-narrow}-{light,dark}.svg and logo-{light,dark}.svg here
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -15,22 +17,22 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-// the README's "Why we built it" table and the systems each step usually takes; keep in step with
-// pixeltable-cloud's frontend/src/data/request-lifecycle.ts
+// the README's "Why we built it" table: each step, the systems it usually takes and its line in Pixeltable; keep in
+// step with pixeltable-cloud's frontend/src/data/request-lifecycle.ts (two lines are cut to fit 360px)
 const STEPS = [
-  ['Store files and their results', ['bucket', 'sync script', 'metadata DB']],
-  ['Split documents or sample frames', ['queue', 'preprocessing job']],
-  ['Call models', ['queue', 'workers', 'status table']],
-  ['Explore and query the results', ['download script', 'notebook', 'local copies']],
-  ['Search the results', ['embed job', 'vector DB']],
-  ['Serve the results', ['API service', 'metadata DB', 'vector DB']],
-  ['Let an agent call tools', ['agent framework', 'tool logs']],
-  ['Remember across sessions', ['chat cache', 'vector store']],
-  ['Trace a running app', ['tracing SDK', 'log store']],
-  ['Evaluate model output', ['log export', 'eval notebook']],
-  ['Rerun what failed', ['dead-letter queue', 'retry script']],
-  ['Send results elsewhere', ['ETL job', 'second database', 'bucket sync']],
-  ['Analyze and audit', ['ETL job', 'warehouse']],
+  ['Store files and their results', ['bucket', 'sync script', 'metadata DB'], 'video: pxt.Video'],
+  ['Split documents or sample frames', ['queue', 'preprocessing job'], 'iterator=frame_iterator(video, fps=1)'],
+  ['Call models', ['queue', 'workers', 'status table'], 'transcript = openai.transcriptions(audio, …)'],
+  ['Explore and query the results', ['download script', 'notebook', 'local copies'], 'frames.select(frames.frame, frames.detections)'],
+  ['Search the results', ['embed job', 'vector DB'], 'pxt.EmbeddingIndex(summary, embedding=embed)'],
+  ['Serve the results', ['API service', 'metadata DB', 'vector DB'], "api.add_query_route(path='/search', …)"],
+  ['Let an agent call tools', ['agent framework', 'tool logs'], 'tool_output = invoke_tools(tools, response)'],
+  ['Remember across sessions', ['chat cache', 'vector store'], 'memories = recall_memories(user_id, message)'],
+  ['Trace a running app', ['tracing SDK', 'log store'], 'pxt service update app.py my_app --otel'],
+  ['Evaluate model output', ['log export', 'eval notebook'], 'assistant.select(assistant.response.usage)'],
+  ['Rerun what failed', ['dead-letter queue', 'retry script'], 'pxt errors my_app/docs'],
+  ['Send results elsewhere', ['ETL job', 'second database', 'bucket sync'], "pxt.io.export_sql(q, 'dets', db_connect_str=…)"],
+  ['Analyze and audit', ['ETL job', 'warehouse'], 'videos.history()'],
 ];
 // each box on the usual side and the systems it stands for (StackSlider.tsx's SYSTEMS)
 const SYSTEMS = [
@@ -129,7 +131,6 @@ const curve = (x0, y0, x1, y1) => {
 };
 
 // StackSlider's sweep: rest, the Pixeltable side whole, the usual side whole, rest; here it loops
-const PERIOD = 14;
 const SWEEP = [[0, REST], [3, REST], [4, 0], [8, 0], [9, STAGE.w], [11, STAGE.w], [12, REST], [14, REST]];
 
 // the hero window's tokenizer (hero-use-cases/stories.ts), plus def, class and return
@@ -147,14 +148,43 @@ function tokenize(line) {
   return out;
 }
 
+// drawing helpers bound to a theme
+function kit(c) {
+  return {
+    text: (x, y, body, { size = 12, font = SANS, fill = c.fg, weight = 400, anchor = 'start', extra = '' } = {}) =>
+      `<text x="${x}" y="${y}" font-family="${font}" font-size="${size}" font-weight="${weight}" fill="${fill}" text-anchor="${anchor}" ${extra}>${body}</text>`,
+    card: (x, y, w, h, rx = 10) => `<rect x="${x + 0.5}" y="${y + 0.5}" width="${w - 1}" height="${h - 1}" rx="${rx}" fill="${c.card}" stroke="${c.border}"/>`,
+    header: (x, y, w, h) =>
+      `<path d="M${x + 0.5} ${y + h} V${y + 10.5} a10 10 0 0 1 10 -10 H${x + w - 10.5} a10 10 0 0 1 10 10 V${y + h} Z" fill="${c.muted}"/><line x1="${x + 1}" y1="${y + h}" x2="${x + w - 1}" y2="${y + h}" stroke="${c.border}"/>`,
+    wire: (d) => `<path d="${d}" fill="none" stroke="${c.dim}" stroke-opacity="0.45"/>`,
+    code: (x, y, line) =>
+      `<text x="${x}" y="${y}" font-family="${MONO}" font-size="11" xml:space="preserve">${tokenize(line).map(([s, k]) => `<tspan fill="${c.code[k]}">${esc(s)}</tspan>`).join('')}</text>`,
+    knob: (x, y) =>
+      `<rect x="${x - 14}" y="${y - 18}" width="28" height="36" rx="6" fill="${c.accent}"/><path d="M${x - 3} ${y - 4}l-4 4 4 4 M${x + 3} ${y - 4}l4 4-4 4" fill="none" stroke="${c.knob}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`,
+    chevron: (x, dir) => `<path d="M${x} 17l${dir * -4} 4 ${dir * 4} 4" fill="none" stroke="${c.dim}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>`,
+  };
+}
+
+// keyframes that move the handle and the clip together through `sweep` ([seconds, stage x] stops)
+function sweepStyle(sweep, rest) {
+  const period = sweep.at(-1)[0];
+  const pct = (t) => `${((t / period) * 100).toFixed(2)}%`;
+  const ease = 'animation-timing-function:cubic-bezier(.65,0,.35,1)';
+  const frames = (prop) => sweep.map(([t, x]) => `${pct(t)}{${prop(x)};${ease}}`).join('');
+  const clip = (x) => `clip-path:inset(0 0 0 ${x}px)`;
+  const move = (x) => `transform:translateX(${x}px)`;
+  return [
+    `@keyframes clip{${frames(clip)}}`,
+    `@keyframes move{${frames(move)}}`,
+    `.pixeltable{${clip(rest)};animation:clip ${period}s infinite}`,
+    `.handle{${move(rest)};animation:move ${period}s infinite}`,
+    '@media (prefers-reduced-motion:reduce){.pixeltable,.handle{animation:none}}',
+  ].join('');
+}
+
 function render(themeName) {
   const c = THEMES[themeName];
-  const text = (x, y, body, { size = 12, font = SANS, fill = c.fg, weight = 400, anchor = 'start', extra = '' } = {}) =>
-    `<text x="${x}" y="${y}" font-family="${font}" font-size="${size}" font-weight="${weight}" fill="${fill}" text-anchor="${anchor}" ${extra}>${body}</text>`;
-  const card = (x, y, w, h, rx = 10) => `<rect x="${x + 0.5}" y="${y + 0.5}" width="${w - 1}" height="${h - 1}" rx="${rx}" fill="${c.card}" stroke="${c.border}"/>`;
-  const header = (x, y, w, h) =>
-    `<path d="M${x + 0.5} ${y + h} V${y + 10.5} a10 10 0 0 1 10 -10 H${x + w - 10.5} a10 10 0 0 1 10 10 V${y + h} Z" fill="${c.muted}"/><line x1="${x + 1}" y1="${y + h}" x2="${x + w - 1}" y2="${y + h}" stroke="${c.border}"/>`;
-  const wire = (d) => `<path d="${d}" fill="none" stroke="${c.dim}" stroke-opacity="0.45"/>`;
+  const { text, card, header, wire, code, knob, chevron } = kit(c);
 
   // The usual side: the systems, wired to the jobs that use them, and the app that talks to each.
   const usual = [];
@@ -184,8 +214,7 @@ function render(themeName) {
       continue;
     }
     y += CODE.line;
-    const spans = tokenize(line).map(([s, k]) => `<tspan fill="${c.code[k]}">${esc(s)}</tspan>`).join('');
-    px.push(text(12, y - 3, spans, { size: 11, font: MONO, extra: 'xml:space="preserve"' }));
+    px.push(code(12, y - 3, line));
   }
   px.push(card(BOX.x, BOX.y, BOX.w, BOX.h));
   px.push(header(BOX.x, BOX.y, BOX.w, 32));
@@ -239,30 +268,16 @@ function render(themeName) {
   });
 
   // The handle, drawn at stage x = 0 and moved by the sweep.
-  const handle = `<g class="handle"><line x1="0" y1="0" x2="0" y2="${STAGE.h}" stroke="${c.accent}" stroke-width="2"/><rect x="-14" y="${MID_Y - 18}" width="28" height="36" rx="6" fill="${c.accent}"/><path d="M-3 ${MID_Y - 4}l-4 4 4 4 M3 ${MID_Y - 4}l4 4-4 4" fill="none" stroke="${c.knob}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g>`;
-
-  const pct = (t) => `${((t / PERIOD) * 100).toFixed(2)}%`;
-  const ease = 'animation-timing-function:cubic-bezier(.65,0,.35,1)';
-  const frames = (prop) => SWEEP.map(([t, x]) => `${pct(t)}{${prop(x)};${ease}}`).join('');
-  const clip = (x) => `clip-path:inset(0 0 0 ${x}px)`;
-  const move = (x) => `transform:translateX(${x}px)`;
-  const style = [
-    `@keyframes clip{${frames(clip)}}`,
-    `@keyframes move{${frames(move)}}`,
-    `.pixeltable{${clip(REST)};animation:clip ${PERIOD}s infinite}`,
-    `.handle{${move(REST)};animation:move ${PERIOD}s infinite}`,
-    '@media (prefers-reduced-motion:reduce){.pixeltable,.handle{animation:none}}',
-  ].join('');
+  const handle = `<g class="handle"><line x1="0" y1="0" x2="0" y2="${STAGE.h}" stroke="${c.accent}" stroke-width="2"/>${knob(0, MID_Y)}</g>`;
 
   // Labels above, captions below.
   const capY = STAGE.y + STAGE.h + 16;
   const colX = PAD + STAGE.w / 2;
   const H = capY + 64;
-  const chevron = (x, dir) => `<path d="M${x} 21l${dir * -4} 4 ${dir * 4} 4" fill="none" stroke="${c.dim}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 -4)"/>`;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-labelledby="t">
 <title id="t">Usually, the 13 jobs of a request run across 12 systems that your app talks to one by one. With Pixeltable, the same 13 jobs live in one app.py, with its videos table and the APIs the other jobs use. A handle sweeps between the two sides.</title>
-<style>${style}</style>
+<style>${sweepStyle(SWEEP, REST)}</style>
 <rect x="0.5" y="0.5" width="${W - 1}" height="${H - 1}" rx="12" fill="${c.bg}" stroke="${c.border}"/>
 ${chevron(PAD + 8, 1)}${text(PAD + 16, 26, 'Usually', { size: 13, weight: 600, fill: c.dim })}
 ${text(W - PAD - 16, 26, 'With Pixeltable', { size: 13, weight: 600, fill: c.dim, anchor: 'end' })}${chevron(W - PAD - 8, -1)}
@@ -277,6 +292,49 @@ ${text(PAD + 4, capY + 22, 'Usually', { size: 13, weight: 600 })}
 ${text(PAD + 4, capY + 42, `13 jobs across 12 systems,<tspan fill="${c.dim}"> and the scripts that keep them in sync</tspan>`, { size: 13 })}
 ${text(colX, capY + 22, 'With Pixeltable', { size: 13, weight: 600 })}
 ${text(colX, capY + 42, `13 jobs in one app.py,<tspan fill="${c.dim}"> as tables, computed columns, indexes and routes</tspan>`, { size: 13 })}
+</svg>
+`;
+}
+
+// The phone version: the jobs as one list; under each, the systems it usually takes, wiped by the handle into its
+// line in Pixeltable. It rests on the Pixeltable side.
+function renderNarrow(themeName) {
+  const c = THEMES[themeName];
+  const { text, card, header, code, knob, chevron } = kit(c);
+  const NW = 372;
+  const L = { x: 12, y: 40, w: NW - 24, head: 30, row: 42 };
+  L.h = L.head + L.row * STEPS.length;
+  const band = { x: L.x + 1, w: L.w - 2 };
+  const sweep = [[0, band.w], [3, band.w], [4, 0], [11, 0], [12, band.w], [14, band.w]];
+
+  const list = [card(L.x, L.y, L.w, L.h), header(L.x, L.y, L.w, L.head), text(L.x + 12, L.y + 20, 'What a request needs', { size: 13, weight: 600 })];
+  const usual = [];
+  const px = [];
+  STEPS.forEach(([need, systems, line], i) => {
+    const top = L.y + L.head + L.row * i;
+    if (i) list.push(`<line x1="${L.x + 1}" y1="${top}" x2="${L.x + L.w - 1}" y2="${top}" stroke="${c.border}" stroke-opacity="0.5"/>`);
+    list.push(text(L.x + 12, top + 17, String(i + 1).padStart(2, '0'), { size: 11, font: MONO, fill: c.dim }));
+    list.push(text(L.x + 34, top + 17, esc(need)));
+    usual.push(text(L.x + 34, top + 35, esc(systems.join(' · ')), { size: 11.5, fill: c.dim }));
+    px.push(`<rect x="${band.x}" y="${top + 22}" width="${band.w}" height="18" fill="${c.card}"/>`, code(L.x + 34, top + 35, line));
+  });
+  const rows = { top: L.y + L.head, bottom: L.y + L.h };
+  const handle = `<g transform="translate(${band.x} 0)"><g class="handle"><line x1="0" y1="${rows.top}" x2="0" y2="${rows.bottom}" stroke="${c.accent}" stroke-width="2"/>${knob(0, (rows.top + rows.bottom) / 2)}</g></g>`;
+
+  const capY = L.y + L.h + 24;
+  const H = capY + 36;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${NW} ${H}" width="${NW}" height="${H}" role="img" aria-labelledby="t">
+<title id="t">The 13 jobs a request needs. Under each, a handle sweeps between the systems it usually takes and the one line of app.py or pxt command it takes with Pixeltable.</title>
+<style>${sweepStyle(sweep, 0)}</style>
+<rect x="0.5" y="0.5" width="${NW - 1}" height="${H - 1}" rx="12" fill="${c.bg}" stroke="${c.border}"/>
+${chevron(20, 1)}${text(28, 26, 'Usually', { size: 13, weight: 600, fill: c.dim })}
+${text(NW - 28, 26, 'With Pixeltable', { size: 13, weight: 600, fill: c.dim, anchor: 'end' })}${chevron(NW - 20, -1)}
+${list.join('')}
+<g>${usual.join('')}</g>
+<g class="pixeltable">${px.join('')}</g>
+${handle}
+${text(L.x + 4, capY, `Usually<tspan font-weight="400" fill="${c.dim}"> 13 jobs across 12 systems</tspan>`, { size: 12.5, weight: 600 })}
+${text(L.x + 4, capY + 20, `With Pixeltable<tspan font-weight="400" fill="${c.dim}"> 13 jobs in one app.py</tspan>`, { size: 12.5, weight: 600 })}
 </svg>
 `;
 }
@@ -297,7 +355,8 @@ function logo(themeName) {
 }
 
 for (const theme of ['light', 'dark']) {
-  for (const [file, svg] of [[`stack-slider-${theme}.svg`, render(theme)], [`logo-${theme}.svg`, logo(theme)]]) {
+  const files = [[`stack-slider-${theme}.svg`, render(theme)], [`stack-slider-narrow-${theme}.svg`, renderNarrow(theme)], [`logo-${theme}.svg`, logo(theme)]];
+  for (const [file, svg] of files) {
     writeFileSync(join(HERE, file), svg);
     console.log('wrote', join(HERE, file));
   }
