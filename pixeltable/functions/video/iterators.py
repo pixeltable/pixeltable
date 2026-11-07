@@ -166,7 +166,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
             self.start_extraction_time = None
 
         _logger.debug(
-            f'FrameIterator: path={self.video_path} fps={self.fps} num_frames={self.num_frames} '
+            f'frame_iterator: path={self.video_path} fps={self.fps} num_frames={self.num_frames} '
             f'keyframes_only={self.keyframes_only}'
         )
         self._start_decoding()
