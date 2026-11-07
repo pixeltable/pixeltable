@@ -393,15 +393,10 @@ class TestEnsureConnected:
 class TestProxyEndpoint:
     @pytest.mark.parametrize(
         ('cloud_host', 'expected'),
-        [
-            (None, ('acme-main.pxt.run', 443)),
-            ('dev.pxt.run', ('acme-main.dev.pxt.run', 443)),
-            ('pxt.run:9000', ('acme-main.pxt.run', 9000)),
-            ('localhost:9443', ('acme-main.localhost', 9443)),
-        ],
+        [(None, 'https://acme-main.svc.pxt.run'), ('dev.pxt.run', 'https://acme-main.svc.dev.pxt.run')],
     )
     def test_proxy_endpoint(
-        self, cloud_host: str | None, expected: tuple[str, int], init_env: None, monkeypatch: pytest.MonkeyPatch
+        self, cloud_host: str | None, expected: str, init_env: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         if cloud_host is None:
             monkeypatch.delenv('PIXELTABLE_CLOUD_HOST', raising=False)
@@ -409,15 +404,10 @@ class TestProxyEndpoint:
             monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', cloud_host)
         assert Env.get().proxy_endpoint('acme', 'main') == expected
 
-    @pytest.mark.parametrize(
-        ('cloud_host', 'error'),
-        [('dev.pxt.run:https', "port 'https' is not a valid integer"), (':9000', 'missing host')],
-    )
-    def test_proxy_endpoint_rejects(
-        self, cloud_host: str, error: str, init_env: None, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', cloud_host)
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=error):
+    def test_proxy_endpoint_rejects_a_port(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """pxt.run:9000 picked the tunnel's other port; the gateway is reached on 443 alone."""
+        monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', 'pxt.run:9000')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='the gateway is reached on port 443'):
             Env.get().proxy_endpoint('acme', 'main')
 
 
