@@ -94,7 +94,7 @@ from .api import (
 )
 
 # This import must go last to avoid circular imports.
-from . import functions, io, iterators  # isort: skip
+from . import functions, io, iterators, telemetry  # isort: skip
 
 __all__ = [
     'URI',
@@ -179,6 +179,7 @@ __all__ = [
     'move',
     'query',
     'retrieval_udf',
+    'telemetry',
     'tool',
     'tools',
     'uda',

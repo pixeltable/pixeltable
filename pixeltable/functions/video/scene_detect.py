@@ -579,6 +579,7 @@ def _scene_detect(video: str, fps: float | None, detector: 'SceneDetector') -> l
 
 
 __all__ = [
+    'SceneInfo',
     'scene_detect_adaptive',
     'scene_detect_content',
     'scene_detect_hash',
