@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, NotRequired, Sequence, TypedDict
 
 import pixeltable as pxt
 from pixeltable.env import Env
-from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     from whisper import Whisper  # type: ignore[import-untyped]
@@ -153,8 +152,7 @@ _cache_lock = threading.Lock()
 _model_cache: dict[tuple[str, str], 'Whisper'] = {}
 
 
-_class_names = ['WhisperTranscription', 'WhisperSegment', 'WhisperWord']
-__all__ = local_public_names(__name__) + _class_names
+__all__ = ['WhisperSegment', 'WhisperTranscription', 'WhisperWord', 'transcribe']
 
 
 def __dir__() -> list[str]:

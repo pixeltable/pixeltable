@@ -5,7 +5,6 @@ from typing import Any, Callable
 import sqlalchemy as sql
 
 from pixeltable import exceptions as excs, exprs, func, type_system as ts
-from pixeltable.utils.code import local_public_names
 
 
 # TODO: remove and replace calls with astype()
@@ -415,7 +414,7 @@ def sort(expr: exprs.Expr, key: Callable[[exprs.Expr], Any] | None = None, *, as
     return exprs.JsonMapper(expr, key_expr, exprs.JsonMapper.Operator.SORT, asc=asc)
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['cast', 'count', 'filter', 'map', 'max', 'mean', 'min', 'sort', 'sum']
 
 
 def __dir__() -> list[str]:

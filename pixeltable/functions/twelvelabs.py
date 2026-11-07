@@ -19,7 +19,6 @@ from pixeltable import env, type_system as ts
 from pixeltable.config import Config
 from pixeltable.runtime import get_runtime
 from pixeltable.utils import av as av_utils
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 
 if TYPE_CHECKING:
@@ -413,7 +412,7 @@ def _(model_name: str) -> ts.ArrayType:
     return ts.ArrayType(dtype=np.dtype('float32'))
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['embed']
 
 
 def __dir__() -> list[str]:

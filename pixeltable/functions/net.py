@@ -3,7 +3,6 @@ Pixeltable UDF for converting media file URIs to presigned HTTP URLs.
 """
 
 from pixeltable.func.udf import udf
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.object_stores import ObjectOps
 
 
@@ -46,7 +45,7 @@ def presigned_url(uri: str, expiration_seconds: int) -> str:
     return ObjectOps.presigned_url(uri, expiration_seconds)
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['presigned_url']
 
 
 def __dir__() -> list[str]:

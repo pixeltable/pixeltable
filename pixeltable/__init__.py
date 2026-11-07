@@ -2,10 +2,8 @@
 Core Pixeltable API for table operations, data processing, and UDF management.
 """
 
-# ruff: noqa: F401
-
 from ._query import Query, ResultCursor, ResultSet
-from ._version import __version__
+from ._version import __version__ as __version__
 from .catalog import (
     ColumnMetadata,
     IndexMetadata,
@@ -98,27 +96,94 @@ from .api import (
 # This import must go last to avoid circular imports.
 from . import functions, io, iterators  # isort: skip
 
-# This is the safest / most maintainable way to construct __all__: start with the default and "blacklist"
-# stuff that we don't want in there. (Using a "whitelist" is considerably harder to maintain.)
-
-__default_dir = {symbol for symbol in dir() if not symbol.startswith('_')}
-__removed_symbols = {
-    '_query',
-    'api',
-    'catalog',
-    'env',
-    'exceptions',
-    'exec',
-    'exprs',
-    'func',
-    'globals',
-    'index',
-    'metadata',
-    'plan',
-    'type_system',
-    'utils',
-}
-__all__ = sorted(__default_dir - __removed_symbols)
+__all__ = [
+    'URI',
+    'UUID',
+    'Aggregator',
+    'AlreadyExistsError',
+    'Array',
+    'Audio',
+    'AuthorizationError',
+    'Binary',
+    'Bool',
+    'BtreeIndex',
+    'CellError',
+    'Column',
+    'ColumnMetadata',
+    'ConcurrencyError',
+    'ConfigVar',
+    'Date',
+    'DirContents',
+    'DirectoryNode',
+    'Document',
+    'EmbeddingIndex',
+    'Error',
+    'ErrorCode',
+    'ExternalServiceError',
+    'Float',
+    'Function',
+    'Image',
+    'IndexMetadata',
+    'InsertableTable',
+    'Int',
+    'Json',
+    'NotFoundError',
+    'PixeltableWarning',
+    'PxtIterator',
+    'Query',
+    'RequestError',
+    'Required',
+    'ResultCursor',
+    'ResultSet',
+    'Row',
+    'RowBatch',
+    'ServiceUnavailableError',
+    'String',
+    'Table',
+    'TableKind',
+    'TableMetadata',
+    'TableNode',
+    'Timestamp',
+    'Tool',
+    'ToolChoice',
+    'Tools',
+    'TreeNode',
+    'UpdateStatus',
+    'UserError',
+    'VersionMetadata',
+    'Video',
+    'View',
+    'array',
+    'create_dir',
+    'create_snapshot',
+    'create_table',
+    'create_view',
+    'drop_dir',
+    'drop_table',
+    'expr_udf',
+    'functions',
+    'get_dir_contents',
+    'get_dir_tree',
+    'get_table',
+    'home',
+    'init',
+    'io',
+    'iterator',
+    'iterators',
+    'list_dirs',
+    'list_functions',
+    'list_tables',
+    'ls',
+    'mcp_udfs',
+    'model_base',
+    'move',
+    'query',
+    'retrieval_udf',
+    'tool',
+    'tools',
+    'uda',
+    'udf',
+]
 
 
 def __dir__() -> list[str]:
