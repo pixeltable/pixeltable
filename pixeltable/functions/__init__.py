@@ -100,6 +100,8 @@ __all__ = [
     'video',
     'vision',
     'vllm',
+    'vlmrun',
+    'vlmrun_gateway',
     'voyageai',
     'whisper',
     'whisperx',

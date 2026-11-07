@@ -21,6 +21,9 @@ def test_public_exports(module_name: str) -> None:
     module = importlib.import_module(module_name)
     if not hasattr(module, '__all__'):
         return
+    parent_name, _, name = module_name.rpartition('.')
+    if parent_name == 'pixeltable.functions' and name != 'globals':
+        assert name in pxt.functions.__all__
     assert len(module.__all__) == len(set(module.__all__))
     namespace: dict[str, Any] = {}
     exec(f'from {module_name} import *', namespace)
