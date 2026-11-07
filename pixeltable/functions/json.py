@@ -19,7 +19,6 @@ from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, exprs, type_system as ts
-from pixeltable.utils.code import local_public_names
 
 
 @pxt.udf
@@ -628,7 +627,26 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
         return output_schema  # type: ignore[return-value]
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'concat',
+    'contains',
+    'count',
+    'dumps',
+    'flatten',
+    'get',
+    'is_empty',
+    'items',
+    'keys',
+    'len',
+    'list_iterator',
+    'make_list',
+    'max',
+    'mean',
+    'merge',
+    'min',
+    'sum',
+    'values',
+]
 
 
 def __dir__() -> list[str]:

@@ -15,7 +15,6 @@ import sqlalchemy as sql
 import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.functions.date import IsoCalendar
-from pixeltable.utils.code import local_public_names
 
 _SQL_ZERO = sql.literal(0)
 
@@ -336,7 +335,27 @@ def posix_timestamp(self: datetime.datetime) -> float:
     return self.timestamp()
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'astimezone',
+    'date',
+    'day',
+    'hour',
+    'isocalendar',
+    'isoformat',
+    'isoweekday',
+    'make_timestamp',
+    'microsecond',
+    'minute',
+    'month',
+    'posix_timestamp',
+    'replace',
+    'second',
+    'strftime',
+    'strip_timezone',
+    'toordinal',
+    'weekday',
+    'year',
+]
 
 
 def __dir__() -> list[str]:

@@ -1,0 +1,54 @@
+import importlib
+import pkgutil
+from types import FunctionType
+from typing import Any
+
+import pytest
+
+import pixeltable as pxt
+from pixeltable.func import Function, GeneratingFunction
+
+
+@pytest.mark.parametrize(
+    'module_name',
+    [
+        'pixeltable',
+        'pixeltable.io',
+        'pixeltable.iterators',
+        'pixeltable.functions',
+        *sorted(info.name for info in pkgutil.walk_packages(pxt.functions.__path__, 'pixeltable.functions.')),
+    ],
+)
+def test_public_exports(module_name: str) -> None:
+    module = importlib.import_module(module_name)
+    if not hasattr(module, '__all__'):
+        return
+    parent_name, _, name = module_name.rpartition('.')
+    if parent_name == 'pixeltable.functions' and name != 'globals':
+        assert name in pxt.functions.__all__
+    assert len(module.__all__) == len(set(module.__all__))
+    for name, value in vars(module).items():
+        if name.startswith('_'):
+            continue
+        if isinstance(value, Function):
+            defined_module = value.self_path.rpartition('.')[0] if value.self_path is not None else None
+        elif isinstance(value, GeneratingFunction):
+            defined_module = value.fqn.rpartition('.')[0]
+        elif isinstance(value, FunctionType):
+            defined_module = value.__module__
+        else:
+            continue
+        if defined_module == module_name:
+            assert name in module.__all__, name
+
+    if module_name == 'pixeltable.functions.video':
+        children = ('editing', 'filters', 'iterators', 'scene_detect')
+        child_exports = set().union(*(importlib.import_module(f'{module_name}.{child}').__all__ for child in children))
+        assert set(module.__all__) == child_exports
+
+    namespace: dict[str, Any] = {}
+    exec(f'from {module_name} import *', namespace)
+    for name in module.__all__:
+        assert namespace[name] is getattr(module, name)
+    if '__dir__' in vars(module):
+        assert dir(module) == sorted(module.__all__)

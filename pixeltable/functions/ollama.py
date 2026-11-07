@@ -13,7 +13,6 @@ import pixeltable as pxt
 from pixeltable import env, telemetry_schemas
 from pixeltable.func import Batch
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     import ollama
@@ -139,7 +138,7 @@ def embed(
     return [np.array(data, dtype=np.float64) for data in results['embeddings']]
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['chat', 'embed', 'generate']
 
 
 def __dir__() -> list[str]:
