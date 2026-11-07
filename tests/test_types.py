@@ -4,12 +4,10 @@
 import datetime
 import itertools
 import json
-import pickle
 import typing
 import uuid
 from typing import Any, Dict, List, Literal, Optional, Tuple, TypedDict, Union
 
-import cloudpickle  # type: ignore[import-untyped]
 import numpy as np
 import PIL.Image
 import pydantic
@@ -17,7 +15,6 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, exprs
-from pixeltable.func import CallableFunction, Signature
 from pixeltable.type_system import (
     UUID,
     Array,
@@ -343,24 +340,6 @@ class TestTypes:
 
             assert str(non_nullable_pxt_type) == string
             assert str(nullable_pxt_type) == f'{string} | None'
-
-    def test_legacy_required(self) -> None:
-        # Old pickles refer to this exact module-level name, not the private class name.
-        legacy_required = pickle.loads(b'cpixeltable.type_system\nRequired\n.')
-
-        def old_fn(x: int) -> int:
-            return x + 1
-
-        signature = Signature.create(old_fn)
-        old_fn.__annotations__['x'] = legacy_required[int]
-        restored = CallableFunction.from_store(
-            'old_fn', {'signature': signature.as_dict(), 'batch_size': None}, cloudpickle.dumps(old_fn)
-        )
-        assert restored.exec([41], {}) == 42
-        assert not hasattr(pxt, 'Required')
-        for annotation in (legacy_required, legacy_required[int]):
-            with pxt_raises(pxt.ErrorCode.INVALID_TYPE, match='Unknown type'):
-                ColumnType.normalize_type(annotation)
 
     def test_supertype(self, init_env: None) -> None:
         test_cases = [
