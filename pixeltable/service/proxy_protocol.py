@@ -506,14 +506,8 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
         }
     if isinstance(obj, UpdateStatus):
         d = dataclasses.asdict(obj)
-        # Keep the wire names stable for clients running before the Python API rename.
         for field in ('row_count_stats', 'cascade_row_count_stats'):
-            for name, wire_name in (
-                ('inserted_rows', 'ins_rows'),
-                ('deleted_rows', 'del_rows'),
-                ('updated_rows', 'upd_rows'),
-            ):
-                d[field][wire_name] = d[field].pop(name)
+            d[field] = schema.md_to_dict(getattr(obj, field))
         d['rows'] = _serialize(obj.rows, sink)  # returned rows may hold non-JSON scalars (timestamps, etc.)
         return {_TAG: 'UpdateStatus', 'v': d}
     if isinstance(obj, RowBatch):
