@@ -27,7 +27,7 @@ from pixeltable.func import Batch, Tools
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import parse_duration_str
-from pixeltable.utils.image import to_base64
+from pixeltable.utils.image import save as save_image, to_base64
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.system import set_file_descriptor_limit
 
@@ -978,7 +978,7 @@ def _pil_to_png_bytes(image: PIL.Image.Image) -> io.BytesIO:
     """Serialize a PIL image to a PNG BytesIO. The OpenAI images/edits and images/variations endpoints
     require images as PNG file objects."""
     buf = io.BytesIO()
-    image.save(buf, format='PNG')
+    save_image(image, buf, format='PNG')
     buf.seek(0)
     cast(Any, buf).name = 'image.png'
     return buf

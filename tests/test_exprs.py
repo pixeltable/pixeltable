@@ -12,6 +12,7 @@ import os
 import re
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -22,6 +23,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+import pixeltable.utils.image as image_utils
 from pixeltable import catalog, exprs, functions as pxtf
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
@@ -2466,6 +2468,13 @@ class TestExprs:
         for image_format in ('png', 'webp'):
             for b64_str in res[image_format]:
                 assert PIL.Image.open(io.BytesIO(base64.b64decode(b64_str))).format == image_format.upper()
+
+        # eight threads save one image in two formats at the same time, and each save gives the bytes of a lone save
+        formats = ['tiff', 'png'] * 200
+        lone_save = {image_format: image_utils.to_bytes(shared_img, image_format) for image_format in ('tiff', 'png')}
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            saved = list(pool.map(lambda image_format: image_utils.to_bytes(shared_img, image_format), formats))
+        assert saved == [lone_save[image_format] for image_format in formats]
 
     @pytest.mark.db_roots('local', reason='patches PIL in the test process and reads stored files by local path')
     def test_image_files(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,6 +1,7 @@
 import base64
 import threading
 from io import BytesIO
+from typing import Any
 
 import PIL.Image
 
@@ -31,6 +32,18 @@ def load(path: str) -> PIL.Image.Image:
     return img
 
 
+def save(image: PIL.Image.Image, fp: Any, format: str | None = None) -> None:
+    """Save image to fp, which is a path or a file object. Without a format, Pillow derives it from the path.
+
+    Image.save() keeps its encoder settings on the image while it runs. Two threads that save the same image at the
+    same time would use each other's settings, so every save of an image holds the lock of that image.
+    """
+    # dict.setdefault() is atomic, so two threads get the same lock
+    save_lock = image.__dict__.setdefault('_pxt_save_lock', threading.Lock())
+    with save_lock:
+        image.save(fp, format=format)
+
+
 def to_base64(image: PIL.Image.Image | str, format: str | None = None) -> str:
     return base64.b64encode(to_bytes(image, format)).decode('utf-8')
 
@@ -44,9 +57,5 @@ def to_bytes(image: PIL.Image.Image | str, format: str | None = None) -> bytes:
         # we want a more informative error here
         raise ValueError('cannot write empty image')
     buffer = BytesIO()
-    # Image.save() keeps its encoder settings on the image while it runs. Two threads that save the same image at the
-    # same time would use each other's settings, so each image gets its own lock. dict.setdefault() is atomic.
-    save_lock = image.__dict__.setdefault('_pxt_save_lock', threading.Lock())
-    with save_lock:
-        image.save(buffer, format=format or default_format(image))
+    save(image, buffer, format or default_format(image))
     return buffer.getvalue()
