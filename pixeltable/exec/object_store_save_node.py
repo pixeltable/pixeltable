@@ -344,15 +344,22 @@ class ObjectStoreSaveNode(ExecNode):
                 if not isinstance(result, BaseException):
                     TempStore.delete_media_file(result[0])
 
+        # the failed encodes are recorded first, because an error also marks the columns computed from the failed one
         for (row, info, _), result in zip(pending, encode_results, strict=True):
-            index = info.slot_idx
             if isinstance(result, Exception):
-                # the slot has no url, so that no file gets saved for it
                 self.__handle_save_error(row, info, result)
-                continue
-            if isinstance(result, BaseException):
+            elif isinstance(result, BaseException):
                 raise result
+
+        for (row, info, _), result in zip(pending, encode_results, strict=True):
+            if isinstance(result, BaseException):
+                continue
+            index = info.slot_idx
             filepath, url = result
+            if row.has_exc(index):
+                # the column is computed from one that failed to save, so its own file is not stored
+                TempStore.delete_media_file(filepath)
+                continue
             row.file_paths[index] = str(filepath)
             row.file_urls[index] = url
             row.vals[index] = None

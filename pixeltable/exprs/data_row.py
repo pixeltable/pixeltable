@@ -11,6 +11,7 @@ from uuid import UUID
 
 import numpy as np
 import pgvector.sqlalchemy
+import PIL.Image
 import sqlalchemy as sql
 
 import pixeltable.utils.image as image_utils
@@ -288,6 +289,10 @@ class DataRow:
             assert self.file_paths[index] is not None
             if self.vals[index] is None:
                 self.vals[index] = image_utils.load(self.file_paths[index])
+        elif isinstance(self.vals[index], PIL.Image.Image):
+            # An image that the user or a UDF created with PIL.Image.open() is not decoded yet. It is decoded here,
+            # on the thread that owns the row, so that two UDF calls on pool threads do not decode it at the same time.
+            self.vals[index].load()
 
         return self.vals[index]
 

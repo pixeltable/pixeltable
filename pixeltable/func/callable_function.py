@@ -191,6 +191,11 @@ class CallableFunction(Function):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION, '`overload` cannot be used with `is_method` or `is_property`'
             )
+        if self.run_in_thread and inspect.iscoroutinefunction(fn):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{self.display_name}(): run_in_thread requires a synchronous function',
+            )
         if self._has_resolved_fns:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_STATE, 'New `overload` not allowed after the UDF has already been called'

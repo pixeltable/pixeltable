@@ -2411,6 +2411,14 @@ class TestExprs:
         assert res['err'][0] is None and res['rot'][0] is not None
         assert res['err'][1] is not None and res['rot'][1] is None
 
+        # an image that the user opened with PIL.Image.open() is not decoded yet. Two UDF calls on pool threads read
+        # it at the same time, and both get the decoded image.
+        t = pxt.create_table(p('lazy'), {'img': pxt.Image})
+        t.add_computed_column(rot=t.img.rotate(90))
+        t.add_computed_column(small=t.img.resize((32, 32)))
+        rows = [{'img': PIL.Image.open(f)} for f in good_files]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+
         # a column with on_read validation validates and decodes its images in the query
         t = pxt.create_table(p('on_read'), {'img': pxt.Image}, media_validation='on_read')
         validate_update_status(t.insert({'img': f} for f in good_files), expected_rows=len(good_files))

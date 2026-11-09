@@ -251,6 +251,12 @@ class TestFunction:
             async def async_threaded(x: int) -> int:
                 return x
 
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='run_in_thread requires a synchronous function'):
+
+            @udf_threaded.overload
+            async def _(x: str) -> str:
+                return x
+
     def test_run_in_thread_exec(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         n = 20
