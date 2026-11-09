@@ -116,8 +116,8 @@ def _refresh_credentials(org: str, db: str, bucket: str, entry: _PxtStoreCacheEn
     )
     return {
         'access_key': creds.access_key_id,
-        'secret_key': creds.secret_access_key,
-        'token': creds.session_token,
+        'secret_key': creds.secret_access_key.get_secret_value(),
+        'token': creds.session_token.get_secret_value(),
         'expiry_time': expiry_time.isoformat(),
     }
 
@@ -144,8 +144,8 @@ def _build_pxt_store_entry(org: str, db: str, bucket: str, prefix: str | None = 
     expiry_time = datetime.now(tz=timezone.utc) + timedelta(seconds=creds.ttl_seconds)
     initial_metadata = {
         'access_key': creds.access_key_id,
-        'secret_key': creds.secret_access_key,
-        'token': creds.session_token,
+        'secret_key': creds.secret_access_key.get_secret_value(),
+        'token': creds.session_token.get_secret_value(),
         'expiry_time': expiry_time.isoformat(),
     }
 
