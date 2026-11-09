@@ -118,10 +118,49 @@ class TestGeminiLocal:
         )
         response = types.GenerateContentResponse(candidates=candidates, prompt_feedback=prompt_feedback)
         client = SimpleNamespace(
-            aio=SimpleNamespace(models=SimpleNamespace(generate_content=AsyncMock(return_value=response)))
+            vertexai=False,
+            aio=SimpleNamespace(models=SimpleNamespace(generate_content=AsyncMock(return_value=response))),
         )
         monkeypatch.setattr(gemini, '_genai_client', lambda: client)
         return response
+
+    def test_generate_speech_pins_api_version(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """google-genai 3.0 defaults the Developer API to v1; speechConfig exists only on v1beta."""
+        skip_test_if_not_installed('google.genai')
+        from google.genai import types
+
+        from pixeltable.functions import gemini
+
+        part = SimpleNamespace(inline_data=SimpleNamespace(data=b'\x00\x00'))
+        response = SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(parts=[part]))])
+        generate = AsyncMock(return_value=response)
+        client = SimpleNamespace(vertexai=False, aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate)))
+        monkeypatch.setattr(gemini, '_genai_client', lambda: client)
+        caller_http_options = types.HttpOptions(timeout=12345)
+
+        calls = (
+            (gemini.generate_speech.py_fns[0], {'voice': 'Kore'}, 'Hello.'),
+            (gemini.generate_speech.py_fns[1], {'voices': {'Alice': 'Kore', 'Bob': 'Puck'}}, 'Alice: Hello. Bob: Hi.'),
+        )
+        for fn, kwargs, text in calls:
+            generate.reset_mock()
+            caller_http_options.api_version = None
+            path = get_runtime().run_coro(
+                fn(text, model='gemini-2.5-flash-preview-tts', config={'http_options': caller_http_options}, **kwargs)
+            )
+            assert Path(path).is_file()
+            http_options = generate.await_args.kwargs['config'].http_options
+            assert http_options.api_version == 'v1beta'
+            assert http_options.timeout == 12345
+            assert caller_http_options.api_version is None
+
+        client.vertexai = True
+        generate.reset_mock()
+        path = get_runtime().run_coro(
+            gemini.generate_speech.py_fns[0]('Hello.', model='gemini-2.5-flash-preview-tts', voice='Kore')
+        )
+        assert Path(path).is_file()
+        assert generate.await_args.kwargs['config'].http_options is None
 
     @pytest.mark.db_roots('local', reason='mocked generate_video stores media in the catalog')
     def test_generate_video_pins_interactions_api_version(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:

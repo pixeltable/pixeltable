@@ -516,8 +516,14 @@ async def generate_speech(text: str, *, model: str, voice: str, config: dict | N
     config_.speech_config = types.SpeechConfig(
         voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice))
     )
+    client = _genai_client()
+    if not client.vertexai:
+        # Pin v1beta: google-genai 3.0 defaults the Developer API to v1, where GenerationConfig has no speechConfig.
+        http_options = config_.http_options.model_copy() if config_.http_options is not None else types.HttpOptions()
+        http_options.api_version = 'v1beta'
+        config_.http_options = http_options
 
-    response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
+    response = await client.aio.models.generate_content(model=model, contents=text, config=config_)
     try:
         data = response.candidates[0].content.parts[0].inline_data.data
     except (IndexError, AttributeError, TypeError) as exc:
@@ -587,8 +593,14 @@ async def _(text: str, *, model: str, voices: dict[str, str], config: dict | Non
             ]
         )
     )
+    client = _genai_client()
+    if not client.vertexai:
+        # Pin v1beta: google-genai 3.0 defaults the Developer API to v1, where GenerationConfig has no speechConfig.
+        http_options = config_.http_options.model_copy() if config_.http_options is not None else types.HttpOptions()
+        http_options.api_version = 'v1beta'
+        config_.http_options = http_options
 
-    response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
+    response = await client.aio.models.generate_content(model=model, contents=text, config=config_)
     try:
         data = response.candidates[0].content.parts[0].inline_data.data
     except (IndexError, AttributeError, TypeError) as exc:
