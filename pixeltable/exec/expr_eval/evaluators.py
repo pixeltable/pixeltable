@@ -132,7 +132,14 @@ class FnCallEvaluator(Evaluator):
         skip_rows: list[exprs.DataRow] = []  # skip rows with Nones in non-nullable parameters
         rows_call_args: list[FnCallArgs] = []
         for row in rows:
-            args_kwargs = self.fn_call.make_args(row)
+            try:
+                args_kwargs = self.fn_call.make_args(row)
+            except Exception as exc:
+                # an argument that fails to load (eg, an image file that fails to decode) is an error of this cell
+                _, _, exc_tb = sys.exc_info()
+                row.set_exc(self.fn_call.slot_idx, exc)
+                self.dispatcher.dispatch_exc([row], self.fn_call.slot_idx, exc_tb, self.eval_ctx)
+                continue
             if args_kwargs is None:
                 # nothing to do here
                 row[self.fn_call.slot_idx] = None
@@ -356,12 +363,18 @@ class ThreadPoolFnCallEvaluator(Evaluator):
             else:
                 args, kwargs = args_kwargs
                 # the worker receives the argument values and never reads the DataRow
-                call_fn = functools.partial(self.fn.py_fn, *args, **kwargs)
+                call_fn = functools.partial(self._call_udf, args, kwargs)
                 task = asyncio.create_task(self.eval_in_thread(row, call_fn))
                 self.dispatcher.register_task(task)
 
         if len(skip_rows) > 0:
             self.dispatcher.dispatch(skip_rows, self.eval_ctx)
+
+    def _call_udf(self, args: list[Any], kwargs: dict[str, Any]) -> Any:
+        # the metrics are recorded on the worker thread, so that the latency does not include the time the call
+        # waits for a free thread
+        with telemetry_schemas.udf_call(self.fn):
+            return self.fn.py_fn(*args, **kwargs)
 
     async def eval_in_thread(self, row: exprs.DataRow, call_fn: Callable[[], Any]) -> None:
         assert not row.has_val[self.fn_call.slot_idx]
@@ -371,7 +384,7 @@ class ThreadPoolFnCallEvaluator(Evaluator):
             return
         try:
             loop = asyncio.get_running_loop()
-            with self._cell_span(row), telemetry_schemas.udf_call(self.fn):
+            with self._cell_span(row):
                 # run_in_executor() does not copy the context to the worker thread. The snapshot carries it there,
                 # so that spans reported inside the UDF nest under the cell span.
                 hooks_ctx = telemetry.capture_context()

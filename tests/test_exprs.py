@@ -2477,6 +2477,17 @@ class TestExprs:
         for src_path, stored_path in zip(res['src'], res['stored'], strict=True):
             assert Path(src_path).read_bytes() == Path(stored_path).read_bytes()
 
+        # a stored image file that fails to decode gives an error for the cell of the UDF call that reads it, for a
+        # run_in_thread UDF (rotate) and for an unmarked UDF (convert)
+        t = pxt.create_table(p('corrupt'), {'img': pxt.Image})
+        validate_update_status(t.insert([{'img': PIL.Image.new('RGB', (8, 8))}]), expected_rows=1)
+        stored_path = t.select(path=t.img.localpath).collect()['path'][0]
+        Path(stored_path).write_bytes(b'not an image')
+        assert t.add_computed_column(rot=t.img.rotate(90), on_error='ignore').num_excs == 1
+        assert t.add_computed_column(gray=t.img.convert('L'), on_error='ignore').num_excs == 1
+        res = t.select(rot_err=t.rot.errortype, gray_err=t.gray.errortype).collect()
+        assert res['rot_err'] == res['gray_err'] == ['UnidentifiedImageError']
+
 
 @pxt.udf
 def image_path_as_image(path: str) -> PIL.Image.Image:

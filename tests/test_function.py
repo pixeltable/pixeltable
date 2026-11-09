@@ -237,6 +237,14 @@ class TestFunction:
             def pooled_threaded(x: int) -> int:
                 return x
 
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION, match='run_in_thread cannot be combined with resource_pool'
+        ):
+
+            @udf_threaded.resource_pool
+            def _(x: int) -> str:
+                return 'rate-limits:test'
+
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='run_in_thread requires a synchronous function'):
 
             @pxt.udf(run_in_thread=True)

@@ -76,6 +76,14 @@ class CallableFunction(Function):
     def is_async(self) -> bool:
         return inspect.iscoroutinefunction(self.py_fn)
 
+    def resource_pool(self, fn: Callable[..., str]) -> Callable[..., str]:
+        if self.run_in_thread:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{self.display_name}(): run_in_thread cannot be combined with resource_pool',
+            )
+        return super().resource_pool(fn)
+
     def comment(self) -> str | None:
         return inspect.getdoc(self.py_fns[0])
 

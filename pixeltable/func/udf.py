@@ -252,11 +252,6 @@ def make_function(
                 excs.ErrorCode.INVALID_CONFIGURATION,
                 f'{errmsg_name}(): run_in_thread cannot be combined with batch_size',
             )
-        if resource_pool is not None:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_CONFIGURATION,
-                f'{errmsg_name}(): run_in_thread cannot be combined with resource_pool',
-            )
         if inspect.iscoroutinefunction(py_fn):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION, f'{errmsg_name}(): run_in_thread requires a synchronous function'
