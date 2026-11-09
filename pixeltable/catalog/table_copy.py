@@ -398,20 +398,19 @@ def _queried_tbl_ids(expr: exprs.Expr) -> set[uuid.UUID]:
     return ids
 
 
-def _check_no_other_tbl_refs(tbl: InsertableTable, tv: TableVersion) -> None:
-    """Refuse tbl if a computed column of it references another table, which another database cannot resolve."""
-    for col in tv.cols_by_id.values():
-        if col.value_expr is None:
-            continue
-        other_ids = _referenced_tbl_ids(col.value_expr) - {tbl._id}
+def _check_no_other_tbl_refs(tbl: InsertableTable, value_exprs: Iterable[tuple[str | None, exprs.Expr]]) -> None:
+    """Refuse tbl if one of value_exprs, the (column name, value expression) pairs of computed columns of tbl,
+    references another table, which another database cannot resolve."""
+    for col_name, value_expr in value_exprs:
+        other_ids = _referenced_tbl_ids(value_expr) - {tbl._id}
         if len(other_ids) > 0:
             other_id = next(iter(other_ids))
             other = get_runtime().catalog.get_table_by_id(other_id)
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Cannot copy {tbl._display_str()}: the computed column {col.name!r} references '
+                f'Cannot copy {tbl._display_str()}: the computed column {col_name!r} references '
                 f'{other._display_str() if other is not None else other_id}; only a table whose computed '
-                'columns reference no other table can be copied to another database',
+                'columns, including dropped ones, reference no other table can be copied to another database',
             )
 
 
@@ -422,7 +421,12 @@ def _export_table(tbl: InsertableTable, tmp_dir: FsPath) -> _TableExport:
         # collect_tbl_history() starts a transaction of its own, and the history must come from this one
         md = cat._collect_tbl_history(tbl._id, None)
         tv = tbl._tbl_version.get()
-        _check_no_other_tbl_refs(tbl, tv)
+        # A dropped computed column stays in the schema versions that had it, and a revert of the copy restores it.
+        # The check therefore covers the computed columns of every schema version.
+        schema_cols = [col for version_md in md for col in version_md.schema_version_md.columns.values()]
+        _check_no_other_tbl_refs(
+            tbl, [(col.name, exprs.Expr.from_dict(col.value_expr)) for col in schema_cols if col.value_expr is not None]
+        )
         store = tv.store_tbl
         export = _TableExport(md, store.sa_tbl, tmp_dir)
         # ordering by version means that the first row to reference a media file is from the earliest version that
@@ -512,7 +516,9 @@ def create_table_like(
     tv = tbl._tbl_version.get()
     is_other_db = dest_path.catalog_uri != tbl._path().catalog_uri
     if is_other_db:
-        _check_no_other_tbl_refs(tbl, tv)
+        _check_no_other_tbl_refs(
+            tbl, [(col.name, col.value_expr) for col in tv.cols_by_id.values() if col.value_expr is not None]
+        )
 
     columns: dict[str, ColumnSpec] = {}
     for col in tv.cols_by_name.values():

@@ -298,6 +298,12 @@ class TestCopyTable:
         # in the local database, a table like src2 can reference src
         like_src2 = pxt.create_table('like_src2', schema_source=t2)
         assert like_src2.columns() == t2.columns()
+        # A dropped computed column stays in the history that a copy takes along, so the copy is still refused. A
+        # table like src2 takes only the current schema.
+        t2.drop_column('r')
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"computed column 'r' references table 'src'"):
+            pxt.create_table(p('dst'), source=t2)
+        assert pxt.create_table(p('like_dropped_r'), schema_source=t2).columns() == ['n']
 
         # a UDF that the destination cannot load
         t4 = pxt.create_table('src4', {'n': pxt.Int})

@@ -1937,7 +1937,10 @@ class Catalog(CatalogBase):
             self._move(tbl_path, dest_path, IfExistsParam.ERROR, IfNotExistsParam.ERROR)
             return True
 
-        return finish_fn()
+        is_at_dest_path = finish_fn()
+        # finalizes the drop of a table that if_exists replaced
+        self._roll_forward()
+        return is_at_dest_path
 
     def create_view(
         self,
