@@ -12,6 +12,7 @@ import pydantic
 from typing_extensions import TypeForm
 
 import pixeltable as pxt
+import pixeltable.metadata.schema as md_schema
 from pixeltable import Query, catalog, exceptions as excs, exprs, func, telemetry, telemetry_schemas, type_system as ts
 from pixeltable.catalog import DirEntry, TablePath
 from pixeltable.catalog.globals import OnErrorParam, fold_identifier
@@ -63,7 +64,7 @@ def init(config_overrides: dict[str, Any] | None = None) -> None:
         >>> pxt.init({'openai.api_key': 'sk-...', 'pixeltable.db': 'my_db'})
     """
     Config.init(config_overrides if config_overrides is not None else {})
-    _ = get_runtime().catalog
+    Env.get()
 
 
 @telemetry.spanned('pixeltable.create_table', set_current=True)
@@ -987,38 +988,24 @@ def ls(path: str = '') -> pd.DataFrame:
     To get a programmatic list of the directory's contents, use [get_dir_contents()][pixeltable.get_dir_contents]
     instead.
     """
-    from pixeltable.catalog import retry_md_read_loop
-    from pixeltable.metadata import schema
-
     path_obj = catalog.Path.parse(path, allow_empty_path=True)
-    cat = get_runtime().get_catalog(path_obj)
-    dir_entries = cat.get_dir_contents(path_obj)
-
-    @retry_md_read_loop()
-    def op() -> list[list[str]]:
-        rows: list[list[str]] = []
-        for name, entry in dir_entries.items():
-            if entry.dir is not None:
-                kind = 'dir'
-                version = ''
-                base = ''
-            else:
-                assert entry.table is not None
-                assert isinstance(entry.table, schema.Table)
-                tbl = cat.get_table_by_id(entry.table.id)
-                md = tbl.get_metadata()
-                base = md['base'] or ''
-                if md['is_snapshot']:
-                    kind = 'snapshot'
-                elif md['is_view']:
-                    kind = 'view'
-                else:
-                    kind = 'table'
-                version = '' if kind == 'snapshot' else str(md['version'])
-            rows.append([name, kind, version, base])
-        return rows
-
-    rows = op()
+    dir_entries = get_runtime().get_catalog(path_obj).get_dir_contents(path_obj, with_base_paths=True)
+    rows: list[list[str]] = []
+    for name, entry in dir_entries.items():
+        if entry.dir is not None:
+            rows.append([name, 'dir', '', ''])
+            continue
+        assert entry.table is not None
+        tbl_md = md_schema.md_from_dict(md_schema.TableMd, entry.table.md)
+        if tbl_md.view_md is None:
+            kind = 'table'
+        elif tbl_md.view_md.is_snapshot:
+            kind = 'snapshot'
+        else:
+            kind = 'view'
+        version = '' if kind == 'snapshot' else str(tbl_md.current_version)
+        base = '' if entry.base_path is None else str(entry.base_path)
+        rows.append([name, kind, version, base])
 
     rows = sorted(rows, key=lambda x: x[0])
     df = pd.DataFrame(

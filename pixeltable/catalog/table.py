@@ -238,6 +238,9 @@ class Table(SchemaObject):
         """
 
     @abc.abstractmethod
+    def _column_description(self, column: ColumnRef, html: bool) -> str: ...
+
+    @abc.abstractmethod
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
         """Return a PyTorch Dataset for this table.
         See Query.to_pytorch_dataset()

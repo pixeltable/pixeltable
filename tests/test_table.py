@@ -48,10 +48,12 @@ from .utils import (
     get_temp_store_count,
     get_video_files,
     make_tbl,
+    no_local_db_env,
     pxt_raises,
     read_data_file,
     reload_catalog,
     rerun_on_network_error,
+    run_in_new_process,
     sigint_at_pos,
     skip_test_if_not_installed,
     stock_price,
@@ -1131,7 +1133,7 @@ class TestTable:
         )
         assert_resultset_eq(on_read_res_1, on_read_res_2)
 
-    def test_create_from_query(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+    def test_create_from_query(self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         t = test_tbl
         query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
@@ -1215,11 +1217,11 @@ class TestTable:
         t2.insert(t)
         assert len(t2.collect()) == 2 * len(t.collect())
 
-    def test_join_query_as_source(self, db_root: DatabaseRoot) -> None:
+    def test_join_query_as_source(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t1 = pxt.create_table(p('ints'), {'id': pxt.Int, 'n': pxt.Int})
+        t1 = pxt.create_table(p('ints'), {'id': pxt.Int, 'n': pxt.Int}, _is_data_versioned=is_data_versioned)
         t1.insert({'id': i, 'n': i * 10} for i in range(3))
-        t2 = pxt.create_table(p('strs'), {'id': pxt.Int, 's': pxt.String})
+        t2 = pxt.create_table(p('strs'), {'id': pxt.Int, 's': pxt.String}, _is_data_versioned=is_data_versioned)
         t2.insert({'id': i, 's': f'str_{i}'} for i in range(3))
         src_query = t1.join(t2, on=t1.id == t2.id).select(t1.n, t2.s)
 
@@ -4417,23 +4419,22 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
-    recompute_udf_increment = 0
-    recompute_udf_error_val: int | None = None
-
     @staticmethod
     @pxt.udf
-    def recompute_int_udf(i: int) -> int:
-        if TestTable.recompute_udf_error_val is not None and i % TestTable.recompute_udf_error_val == 0:
+    def recompute_int_udf(i: int, params: pxt.Json) -> int:
+        error_val = params[0]['error_val']
+        if error_val is not None and i % error_val == 0:
             raise RuntimeError(f'Error in recompute_udf for value {i}')
-        return i + TestTable.recompute_udf_increment
+        return i + params[0]['incr']
 
     @staticmethod
     @pxt.udf
-    def recompute_str_udf(s: str) -> str:
+    def recompute_str_udf(s: str, params: pxt.Json) -> str:
         i = int(s)
-        if TestTable.recompute_udf_error_val is not None and i % TestTable.recompute_udf_error_val == 0:
+        error_val = params[0]['error_val']
+        if error_val is not None and i % error_val == 0:
             raise RuntimeError(f'Error in recompute_udf for value {i}')
-        return str(i + TestTable.recompute_udf_increment)
+        return str(i + params[0]['incr'])
 
     def test_recompute_keeps_input_error(self, db_root: DatabaseRoot) -> None:
         """A recompute passes on an input cell's stored error to the cells computed from it, as the insert did."""
@@ -4463,38 +4464,63 @@ class TestTable:
         assert (status.num_excs, status.cols_with_excs) == (1, ['tbl.b'])
         assert t.select(t.b, t.note).collect()[0] == {'b': None, 'note': inserted['img_errormsg']}
 
-    # TODO: cannot be converted because the UDF reads client-process-local class attributes the daemon cannot see
-    @pytest.mark.db_roots('local', reason='UDF reads client-process-local class attributes the daemon cannot see')
-    def test_recompute_column(self, uses_db: None) -> None:
-        t = pxt.create_table('recompute_test', schema={'i': pxt.Int | None, 's': pxt.String | None})
-        status = t.add_computed_column(i1=self.recompute_int_udf(t.i))
+    # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
+    @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
+    def test_recompute_column(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
+        # the UDFs' state lives in a table, where a hosted catalog's server can read it
+        params = pxt.create_table(p('recompute_params'), {'incr': pxt.Int, 'error_val': pxt.Int | None})
+        params.insert(incr=0, error_val=None)
+
+        @pxt.query
+        def recompute_params() -> pxt.Query:
+            return params.select(params.incr, params.error_val)
+
+        t = pxt.create_table(
+            p('recompute_test'),
+            schema={'i': pxt.Int | None, 's': pxt.String | None},
+            _is_data_versioned=is_data_versioned,
+        )
+        status = t.add_computed_column(i1=self.recompute_int_udf(t.i, recompute_params()))
         assert status.num_excs == 0
         t.add_btree_index('i1')
-        status = t.add_computed_column(s1=self.recompute_str_udf(t.s))
+        status = t.add_computed_column(s1=self.recompute_str_udf(t.s, recompute_params()))
         assert status.num_excs == 0
         status = t.add_computed_column(i2=t.i1 * 2)
         assert status.num_excs == 0
-        v = pxt.create_view('recompute_view', base=t.where(t.i < 20), additional_columns={'i3': t.i2 + 1})
-        validate_update_status(t.insert({'i': i, 's': str(i)} for i in range(100)), expected_rows=100 + 20)
+        # TODO(PXT-1277): View support for operational tables
+        v = (
+            pxt.create_view(p('recompute_view'), base=t.where(t.i < 20), additional_columns={'i3': t.i2 + 1})
+            if is_data_versioned
+            else None
+        )
+        view_cols = {'recompute_view.i3'} if v is not None else set()
+
+        def view_rows(n: int) -> int:
+            return n if v is not None else 0
+
+        validate_update_status(t.insert({'i': i, 's': str(i)} for i in range(100)), expected_rows=100 + view_rows(20))
 
         def validate(i1_incr: int, i2_incr: int, t_interval: tuple[int, int] = (0, 100)) -> None:
             result = t.where((t.i >= t_interval[0]) & (t.i < t_interval[1])).select(t.i1, t.i2).order_by(t.i).collect()
             t_i_range = range(t_interval[0], t_interval[1])
             assert result['i1'] == [i + i1_incr for i in t_i_range], 'i1'
             assert result['i2'] == [2 * (i + i2_incr) for i in t_i_range], 'i2'
+            if v is None:
+                return
             result = v.where((v.i >= t_interval[0]) & (v.i < t_interval[1])).select(v.i3).order_by(v.i).collect()
             v_i_range = range(t_interval[0], min(t_interval[1], 20))
             assert result['i3'] == [2 * (i + i2_incr) + 1 for i in v_i_range], 'i3'
 
         # recompute without propagation
-        TestTable.recompute_udf_increment = 1
+        params.update({'incr': 1})
         status = t.recompute_columns(t.i1, cascade=False)
         assert status.num_rows == 100
         assert set(status.updated_cols) == {'recompute_test.i1'}
         validate(1, 0)
 
         # recompute without propagation, with predicate
-        TestTable.recompute_udf_increment = 0
+        params.update({'incr': 0})
         status = t.recompute_columns(t.i1, where=t.i < 10, cascade=False)
         assert status.num_rows == 10
         assert set(status.updated_cols) == {'recompute_test.i1'}
@@ -4502,39 +4528,34 @@ class TestTable:
         validate(1, 0, t_interval=(11, 100))
 
         # recompute with propagation, via a ColumnRef
-        TestTable.recompute_udf_increment = 1
+        params.update({'incr': 1})
         status = t.i1.recompute()
-        assert status.num_rows == 100 + 20
-        assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
+        assert status.num_rows == 100 + view_rows(20)
+        assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2'} | view_cols
         validate(1, 1)
 
         # recompute with propagation and predicate, via a Query
-        TestTable.recompute_udf_increment = 0
+        params.update({'incr': 0})
         status = t.where(t.i < 10).recompute_columns(t.i1, cascade=True)
-        assert status.num_rows == 10 + 10
-        assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
+        assert status.num_rows == 10 + view_rows(10)
+        assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2'} | view_cols
         validate(0, 0, t_interval=(0, 10))
         validate(1, 1, t_interval=(11, 100))
 
         # recompute multiple columns
-        TestTable.recompute_udf_increment = 1
+        params.update({'incr': 1})
         status = t.recompute_columns('i1', t.s1)
-        assert status.num_rows == 100 + 20
-        assert set(status.updated_cols) == {
-            'recompute_test.i1',
-            'recompute_test.i2',
-            'recompute_test.s1',
-            'recompute_view.i3',
-        }
+        assert status.num_rows == 100 + view_rows(20)
+        assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_test.s1'} | view_cols
         validate(1, 1)
 
         # add some errors
-        TestTable.recompute_udf_increment = 0
-        TestTable.recompute_udf_error_val = 10
+        params.update({'incr': 0, 'error_val': 10})
         status = t.recompute_columns('i1')
-        assert status.num_rows == 100 + 20
-        assert status.num_excs == 3 * 10  # i1 and its index value col, plus i2 (i2 has no indexes)
-        assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
+        assert status.num_rows == 100 + view_rows(20)
+        # i1 and its index value col (data-versioned only), plus i2 (i2 has no indexes)
+        assert status.num_excs == (30 if is_data_versioned else 20)
+        assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2'} | view_cols
         _ = t.select(t.i2.errormsg).where(t.i2.errormsg != None).collect()
         assert t.where(t.i1.errortype != None).count() == 10
         assert t.where(t.i1.errormsg.startswith('Error in recompute_udf') != None).count() == 10
@@ -4544,36 +4565,69 @@ class TestTable:
         assert t.where(t.i2.errortype == None).count() == 90
 
         # recompute errors
-        TestTable.recompute_udf_error_val = None
+        params.update({'error_val': None})
         status = t.recompute_columns(t.i1, where=t.i < 10, errors_only=True)
-        assert status.num_rows == 1 + 1
+        assert status.num_rows == 1 + view_rows(1)
         assert status.num_excs == 0
-        assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
+        assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2'} | view_cols
         status = t.recompute_columns(t.i1, errors_only=True)
-        assert status.num_rows == 9 + 1
+        assert status.num_rows == 9 + view_rows(1)
         assert status.num_excs == 0
-        assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
+        assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2'} | view_cols
 
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Unknown column'):
             t.recompute_columns('h')
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='is not a computed column'):
             t.recompute_columns(t.i)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='of a snapshot'):
-            s = pxt.create_snapshot('recompute_snap', t, additional_columns={'i4': t.i2 + 1})
-            s.recompute_columns(s.i4)
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='At least one column must be specified'):
             t.recompute_columns()
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot use errors_only=True with multiple columns'):
             t.recompute_columns(t.i1, t.s1, errors_only=True)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot recompute column of a base'):
-            v.recompute_columns(v.i1)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot recompute column of a base'):
-            v.i1.recompute()
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="not bound by table 'recompute_test'"):
-            y = pxt.create_table('other_table', {'i': pxt.Int | None})
+            y = pxt.create_table(p('other_table'), {'i': pxt.Int | None})
             t.recompute_columns('i1', where=y.i == 0)
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r's\.upper is the method upper\(\)'):
             t.recompute_columns('i1', where=t.s.upper == 'a')
+
+        if v is not None:
+            s = pxt.create_snapshot(p('recompute_snap'), t, additional_columns={'i4': t.i2 + 1})
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='of a snapshot'):
+                s.recompute_columns(s.i4)
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='of a snapshot'):
+                s.i4.recompute()
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot recompute column of a base'):
+                v.recompute_columns(v.i1)
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot recompute column of a base'):
+                v.i1.recompute()
+
+    @pytest.mark.db_roots('proxy', 'cloud', reason='a process without a local database can only use a hosted catalog')
+    def test_pure_snapshot_column_in_new_process(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
+        """A process that loads a pure snapshot but not its base resolves the snapshot's columns in its catalog."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'i': pxt.Int})
+        t.add_computed_column(i1=t.i + 1)
+        # a pure snapshot (no added columns, no filter) has no columns of its own: s.i1 is a reference to t's column i1
+        s = pxt.create_snapshot(p('snap'), t)
+
+        # expected results, computed in this process, which created t and therefore knows that t is hosted:
+        # repr(s.i1) describes column i1 of t, and recompute() fails because a snapshot can't be recomputed
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='of a snapshot') as exc_info:
+            s.i1.recompute()
+        expected = [repr(s.i1), 'UNSUPPORTED_OPERATION', str(exc_info.value)]
+
+        # a new process loads only the snapshot, never t, and can't start a local database. The column operations
+        # must resolve t in the hosted catalog: if they went to the local catalog, they would try to start the local
+        # database, and the process would exit with that error.
+        # The process prints its results only from the except block: if recompute() succeeds, the process prints
+        # nothing and the test fails.
+        code = f"""
+            s = pxt.get_table({p('snap')!r})
+            try:
+                s.i1.recompute()
+            except pxt.Error as e:
+                print(json.dumps([repr(s.i1), e.error_code.name, str(e)]))
+        """
+        assert run_in_new_process(code, no_local_db_env('embedded', tmp_path)) == expected
 
     def __test_drop_column_if_not_exists(self, t: pxt.Table, non_existing_col: str | ColumnRef) -> None:
         """Test the if_not_exists parameter of drop_column API"""
@@ -4939,24 +4993,38 @@ class TestTable:
                       c8  Array[(2, 3), int64]    test_tbl  [[1, 2, 3], [4, 5, 6]]""",
         )
 
-        # The remaining cases aren't supported over a hosted (proxy) catalog yet:
-        # - ColumnRef.__repr__ renders its owner table client-side via the local catalog plus the
-        #   LocalTable-only _col_descriptor/_index_descriptor, neither of which a proxy column's table satisfies
-        # - the iterator view over a snapshot-of-a-view renders an ancestor chain the proxy md export doesn't carry
-        if db_root.id != 'local':
-            return
-
+        # test case: columns of a view, described through their owner table
         validate_repr(
             v2.c1,
-            """
+            f"""
             Column
             'c1'
-            (of table 'test_tbl')
+            (of table '{p('test_tbl')}')
 
              Column Name    Type    Source Computed With                      Comment
             -------------------------------------------------------------------------
                       c1  String  test_tbl                String column with no nulls""",
         )
+        validate_repr(
+            v2.c2,
+            f"""
+            Column
+            'c2'
+            (of table '{p('test_tbl')}')
+
+             Column Name Type    Source Computed With Comment
+            -----------------------------------------------------
+                      c2  Int  test_tbl
+
+             Index Name Column   Type
+            -------------------------
+                 c2_idx     c2  btree""",
+        )
+
+        # Not supported over a hosted (proxy) catalog yet: the proxy md export lacks the ancestor chain of an
+        # iterator view over a snapshot of a view
+        if db_root.id != 'local':
+            return
 
         iterator_view_1 = pxt.create_view(p('iterator_view_1'), s1, iterator=DummyIterator(s1.c2))
         validate_repr(
@@ -5285,10 +5353,15 @@ class TestTable:
                 {'c': {'type': pxt.Int | None, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
 
-    def test_case_insensitive_columns(self, db_root: DatabaseRoot) -> None:
+    def test_case_insensitive_columns(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Column names are matched case-insensitively, and the folded spelling is what gets stored."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('T'), {'MyCol': pxt.Int | None, 'Other': pxt.String}, primary_key=['OTHER'])
+        t = pxt.create_table(
+            p('T'),
+            {'MyCol': pxt.Int | None, 'Other': pxt.String},
+            primary_key=['OTHER'],
+            _is_data_versioned=is_data_versioned,
+        )
 
         # stored and displayed folded
         assert t.columns() == ['mycol', 'other']
@@ -5325,7 +5398,7 @@ class TestTable:
         assert pxt.get_table(p('t')) == pxt.get_table(p('T'))
 
         # alter_column resolves its column in any casing
-        t2 = pxt.create_table(p('t2'), {'Num': pxt.Int})
+        t2 = pxt.create_table(p('t2'), {'Num': pxt.Int}, _is_data_versioned=is_data_versioned)
         t2.alter_column('NUM', type_=pxt.Int | None)
         validate_update_status(t2.insert([{'num': None}]), 1)
 

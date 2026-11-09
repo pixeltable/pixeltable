@@ -25,6 +25,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
+from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, TypedDict
 from unittest import TestCase
 from uuid import uuid4
@@ -147,6 +148,42 @@ def free_port() -> int:
                 continue
         return port
     raise RuntimeError(f'No free port in {first}-{first + slice_len - 1}')
+
+
+LocalDbKind = Literal['embedded', 'external']
+
+
+def no_local_db_env(kind: LocalDbKind, tmp_path: Path) -> dict[str, str | None]:
+    """Environment overrides under which a new process cannot start or reach its own database of the given kind."""
+    if kind == 'embedded':
+        pgdata = tmp_path / 'pgdata'
+        pgdata.write_text('', encoding='utf-8')  # initdb refuses a data directory that is a regular file
+        return {'PIXELTABLE_PGDATA': str(pgdata), 'PIXELTABLE_DB_CONNECT_STR': None}
+    return {'PIXELTABLE_DB_CONNECT_STR': 'postgresql://pixeltable@127.0.0.1:1/pixeltable'}  # nothing listens on 1
+
+
+def run_in_new_process(code: str, env_overrides: dict[str, str | None], cwd: Path | None = None) -> Any:
+    """Run code in a new Python process and return the JSON value of the last line it prints.
+
+    The code runs with json and pixeltable (as pxt) imported.
+    """
+    env = {**os.environ}
+    for name, value in env_overrides.items():
+        if value is None:
+            env.pop(name, None)
+        else:
+            env[name] = value
+    r = subprocess.run(
+        [sys.executable, '-c', 'import json\n\nimport pixeltable as pxt\n' + dedent(code)],
+        env=env,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=300,
+    )
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout.strip().splitlines()[-1])
 
 
 @pxt.udf
@@ -443,7 +480,9 @@ def create_all_datatypes_tbl(
     return tbl
 
 
-def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10, path: str = 'scalars_tbl') -> pxt.Table:
+def create_scalars_tbl(
+    num_rows: int, seed: int = 0, percent_nulls: int = 10, path: str = 'scalars_tbl', is_data_versioned: bool = True
+) -> pxt.Table:
     """
     Creates a table with scalar columns, each of which contains randomly generated data.
     """
@@ -457,7 +496,7 @@ def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10, pa
         'c_string': ts.StringType(nullable=True),
         'c_timestamp': ts.TimestampType(nullable=True),
     }
-    tbl = pxt.create_table(path, schema)  # type: ignore[arg-type]
+    tbl = pxt.create_table(path, schema, _is_data_versioned=is_data_versioned)  # type: ignore[arg-type]
 
     example_rows: list[dict[str, Any]] = []
     str_chars = 'abcdefghijklmnopqrstuvwxyzab'

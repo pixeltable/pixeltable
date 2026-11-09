@@ -179,9 +179,6 @@ def main() -> int:
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
 
     try:
-        # bring up the embedded Postgres before the workers connect to it
-        pxt.init()
-
         ctx = mp.get_context('spawn')  # fresh interpreters; a fork would inherit live DB connections
         processes = [
             ctx.Process(target=_worker, args=(worker_id, port, args.images, args.rows, args.rounds, args.threads))

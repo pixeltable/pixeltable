@@ -455,7 +455,7 @@ class FunctionCall(Expr):
 
     @property
     def is_deterministic(self) -> bool:
-        return self.fn.is_deterministic
+        return self.fn.is_deterministic and super().is_deterministic
 
     def update(self, data_row: DataRow) -> None:
         """

@@ -121,6 +121,9 @@ async def chat_completions(
             assert tool_choice['tool'] is not None
             model_kwargs['tool_choice'] = {'type': 'function', 'function': {'name': tool_choice['tool']}}
 
+    if tool_choice is not None and not tool_choice['parallel_tool_calls']:
+        model_kwargs['parallel_tool_calls'] = False
+
     # Prepare OpenRouter-specific parameters for extra_body
     extra_body: dict[str, Any] = {}
     if provider is not None:

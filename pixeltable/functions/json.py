@@ -535,6 +535,8 @@ def list_iterator(
     All of the inputs must be *typed* `Json` expressions. Untyped Json will be rejected (the type schema is
     necessary in order for Pixeltable to determine the types of the output columns).
 
+    If any input list is null for a row, that row produces no output rows.
+
     Args:
         elements: A list of dictionaries to iterate over. The dictionary keys will be used as column names in the
             output. Cannot be specified together with keyword arguments.
@@ -548,15 +550,19 @@ def list_iterator(
         **kwargs: One or more lists to iterate over. The kwarg names will be used as column names in the output.
             Cannot be specified together with `elements`.
     """
-    assert (elements is None) != (builtins.len(kwargs) == 0)
-
-    if elements is not None:
-        yield from elements
+    if builtins.len(kwargs) == 0:
+        # Positional form is used, e.g. list_iterator(t.col)
+        # elements is None if the argument is null for this base row
+        if elements is not None:
+            yield from elements
 
     else:
+        # kwargs form is used, e.g. list_iterator(a=t.col_1, b=t.col_2)
         # TODO: Clean up the way kwargs are passed to the iterator (this works, but it's a bit clunk with
         #     unnecessary indirection)
-        kwargs_: dict[str, list] = kwargs['kwargs']  # type: ignore[assignment]
+        kwargs_: dict[str, list | None] = kwargs['kwargs']  # type: ignore[assignment]
+        if any(val is None for val in kwargs_.values()):
+            return
         zipped: Iterator[tuple]
         match mode:
             case 'strict':

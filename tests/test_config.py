@@ -155,6 +155,21 @@ class TestConfig:
             tmp,
         )
 
+    def test_client_params_are_known_options(self) -> None:
+        """Each config parameter of a Pixeltable API client is a known option, so a config file can set it."""
+        import pixeltable.functions  # noqa: F401  # registers the provider clients
+        from pixeltable import env
+        from pixeltable.config import KNOWN_CONFIG_OPTIONS
+
+        unknown = [
+            f'{name}.{param}'
+            for name, factory in env._client_factories.items()
+            if factory.init_fn.__module__.startswith('pixeltable.')
+            for param in factory.params
+            if param not in KNOWN_CONFIG_OPTIONS.get(name, {})
+        ]
+        assert unknown == []
+
     def test_env_var_names(self, tmp_path: Path) -> None:
         """A setting is bound by its name uppercased, so only that spelling of a variable is read."""
         config_file = tmp_path / 'config.toml'

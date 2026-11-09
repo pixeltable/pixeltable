@@ -3,7 +3,13 @@ import pytest
 import pixeltable as pxt
 from tests.functions.tool_utils import run_tool_invocations_test
 
-from ..utils import rerun_on_network_error, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import (
+    rerun,
+    rerun_on_network_error,
+    skip_test_if_no_client,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
@@ -45,6 +51,7 @@ class TestOpenRouter:
         assert 'Paris' in results['output'][0]['choices'][0]['message']['content']
         assert 'Paris' in results['output2'][0]['choices'][0]['message']['content']
 
+    @rerun(reruns=6, reruns_delay=8)
     def test_tool_invocations(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openrouter')
@@ -66,7 +73,7 @@ class TestOpenRouter:
             t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
             return t
 
-        run_tool_invocations_test(make_table)
+        run_tool_invocations_test(make_table, test_tool_choice=True)
 
     def test_transforms(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')

@@ -498,10 +498,26 @@
         </outline>
         <outline text="module|pixeltable.functions.twelvelabs">
           <outline text="udf|pixeltable.functions.twelvelabs.embed" />
+          <outline text="udf|pixeltable.functions.twelvelabs.async_embed" />
+          <outline text="udf|pixeltable.functions.twelvelabs.async_embed_asset" />
         </outline>
         <outline text="module|pixeltable.functions.vllm">
           <outline text="udf|pixeltable.functions.vllm.chat_completions" />
           <outline text="udf|pixeltable.functions.vllm.generate" />
+        </outline>
+        <outline text="module|pixeltable.functions.vlmrun">
+          <outline text="udf|pixeltable.functions.vlmrun.chat_completions" />
+          <outline text="udf|pixeltable.functions.vlmrun.generate_image" />
+          <outline text="udf|pixeltable.functions.vlmrun.annotate_image" />
+          <outline text="udf|pixeltable.functions.vlmrun.generate_video" />
+          <outline text="udf|pixeltable.functions.vlmrun.generate_document" />
+        </outline>
+        <outline text="module|pixeltable.functions.vlmrun_gateway">
+          <outline text="udf|pixeltable.functions.vlmrun_gateway.chat_completions" />
+          <outline text="udf|pixeltable.functions.vlmrun_gateway.ocr" />
+          <outline text="udf|pixeltable.functions.vlmrun_gateway.analyze" />
+          <outline text="udf|pixeltable.functions.vlmrun_gateway.embeddings" />
+          <outline text="udf|pixeltable.functions.vlmrun_gateway.transcriptions" />
         </outline>
         <outline text="module|pixeltable.functions.voyageai">
           <outline text="udf|pixeltable.functions.voyageai.embeddings" />
@@ -518,6 +534,7 @@
           <outline text="udf|pixeltable.functions.yolox.yolox" />
           <outline text="udf|pixeltable.functions.yolox.yolo_to_coco" />
         </outline>
+        <outline text="class|pixeltable.functions.twelvelabs.EmbeddingResult" />
         <outline text="class|pixeltable.functions.whisper.WhisperSegment" />
         <outline text="class|pixeltable.functions.whisper.WhisperTranscription" />
         <outline text="class|pixeltable.functions.whisper.WhisperWord" />

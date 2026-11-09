@@ -1,5 +1,6 @@
 import enum
 import logging
+import pathlib
 from typing import Any, Callable
 
 import psycopg
@@ -18,7 +19,7 @@ from pixeltable.utils.fault_injection import FaultLocation
 
 from .coordinator import MultiThreadedScenario
 from .fault_injection import BlockFault, ExceptionFault
-from .utils import DatabaseRoot, RecordingSubscriber, pxt_raises, reload_catalog
+from .utils import DatabaseRoot, RecordingSubscriber, no_local_db_env, pxt_raises, reload_catalog, run_in_new_process
 
 _logger = logging.getLogger('pixeltable_test')
 
@@ -50,7 +51,7 @@ class TestCatalog:
         with pytest.raises(excs.Error, match='same catalog'):
             pxt.move('pxt://local:db/t', 'local_t')  # hosted -> local
 
-    def test_ls(self, db_root: DatabaseRoot) -> None:
+    def test_ls(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('test_dir'))
         pxt.create_dir(p('test_dir/subdir'))
@@ -85,6 +86,13 @@ class TestCatalog:
         # or base) are dropped to match the expected tokens.
         actual = [list(df.columns), *([v for v in row if v != ''] for row in df.itertuples(index=False))]
         assert actual == tokens(expected)
+
+        if db_root.id != 'local':
+            # a new process lists a hosted directory without starting or reaching a local database
+            code = f"""
+                print(json.dumps(pxt.ls({p('test_dir')!r}).to_dict('list')))
+            """
+            assert run_in_new_process(code, no_local_db_env('embedded', tmp_path)) == df.to_dict('list')
 
     def test_cross_type_replacement(self, db_root: DatabaseRoot) -> None:
         """Test that tables, views, and snapshots can replace each other with if_exists='replace'.
