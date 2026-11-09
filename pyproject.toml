@@ -210,6 +210,7 @@ dev = [
     "azure-storage-blob>=12.20.0",
     "azure-identity>=1.16.0",
     "twelvelabs>=1.3.6",
+    "vlmrun>=0.9.3",
     "voyageai>=0.3.7 ; python_version < '3.14'",
     "scenedetect>=0.6.0.1 ; python_version < '3.14' or sys_platform != 'win32'",
     "runwayml>=5.2",
@@ -333,6 +334,8 @@ extraPaths = ["packages/opentelemetry-instrumentation-pixeltable/src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = '-v -m "not remote_api and not expensive and not very_expensive and not benchmark and not otel" --strict-markers'
+# Dump all thread stacks when a test runs longer than this many seconds; the test keeps running
+faulthandler_timeout = 600
 markers = [
     "expensive: marks tests as expensive to run",
     "very_expensive: marks tests as very expensive to run, or as depending on an unreliable external service",

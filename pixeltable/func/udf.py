@@ -10,8 +10,8 @@ from pixeltable.utils.system import is_interactive_env
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplate, ExprTemplateFunction
 from .function_registry import FunctionRegistry
-from .globals import validate_symbol_path
 from .signature import Parameter, Signature
+from .symbols import validate_symbol_path
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -75,7 +75,7 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
         substitute_fn = kwargs.pop('substitute_fn', None)
         is_method = kwargs.pop('is_method', None)
         is_property = kwargs.pop('is_property', None)
-        is_deterministic = kwargs.pop('is_deterministic', None)
+        is_deterministic = kwargs.pop('is_deterministic', True)
         resource_pool = kwargs.pop('resource_pool', None)
         type_substitutions = kwargs.pop('type_substitutions', None)
         display_name = kwargs.pop('display_name', None)

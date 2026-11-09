@@ -20,7 +20,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import env, telemetry, telemetry_schemas
 from pixeltable.func import Batch
-from pixeltable.functions.util import normalize_image_mode, resolve_torch_device
+from pixeltable.functions.model_support import normalize_image_mode, resolve_torch_device
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 

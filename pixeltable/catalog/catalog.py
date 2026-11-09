@@ -27,6 +27,7 @@ from pixeltable.utils import fault_injection
 from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.object_stores import PXT_BUCKETS_DIR
 
+from . import table_copy
 from .catalog_base import CatalogBase
 from .column import Column
 from .dir import Dir
@@ -48,7 +49,7 @@ from .locking import (
 from .model import IndexDefinition, TableSchemaChangeSet, prepare_model, prepare_model_updates
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
-from .table_path import TablePath, TableVersionPath
+from .table_path import TableMdPath, TablePath, TableVersionPath
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import DeleteTableMdOp, OpStatus, TableOp
@@ -61,6 +62,7 @@ if TYPE_CHECKING:
     from pixeltable.plan import SampleClause
 
     from .. import exprs
+    from .table_metadata import TableMetadata
 
 
 _logger = logging.getLogger(__name__)
@@ -168,8 +170,6 @@ def _retry_loop(request: LockRequest) -> Callable[[Callable[..., T]], Callable[.
             cat = get_runtime().catalog
             # a retry loop is reentrant
             if cat._in_retry_loop:
-                # TODO(PXT-1278): restore _check_write_locks()'s check that the enclosing transaction holds all
-                # required locks.
                 return op(*args, **kwargs)
             num_retries = 0
             while True:
@@ -380,17 +380,23 @@ class Catalog(CatalogBase):
         finally:
             self._tbl_md_read_allowed = False
 
+    @classmethod
     @contextmanager
-    def freeze(self) -> Iterator[None]:
-        """Prevent write transactions in this thread.
+    def freeze(cls) -> Iterator[None]:
+        """Prevent catalog write transactions in this thread.
 
-        Unaffected: reads and writes from other threads.
+        Unaffected: reads, writes from other threads, finishing a crashed schema change, and writes through
+        Runtime.begin_xact(), such as database setup and create_user().
         """
         token = _frozen.set(True)
         try:
             yield
         finally:
             _frozen.reset(token)
+
+    @classmethod
+    def is_frozen(cls) -> bool:
+        return _frozen.get()
 
     @contextmanager
     def begin_md_read_xact(self, *, tbl_keys: Collection[TableVersionKey] | None = None) -> Iterator[sql.Connection]:
@@ -484,11 +490,9 @@ class Catalog(CatalogBase):
         the caller's work are propagated; use a retry_*_loop() decorator if the whole operation needs to restart.
         """
         for_write = request.for_write
-        if for_write and _frozen.get():
+        if for_write and request.op_class is not TblOpClass.FINALIZE and _frozen.get():
             raise ProhibitedWriteError()
         if get_runtime().in_xact:
-            # TODO(PXT-1278): restore _check_write_locks()'s check that the enclosing transaction holds all
-            # required locks.
             yield get_runtime().conn
             return
 
@@ -769,6 +773,8 @@ class Catalog(CatalogBase):
         """Refresh metadata for all read and write targets and their mutable views, if requested."""
         # Track refreshed write targets and views to avoid loading the same table twice.
         refreshed: set[UUID] = set()
+        # finalization completes a drop, which a copy in progress accepts
+        refuse_copying = check_pending_ops and not request.fills_copy
         for tvp in request.write_tvps:
             self._refresh_path_cache(
                 tbl=tvp,
@@ -776,6 +782,7 @@ class Catalog(CatalogBase):
                 mutable_tree=request.lock_mutable_tree,
                 check_pending_ops=check_pending_ops,
                 refreshed=refreshed,
+                refuse_copying=refuse_copying,
             )
         for tbl_id in request.write_tbl_ids:
             self._refresh_tbl_cache(
@@ -783,6 +790,7 @@ class Catalog(CatalogBase):
                 mutable_tree=request.lock_mutable_tree,
                 check_pending_ops=check_pending_ops,
                 refreshed=refreshed,
+                refuse_copying=refuse_copying,
             )
         for tvp in request.read_tvps:
             self._refresh_path_cache(tbl=tvp, for_write=False, check_pending_ops=check_pending_ops)
@@ -866,6 +874,7 @@ class Catalog(CatalogBase):
         mutable_tree: bool = False,
         check_pending_ops: bool = True,
         refreshed: set[UUID] | None = None,
+        refuse_copying: bool = False,
     ) -> None:
         """Refresh cached table versions along the path, starting with the bases."""
         path_handles = tbl.get_tbl_versions()
@@ -879,6 +888,7 @@ class Catalog(CatalogBase):
                 mutable_tree=mutable_tree,
                 check_pending_ops=check_pending_ops,
                 refreshed=refreshed,
+                refuse_copying=refuse_copying,
             )
 
     def _refresh_tbl_cache(
@@ -888,11 +898,13 @@ class Catalog(CatalogBase):
         mutable_tree: bool = False,
         check_pending_ops: bool = True,
         refreshed: set[UUID] | None = None,
+        refuse_copying: bool = False,
     ) -> None:
         """Refresh a target's cached metadata and optionally check for pending operations.
 
         With `mutable_tree`, also refresh all mutable descendant views. If supplied, `refreshed` tracks visited ids
-        to avoid refreshing a write target twice.
+        to avoid refreshing a write target twice. With `refuse_copying`, raise an error if the target is in
+        TableState.COPYING.
 
         This method takes no locks. Callers that need locks must acquire them before reading metadata.
         """
@@ -905,6 +917,11 @@ class Catalog(CatalogBase):
         if row is None:
             raise excs.table_was_dropped(key.tbl_id)
         tbl_md = schema.md_from_dict(schema.TableMd, row.md)
+        if refuse_copying and tbl_md.tbl_state == schema.TableState.COPYING:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE,
+                f'Table {tbl_md.name!r} is a copy that create_table() has not finished. It cannot be changed.',
+            )
 
         if check_pending_ops:
             pending_ops_q = sql.select(sql.func.count()).where(schema.PendingTableOp.tbl_id == row.id)
@@ -1388,14 +1405,21 @@ class Catalog(CatalogBase):
 
     @retry_md_read_loop()
     def get_dir_contents(
-        self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False
+        self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False, with_base_paths: bool = False
     ) -> dict[str, DirEntry]:
         dir = self._get_schema_object(dir_path, expected=Dir, raise_if_not_exists=True)
         error_counts = self._table_error_counts() if with_error_counts else None
-        return self._get_dir_contents(dir._id, recursive=recursive, error_counts=error_counts)
+        return self._get_dir_contents(
+            dir._id, recursive=recursive, error_counts=error_counts, with_base_paths=with_base_paths
+        )
 
     def _get_dir_contents(
-        self, dir_id: UUID, recursive: bool = False, *, error_counts: dict[UUID, int] | None = None
+        self,
+        dir_id: UUID,
+        recursive: bool = False,
+        *,
+        error_counts: dict[UUID, int] | None = None,
+        with_base_paths: bool = False,
     ) -> dict[str, DirEntry]:
         """Returns a dict mapping the entry names to DirEntry objects"""
         conn = get_runtime().conn
@@ -1407,7 +1431,9 @@ class Catalog(CatalogBase):
             dir = schema.Dir(**row._mapping)
             dir_contents: dict[str, DirEntry] = {}
             if recursive:
-                dir_contents = self._get_dir_contents(dir.id, recursive=True, error_counts=error_counts)
+                dir_contents = self._get_dir_contents(
+                    dir.id, recursive=True, error_counts=error_counts, with_base_paths=with_base_paths
+                )
             result[dir.md['name']] = DirEntry(dir=dir, dir_entries=dir_contents, table=None)
 
         q = sql.select(schema.Table).where(active_tbl_clause(dir_id=dir_id))
@@ -1415,7 +1441,19 @@ class Catalog(CatalogBase):
         for row in rows:
             tbl = schema.Table(**row._mapping)
             err_count = error_counts.get(tbl.id, 0) if error_counts is not None else None
-            result[tbl.md['name']] = DirEntry(dir=None, dir_entries={}, table=tbl, table_error_count=err_count)
+
+            base_path: Path | None = None
+            if with_base_paths and tbl.md['view_md'] is not None:
+                base_id, base_version = tbl.md['view_md']['base_versions'][0]
+                base_q = sql.select(schema.Table.dir_id, schema.Table.md['name'].astext).where(
+                    schema.Table.id == UUID(base_id)
+                )
+                base_dir_id, base_name = conn.execute(base_q).one()
+                base_path = dataclasses.replace(lookup_dir_path(base_dir_id).append(base_name), version=base_version)
+
+            result[tbl.md['name']] = DirEntry(
+                dir=None, dir_entries={}, table=tbl, table_error_count=err_count, base_path=base_path
+            )
 
         return result
 
@@ -1442,11 +1480,12 @@ class Catalog(CatalogBase):
             # If src_obj is None, it means `if_not_exists='ignore'` and the source doesn't exist.
             # If dest_obj is None and src_obj is not None, then we can proceed with the move.
             if isinstance(src_obj, LocalTable):
-                from .table_copy import is_copy_in_progress
-
-                # only finish_copy() moves a copy in progress, once it has cleared the mark
-                if src_obj._tbl_version is not None and is_copy_in_progress(
-                    self.load_tbl_md(TableVersionKey(src_obj._id, None)).tbl_md
+                # A copy in progress stays at the path it was created at, so that a failed copy can drop it there.
+                # The state is read from the store: a cached TableMd can be older than a committed finish_copy().
+                if (
+                    src_obj._tbl_version is not None
+                    and self.load_tbl_md(TableVersionKey(src_obj._id, None)).tbl_md.tbl_state
+                    == schema.TableState.COPYING
                 ):
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_STATE,
@@ -1763,16 +1802,14 @@ class Catalog(CatalogBase):
     def create_table_from_md(self, path: Path, md: list[TableVersionMd]) -> LocalTable:
         """
         Creates a base table at path from md, the metadata of every version of another base table (as returned by
-        collect_tbl_history()). The new table has a new id, the history of md and an empty store table, and is marked
-        as a copy in progress until table_copy.finish_copy() (see table_copy.md_for_copy()).
+        collect_tbl_history()). The new table has a new id, the history of md and an empty store table. It is in
+        TableState.COPYING: load_store_rows() fills it and finish_copy() makes it a live table.
         """
-        from .table_copy import check_computed_columns, md_for_copy
-
         tbl_id = uuid4()
-        tbl_md, version_mds, schema_version_mds = md_for_copy(md, tbl_id, path.name)
+        tbl_md, version_mds, schema_version_mds = table_copy.md_for_copy(md, tbl_id, path.name)
 
-        # one transaction creates the metadata and the store table, so a failure leaves nothing behind and the table
-        # needs no pending ops
+        # one transaction creates the metadata and the store table, so that a failure leaves nothing behind and the
+        # table needs no pending ops
         @retry_md_write_loop()
         def create_fn() -> None:
             self._handle_path_collision(path, InsertableTable, False, IfExistsParam.ERROR)
@@ -1791,23 +1828,116 @@ class Catalog(CatalogBase):
                     self.write_tbl_md(tbl_id, None, None, None, schema_version_md)
             try:
                 with warnings.catch_warnings():
-                    # a computed column that cannot be evaluated refuses the copy, rather than warning
+                    # a computed column that cannot be evaluated raises an error below, so its warning is redundant
                     warnings.simplefilter('ignore', excs.PixeltableWarning)
                     tv = self._get_tbl_version(TableVersionKey(tbl_id, None))
-                check_computed_columns(tv, md[0].tbl_md.name)
+                table_copy.check_value_exprs_are_valid(tv, md[0].tbl_md.name)
             finally:
                 self._clear_tv_cache(TableVersionKey(tbl_id, None))
             self._create_store_tbl(tbl_md)
 
         create_fn()
+        return self._get_base_tbl(tbl_id)
 
+    def _get_base_tbl(self, tbl_id: UUID) -> InsertableTable:
         @retry_md_read_loop(tbl_keys=[TableVersionKey(tbl_id, None)])
-        def get_tbl_fn() -> LocalTable:
-            tbl = self.get_table_by_id(tbl_id)
-            assert tbl is not None
-            return tbl
+        def get_tbl_fn() -> LocalTable | None:
+            return self.get_table_by_id(tbl_id)
 
-        return get_tbl_fn()
+        tbl = get_tbl_fn()
+        if tbl is None:
+            raise excs.table_was_dropped(tbl_id)
+        if not isinstance(tbl, InsertableTable):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'{tbl._display_str()} is not a base table, so it is not a copy'
+            )
+        return tbl
+
+    def _load_copying_tbl_md(self, tbl_id: UUID, method: str) -> schema.TableMd:
+        """Return the TableMd of tbl_id, and raise an error if the table is not in TableState.COPYING."""
+        # read from the store: a cached TableMd can be older than a committed finish_copy()
+        tbl_md = self.load_tbl_md(TableVersionKey(tbl_id, None)).tbl_md
+        if tbl_md.tbl_state != schema.TableState.COPYING:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE, f'{method}(): {tbl_md.name!r} is not a copy in progress'
+            )
+        return tbl_md
+
+    def load_store_rows(
+        self, tbl_id: UUID, rows_file: str, new_media: dict[str, str], prev_media: dict[str, str]
+    ) -> dict[str, str]:
+        """Insert the store rows in the Parquet file rows_file into the table tbl_id, which must be in
+        TableState.COPYING.
+
+        Args:
+            new_media: url -> local path of each media file that these rows are the first to reference
+            prev_media: url -> stored url of each media file that an earlier call stored and these rows reference
+
+        Returns:
+            url -> stored url, for each url in new_media
+        """
+        tbl = self._get_base_tbl(tbl_id)
+        # checked before the media files are stored, so that a refused call stores none
+        with self.begin_md_read_xact():
+            self._load_copying_tbl_md(tbl_id, 'load_store_rows')
+        md = self.collect_tbl_history(tbl_id, None)
+        # object store I/O runs outside of a transaction, so that it does not hold a db connection
+        placed_media = table_copy.place_media(tbl._tbl_version.get(), md, rows_file, new_media)
+
+        request = LockRequest(
+            TblOpClass.DATA_WRITE, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True, fills_copy=True
+        )
+        with self._begin_xact(request):
+            self._load_copying_tbl_md(tbl_id, 'load_store_rows')
+            tv = tbl._tbl_version.get()
+            # A client sends a request again after a 5xx response, so an earlier call may have committed these rows.
+            # The rows of a call commit together, so the first row is enough to tell.
+            if table_copy.holds_first_row(tv, rows_file):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_STATE,
+                    f'load_store_rows(): {tv.name!r} already holds these rows; a call was repeated',
+                )
+            table_copy.insert_rows(tv, md, rows_file, prev_media | placed_media)
+        return placed_media
+
+    def finish_copy(self, tbl_id: UUID, num_rows: int, dest_path: Path, if_exists: IfExistsParam) -> bool:
+        """Make the table tbl_id, which must be in TableState.COPYING, a live table at dest_path.
+
+        One transaction checks that the table holds num_rows rows, sets its state to LIVE, applies if_exists to a
+        table at dest_path and moves the table there. dest_path therefore never holds an incomplete copy, and a
+        failure leaves a table at dest_path as it was.
+
+        Returns whether the table is at dest_path. It is not when if_exists is 'ignore' and another table is at
+        dest_path.
+        """
+        tbl = self._get_base_tbl(tbl_id)
+        tbl_path = tbl._path()
+        is_replace = if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
+
+        @retry_md_write_loop(paths=[tbl_path, dest_path], lock_path_subtree=is_replace)
+        def finish_fn() -> bool:
+            dest_obj = self._get_schema_object(dest_path)
+            if dest_obj is not None and dest_obj._id == tbl_id:
+                # a client sends a request again after a 5xx response, and the earlier call committed
+                return True
+            tbl_md = self._load_copying_tbl_md(tbl_id, 'finish_copy')
+            count_stmt = sql.select(sql.func.count()).select_from(tbl._tbl_version.get().store_tbl.sa_tbl)
+            num_stored_rows = get_runtime().conn.execute(count_stmt).scalar_one()
+            if num_stored_rows != num_rows:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_STATE,
+                    f'finish_copy(): {tbl_md.name!r} holds {num_stored_rows} rows, not the {num_rows} rows of the '
+                    'copied table',
+                )
+            if self._handle_path_collision(dest_path, InsertableTable, False, if_exists) is not None:
+                return False
+            tbl_md.tbl_state = schema.TableState.LIVE
+            self.write_tbl_md(tbl_id, None, tbl_md, None, None)
+            self._clear_tv_cache(TableVersionKey(tbl_id, None))
+            self._move(tbl_path, dest_path, IfExistsParam.ERROR, IfNotExistsParam.ERROR)
+            return True
+
+        return finish_fn()
 
     def create_view(
         self,
@@ -1977,13 +2107,13 @@ class Catalog(CatalogBase):
             existing = self.get_table(path, IfNotExistsParam.IGNORE)
             if existing is not None:
                 return existing, False
-            if_exists = IfExistsParam.ERROR
+        create_if_exists = IfExistsParam.ERROR if if_exists == IfExistsParam.IGNORE else if_exists
 
         if base is None:
             return self._create_table(
                 path=path,
                 columns=additional_cols,
-                if_exists=if_exists,
+                if_exists=create_if_exists,
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
@@ -2008,7 +2138,7 @@ class Catalog(CatalogBase):
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
-                if_exists=if_exists,
+                if_exists=create_if_exists,
                 additional_idxs=resolved_idxs,
                 explicit_tbl_id=tbl_id,
             )
@@ -2179,6 +2309,26 @@ class Catalog(CatalogBase):
         # by another process.
         obj._tbl_version_path.clear_cached_md()
         return obj
+
+    def get_table_paths_md(self, paths: Sequence[Path]) -> list[tuple[TableMdPath, TableMetadata] | None]:
+        result: list[tuple[TableMdPath, TableMetadata] | None] = []
+        for export in self.get_table_paths_md_export(paths):
+            if export is None:
+                result.append(None)
+            else:
+                md, tbl_md = export
+                result.append((TableMdPath.from_md(md, is_anon_snapshot=False, catalog_uri=ROOT_PATH), tbl_md))
+        return result
+
+    @retry_md_read_loop()
+    def get_table_paths_md_export(
+        self, paths: Sequence[Path]
+    ) -> list[tuple[list[TableVersionMd], TableMetadata] | None]:
+        result: list[tuple[list[TableVersionMd], TableMetadata] | None] = []
+        for path in paths:
+            tbl = self.get_table(path, if_not_exists=IfNotExistsParam.IGNORE)
+            result.append(None if tbl is None else (self.read_md_for_export(tbl), tbl.get_metadata()))
+        return result
 
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
         @retry_md_write_loop(paths=[path], lock_path_subtree=True)
@@ -2569,6 +2719,7 @@ class Catalog(CatalogBase):
 
     def _move_dir(self, dir_id: UUID, new_name: str, new_parent_id: UUID) -> None:
         """Update parent_id/name for dir_id."""
+        assert self._is_dir_locked(new_parent_id), (dir_id, new_parent_id, self._xact_locks)
         stmt = (
             sql.update(schema.Dir)
             .where(schema.Dir.id == dir_id)
@@ -2997,6 +3148,7 @@ class Catalog(CatalogBase):
 
     def delete_current_tbl_version_md(self, tbl_id: UUID) -> None:
         """Removes 'current_version' from stored metadata for table and resets the table to current_version - 1"""
+        assert self._is_tbl_locked(tbl_id, TblLockMode.EXCLUSIVE), (tbl_id, self._xact_locks)
         conn = get_runtime().conn
         q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
         tbl_md = conn.execute(q).one()[0]
@@ -3046,7 +3198,7 @@ class Catalog(CatalogBase):
 
     def store_update_status(self, tbl_id: UUID, version: int, status: UpdateStatus) -> None:
         """Update the TableVersion.md.update_status field"""
-        assert self._in_write_xact
+        assert self._is_tbl_locked(tbl_id, TblLockMode.EXCLUSIVE), (tbl_id, self._xact_locks)
         conn = get_runtime().conn
 
         stmt = (

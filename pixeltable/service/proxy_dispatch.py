@@ -6,7 +6,7 @@ returns a serializable result; errors are returned as excs.Error.to_dict().
 
 from __future__ import annotations
 
-import dataclasses
+import contextlib
 import logging
 import pathlib
 import shutil
@@ -23,7 +23,15 @@ import sqlalchemy as sql
 from pixeltable import exceptions as excs, telemetry, telemetry_schemas
 from pixeltable._query import Query
 from pixeltable._version import __version__
-from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_md_read_loop, table_copy
+from pixeltable.catalog import (
+    Catalog,
+    InsertableTable,
+    Path,
+    ProhibitedWriteError,
+    TablePathKey,
+    TableVersionKey,
+    retry_md_read_loop,
+)
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
@@ -80,53 +88,8 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
             _logger.info('%s.%s error (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
             error = mismatch
             return proxy_protocol.encode_response({'error': error_dict})
-        table_handler = _TABLE_HANDLERS.get(key)
-        if table_handler is not None:
-            # Table method
-            assert request.path_key is not None and request.snapshot_path_key is not None
-            cat = get_runtime().catalog
-            tbl = _resolve_tbl(TablePathKey.from_dict(request.path_key))
-            is_mutation = request.method in _MUTATION_METHODS
-            if is_mutation:
-                # refuse to run if the client's snapshot_path_key is behind the current schema
-                snapshot_key = TablePathKey.from_dict(request.snapshot_path_key)
-                with cat.begin_md_read_xact():
-                    md = cat.read_md_for_export(tbl)
-                if table_copy.is_copy_in_progress(md[0].tbl_md) and request.method not in _COPY_METHODS:
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_STATE,
-                        f'{tbl._display_str()} is a copy that create_table() has not finished; it cannot be changed',
-                    )
-                if snapshot_key != _current_key(md):
-                    # return the current md and is_stale_md=True so the client refreshes and retries
-                    return proxy_protocol.encode_response({'current_md': md, 'is_stale_md': True})
-
-            _prefetch_remote_parts(request)
-            result = _convert_result(key, table_handler(request, tbl))
-            if not is_mutation:
-                # a read leaves the schema unchanged, so the client's md stays valid; no need to send it back
-                return proxy_protocol.encode_response({'result': result})
-
-            # a mutation bumps the table version; return the new md so the client's path refreshes
-            with cat.begin_md_read_xact():
-                md = cat.read_md_for_export(tbl)
-            _logger.debug('%s.%s %s (%.2fs)', request.class_name, request.method, path_label, time.monotonic() - t0)
-            return proxy_protocol.encode_response({'result': result, 'current_md': md})
-
-        handler = _HANDLERS.get(key)
-        if handler is None:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported proxy method: {request.class_name}.{request.method}'
-            )
-        _prefetch_remote_parts(request)
-        result = handler(request)
-        body: bytes
-        if key in _BODY_METHODS:
-            body = result
-        else:
-            body = proxy_protocol.encode_response({'result': _convert_result(key, result)})
-        _logger.debug('%s.%s (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
-        return body
+        with Catalog.freeze() if request.catalog_frozen else contextlib.nullcontext():
+            return _dispatch(request, key, path_label, t0)
 
     except excs.Error as e:
         error = e
@@ -139,6 +102,11 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
         if 'cause' in error_dict:
             error_dict['cause'] = _restore_upload_names(error_dict['cause'], request._uploaded_names)
         return proxy_protocol.encode_response({'error': error_dict})
+
+    except ProhibitedWriteError as e:
+        error = e
+        _logger.info('%s.%s prohibited write (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
+        return proxy_protocol.encode_response({'prohibited_write': True})
 
     except Exception as e:
         error = e
@@ -172,6 +140,52 @@ def handle(request_json: str, request_parts: list[bytes], *, include_error_detai
                 pathlib.Path(temp_path).unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+def _dispatch(request: ProxyRequest, key: tuple[str, str], path_label: Any, t0: float) -> bytes:
+    """Run the handler for key and return the encoded response body."""
+    table_handler = _TABLE_HANDLERS.get(key)
+    if table_handler is not None:
+        # Table method
+        assert request.path_key is not None and request.snapshot_path_key is not None
+        cat = get_runtime().catalog
+        tbl = _resolve_tbl(TablePathKey.from_dict(request.path_key))
+        is_mutation = request.method in _MUTATION_METHODS
+        if is_mutation:
+            # refuse to run if the client's snapshot_path_key is behind the current schema
+            snapshot_key = TablePathKey.from_dict(request.snapshot_path_key)
+            with cat.begin_md_read_xact():
+                md = cat.read_md_for_export(tbl)
+            if snapshot_key != _current_key(md):
+                # return the current md and is_stale_md=True so the client refreshes and retries
+                return proxy_protocol.encode_response({'current_md': md, 'is_stale_md': True})
+
+        _prefetch_remote_parts(request)
+        result = _convert_result(key, table_handler(request, tbl))
+        if not is_mutation:
+            # a read leaves the schema unchanged, so the client's md stays valid; no need to send it back
+            return proxy_protocol.encode_response({'result': result})
+
+        # a mutation bumps the table version; return the new md so the client's path refreshes
+        with cat.begin_md_read_xact():
+            md = cat.read_md_for_export(tbl)
+        _logger.debug('%s.%s %s (%.2fs)', request.class_name, request.method, path_label, time.monotonic() - t0)
+        return proxy_protocol.encode_response({'result': result, 'current_md': md})
+
+    handler = _HANDLERS.get(key)
+    if handler is None:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported proxy method: {request.class_name}.{request.method}'
+        )
+    _prefetch_remote_parts(request)
+    result = handler(request)
+    body: bytes
+    if key in _BODY_METHODS:
+        body = result
+    else:
+        body = proxy_protocol.encode_response({'result': _convert_result(key, result)})
+    _logger.debug('%s.%s (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
+    return body
 
 
 # each archive being localized occupies temp disk twice: the archive itself and its extracted members
@@ -376,6 +390,10 @@ def _create_table_from_md(request: ProxyRequest) -> list:
     return load()
 
 
+def _get_table_paths_md(request: ProxyRequest) -> list:
+    return get_runtime().catalog.get_table_paths_md_export(**proxy_protocol.deserialize_request(request))
+
+
 def _catalog_method(request: ProxyRequest) -> Any:
     """Generic handler for catalog methods whose return value is directly serializable."""
     method = getattr(get_runtime().catalog, request.method)
@@ -509,24 +527,16 @@ def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
     )
 
 
-def _load_store_rows(request: ProxyRequest, tbl: LocalTable) -> Any:
-    if not isinstance(tbl, InsertableTable):
-        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Store rows can only be loaded into a base table')
-    kwargs = _deserialize_args(request)
-    # the files must be ones that this request uploaded: a path that a caller names must not reach the daemon's own
-    # files
+def _load_store_rows(request: ProxyRequest) -> dict[str, str]:
+    kwargs = proxy_protocol.deserialize_request(request)
+    # A request can also give a file as a plain path string. Only an uploaded file is accepted, so that a caller
+    # cannot have the daemon read one of its own files.
     uploaded = request._uploaded_names.keys()
     if kwargs['rows_file'] not in uploaded or not uploaded >= set(kwargs['new_media'].values()):
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT, 'load_store_rows(): the rows and media files must be uploaded files'
         )
-    return table_copy.load_store_rows(tbl, **kwargs)
-
-
-def _finish_copy(request: ProxyRequest, tbl: LocalTable) -> Any:
-    if not isinstance(tbl, InsertableTable):
-        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Only a base table can be a copy in progress')
-    return table_copy.finish_copy(tbl, **_deserialize_args(request))
+    return get_runtime().catalog.load_store_rows(**kwargs)
 
 
 def _compute(request: ProxyRequest, tbl: LocalTable) -> Any:
@@ -649,9 +659,16 @@ def _describe(request: ProxyRequest, tbl: LocalTable) -> Any:
     # rebase the title onto the client's catalog so it shows the table's full pxt:// path
     args = proxy_protocol.deserialize_request(request)
     catalog_uri = Path.parse(args['catalog_uri'], allow_empty_path=True)
-    display_path = dataclasses.replace(tbl._path(), org=catalog_uri.org, db=catalog_uri.db)
+    display_path = tbl._path().with_catalog(catalog_uri)
     helper = tbl._descriptors(path=display_path)
     return {'str': helper.to_string(), 'html': helper.to_html()}
+
+
+def _column_description(request: ProxyRequest, tbl: LocalTable) -> Any:
+    kwargs = _deserialize_args(request)
+    return tbl._column_description(
+        kwargs['column'], kwargs['html'], Path.parse(kwargs['catalog_uri'], allow_empty_path=True)
+    )
 
 
 def _build_query(query_dict: dict) -> Query:
@@ -701,18 +718,18 @@ _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
     ('CatalogBase', 'update_from_model'): _update_from_model,
     ('CatalogBase', 'get_table'): _get_table,
     ('CatalogBase', 'get_table_by_id'): _get_table_by_id,
+    ('CatalogBase', 'get_table_paths_md'): _get_table_paths_md,
     ('CatalogBase', 'move'): _catalog_method,
     ('CatalogBase', 'drop_table'): _catalog_method,
     ('CatalogBase', 'get_dir_contents'): _catalog_method,
     ('CatalogBase', 'create_dir'): _catalog_method,
     ('CatalogBase', 'drop_dir'): _catalog_method,
     ('CatalogBase', 'create_table_from_md'): _create_table_from_md,
+    ('CatalogBase', 'load_store_rows'): _load_store_rows,
+    ('CatalogBase', 'finish_copy'): _catalog_method,
     ('Query', 'collect'): _query_collect,
     ('Query', 'count'): _query_count,
 }
-
-# The only mutations of a copy in progress (see table_copy.is_copy_in_progress())
-_COPY_METHODS: frozenset[str] = frozenset({'load_store_rows', 'finish_copy'})
 
 # Mutations are gated on schema-version staleness (handle() withholds + returns current_md if the client's
 # snapshot_path_key is behind); reads run unconditionally.
@@ -724,8 +741,6 @@ _MUTATION_METHODS: frozenset[str] = frozenset(
         'insert_hf_dataset',
         'insert_sql_source',
         'insert_query',
-        'load_store_rows',
-        'finish_copy',
         'update',
         'delete',
         'batch_update',
@@ -753,6 +768,7 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'get_metadata'): _get_metadata,
     ('Table', '_path'): _get_path,
     ('Table', 'describe'): _describe,
+    ('Table', '_column_description'): _column_description,
     ('Table', 'list_views'): _list_views,
     ('Table', 'get_versions'): _get_versions,
     ('Table', 'insert'): _insert,
@@ -761,8 +777,6 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'insert_sql_source'): _insert_sql_source,
     ('Table', 'insert_query'): _insert_query,
     ('Table', 'compute'): _compute,
-    ('Table', 'load_store_rows'): _load_store_rows,
-    ('Table', 'finish_copy'): _finish_copy,
     ('Table', 'update'): _update,
     ('Table', 'delete'): _delete,
     ('Table', 'batch_update'): _batch_update,

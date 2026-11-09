@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 from uuid import UUID
 
 from pixeltable.env import Env
+from pixeltable.service.proxy_protocol import LocalFile
 
 from .catalog_base import CatalogBase
 from .insertable_table_proxy import InsertableTableProxy
 from .model import TableSchemaChangeSet
+from .path import Path
 from .table_path import TableMdPath
+from .utils import rebase_table_md
 from .view_proxy import ViewProxy
 
 if TYPE_CHECKING:
@@ -21,8 +24,8 @@ if TYPE_CHECKING:
     from .dir import Dir
     from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
     from .model import IndexDefinition
-    from .path import Path
     from .table import Table
+    from .table_metadata import TableMetadata
     from .table_path import TablePath
     from .types import TableVersionMd
 
@@ -40,8 +43,10 @@ class CatalogProxy(CatalogBase):
         self.client = client
 
     def _make_table(self, md: list[TableVersionMd], is_anon_snapshot: bool) -> Table:
+        # record the ancestors as well: computed columns can refer to base columns
+        for tbl_version_md in md:
+            Env.get().record_tbl_catalog_uri(UUID(tbl_version_md.tbl_md.tbl_id), self.catalog_uri)
         tbl_id = UUID(md[0].tbl_md.tbl_id)
-        Env.get().record_tbl_catalog_uri(tbl_id, self.catalog_uri)
 
         tbl_md_path = TableMdPath.from_md(md, is_anon_snapshot=is_anon_snapshot, catalog_uri=self.catalog_uri)
 
@@ -163,6 +168,16 @@ class CatalogProxy(CatalogBase):
         )
         return None if md is None else self._make_table(md, is_anon_snapshot=version is not None)
 
+    def get_table_paths_md(self, paths: Sequence[Path]) -> list[tuple[TableMdPath, TableMetadata] | None]:
+        exports = self.client.send_request('CatalogBase', 'get_table_paths_md', {'paths': list(paths)})
+        return [None if export is None else self._table_path_md(*export) for export in exports]
+
+    def _table_path_md(self, md: list[TableVersionMd], tbl_md: TableMetadata) -> tuple[TableMdPath, TableMetadata]:
+        return (
+            TableMdPath.from_md(md, is_anon_snapshot=False, catalog_uri=self.catalog_uri),
+            rebase_table_md(tbl_md, self.catalog_uri),
+        )
+
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
         self.client.send_request(
             'CatalogBase', 'drop_table', {'path': path, 'if_not_exists': if_not_exists, 'force': force}
@@ -176,13 +191,27 @@ class CatalogProxy(CatalogBase):
         )
 
     def get_dir_contents(
-        self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False
+        self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False, with_base_paths: bool = False
     ) -> dict[str, DirEntry]:
-        return self.client.send_request(
+        dir_entries: dict[str, DirEntry] = self.client.send_request(
             'CatalogBase',
             'get_dir_contents',
-            {'dir_path': dir_path, 'recursive': recursive, 'with_error_counts': with_error_counts},
+            {
+                'dir_path': dir_path,
+                'recursive': recursive,
+                'with_error_counts': with_error_counts,
+                'with_base_paths': with_base_paths,
+            },
         )
+        self._rebase_base_paths(dir_entries)
+        return dir_entries
+
+    def _rebase_base_paths(self, dir_entries: dict[str, DirEntry]) -> None:
+        # the server returns in-db paths
+        for entry in dir_entries.values():
+            if entry.base_path is not None:
+                entry.base_path = entry.base_path.with_catalog(self.catalog_uri)
+            self._rebase_base_paths(entry.dir_entries)
 
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
         return self.client.send_request(
@@ -197,3 +226,19 @@ class CatalogProxy(CatalogBase):
     def create_table_from_md(self, path: Path, md: list[TableVersionMd]) -> Table:
         new_md = self.client.send_request('CatalogBase', 'create_table_from_md', {'path': path, 'md': md})
         return self._make_table(new_md, is_anon_snapshot=False)
+
+    def load_store_rows(
+        self, tbl_id: UUID, rows_file: str, new_media: dict[str, str], prev_media: dict[str, str]
+    ) -> dict[str, str]:
+        # a LocalFile is uploaded with the request
+        args = {
+            'tbl_id': tbl_id,
+            'rows_file': LocalFile(rows_file),
+            'new_media': {url: LocalFile(path) for url, path in new_media.items()},
+            'prev_media': prev_media,
+        }
+        return self.client.send_request('CatalogBase', 'load_store_rows', args)
+
+    def finish_copy(self, tbl_id: UUID, num_rows: int, dest_path: Path, if_exists: IfExistsParam) -> bool:
+        args = {'tbl_id': tbl_id, 'num_rows': num_rows, 'dest_path': dest_path, 'if_exists': if_exists}
+        return self.client.send_request('CatalogBase', 'finish_copy', args)
