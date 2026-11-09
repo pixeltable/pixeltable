@@ -204,7 +204,7 @@ class LocalStore(ObjectStoreBase):
         Return number of files for given tbl_id.
         """
         if tbl_id is None:
-            paths = glob.glob(str(self.__base_dir / '*'), recursive=True)
+            paths = glob.glob(str(self.__base_dir / '**'), recursive=True)
         elif tbl_version is None:
             table_prefix = ObjectPath.table_prefix(tbl_id)
             paths = glob.glob(str(self.__base_dir / table_prefix) + f'/**/{table_prefix}_*', recursive=True)

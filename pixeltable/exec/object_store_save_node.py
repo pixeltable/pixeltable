@@ -336,14 +336,23 @@ class ObjectStoreSaveNode(ExecNode):
                 pending.append((row, info, loop.run_in_executor(Env.get().cpu_pool, thread_fn)))
                 scheduled.add(index)
 
-        for row, info, fut in pending:
+        encode_results = await asyncio.gather(*(fut for _, _, fut in pending), return_exceptions=True)
+        num_failed = sum(isinstance(result, BaseException) for result in encode_results)
+        if num_failed > 0 and not self.ctx.ignore_errors:
+            # the first failed encode stops the operation, so the files of the other encodes are never stored
+            for result in encode_results:
+                if not isinstance(result, BaseException):
+                    TempStore.delete_media_file(result[0])
+
+        for (row, info, _), result in zip(pending, encode_results, strict=True):
             index = info.slot_idx
-            try:
-                filepath, url = await fut
-            except Exception as e:
+            if isinstance(result, Exception):
                 # the slot has no url, so that no file gets saved for it
-                self.__handle_save_error(row, info, e)
+                self.__handle_save_error(row, info, result)
                 continue
+            if isinstance(result, BaseException):
+                raise result
+            filepath, url = result
             row.file_paths[index] = str(filepath)
             row.file_urls[index] = url
             row.vals[index] = None

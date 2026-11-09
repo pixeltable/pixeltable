@@ -4,6 +4,7 @@
 import base64
 import datetime
 import gc
+import io
 import json
 import logging
 import math
@@ -2442,6 +2443,21 @@ class TestExprs:
         res = t.select(rot_url=t.rot.fileurl, copy_url=t.rot_copy.fileurl).collect()
         assert all(url is not None for url in res['rot_url'])
         assert res['rot_url'] == res['copy_url']
+
+        # one image in two columns of two rows is saved four times at the same time, and each stored file holds it
+        shared_img = PIL.Image.effect_noise((64, 64), 32).convert('LA')
+        t = pxt.create_table(p('shared'), {'a': pxt.Image, 'b': pxt.Image})
+        validate_update_status(t.insert([{'a': shared_img, 'b': shared_img}] * 2), expected_rows=2)
+        res = t.select(t.a, t.b).collect()
+        for stored_img in [*res['a'], *res['b']]:
+            assert stored_img.mode == shared_img.mode
+            assert stored_img.tobytes() == shared_img.tobytes()
+
+        # two b64_encode() calls encode the image of a row at the same time, and each returns its own format
+        res = t.select(png=t.a.b64_encode('png'), webp=t.a.b64_encode('webp')).collect()
+        for image_format in ('png', 'webp'):
+            for b64_str in res[image_format]:
+                assert PIL.Image.open(io.BytesIO(base64.b64decode(b64_str))).format == image_format.upper()
 
     @pytest.mark.db_roots('local', reason='patches PIL in the test process and reads stored files by local path')
     def test_image_files(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:

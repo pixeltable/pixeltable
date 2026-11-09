@@ -1,4 +1,5 @@
 import base64
+import threading
 from io import BytesIO
 
 import PIL.Image
@@ -43,5 +44,9 @@ def to_bytes(image: PIL.Image.Image | str, format: str | None = None) -> bytes:
         # we want a more informative error here
         raise ValueError('cannot write empty image')
     buffer = BytesIO()
-    image.save(buffer, format=format or default_format(image))
+    # Image.save() keeps its encoder settings on the image while it runs. Two threads that save the same image at the
+    # same time would use each other's settings, so each image gets its own lock. dict.setdefault() is atomic.
+    save_lock = image.__dict__.setdefault('_pxt_save_lock', threading.Lock())
+    with save_lock:
+        image.save(buffer, format=format or default_format(image))
     return buffer.getvalue()
