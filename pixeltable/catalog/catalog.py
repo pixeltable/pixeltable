@@ -1828,7 +1828,7 @@ class Catalog(CatalogBase):
                     self.write_tbl_md(tbl_id, None, None, None, schema_version_md)
             # The value expressions reference the new table, so they resolve only once its metadata is written. A
             # failed check rolls the writes back.
-            table_copy.check_value_exprs_are_valid(schema_version_mds, md[0].tbl_md.name)
+            table_copy.check_value_exprs_are_valid(schema_version_mds, tbl_md.current_schema_version, md[0].tbl_md.name)
             self._create_store_tbl(tbl_md)
 
         create_fn()

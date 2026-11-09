@@ -26,7 +26,7 @@ import urllib.parse
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path as FsPath, PurePosixPath
-from typing import TYPE_CHECKING, Any, Iterable, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Mapping
 
 import numpy as np
 import pgvector.sqlalchemy as sql_vector
@@ -126,6 +126,17 @@ def _remap_tbl_id(md: Any, old_id: uuid.UUID, new_id: uuid.UUID) -> Any:
     return md
 
 
+def _nested_values(md: Any) -> Iterator[Any]:
+    """Yield md and every value that its dicts and lists contain, at any depth."""
+    yield md
+    if isinstance(md, dict):
+        for value in md.values():
+            yield from _nested_values(value)
+    elif isinstance(md, list):
+        for value in md:
+            yield from _nested_values(value)
+
+
 def md_for_copy(
     md: list[TableVersionMd], tbl_id: uuid.UUID, name: str
 ) -> tuple[schema.TableMd, list[schema.VersionMd], list[schema.SchemaVersionMd]]:
@@ -175,24 +186,46 @@ def md_for_copy(
     return tbl_md, [m.version_md for m in copy_md], list(schema_version_mds.values())
 
 
-def check_value_exprs_are_valid(schema_version_mds: list[schema.SchemaVersionMd], src_name: str) -> None:
+def check_value_exprs_are_valid(
+    schema_version_mds: list[schema.SchemaVersionMd], current_schema_version: int, src_name: str
+) -> None:
     """Raise an error if this database cannot evaluate a computed column in schema_version_mds, the schema versions of
     a copy of the table src_name.
 
     A dropped computed column stays in the schema versions that had it, and a revert of the copy restores it.
     """
-    schema_cols = [col for schema_version_md in schema_version_mds for col in schema_version_md.columns.values()]
-    for col in schema_cols:
-        if col.value_expr is None:
-            continue
-        value_expr = exprs.Expr.from_dict(col.value_expr)
-        if not value_expr.is_valid:
-            raise excs.NotFoundError(
-                excs.ErrorCode.FUNCTION_NOT_FOUND,
-                f'Cannot copy {src_name!r}: the computed column {col.name!r} cannot be evaluated in the destination '
-                f'database.\n{value_expr.validation_error.catalog_error_msg()}\n'
-                'You can use `pxt db update` to deploy the UDF to the database.',
-            )
+    for schema_version_md in schema_version_mds:
+        for col in schema_version_md.columns.values():
+            if col.value_expr is None:
+                continue
+            error_msg: str | None = None
+            if schema_version_md.schema_version == current_schema_version:
+                value_expr = exprs.Expr.from_dict(col.value_expr)
+                if not value_expr.is_valid:
+                    error_msg = value_expr.validation_error.catalog_error_msg()
+            else:
+                # An earlier schema version can reference a column that was dropped since, and Expr.from_dict() cannot
+                # resolve that reference. Only the functions of the expression are loaded. A function with a path
+                # is a UDF. A @pxt.query has no path, and its UDFs are nested in it.
+                udfs = [
+                    func.Function.from_dict(node)
+                    for node in _nested_values(col.value_expr)
+                    if isinstance(node, dict) and '_classpath' in node and 'path' in node
+                ]
+                invalid_udf_paths = [udf.self_path for udf in udfs if isinstance(udf, func.InvalidFunction)]
+                if len(invalid_udf_paths) > 0:
+                    error_msg = f'The UDF `{invalid_udf_paths[0]}` is not defined in the destination database.'
+            if error_msg is not None:
+                # the value column of an index has no name
+                col_desc = (
+                    f'the computed column {col.name!r}' if col.name is not None else 'the value column of an index'
+                )
+                raise excs.NotFoundError(
+                    excs.ErrorCode.FUNCTION_NOT_FOUND,
+                    f'Cannot copy {src_name!r}: {col_desc} cannot be evaluated in the destination database.\n'
+                    f'{error_msg}\n'
+                    'You can use `pxt db update` to deploy the UDF to the database.',
+                )
 
 
 def _arrow_type(sa_type: sql.types.TypeEngine) -> pa.DataType:
@@ -404,20 +437,53 @@ def _queried_tbl_ids(expr: exprs.Expr) -> set[uuid.UUID]:
     return ids
 
 
-def _check_no_other_tbl_refs(tbl: InsertableTable, value_exprs: Iterable[tuple[str | None, exprs.Expr]]) -> None:
-    """Refuse tbl if one of value_exprs, the (column name, value expression) pairs of computed columns of tbl,
-    references another table, which another database cannot resolve."""
-    for col_name, value_expr in value_exprs:
-        other_ids = _referenced_tbl_ids(value_expr) - {tbl._id}
+def _check_no_other_tbl_refs(tbl: InsertableTable, tv: TableVersion) -> None:
+    """Refuse tbl if a computed column of it references another table, which another database cannot resolve."""
+    for col in tv.cols_by_id.values():
+        if col.value_expr is None:
+            continue
+        other_ids = _referenced_tbl_ids(col.value_expr) - {tbl._id}
         if len(other_ids) > 0:
             other_id = next(iter(other_ids))
             other = get_runtime().catalog.get_table_by_id(other_id)
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Cannot copy {tbl._display_str()}: the computed column {col_name!r} references '
+                f'Cannot copy {tbl._display_str()}: the computed column {col.name!r} references '
                 f'{other._display_str() if other is not None else other_id}; only a table whose computed '
-                'columns, including dropped ones, reference no other table can be copied to another database',
+                'columns reference no other table can be copied to another database',
             )
+
+
+def _check_no_other_tbl_refs_in_history(tbl: InsertableTable, md: list[TableVersionMd]) -> None:
+    """Refuse a copy of tbl, whose history is md, if a computed column of any schema version references another table,
+    which another database cannot resolve.
+
+    A dropped computed column stays in the schema versions that had it, and a revert of the copy restores it.
+    """
+    cat = get_runtime().catalog
+    looked_up_ids = {tbl._id}
+    for version_md in md:
+        for col in version_md.schema_version_md.columns.values():
+            # The stored expression is searched for the ids of tables. Expr.from_dict() cannot be used: an earlier
+            # schema version can reference a column that was dropped since, which it cannot resolve.
+            for node in _nested_values(col.value_expr):
+                if not isinstance(node, str):
+                    continue
+                try:
+                    other_id = uuid.UUID(node)
+                except ValueError:
+                    continue
+                if other_id in looked_up_ids:
+                    continue
+                looked_up_ids.add(other_id)
+                other = cat.get_table_by_id(other_id)
+                if other is not None:
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'Cannot copy {tbl._display_str()}: the computed column {col.name!r} references '
+                        f'{other._display_str()}; only a table whose computed columns, including dropped ones, '
+                        'reference no other table can be copied to another database',
+                    )
 
 
 def _export_table(tbl: InsertableTable, tmp_dir: FsPath) -> _TableExport:
@@ -427,12 +493,7 @@ def _export_table(tbl: InsertableTable, tmp_dir: FsPath) -> _TableExport:
         # collect_tbl_history() starts a transaction of its own, and the history must come from this one
         md = cat._collect_tbl_history(tbl._id, None)
         tv = tbl._tbl_version.get()
-        # A dropped computed column stays in the schema versions that had it, and a revert of the copy restores it.
-        # The check therefore covers the computed columns of every schema version.
-        schema_cols = [col for version_md in md for col in version_md.schema_version_md.columns.values()]
-        _check_no_other_tbl_refs(
-            tbl, [(col.name, exprs.Expr.from_dict(col.value_expr)) for col in schema_cols if col.value_expr is not None]
-        )
+        _check_no_other_tbl_refs_in_history(tbl, md)
         store = tv.store_tbl
         export = _TableExport(md, store.sa_tbl, tmp_dir)
         # ordering by version means that the first row to reference a media file is from the earliest version that
@@ -522,9 +583,7 @@ def create_table_like(
     tv = tbl._tbl_version.get()
     is_other_db = dest_path.catalog_uri != tbl._path().catalog_uri
     if is_other_db:
-        _check_no_other_tbl_refs(
-            tbl, [(col.name, col.value_expr) for col in tv.cols_by_id.values() if col.value_expr is not None]
-        )
+        _check_no_other_tbl_refs(tbl, tv)
 
     columns: dict[str, ColumnSpec] = {}
     for col in tv.cols_by_name.values():

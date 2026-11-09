@@ -27,6 +27,10 @@ if not os.environ.get('PIXELTABLE_PROXY_DAEMON') and not os.environ.get('PXTCLOU
     def local_only_udf(n: int) -> int:
         return n + 1
 
+    @pxt.udf
+    def local_only_embed(s: str) -> pxt.Array[(3,), pxt.Float]:
+        return np.zeros(3, dtype=np.float32)
+
 
 def _temporary_copies(db_root: DatabaseRoot) -> list[str]:
     """The tables in the destination that a copy fills before moving them to their path."""
@@ -315,12 +319,33 @@ class TestCopyTable:
         with pxt_raises(pxt.ErrorCode.FUNCTION_NOT_FOUND):
             pxt.create_table(p('dst'), schema_source=t4)
         assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
-        # a revert of the copy would restore the dropped column, so the copy is still refused
-        t4.drop_column('n1')
+        # A revert of the copy would restore a dropped column, so the copy is still refused. The input column of the
+        # UDF is dropped as well.
+        t5 = pxt.create_table('src5', {'n': pxt.Int, 'k': pxt.Int})
+        t5.add_computed_column(n1=local_only_udf(t5.n))
+        t5.drop_column('n1')
+        t5.drop_column('n')
         with pxt_raises(pxt.ErrorCode.FUNCTION_NOT_FOUND, match=r"computed column 'n1'(.|\n)*pxt db update"):
-            pxt.create_table(p('dst'), source=t4)
+            pxt.create_table(p('dst'), source=t5)
         assert _temporary_copies(db_root) == []
-        assert pxt.create_table(p('like_dropped_n1'), schema_source=t4).columns() == ['n']
+        # ... and so would a revert restore a dropped embedding index
+        t6 = pxt.create_table('src6', {'s': pxt.String})
+        t6.add_embedding_index('s', idx_name='idx', string_embed=local_only_embed)
+        t6.drop_embedding_index(idx_name='idx')
+        with pxt_raises(pxt.ErrorCode.FUNCTION_NOT_FOUND, match=r'value column of an index(.|\n)*local_only_embed'):
+            pxt.create_table(p('dst'), source=t6)
+        assert _temporary_copies(db_root) == []
+        # a dropped column that references another dropped column is copied, and a revert of the copy restores both
+        t7 = pxt.create_table('src7', {'n': pxt.Int})
+        t7.add_computed_column(c1=t7.n + 1)
+        t7.add_computed_column(c2=t7.c1 + 1)
+        t7.insert([{'n': 1}])
+        t7.drop_column('c2')
+        t7.drop_column('c1')
+        dst7 = pxt.create_table(p('dst7'), source=t7)
+        dst7.revert()
+        dst7.revert()
+        assert list(pxt.get_table(p('dst7')).collect()) == [{'n': 1, 'c1': 2, 'c2': 3}]
 
         # a referenced local media file that no longer exists
         img_path = tmp_path / 'img.jpg'
