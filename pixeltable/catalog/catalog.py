@@ -1826,14 +1826,9 @@ class Catalog(CatalogBase):
             for schema_version_md in schema_version_mds:
                 if schema_version_md is not current_schema_version_md:
                     self.write_tbl_md(tbl_id, None, None, None, schema_version_md)
-            try:
-                with warnings.catch_warnings():
-                    # a computed column that cannot be evaluated raises an error below, so its warning is redundant
-                    warnings.simplefilter('ignore', excs.PixeltableWarning)
-                    tv = self._get_tbl_version(TableVersionKey(tbl_id, None))
-                table_copy.check_value_exprs_are_valid(tv, md[0].tbl_md.name)
-            finally:
-                self._clear_tv_cache(TableVersionKey(tbl_id, None))
+            # The value expressions reference the new table, so they resolve only once its metadata is written. A
+            # failed check rolls the writes back.
+            table_copy.check_value_exprs_are_valid(schema_version_mds, md[0].tbl_md.name)
             self._create_store_tbl(tbl_md)
 
         create_fn()

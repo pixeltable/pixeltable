@@ -143,10 +143,9 @@ def md_for_copy(
             excs.ErrorCode.INVALID_STATE,
             f'Cannot copy {src_md.name!r} while an operation on it is in progress; retry the copy',
         )
-    # an embedding index builds its functions when the table is loaded, so check those before writing anything
+    # An embedding index builds its functions when the table is loaded, so check those before writing anything. A
+    # dropped index is checked as well: a revert of the copy restores it.
     for idx_md in src_md.index_md.values():
-        if not idx_md.is_visible_in_version(src_md.current_schema_version):
-            continue
         for arg in idx_md.init_args.values():
             if isinstance(arg, dict) and '_classpath' in arg:
                 fn = func.Function.from_dict(arg)
@@ -176,15 +175,22 @@ def md_for_copy(
     return tbl_md, [m.version_md for m in copy_md], list(schema_version_mds.values())
 
 
-def check_value_exprs_are_valid(tv: TableVersion, src_name: str) -> None:
-    """Raise an error if this database cannot evaluate a computed column of tv, a copy of the table src_name."""
-    for col in tv.cols_by_id.values():
-        validation_error = None if col.value_expr is None else col.value_expr.validation_error
-        if validation_error is not None:
+def check_value_exprs_are_valid(schema_version_mds: list[schema.SchemaVersionMd], src_name: str) -> None:
+    """Raise an error if this database cannot evaluate a computed column in schema_version_mds, the schema versions of
+    a copy of the table src_name.
+
+    A dropped computed column stays in the schema versions that had it, and a revert of the copy restores it.
+    """
+    schema_cols = [col for schema_version_md in schema_version_mds for col in schema_version_md.columns.values()]
+    for col in schema_cols:
+        if col.value_expr is None:
+            continue
+        value_expr = exprs.Expr.from_dict(col.value_expr)
+        if not value_expr.is_valid:
             raise excs.NotFoundError(
                 excs.ErrorCode.FUNCTION_NOT_FOUND,
                 f'Cannot copy {src_name!r}: the computed column {col.name!r} cannot be evaluated in the destination '
-                f'database.\n{validation_error.catalog_error_msg()}\n'
+                f'database.\n{value_expr.validation_error.catalog_error_msg()}\n'
                 'You can use `pxt db update` to deploy the UDF to the database.',
             )
 

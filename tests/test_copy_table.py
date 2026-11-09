@@ -315,6 +315,12 @@ class TestCopyTable:
         with pxt_raises(pxt.ErrorCode.FUNCTION_NOT_FOUND):
             pxt.create_table(p('dst'), schema_source=t4)
         assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
+        # a revert of the copy would restore the dropped column, so the copy is still refused
+        t4.drop_column('n1')
+        with pxt_raises(pxt.ErrorCode.FUNCTION_NOT_FOUND, match=r"computed column 'n1'(.|\n)*pxt db update"):
+            pxt.create_table(p('dst'), source=t4)
+        assert _temporary_copies(db_root) == []
+        assert pxt.create_table(p('like_dropped_n1'), schema_source=t4).columns() == ['n']
 
         # a referenced local media file that no longer exists
         img_path = tmp_path / 'img.jpg'
