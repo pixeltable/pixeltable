@@ -1,3 +1,4 @@
+import base64
 import logging
 import random
 import time
@@ -121,6 +122,31 @@ class TestGeminiLocal:
         )
         monkeypatch.setattr(gemini, '_genai_client', lambda: client)
         return response
+
+    @pytest.mark.db_roots('local', reason='mocked generate_video stores media in the catalog')
+    def test_generate_video_pins_interactions_api_version(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """google-genai 3.0 defaults the Developer API to v1; Gemini Omni is served only on v1beta."""
+        skip_test_if_not_installed('google.genai')
+        from pixeltable.functions import gemini
+
+        video_bytes = Path('tests/data/test_videos/test_13_frames.mp4').read_bytes()
+        create = AsyncMock(
+            return_value=SimpleNamespace(
+                output_video=SimpleNamespace(data=base64.b64encode(video_bytes).decode('ascii'), uri=None),
+                status='completed',
+                errors=None,
+            )
+        )
+        client = SimpleNamespace(vertexai=False, aio=SimpleNamespace(interactions=SimpleNamespace(create=create)))
+        monkeypatch.setattr(gemini, '_genai_client', lambda: client)
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t.add_computed_column(video=gemini.generate_video(t.prompt, model='gemini-omni-1.1-flash'))
+        validate_update_status(t.insert(prompt='A sunny landscape'), expected_rows=1)
+        result = t.collect()[0]
+        assert Path(result['video']).is_file()
+        create.assert_awaited_once()
+        assert create.await_args.kwargs['api_version'] == 'v1beta'
 
 
 @pytest.mark.remote_api

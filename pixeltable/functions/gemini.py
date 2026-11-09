@@ -428,10 +428,14 @@ async def generate_video(
     try:
         async with asyncio.timeout(_VIDEO_GENERATION_TIMEOUT_SECONDS):
             # create() also supports streams; this request returns a complete interaction.
+            # Pin v1beta: google-genai 3.0 defaults the Developer API to v1, where Gemini Omni is not served.
             interaction = cast(
                 'genai.interactions.Interaction',
                 await client.aio.interactions.create(
-                    model=model, input=contents, response_format={'delivery': 'uri', **(config or {}), 'type': 'video'}
+                    model=model,
+                    input=contents,
+                    response_format={'delivery': 'uri', **(config or {}), 'type': 'video'},
+                    api_version='v1beta',
                 ),
             )
             video = interaction.output_video
