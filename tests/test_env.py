@@ -289,6 +289,17 @@ class TestHostedMediaDefault:
             with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='output_media_dest .* is inside the project'):
                 Env._init_env(reinit_db=False)
 
+    def test_cpu_pool_size(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A cpu_pool_size that is not positive is not allowed."""
+        for value in ('0', '-1'):
+            monkeypatch.setenv('PIXELTABLE_CPU_POOL_SIZE', value)
+            reset_runtime()
+            Config.init(reinit=True)
+            with pxt_raises(
+                pxt.ErrorCode.INVALID_CONFIGURATION, match=f'cpu_pool_size must be a positive integer, got {value}'
+            ):
+                Env._init_env(reinit_db=False)
+
 
 class TestDbConnectStr:
     def test_cockroachdb_rejected(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:

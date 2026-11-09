@@ -330,7 +330,7 @@ class TestPxtStore:
             res = t.select(img=t.img.fileurl, rot=t.rot.fileurl).collect()
             imgs = t.select(t.img).collect()['img']
 
-        assert old_url in res['img']
+        assert res['img'][1] == old_url
         assert set(downloads) == {'k/1.jpg'}
         assert all(img is not None for img in imgs)
         tbl_prefix = ObjectPath.table_prefix(t._id)

@@ -17,6 +17,7 @@ import PIL.Image
 import pixeltable.utils.image as image_utils
 from pixeltable import exceptions as excs, exprs, telemetry, telemetry_schemas
 from pixeltable.env import Env
+from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectPath, ObjectStoreBase, StorageTarget
 from pixeltable.utils.progress_reporter import ProgressReporter
 
@@ -200,8 +201,6 @@ class ObjectStoreSaveNode(ExecNode):
         self.row_builder.set_exc(row, info.slot_idx, err)
 
     def __process_completions(self, done: set[futures.Future]) -> None:
-        from pixeltable.utils.local_store import TempStore
-
         num_objects = 0
         num_bytes = 0
         bytes_per_tbl: dict[tuple[str, str], int] = {}  # (table name, table id) -> bytes saved
@@ -241,8 +240,6 @@ class ObjectStoreSaveNode(ExecNode):
 
     def __process_input_row(self, row: exprs.DataRow) -> list[ObjectStoreSaveNode.WorkItem]:
         """Process a batch of input rows, generating a list of work"""
-        from pixeltable.utils.local_store import LocalStore, TempStore
-
         # Create a list of work to do for media storage in this row
         row_idx = next(self.row_idx)
         row_to_do: list[ObjectStoreSaveNode.WorkItem] = []
@@ -251,7 +248,6 @@ class ObjectStoreSaveNode(ExecNode):
 
         for info in self.file_col_info:
             col, index = info
-            # in-memory values were already encoded into the TempStore by __encode_input_batch()
             url = row.file_urls[index]
             if url is None:
                 # nothing to do
@@ -332,11 +328,12 @@ class ObjectStoreSaveNode(ExecNode):
                     continue
                 val = row.vals[index]
                 format = image_utils.default_format(val) if isinstance(val, PIL.Image.Image) else None
-                # resolve column identity on the caller thread; workers must not access catalog state
+                # the ids are read on this thread, because a worker thread must not access catalog state
                 encode_fn = functools.partial(
-                    self.__encode_media_value, val, col.tbl_handle.id, col.id, col.get_tbl().version, format, hooks_ctx
+                    self.__encode_media_value, val, col.tbl_handle.id, col.id, col.get_tbl().version, format
                 )
-                pending.append((row, info, loop.run_in_executor(Env.get().cpu_pool, encode_fn)))
+                thread_fn = functools.partial(telemetry.run_in_context, hooks_ctx, encode_fn)
+                pending.append((row, info, loop.run_in_executor(Env.get().cpu_pool, thread_fn)))
                 scheduled.add(index)
 
         for row, info, fut in pending:
@@ -344,40 +341,29 @@ class ObjectStoreSaveNode(ExecNode):
             try:
                 filepath, url = await fut
             except Exception as e:
-                # the slot keeps no url, so that __process_input_row() skips it
+                # the slot has no url, so that no file gets saved for it
                 self.__handle_save_error(row, info, e)
                 continue
             row.file_paths[index] = str(filepath)
             row.file_urls[index] = url
             row.vals[index] = None
 
-    @staticmethod
+    @classmethod
     def __encode_media_value(
-        val: bytes | PIL.Image.Image,
-        tbl_id: UUID,
-        col_id: int,
-        tbl_version: int,
-        format: str | None,
-        hooks_ctx: telemetry.CtxSnapshot | None,
+        cls, val: bytes | PIL.Image.Image, tbl_id: UUID, col_id: int, tbl_version: int, format: str | None
     ) -> tuple[Path, str]:
         """Encode one value into the TempStore.
 
-        Runs on a worker thread of Env.cpu_pool. Performs no catalog or DataRow access: the value and
-        column identity were resolved on the caller thread.
+        Runs on a worker thread, so it takes the value and the ids of its column and reads neither the catalog nor a
+        DataRow.
         """
-        from pixeltable.utils.local_store import TempStore
-
-        hooks_token = telemetry.restore_context(hooks_ctx)
-        try:
-            with telemetry.span('pixeltable.media.encode', level=telemetry.DEBUG):
-                if isinstance(val, PIL.Image.Image):
-                    try:
-                        val = image_utils.to_bytes(val, format)
-                    except Exception as e:
-                        raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, str(e)) from e
-                return TempStore.save_media_object(val, tbl_id, col_id, tbl_version, format)
-        finally:
-            telemetry.exit_context(hooks_token)
+        with telemetry.span('pixeltable.media.encode', level=telemetry.DEBUG):
+            if isinstance(val, PIL.Image.Image):
+                try:
+                    val = image_utils.to_bytes(val, format)
+                except Exception as e:
+                    raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, str(e)) from e
+            return TempStore.save_media_object(val, tbl_id, col_id, tbl_version, format)
 
     async def __process_input_batch(self, input_batch: DataRowBatch, executor: futures.ThreadPoolExecutor) -> None:
         """Process a batch of input rows, submitting temporary files for upload"""

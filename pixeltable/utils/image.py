@@ -21,6 +21,15 @@ def default_format(img: PIL.Image.Image) -> str:
     return 'tiff'
 
 
+def load(path: str) -> PIL.Image.Image:
+    """Return the decoded image stored in the file at path."""
+    img = PIL.Image.open(path)
+    # PIL.Image.open() reads only the file header. load() decodes the pixels on the calling thread, so that no later
+    # reader of this shared image starts the decode.
+    img.load()
+    return img
+
+
 def to_base64(image: PIL.Image.Image | str, format: str | None = None) -> str:
     return base64.b64encode(to_bytes(image, format)).decode('utf-8')
 

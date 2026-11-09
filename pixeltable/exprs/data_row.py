@@ -11,9 +11,9 @@ from uuid import UUID
 
 import numpy as np
 import pgvector.sqlalchemy
-import PIL.Image
 import sqlalchemy as sql
 
+import pixeltable.utils.image as image_utils
 from pixeltable import catalog, env
 from pixeltable.telemetry import SpanHandle
 from pixeltable.utils.misc import non_none_dict_factory
@@ -287,8 +287,7 @@ class DataRow:
             # TODO this fails if the url was instantiated dynamically using astype()
             assert self.file_paths[index] is not None
             if self.vals[index] is None:
-                self.vals[index] = PIL.Image.open(self.file_paths[index])
-                self.vals[index].load()
+                self.vals[index] = image_utils.load(self.file_paths[index])
 
         return self.vals[index]
 

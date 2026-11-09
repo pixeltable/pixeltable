@@ -229,7 +229,7 @@ class CallableFunction(Function):
 
     def to_store(self) -> tuple[dict, bytes]:
         assert not self.is_polymorphic  # multi-signature UDFs not allowed for stored fns
-        md = {'signature': self.signature.as_dict(), 'batch_size': self.batch_size}
+        md = {'signature': self.signature.as_dict(), 'batch_size': self.batch_size, 'run_in_thread': self.run_in_thread}
         return md, cloudpickle.dumps(self.py_fn)
 
     @classmethod
@@ -238,7 +238,9 @@ class CallableFunction(Function):
         assert callable(py_fn)
         sig = Signature.from_dict(md['signature'])
         batch_size = md['batch_size']
-        return CallableFunction([sig], [py_fn], self_name=name, batch_size=batch_size)
+        # a UDF stored before run_in_thread existed has no entry and runs inline
+        run_in_thread = md.get('run_in_thread', False)
+        return CallableFunction([sig], [py_fn], self_name=name, batch_size=batch_size, run_in_thread=run_in_thread)
 
     def validate_call(self, bound_args: dict[str, 'exprs.Expr']) -> None:
         from pixeltable import exprs

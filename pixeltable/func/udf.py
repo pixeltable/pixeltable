@@ -49,6 +49,11 @@ def udf(
 def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
     """A decorator to create a Function from a function definition.
 
+    With `run_in_thread=True`, a synchronous UDF runs on a shared thread pool, so that CPU-bound work in libraries
+    that release the GIL (such as Pillow, NumPy or ffmpeg) runs on several cores at once. Such a UDF must not modify
+    its arguments, because other expressions may share them. It must also not call Pixeltable, because the calling
+    query holds the catalog locks while it waits for the UDF.
+
     Examples:
         >>> @pxt.udf
         ... def my_function(x: int) -> int:

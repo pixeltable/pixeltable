@@ -293,9 +293,8 @@ class Planner:
         plan, batch_size = cls._create_input_plan(tbl, source, row_builder)
         computed_exprs = row_builder.output_exprs - row_builder.input_exprs
         if len(computed_exprs) > 0:
-            plan = exec.ExprEvalNode(
-                row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False
-            )
+            # the node returns rows in input order, so that rowids follow the order of the inserted rows
+            plan = exec.ExprEvalNode(row_builder, computed_exprs, plan.output_exprs, input=plan)
 
         stored_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
         if any(c.col_type.needs_cell_materialization() for c in stored_cols):

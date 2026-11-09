@@ -5,6 +5,8 @@ import pathlib
 import re
 import subprocess
 import sys
+import threading
+import time
 import typing
 import warnings
 from datetime import datetime, timezone
@@ -20,12 +22,13 @@ import __main__
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
-from pixeltable import env, func
+from pixeltable import env, func, telemetry_schemas
 from pixeltable.func import Batch, Function, FunctionRegistry
 from pixeltable.utils.app_module import load_app_module
 
 from .utils import (
     DatabaseRoot,
+    RecordingSubscriber,
     ReloadTester,
     assert_resultset_eq,
     assert_type_eq,
@@ -113,10 +116,50 @@ class pop_n(pxt.Aggregator):
         return f'{self.init_n}:{self.update_n}'
 
 
-# Module-level udf marked run_in_thread, used by TestFunction.test_run_in_thread.
+# The run_in_thread udfs are defined at module level, because a computed column needs a udf that has a module path.
 @pxt.udf(run_in_thread=True)
 def udf_threaded(x: int) -> int:
     return x + 1
+
+
+@pxt.udf(run_in_thread=True)
+def threaded_thread_name(x: int) -> str:
+    return threading.current_thread().name
+
+
+@pxt.udf
+def inline_thread_name(x: int) -> str:
+    return threading.current_thread().name
+
+
+@pxt.udf(run_in_thread=True)
+def threaded_sleep_inv(x: int, n: int) -> int:
+    # an earlier row sleeps longer, so that the calls finish in the reverse of the input order
+    time.sleep((n - x) * 0.01)
+    return x
+
+
+@pxt.udf(run_in_thread=True)
+def threaded_raise_on_2(x: int) -> int:
+    if x == 2:
+        raise ValueError(f'boom {x}')
+    return x
+
+
+@pxt.udf
+def inline_raise_on_2(x: int) -> int:
+    if x == 2:
+        raise ValueError(f'boom {x}')
+    return x
+
+
+_two_call_barrier = threading.Barrier(2)
+
+
+@pxt.udf(run_in_thread=True)
+def threaded_barrier_wait(x: int) -> int:
+    _two_call_barrier.wait(timeout=10)
+    return x
 
 
 T = typing.TypeVar('T')
@@ -162,6 +205,24 @@ class TestFunction:
         assert isinstance(deserialized, func.CallableFunction)
         assert deserialized.run_in_thread
 
+        # a UDF with no module path (_force_stored stands in for a notebook-defined UDF) serializes by value; the flag
+        # is stored with its pickled body
+        @pxt.udf(run_in_thread=True, _force_stored=True)
+        def local_threaded(x: int) -> int:
+            return x + 1
+
+        local_dict = local_threaded.as_dict()
+        assert 'binary' in local_dict
+        deserialized = Function.from_dict(local_dict)
+        assert isinstance(deserialized, func.CallableFunction)
+        assert deserialized.run_in_thread
+
+        # a by-value UDF stored before run_in_thread existed has no entry and loads as inline
+        del local_dict['store_md']['run_in_thread']
+        deserialized = Function.from_dict(local_dict)
+        assert isinstance(deserialized, func.CallableFunction)
+        assert not deserialized.run_in_thread
+
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='run_in_thread cannot be combined with batch_size'):
 
             @pxt.udf(batch_size=4, run_in_thread=True)
@@ -181,6 +242,82 @@ class TestFunction:
             @pxt.udf(run_in_thread=True)
             async def async_threaded(x: int) -> int:
                 return x
+
+    def test_run_in_thread_exec(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        n = 20
+        t = pxt.create_table(p('test'), {'c1': pxt.Int | None})
+        validate_update_status(t.insert({'c1': i} for i in range(n)), expected_rows=n)
+
+        # a run_in_thread UDF runs on a thread of the cpu pool, and an unmarked UDF does not
+        res = t.select(threaded=threaded_thread_name(t.c1), inline=inline_thread_name(t.c1)).collect()
+        assert all(name.startswith('pxt-cpu') for name in res['threaded'])
+        assert not any(name.startswith('pxt-cpu') for name in res['inline'])
+
+        # the results come back in input order, although the calls finish in the reverse order
+        res = t.order_by(t.c1).select(out=threaded_sleep_inv(t.c1, n)).collect()
+        assert res['out'] == list(range(n))
+
+        # a None argument for a non-nullable parameter gives None
+        validate_update_status(t.insert([{'c1': None}]), expected_rows=1)
+        res = t.where(t.c1 == None).select(out=udf_threaded(t.c1)).collect()
+        assert res['out'] == [None]
+
+        # a failing run_in_thread UDF reports the same error for its cell as a failing unmarked UDF
+        t = pxt.create_table(p('errors'), {'c1': pxt.Int})
+        t.add_computed_column(threaded=threaded_raise_on_2(t.c1))
+        t.add_computed_column(inline=inline_raise_on_2(t.c1))
+        status = t.insert(({'c1': i} for i in range(4)), on_error='ignore')
+        assert status.num_excs == 2
+        res = t.where(t.c1 == 2).select(threaded_type=t.threaded.errortype, inline_type=t.inline.errortype).collect()
+        assert res['threaded_type'] == res['inline_type'] == ['ValueError']
+        res = t.where(t.c1 == 2).select(threaded_msg=t.threaded.errormsg, inline_msg=t.inline.errormsg).collect()
+        assert res['threaded_msg'] == res['inline_msg'] == ['boom 2']
+
+        # a computed column with a run_in_thread UDF still computes after a catalog reload
+        path = p('reload')
+        t = pxt.create_table(path, {'c1': pxt.Int})
+        t.add_computed_column(out=udf_threaded(t.c1))
+        validate_update_status(t.insert({'c1': i} for i in range(5)), expected_rows=5)
+        reload_catalog()
+        t = pxt.get_table(path)
+        validate_update_status(t.insert({'c1': i} for i in range(5, 10)), expected_rows=5)
+        assert sorted(t.select(t.out).collect()['out']) == list(range(1, 11))
+
+    @pytest.mark.db_roots('local', reason='uses a barrier and the telemetry recorder of the test process')
+    def test_run_in_thread_local(self, db_root: DatabaseRoot, telemetry_recorder: RecordingSubscriber) -> None:
+        p = db_root.make_catalog_path
+        # two calls run at the same time: each call waits at the barrier until the other call arrives, and a call
+        # that waits alone fails after the timeout
+        _two_call_barrier.reset()
+        t = pxt.create_table(p('parallel'), {'c1': pxt.Int})
+        validate_update_status(t.insert([{'c1': 0}, {'c1': 1}]), expected_rows=2)
+        res = t.select(out=threaded_barrier_wait(t.c1)).collect()
+        assert sorted(res['out']) == [0, 1]
+
+        # a run_in_thread UDF counts into the same call, latency and error metrics as an unmarked UDF:
+        # 4 rows give 4 calls, 4 latency records and 1 error (row 2) for each
+        t = pxt.create_table(p('metrics'), {'c1': pxt.Int})
+        validate_update_status(t.insert({'c1': i} for i in range(4)), expected_rows=4)
+        t.add_computed_column(threaded=threaded_raise_on_2(t.c1), on_error='ignore')
+        t.add_computed_column(inline=inline_raise_on_2(t.c1), on_error='ignore')
+        for udf_name in ('threaded_raise_on_2', 'inline_raise_on_2'):
+            calls = sum(
+                n
+                for counter, n, attrs in telemetry_recorder.counter_adds
+                if counter is telemetry_schemas.udf_calls and attrs['pxt.udf'] == udf_name
+            )
+            errors = sum(
+                n
+                for counter, n, attrs in telemetry_recorder.counter_adds
+                if counter is telemetry_schemas.udf_errors and attrs['pxt.udf'] == udf_name
+            )
+            latencies = [
+                value
+                for histogram, value, attrs in telemetry_recorder.histogram_records
+                if histogram is telemetry_schemas.udf_latency and attrs['pxt.udf'] == udf_name
+            ]
+            assert (calls, errors, len(latencies)) == (4, 1, 4), udf_name
 
     def test_display_name_fallback(self, init_env: None) -> None:
         # a CallableFunction with no name falls back to the base display_name rather than leaking None into
