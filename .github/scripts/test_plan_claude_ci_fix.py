@@ -36,23 +36,58 @@ def event(
     }
 
 
-class MarkerPayloadTest(unittest.TestCase):
-    def test_parses_json_comment(self) -> None:
-        body = 'hello\n<!-- claude-ci-fix {"workflow":"tests","run":9,"jobs":["lint"]} -->\n'
-        self.assertEqual(plan.marker_payload(body), {'workflow': 'tests', 'run': 9, 'jobs': ['lint']})
+def pr(
+    number: int,
+    *,
+    state: str = 'OPEN',
+    head: str = 'claude/ci-fix-tests-8',
+    body: str = '',
+    merged: bool = False,
+    cross: bool = False,
+) -> dict[str, Any]:
+    return {
+        'number': number,
+        'title': f'pr {number}',
+        'state': state,
+        'headRefName': head,
+        'body': body,
+        'mergedAt': '2026-11-09T15:03:22Z' if merged else None,
+        'url': f'https://github.com/o/r/pull/{number}',
+        'isCrossRepository': cross,
+    }
 
-    def test_rejects_broken_json(self) -> None:
-        self.assertIsNone(plan.marker_payload('<!-- claude-ci-fix {not json} -->'))
+
+class IsCiFixPrTest(unittest.TestCase):
+    def test_same_repo_branch_with_the_prefix(self) -> None:
+        self.assertTrue(plan.is_ci_fix_pr(pr(1), 'tests'))
+
+    def test_other_workflow_prefix_is_not_a_match(self) -> None:
+        self.assertFalse(plan.is_ci_fix_pr(pr(1, head='claude/ci-fix-nightly-8'), 'tests'))
+
+    def test_fork_head_is_not_a_match(self) -> None:
+        self.assertFalse(plan.is_ci_fix_pr(pr(1, cross=True), 'tests'))
+
+    def test_body_text_is_not_a_match(self) -> None:
+        body = '<!-- claude-ci-fix {"workflow":"tests"} -->'
+        self.assertFalse(plan.is_ci_fix_pr(pr(1, head='main', body=body), 'tests'))
 
 
 class MainTest(unittest.TestCase):
-    def run_main(self, payload: dict[str, Any]) -> str:
+    def run_main(
+        self, payload: dict[str, Any], prs: list[dict[str, Any]] | None = None, latest: int | None = None
+    ) -> str:
+        run_id = payload['workflow_run']['id']
         with tempfile.TemporaryDirectory() as tmp:
             event_path, output_path = os.path.join(tmp, 'event.json'), os.path.join(tmp, 'output')
             with open(event_path, 'w', encoding='utf-8') as f:
                 json.dump(payload, f)
             env = {'GITHUB_EVENT_PATH': event_path, 'GITHUB_OUTPUT': output_path, 'REPO': 'o/r'}
-            with mock.patch.dict(os.environ, env):
+            with (
+                mock.patch.dict(os.environ, env),
+                mock.patch.object(plan, 'latest_scheduled_run_id', return_value=latest or run_id),
+                mock.patch.object(plan, 'failed_job_names', return_value=['lint', 'py']),
+                mock.patch.object(plan, 'list_prs', return_value=prs or []),
+            ):
                 plan.main()
             if not os.path.exists(output_path):
                 return ''
@@ -72,117 +107,50 @@ class MainTest(unittest.TestCase):
         self.assertEqual(self.run_main(event(name='Claude review')), '')
 
     def test_stale_run_is_ignored(self) -> None:
-        with mock.patch.object(plan, 'latest_scheduled_run_id', return_value=99):
-            self.assertEqual(self.run_main(event(run_id=9)), '')
+        self.assertEqual(self.run_main(event(run_id=9), latest=99), '')
 
-    def test_closed_unmerged_pr_for_this_run_stops_a_new_fix(self) -> None:
-        closed = {
-            'number': 1925,
-            'title': 'old fix',
-            'state': 'CLOSED',
-            'headRefName': 'claude/ci-fix-tests-9',
-            'body': 'run 9\n<!-- claude-ci-fix {"workflow":"tests","run":9} -->',
-            'author': {'login': 'claude'},
-            'mergedAt': None,
-            'url': 'https://github.com/o/r/pull/1925',
-            'closedAt': '2026-11-09T15:03:22Z',
-        }
-        with (
-            mock.patch.object(plan, 'latest_scheduled_run_id', return_value=9),
-            mock.patch.object(plan, 'failed_job_names', return_value=['lint']),
-            mock.patch.object(plan, 'list_prs', return_value=[closed]),
-        ):
-            self.assertEqual(self.run_main(event(run_id=9)), '')
+    def test_closed_unmerged_pr_naming_this_run_stops_a_new_fix(self) -> None:
+        closed = pr(1925, state='CLOSED', head='claude/ci-fix-tests-9', body='run 9')
+        self.assertEqual(self.run_main(event(run_id=9), [closed]), '')
 
-    def test_open_human_pr_for_this_run_stops_a_new_fix(self) -> None:
-        human = {
-            'number': 1927,
-            'title': 'human fix',
-            'state': 'OPEN',
-            'headRefName': 'claude/genai-v1beta-notebook',
-            'body': 'The 2026-11-09 nightly https://github.com/o/r/actions/runs/9',
-            'author': {'login': 'aaron-siegel'},
-            'mergedAt': None,
-            'url': 'https://github.com/o/r/pull/1927',
-            'closedAt': None,
-        }
-        with (
-            mock.patch.object(plan, 'latest_scheduled_run_id', return_value=9),
-            mock.patch.object(plan, 'failed_job_names', return_value=['isolated-nb-tests']),
-            mock.patch.object(plan, 'list_prs', return_value=[human]),
-        ):
-            self.assertEqual(self.run_main(event(run_id=9)), '')
+    def test_open_human_pr_naming_this_run_stops_a_new_fix(self) -> None:
+        human = pr(1927, head='claude/genai-v1beta-notebook', body='nightly https://github.com/o/r/actions/runs/9')
+        self.assertEqual(self.run_main(event(run_id=9), [human]), '')
 
-    def test_failure_writes_outputs_and_reuses_an_open_pr(self) -> None:
-        open_pr = {
-            'number': 42,
-            'title': 'fix lint',
-            'state': 'OPEN',
-            'headRefName': 'claude/ci-fix-tests-8',
-            'body': '<!-- claude-ci-fix {"workflow":"tests","run":8} -->',
-            'author': {'login': 'claude'},
-            'mergedAt': None,
-            'url': 'https://github.com/o/r/pull/42',
-            'closedAt': None,
-        }
-        with (
-            mock.patch.object(plan, 'latest_scheduled_run_id', return_value=9),
-            mock.patch.object(plan, 'failed_job_names', return_value=['lint', 'py']),
-            mock.patch.object(plan, 'list_prs', return_value=[open_pr]),
-        ):
-            out = self.run_main(event(run_id=9, name='tests'))
-        self.assertIn('run=9\n', out)
-        self.assertIn('workflow=tests\n', out)
-        self.assertIn('tested_ref=main\n', out)
-        self.assertIn('existing_pr=42\n', out)
-        self.assertIn('branch=claude/ci-fix-tests-8\n', out)
-        self.assertIn('failed_jobs=["lint","py"]\n', out)
+    def test_merged_pr_naming_this_run_does_not_stop_a_fix(self) -> None:
+        merged = pr(1900, state='MERGED', head='someone/fix', body='run 9', merged=True)
+        self.assertIn('branch=claude/ci-fix-tests-9\n', self.run_main(event(run_id=9), [merged]))
+
+    def test_open_ci_fix_pr_for_the_workflow_stops_a_new_fix(self) -> None:
+        self.assertEqual(self.run_main(event(run_id=9), [pr(42)]), '')
+
+    def test_open_ci_fix_pr_for_another_workflow_does_not_stop_a_fix(self) -> None:
+        other = pr(42, head='claude/ci-fix-nightly-8')
+        self.assertIn('workflow=tests\n', self.run_main(event(run_id=9), [other]))
+
+    def test_fork_pr_on_a_ci_fix_branch_does_not_stop_a_fix(self) -> None:
+        self.assertIn('workflow=tests\n', self.run_main(event(run_id=9), [pr(42, cross=True)]))
+
+    def test_failure_computes_the_branch_and_writes_the_context(self) -> None:
+        closed = pr(40, state='CLOSED', head='claude/ci-fix-tests-5')
+        out = self.run_main(event(run_id=9), [closed])
+        lines = dict(line.split('=', 1) for line in out.splitlines())
+        self.assertEqual(lines['workflow'], 'tests')
+        self.assertEqual(lines['branch'], 'claude/ci-fix-tests-9')
+        context = json.loads(lines['context'])
+        self.assertEqual(context['run'], 9)
+        self.assertEqual(context['tested_ref'], 'main')
+        self.assertEqual(context['failed_jobs'], ['lint', 'py'])
+        self.assertEqual(context['branch'], 'claude/ci-fix-tests-9')
+        self.assertEqual([p['number'] for p in context['closed_prs']], [40])
 
     def test_nightly_uses_the_release_ref(self) -> None:
-        with (
-            mock.patch.object(plan, 'latest_scheduled_run_id', return_value=9),
-            mock.patch.object(plan, 'failed_job_names', return_value=['tests']),
-            mock.patch.object(plan, 'list_prs', return_value=[]),
-        ):
-            out = self.run_main(event(run_id=9, name='nightly', path='.github/workflows/nightly.yml'))
-        self.assertIn('tested_ref=release\n', out)
+        out = self.run_main(event(run_id=9, name='nightly', path='.github/workflows/nightly.yml'))
         self.assertIn('branch=claude/ci-fix-nightly-9\n', out)
-        self.assertIn('existing_pr=\n', out)
-
-    def test_write_context_file(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            env = {
-                'RUN': '9',
-                'RUN_URL': 'https://github.com/o/r/actions/runs/9',
-                'WORKFLOW_NAME': 'tests',
-                'TESTED_REF': 'main',
-                'FAILED_JOBS': '["lint"]',
-                'EXISTING_PR': '42',
-                'BRANCH': 'claude/ci-fix-tests-8',
-                'CLOSED_PRS': '[]',
-                'REPO': 'o/r',
-            }
-            cwd = os.getcwd()
-            try:
-                os.chdir(tmp)
-                with mock.patch.dict(os.environ, env):
-                    self.assertEqual(plan.write_context_file(), 0)
-            finally:
-                os.chdir(cwd)
-            with open(os.path.join(tmp, 'ci-fix-context.json'), encoding='utf-8') as f:
-                data = json.load(f)
-        self.assertEqual(data['existing_pr'], 42)
-        self.assertEqual(data['failed_jobs'], ['lint'])
-        self.assertEqual(data['workflow'], 'tests')
+        self.assertEqual(json.loads(out.split('context=', 1)[1])['tested_ref'], 'release')
 
     def test_timed_out_run_is_investigated(self) -> None:
-        with (
-            mock.patch.object(plan, 'latest_scheduled_run_id', return_value=9),
-            mock.patch.object(plan, 'failed_job_names', return_value=[]),
-            mock.patch.object(plan, 'list_prs', return_value=[]),
-        ):
-            out = self.run_main(event(run_id=9, conclusion='timed_out'))
-        self.assertIn('run=9\n', out)
+        self.assertIn('workflow=tests\n', self.run_main(event(run_id=9, conclusion='timed_out')))
 
 
 if __name__ == '__main__':

@@ -54,32 +54,14 @@ def inline_comment(comment: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def write_findings(findings: bool) -> None:
-    path = os.environ.get('GITHUB_OUTPUT')
-    if not path:
-        return
-    with open(path, 'a', encoding='utf-8') as f:
-        f.write(f'findings={"true" if findings else "false"}\n')
-
-
-def has_findings(data: dict[str, Any]) -> bool:
-    if not data.get('post'):
-        return False
-    if data.get('comments'):
-        return True
-    return 'No supported findings.' not in (data.get('body') or '')
-
-
 def main() -> int:
     repo, pr = os.environ['REPO'], os.environ['PR_NUMBER']
     data = review_json(final_message(os.environ['EXECUTION_FILE']))
     if data is None:
         print("::warning::Claude's final message has no review JSON that parses, so nothing was posted.")
-        write_findings(False)
         return 1
     if not data.get('post'):
         print(f'Nothing to post: {data.get("reason", "no reason given")}')
-        write_findings(False)
         return 0
 
     comments = [inline_comment(c) for c in data.get('comments', [])]
@@ -87,12 +69,10 @@ def main() -> int:
     result = post(repo, pr, review)
     if result.returncode == 0:
         print(f'Posted one review with {len(comments)} inline comments.')
-        write_findings(has_findings(data))
         return 0
 
     if not comments:
         print(f'::warning::GitHub rejected the review: {result.stderr.strip()}')
-        write_findings(False)
         return 1
 
     # GitHub rejects the whole review when one comment's line is outside the diff. Move every comment into the body,
@@ -103,10 +83,8 @@ def main() -> int:
     result = post(repo, pr, review)
     if result.returncode == 0:
         print(f'Posted one review with {len(comments)} comments in its body.')
-        write_findings(has_findings(data))
         return 0
     print(f'::warning::GitHub rejected the review: {result.stderr.strip()}')
-    write_findings(False)
     return 1
 
 
