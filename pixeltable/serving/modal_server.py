@@ -2,7 +2,6 @@
 
 import asyncio
 import hashlib
-import logging
 import os
 import re
 import subprocess
@@ -22,8 +21,6 @@ from pixeltable.env import Env
 from pixeltable.exec.expr_eval.modal_client import UdfCallRequest, UdfCallResponse
 from pixeltable.func.symbols import resolve_symbol
 from pixeltable.utils.local_store import TempStore
-
-_logger = logging.getLogger('pixeltable')
 
 _PORT = 8000
 # Modal stops a container of a Server after it has been idle for this long
@@ -160,11 +157,17 @@ class ModalApp:
     def _deploy(self) -> dict[str, str]:
         """Deploy the App and return the URL of each UDF's Server, keyed by UDF path."""
         project_root = Config.get().project_root
-        if project_root is None or not (project_root / 'uv.lock').is_file():
+        if project_root is None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
-                'Running UDFs on Modal requires a project with a uv.lock, which supplies the packages of the Modal '
-                'image',
+                'Running UDFs on Modal requires a project: a directory with a pixeltable.toml, or a pyproject.toml '
+                'with a [tool.pixeltable] section',
+            )
+        if not (project_root / 'uv.lock').is_file():
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'Running UDFs on Modal requires {project_root / "uv.lock"}, which lists the packages of the Modal '
+                f'image; run `uv lock` in {project_root}',
             )
         requirements = self._requirements(project_root)
         name = self._name(project_root)
@@ -205,12 +208,12 @@ class ModalApp:
                     # when Modal stops a container during a call, it waits up to exit_grace_period for the call to end
                     exit_grace_period=resources.timeout_seconds,
                 )(ModalServer)
-            _logger.info(f'Deploying Modal App {name!r}')
+            Env.get().console_logger.info(f'Deploying Modal App {name!r}')
             start = time.monotonic()
             # 'recreate' stops the containers of the previous deploy; otherwise they would keep serving calls with
             # the previous deploy's pixeltable source until they scale down
             app.deploy(name=name, strategy='recreate')
-        _logger.info(f'Deployed Modal App {name!r} in {time.monotonic() - start:.1f}s')
+        Env.get().console_logger.info(f'Deployed Modal App {name!r} in {time.monotonic() - start:.1f}s')
         return {udf_path: server.get_url() for udf_path, server in servers.items()}
 
     def _server_name(self, udf_path: str) -> str:

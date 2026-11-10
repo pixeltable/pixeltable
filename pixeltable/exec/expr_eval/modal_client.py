@@ -275,6 +275,12 @@ class ModalServerClient:
             # the proxy reset the stream before reading the whole body, so the UDF didn't run; that reset raises
             # LocalProtocolError, not RemoteProtocolError (measured)
             return None
+        except httpx.ReadTimeout as exc:
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_TIMEOUT,
+                f'Modal call of {self.udf_path} got no response within {self.timeout.read}s (timeout_seconds in the '
+                'udf_resources setting)',
+            ) from exc
         except httpx.TransportError as exc:
             # other transport errors, such as RemoteProtocolError, can also come after the UDF ran, so the call isn't
             # sent again
