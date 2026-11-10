@@ -1,6 +1,6 @@
 # Modal UDF demo
 
-A Pixeltable project whose computed columns run on Modal. Each UDF under `[tool.pixeltable.udf_resources]` in
+PR 1910 contains rudimentary support for running UDFs on Modal. Each UDF under `[tool.pixeltable.udf_resources]` in
 `pyproject.toml` runs on its own Modal Server, with the CPU, memory and GPU given there. `app.py` defines:
 
 - `demo/videos`: uploaded videos, with a 2-second excerpt (`clip()`) and 5-second segments (`segment_video()`).
@@ -9,6 +9,8 @@ A Pixeltable project whose computed columns run on Modal. Each UDF under `[tool.
   (`clip()`).
 - The `demo` service: an insert route, `/videos`, and the query routes `/frames`, `/similar` and `/with-excerpt`.
   `/with-excerpt` appends a video's excerpt to the video with `concat_videos()`.
+
+TODO: remove the /modal-poc folder once we have full support for running UDFs on Modal (for local and hosted tables).
 
 ## Setup
 

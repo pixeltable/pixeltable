@@ -14,7 +14,7 @@ from typing import Any
 import httpx
 from typing_extensions import Self
 
-from pixeltable import exceptions as excs, func, type_system as ts
+from pixeltable import exceptions as excs, exprs, func, type_system as ts
 from pixeltable.env import Env, register_client
 from pixeltable.runtime import get_runtime
 from pixeltable.service import proxy_protocol
@@ -41,24 +41,24 @@ class UdfCallRequest:
     batch_args: list[list[Any]] | None = None
     batch_kwargs: dict[str, list[Any]] | None = None
 
-    def encode(self) -> bytes:
-        params = self.signature.parameters
-        params_by_pos = self.signature.parameters_by_pos
+    def encode(self, fn_call: exprs.FunctionCall) -> bytes:
+        # self.signature gives no column type to a value passed through *args or **kwargs
+        arg_types = [arg.col_type for arg in fn_call.args]
+        kwarg_types = {name: arg.col_type for name, arg in fn_call.kwargs.items()}
         encode_media = proxy_protocol.encode_media_files
         wire: dict[str, Any] = {'signature': self.signature.as_dict(), 'time_zone': self.time_zone}
         if self.batch_args is not None:
             assert self.batch_kwargs is not None
             wire['batch_args'] = [
-                [encode_media(val, params_by_pos[i].col_type) for val in vals] for i, vals in enumerate(self.batch_args)
+                [encode_media(val, arg_types[i]) for val in vals] for i, vals in enumerate(self.batch_args)
             ]
             wire['batch_kwargs'] = {
-                name: [encode_media(val, params[name].col_type) for val in vals]
-                for name, vals in self.batch_kwargs.items()
+                name: [encode_media(val, kwarg_types[name]) for val in vals] for name, vals in self.batch_kwargs.items()
             }
         else:
             assert self.args is not None and self.kwargs is not None
-            wire['args'] = [encode_media(val, params_by_pos[i].col_type) for i, val in enumerate(self.args)]
-            wire['kwargs'] = {name: encode_media(val, params[name].col_type) for name, val in self.kwargs.items()}
+            wire['args'] = [encode_media(val, arg_types[i]) for i, val in enumerate(self.args)]
+            wire['kwargs'] = {name: encode_media(val, kwarg_types[name]) for name, val in self.kwargs.items()}
         return _encode_body(wire)
 
     @classmethod
@@ -221,12 +221,13 @@ class ModalServerClient:
             call_args.kwargs,
             call_args.batch_args,
             call_args.batch_kwargs,
-        ).encode()
+        ).encode(call_args.fn_call)
         http_client: httpx.AsyncClient = get_runtime().get_client('modal')
         start = time.monotonic()
         self.num_active_calls += 1
         if self.monitor is None:
             self.monitor = asyncio.create_task(self._monitor(http_client))
+
         try:
             while True:
                 if not self.container_running.is_set():
