@@ -92,6 +92,19 @@ pxt daemon restart              # the daemon reads the configuration when it sta
 pxt service update app.py demo  # restarts the service, which deploys the App again
 ```
 
+## Smoke test
+
+`smoke.py` runs some of the demo's UDFs on Modal, through computed columns and a query, and checks the results. It
+creates its tables in a new Pixeltable home; the last command stops that home's Postgres server:
+
+```bash
+SMOKE_HOME=$(mktemp -d)
+PIXELTABLE_HOME=$SMOKE_HOME python smoke.py
+.venv/lib/python3.*/site-packages/pixeltable_pgserver/pginstall/bin/pg_ctl -D $SMOKE_HOME/pgdata stop
+```
+
+At its first Modal call, the script deploys the App again, which stops the containers of a running demo service.
+
 ## Stop
 
 ```bash
