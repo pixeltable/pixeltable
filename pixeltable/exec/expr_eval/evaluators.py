@@ -70,7 +70,7 @@ class FnCallEvaluator(Evaluator):
     scalar_py_fn: Callable | None  # only set for non-batching CallableFunctions
     # the resource pool whose scheduler runs the calls: ModalScheduler's pool for a UDF in the udf_resources setting,
     # else fn_call.resource_pool; None if the calls run in this process
-    resource_pool: str | None
+    scheduler_pool: str | None
 
     # only set if fn.is_batched
     call_args_queue: asyncio.Queue[FnCallArgs] | None  # FnCallArgs waiting for execution
@@ -82,9 +82,9 @@ class FnCallEvaluator(Evaluator):
         self.fn = cast(func.CallableFunction, fn_call.fn)
         self_path = self.fn.self_path
         if self_path is not None and self_path in env.Env.get().udf_resources():
-            self.resource_pool = ModalScheduler.get_resource_pool(self_path)
+            self.scheduler_pool = ModalScheduler.get_resource_pool(self_path)
         else:
-            self.resource_pool = fn_call.resource_pool
+            self.scheduler_pool = fn_call.resource_pool
         if fn_call.resource_pool is not None and not self.fn.is_async:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
@@ -174,8 +174,8 @@ class FnCallEvaluator(Evaluator):
                 batched_call_args = self._create_batch_call_args(call_args_batch)
                 self._submit_batch(batched_call_args)
 
-        elif self.resource_pool is not None:
-            scheduler = self.dispatcher.schedulers[self.resource_pool]
+        elif self.scheduler_pool is not None:
+            scheduler = self.dispatcher.schedulers[self.scheduler_pool]
             for item in rows_call_args:
                 scheduler.submit(item, self.eval_ctx)
 
@@ -191,8 +191,8 @@ class FnCallEvaluator(Evaluator):
             self.dispatcher.register_task(task)
 
     def _submit_batch(self, batched_call_args: FnCallArgs) -> None:
-        if self.resource_pool is not None:
-            self.dispatcher.schedulers[self.resource_pool].submit(batched_call_args, self.eval_ctx)
+        if self.scheduler_pool is not None:
+            self.dispatcher.schedulers[self.scheduler_pool].submit(batched_call_args, self.eval_ctx)
         else:
             task = asyncio.create_task(self.eval_batch(batched_call_args))
             self.dispatcher.register_task(task)

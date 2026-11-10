@@ -239,8 +239,8 @@ class ExprEvalNode(ExecNode):
         """Return the resource pools of the function calls in eval_ctx."""
         pools: set[str] = set()
         for evaluator in eval_ctx.slot_evaluators.values():
-            if isinstance(evaluator, FnCallEvaluator) and evaluator.resource_pool is not None:
-                pools.add(evaluator.resource_pool)
+            if isinstance(evaluator, FnCallEvaluator) and evaluator.scheduler_pool is not None:
+                pools.add(evaluator.scheduler_pool)
             elif isinstance(evaluator, JsonMapperDispatcher):
                 pools |= self._resource_pools(evaluator.nested_eval_ctx)
         return pools

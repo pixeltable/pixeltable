@@ -305,12 +305,12 @@ class Env:
 
     @default_time_zone.setter
     def default_time_zone(self, tz: ZoneInfo | None) -> None:
-        """
-        This is not a publicly visible setter; it is only for testing purposes.
-        """
+        """Set the default time zone, or the configured one if tz is None."""
         self._default_time_zone = ZoneInfo(self._get_tz_name()) if tz is None else tz
-        self.engine.dispose()
-        self._create_engine()
+        if self._db_connected:
+            # the engine's connections use the default time zone
+            self.engine.dispose()
+            self._create_engine()
 
     def record_tbl_catalog_uri(self, tbl_id: UUID, catalog_uri: CatalogPath) -> None:
         """Record which catalog a table belongs to. The mapping is immutable per table id."""

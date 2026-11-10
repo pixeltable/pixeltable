@@ -12,6 +12,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable
+from zoneinfo import ZoneInfo
 
 import modal
 
@@ -48,8 +49,8 @@ class ModalServer:
       above 2 MB through Modal's blob storage.
     - With the Servers in us-east, an echo call took 74 ms at p50, against 153-165 ms with .remote(), and a call with
       a 1 MB argument took 223 ms, against 824 ms.
-    - The calling process needs only a proxy token, which can call Servers but can't deploy Apps. .remote() needs a
-      Modal API token.
+    - Calls need only a proxy token, which can call Servers but can't deploy Apps; .remote() calls need a Modal API
+      token. ModalApp deploys the App from the calling process, though, which needs an API token for the deploy.
     """
 
     udf_path: str
@@ -111,6 +112,8 @@ class ModalServer:
         with self.lock:
             try:
                 request = UdfCallRequest.decode(request_body)
+                # the UDF sees the caller's default time zone, as in a local run
+                Env.get().default_time_zone = ZoneInfo(request.time_zone)
                 fn = next((overload for overload in self.overloads if overload.signature == request.signature), None)
                 if fn is None:
                     raise excs.RequestError(

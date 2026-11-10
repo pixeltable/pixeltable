@@ -34,6 +34,8 @@ class UdfCallRequest:
 
     # ModalServer.run() calls the UDF's overload with this signature
     signature: func.Signature
+    # the name of the calling process's default time zone (Env.default_time_zone)
+    time_zone: str
     args: list[Any] | None = None
     kwargs: dict[str, Any] | None = None
     batch_args: list[list[Any]] | None = None
@@ -43,7 +45,7 @@ class UdfCallRequest:
         params = self.signature.parameters
         params_by_pos = self.signature.parameters_by_pos
         encode_media = proxy_protocol.encode_media_files
-        wire: dict[str, Any] = {'signature': self.signature.as_dict()}
+        wire: dict[str, Any] = {'signature': self.signature.as_dict(), 'time_zone': self.time_zone}
         if self.batch_args is not None:
             assert self.batch_kwargs is not None
             wire['batch_args'] = [
@@ -64,6 +66,7 @@ class UdfCallRequest:
         wire = _decode_body(body)
         return cls(
             func.Signature.from_dict(wire['signature']),
+            wire['time_zone'],
             wire.get('args'),
             wire.get('kwargs'),
             wire.get('batch_args'),
@@ -209,8 +212,15 @@ class ModalServerClient:
     async def call(self, call_args: FnCallArgs) -> UdfCallResponse:
         """Run call_args on the Server."""
         assert self.url is not None
+        time_zone = Env.get().default_time_zone
+        assert time_zone is not None
         request_body = UdfCallRequest(
-            call_args.pxt_fn.signature, call_args.args, call_args.kwargs, call_args.batch_args, call_args.batch_kwargs
+            call_args.pxt_fn.signature,
+            time_zone.key,
+            call_args.args,
+            call_args.kwargs,
+            call_args.batch_args,
+            call_args.batch_kwargs,
         ).encode()
         http_client: httpx.AsyncClient = get_runtime().get_client('modal')
         start = time.monotonic()
@@ -224,6 +234,8 @@ class ModalServerClient:
                 response = await self._post(http_client, request_body)
                 if response is not None:
                     break
+                # the next iteration waits for a GET that finds a container, or raises PROVIDER_ERROR at the deadline;
+                # such GETs come at most every _PROBE_SECONDS, which limits how often a call retries after 503s
                 self.container_running.clear()
         finally:
             self.num_active_calls -= 1
@@ -260,8 +272,17 @@ class ModalServerClient:
         try:
             response = post.result()
         except httpx.LocalProtocolError:
-            # the proxy reset the stream before reading the whole body, so the UDF didn't run
+            # the proxy reset the stream before reading the whole body, so the UDF didn't run; that reset raises
+            # LocalProtocolError, not RemoteProtocolError (measured)
             return None
+        except httpx.TransportError as exc:
+            # other transport errors, such as RemoteProtocolError, can also come after the UDF ran, so the call isn't
+            # sent again
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR, f'Modal call of {self.udf_path} failed: {exc!r}'
+            ) from exc
+        # Modal answers 503 only when the Server has no running container; with every container busy, it queues the
+        # request (measured)
         return None if response.status_code == 503 else response
 
     async def _monitor(self, http_client: httpx.AsyncClient) -> None:
@@ -270,6 +291,8 @@ class ModalServerClient:
         attempt = 0
         while True:
             sent = time.monotonic()
+            # GETs during calls don't make Modal start more containers: a GET every 200 ms during sequential calls
+            # started none (measured)
             try:
                 status: int | None = (await http_client.get(self.url, timeout=_CONNECT_SECONDS)).status_code
             except httpx.HTTPError as exc:
