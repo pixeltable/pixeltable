@@ -3335,6 +3335,13 @@ class TestTable:
             assert counts == [(3, 0), (1, 1)]
             assert long_keys.count() == 4
 
+        # a null key from a query matches no stored key
+        null_keys = pxt.create_table(p('null_keys'), {'s': pxt.String | None, 'v': pxt.Int})
+        null_keys.insert([{'s': None, 'v': 6}, {'s': 'b', 'v': 7}, {'s': 'c', 'v': 8}])
+        status = long_keys.insert(null_keys.select(null_keys.s, null_keys.v), if_exists='ignore')
+        assert status.row_count_stats.skipped_rows == 1
+        assert long_keys.where(long_keys.s == 'c').select(long_keys.v).collect()['v'] == [8]
+
         # a table without a primary key
         no_pk = pxt.create_table(p('no_pk'), {'id': pxt.Int}, _is_data_versioned=is_data_versioned)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="if_exists='ignore' matches rows by primary key"):

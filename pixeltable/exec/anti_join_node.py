@@ -66,8 +66,8 @@ class AntiJoinNode(ExecNode):
                 yield output_batch
 
     def _key(self, row: exprs.DataRow) -> tuple[Any, ...] | None:
-        """Return the primary key of row, or None if a key column has an error."""
-        if any(row.has_exc(slot_idx) for slot_idx in self.pk_slot_idxs):
+        """Return the primary key of row, or None if a key column has an error or is null."""
+        if any(row.has_exc(slot_idx) or row[slot_idx] is None for slot_idx in self.pk_slot_idxs):
             return None
         return tuple(
             row[slot_idx][: BtreeIndex.MAX_STRING_LEN] if is_prefix else row[slot_idx]
