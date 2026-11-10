@@ -280,8 +280,10 @@ class TestInsertTracing:
             assert load['parent_id'] is None and load['ended']
             assert load['attrs']['pxt.model_id'] == model_id
 
-    def test_op_spans(self, uses_db: None) -> None:
-        t = pxt.create_table('tracing_ops', {'c': pxt.Int | None, 's': pxt.String})
+    def test_op_spans(self, uses_db: None, is_data_versioned: bool) -> None:
+        t = pxt.create_table(
+            'tracing_ops', {'c': pxt.Int | None, 's': pxt.String}, _is_data_versioned=is_data_versioned
+        )
         t.add_computed_column(inc=pxtf.math.abs(t.c))
 
         with record_telemetry() as recorder:

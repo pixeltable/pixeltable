@@ -49,7 +49,7 @@ from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectSto
 if TYPE_CHECKING:
     from pixeltable._query import Query
 
-PROTOCOL_VERSION = 8
+PROTOCOL_VERSION = 9
 
 
 def protocol_mismatch_message(client_version: int, server_version: int, catalog_uri: Path) -> str:
@@ -413,6 +413,7 @@ class ProxyRequest(BaseModel):
 
     args: dict[str, Any]  # method kwargs
     request_id: str | None = None  # set for mutating methods (idempotency); unused for now
+    catalog_frozen: bool = False  # the client runs inside Catalog.freeze()
 
     # raw binary parts, referenced by index from the tagged values in args
     _binary_parts: list[bytes] = PrivateAttr(default_factory=list)
@@ -431,6 +432,7 @@ class ProxyResponse(TypedDict, total=False):
     # only one of these is set
     result: Any  # return value of the dispatched method
     error: dict[str, Any]  # excs.Error.to_dict(), set instead of result on failure
+    prohibited_write: bool  # the method attempted a write under the request's catalog_frozen
 
     # only set after a mutation or when is_stale_md == True
     current_md: list[TableVersionMd] | list[dict[str, Any]]
@@ -494,7 +496,7 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
             'v': {f.name: _serialize(getattr(obj, f.name), InlinePartSink()) for f in dataclasses.fields(obj)},
         }
     if isinstance(obj, DirEntry):
-        # only the fields any get_dir_contents() consumer reads: dir presence, table id/md, error count
+        # only the fields read by get_dir_contents() callers: dir presence, table id/md, error count, base path
         return {
             _TAG: 'DirEntry',
             'v': {
@@ -502,6 +504,7 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
                 'table': None if obj.table is None else {'id': _serialize(obj.table.id, sink), 'md': obj.table.md},
                 'dir_entries': {name: _serialize(child, sink) for name, child in obj.dir_entries.items()},
                 'table_error_count': obj.table_error_count,
+                'base_path': _serialize(obj.base_path, sink),
             },
         }
     if isinstance(obj, UpdateStatus):
@@ -753,6 +756,7 @@ def _deserialize(
                     id=_deserialize(table['id'], binary_parts, uploaded_names, remote_parts), md=table['md']
                 ),
                 table_error_count=v['table_error_count'],
+                base_path=_deserialize(v['base_path'], binary_parts, uploaded_names, remote_parts),
             )
         if tag == 'UpdateStatus':
             d = dict(v)
@@ -952,6 +956,7 @@ def response_body(
     error_json: bytes = b'null',
     current_md_json: bytes = b'null',
     is_stale_md: bool = False,
+    prohibited_write: bool = False,
 ) -> bytes:
     """The wire body for a response whose fields are already encoded.
 
@@ -966,6 +971,8 @@ def response_body(
     head += current_md_json
     head += b',"is_stale_md":'
     head += b'true' if is_stale_md else b'false'
+    head += b',"prohibited_write":'
+    head += b'true' if prohibited_write else b'false'
     head += b'}'
     return encode_body(bytes(head), parts)
 
@@ -982,6 +989,7 @@ def encode_response(response: ProxyResponse) -> bytes:
         error_json=b'null' if error is None else _dumps(error).encode(),
         current_md_json=current_md_json,
         is_stale_md=response.get('is_stale_md', False),
+        prohibited_write=response.get('prohibited_write', False),
     )
 
 

@@ -41,6 +41,7 @@ from .globals import (
     fold_mapping_keys,
     is_valid_identifier,
 )
+from .path import ROOT_PATH
 from .table import Table
 from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
@@ -369,6 +370,27 @@ class LocalTable(Table):
             return helper
 
         return retrying_read(op, tbl_keys=self._tbl_version_path.tbl_keys)
+
+    def _column_description(self, column: ColumnRef, html: bool, catalog_uri: pxt.catalog.Path = ROOT_PATH) -> str:
+        from pixeltable.catalog import retrying_read
+
+        def op() -> DescriptionHelper:
+            col_name = column.col_md.name
+            owner = get_runtime().catalog.get_table_by_id(column.col_md.qcolid.tbl_id)
+            assert owner is not None
+            owner_path = owner._path().with_catalog(catalog_uri)
+            # TODO: is this what we want? it's printing the path of the containing table, not of the context table
+            helper = DescriptionHelper()
+            helper.append(f'Column\n{col_name!r}\n(of table {owner_path!r})')
+            col_df, _ = owner._col_descriptor([col_name])
+            helper.append(col_df)
+            idxs = owner._index_descriptor([col_name])
+            if len(idxs) > 0:
+                helper.append(idxs)
+            return helper
+
+        helper = retrying_read(op, tbl_keys=self._tbl_version_path.tbl_keys)
+        return helper.to_html() if html else helper.to_string()
 
     def _col_descriptor(self, columns: list[str] | None = None) -> tuple[pd.DataFrame, list[int] | None]:
         """Generates column descriptor DataFrame and a list of vertical separators.
@@ -841,9 +863,6 @@ class LocalTable(Table):
             self._verify_computed_col_value(col.name, new_value_expr)
 
             tv = self._tbl_version.get()
-            if recompute:
-                assert tv.is_data_versioned, 'TODO: implement recompute for operational tables [PXT-1101]'
-
             result = tv.alter_computed_column(col, new_value_expr, recompute=recompute, cascade=cascade)
             FileCache.get().emit_eviction_warnings()
             return result

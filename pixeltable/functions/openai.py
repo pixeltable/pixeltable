@@ -1033,6 +1033,14 @@ class Usage(TypedDict):
     output_tokens_details: UsageOutputTokensDetails | None
 
 
+class SvgUsage(TypedDict):
+    input_tokens: int
+    model: str
+    output_tokens: int
+    reasoning_tokens: int
+    total_tokens: int
+
+
 class ImagesResponse(TypedDict):
     created: int
     data: list[PIL.Image.Image]
@@ -1042,6 +1050,7 @@ class ImagesResponse(TypedDict):
     quality: str | None
     size: str | None
     safety_identifier: NotRequired[str | None]  # openai>=3.33
+    svg_usage: NotRequired[SvgUsage | None]  # openai>=3.46
 
 
 @pxt.udf(is_deterministic=False)

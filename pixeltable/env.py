@@ -19,7 +19,7 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, Literal, NamedTuple, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, NamedTuple, TypeVar, overload
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -34,8 +34,10 @@ from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.service.resources import UdfResources
+from pixeltable.utils import fault_injection
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import Dbms, PostgresqlDbms
+from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
 from pixeltable.utils.object_stores import (
     ObjectPath,
@@ -164,6 +166,8 @@ class Env:
     # the last result of udf_resources(), with the config setting that produced it
     _udf_resources_cache: tuple[dict[str, Any], dict[str, UdfResources]] | None
     _dbms: Dbms | None
+    _db_lock: threading.Lock  # serializes ensure_connected()
+    _db_connected: bool
 
     @classmethod
     def get(cls) -> Env:
@@ -173,11 +177,11 @@ class Env:
         # hit the assertion in _init_env())
         with cls._init_lock:
             if cls._instance is None:
-                cls._init_env()
+                cls._init_env(connect=False)
         return cls._instance
 
     @classmethod
-    def _init_env(cls, reinit_db: bool = False) -> None:
+    def _init_env(cls, reinit_db: bool = False, *, connect: bool = True) -> None:
         assert not cls.__initializing, 'Circular env initialization detected.'
         cls.__initializing = True
         if cls._instance is not None:
@@ -185,8 +189,9 @@ class Env:
         cls._instance = None
         env = Env()
         try:
-            env._set_up(reinit_db=reinit_db)
-            env._upgrade_metadata()
+            env._set_up()
+            if connect:
+                env.ensure_connected(reinit_db=reinit_db)
             cls._instance = env
         finally:
             # Reset the initializing flag, even if setup fails.
@@ -236,6 +241,8 @@ class Env:
         self._resource_pool_lock = threading.Lock()
         self._udf_resources_cache = None
         self._dbms = None
+        self._db_lock = threading.Lock()
+        self._db_connected = False
 
         # Maps a table's id to the catalog uri it belongs to ('' for the in-process catalog). Populated whenever
         # a table is materialized, so a ColumnRef can resolve its table against the right catalog. Lives here
@@ -246,7 +253,7 @@ class Env:
 
     @property
     def db_url(self) -> str:
-        assert self._db_url is not None
+        assert self._db_connected
         return self._db_url
 
     @property
@@ -301,13 +308,9 @@ class Env:
         """
         This is not a publicly visible setter; it is only for testing purposes.
         """
-        if tz is None:
-            tz_name = self._get_tz_name()
-        else:
-            assert isinstance(tz, ZoneInfo)
-            tz_name = tz.key
+        self._default_time_zone = ZoneInfo(self._get_tz_name()) if tz is None else tz
         self.engine.dispose()
-        self._create_engine(time_zone_name=tz_name)
+        self._create_engine()
 
     def record_tbl_catalog_uri(self, tbl_id: UUID, catalog_uri: CatalogPath) -> None:
         """Record which catalog a table belongs to. The mapping is immutable per table id."""
@@ -327,12 +330,12 @@ class Env:
 
     @property
     def dbms(self) -> Dbms:
-        assert self._dbms is not None
+        assert self._db_connected
         return self._dbms
 
     @property
     def is_local(self) -> bool:
-        assert self._db_url is not None  # is_local should be called only after db initialization
+        assert self._db_connected
         return self._db_server is not None
 
     def is_notebook(self) -> bool:
@@ -356,22 +359,25 @@ class Env:
 
         Returns:
             str: The time zone name.
+
+        Raises:
+            RequestError: INVALID_CONFIGURATION if the configured time zone is not a known zone.
         """
         tz_name = Config.get().get_string_value('time_zone')
         if tz_name is not None:
             # Validate tzname
-            if not isinstance(tz_name, str):
-                _logger.error('Invalid time zone specified in configuration.')
-            else:
-                try:
-                    _ = ZoneInfo(tz_name)
-                except ZoneInfoNotFoundError:
-                    _logger.error(f'Invalid time zone specified in configuration: {tz_name}')
+            try:
+                _ = ZoneInfo(tz_name)
+            except (ZoneInfoNotFoundError, ValueError) as e:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f"Invalid value for configuration parameter 'pixeltable.time_zone': {tz_name}",
+                ) from e
         else:
             tz_name = tzlocal.get_localzone_name()
         return tz_name
 
-    def _set_up(self, echo: bool = False, reinit_db: bool = False) -> None:
+    def _set_up(self) -> None:
         if self._initialized:
             return
 
@@ -380,6 +386,7 @@ class Env:
         config = Config.get()
 
         self._initialized = True
+        self._default_time_zone = ZoneInfo(self._get_tz_name())
 
         self._media_dir = Config.get().home / 'media'
         self._file_cache_dir = Config.get().home / 'file_cache'
@@ -518,42 +525,66 @@ class Env:
         self._managed_logging_handlers.append((uvicorn_logger, fh))
 
         self.clear_tmp_dir()
-        tz_name = self._get_tz_name()
+        self._set_up_runtime()
 
-        # configure pixeltable database
-        self._init_db(config)
+    def ensure_connected(self, reinit_db: bool = False) -> None:
+        """Start or connect to the database, create its metadata and upgrade it, unless that already happened."""
+        if self._db_connected:
+            return
+        with self._db_lock:
+            if self._db_connected:
+                return
+            try:
+                self._set_up_db(reinit_db)
+            except BaseException:
+                self._disconnect()
+                raise
+            self._db_connected = True
 
-        if reinit_db and not self.is_local:
+    def _set_up_db(self, reinit_db: bool) -> None:
+        self._init_db(Config.get())
+        is_local = self._db_server is not None
+        if reinit_db and not is_local:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 'Reinitializing pixeltable database is not supported when running in non-local environment',
             )
 
-        if self.is_local:
+        redacted_db_url = redact_db_url(self._db_url)
+        if is_local:
             # Embedded postmaster: create or reset the database as needed.
-            if reinit_db and self._store_db_exists(self._db_name):
-                self._drop_store_db()
+            with self._store_db_lock():
+                if reinit_db and self._store_db_exists(self._db_name):
+                    self._drop_store_db()
 
-            create_db = not self._store_db_exists(self._db_name)
-            if create_db:
-                _logger.info(f'creating database at: {self.redacted_db_url}')
-                self._create_store_db()
-            else:
-                _logger.info(f'found database at: {self.redacted_db_url}')
+                create_db = not self._store_db_exists(self._db_name)
+                if create_db:
+                    _logger.info(f'creating database at: {redacted_db_url}')
+                    self._create_store_db()
+                else:
+                    _logger.info(f'found database at: {redacted_db_url}')
         else:
             # External DB: pre-provisioned; no local setup needed.
-            _logger.info(f'Using external database at: {self.redacted_db_url}')
+            _logger.info(f'Using external database at: {redacted_db_url}')
 
-        # Create the SQLAlchemy engine. This will also set the default time zone.
-        self._create_engine(time_zone_name=tz_name, echo=echo)
+        self._create_engine()
 
         # Create catalog tables and system metadata
         self._init_metadata()
 
-        self.console_logger.info(f'Connected to Pixeltable database at: {self.redacted_db_url}')
+        self.console_logger.info(f'Connected to Pixeltable database at: {redacted_db_url}')
+        fault_injection.process_fault(FaultLocation.ENV_SET_UP_DB_BEFORE_UPGRADE)
+        self._upgrade_metadata()
 
-        # we now have a home directory and db; start other services
-        self._set_up_runtime()
+    def _disconnect(self) -> None:
+        if self._sa_engine is not None:
+            self._sa_engine.dispose()
+        self._sa_engine = None
+        self._dbms = None
+        self._db_url = None
+        self._db_name = None
+        self._db_server = None
+        self._pgdata_dir = None
 
     def _init_db(self, config: Config) -> None:
         """
@@ -583,7 +614,7 @@ class Env:
                 # External PostgreSQL: database is pre-provisioned. Connect directly — no existence check needed.
             else:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Unsupported DBMS {dialect}')
-            _logger.info(f'Using database at: {self.redacted_db_url}')
+            _logger.info(f'Using database at: {redact_db_url(self._db_url)}')
         else:
             # the database name is an identifier, and is folded everywhere else it enters (Path, pxt localproxy)
             from pixeltable.catalog.globals import fold_identifier
@@ -631,9 +662,10 @@ class Env:
         metadata.schema.base_metadata.create_all(self._sa_engine, checkfirst=True)
         metadata.create_system_info(self._sa_engine)
 
-    def _create_engine(self, time_zone_name: str, echo: bool = False) -> None:
+    def _create_engine(self) -> None:
         # Add timezone and application_name options to connection string
-        updated_url = add_option_to_db_url(self.db_url, f'-c timezone={time_zone_name}')
+        assert self._default_time_zone is not None
+        updated_url = add_option_to_db_url(self._db_url, f'-c timezone={self._default_time_zone.key}')
         updated_url = add_option_to_db_url(updated_url, f'-c application_name={store_app_name()}')
 
         config = Config.get()
@@ -646,23 +678,16 @@ class Env:
 
         self._sa_engine = sql.create_engine(
             updated_url,
-            echo=echo,
             isolation_level=self._dbms.transaction_isolation_level,
             pool_size=pool_size,
             max_overflow=pool_max_overflow,
             pool_pre_ping=True,
         )
 
-        _logger.info(f'Created SQLAlchemy engine at: {self.redacted_db_url}')
+        _logger.info(f'Created SQLAlchemy engine at: {redact_db_url(self._db_url)}')
         _logger.info(f'Engine dialect: {self._sa_engine.dialect.name}')
         _logger.info(f'Engine driver : {self._sa_engine.dialect.driver}')
         _logger.info(f'Engine connection pool: {pool_size} + {pool_max_overflow}')
-
-        with self.engine.begin() as conn:
-            tz_name = conn.execute(sql.text('SHOW TIME ZONE')).scalar()
-            assert isinstance(tz_name, str)
-            _logger.info(f'Database time zone is now: {tz_name}')
-            self._default_time_zone = ZoneInfo(tz_name)
 
     def _set_local_db(self, db_name: str) -> None:
         """Point this Env at `db_name` on the embedded server."""
@@ -670,6 +695,17 @@ class Env:
         self._db_name = db_name
         self._db_url = self._db_server.get_uri(database=db_name, driver='psycopg')
         self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
+
+    @contextlib.contextmanager
+    def _store_db_lock(self) -> Iterator[None]:
+        """Serialize creating and dropping this Env's database across processes."""
+        engine = sql.create_engine(self._dbms.default_system_db_url(), future=True)
+        try:
+            with engine.begin() as conn:
+                conn.execute(sql.text('SELECT pg_advisory_xact_lock(hashtext(:db_name))'), {'db_name': self._db_name})
+                yield
+        finally:
+            engine.dispose()
 
     def _store_db_exists(self, db_name: str) -> bool:
         """Whether `db_name`, defaulting to this Env's database, exists in the store."""
@@ -696,7 +732,7 @@ class Env:
             engine.dispose()
 
         # enable pgvector
-        engine = sql.create_engine(self.db_url, future=True, isolation_level='AUTOCOMMIT')
+        engine = sql.create_engine(self._db_url, future=True, isolation_level='AUTOCOMMIT')
         try:
             with engine.begin() as conn:
                 conn.execute(sql.text('CREATE EXTENSION vector'))
@@ -934,6 +970,7 @@ class Env:
         self.__register_package('twelvelabs')
         self.__register_package('uvicorn')
         self.__register_package('vllm')
+        self.__register_package('vlmrun')
         self.__register_package('voyageai')
         self.__register_package('whisper', library_name='openai-whisper')
         self.__register_package('whisperx')
@@ -1092,6 +1129,7 @@ class Env:
     @property
     def pgdata_dir(self) -> Path | None:
         """Data directory of the embedded Postgres server; None when Pixeltable uses an external database."""
+        assert self._db_connected
         return self._pgdata_dir
 
     @property
@@ -1134,7 +1172,7 @@ class Env:
 
     @property
     def engine(self) -> sql.engine.base.Engine:
-        assert self._sa_engine is not None
+        assert self._db_connected
         return self._sa_engine
 
     def _clean_up(self) -> None:

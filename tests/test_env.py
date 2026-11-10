@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import os
 import subprocess
 import sys
@@ -10,15 +11,18 @@ import numpy as np
 import PIL.Image
 import pydantic
 import pytest
+import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import env, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
+from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 
+from .fault_injection import ExceptionFault
 from .utils import aux_db_name, pxt_raises, skip_test_if_not_local
 
 pytestmark = pytest.mark.db_roots('local', reason='exercises process-global Env/Config and runtime reset')
@@ -304,6 +308,17 @@ class TestDbConnectStr:
         _reset_env(reinit=False, db_name=None)
 
 
+class TestTimeZone:
+    def test_unknown_zone_rejected(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv('PIXELTABLE_TIME_ZONE', 'Mars/Olympus_Mons')
+        reset_runtime()
+        Config.init(reinit=True)
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match="'pixeltable.time_zone': Mars/Olympus_Mons"):
+            Env._init_env(reinit_db=False)
+        monkeypatch.undo()
+        _reset_env(reinit=False, db_name=None)
+
+
 class TestPgdataDir:
     def test_pgdata_dir(self, uses_db: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """The embedded server runs in PIXELTABLE_PGDATA unless a config override names another directory."""
@@ -324,6 +339,55 @@ class TestPgdataDir:
         assert Env.get().pgdata_dir is None
         monkeypatch.undo()
         _reset_env(reinit=False, db_name=None)
+
+
+class TestEnsureConnected:
+    def test_failed_connect_starts_over(self, uses_db: None, fault_injection: None) -> None:
+        """A failed connect disposes its engine, and the next call connects."""
+        Env._init_env(connect=False)
+        fault = ExceptionFault(RuntimeError('injected connect failure'))
+        get_runtime().fault_manager.inject_fault(FaultLocation.ENV_SET_UP_DB_BEFORE_UPGRADE, fault)
+        disposed_dbs: list[str | None] = []
+
+        def record_disposal(engine: sql.engine.Engine) -> None:
+            disposed_dbs.append(engine.url.database)
+
+        sql.event.listen(sql.engine.Engine, 'engine_disposed', record_disposal)
+        try:
+            with pytest.raises(RuntimeError, match='injected connect failure'):
+                pxt.list_tables()
+        finally:
+            sql.event.remove(sql.engine.Engine, 'engine_disposed', record_disposal)
+
+        pxt.create_table('after_failed_connect', {'c': pxt.Int})
+        assert pxt.list_tables() == ['after_failed_connect']
+        assert Env.get().engine.url.database in disposed_dbs
+        fault.assert_count(1)
+
+    def test_concurrent_first_connect(self, uses_db: None) -> None:
+        """Processes that connect to a new database at the same time all succeed."""
+        dbname = aux_db_name('concurrent')
+        _reset_env(reinit=True, db_name=dbname)
+        Env.get()._drop_store_db()
+        # all processes connect at once, racing to create the database
+        script = 'import sys\nimport pixeltable as pxt\nprint(flush=True)\nsys.stdin.readline()\npxt.list_tables()'
+        procs = [
+            subprocess.Popen(
+                (sys.executable, '-c', script),
+                env={**os.environ, 'PIXELTABLE_DB': dbname},
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for _ in range(8)
+        ]
+        for proc in procs:
+            assert proc.stdout is not None
+            proc.stdout.readline()
+        with concurrent.futures.ThreadPoolExecutor(len(procs)) as pool:
+            errors = list(pool.map(lambda proc: proc.communicate('\n')[1], procs))
+        assert all(proc.returncode == 0 for proc in procs), errors
 
 
 class TestProxyEndpoint:
