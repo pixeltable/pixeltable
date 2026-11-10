@@ -32,8 +32,12 @@ so uv has to be on the PATH of the shell that runs `pxt`. Run all commands in th
    modal token new
    ```
 
-3. In the Modal dashboard, create a proxy auth token under Settings > Proxy Auth Tokens. The Servers accept only
-   requests with that token.
+3. Create a proxy token, with a key that starts with `wk-` and a secret that starts with `ws-`. The Servers accept
+   only requests with that token.
+
+   ```bash
+   modal workspace proxy-tokens create
+   ```
 
 4. In each shell you use for the demo, set:
 

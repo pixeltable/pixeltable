@@ -1,4 +1,4 @@
-"""The Modal App that runs the calls to the UDFs in udf_resources, with one Modal Server per UDF."""
+"""The Modal App that runs the calls to the UDFs in the udf_resources setting, with one Modal Server per UDF."""
 
 import asyncio
 import hashlib
@@ -33,7 +33,22 @@ _UDF_PATH_VAR = 'PXT_UDF_PATH'
 
 
 class ModalServer:
-    """Runs the calls to one UDF, one at a time, in a Modal container behind an HTTP server."""
+    """Runs the calls to one UDF, one at a time, in a Modal container behind an HTTP server.
+
+    The udf_resources config setting lists the UDFs that run on Modal, with the resources of their containers. ModalApp
+    deploys one Modal Server per listed UDF, and each container of that Server runs an instance of this class, which
+    serves the UDF's calls with hypercorn on _PORT. ModalServerClient sends each call as a POST of an encoded
+    UdfCallRequest to Modal's proxy. The proxy checks the request's proxy token and forwards the request over HTTP/2
+    to a container, which answers with an encoded UdfCallResponse.
+
+    Why this class isn't using Modal functions (.remote()):
+    - A Server call takes one round trip through Modal's proxy. A .remote() call takes two RPCs and moves an argument
+      above 2 MB through Modal's blob storage.
+    - With the Servers in us-east, an echo call took 74 ms at p50, against 153-165 ms with .remote(), and a call with
+      a 1 MB argument took 223 ms, against 824 ms.
+    - The calling process needs only a proxy token, which can call Servers but can't deploy Apps. .remote() needs a
+      Modal API token.
+    """
 
     udf_path: str
     overloads: list[func.CallableFunction]
@@ -120,7 +135,7 @@ class ModalServer:
 
 
 class ModalApp:
-    """The current project's Modal App, with one Server per UDF in udf_resources."""
+    """The current project's Modal App, with one Server per UDF in the udf_resources setting."""
 
     # keyed by UDF path
     server_urls: dict[str, str] | None
@@ -180,6 +195,7 @@ class ModalApp:
                     gpu=resources.gpu,
                     # ModalServer runs one call at a time, so Modal starts another container when every one is busy
                     target_concurrency=1,
+                    max_containers=resources.max_containers,
                     scaledown_window=SCALEDOWN_SECONDS,
                     # when Modal stops a container during a call, it waits up to exit_grace_period for the call to end
                     exit_grace_period=resources.timeout_seconds,

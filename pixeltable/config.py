@@ -1096,7 +1096,16 @@ _INSTALLATION_KEYS = frozenset(
 
 # settings that contain credentials
 _SECRET_KEYS = frozenset(
-    {'api_key', 'api_secret', 'api_token', 'token', 'storage_account_key', 'exporter_otlp_headers'}
+    {
+        'api_key',
+        'api_secret',
+        'api_token',
+        'token',
+        'storage_account_key',
+        'exporter_otlp_headers',
+        'proxy_key',
+        'proxy_secret',
+    }
 )
 
 # whitelist of allowed setting overrides for individual dbs; the db_ prefix keeps them apart from the db

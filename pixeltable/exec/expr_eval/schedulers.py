@@ -491,7 +491,7 @@ class RequestRateScheduler(Scheduler):
 
 class ModalScheduler(Scheduler):
     """
-    Scheduler for the calls of a UDF in udf_resources, which run in the UDF's Modal containers.
+    Scheduler for the calls of a UDF in the udf_resources setting, which run in the UDF's Modal containers.
 
     TODO: move the telemetry, result and exception handling of _exec() into Scheduler, for all schedulers
     """
@@ -499,13 +499,17 @@ class ModalScheduler(Scheduler):
     _POOL_PREFIX = 'modal:'
 
     client: ModalServerClient
+    # allows at most UdfResources.max_containers calls in flight, one per container of the Server
+    call_slots: asyncio.Semaphore
 
     def __init__(self, resource_pool: str, dispatcher: Dispatcher):
         super().__init__(resource_pool, dispatcher)
         udf_path = resource_pool.removeprefix(self._POOL_PREFIX)
+        resources = env.Env.get().udf_resources()[udf_path]
         self.client = env.Env.get().get_resource_pool_info(
-            resource_pool, lambda: ModalServerClient(udf_path, env.Env.get().udf_resources()[udf_path].timeout_seconds)
+            resource_pool, lambda: ModalServerClient(udf_path, resources.timeout_seconds)
         )
+        self.call_slots = asyncio.Semaphore(resources.max_containers)
         loop_task = asyncio.create_task(self._main_loop())
         self.dispatcher.register_task(loop_task)
 
@@ -526,6 +530,9 @@ class ModalScheduler(Scheduler):
         # call's rows
         await self.client.connect()
         while True:
+            # with all of the Server's containers busy, Modal queues a call, and the time in the queue counts against
+            # the call's timeout
+            await self.call_slots.acquire()
             task = asyncio.create_task(self._exec(item.request, item.exec_ctx))
             self.dispatcher.register_task(task)
             item = await self.queue.get()
@@ -556,6 +563,8 @@ class ModalScheduler(Scheduler):
                 row.set_exc(slot_idx, exc)
             self.dispatcher.dispatch_exc(request.rows, slot_idx, exc_tb, exec_ctx)
             return
+        finally:
+            self.call_slots.release()
 
         assert response.values is not None and len(response.values) == len(request.rows)
         for row, value in zip(request.rows, response.values):

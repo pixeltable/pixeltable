@@ -1,4 +1,4 @@
-"""Client side of the UDFs in udf_resources, which run on Modal Servers (pixeltable.serving.modal_server).
+"""Client side of the UDFs in the udf_resources setting, which run on Modal Servers (pixeltable.serving.modal_server).
 
 Contains the encoding of a call's request and response, and the client that sends a UDF's calls to its Server.
 """
@@ -165,10 +165,12 @@ class ModalServerClient:
     async def connect(self) -> None:
         """Look up the Server's URL."""
         if self.url is None:
-            # get_client() raises MISSING_CREDENTIALS if the proxy token isn't configured; checking that first avoids
+            # get_client('modal') needs h2 for HTTP/2, and h2 is installed with modal; without modal, get_client() would
+            # raise an ImportError for h2, which doesn't say to install modal
+            Env.get().require_package('modal')
+            # get_client() raises MISSING_CREDENTIALS if the proxy token isn't configured; checking that here avoids
             # deploying the App when every call would fail
             get_runtime().get_client('modal')
-            Env.get().require_package('modal')
             from pixeltable.serving.modal_server import ModalApp  # modal is an optional package
 
             app = Env.get().get_resource_pool_info(_APP_REGISTRY_KEY, ModalApp)
@@ -191,9 +193,13 @@ class ModalServerClient:
             # is running. A busy container doesn't cause a 503: Modal queues the call.
             if time.monotonic() >= self.container_ready_until:
                 await self._wait_for_container(http_client, start + _CONTAINER_WAIT_SECONDS)
-            response = await http_client.post(self.url, content=request_body, timeout=self.timeout)
-            if response.status_code != 503:
-                break
+            try:
+                response = await http_client.post(self.url, content=request_body, timeout=self.timeout)
+                if response.status_code != 503:
+                    break
+            except httpx.LocalProtocolError:
+                # the stream reset described above: the Server didn't receive the whole request, so the UDF didn't run
+                pass
             # no container was running after all
             self.container_ready_until = 0.0
         if response.status_code != 200:
@@ -218,11 +224,12 @@ class ModalServerClient:
         assert self.url is not None
         attempt = 0
         # TODO: detect a Server whose containers fail in ModalServer.start(), instead of waiting _CONTAINER_WAIT_SECONDS
-        while (await http_client.get(self.url, timeout=self.timeout)).status_code == 503:
-            if time.monotonic() >= deadline:
-                raise excs.ExternalServiceError(
-                    excs.ErrorCode.PROVIDER_ERROR,
-                    f'No Modal container of {self.udf_path} was ready within {_CONTAINER_WAIT_SECONDS}s',
-                )
+        while time.monotonic() < deadline:
+            if (await http_client.get(self.url, timeout=self.timeout)).status_code != 503:
+                return
             await asyncio.sleep(min(1.0, 0.1 * 2**attempt))
             attempt += 1
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'No Modal container of {self.udf_path} was ready within {_CONTAINER_WAIT_SECONDS}s',
+        )

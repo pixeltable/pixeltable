@@ -41,6 +41,7 @@ class UdfResources(pydantic.BaseModel):
     cpu: float | None = pydantic.Field(default=None, gt=0, description='vCPUs per container')
     memory_mb: int | None = pydantic.Field(default=None, gt=0, description='memory per container, in MB')
     gpu: str | None = pydantic.Field(default=None, min_length=1, description="Modal GPU spec, eg 'T4' or 'H100:2'")
+    max_containers: int = pydantic.Field(default=2, gt=0, description='maximum number of containers')
     timeout_seconds: int = pydantic.Field(
         default=MAX_UDF_CALL_SECONDS, gt=0, le=MAX_UDF_CALL_SECONDS, description='time limit of one call'
     )
