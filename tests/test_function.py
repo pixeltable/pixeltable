@@ -289,6 +289,8 @@ class TestFunction:
             pxt.list_functions('no_such_module')
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="No module named 'no_such_module.sub'"):
             pxt.list_functions('no_such_module.sub')
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="`kind` must be one of .*; got 'udff'"):
+            pxt.list_functions(kind='udff')  # type: ignore[arg-type]
 
         # a module that fails to import
         bad_udf_src = dedent(

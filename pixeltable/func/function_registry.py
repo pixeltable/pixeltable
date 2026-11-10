@@ -5,6 +5,7 @@ import importlib
 import sys
 from collections.abc import Collection
 from types import ModuleType
+from typing import get_args
 
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.types import FunctionKind
@@ -107,6 +108,9 @@ class FunctionRegistry:
         self, module: str | None, on: ts.ColumnType | None, search: str | None, kind: FunctionKind | None
     ) -> list[tuple[str, Function | GeneratingFunction]]:
         """Return the functions that match all given filters, as (import path, function) pairs sorted by path."""
+        if kind is not None and kind not in get_args(FunctionKind):
+            kinds = ', '.join(repr(k) for k in get_args(FunctionKind))
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'`kind` must be one of {kinds}; got {kind!r}')
         # importing pixeltable.functions registers the type methods
         root = self._resolve_module(module)
         entries: list[tuple[str, Function | GeneratingFunction]]
