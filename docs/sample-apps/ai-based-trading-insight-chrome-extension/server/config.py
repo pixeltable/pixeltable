@@ -6,7 +6,7 @@ load_dotenv()
 
 APP_NAMESPACE = 'trade_analysis'
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
-LLM_MODEL = 'claude-3-5-sonnet-20241022'
+LLM_MODEL = 'claude-sonnet-4-6'
 
 SYSTEM_PROMPT = """
 You are a professional market analyst specializing in technical analysis for day trading. Analyze trading charts with precision and provide structured insights to determine current trends leveraging MACD, RSI, Money Flow Index, EMA, SMA, Bollinger Bands, Stochastic oscillator, VWAP, Volume for options trading.

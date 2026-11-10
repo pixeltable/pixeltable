@@ -259,12 +259,12 @@ async def messages(
         `'thinking'` block.
 
     Examples:
-        Add a computed column that applies the model `claude-3-5-sonnet-20241022`
+        Add a computed column that applies the model `claude-sonnet-5-5`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> msgs = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(
-        ...     response=messages(msgs, model='claude-3-5-sonnet-20241022')
+        ...     response=messages(msgs, model='claude-sonnet-5-5', max_tokens=1024)
         ... )
 
         Add a computed column with the generated text, from the `'text'` content block:
