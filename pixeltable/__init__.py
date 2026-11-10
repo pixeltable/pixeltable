@@ -66,7 +66,7 @@ from .type_system import (
     Timestamp,
     Video,
 )
-from .types import FunctionInfo, FunctionKind, FunctionList
+from .types import FunctionKind, FunctionList, FunctionMetadata
 
 # isort: split
 from .api import (

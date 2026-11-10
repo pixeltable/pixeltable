@@ -1085,7 +1085,7 @@ def list_functions(
         kind: List only the functions of this kind.
 
     Returns:
-        A list of [`FunctionInfo`][pixeltable.FunctionInfo] records, sorted by path.
+        A list of [`FunctionMetadata`][pixeltable.FunctionMetadata] records, sorted by path.
 
     Examples:
         The methods and properties of timestamp expressions:

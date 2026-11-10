@@ -13,9 +13,9 @@ from pixeltable import exceptions as excs, exprs, type_system as ts
 from pixeltable.catalog.globals import _POS_COLUMN_NAME, fold_identifier, fold_mapping_keys
 from pixeltable.exprs.expr import ValidationError
 from pixeltable.func.symbols import import_error_msg, resolve_symbol
-from pixeltable.types import FunctionInfo, FunctionKind
+from pixeltable.types import FunctionKind, FunctionMetadata
 
-from .function import function_info
+from .function import function_metadata
 from .signature import Signature
 
 if TYPE_CHECKING:
@@ -143,7 +143,7 @@ class GeneratingFunction:
         own_doc = self.decorated_callable.__doc__
         return None if own_doc is None else inspect.cleandoc(own_doc)
 
-    def info(self, path: str) -> FunctionInfo:
+    def info(self, path: str) -> FunctionMetadata:
         """Describe this iterator, with path as its import path."""
         output_schema = self.fixed_output_schema
         outputs: dict[str, str] | None
@@ -154,7 +154,7 @@ class GeneratingFunction:
             outputs = {name: t.pretty_str() for name, t in output_schema.items()}
             returns = '{' + ', '.join(f'{name}: {t}' for name, t in outputs.items()) + '}'
         call = f'{path}({self.signature.params_str(with_defaults=True)}) -> {returns}'
-        return function_info(path, self.name, self.kind, call, [self.signature], self.comment(), outputs)
+        return function_metadata(path, self.name, self.kind, call, [self.signature], self.comment(), outputs)
 
     def _infer_properties(self) -> None:
         self.py_sig = inspect.signature(self.decorated_callable, eval_str=True)

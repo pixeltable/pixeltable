@@ -137,8 +137,8 @@
           </outline>
           <outline text="class|pixeltable.DirContents" />
           <outline text="class|pixeltable.DirectoryNode" />
-          <outline text="class|pixeltable.FunctionInfo" />
           <outline text="class|pixeltable.FunctionList" />
+          <outline text="class|pixeltable.FunctionMetadata" />
           <outline text="class|pixeltable.IndexMetadata" />
           <outline text="class|pixeltable.Secret" />
           <outline text="class|pixeltable.TableMetadata" />

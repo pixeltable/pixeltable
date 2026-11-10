@@ -12,7 +12,7 @@ import sqlalchemy as sql
 
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.config import Config
-from pixeltable.types import FunctionInfo, FunctionKind
+from pixeltable.types import FunctionKind, FunctionMetadata
 
 from .signature import Signature
 from .symbols import import_error_msg, resolve_symbol
@@ -136,12 +136,12 @@ class Function(ABC):
             return display
         return f'{display}\n\n{docstring}'
 
-    def info(self, path: str) -> FunctionInfo:
+    def info(self, path: str) -> FunctionMetadata:
         """Describe this function, with path as its import path."""
         returns = self.signatures[0].return_str(pretty_print_json=True)
         if self._conditional_return_type is not None:
             returns += ' (depends on the arguments)'
-        return function_info(
+        return function_metadata(
             path, self.name, self.kind, f'{self._call_str(path)} -> {returns}', self.signatures, self.comment()
         )
 
@@ -634,7 +634,7 @@ class InvalidFunction(Function):
         return False
 
 
-def function_info(
+def function_metadata(
     path: str,
     name: str,
     kind: FunctionKind,
@@ -642,9 +642,9 @@ def function_info(
     signatures: Sequence[Signature],
     doc: str | None,
     outputs: dict[str, str] | None = None,
-) -> FunctionInfo:
-    """Return the FunctionInfo of a function or iterator, with the `pixeltable.functions.` prefix removed from call."""
-    return FunctionInfo(
+) -> FunctionMetadata:
+    """Return the FunctionMetadata of a function or iterator, without the `pixeltable.functions.` prefix in call."""
+    return FunctionMetadata(
         path=path,
         name=name,
         kind=kind,

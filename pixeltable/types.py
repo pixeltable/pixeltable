@@ -55,7 +55,7 @@ class DirContents(TypedDict):
     """List of table paths contained in this directory."""
 
 
-class FunctionInfo(TypedDict):
+class FunctionMetadata(TypedDict):
     """A function in a [`FunctionList`][pixeltable.FunctionList]."""
 
     path: str
@@ -75,7 +75,7 @@ class FunctionInfo(TypedDict):
     """The output columns of an iterator; `None` for the other kinds, or if they depend on the arguments."""
 
 
-class FunctionList(list[FunctionInfo]):
+class FunctionList(list[FunctionMetadata]):
     """A list of functions, as returned by [`pxt.list_functions()`][pixeltable.list_functions].
 
     Printed, it shows one function per line; in a notebook, it renders as a table.
@@ -84,7 +84,7 @@ class FunctionList(list[FunctionInfo]):
     def __repr__(self) -> str:
         return '\n'.join(self._line(info) for info in self)
 
-    def _line(self, info: FunctionInfo) -> str:
+    def _line(self, info: FunctionMetadata) -> str:
         line = f'{info["kind"]:<{_KIND_WIDTH}} {info["call"]}'
         if len(info['signatures']) > 1:
             line += f'  [{len(info["signatures"])} signatures]'

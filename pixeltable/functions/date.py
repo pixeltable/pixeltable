@@ -10,6 +10,7 @@ Usage example:
 
 from datetime import date, datetime, timedelta
 from typing import TypedDict
+from zoneinfo import ZoneInfo
 
 import sqlalchemy as sql
 
@@ -90,24 +91,38 @@ def _(year: sql.ColumnElement, month: sql.ColumnElement, day: sql.ColumnElement)
 
 
 @pxt.udf(is_deterministic=False)
-def today() -> date:
+def today(tz: str | None = None) -> date:
     """
-    Return the current date in the default time zone.
+    Return the current date in the time zone `tz`, or in the default time zone if `tz` is `None`.
 
     A query, or a computed column with `stored=False`, evaluates it when the query runs. A stored computed column
     records the date of the insert, and a recompute replaces it with the date of the recompute.
+
+    Args:
+        tz: A time zone name from the
+            [IANA Time Zone Database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones), such as
+            `'America/New_York'`.
 
     Examples:
         The tasks that are due today:
 
         >>> t.where(t.due_date == pxtf.date.today()).collect()
+
+        The tasks that are due today in Tokyo:
+
+        >>> t.where(t.due_date == pxtf.date.today('Asia/Tokyo')).collect()
     """
-    return datetime.now().astimezone(Env.get().default_time_zone).date()
+    tzinfo = Env.get().default_time_zone if tz is None else ZoneInfo(tz)
+    return datetime.now().astimezone(tzinfo).date()
 
 
 @today.to_sql
-def _() -> sql.ColumnElement:
-    return sql.cast(sql.func.now(), sql.Date)
+def _(tz: sql.ColumnElement | None = None) -> sql.ColumnElement:
+    if tz is None:
+        return sql.cast(sql.func.now(), sql.Date)
+    # a null tz falls back to the session's TimeZone, which Env sets from default_time_zone
+    zone = sql.func.coalesce(tz, sql.func.current_setting('TimeZone'))
+    return sql.cast(sql.func.timezone(zone, sql.func.now()), sql.Date)
 
 
 @pxt.udf
@@ -127,6 +142,7 @@ def strptime(date_string: str, format: str) -> date:
     Examples:
         >>> t.add_computed_column(picked_on=pxtf.date.strptime(t.picked, '%d.%m.%Y'))
     """
+    # date_str w/o time zone info: datetime.strptime() returns a naive datetime, and date() keeps it that way
     return datetime.strptime(date_string, format).date()
 
 

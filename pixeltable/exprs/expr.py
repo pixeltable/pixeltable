@@ -65,6 +65,11 @@ class Expr(abc.ABC):
     UDF calls (`t.my_string.lower()`), and compound expressions (`t.col + 5`) are instances of this class.
 
     Not thread-safe: Expr and subclasses contain execution state and are never thread-safe.
+
+    String formatting:
+    - `__format__()` raises
+    - motivation: user code such as `f'Hello {t.name}'` would otherwise produce one constant string for every row
+    - to put an expression into a message, use `{expr!s}` or `str(expr)`
     """
 
     # Rules for using state in subclasses:
