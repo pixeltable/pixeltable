@@ -31,7 +31,7 @@ analysis_table.add_computed_column(
         model=config.LLM_MODEL,
         messages=analysis_table.msg_list,
         max_tokens=1500,
-        model_kwargs={'system': config.SYSTEM_PROMPT, 'temperature': 0.1, 'top_p': 0.3, 'top_k': 10},
+        model_kwargs={'system': config.SYSTEM_PROMPT},
     ),
     if_exists='ignore',
 )
