@@ -237,12 +237,14 @@ class ModalServerClient:
                 # the next iteration waits for a GET that finds a container, or raises PROVIDER_ERROR at the deadline;
                 # such GETs come at most every _PROBE_SECONDS, which limits how often a call retries after 503s
                 self.container_running.clear()
+
         finally:
             self.num_active_calls -= 1
             if self.num_active_calls == 0:
                 assert self.monitor is not None
                 self.monitor.cancel()
                 self.monitor = None
+
         if response.status_code != 200:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR,
@@ -269,6 +271,7 @@ class ModalServerClient:
             post.cancel()
         if post.cancelled():
             return None
+
         try:
             response = post.result()
         except httpx.LocalProtocolError:
@@ -287,6 +290,7 @@ class ModalServerClient:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR, f'Modal call of {self.udf_path} failed: {exc!r}'
             ) from exc
+
         # Modal answers 503 only when the Server has no running container; with every container busy, it queues the
         # request (measured)
         return None if response.status_code == 503 else response
@@ -304,13 +308,16 @@ class ModalServerClient:
             except httpx.HTTPError as exc:
                 _logger.debug(f'GET of the Modal Server of {self.udf_path} failed: {exc!r}')
                 status = None
+
             if status == 503:
+                # there is no container running, we need to cancel the calls that were sent before our GET
                 self.container_running.clear()
                 stuck = [post for post, post_sent in self.posts.items() if post_sent < sent]
                 for post in stuck:
                     post.cancel()
                 if len(stuck) > 0:
                     _logger.debug(f'No Modal container of {self.udf_path} is running; cancelled {len(stuck)} POSTs')
+
                 # after a 503, the first GETs come sooner, to catch a container that starts within seconds
                 await asyncio.sleep(min(_PROBE_SECONDS, 0.1 * 2**attempt))
                 attempt += 1

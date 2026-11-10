@@ -1,4 +1,18 @@
-"""The Modal App that runs the calls to the UDFs in the udf_resources setting, with one Modal Server per UDF."""
+"""The Modal App that runs the calls to the UDFs in the udf_resources setting, with one Modal Server per UDF.
+
+- ModalApp deploys the App. The udf_resources setting gives the resources of each Server's containers.
+- Each container runs a ModalServer, which serves the UDF's calls over HTTP.
+- ModalServerClient (pixeltable.exec.expr_eval.modal_client) POSTs each call to Modal's proxy. The proxy checks the
+  request's proxy token and forwards the request over HTTP/2 to a container of the UDF's Server.
+
+Why the App uses Servers instead of Modal functions (.remote()):
+- A Server call takes one round trip through Modal's proxy. A .remote() call takes two RPCs and moves an argument
+  above 2 MB through Modal's blob storage.
+- With the Servers in us-east, an echo call took 74 ms at p50, against 153-165 ms with .remote(), and a call with
+  a 1 MB argument took 223 ms, against 824 ms.
+- Server calls need only a proxy token, which can call Servers but can't deploy Apps; .remote() calls need a Modal
+  API token.
+"""
 
 import asyncio
 import hashlib
@@ -33,22 +47,7 @@ _UDF_PATH_VAR = 'PXT_UDF_PATH'
 
 
 class ModalServer:
-    """Runs the calls to one UDF, one at a time, in a Modal container behind an HTTP server.
-
-    The udf_resources config setting lists the UDFs that run on Modal, with the resources of their containers. ModalApp
-    deploys one Modal Server per listed UDF, and each container of that Server runs an instance of this class, which
-    serves the UDF's calls with hypercorn on _PORT. ModalServerClient sends each call as a POST of an encoded
-    UdfCallRequest to Modal's proxy. The proxy checks the request's proxy token and forwards the request over HTTP/2
-    to a container, which answers with an encoded UdfCallResponse.
-
-    Why this class isn't using Modal functions (.remote()):
-    - A Server call takes one round trip through Modal's proxy. A .remote() call takes two RPCs and moves an argument
-      above 2 MB through Modal's blob storage.
-    - With the Servers in us-east, an echo call took 74 ms at p50, against 153-165 ms with .remote(), and a call with
-      a 1 MB argument took 223 ms, against 824 ms.
-    - Calls need only a proxy token, which can call Servers but can't deploy Apps; .remote() calls need a Modal API
-      token. ModalApp deploys the App from the calling process, though, which needs an API token for the deploy.
-    """
+    """Runs one UDF's calls, one at a time, in a container of the UDF's Server."""
 
     udf_path: str
     overloads: list[func.CallableFunction]
@@ -57,7 +56,8 @@ class ModalServer:
 
     @modal.enter()
     def start(self) -> None:
-        Env.init_without_db()
+        # initializes the Env now instead of in the first call
+        Env.get()  # doesn't require a local database
         self.udf_path = os.environ[_UDF_PATH_VAR]
         fn = resolve_symbol(self.udf_path)
         assert isinstance(fn, func.CallableFunction)
@@ -137,7 +137,10 @@ class ModalServer:
 
 
 class ModalApp:
-    """The current project's Modal App, with one Server per UDF in the udf_resources setting."""
+    """The current project's Modal App, with one Server per UDF in the udf_resources setting.
+
+    Deploying the App needs a Modal API token in this process.
+    """
 
     # keyed by UDF path
     server_urls: dict[str, str] | None
@@ -169,6 +172,7 @@ class ModalApp:
                 f'Running UDFs on Modal requires {project_root / "uv.lock"}, which lists the packages of the Modal '
                 f'image; run `uv lock` in {project_root}',
             )
+
         requirements = self._requirements(project_root)
         name = self._name(project_root)
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -184,6 +188,7 @@ class ModalApp:
                 .add_local_python_source('pixeltable', 'pixeltable_cli')
             )
             hf_cache = modal.Volume.from_name('pxt-hf-cache', create_if_missing=True)
+
             app = modal.App(name)
             servers: dict[str, modal.Server] = {}
             for udf_path, resources in Env.get().udf_resources().items():
@@ -213,6 +218,7 @@ class ModalApp:
             # 'recreate' stops the containers of the previous deploy; otherwise they would keep serving calls with
             # the previous deploy's pixeltable source until they scale down
             app.deploy(name=name, strategy='recreate')
+
         Env.get().console_logger.info(f'Deployed Modal App {name!r} in {time.monotonic() - start:.1f}s')
         return {udf_path: server.get_url() for udf_path, server in servers.items()}
 
@@ -220,7 +226,7 @@ class ModalApp:
         return f'{udf_path.rsplit(".", 1)[-1]}-{hashlib.sha256(udf_path.encode()).hexdigest()[:8]}'
 
     def _requirements(self, project_root: Path) -> str:
-        """Return the packages of the project's uv.lock that the image installs, in requirements format."""
+        """Return the packages of the project's uv.lock, in requirements format."""
         Env.get().require_binary('uv')
         export = subprocess.run(
             [
