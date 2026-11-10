@@ -125,10 +125,10 @@ def _decode_body(body: bytes) -> dict[str, Any]:
     return proxy_protocol.deserialize_value(json.loads(head), parts)
 
 
-# how long call() waits for the Server to start a container, while the Server answers 503
+# how long a call waits for the Server to start a container
 _CONTAINER_WAIT_SECONDS = 300
-# the Servers' scaledown_window: Modal stops a container after it has been idle for at most this long
-SCALEDOWN_SECONDS = 60
+# while calls are active, _monitor() sends a GET to the Server at least this often
+_PROBE_SECONDS = 1.0
 # time limit for opening a connection (TCP and TLS) to a Server; without it, a hung TLS handshake would wait for the
 # call's full timeout
 _CONNECT_SECONDS = 10
@@ -147,20 +147,48 @@ _APP_REGISTRY_KEY = 'modal-app'
 
 
 class ModalServerClient:
-    """The process's client for one UDF's ModalServer."""
+    """Sends calls to one UDF's Server, from one event loop.
+
+    - A ModalScheduler creates one instance per query; the instance's asyncio tasks belong to the query's event loop.
+    - call() POSTs each call's UdfCallRequest to the Server right away.
+    - While calls are active, _monitor() sends a GET to the Server at least every _PROBE_SECONDS.
+    - A GET answered with 503 means that the Server has no running container, so no POST sent before that GET can
+      complete: Modal's proxy answers such a POST with 503 before reading its body and resets the stream.
+    - _monitor() then cancels those POSTs. Their calls wait until a GET finds a running container, and then send their
+      requests again.
+
+    The GETs during POSTs and the cancellation work around a defect of httpcore 1.0.9: when the proxy resets the
+    stream of a POST whose upload waits for HTTP/2 flow-control window, its _wait_for_outgoing_flow() keeps waiting
+    until the read timeout instead of failing the request.
+
+    TODO: once httpcore fails such a request right away:
+    - remove self.posts and the cancellation
+    - have _post() return None for the exception that httpcore raises
+    - send GETs only while a call waits for a container
+    """
 
     udf_path: str
     timeout: httpx.Timeout
     # the Server's URL; set by connect()
     url: str | None
-    # the Server is assumed to have a running container until this time.monotonic() value
-    container_ready_until: float
+    # clear if the last GET or POST found no running container
+    container_running: asyncio.Event
+    # the POSTs in flight, each with its send time (time.monotonic())
+    posts: dict[asyncio.Task[httpx.Response], float]
+    # the number of calls in call(), including the ones waiting for a container
+    num_active_calls: int
+    # runs _monitor() while num_active_calls > 0
+    monitor: asyncio.Task[None] | None
 
     def __init__(self, udf_path: str, timeout_seconds: int) -> None:
         self.udf_path = udf_path
         self.timeout = httpx.Timeout(timeout_seconds, connect=_CONNECT_SECONDS)
         self.url = None
-        self.container_ready_until = 0.0
+        self.container_running = asyncio.Event()
+        self.container_running.set()
+        self.posts = {}
+        self.num_active_calls = 0
+        self.monitor = None
 
     async def connect(self) -> None:
         """Look up the Server's URL."""
@@ -186,29 +214,28 @@ class ModalServerClient:
         ).encode()
         http_client: httpx.AsyncClient = get_runtime().get_client('modal')
         start = time.monotonic()
-        while True:
-            # When the Server has no running container, Modal's proxy answers 503 before reading the request body and
-            # then resets the stream; for a large body, httpx then raises LocalProtocolError or hangs until the timeout
-            # instead of returning the 503. A GET has no body, so _wait_for_container() sends GETs until a container
-            # is running. A busy container doesn't cause a 503: Modal queues the call.
-            if time.monotonic() >= self.container_ready_until:
-                await self._wait_for_container(http_client, start + _CONTAINER_WAIT_SECONDS)
-            try:
-                response = await http_client.post(self.url, content=request_body, timeout=self.timeout)
-                if response.status_code != 503:
+        self.num_active_calls += 1
+        if self.monitor is None:
+            self.monitor = asyncio.create_task(self._monitor(http_client))
+        try:
+            while True:
+                if not self.container_running.is_set():
+                    await self._wait_for_container(start + _CONTAINER_WAIT_SECONDS)
+                response = await self._post(http_client, request_body)
+                if response is not None:
                     break
-            except httpx.LocalProtocolError:
-                # the stream reset described above: the Server didn't receive the whole request, so the UDF didn't run
-                pass
-            # no container was running after all
-            self.container_ready_until = 0.0
+                self.container_running.clear()
+        finally:
+            self.num_active_calls -= 1
+            if self.num_active_calls == 0:
+                assert self.monitor is not None
+                self.monitor.cancel()
+                self.monitor = None
         if response.status_code != 200:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR,
                 f'Modal call of {self.udf_path} failed with status {response.status_code}: {response.text}',
             )
-        # Modal keeps this call's container for up to SCALEDOWN_SECONDS after it becomes idle; assume half of that
-        self.container_ready_until = time.monotonic() + SCALEDOWN_SECONDS / 2
         result = UdfCallResponse.decode(response.content)
         _logger.debug(
             f'Modal call of {self.udf_path}: {len(call_args.rows)} rows in {time.monotonic() - start:.2f}s, '
@@ -216,20 +243,61 @@ class ModalServerClient:
         )
         return result
 
-    async def _wait_for_container(self, http_client: httpx.AsyncClient, deadline: float) -> None:
-        """Send GETs to the Server until it answers with a status other than 503, which means a container is running.
+    async def _post(self, http_client: httpx.AsyncClient, request_body: bytes) -> httpx.Response | None:
+        """POST request_body to the Server and return the response, or None if the Server had no running container."""
+        assert self.url is not None
+        post = asyncio.create_task(http_client.post(self.url, content=request_body, timeout=self.timeout))
+        self.posts[post] = time.monotonic()
+        try:
+            # unlike awaiting post, asyncio.wait() returns normally when _monitor() cancels post
+            await asyncio.wait([post])
+        finally:
+            del self.posts[post]
+            # stops the POST if this call was cancelled; a no-op for a finished POST
+            post.cancel()
+        if post.cancelled():
+            return None
+        try:
+            response = post.result()
+        except httpx.LocalProtocolError:
+            # the proxy reset the stream before reading the whole body, so the UDF didn't run
+            return None
+        return None if response.status_code == 503 else response
 
-        Raises PROVIDER_ERROR if no container is running by deadline.
-        """
+    async def _monitor(self, http_client: httpx.AsyncClient) -> None:
+        """Send GETs to the Server, set container_running from the answers, and cancel the POSTs that can't complete."""
         assert self.url is not None
         attempt = 0
+        while True:
+            sent = time.monotonic()
+            try:
+                status: int | None = (await http_client.get(self.url, timeout=_CONNECT_SECONDS)).status_code
+            except httpx.HTTPError as exc:
+                _logger.debug(f'GET of the Modal Server of {self.udf_path} failed: {exc!r}')
+                status = None
+            if status == 503:
+                self.container_running.clear()
+                stuck = [post for post, post_sent in self.posts.items() if post_sent < sent]
+                for post in stuck:
+                    post.cancel()
+                if len(stuck) > 0:
+                    _logger.debug(f'No Modal container of {self.udf_path} is running; cancelled {len(stuck)} POSTs')
+                # after a 503, the first GETs come sooner, to catch a container that starts within seconds
+                await asyncio.sleep(min(_PROBE_SECONDS, 0.1 * 2**attempt))
+                attempt += 1
+            else:
+                if status is not None:
+                    self.container_running.set()
+                attempt = 0
+                await asyncio.sleep(_PROBE_SECONDS)
+
+    async def _wait_for_container(self, deadline: float) -> None:
+        """Wait until _monitor() finds a running container, or raise PROVIDER_ERROR at deadline."""
         # TODO: detect a Server whose containers fail in ModalServer.start(), instead of waiting _CONTAINER_WAIT_SECONDS
-        while time.monotonic() < deadline:
-            if (await http_client.get(self.url, timeout=self.timeout)).status_code != 503:
-                return
-            await asyncio.sleep(min(1.0, 0.1 * 2**attempt))
-            attempt += 1
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR,
-            f'No Modal container of {self.udf_path} was ready within {_CONTAINER_WAIT_SECONDS}s',
-        )
+        try:
+            await asyncio.wait_for(self.container_running.wait(), max(0.0, deadline - time.monotonic()))
+        except TimeoutError:
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_ERROR,
+                f'No Modal container of {self.udf_path} was ready within {_CONTAINER_WAIT_SECONDS}s',
+            ) from None

@@ -18,13 +18,15 @@ import modal
 from pixeltable import exceptions as excs, func
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.exec.expr_eval.modal_client import SCALEDOWN_SECONDS, UdfCallRequest, UdfCallResponse
+from pixeltable.exec.expr_eval.modal_client import UdfCallRequest, UdfCallResponse
 from pixeltable.func.symbols import resolve_symbol
 from pixeltable.utils.local_store import TempStore
 
 _logger = logging.getLogger('pixeltable')
 
 _PORT = 8000
+# Modal stops a container of a Server after it has been idle for this long
+_SCALEDOWN_SECONDS = 60
 # TODO: make the region a setting
 # Modal's proxy and the Servers' containers run in this region; a container elsewhere adds a hop to every call
 _REGION = 'us-east'
@@ -196,7 +198,7 @@ class ModalApp:
                     # ModalServer runs one call at a time, so Modal starts another container when every one is busy
                     target_concurrency=1,
                     max_containers=resources.max_containers,
-                    scaledown_window=SCALEDOWN_SECONDS,
+                    scaledown_window=_SCALEDOWN_SECONDS,
                     # when Modal stops a container during a call, it waits up to exit_grace_period for the call to end
                     exit_grace_period=resources.timeout_seconds,
                 )(ModalServer)

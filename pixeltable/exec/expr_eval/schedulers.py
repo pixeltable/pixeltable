@@ -506,9 +506,7 @@ class ModalScheduler(Scheduler):
         super().__init__(resource_pool, dispatcher)
         udf_path = resource_pool.removeprefix(self._POOL_PREFIX)
         resources = env.Env.get().udf_resources()[udf_path]
-        self.client = env.Env.get().get_resource_pool_info(
-            resource_pool, lambda: ModalServerClient(udf_path, resources.timeout_seconds)
-        )
+        self.client = ModalServerClient(udf_path, resources.timeout_seconds)
         self.call_slots = asyncio.Semaphore(resources.max_containers)
         loop_task = asyncio.create_task(self._main_loop())
         self.dispatcher.register_task(loop_task)
