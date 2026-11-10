@@ -1,4 +1,4 @@
-"""Client side of the UDFs in the udf_resources setting, which run on Modal Servers (pixeltable.serving.modal_server).
+"""Client side of the UDFs in the pixeltable.udf setting, which run on Modal Servers (pixeltable.serving.modal_server).
 
 Contains the encoding of a call's request and response, and the client that sends a UDF's calls to its Server.
 """
@@ -283,7 +283,7 @@ class ModalServerClient:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_TIMEOUT,
                 f'Modal call of {self.udf_path} got no response within {self.timeout.read}s (timeout_seconds in the '
-                'udf_resources setting)',
+                'pixeltable.udf setting)',
             ) from exc
         except httpx.TransportError as exc:
             # other transport errors, such as RemoteProtocolError, can also come after the UDF ran, so the call isn't

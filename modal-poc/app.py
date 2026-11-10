@@ -1,4 +1,4 @@
-"""Videos and their frames, with every computed column on Modal (see udf_resources in pyproject.toml)."""
+"""Videos and their frames, with every computed column on Modal (see [tool.pixeltable.udf] in pyproject.toml)."""
 
 # ruff: noqa: F821  # a model body refers to its own columns, and an iterator's, by bare name
 

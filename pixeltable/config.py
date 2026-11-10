@@ -986,7 +986,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
             "its runtime image and its services' resources",
             list[DatabaseConfig],
         ),
-        'udf_resources': (
+        'udf': (
             "Resources of the Modal containers that run a UDF's calls, keyed by the UDF's path, eg "
             "'pixeltable.functions.huggingface.clip'",
             dict[str, UdfResources],
@@ -1029,8 +1029,8 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
     'jina': {'api_key': 'Jina AI API key', 'rate_limit': 'Rate limit for Jina AI API requests'},
     'mistral': {'api_key': 'Mistral API key', 'rate_limit': 'Rate limit for Mistral API requests'},
     'modal': {
-        'proxy_key': 'Modal proxy token ID, for the calls to the UDFs in udf_resources',
-        'proxy_secret': 'Modal proxy token secret, for the calls to the UDFs in udf_resources',
+        'proxy_key': 'Modal proxy token ID, for the calls to the UDFs in pixeltable.udf',
+        'proxy_secret': 'Modal proxy token secret, for the calls to the UDFs in pixeltable.udf',
     },
     'nebius': {
         'api_key': 'Nebius Token Factory API key',

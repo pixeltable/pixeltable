@@ -491,7 +491,7 @@ class RequestRateScheduler(Scheduler):
 
 class ModalScheduler(Scheduler):
     """
-    Scheduler for the calls of a UDF in the udf_resources setting, which run in the UDF's Modal containers.
+    Scheduler for the calls of a UDF in the pixeltable.udf setting, which run in the UDF's Modal containers.
 
     TODO: move the telemetry, result and exception handling of _exec() into Scheduler, for all schedulers
     """

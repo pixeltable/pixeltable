@@ -1064,19 +1064,19 @@ class Env:
             return info
 
     def udf_resources(self) -> dict[str, UdfResources]:
-        """Return the udf_resources setting, keyed by each configured UDF's self_path."""
+        """Return the pixeltable.udf setting, keyed by each configured UDF's self_path."""
         # pixeltable.func imports this module
         from pixeltable import func
         from pixeltable.func.symbols import resolve_symbol
 
         config = Config.get()
-        setting = config.get_value('udf_resources', dict)
+        setting = config.get_value('udf', dict)
         if setting is None:
             return {}
         cache = self._udf_resources_cache
         if cache is not None and cache[0] == setting:
             return cache[1]
-        source = config.describe_setting('pixeltable', 'udf_resources')
+        source = config.describe_setting('pixeltable', 'udf')
         try:
             entries = _UDF_RESOURCES_ADAPTER.validate_python(setting)
         except pydantic.ValidationError as e:

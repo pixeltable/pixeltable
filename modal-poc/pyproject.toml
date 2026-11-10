@@ -18,27 +18,27 @@ pixeltable = { path = "..", editable = true }
 # ModalServerClient logs one line per Modal call, at DEBUG
 log_level = "DEBUG"
 
-[tool.pixeltable.udf_resources.'pixeltable.functions.video.clip']
+[tool.pixeltable.udf.'pixeltable.functions.video.clip']
 cpu = 2
 
-[tool.pixeltable.udf_resources.'pixeltable.functions.video.segment_video']
+[tool.pixeltable.udf.'pixeltable.functions.video.segment_video']
 cpu = 2
 
-[tool.pixeltable.udf_resources.'pixeltable.functions.video.concat_videos']
+[tool.pixeltable.udf.'pixeltable.functions.video.concat_videos']
 cpu = 2
 
-[tool.pixeltable.udf_resources.'pixeltable.functions.image.rotate']
+[tool.pixeltable.udf.'pixeltable.functions.image.rotate']
 cpu = 1
 
-[tool.pixeltable.udf_resources.'pixeltable.functions.huggingface.clip']
+[tool.pixeltable.udf.'pixeltable.functions.huggingface.clip']
 cpu = 2
 memory_mb = 4096
 
-[tool.pixeltable.udf_resources.'pixeltable.functions.huggingface.image_captioning']
+[tool.pixeltable.udf.'pixeltable.functions.huggingface.image_captioning']
 cpu = 2
 memory_mb = 8192
 gpu = "T4"
 
-[tool.pixeltable.udf_resources.'pixeltable.functions.huggingface.detr_for_object_detection']
+[tool.pixeltable.udf.'pixeltable.functions.huggingface.detr_for_object_detection']
 cpu = 2
 memory_mb = 4096

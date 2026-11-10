@@ -1,6 +1,6 @@
-"""The Modal App that runs the calls to the UDFs in the udf_resources setting, with one Modal Server per UDF.
+"""The Modal App that runs the calls to the UDFs in the pixeltable.udf setting, with one Modal Server per UDF.
 
-- ModalApp deploys the App. The udf_resources setting gives the resources of each Server's containers.
+- ModalApp deploys the App. The pixeltable.udf setting gives the resources of each Server's containers.
 - Each container runs a ModalServer, which serves the UDF's calls over HTTP.
 - ModalServerClient (pixeltable.exec.expr_eval.modal_client) POSTs each call to Modal's proxy. The proxy checks the
   request's proxy token and forwards the request over HTTP/2 to a container of the UDF's Server.
@@ -137,7 +137,7 @@ class ModalServer:
 
 
 class ModalApp:
-    """The current project's Modal App, with one Server per UDF in the udf_resources setting.
+    """The current project's Modal App, with one Server per UDF in the pixeltable.udf setting.
 
     Deploying the App needs a Modal API token in this process.
     """
