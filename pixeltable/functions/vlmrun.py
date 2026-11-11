@@ -88,10 +88,11 @@ async def _require_https(request: httpx.Request) -> None:  # noqa: RUF029  # Asy
 
 
 class _VlmRunClient:
-    """Client for the VLM Run API. Uploads and deletes files with the vlmrun SDK, and makes chat completions and
-    artifact downloads with a connection pool of its own."""
+    """Client for the VLM Run API. Uploads and deletes files with the vlmrun SDK, and makes chat completions,
+    agent executions, and artifact downloads with a connection pool of its own."""
 
     timeout: float
+    _poll_interval: float
     _sdk: 'vlmrun.client.VLMRun'
     _http: httpx.AsyncClient
 
@@ -132,7 +133,7 @@ class _VlmRunClient:
         try:
             return await self._http.request(method, url, **kwargs)
         except httpx.TransportError as exc:
-            raise _transport_error(method, exc) from exc
+            raise _transport_error(exc) from exc
 
     async def upload(self, file: PIL.Image.Image | str) -> str:
         """Uploads an image, or the local file at the given path, and returns its file id."""
@@ -193,15 +194,14 @@ class _VlmRunClient:
     async def execute(self, body: dict[str, Any]) -> dict[str, Any]:
         """Submits an agent execution and polls until it completes.
 
-        Chat completions hold one HTTP request open for the whole generation; the vendor front end has closed
-        those after about 5 minutes. `POST agent/execute` with `batch=true` returns an id immediately.
+        POST agent/execute with batch=true returns an id immediately.
         """
         submitted = _json(await self._send('POST', 'agent/execute', json=body))
-        execution_id = submitted.get('id') or submitted.get('execution_id')
+        execution_id = submitted.get('execution_id') or submitted.get('id')
         if not isinstance(execution_id, str) or execution_id == '':
             raise pxt.ExternalServiceError(
                 pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
-                'VLM Run returned an execution without an id',
+                'VLM Run returned an execution without an execution_id',
                 provider='vlmrun',
             )
         return await self._poll_execution(execution_id, submitted)
@@ -229,41 +229,31 @@ class _VlmRunClient:
             latest = await self._get_execution(path)
 
     async def _get_execution(self, path: str) -> dict[str, Any]:
-        """GET one execution. Transient failures are retried here so the scheduler does not start another job."""
+        """GET one execution. Retryable failures stay here so they do not POST execute() again."""
         while True:
             try:
                 resp = await self._http.request('GET', path)
             except httpx.TransportError:
                 await asyncio.sleep(self._poll_interval)
                 continue
-            if resp.status_code in (408, 429, 500, 502, 503, 504):
-                _, retry_after = is_retryable_error(
-                    httpx.HTTPStatusError(f'status {resp.status_code}', request=resp.request, response=resp)
-                )
-                await asyncio.sleep(retry_after if retry_after is not None else self._poll_interval)
-                continue
-            return _json(resp)
+            try:
+                return _json(resp)
+            except pxt.ExternalServiceError as exc:
+                if exc.error_code not in (
+                    pxt.ErrorCode.PROVIDER_ERROR,
+                    pxt.ErrorCode.RATE_LIMITED,
+                    pxt.ErrorCode.PROVIDER_OVERLOADED,
+                ):
+                    raise
+                await asyncio.sleep(exc.retry_after if exc.retry_after is not None else self._poll_interval)
 
-    async def download(
-        self, artifact_id: str, dest: Path, *, session_id: str | None = None, execution_id: str | None = None
-    ) -> None:
+    async def download(self, artifact_id: str, dest: Path, execution_id: str) -> None:
         """Downloads a generated artifact into `dest`.
 
         A failure raises an error that the scheduler doesn't retry, since the generation has already run and a rerun
         would pay for another.
         """
-        if session_id is None and execution_id is None:
-            raise pxt.ExternalServiceError(
-                pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
-                'VLM Run returned an artifact without a session_id or execution_id',
-                provider='vlmrun',
-            )
-        params: dict[str, str] = {'object_id': artifact_id}
-        if execution_id is not None:
-            params['execution_id'] = execution_id
-        else:
-            assert session_id is not None
-            params['session_id'] = session_id
+        params = {'object_id': artifact_id, 'execution_id': execution_id}
         try:
             # the artifacts endpoint redirects to the artifact's storage location
             async with self._http.stream('GET', 'artifacts', params=params, follow_redirects=True) as resp:
@@ -326,8 +316,8 @@ def _status_error(resp: httpx.Response) -> pxt.ExternalServiceError:
     )
 
 
-def _transport_error(method: str, exc: httpx.TransportError) -> pxt.ExternalServiceError:
-    if isinstance(exc, _DROPPED_AFTER_SEND) and method.upper() not in ('GET', 'HEAD'):
+def _transport_error(exc: httpx.TransportError) -> pxt.ExternalServiceError:
+    if isinstance(exc, _DROPPED_AFTER_SEND):
         return pxt.ExternalServiceError(
             pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
             f'VLM Run closed the connection after accepting the request: {exc!r}. '
@@ -506,14 +496,16 @@ async def _generate(
                     provider='vlmrun',
                 ) from exc
             execution_id = result.get('execution_id') or result.get('id')
+            if not isinstance(execution_id, str) or execution_id == '':
+                raise pxt.ExternalServiceError(
+                    pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+                    'VLM Run returned an artifact without an execution_id',
+                    provider='vlmrun',
+                )
             _logger.debug(f'VLM Run returned {artifact} {ref!r} in execution {execution_id}')
             dest = TempStore.create_path(extension=extension)
             try:
-                await client.download(
-                    _artifact_id(str(ref), prefix),
-                    dest,
-                    execution_id=None if execution_id is None else str(execution_id),
-                )
+                await client.download(_artifact_id(str(ref), prefix), dest, execution_id)
             except BaseException:
                 # including cancellation by deadline(): nothing downstream knows the path of a partial download
                 dest.unlink(missing_ok=True)

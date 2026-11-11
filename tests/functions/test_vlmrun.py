@@ -99,11 +99,16 @@ class TestVLMRunClient:
                 assert body['inputs']['file_0'] == {'type': 'input_file', 'file_id': 'file_test'}
                 assert 'json_schema' in body['config']
                 assert 'Always return a generated document' in body['config']['prompt']
-                return httpx.Response(200, json={'id': 'exec_test', 'status': 'pending'})
+                return httpx.Response(200, json={'execution_id': 'exec_test', 'status': 'pending'})
             if request.method == 'GET' and path.endswith('/agent/executions/exec_test'):
                 calls['poll'] += 1
                 return httpx.Response(
-                    200, json={'id': 'exec_test', 'status': 'completed', 'response': {'document': {'id': 'doc_abcdef'}}}
+                    200,
+                    json={
+                        'execution_id': 'exec_test',
+                        'status': 'completed',
+                        'response': {'document': {'id': 'doc_abcdef'}},
+                    },
                 )
             if request.method == 'GET' and path.endswith('/artifacts'):
                 calls['artifacts'] += 1
@@ -125,19 +130,33 @@ class TestVLMRunClient:
         finally:
             reset_runtime()
 
-    def test_generate_poll_retries_dropped_get(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize('first_get', ['read_error', 'http_507', 'http_409_retry_after'])
+    def test_generate_poll_retries_get_without_resubmitting(
+        self, uses_db: None, monkeypatch: pytest.MonkeyPatch, first_get: str
+    ) -> None:
+        posts = {'n': 0}
         polls = {'n': 0}
 
         def handler(request: httpx.Request) -> httpx.Response:
             path = request.url.path
             if request.method == 'POST' and path.endswith('/agent/execute'):
-                return httpx.Response(200, json={'id': 'exec_test', 'status': 'pending'})
+                posts['n'] += 1
+                return httpx.Response(200, json={'execution_id': 'exec_test', 'status': 'pending'})
             if request.method == 'GET' and path.endswith('/agent/executions/exec_test'):
                 polls['n'] += 1
                 if polls['n'] == 1:
-                    raise httpx.ReadError('', request=request)
+                    if first_get == 'read_error':
+                        raise httpx.ReadError('', request=request)
+                    if first_get == 'http_507':
+                        return httpx.Response(507, json={'detail': 'insufficient storage'})
+                    return httpx.Response(409, headers={'Retry-After': '0'}, json={'detail': 'conflict'})
                 return httpx.Response(
-                    200, json={'id': 'exec_test', 'status': 'completed', 'response': {'document': {'id': 'doc_abcdef'}}}
+                    200,
+                    json={
+                        'execution_id': 'exec_test',
+                        'status': 'completed',
+                        'response': {'document': {'id': 'doc_abcdef'}},
+                    },
                 )
             if request.method == 'GET' and path.endswith('/artifacts'):
                 return httpx.Response(200, content=b'%PDF-1.4 mock\n')
@@ -150,6 +169,7 @@ class TestVLMRunClient:
                 redacted=pxtf.vlmrun.generate_document('Redact names', t.doc, model=_GENERATION_MODEL)
             )
             validate_update_status(t.insert(doc=_smallest_pdf()), 1)
+            assert posts['n'] == 1
             assert polls['n'] == 2
         finally:
             reset_runtime()
