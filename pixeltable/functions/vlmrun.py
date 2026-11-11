@@ -472,6 +472,8 @@ async def _generate(
     key, response_format = _response_format(artifact)
     client = _vlmrun_client()
     file_ids: list[str] = []
+    call: dict[str, str] = {}
+    keep_inputs = False
     try:
         async with client.deadline() as call:
             slots: dict[str, Any] = {}
@@ -521,8 +523,13 @@ async def _generate(
                 dest.unlink(missing_ok=True)
                 raise
             return dest
+    except pxt.ExternalServiceError as exc:
+        # This execution is still reading these file ids.
+        keep_inputs = exc.error_code == pxt.ErrorCode.PROVIDER_TIMEOUT and 'execution_id' in call
+        raise
     finally:
-        await client.delete_files(file_ids)
+        if not keep_inputs:
+            await client.delete_files(file_ids)
 
 
 def _load_image(path: Path) -> PIL.Image.Image:

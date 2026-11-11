@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -118,6 +119,7 @@ class TestVLMRunClient:
             raise AssertionError(f'unexpected {request.method} {path}')
 
         _install_mock_vlmrun(monkeypatch, handler)
+        deleted = _record_deletes(monkeypatch, get_runtime().get_client('vlmrun'))
         try:
             t = pxt.create_table('test_tbl', {'doc': pxt.Document})
             t.add_computed_column(
@@ -127,6 +129,7 @@ class TestVLMRunClient:
             with open(t.collect()[0]['redacted'], 'rb') as fp:
                 assert fp.read(5) == b'%PDF-'
             assert calls == {'execute': 1, 'poll': 1, 'artifacts': 1}
+            assert deleted == [['file_test']]
         finally:
             reset_runtime()
 
@@ -163,6 +166,17 @@ class TestVLMRunClient:
             raise AssertionError(f'unexpected {request.method} {path}')
 
         _install_mock_vlmrun(monkeypatch, handler)
+        sleeps: list[float] = []
+        poll_interval = 0.05
+        if first_get == 'http_409_retry_after':
+            get_runtime().get_client('vlmrun')._poll_interval = poll_interval
+            real_sleep = asyncio.sleep
+
+            async def spy_sleep(delay: float, result: Any = None) -> Any:
+                sleeps.append(delay)
+                return await real_sleep(0)
+
+            monkeypatch.setattr('pixeltable.functions.vlmrun.asyncio.sleep', spy_sleep)
         try:
             t = pxt.create_table('test_tbl', {'doc': pxt.Document})
             t.add_computed_column(
@@ -171,6 +185,10 @@ class TestVLMRunClient:
             validate_update_status(t.insert(doc=_smallest_pdf()), 1)
             assert posts['n'] == 1
             assert polls['n'] == 2
+            if first_get == 'http_409_retry_after':
+                assert sleeps
+                assert 0.0 not in sleeps
+                assert poll_interval in sleeps
         finally:
             reset_runtime()
 
@@ -213,6 +231,7 @@ class TestVLMRunClient:
         client = get_runtime().get_client('vlmrun')
         client.timeout = 0.5
         client._poll_interval = 0.05
+        deleted = _record_deletes(monkeypatch, client)
         try:
             t = pxt.create_table('test_tbl', {'doc': pxt.Document})
             t.add_computed_column(
@@ -223,6 +242,7 @@ class TestVLMRunClient:
             errormsg = t.select(msg=t.redacted.errormsg).collect()[0]['msg']
             assert 'exec_test' in errormsg
             assert 'left running' in errormsg
+            assert deleted == []
         finally:
             reset_runtime()
 
@@ -248,6 +268,16 @@ class TestVLMRunClient:
             assert 'closed the connection after accepting the request' in errormsg
         finally:
             reset_runtime()
+
+
+def _record_deletes(monkeypatch: pytest.MonkeyPatch, client: Any) -> list[list[str]]:
+    deleted: list[list[str]] = []
+
+    async def spy_delete(ids: list[str]) -> None:  # noqa: RUF029  # replaces an async client method
+        deleted.append(list(ids))
+
+    monkeypatch.setattr(client, 'delete_files', spy_delete)
+    return deleted
 
 
 def _install_mock_vlmrun(
