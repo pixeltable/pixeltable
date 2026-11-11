@@ -62,4 +62,6 @@ class TestScrubNbPip:
         for src in notebooks:
             dest = tmp_path / src.relative_to(DOCS_RELEASE)
             scrub_file(src, dest)
-            json.loads(dest.read_text(encoding='utf-8'))
+            text = dest.read_text(encoding='utf-8')
+            json.loads(text)
+            assert '%pip install' not in text, src
