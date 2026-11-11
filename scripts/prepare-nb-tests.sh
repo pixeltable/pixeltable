@@ -140,9 +140,9 @@ for notebook in $(find "$@" -name '*.ipynb' | grep -v .ipynb_checkpoints); do
         # Just copy the notebook to the test directory
         cp "$notebook" "$target"
     else
-        # 1. Scrub the %pip install lines from the notebook
-        # 2. Replace any `execute-only-with-pip` tags with `skip-execution`
-        sed -E 's/%pip install [^"]*//' "$notebook" | sed 's/execute-only-with-pip/skip-execution/g' > "$target"
+        # JSON-aware scrub: drop %pip install lines and retag execute-only-with-pip.
+        # A text sed would break notebooks whose pip lines contain quoted specifiers (PXT-1767).
+        python3 tool/scrub_nb_pip.py "$notebook" "$target"
     fi
 done
 
