@@ -1,3 +1,8 @@
+import shlex
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from tool.ci_tool import (
@@ -69,3 +74,28 @@ class TestBuildConfigs:
         assert t4
         assert all(cfg.pytest_options == T4_PYTEST for cfg in t4)
         assert '--deselect tests/test_migration.py::TestMigration::test_db_migration' in T4_PYTEST
+        # A --deselect that matches nothing is silently ignored, so renaming the test would
+        # restore it on T4 with no signal. Check the deselected node id still resolves.
+        opts = shlex.split(T4_PYTEST)
+        node_id = opts[opts.index('--deselect') + 1]
+        result = subprocess.run(
+            [
+                sys.executable,
+                '-m',
+                'pytest',
+                '--collect-only',
+                '-q',
+                '-p',
+                'no:cacheprovider',
+                '-o',
+                'addopts=',
+                node_id,
+            ],
+            cwd=Path(__file__).resolve().parents[2],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert result.stdout.splitlines().count(node_id) == 1, result.stdout

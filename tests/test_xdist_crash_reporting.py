@@ -1,5 +1,7 @@
 """Regression tests for xdist worker-crash reporting (PXT-1769)."""
 
+import re
+
 import pytest
 
 pytest.importorskip('xdist')
@@ -30,4 +32,4 @@ def test_worker_crash_under_loadgroup_is_a_normal_failure(pytester: pytest.Pytes
     assert result.ret == pytest.ExitCode.TESTS_FAILED, output
     assert 'INTERNALERROR' not in output, output
     assert 'NotImplementedError' not in output, output
-    assert 'test_crash' in output, output
+    assert re.search(r'FAILED \S*::test_crash\b', output) is not None, output
