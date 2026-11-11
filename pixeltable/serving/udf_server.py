@@ -3,13 +3,12 @@
 import asyncio
 import threading
 import time
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 from zoneinfo import ZoneInfo
 
-import hypercorn.asyncio
-import hypercorn.config
-
 from pixeltable import exceptions as excs, func
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.exec.expr_eval.modal_client import UdfCallRequest, UdfCallResponse
 from pixeltable.func.symbols import resolve_symbol
@@ -25,8 +24,13 @@ class UdfServer:
     task_id: str | None
     lock: threading.Lock
 
-    def start(self, udf_path: str, port: int, task_id: str | None) -> None:
-        """Serve the calls to the UDF at udf_path on port, in a thread of its own."""
+    def start(self, udf_path: str, port: int, task_id: str | None, project_dir: Path | None = None) -> None:
+        """Serve the calls to the UDF at udf_path on port, in a thread of its own.
+
+        project_dir: the project root with the UDF's module and the config file
+        """
+        if project_dir is not None:
+            Config.init(reinit=True, project_root=project_dir)
         # initializes the Env now instead of in the first call
         Env.get()  # doesn't require a local database
         self.udf_path = udf_path
@@ -35,6 +39,10 @@ class UdfServer:
         self.overloads = fn._resolved_fns
         self.task_id = task_id
         self.lock = threading.Lock()
+
+        # only a serving process needs hypercorn
+        import hypercorn.asyncio
+        import hypercorn.config
 
         config = hypercorn.config.Config()
         config.bind = [f'0.0.0.0:{port}']

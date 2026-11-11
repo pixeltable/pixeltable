@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Iterator
 
 import httpx
-import PIL.Image
 import pytest
 
 import pixeltable as pxt
@@ -142,9 +141,9 @@ class TestUdfServer:
         status = img_t.insert([{'img': path} for path in img_paths] + [{'img': None}])
         assert status.num_excs == 0
         res = img_t.where(img_t.img != None).collect()
-        for path, rotated, small in zip(img_paths, res['rotated'], res['small']):
-            with PIL.Image.open(path) as img:
-                assert rotated.size == img.size
+        assert len(res) == len(img_paths)
+        for img, rotated, small in zip(res['img'], res['rotated'], res['small']):
+            assert rotated.size == img.size
             assert small.size == (32, 16)
         # a null image doesn't reach the UDF
         assert img_t.where(img_t.img == None).collect()['rotated'] == [None]

@@ -15,8 +15,13 @@ Why the App uses Servers instead of Modal functions (.remote()):
 """
 
 import os
+import tempfile
+from pathlib import Path
 
 import modal
+
+from pixeltable import exceptions as excs
+from pixeltable.service import prepare_project
 
 from .udf_server import UdfServer
 
@@ -24,6 +29,8 @@ from .udf_server import UdfServer
 PORT = 8000
 # Servers take no parameters, so the container gets the UDF path from this environment variable
 UDF_PATH_VAR = 'PXT_UDF_PATH'
+# pxt://org:db of the hosted database with the UDF's project
+DB_URI_VAR = 'PXT_DB_URI'
 
 
 class ModalServer(UdfServer):
@@ -31,4 +38,10 @@ class ModalServer(UdfServer):
 
     @modal.enter()
     def enter(self) -> None:
-        self.start(os.environ[UDF_PATH_VAR], PORT, os.environ.get('MODAL_TASK_ID'))
+        db_uri = os.environ[DB_URI_VAR]
+        archive_dir = Path(tempfile.mkdtemp())
+        if not prepare_project.prepare(db_uri, archive_dir):
+            raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, f'{db_uri} has no project')
+        self.start(
+            os.environ[UDF_PATH_VAR], PORT, os.environ.get('MODAL_TASK_ID'), prepare_project.project_dir(archive_dir)
+        )
