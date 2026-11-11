@@ -211,8 +211,7 @@ class ModalServerClient:
 
     udf_path: str
     timeout: httpx.Timeout
-    # the Server's URL; set by connect()
-    url: str | None
+    url: str
     # clear if the last GET or POST found no running container
     container_running: asyncio.Event
     # the POSTs in flight, each with its send time (time.monotonic())
@@ -225,31 +224,25 @@ class ModalServerClient:
     def __init__(self, udf_path: str, timeout_seconds: int) -> None:
         self.udf_path = udf_path
         self.timeout = httpx.Timeout(timeout_seconds, connect=_CONNECT_SECONDS)
-        self.url = None
+        endpoints: ModalEndpoints = Env.get().get_resource_pool_info(
+            ModalEndpoints.REGISTRY_KEY, ModalEndpoints.from_env
+        )
+        url = endpoints.server_urls.get(udf_path)
+        if url is None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{udf_path!r} is in the pixeltable.udf setting, but {ModalEndpoints.SERVERS_VAR} has no Modal Server '
+                'for it',
+            )
+        self.url = url
         self.container_running = asyncio.Event()
         self.container_running.set()
         self.posts = {}
         self.num_active_calls = 0
         self.monitor = None
 
-    def connect(self) -> None:
-        """Look up the Server's URL."""
-        if self.url is None:
-            endpoints: ModalEndpoints = Env.get().get_resource_pool_info(
-                ModalEndpoints.REGISTRY_KEY, ModalEndpoints.from_env
-            )
-            url = endpoints.server_urls.get(self.udf_path)
-            if url is None:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_CONFIGURATION,
-                    f'{self.udf_path!r} is in the pixeltable.udf setting, but {ModalEndpoints.SERVERS_VAR} has no '
-                    'Modal Server for it',
-                )
-            self.url = url
-
     async def call(self, call_args: FnCallArgs) -> UdfCallResponse:
         """Run call_args on the Server."""
-        assert self.url is not None
         time_zone = Env.get().default_time_zone
         assert time_zone is not None
         request_body = UdfCallRequest(
@@ -298,7 +291,6 @@ class ModalServerClient:
 
     async def _post(self, http_client: httpx.AsyncClient, request_body: bytes) -> httpx.Response | None:
         """POST request_body to the Server and return the response, or None if the Server had no running container."""
-        assert self.url is not None
         post = asyncio.create_task(http_client.post(self.url, content=request_body, timeout=self.timeout))
         self.posts[post] = time.monotonic()
         try:
@@ -336,7 +328,6 @@ class ModalServerClient:
 
     async def _monitor(self, http_client: httpx.AsyncClient) -> None:
         """Send GETs to the Server, set container_running from the answers, and cancel the POSTs that can't complete."""
-        assert self.url is not None
         attempt = 0
         while True:
             sent = time.monotonic()
