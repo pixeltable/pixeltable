@@ -12,6 +12,9 @@ from unittest import mock
 import plan_claude_ci_fix as plan
 
 
+RUN_9 = 'https://github.com/o/r/actions/runs/9'
+
+
 def event(
     *,
     name: str = 'tests',
@@ -110,15 +113,23 @@ class MainTest(unittest.TestCase):
         self.assertEqual(self.run_main(event(run_id=9), latest=99), '')
 
     def test_closed_unmerged_pr_naming_this_run_stops_a_new_fix(self) -> None:
-        closed = pr(1925, state='CLOSED', head='claude/ci-fix-tests-9', body='run 9')
+        closed = pr(1925, state='CLOSED', head='claude/ci-fix-tests-9', body=RUN_9)
         self.assertEqual(self.run_main(event(run_id=9), [closed]), '')
 
     def test_open_human_pr_naming_this_run_stops_a_new_fix(self) -> None:
-        human = pr(1927, head='claude/genai-v1beta-notebook', body='nightly https://github.com/o/r/actions/runs/9')
+        human = pr(1927, head='claude/genai-v1beta-notebook', body=f'nightly {RUN_9}')
         self.assertEqual(self.run_main(event(run_id=9), [human]), '')
 
+    def test_fork_pr_naming_this_run_does_not_stop_a_fix(self) -> None:
+        fork = pr(1930, head='x/y', body=RUN_9, cross=True)
+        self.assertIn('workflow=tests\n', self.run_main(event(run_id=9), [fork]))
+
+    def test_bare_digits_do_not_name_this_run(self) -> None:
+        other = pr(1929, head='x/y', body='fixes 1929, v9.1 and https://github.com/o/r/actions/runs/91')
+        self.assertIn('workflow=tests\n', self.run_main(event(run_id=9), [other]))
+
     def test_merged_pr_naming_this_run_does_not_stop_a_fix(self) -> None:
-        merged = pr(1900, state='MERGED', head='someone/fix', body='run 9', merged=True)
+        merged = pr(1900, state='MERGED', head='someone/fix', body=RUN_9, merged=True)
         self.assertIn('branch=claude/ci-fix-tests-9\n', self.run_main(event(run_id=9), [merged]))
 
     def test_open_ci_fix_pr_for_the_workflow_stops_a_new_fix(self) -> None:

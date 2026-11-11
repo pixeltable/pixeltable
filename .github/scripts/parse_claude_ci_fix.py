@@ -19,7 +19,7 @@ def gh(*args: str) -> str:
     return subprocess.run(['gh', *args], check=True, capture_output=True, text=True).stdout
 
 
-def open_pr(repo: str, branch: str) -> int | None:
+def pr_on_branch(repo: str, branch: str) -> int | None:
     raw = gh(
         'pr',
         'list',
@@ -45,7 +45,7 @@ def main() -> int:
     if data.get('action') != 'opened':
         print('No fix PR to review.')
         return 0
-    pr = open_pr(repo, branch)
+    pr = pr_on_branch(repo, branch)
     if pr is None:
         print(f'::warning::Claude reported a fix PR, but {branch} has no open PR in {repo}.')
         return 1

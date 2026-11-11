@@ -30,7 +30,7 @@ class ParseMainTest(unittest.TestCase):
             }
             with (
                 mock.patch.dict(os.environ, env),
-                mock.patch.object(parse, 'open_pr', return_value=found),
+                mock.patch.object(parse, 'pr_on_branch', return_value=found),
                 mock.patch.object(parse, 'gh') as gh,
             ):
                 parse.main()

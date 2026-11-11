@@ -2,8 +2,8 @@
 
 Handles the "workflow_run" event of `tests`, `stress-tests`, and `nightly`. A fix job runs only for a scheduled
 run on the default branch whose conclusion is failure or timed_out, and only when that run is still the latest
-scheduled run of that workflow. It does not run when a PR already names this run (a person took over, or closed
-it) or when this workflow already has an open CI-fix PR. The fix branch is computed here from the run id and is
+scheduled run of that workflow. It does not run when a same-repo PR already links this run (a person took over, or
+closed it) or when this workflow already has an open CI-fix PR. The fix branch is computed here from the run id and is
 never read from a PR. Reads GITHUB_EVENT_PATH, GITHUB_OUTPUT, and REPO from the environment; `gh` authenticates
 with GH_TOKEN. Writes workflow, branch, and context (the JSON the fix job reads), or nothing when no fix job runs.
 """
@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from typing import Any
@@ -101,13 +102,18 @@ def main() -> int:
         print(f'Run {run_id} is not the latest scheduled {workflow} run ({latest} is), so no CI-fix runs.')
         return 0
 
-    # A PR of any author that names this run and did not merge: a person took it over, or closed it, or it is open.
+    # A same-repo PR that links this run and did not merge: a person took it over, or closed it, or it is open.
+    run_link = re.compile(rf'actions/runs/{run_id}(?!\d)')
     for pr in list_prs(repo, '--state', 'all', '--limit', '50', '--search', f'{run_id} in:body'):
-        if str(run_id) in (pr.get('body') or '') and not pr.get('mergedAt'):
+        if pr.get('isCrossRepository') is False and run_link.search(pr.get('body') or '') and not pr.get('mergedAt'):
             print(f'PR #{pr["number"]} already names run {run_id}, so no CI-fix runs.')
             return 0
 
-    fix_prs = [pr for pr in list_prs(repo, '--state', 'all', '--limit', '200') if is_ci_fix_pr(pr, workflow)]
+    fix_prs = [
+        pr
+        for pr in list_prs(repo, '--state', 'all', '--limit', '100', '--search', f'head:{BRANCH_PREFIX}{workflow}-')
+        if is_ci_fix_pr(pr, workflow)
+    ]
     for pr in fix_prs:
         if pr.get('state') == 'OPEN':
             print(f'PR #{pr["number"]} is already an open {workflow} CI-fix PR, so no CI-fix runs.')
