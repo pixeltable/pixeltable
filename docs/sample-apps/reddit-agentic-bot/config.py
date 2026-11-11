@@ -11,7 +11,7 @@ EMBEDDING_MODEL_ID = 'intfloat/multilingual-e5-large-instruct'
 # LLM model for answering (ensure it supports tool calling if using that approach)
 # Example: "gpt-4o-mini" (OpenAI)
 # Example: "mistralai/Mistral-7B-Instruct-v0.1"
-LLM_MODEL_ID = 'claude-3-5-sonnet-latest'
+LLM_MODEL_ID = 'claude-sonnet-4-6'
 LLM_MAX_TOKENS = 4096
 
 # Similarity search parameters
