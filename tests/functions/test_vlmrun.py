@@ -200,6 +200,32 @@ class TestVLMRunClient:
         finally:
             reset_runtime()
 
+    def test_generate_deadline_names_submitted_execution(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if request.method == 'POST' and path.endswith('/agent/execute'):
+                return httpx.Response(200, json={'execution_id': 'exec_test', 'status': 'pending'})
+            if request.method == 'GET' and path.endswith('/agent/executions/exec_test'):
+                return httpx.Response(200, json={'execution_id': 'exec_test', 'status': 'pending'})
+            raise AssertionError(f'unexpected {request.method} {path}')
+
+        _install_mock_vlmrun(monkeypatch, handler)
+        client = get_runtime().get_client('vlmrun')
+        client.timeout = 0.5
+        client._poll_interval = 0.05
+        try:
+            t = pxt.create_table('test_tbl', {'doc': pxt.Document})
+            t.add_computed_column(
+                redacted=pxtf.vlmrun.generate_document('Redact names', t.doc, model=_GENERATION_MODEL)
+            )
+            status = t.insert(doc=_smallest_pdf(), on_error='ignore')
+            assert status.num_excs == 1
+            errormsg = t.select(msg=t.redacted.errormsg).collect()[0]['msg']
+            assert 'exec_test' in errormsg
+            assert 'left running' in errormsg
+        finally:
+            reset_runtime()
+
     def test_chat_disconnect_after_accept_is_not_retried(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
         posts = {'n': 0}
 

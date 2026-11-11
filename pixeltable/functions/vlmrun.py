@@ -116,15 +116,23 @@ class _VlmRunClient:
         await self._http.aclose()
 
     @contextlib.asynccontextmanager
-    async def deadline(self) -> AsyncIterator[None]:
+    async def deadline(self) -> AsyncIterator[dict[str, str]]:
         """Bounds a UDF call, from its first upload to its last download, by the configured timeout."""
+        call: dict[str, str] = {}
         try:
             async with asyncio.timeout(self.timeout):
-                yield
+                yield call
         except TimeoutError:
+            execution_id = call.get('execution_id')
+            if execution_id is None:
+                detail = f'VLM Run call did not complete within {self.timeout}s'
+            else:
+                detail = (
+                    f'VLM Run execution {execution_id} was still running after {self.timeout}s and was left running'
+                )
             raise pxt.ExternalServiceError(
                 pxt.ErrorCode.PROVIDER_TIMEOUT,
-                f'VLM Run call did not complete within {self.timeout}s; to allow more time, set `VLMRUN_TIMEOUT` '
+                f'{detail}; to allow more time, set `VLMRUN_TIMEOUT` '
                 'or `timeout` in the `vlmrun` section of the config file',
                 provider='vlmrun',
             ) from None
@@ -191,10 +199,10 @@ class _VlmRunClient:
         """Creates a chat completion and returns the API response."""
         return _json(await self._send('POST', 'openai/chat/completions', json=body))
 
-    async def execute(self, body: dict[str, Any]) -> dict[str, Any]:
+    async def execute(self, body: dict[str, Any], call: dict[str, str]) -> dict[str, Any]:
         """Submits an agent execution and polls until it completes.
 
-        POST agent/execute with batch=true returns an id immediately.
+        POST agent/execute with batch=true returns an id immediately. Stores it on `call` as `execution_id`.
         """
         submitted = _json(await self._send('POST', 'agent/execute', json=body))
         execution_id = submitted.get('execution_id') or submitted.get('id')
@@ -204,6 +212,7 @@ class _VlmRunClient:
                 'VLM Run returned an execution without an execution_id',
                 provider='vlmrun',
             )
+        call['execution_id'] = execution_id
         return await self._poll_execution(execution_id, submitted)
 
     async def _poll_execution(self, execution_id: str, latest: dict[str, Any]) -> dict[str, Any]:
@@ -245,7 +254,8 @@ class _VlmRunClient:
                     pxt.ErrorCode.PROVIDER_OVERLOADED,
                 ):
                     raise
-                await asyncio.sleep(exc.retry_after if exc.retry_after is not None else self._poll_interval)
+                # Retry-After: 0 would busy-spin until the deadline
+                await asyncio.sleep(exc.retry_after if exc.retry_after else self._poll_interval)
 
     async def download(self, artifact_id: str, dest: Path, execution_id: str) -> None:
         """Downloads a generated artifact into `dest`.
@@ -463,7 +473,7 @@ async def _generate(
     client = _vlmrun_client()
     file_ids: list[str] = []
     try:
-        async with client.deadline():
+        async with client.deadline() as call:
             slots: dict[str, Any] = {}
             for i, media in enumerate(inputs):
                 if media is not None:
@@ -478,7 +488,7 @@ async def _generate(
                 inputs=slots,
                 config={'prompt': f'{system_message}\n\n{prompt}', 'json_schema': response_format['schema']},
             )
-            result = await client.execute(body)
+            result = await client.execute(body, call)
             payload: Any = result.get('response')
             if isinstance(payload, str):
                 try:
