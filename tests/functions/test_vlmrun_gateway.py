@@ -8,6 +8,7 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
+from pixeltable.runtime import get_runtime, reset_runtime
 from tests.functions.tool_utils import run_tool_invocations_test
 
 from ..utils import (
@@ -22,12 +23,55 @@ from ..utils import (
 
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
+
+class TestVlmrunGatewayClient:
+    def test_capability_violation_reaches_errormsg(self, uses_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        import httpx2
+        import openai
+
+        def handler(_request: httpx2.Request) -> httpx2.Response:
+            return httpx2.Response(
+                400,
+                headers={'x-request-id': 'req_mock'},
+                json={
+                    'detail': {
+                        'error': {
+                            'code': 'capability_violation',
+                            'message': 'The model qwen/qwen3.5-0.8b does not support document_url',
+                            'param': 'document_url',
+                        }
+                    }
+                },
+            )
+
+        reset_runtime()
+        get_runtime()._clients['vlmrun_gateway'] = openai.AsyncOpenAI(
+            api_key='test-key',
+            base_url='https://gateway.vlm.run/v1/openai',
+            max_retries=0,
+            http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)),
+        )
+        try:
+            from pixeltable.functions.vlmrun_gateway import chat_completions
+
+            t = pxt.create_table('test_tbl', {'url': pxt.String})
+            messages = [{'role': 'user', 'content': [{'type': 'document_url', 'document_url': t.url}]}]
+            t.add_computed_column(answer=chat_completions(messages, model='qwen/qwen3.5-0.8b'))
+            status = t.insert(url='https://example.com/doc.pdf', on_error='ignore')
+            assert status.num_excs == 1
+            errormsg = t.select(msg=t.answer.errormsg).collect()[0]['msg']
+            assert 'capability_violation' in errormsg
+            assert 'does not support document_url' in errormsg
+        finally:
+            reset_runtime()
+
+
 _PDF = str(TESTS_DIR / 'data' / 'documents' / 'Vector_database.pdf')
 _IMAGE = str(TESTS_DIR / 'data' / 'images' / 'sewing-threads-smaller.jpg')
 _VIDEO = str(TESTS_DIR / 'data' / 'test_videos' / 'test_462_frames.mp4')
 _AUDIO = str(TESTS_DIR / 'data' / 'audio' / 'jfk_1961_0109_cityuponahill-excerpt.flac')
 _VIDEO_URL = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/videos/bangkok_half_res.mp4'
-_PDF_URL = 'https://storage.googleapis.com/vlm-data-public-prod/hub/examples/document.invoice/sample-invoice.pdf'
 
 
 @pytest.mark.remote_api
@@ -224,20 +268,6 @@ class TestVlmrunGateway:
         assert 'city upon a hill' in result['text'].lower()
         assert result['usage']['cost'] >= 0
         assert result['duration'] > 0, 'the json format reports the audio duration'
-
-    def test_errors(self, uses_db: None) -> None:
-        skip_test_if_not_installed('openai')
-        skip_test_if_no_client('vlmrun_gateway')
-        from pixeltable.functions.vlmrun_gateway import chat_completions
-
-        t = pxt.create_table('test_tbl', {'doc': pxt.Document})
-        messages = [{'role': 'user', 'content': [{'type': 'document_url', 'document_url': t.doc.fileurl}]}]
-        t.add_computed_column(answer=chat_completions(messages, model='qwen/qwen3.5-0.8b'))
-        status = t.insert(doc=_PDF_URL, on_error='ignore')
-        assert status.num_excs == 1
-        errormsg = t.select(msg=t.answer.errormsg).collect()[0]['msg']
-        assert 'capability_violation' in errormsg
-        assert 'does not support document_url' in errormsg
 
     def test_message_strings_are_never_read_as_files(self, uses_db: None, tmp_path: Path) -> None:
         """A string in a media content part could come from any string column, so it is never read from disk."""

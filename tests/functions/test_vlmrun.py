@@ -3,12 +3,14 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
+import httpx
 import PIL.Image
 import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.config import Config
+from pixeltable.functions.vlmrun import _require_https
 from pixeltable.runtime import get_runtime, reset_runtime
 
 from ..utils import (
@@ -69,6 +71,7 @@ class TestVLMRunClient:
             ('generate_image', 'response_format'),
             ('generate_image', 'toolsets'),
             ('generate_image', 'messages'),
+            ('generate_image', 'batch'),
             ('chat_completions', 'model'),
         ],
     )
@@ -82,6 +85,149 @@ class TestVLMRunClient:
             t.add_computed_column(out=pxtf.vlmrun.chat_completions(messages, model=_MODEL, model_kwargs=model_kwargs))
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=f'cannot contain `{key}`'):
             t.insert(prompt='A red circle')
+
+    def test_generate_document_submit_poll(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: dict[str, int] = {'execute': 0, 'poll': 0, 'artifacts': 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if request.method == 'POST' and path.endswith('/agent/execute'):
+                calls['execute'] += 1
+                body = json.loads(request.content)
+                assert body['batch'] is True
+                assert body['toolsets'] == ['document']
+                assert body['inputs']['file_0'] == {'type': 'input_file', 'file_id': 'file_test'}
+                assert 'json_schema' in body['config']
+                assert 'Always return a generated document' in body['config']['prompt']
+                return httpx.Response(200, json={'id': 'exec_test', 'status': 'pending'})
+            if request.method == 'GET' and path.endswith('/agent/executions/exec_test'):
+                calls['poll'] += 1
+                return httpx.Response(
+                    200, json={'id': 'exec_test', 'status': 'completed', 'response': {'document': {'id': 'doc_abcdef'}}}
+                )
+            if request.method == 'GET' and path.endswith('/artifacts'):
+                calls['artifacts'] += 1
+                assert request.url.params['object_id'] == 'doc_abcdef'
+                assert request.url.params['execution_id'] == 'exec_test'
+                return httpx.Response(200, content=b'%PDF-1.4 mock\n')
+            raise AssertionError(f'unexpected {request.method} {path}')
+
+        _install_mock_vlmrun(monkeypatch, handler)
+        try:
+            t = pxt.create_table('test_tbl', {'doc': pxt.Document})
+            t.add_computed_column(
+                redacted=pxtf.vlmrun.generate_document('Redact names', t.doc, model=_GENERATION_MODEL)
+            )
+            validate_update_status(t.insert(doc=_smallest_pdf()), 1)
+            with open(t.collect()[0]['redacted'], 'rb') as fp:
+                assert fp.read(5) == b'%PDF-'
+            assert calls == {'execute': 1, 'poll': 1, 'artifacts': 1}
+        finally:
+            reset_runtime()
+
+    def test_generate_poll_retries_dropped_get(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        polls = {'n': 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if request.method == 'POST' and path.endswith('/agent/execute'):
+                return httpx.Response(200, json={'id': 'exec_test', 'status': 'pending'})
+            if request.method == 'GET' and path.endswith('/agent/executions/exec_test'):
+                polls['n'] += 1
+                if polls['n'] == 1:
+                    raise httpx.ReadError('', request=request)
+                return httpx.Response(
+                    200, json={'id': 'exec_test', 'status': 'completed', 'response': {'document': {'id': 'doc_abcdef'}}}
+                )
+            if request.method == 'GET' and path.endswith('/artifacts'):
+                return httpx.Response(200, content=b'%PDF-1.4 mock\n')
+            raise AssertionError(f'unexpected {request.method} {path}')
+
+        _install_mock_vlmrun(monkeypatch, handler)
+        try:
+            t = pxt.create_table('test_tbl', {'doc': pxt.Document})
+            t.add_computed_column(
+                redacted=pxtf.vlmrun.generate_document('Redact names', t.doc, model=_GENERATION_MODEL)
+            )
+            validate_update_status(t.insert(doc=_smallest_pdf()), 1)
+            assert polls['n'] == 2
+        finally:
+            reset_runtime()
+
+    def test_generate_disconnect_after_accept_is_not_retried(
+        self, uses_db: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        posts = {'n': 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == 'POST' and request.url.path.endswith('/agent/execute'):
+                posts['n'] += 1
+                raise httpx.ReadError('', request=request)
+            raise AssertionError(f'unexpected {request.method} {request.url.path}')
+
+        _install_mock_vlmrun(monkeypatch, handler)
+        try:
+            t = pxt.create_table('test_tbl', {'doc': pxt.Document})
+            t.add_computed_column(
+                redacted=pxtf.vlmrun.generate_document('Redact names', t.doc, model=_GENERATION_MODEL)
+            )
+            status = t.insert(doc=_smallest_pdf(), on_error='ignore')
+            assert status.num_excs == 1
+            assert posts['n'] == 1
+            errormsg = t.select(msg=t.redacted.errormsg).collect()[0]['msg']
+            assert 'closed the connection after accepting the request' in errormsg
+            assert 'not retried' in errormsg
+        finally:
+            reset_runtime()
+
+    def test_chat_disconnect_after_accept_is_not_retried(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        posts = {'n': 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == 'POST' and request.url.path.endswith('/openai/chat/completions'):
+                posts['n'] += 1
+                raise httpx.ReadError('', request=request)
+            raise AssertionError(f'unexpected {request.method} {request.url.path}')
+
+        _install_mock_vlmrun(monkeypatch, handler, mock_upload=False)
+        try:
+            t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+            t.add_computed_column(
+                response=pxtf.vlmrun.chat_completions([{'role': 'user', 'content': t.prompt}], model=_MODEL)
+            )
+            status = t.insert(prompt='What is 2+2?', on_error='ignore')
+            assert status.num_excs == 1
+            assert posts['n'] == 1
+            errormsg = t.select(msg=t.response.errormsg).collect()[0]['msg']
+            assert 'closed the connection after accepting the request' in errormsg
+        finally:
+            reset_runtime()
+
+
+def _install_mock_vlmrun(
+    monkeypatch: pytest.MonkeyPatch, handler: Callable[[httpx.Request], httpx.Response], *, mock_upload: bool = True
+) -> None:
+    skip_test_if_not_installed('vlmrun')
+    monkeypatch.setenv('VLMRUN_API_KEY', 'test-key')
+    reset_runtime()
+    client = get_runtime().get_client('vlmrun')
+    client._http = httpx.AsyncClient(
+        base_url=client._http.base_url,
+        timeout=httpx.Timeout(None, connect=30.0),
+        transport=httpx.MockTransport(handler),
+        event_hooks={'request': [_require_https]},
+    )
+    client._poll_interval = 0.0
+    if mock_upload:
+
+        async def fake_upload(_file: object) -> str:  # noqa: RUF029  # replaces an async client method
+            return 'file_test'
+
+        async def fake_delete(_file_ids: list[str]) -> None:  # noqa: RUF029  # replaces an async client method
+            return None
+
+        monkeypatch.setattr(client, 'upload', fake_upload)
+        monkeypatch.setattr(client, 'delete_files', fake_delete)
 
 
 @pytest.mark.remote_api
