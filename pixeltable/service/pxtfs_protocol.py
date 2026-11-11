@@ -9,7 +9,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel, Field
 
 
 class PixeltableStoreOperationType(str, Enum):
@@ -35,9 +35,8 @@ class GetBucketCredentialsResponse(BaseModel):
     """Response containing temporary credentials for bucket access."""
 
     access_key_id: str
-    # SecretStr keeps credentials out of repr/model_dump_json; use get_secret_value() when building clients.
-    secret_access_key: SecretStr
-    session_token: SecretStr
+    secret_access_key: str = Field(repr=False)
+    session_token: str = Field(repr=False)
     endpoint_url: str  # S3-compatible endpoint URL for the storage backend
     storage_provider: str = 'r2'  # storage backend type; currently only 'r2' is supported
     resolved_bucket_name: str  # physical bucket name on the storage backend, resolved from the logical bucket name

@@ -68,15 +68,13 @@ def test_bucket_credentials_redact_secrets() -> None:
         ttl_seconds=3600,
     )
 
-    for text in (repr(response), str(response), response.model_dump_json()):
-        assert 'super-secret-value' not in text
-        assert 'session-token-value' not in text
+    secrets = ('super-secret-value', 'session-token-value')
+    texts = (repr(response), str(response))
+    assert all(secret not in text for secret in secrets for text in texts)
 
-    dumped = response.model_dump()
-    assert 'super-secret-value' not in repr(dumped)
-    assert 'session-token-value' not in repr(dumped)
-    assert response.secret_access_key.get_secret_value() == 'super-secret-value'
-    assert response.session_token.get_secret_value() == 'session-token-value'
+    restored = GetBucketCredentialsResponse.model_validate_json(response.model_dump_json())
+    assert restored.secret_access_key == 'super-secret-value'
+    assert restored.session_token == 'session-token-value'
 
 
 def _clips_model(name: str, destination: str) -> Any:
