@@ -1028,10 +1028,6 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
     'groq': {'api_key': 'Groq API key', 'rate_limit': 'Rate limit for Groq API requests'},
     'jina': {'api_key': 'Jina AI API key', 'rate_limit': 'Rate limit for Jina AI API requests'},
     'mistral': {'api_key': 'Mistral API key', 'rate_limit': 'Rate limit for Mistral API requests'},
-    'modal': {
-        'proxy_key': 'Modal proxy token ID, for the calls to the UDFs in pixeltable.udf',
-        'proxy_secret': 'Modal proxy token secret, for the calls to the UDFs in pixeltable.udf',
-    },
     'nebius': {
         'api_key': 'Nebius Token Factory API key',
         'rate_limit': 'Rate limit for Nebius Token Factory API requests',
@@ -1110,7 +1106,7 @@ _INSTALLATION_KEYS = frozenset(
 
 # settings that contain credentials
 _SECRET_KEYS = frozenset(
-    {'api_key', 'api_secret', 'api_token', 'token', 'storage_account_key', 'exporter_otlp_headers', 'proxy_secret'}
+    {'api_key', 'api_secret', 'api_token', 'token', 'storage_account_key', 'exporter_otlp_headers'}
 )
 
 # whitelist of allowed setting overrides for individual dbs; the db_ prefix keeps them apart from the db

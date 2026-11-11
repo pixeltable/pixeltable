@@ -1,15 +1,17 @@
 """Client side of the UDFs in the pixeltable.udf setting, which run on Modal Servers (pixeltable.serving.modal_server).
 
-Contains the encoding of a call's request and response, and the client that sends a UDF's calls to its Server.
+Contains the encoding of a call's request and response, the Servers' URLs, and the client that sends a UDF's calls to
+its Server.
 """
 
 import asyncio
 import dataclasses
 import json
 import logging
+import os
 import pickle
 import time
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 from typing_extensions import Self
@@ -26,13 +28,13 @@ _logger = logging.getLogger('pixeltable')
 
 @dataclasses.dataclass(frozen=True)
 class UdfCallRequest:
-    """One call to a UDF, as sent to ModalServer.run().
+    """One call to a UDF, as sent to UdfServer.run().
 
     As in FnCallArgs, a call has either args and kwargs, for one row, or batch_args and batch_kwargs, with one value
     per row, for a batched UDF.
     """
 
-    # ModalServer.run() calls the UDF's overload with this signature
+    # UdfServer.run() calls the UDF's overload with this signature
     signature: func.Signature
     # the name of the calling process's default time zone (Env.default_time_zone)
     time_zone: str
@@ -76,7 +78,7 @@ class UdfCallRequest:
 
 @dataclasses.dataclass(frozen=True)
 class UdfCallResponse:
-    """The result of a ModalServer.run() call."""
+    """The result of a UdfServer.run() call."""
 
     # one value per row of the request; None if error is set
     values: list[Any] | None
@@ -137,16 +139,53 @@ _PROBE_SECONDS = 1.0
 _CONNECT_SECONDS = 10
 
 
-@register_client('modal', credential_param='proxy_secret')
-def _(proxy_key: str, proxy_secret: str) -> httpx.AsyncClient:
+@dataclasses.dataclass(frozen=True)
+class ModalEndpoints:
+    """The URLs of a database's Modal Servers, and the proxy token for calls to them."""
+
+    SERVERS_VAR: ClassVar[str] = 'PXT_MODAL_SERVERS'
+    PROXY_KEY_VAR: ClassVar[str] = 'MODAL_PROXY_KEY'
+    PROXY_SECRET_VAR: ClassVar[str] = 'MODAL_PROXY_SECRET'
+    # the key of the process's ModalEndpoints in Env.get_resource_pool_info()
+    REGISTRY_KEY: ClassVar[str] = 'modal-endpoints'
+
+    # keyed by UDF path
+    server_urls: dict[str, str]
+    proxy_key: str
+    proxy_secret: str = dataclasses.field(repr=False)
+
+    @classmethod
+    def from_env(cls) -> Self:
+        """Read the endpoints from the environment: SERVERS_VAR is a JSON object from UDF path to URL."""
+        values: list[str] = []
+        for var in (cls.SERVERS_VAR, cls.PROXY_KEY_VAR, cls.PROXY_SECRET_VAR):
+            value = os.environ.get(var)
+            if value is None or value == '':
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'The UDFs in the pixeltable.udf setting run on Modal, which requires {var} in the environment',
+                )
+            values.append(value)
+        try:
+            server_urls = json.loads(values[0])
+        except json.JSONDecodeError:
+            server_urls = None
+        if not isinstance(server_urls, dict) or not all(isinstance(url, str) for url in server_urls.values()):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{cls.SERVERS_VAR} in the environment is not a JSON object from UDF path to URL',
+            )
+        return cls(server_urls, values[1], values[2])
+
+
+@register_client('modal', credential_param=None)
+def _() -> httpx.AsyncClient:
+    endpoints: ModalEndpoints = Env.get().get_resource_pool_info(ModalEndpoints.REGISTRY_KEY, ModalEndpoints.from_env)
     # with HTTP/2, concurrent calls to a Server share one connection
     # retries=2 retries a failed connection attempt up to twice; httpx never resends a request
     transport = httpx.AsyncHTTPTransport(http2=True, retries=2)
-    return httpx.AsyncClient(transport=transport, headers={'Modal-Key': proxy_key, 'Modal-Secret': proxy_secret})
-
-
-# the key of the process's ModalApp in Env.get_resource_pool_info()
-_APP_REGISTRY_KEY = 'modal-app'
+    headers = {'Modal-Key': endpoints.proxy_key, 'Modal-Secret': endpoints.proxy_secret}
+    return httpx.AsyncClient(transport=transport, headers=headers)
 
 
 class ModalServerClient:
@@ -193,21 +232,20 @@ class ModalServerClient:
         self.num_active_calls = 0
         self.monitor = None
 
-    async def connect(self) -> None:
+    def connect(self) -> None:
         """Look up the Server's URL."""
         if self.url is None:
-            # get_client('modal') needs h2 for HTTP/2, and h2 is installed with modal; without modal, get_client() would
-            # raise an ImportError for h2, which doesn't say to install modal
-            Env.get().require_package('modal')
-            # get_client() raises MISSING_CREDENTIALS if the proxy token isn't configured; checking that here avoids
-            # deploying the App when every call would fail
-            get_runtime().get_client('modal')
-            from pixeltable.serving.modal_server import ModalApp  # modal is an optional package
-
-            app = Env.get().get_resource_pool_info(_APP_REGISTRY_KEY, ModalApp)
-            # server_url() deploys the App if this process hasn't yet; a deploy takes seconds to minutes and blocks in
-            # Modal's client, so it runs in a thread
-            self.url = await asyncio.to_thread(app.server_url, self.udf_path)
+            endpoints: ModalEndpoints = Env.get().get_resource_pool_info(
+                ModalEndpoints.REGISTRY_KEY, ModalEndpoints.from_env
+            )
+            url = endpoints.server_urls.get(self.udf_path)
+            if url is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'{self.udf_path!r} is in the pixeltable.udf setting, but {ModalEndpoints.SERVERS_VAR} has no '
+                    'Modal Server for it',
+                )
+            self.url = url
 
     async def call(self, call_args: FnCallArgs) -> UdfCallResponse:
         """Run call_args on the Server."""
@@ -330,7 +368,7 @@ class ModalServerClient:
 
     async def _wait_for_container(self, deadline: float) -> None:
         """Wait until _monitor() finds a running container, or raise PROVIDER_ERROR at deadline."""
-        # TODO: detect a Server whose containers fail in ModalServer.start(), instead of waiting _CONTAINER_WAIT_SECONDS
+        # TODO: detect a Server whose containers fail in UdfServer.start(), instead of waiting _CONTAINER_WAIT_SECONDS
         try:
             await asyncio.wait_for(self.container_running.wait(), max(0.0, deadline - time.monotonic()))
         except TimeoutError:

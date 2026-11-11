@@ -521,12 +521,10 @@ class ModalScheduler(Scheduler):
         return resource_pool.startswith(cls._POOL_PREFIX)
 
     async def _main_loop(self) -> None:
-        # connect() deploys the App if this process hasn't yet; connecting at the first call avoids a deploy for a
-        # query without rows
         item = await self.queue.get()
         # an exception in connect() fails the query, while _exec() turns the exception of a call into errors of that
         # call's rows
-        await self.client.connect()
+        self.client.connect()
         while True:
             # with all of the Server's containers busy, Modal queues a call, and the time in the queue counts against
             # the call's timeout
