@@ -117,13 +117,16 @@ class _VlmRunClient:
 
     @contextlib.asynccontextmanager
     async def deadline(self) -> AsyncIterator[dict[str, str]]:
-        """Bounds a UDF call, from its first upload to its last download, by the configured timeout."""
-        call: dict[str, str] = {}
+        """Bounds a UDF call, from its first upload to its last download, by the configured timeout.
+
+        The yielded dict carries `execution_id` while an execution is still running.
+        """
+        call_state: dict[str, str] = {}
         try:
             async with asyncio.timeout(self.timeout):
-                yield call
+                yield call_state
         except TimeoutError:
-            execution_id = call.get('execution_id')
+            execution_id = call_state.get('execution_id')
             if execution_id is None:
                 detail = f'VLM Run call did not complete within {self.timeout}s'
             else:
@@ -199,12 +202,12 @@ class _VlmRunClient:
         """Creates a chat completion and returns the API response."""
         return _json(await self._send('POST', 'openai/chat/completions', json=body))
 
-    async def execute(self, body: dict[str, Any], call: dict[str, str]) -> dict[str, Any]:
+    async def execute(self, body: dict[str, Any], call_state: dict[str, str]) -> dict[str, Any]:
         """Submits an agent execution and polls until it completes.
 
-        POST agent/execute with batch=true returns an id immediately. Stores it on `call` as `execution_id`.
+        POST agent/execute with batch=true returns an id immediately. Stores it on `call_state` as `execution_id`.
         """
-        submitted = _json(await self._send('POST', 'agent/execute', json=body))
+        submitted = _json(await self._send('POST', 'agent/execute', json=dict(body, batch=True)))
         execution_id = submitted.get('execution_id') or submitted.get('id')
         if not isinstance(execution_id, str) or execution_id == '':
             raise pxt.ExternalServiceError(
@@ -212,7 +215,7 @@ class _VlmRunClient:
                 'VLM Run returned an execution without an execution_id',
                 provider='vlmrun',
             )
-        call['execution_id'] = execution_id
+        call_state['execution_id'] = execution_id
         return await self._poll_execution(execution_id, submitted)
 
     async def _poll_execution(self, execution_id: str, latest: dict[str, Any]) -> dict[str, Any]:
@@ -464,18 +467,16 @@ async def _generate(
     model_kwargs: dict[str, Any] | None,
 ) -> Path:
     """Runs a generation request and returns the path of a TempStore file that holds the generated artifact."""
-    _check_model_kwargs(
-        model_kwargs, ('model', 'messages', 'response_format', 'toolsets', 'inputs', 'config', 'batch', 'name')
-    )
+    _check_model_kwargs(model_kwargs, ('model', 'messages', 'response_format', 'toolsets', 'inputs', 'config', 'batch'))
     body: dict[str, Any] = {} if model_kwargs is None else dict(model_kwargs)
     prefix, extension = _ARTIFACT_TYPES[artifact]
     key, response_format = _response_format(artifact)
     client = _vlmrun_client()
     file_ids: list[str] = []
-    call: dict[str, str] = {}
+    call_state: dict[str, str] = {}
     keep_inputs = False
     try:
-        async with client.deadline() as call:
+        async with client.deadline() as call_state:
             slots: dict[str, Any] = {}
             for i, media in enumerate(inputs):
                 if media is not None:
@@ -485,12 +486,13 @@ async def _generate(
                 slots['instruction'] = {'type': 'text', 'text': prompt}
             body.update(
                 model=model,
-                batch=True,
                 toolsets=[toolset],
                 inputs=slots,
                 config={'prompt': f'{system_message}\n\n{prompt}', 'json_schema': response_format['schema']},
             )
-            result = await client.execute(body, call)
+            result = await client.execute(body, call_state)
+            # the execution completed, so a later timeout is not about a running execution
+            call_state.pop('execution_id', None)
             payload: Any = result.get('response')
             if isinstance(payload, str):
                 try:
@@ -525,7 +527,7 @@ async def _generate(
             return dest
     except pxt.ExternalServiceError as exc:
         # This execution is still reading these file ids.
-        keep_inputs = exc.error_code == pxt.ErrorCode.PROVIDER_TIMEOUT and 'execution_id' in call
+        keep_inputs = exc.error_code == pxt.ErrorCode.PROVIDER_TIMEOUT and 'execution_id' in call_state
         raise
     finally:
         if not keep_inputs:

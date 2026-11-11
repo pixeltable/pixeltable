@@ -46,6 +46,7 @@ class TestVlmrunGatewayClient:
             )
 
         reset_runtime()
+        # Runtime has no public seam to install a mock client
         get_runtime()._clients['vlmrun_gateway'] = openai.AsyncOpenAI(
             api_key='test-key',
             base_url='https://gateway.vlm.run/v1/openai',

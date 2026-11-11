@@ -1,4 +1,5 @@
 import asyncio
+import io
 import json
 import os
 from pathlib import Path
@@ -38,6 +39,12 @@ def _smallest_pdf() -> str:
 
 def _smallest_video() -> str:
     return min((v for v in get_video_files() if v.endswith('.mp4')), key=os.path.getsize)
+
+
+def _tiny_png() -> bytes:
+    buf = io.BytesIO()
+    PIL.Image.new('RGB', (1, 1)).save(buf, format='PNG')
+    return buf.getvalue()
 
 
 class TestVLMRunClient:
@@ -130,6 +137,45 @@ class TestVLMRunClient:
                 assert fp.read(5) == b'%PDF-'
             assert calls == {'execute': 1, 'poll': 1, 'artifacts': 1}
             assert deleted == [['file_test']]
+        finally:
+            reset_runtime()
+
+    def test_generate_image_submit_poll_no_input(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: dict[str, int] = {'execute': 0, 'poll': 0, 'artifacts': 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if request.method == 'POST' and path.endswith('/agent/execute'):
+                calls['execute'] += 1
+                body = json.loads(request.content)
+                assert body['batch'] is True
+                assert body['toolsets'] == ['image-gen']
+                assert body['inputs'] == {'instruction': {'type': 'text', 'text': 'A red circle'}}
+                return httpx.Response(200, json={'execution_id': 'exec_test', 'status': 'pending'})
+            if request.method == 'GET' and path.endswith('/agent/executions/exec_test'):
+                calls['poll'] += 1
+                return httpx.Response(
+                    200,
+                    json={
+                        'execution_id': 'exec_test',
+                        'status': 'completed',
+                        'response': {'image': {'id': 'img_abcdef'}},
+                    },
+                )
+            if request.method == 'GET' and path.endswith('/artifacts'):
+                calls['artifacts'] += 1
+                assert request.url.params['object_id'] == 'img_abcdef'
+                assert request.url.params['execution_id'] == 'exec_test'
+                return httpx.Response(200, content=_tiny_png())
+            raise AssertionError(f'unexpected {request.method} {path}')
+
+        _install_mock_vlmrun(monkeypatch, handler)
+        try:
+            t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+            t.add_computed_column(generated=pxtf.vlmrun.generate_image(t.prompt, model=_GENERATION_MODEL))
+            validate_update_status(t.insert(prompt='A red circle'), 1)
+            assert t.collect()[0]['generated'].size == (1, 1)
+            assert calls == {'execute': 1, 'poll': 1, 'artifacts': 1}
         finally:
             reset_runtime()
 
@@ -243,6 +289,44 @@ class TestVLMRunClient:
             assert 'exec_test' in errormsg
             assert 'left running' in errormsg
             assert deleted == []
+        finally:
+            reset_runtime()
+
+    def test_generate_deadline_after_execute_deletes_inputs(
+        self, uses_db: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.method == 'POST' and request.url.path.endswith('/agent/execute'):
+                return httpx.Response(
+                    200,
+                    json={
+                        'execution_id': 'exec_test',
+                        'status': 'completed',
+                        'response': {'document': {'id': 'doc_abcdef'}},
+                    },
+                )
+            raise AssertionError(f'unexpected {request.method} {request.url.path}')
+
+        _install_mock_vlmrun(monkeypatch, handler)
+        client = get_runtime().get_client('vlmrun')
+        client.timeout = 0.5
+        deleted = _record_deletes(monkeypatch, client)
+
+        async def hang_download(*_args: object, **_kwargs: object) -> None:
+            await asyncio.sleep(60)
+
+        monkeypatch.setattr(client, 'download', hang_download)
+        try:
+            t = pxt.create_table('test_tbl', {'doc': pxt.Document})
+            t.add_computed_column(
+                redacted=pxtf.vlmrun.generate_document('Redact names', t.doc, model=_GENERATION_MODEL)
+            )
+            status = t.insert(doc=_smallest_pdf(), on_error='ignore')
+            assert status.num_excs == 1
+            errormsg = t.select(msg=t.redacted.errormsg).collect()[0]['msg']
+            assert 'left running' not in errormsg
+            assert 'did not complete' in errormsg
+            assert deleted == [['file_test']]
         finally:
             reset_runtime()
 
