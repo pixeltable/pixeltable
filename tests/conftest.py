@@ -59,6 +59,8 @@ from .utils import (
 
 _logger = logging.getLogger('pixeltable_test')
 
+# Isolated testdir/pytester fixtures for tests that spawn a nested pytest (xdist crash reporting).
+pytest_plugins: list[str] = ['pytester']
 
 DO_RERUN: bool = True
 

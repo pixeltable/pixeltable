@@ -6,6 +6,7 @@ from tool.ci_tool import (
     EXPENSIVE_PLATFORMS,
     EXPENSIVE_PYTEST,
     MAIN_PLATFORM,
+    T4_PYTEST,
     TRIGGERS,
     VERY_EXPENSIVE_PYTEST,
     build_configs,
@@ -61,3 +62,10 @@ class TestBuildConfigs:
     def test_unknown_trigger_is_rejected(self) -> None:
         with pytest.raises(AssertionError):
             build_configs('push', force_all=False, has_aws_credentials=False)
+
+    def test_t4_deselects_db_migration(self) -> None:
+        configs = build_configs('schedule', force_all=False, has_aws_credentials=False)
+        t4 = [cfg for cfg in configs if cfg.os == 'ubuntu-small-t4']
+        assert t4
+        assert all(cfg.pytest_options == T4_PYTEST for cfg in t4)
+        assert '--deselect tests/test_migration.py::TestMigration::test_db_migration' in T4_PYTEST

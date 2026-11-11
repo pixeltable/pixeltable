@@ -16,6 +16,11 @@ from typing import Literal, NamedTuple, NoReturn
 DEFAULT_PYTEST = "-m 'not expensive and not very_expensive and not benchmark'"
 EXPENSIVE_PYTEST = "-m 'not very_expensive and not benchmark'"
 VERY_EXPENSIVE_PYTEST = "-m 'not benchmark'"
+# test_db_migration walks every DB dump and is CPU-heavy. On ubuntu-small-t4 (4 vCPUs shared with
+# GPU tests) it exceeds faulthandler_timeout; a subsequent xdist worker crash then INTERNALERRORed
+# the job because --dist loadgroup cannot reschedule crashed tests (PXT-1769). The test has no GPU
+# code and already runs on every other Linux leg.
+T4_PYTEST = DEFAULT_PYTEST + ' --deselect tests/test_migration.py::TestMigration::test_db_migration'
 
 # Note: in addition to these pytest filters, the tests that actually run are implicitly filtered by
 # skip_test_if_not_installed() and the install configuration.
@@ -52,6 +57,7 @@ SLIM_TESTS = (
     'tests/test_table_model_2.py',
     'tests/test_types.py',
     'tests/test_view.py',
+    'tests/test_xdist_crash_reporting.py',
     'tests/serving/test_fastapi.py',
     'tests/serving/test_fastapi_models.py',
     'tests/serving/test_hosted_openapi.py',
@@ -155,7 +161,12 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
             )
             configs.append(MatrixConfig('notebooks++', 'ipynb', 'ubuntu-large', '3.11'))
 
-            configs.extend(MatrixConfig('standard', 'py', platform, '3.11') for platform in EXPENSIVE_PLATFORMS)
+            configs.extend(
+                MatrixConfig(
+                    'standard', 'py', platform, '3.11', pytest_options=T4_PYTEST if 't4' in platform else DEFAULT_PYTEST
+                )
+                for platform in EXPENSIVE_PLATFORMS
+            )
 
         else:
             configs.append(
