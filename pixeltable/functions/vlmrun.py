@@ -125,6 +125,13 @@ class _VlmRunClient:
         try:
             return await self._http.request(method, url, **kwargs)
         except httpx.TransportError as exc:
+            # a drop after the request left this process is not retried: a retry would start another billed job
+            if isinstance(exc, (httpx.ReadError, httpx.ReadTimeout, httpx.RemoteProtocolError)):
+                raise pxt.ExternalServiceError(
+                    pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+                    f'VLM Run closed the connection after accepting the request: {exc!r}',
+                    provider='vlmrun',
+                ) from exc
             raise pxt.ExternalServiceError(
                 pxt.ErrorCode.PROVIDER_ERROR, f'VLM Run request failed: {exc!r}', provider='vlmrun'
             ) from exc
@@ -185,19 +192,44 @@ class _VlmRunClient:
         """Creates a chat completion and returns the API response."""
         return _json(await self._send('POST', 'openai/chat/completions', json=body))
 
-    async def download(self, artifact_id: str, session_id: str | None, dest: Path) -> None:
+    async def execute(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Submits `POST agent/execute` with `batch=true` and polls `GET agent/executions/{id}` until it completes."""
+        submitted = _json(await self._send('POST', 'agent/execute', json=dict(body, batch=True)))
+        execution_id = submitted.get('execution_id') or submitted.get('id')
+        if not isinstance(execution_id, str) or execution_id == '':
+            raise pxt.ExternalServiceError(
+                pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+                'VLM Run returned an execution without an execution_id',
+                provider='vlmrun',
+            )
+        path = f'agent/executions/{urllib.parse.quote(execution_id, safe="")}'
+        latest = submitted
+        while latest.get('status') != 'completed':
+            if latest.get('status') in ('failed', 'cancelled'):
+                raise pxt.ExternalServiceError(
+                    pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+                    f'VLM Run execution {execution_id} failed: {str(latest.get("error") or latest)[:_MAX_DETAIL_LEN]}',
+                    provider='vlmrun',
+                )
+            await asyncio.sleep(2.0)
+            try:
+                latest = _json(await self._http.request('GET', path))
+            except httpx.TransportError:
+                continue
+            except pxt.ExternalServiceError as exc:
+                if not exc.error_code.is_retryable:
+                    raise
+        latest.setdefault('execution_id', execution_id)
+        latest.setdefault('id', execution_id)
+        return latest
+
+    async def download(self, artifact_id: str, execution_id: str, dest: Path) -> None:
         """Downloads a generated artifact into `dest`.
 
         A failure raises an error that the scheduler doesn't retry, since the generation has already run and a rerun
         would pay for another.
         """
-        if session_id is None:
-            raise pxt.ExternalServiceError(
-                pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
-                'VLM Run returned an artifact without a session_id',
-                provider='vlmrun',
-            )
-        params = {'object_id': artifact_id, 'session_id': session_id}
+        params = {'object_id': artifact_id, 'execution_id': execution_id}
         try:
             # the artifacts endpoint redirects to the artifact's storage location
             async with self._http.stream('GET', 'artifacts', params=params, follow_redirects=True) as resp:
@@ -372,7 +404,7 @@ async def _generate(
     model_kwargs: dict[str, Any] | None,
 ) -> Path:
     """Runs a generation request and returns the path of a TempStore file that holds the generated artifact."""
-    _check_model_kwargs(model_kwargs, ('model', 'messages', 'response_format', 'toolsets'))
+    _check_model_kwargs(model_kwargs, ('model', 'toolsets', 'inputs', 'config', 'batch'))
     body: dict[str, Any] = {} if model_kwargs is None else dict(model_kwargs)
     prefix, extension = _ARTIFACT_TYPES[artifact]
     key, response_format = _response_format(artifact)
@@ -380,32 +412,41 @@ async def _generate(
     file_ids: list[str] = []
     try:
         async with client.deadline():
-            content: list[dict[str, Any]] = [{'type': 'text', 'text': prompt}]
-            for input in inputs:
-                if input is not None:
-                    file_ids.append(await client.upload(input))
-                    content.append({'type': 'input_file', 'file_id': file_ids[-1]})
+            slots: dict[str, Any] = {}
+            for i, media in enumerate(inputs):
+                if media is not None:
+                    file_ids.append(await client.upload(media))
+                    slots[f'file_{i}'] = {'type': 'input_file', 'file_id': file_ids[-1]}
+            if len(slots) == 0:
+                slots['instruction'] = {'type': 'text', 'text': prompt}
             body.update(
                 model=model,
-                messages=[{'role': 'system', 'content': system_message}, {'role': 'user', 'content': content}],
-                response_format=response_format,
                 toolsets=[toolset],
+                inputs=slots,
+                config={'prompt': f'{system_message}\n\n{prompt}', 'json_schema': response_format['schema']},
             )
-            result = await client.chat(body)
+            result = await client.execute(body)
+            payload: Any = result.get('response')
+            if isinstance(payload, str):
+                try:
+                    payload = json.loads(payload)
+                except json.JSONDecodeError:
+                    payload = None
             try:
-                ref = json.loads(result['choices'][0]['message']['content'])[key]
+                ref = payload[key]
                 if isinstance(ref, dict):
                     ref = ref['id']
-            except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+            except (KeyError, TypeError) as exc:
                 raise pxt.ExternalServiceError(
                     pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
                     f'VLM Run returned no {artifact}: {str(result)[:_MAX_DETAIL_LEN]}',
                     provider='vlmrun',
                 ) from exc
-            _logger.debug(f'VLM Run returned {artifact} {ref!r} in session {result.get("session_id")}')
+            execution_id = result['execution_id']
+            _logger.debug(f'VLM Run returned {artifact} {ref!r} in execution {execution_id}')
             dest = TempStore.create_path(extension=extension)
             try:
-                await client.download(_artifact_id(str(ref), prefix), result.get('session_id'), dest)
+                await client.download(_artifact_id(str(ref), prefix), execution_id, dest)
             except BaseException:
                 # including cancellation by deadline(): nothing downstream knows the path of a partial download
                 dest.unlink(missing_ok=True)
@@ -533,8 +574,8 @@ async def generate_image(
         prompt: Text prompt describing the image to generate or the edit to apply.
         image: The image to edit. If it is omitted, or null in a row, the image is generated from the prompt alone.
         model: The model to use, such as `'vlmrun-orion-2:auto'`.
-        model_kwargs: Additional parameters for the VLM Run chat completions API. This function sets
-            `response_format` and `toolsets` itself, so they cannot be passed.
+        model_kwargs: Additional parameters for the VLM Run agent execution API. This function sets
+            `toolsets`, `inputs`, `batch`, and `config` itself, so they cannot be passed.
 
     Returns:
         The generated or edited image.
@@ -583,8 +624,8 @@ async def annotate_image(
         prompt: Text prompt describing what to annotate, such as `'Draw bounding boxes around all people'`.
         image: The image to annotate.
         model: The model to use, such as `'vlmrun-orion-2:auto'`.
-        model_kwargs: Additional parameters for the VLM Run chat completions API. This function sets
-            `response_format` and `toolsets` itself, so they cannot be passed.
+        model_kwargs: Additional parameters for the VLM Run agent execution API. This function sets
+            `toolsets`, `inputs`, `batch`, and `config` itself, so they cannot be passed.
 
     Returns:
         The annotated image.
@@ -636,8 +677,8 @@ async def generate_video(
         video: A video to start from. If both `image` and `video` are omitted, or null in a row, the video is
             generated from the prompt alone.
         model: The model to use, such as `'vlmrun-orion-2:auto'`.
-        model_kwargs: Additional parameters for the VLM Run chat completions API. This function sets
-            `response_format` and `toolsets` itself, so they cannot be passed.
+        model_kwargs: Additional parameters for the VLM Run agent execution API. This function sets
+            `toolsets`, `inputs`, `batch`, and `config` itself, so they cannot be passed.
 
     Returns:
         The generated video.
@@ -679,8 +720,8 @@ async def generate_document(
             `'Redact all personally identifiable information'`.
         document: The document to transform: a PDF, DOC or DOCX file.
         model: The model to use, such as `'vlmrun-orion-2:auto'`.
-        model_kwargs: Additional parameters for the VLM Run chat completions API. This function sets
-            `response_format` and `toolsets` itself, so they cannot be passed.
+        model_kwargs: Additional parameters for the VLM Run agent execution API. This function sets
+            `toolsets`, `inputs`, `batch`, and `config` itself, so they cannot be passed.
 
     Returns:
         The transformed document, as a PDF.
