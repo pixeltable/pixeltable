@@ -3104,6 +3104,22 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not expressible'):
             img_t.update({'split': 'train'}, where=img_t.img.width > 100)
 
+    def test_batch_update_insert_status_with_view(self, db_root: DatabaseRoot) -> None:
+        """An upsert reports its base-table inserts as direct and its view rows as cascade."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'x': pxt.Int}, primary_key='id')
+        t.insert([{'id': 1, 'x': 1}, {'id': 2, 'x': 2}])
+        v = pxt.create_view(p('view'), t, additional_columns={'x2': t.x * 2})
+
+        status = t.batch_update([{'id': 1, 'x': 10}, {'id': 3, 'x': 30}], if_not_exists='insert')
+        assert (status.row_count_stats.ins_rows, status.row_count_stats.upd_rows) == (1, 1)
+        assert (status.cascade_row_count_stats.ins_rows, status.cascade_row_count_stats.upd_rows) == (1, 1)
+        assert list(v.select(v.id, v.x2).order_by(v.id).collect()) == [
+            {'id': 1, 'x2': 20},
+            {'id': 2, 'x2': 4},
+            {'id': 3, 'x2': 60},
+        ]
+
     def test_batch_update_computed_pk(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(
