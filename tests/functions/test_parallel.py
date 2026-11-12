@@ -54,6 +54,7 @@ def _configure(tmp_path: Path, api_key: str | None) -> Iterator[pytest.MonkeyPat
 @pytest.fixture
 def anonymous(uses_db: None, tmp_path: Path) -> Iterator[None]:
     """Leave the client without an api_key, so that the free endpoint serves the test."""
+    skip_test_if_not_installed('mcp')  # the free endpoint speaks MCP, and the client needs the SDK to reach it
     with _configure(tmp_path, None):
         yield
 
@@ -177,7 +178,6 @@ class TestParallel:
     ],
 )
 def test_search_option_needs_key(anonymous: None, udf: pxt.Function, option: str) -> None:
-    skip_test_if_not_installed('mcp')
     t = pxt.create_table('test_tbl', {'objective': pxt.String | None})
     t.add_computed_column(sources=udf(t.objective))
     with pxt_raises(pxt.ErrorCode.MISSING_CREDENTIALS, match=option):
@@ -192,7 +192,6 @@ def test_search_option_needs_key(anonymous: None, udf: pxt.Function, option: str
     ],
 )
 def test_extract_option_needs_key(anonymous: None, udf: pxt.Function, option: str) -> None:
-    skip_test_if_not_installed('mcp')
     t = pxt.create_table('test_tbl', {'url': pxt.String | None})
     t.add_computed_column(page=udf(t.url))
     with pxt_raises(pxt.ErrorCode.MISSING_CREDENTIALS, match=option):
