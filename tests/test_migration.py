@@ -95,6 +95,7 @@ class TestMigration:
 
     @rerun(reruns=3, reruns_delay=8)  # Deal with occasional concurrency issues
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Does not run on Windows')
+    @pytest.mark.skipif('t4' in os.environ.get('PXTTEST_CI_OS', ''), reason='Too slow on t4 CI instances')
     def test_db_migration(self, init_env: None) -> None:
         skip_test_if_not_installed('transformers')
         # the dumps contain a sentence-mode string_splitter view, which needs spacy to compute inserted rows
