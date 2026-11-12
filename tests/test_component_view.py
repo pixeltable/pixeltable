@@ -638,6 +638,61 @@ class TestComponentView:
         t.update({'n': 1}, where=t.n == 3)
         assert len(v.collect()) == 4
 
+    def test_membership_change_keeps_view_local_values(self, db_root: DatabaseRoot) -> None:
+        """A base update that changes a component view's membership keeps the non-computed values of rows that stay."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'flag': pxt.Bool, 'n': pxt.Int, 'other': pxt.Int | None})
+        t.insert(
+            [
+                {'id': 1, 'flag': True, 'n': 2},
+                {'id': 2, 'flag': True, 'n': 3},
+                {'id': 3, 'flag': False, 'n': 2},
+                {'id': 4, 'flag': True, 'n': 0},
+            ]
+        )
+        v = pxt.create_view(p('view'), t.where(t.flag == True), iterator=simple_iterator(t.n))
+        v.add_computed_column(icol2=v.icol * 2)
+        v.add_column(annotation=pxt.Int | None)
+        v2 = pxt.create_view(p('view2'), v)
+        v2.add_column(note=pxt.String | None)
+        v.update({'annotation': 42})
+        v2.update({'note': 'x'})
+
+        def contents() -> tuple[dict[tuple[int, int], Any], dict[tuple[int, int], Any]]:
+            v_rows = v.select(v.id, v.pos, v.icol2, v.annotation).collect()
+            v2_rows = v2.select(v2.id, v2.pos, v2.note).collect()
+            v_contents = {(r['id'], r['pos']): (r['icol2'], r['annotation']) for r in v_rows}
+            v2_contents = {(r['id'], r['pos']): r['note'] for r in v2_rows}
+            assert len(v_contents) == len(v_rows) and len(v2_contents) == len(v2_rows)
+            return v_contents, v2_contents
+
+        t.update({'flag': True, 'other': 1})
+        v_contents, v2_contents = contents()
+        assert v_contents == {
+            (1, 0): (0, 42),
+            (1, 1): (2, 42),
+            (2, 0): (0, 42),
+            (2, 1): (2, 42),
+            (2, 2): (4, 42),
+            (3, 0): (0, None),
+            (3, 1): (2, None),
+        }
+        assert v2_contents == {k: None if k[0] == 3 else 'x' for k in v_contents}
+
+        t.update({'flag': False}, where=t.id == 1)
+        assert {k[0] for k in contents()[0]} == {2, 3}
+        t.update({'flag': True}, where=t.id == 1)
+        v_contents, v2_contents = contents()
+        assert v_contents[1, 0] == (0, None) and v_contents[1, 1] == (2, None)
+        assert v_contents[2, 0] == (0, 42)
+        assert v2_contents[1, 0] is None and v2_contents[2, 0] == 'x'
+
+        t.insert([{'id': 5, 'flag': True, 'n': 2}])
+        v_contents, v2_contents = contents()
+        assert len(v_contents) == 9 and len(v2_contents) == 9
+        assert v_contents[5, 0] == (0, None) and v_contents[2, 2] == (4, 42)
+        assert v2_contents[5, 0] is None and v2_contents[2, 2] == 'x'
+
     def test_update_iterator_param_with_dependent_view(self, db_root: DatabaseRoot) -> None:
         """A view on an iterator view also updates when the base iterator param changes."""
         p = db_root.make_catalog_path

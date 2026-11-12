@@ -1702,7 +1702,7 @@ class TableVersion:
                 assert len(updated_bases) > 0  # the table where the update started always has a plan
 
                 view_plans: list[exec.ExecNode] = []
-                if needs_iterator_reload or (membership_change and view_tv.is_component_view):
+                if needs_iterator_reload:
                     view_plans.append(
                         Planner.create_view_load_plan(view_tv.path, created_at_current_version=updated_bases)
                     )
