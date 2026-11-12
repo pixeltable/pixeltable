@@ -93,6 +93,7 @@ class _VlmRunClient:
 
     timeout: float
     _sdk: 'vlmrun.client.VLMRun'
+    _submit_sdk: 'vlmrun.client.VLMRun'
     _http: httpx.AsyncClient
 
     def __init__(self, api_key: str, timeout: float) -> None:
@@ -101,6 +102,11 @@ class _VlmRunClient:
         self.timeout = timeout
         # require_api_key=False skips the key check over the network that the SDK otherwise makes here
         self._sdk = VLMRun(api_key=api_key, base_url=str(_BASE_URL).rstrip('/'), require_api_key=False)
+        # a single attempt per submission: after a timeout or a dropped connection, VLM Run may have accepted the
+        # execution, and the SDK's retry would start a second one
+        self._submit_sdk = VLMRun(
+            api_key=api_key, base_url=str(_BASE_URL).rstrip('/'), require_api_key=False, max_retries=1
+        )
         # no read timeout: deadline() bounds the whole call
         self._http = httpx.AsyncClient(
             base_url=_BASE_URL,
@@ -197,20 +203,29 @@ class _VlmRunClient:
         """Runs an agent execution and returns it on completion.
 
         Submits the execution and polls it, since VLM Run cuts off a request after about 5 minutes. A failure after
-        the submission raises an error that the scheduler doesn't retry, since a rerun would pay for another execution.
+        the submission, or of a submission that timed out or lost its connection, raises an error that the scheduler
+        doesn't retry, since a rerun would pay for another execution.
         """
+        from vlmrun.client.exceptions import NetworkError, RequestTimeoutError  # type: ignore[import-untyped]
+
         execution = None
         try:
             execution = await asyncio.to_thread(
-                self._sdk.agent.execute, model=model, inputs=inputs, batch=True, config=config, toolsets=[toolset]
+                self._submit_sdk.agent.execute,
+                model=model,
+                inputs=inputs,
+                batch=True,
+                config=config,
+                toolsets=[toolset],
             )
             # not executions.wait(), which keeps polling a failed execution until its own timeout
             while execution.status not in ('completed', 'failed'):
                 await asyncio.sleep(5.0)
                 execution = await asyncio.to_thread(self._sdk.executions.get, execution.id)
         except Exception as exc:
+            submitted = execution is not None or isinstance(exc, (NetworkError, RequestTimeoutError))
             raise pxt.ExternalServiceError(
-                pxt.ErrorCode.PROVIDER_ERROR if execution is None else pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
+                pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE if submitted else pxt.ErrorCode.PROVIDER_ERROR,
                 f'VLM Run agent execution failed: {exc}',
                 provider='vlmrun',
                 status_code=getattr(exc, 'http_status', None),
