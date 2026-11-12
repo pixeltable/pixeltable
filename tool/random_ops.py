@@ -44,7 +44,7 @@ _EXPECTED_ERROR_PATTERNS = (
     re.compile(r'Table was dropped'),
     re.compile(r'Column was dropped'),
     re.compile(r"Cannot use if_exists=.+ with the same name as one of the view's own ancestors"),
-    re.compile(r'Cannot alter column .+ because the following columns depend on it.+'),
+    re.compile(r'Column .+ cannot become nullable: non-nullable columns depend on it.+'),
     re.compile(r'Cannot drop base table column .+'),
 )
 
