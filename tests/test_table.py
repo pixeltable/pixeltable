@@ -2877,10 +2877,10 @@ class TestTable:
         assert t.where(t.c2 == 200).count() == 0
 
         # unknown primary key: insert
-        validate_update_status(
-            t.batch_update([{'c1': 'zwei', 'c2': 2}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='insert'),
-            expected_rows=2,
-        )
+        status = t.batch_update([{'c1': 'zwei', 'c2': 2}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='insert')
+        validate_update_status(status, expected_rows=2)
+        assert (status.row_count_stats.ins_rows, status.row_count_stats.upd_rows) == (1, 1)
+        assert status.cascade_row_count_stats.num_rows == 0
         assert t.count() == num_rows + 1
         assert t.where(t.c2 == 2).collect()[0]['c1'] == 'zwei'
         assert t.where(t.c2 == 200).collect()[0]['c1'] == 'zweihundert'
