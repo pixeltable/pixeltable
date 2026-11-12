@@ -25,7 +25,7 @@ from ..utils import (
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 _MODEL = 'vlmrun-orion-2:fast'
-# video and document generation on the fast tier returned made-up artifact ids in live tests
+# image, video and document generation on the fast tier returned made-up artifact ids in live tests
 _GENERATION_MODEL = 'vlmrun-orion-2:auto'
 
 
@@ -64,13 +64,7 @@ class TestVLMRunClient:
             Config.init(reinit=True, project_root=project_root)
 
     @pytest.mark.parametrize(
-        ('udf', 'key'),
-        [
-            ('generate_image', 'response_format'),
-            ('generate_image', 'toolsets'),
-            ('generate_image', 'prompt'),
-            ('chat_completions', 'model'),
-        ],
+        ('udf', 'key'), [('generate_image', 'prompt'), ('generate_image', 'json_schema'), ('chat_completions', 'model')]
     )
     def test_reserved_model_kwargs(self, uses_db: None, udf: str, key: str) -> None:
         if udf == 'generate_image':
@@ -82,7 +76,29 @@ class TestVLMRunClient:
         else:
             messages = [{'role': 'user', 'content': t.prompt}]
             t.add_computed_column(out=pxtf.vlmrun.chat_completions(messages, model=_MODEL, model_kwargs=model_kwargs))
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=f'cannot contain `{key}`'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=f'cannot contain `{key}`: this function sets it'):
+            t.insert(prompt='A red circle')
+
+    @pytest.mark.parametrize(
+        ('model_kwargs', 'match'),
+        [
+            (
+                {'toolsets': ['web']},
+                'cannot contain `toolsets`: it is not a field of the VLM Run agent execution config',
+            ),
+            (
+                {'temperature': 0.5},
+                'cannot contain `temperature`: it is not a field of the VLM Run agent execution config',
+            ),
+            ({'service_tier': 'fastest'}, r'(?s)Invalid `model_kwargs`.*service_tier'),
+        ],
+    )
+    def test_generation_model_kwargs(self, uses_db: None, model_kwargs: dict[str, Any], match: str) -> None:
+        """`model_kwargs` of a generation UDF holds fields of the agent execution config, and nothing else."""
+        skip_test_if_not_installed('vlmrun')
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t.add_computed_column(out=pxtf.vlmrun.generate_image(t.prompt, model=_MODEL, model_kwargs=model_kwargs))
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=match):
             t.insert(prompt='A red circle')
 
 
@@ -175,10 +191,18 @@ class TestVLMRun:
         skip_test_if_not_installed('vlmrun')
         skip_test_if_no_client('vlmrun')
         t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'image': pxt.Image})
-        t.add_computed_column(generated=pxtf.vlmrun.generate_image(t.prompt, model=_MODEL))
-        t.add_computed_column(edited=pxtf.vlmrun.generate_image('Blur all the faces', image=t.image, model=_MODEL))
         t.add_computed_column(
-            annotated=pxtf.vlmrun.annotate_image('Draw bounding boxes around all objects', t.image, model=_MODEL)
+            generated=pxtf.vlmrun.generate_image(
+                t.prompt, model=_GENERATION_MODEL, model_kwargs={'service_tier': 'standard'}
+            )
+        )
+        t.add_computed_column(
+            edited=pxtf.vlmrun.generate_image('Blur all the faces', image=t.image, model=_GENERATION_MODEL)
+        )
+        t.add_computed_column(
+            annotated=pxtf.vlmrun.annotate_image(
+                'Draw bounding boxes around all objects', t.image, model=_GENERATION_MODEL
+            )
         )
         validate_update_status(t.insert(prompt='A red circle on a white background', image=get_image_files()[0]), 1)
 
