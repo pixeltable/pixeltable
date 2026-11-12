@@ -232,7 +232,7 @@ class TestVlmrunGateway:
 
         t = pxt.create_table('test_tbl', {'doc': pxt.Document})
         messages = [{'role': 'user', 'content': [{'type': 'document_url', 'document_url': t.doc.fileurl}]}]
-        t.add_computed_column(answer=chat_completions(messages, model='qwen/qwen3.5-0.8b'))
+        t.add_computed_column(answer=chat_completions(messages, model='facebook/sam3.1'))
         status = t.insert(doc=_PDF_URL, on_error='ignore')
         assert status.num_excs == 1
         errormsg = t.select(msg=t.answer.errormsg).collect()[0]['msg']

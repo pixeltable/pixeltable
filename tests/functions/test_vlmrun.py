@@ -68,11 +68,13 @@ class TestVLMRunClient:
         [
             ('generate_image', 'response_format'),
             ('generate_image', 'toolsets'),
-            ('generate_image', 'messages'),
+            ('generate_image', 'prompt'),
             ('chat_completions', 'model'),
         ],
     )
     def test_reserved_model_kwargs(self, uses_db: None, udf: str, key: str) -> None:
+        if udf == 'generate_image':
+            skip_test_if_not_installed('vlmrun')
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
         model_kwargs = {key: 'x'}
         if udf == 'generate_image':
