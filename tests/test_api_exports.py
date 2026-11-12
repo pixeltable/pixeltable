@@ -25,8 +25,11 @@ def test_public_exports(module_name: str) -> None:
         return
     parent_name, _, name = module_name.rpartition('.')
     if parent_name == 'pixeltable.functions' and name != 'globals':
-        assert name in pxt.functions.__all__
-    assert len(module.__all__) == len(set(module.__all__))
+        assert name in pxt.functions.__all__, f'Add {name!r} to __all__ in pixeltable/functions/__init__.py.'
+    duplicates = sorted({name for name in module.__all__ if module.__all__.count(name) > 1})
+    assert not duplicates, f'Remove duplicate names {duplicates} from {module_name}.__all__.'
+    undefined = [name for name in module.__all__ if not hasattr(module, name)]
+    assert not undefined, f'Remove undefined names {undefined} from {module_name}.__all__.'
     for name, value in vars(module).items():
         if name.startswith('_'):
             continue
@@ -39,12 +42,15 @@ def test_public_exports(module_name: str) -> None:
         else:
             continue
         if defined_module == module_name:
-            assert name in module.__all__, name
+            assert name in module.__all__, f'{name!r} is public in {module_name}; add it to {module_name}.__all__.'
 
     if module_name == 'pixeltable.functions.video':
         children = ('editing', 'filters', 'iterators', 'scene_detect')
         child_exports = set().union(*(importlib.import_module(f'{module_name}.{child}').__all__ for child in children))
-        assert set(module.__all__) == child_exports
+        missing = sorted(child_exports - set(module.__all__))
+        extra = sorted(set(module.__all__) - child_exports)
+        assert not missing, f'Import {missing} in pixeltable/functions/video/__init__.py and add them to its __all__.'
+        assert not extra, f'Add {extra} to the __all__ of the video submodule that defines them.'
 
     namespace: dict[str, Any] = {}
     exec(f'from {module_name} import *', namespace)
