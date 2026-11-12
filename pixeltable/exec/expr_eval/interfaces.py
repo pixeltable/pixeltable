@@ -162,6 +162,7 @@ class ExprEvalCtx:
     eval_ctx: np.ndarray  # bool per slot; EvalCtx.slot_idxs as a mask
     literals: dict[int, Any]  # key: slot idx; value: literal value for this slot; used to pre-populate rows
     all_exprs: list[exprs.Expr]  # all evaluated exprs; needed for cleanup
+    image_arg_slot_idxs: list[int]  # slots of the stored image columns that UDF calls take as arguments
 
     def __init__(
         self,
@@ -180,7 +181,25 @@ class ExprEvalCtx:
         non_literal_slot_idxs = [e.slot_idx for e in output_ctx.exprs if not isinstance(e, exprs.Literal)]
         self.eval_ctx[non_literal_slot_idxs] = True
         self._init_slot_evaluators(dispatcher, non_literal_slot_idxs)
+        self.image_arg_slot_idxs = self._get_image_arg_slot_idxs()
         self.set_gc(True)
+
+    def _get_image_arg_slot_idxs(self) -> list[int]:
+        slot_idxs: set[int] = set()
+        for expr in self.all_exprs:
+            # only a UDF call reads the decoded image. An ExprTemplateFunction call evaluates its template and not
+            # its arguments, and exprs such as ColumnPropertyRef read only the file path or url of the slot.
+            if not isinstance(expr, exprs.FunctionCall) or not isinstance(expr.fn, func.CallableFunction):
+                continue
+            for component_idx in [*expr.arg_idxs, *expr.kwarg_idxs.values()]:
+                arg = expr.components[component_idx]
+                if not isinstance(arg, exprs.ColumnRef) or not arg.col_type.is_image_type():
+                    continue
+                # an image produced by an iterator has no file, and ImageLoadEvaluator decodes a validating ColumnRef
+                if arg.needs_iterator_evaluation or arg.perform_validation:
+                    continue
+                slot_idxs.add(arg.slot_idx)
+        return sorted(slot_idxs)
 
     def set_gc(self, gc: bool) -> None:
         if gc:
@@ -200,7 +219,13 @@ class ExprEvalCtx:
             self.gc_targets = np.zeros(self.row_builder.num_materialized, dtype=bool)
 
     def _init_slot_evaluators(self, dispatcher: Dispatcher, target_slot_idxs: list[int]) -> None:
-        from .evaluators import DefaultExprEvaluator, FnCallEvaluator, JsonMapperDispatcher
+        from .evaluators import (
+            DefaultExprEvaluator,
+            FnCallEvaluator,
+            ImageLoadEvaluator,
+            JsonMapperDispatcher,
+            ThreadPoolFnCallEvaluator,
+        )
 
         for slot_idx in target_slot_idxs:
             expr = self.row_builder.unique_exprs[slot_idx]
@@ -210,7 +235,12 @@ class ExprEvalCtx:
                 and not isinstance(expr.fn, func.ExprTemplateFunction)
                 and not isinstance(expr.fn, func.AggregateFunction)
             ):
-                self.slot_evaluators[slot_idx] = FnCallEvaluator(expr, dispatcher, self)
+                if expr.runs_in_thread:
+                    self.slot_evaluators[slot_idx] = ThreadPoolFnCallEvaluator(expr, dispatcher, self)
+                else:
+                    self.slot_evaluators[slot_idx] = FnCallEvaluator(expr, dispatcher, self)
+            elif isinstance(expr, exprs.ColumnRef) and expr.perform_validation and expr.col_type.is_image_type():
+                self.slot_evaluators[slot_idx] = ImageLoadEvaluator(expr, dispatcher, self)
             elif isinstance(expr, exprs.JsonMapperDispatch):
                 self.slot_evaluators[slot_idx] = JsonMapperDispatcher(expr, dispatcher, self)
             else:

@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import dataclasses
+import functools
 import itertools
 import logging
 from collections import defaultdict, deque
 from concurrent import futures
 from pathlib import Path
 from typing import AsyncGenerator, AsyncIterator, Iterator, NamedTuple
+from uuid import UUID
 
+import PIL.Image
+
+import pixeltable.utils.image as image_utils
 from pixeltable import exceptions as excs, exprs, telemetry, telemetry_schemas
+from pixeltable.env import Env
+from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectPath, ObjectStoreBase, StorageTarget
 from pixeltable.utils.progress_reporter import ProgressReporter
 
@@ -137,7 +145,7 @@ class ObjectStoreSaveNode(ExecNode):
                     while not self.input_finished and self.queued_work < self.QUEUE_DEPTH_HIGH_WATER:
                         input_batch = await self.get_input_batch(input_iter)
                         if input_batch is not None:
-                            self.__process_input_batch(input_batch, executor)
+                            await self.__process_input_batch(input_batch, executor)
 
                     # Wait for enough completions to enable more queueing or if we're done
                     while self.queued_work > self.QUEUE_DEPTH_LOW_WATER or (
@@ -193,8 +201,6 @@ class ObjectStoreSaveNode(ExecNode):
         self.row_builder.set_exc(row, info.slot_idx, err)
 
     def __process_completions(self, done: set[futures.Future]) -> None:
-        from pixeltable.utils.local_store import TempStore
-
         num_objects = 0
         num_bytes = 0
         bytes_per_tbl: dict[tuple[str, str], int] = {}  # (table name, table id) -> bytes saved
@@ -234,8 +240,6 @@ class ObjectStoreSaveNode(ExecNode):
 
     def __process_input_row(self, row: exprs.DataRow) -> list[ObjectStoreSaveNode.WorkItem]:
         """Process a batch of input rows, generating a list of work"""
-        from pixeltable.utils.local_store import LocalStore, TempStore
-
         # Create a list of work to do for media storage in this row
         row_idx = next(self.row_idx)
         row_to_do: list[ObjectStoreSaveNode.WorkItem] = []
@@ -244,15 +248,6 @@ class ObjectStoreSaveNode(ExecNode):
 
         for info in self.file_col_info:
             col, index = info
-            # we may need to store this imagehave yet to store this image
-            if row.prepare_col_val_for_save(index, col):
-                try:
-                    with telemetry.span('pixeltable.media.encode', level=telemetry.DEBUG):
-                        row.file_urls[index] = row.save_media_to_temp(index, col)
-                except Exception as e:
-                    self.__handle_save_error(row, info, e)
-                    continue
-
             url = row.file_urls[index]
             if url is None:
                 # nothing to do
@@ -319,8 +314,76 @@ class ObjectStoreSaveNode(ExecNode):
             self.__add_ready_row(row, row_idx)
         return row_to_do
 
-    def __process_input_batch(self, input_batch: DataRowBatch, executor: futures.ThreadPoolExecutor) -> None:
+    async def __encode_input_batch(self, input_batch: DataRowBatch) -> None:
+        """Encode the batch's in-memory media values into the TempStore; encode jobs run on Env.cpu_pool."""
+        loop = asyncio.get_running_loop()
+        pending: list[tuple[exprs.DataRow, exprs.ColumnSlotIdx, asyncio.Future[tuple[Path, str]]]] = []
+        # carry the ambient instrumentation span onto the worker threads so encode spans nest correctly
+        hooks_ctx = telemetry.capture_context()
+        for row in input_batch:
+            scheduled: set[int] = set()  # columns can share a slot (eg, btree index value cols): encode once
+            for info in self.file_col_info:
+                col, index = info
+                if index in scheduled or not row.prepare_col_val_for_save(index, col):
+                    continue
+                val = row.vals[index]
+                format = image_utils.default_format(val) if isinstance(val, PIL.Image.Image) else None
+                # the ids are read on this thread, because a worker thread must not access catalog state
+                encode_fn = functools.partial(
+                    self.__encode_media_value, val, col.tbl_handle.id, col.id, col.get_tbl().version, format
+                )
+                thread_fn = functools.partial(telemetry.run_in_context, hooks_ctx, encode_fn)
+                pending.append((row, info, loop.run_in_executor(Env.get().cpu_pool, thread_fn)))
+                scheduled.add(index)
+
+        encode_results = await asyncio.gather(*(fut for _, _, fut in pending), return_exceptions=True)
+        num_failed = sum(isinstance(result, BaseException) for result in encode_results)
+        if num_failed > 0 and not self.ctx.ignore_errors:
+            # the first failed encode stops the operation, so the files of the other encodes are never stored
+            for result in encode_results:
+                if not isinstance(result, BaseException):
+                    TempStore.delete_media_file(result[0])
+
+        # the failed encodes are recorded first, because an error also marks the columns computed from the failed one
+        for (row, info, _), result in zip(pending, encode_results, strict=True):
+            if isinstance(result, Exception):
+                self.__handle_save_error(row, info, result)
+            elif isinstance(result, BaseException):
+                raise result
+
+        for (row, info, _), result in zip(pending, encode_results, strict=True):
+            if isinstance(result, BaseException):
+                continue
+            index = info.slot_idx
+            filepath, url = result
+            if row.has_exc(index):
+                # the column is computed from one that failed to save, so its own file is not stored
+                TempStore.delete_media_file(filepath)
+                continue
+            row.file_paths[index] = str(filepath)
+            row.file_urls[index] = url
+            row.vals[index] = None
+
+    @classmethod
+    def __encode_media_value(
+        cls, val: bytes | PIL.Image.Image, tbl_id: UUID, col_id: int, tbl_version: int, format: str | None
+    ) -> tuple[Path, str]:
+        """Encode one value into the TempStore.
+
+        Runs on a worker thread, so it takes the value and the ids of its column and reads neither the catalog nor a
+        DataRow.
+        """
+        with telemetry.span('pixeltable.media.encode', level=telemetry.DEBUG):
+            if isinstance(val, PIL.Image.Image):
+                try:
+                    val = image_utils.to_bytes(val, format)
+                except Exception as e:
+                    raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, str(e)) from e
+            return TempStore.save_media_object(val, tbl_id, col_id, tbl_version, format)
+
+    async def __process_input_batch(self, input_batch: DataRowBatch, executor: futures.ThreadPoolExecutor) -> None:
         """Process a batch of input rows, submitting temporary files for upload"""
+        await self.__encode_input_batch(input_batch)
         work_to_do: list[ObjectStoreSaveNode.WorkItem] = []
 
         for row in input_batch:

@@ -3725,6 +3725,8 @@ class TestTable:
         t = pxt.create_table(db_root.make_catalog_path('test_unsaveable_literal'), {'id': pxt.Int, 'img': pxt.Image})
         t.add_computed_column(img_md=t.img.get_metadata())
         t.add_computed_column(img_a=fill_3x4(t.img.width))
+        # for the HSV row this column can be saved although img cannot, and it still gets the error of img
+        t.add_computed_column(img_rgb=t.img.convert('RGB'))
         rows = [
             {'id': 0, 'img': PIL.Image.new('RGB', (0, 0))},
             {'id': 1, 'img': PIL.Image.new('RGB', (8, 8))},
@@ -3738,9 +3740,13 @@ class TestTable:
         for row, row_msg in [(rows[0], msg), (rows[2], hsv_msg), (rows[3], msg)]:
             with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=row_msg):
                 t.insert([row])
+        # an insert that stops at the first unsaveable image also removes the files of the images it did save
+        with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=msg):
+            t.insert(rows)
         status = t.insert(rows, on_error='ignore')
         assert status.num_rows == 4
-        assert status.num_excs == 9
+        assert status.num_excs == 12
+        assert t.select(t.img_rgb.errormsg).order_by(t.id).collect()['img_rgb_errormsg'] == [msg, None, hsv_msg, msg]
         res = (
             t.select(t.img, t.img_md, t.img_a, err_msg=t.img.errormsg, md_msg=t.img_md.errormsg, a_msg=t.img_a.errormsg)
             .order_by(t.id)

@@ -28,6 +28,7 @@ class CallableFunction(Function):
     self_name: str | None
     _display_name: str | None
     batch_size: int | None
+    run_in_thread: bool
 
     def __init__(
         self,
@@ -40,6 +41,7 @@ class CallableFunction(Function):
         is_method: bool = False,
         is_property: bool = False,
         is_deterministic: bool = True,
+        run_in_thread: bool = False,
     ):
         assert len(signatures) > 0
         assert len(signatures) == len(py_fns)
@@ -52,6 +54,7 @@ class CallableFunction(Function):
         self.self_name = self_name
         self._display_name = display_name
         self.batch_size = batch_size
+        self.run_in_thread = run_in_thread
         self.__doc__ = self.py_fns[0].__doc__
         super().__init__(
             signatures,
@@ -72,6 +75,14 @@ class CallableFunction(Function):
     @property
     def is_async(self) -> bool:
         return inspect.iscoroutinefunction(self.py_fn)
+
+    def resource_pool(self, fn: Callable[..., str]) -> Callable[..., str]:
+        if self.run_in_thread:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{self.display_name}(): run_in_thread cannot be combined with resource_pool',
+            )
+        return super().resource_pool(fn)
 
     def comment(self) -> str | None:
         return inspect.getdoc(self.py_fns[0])
@@ -180,6 +191,11 @@ class CallableFunction(Function):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION, '`overload` cannot be used with `is_method` or `is_property`'
             )
+        if self.run_in_thread and inspect.iscoroutinefunction(fn):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{self.display_name}(): run_in_thread requires a synchronous function',
+            )
         if self._has_resolved_fns:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_STATE, 'New `overload` not allowed after the UDF has already been called'
@@ -226,7 +242,7 @@ class CallableFunction(Function):
 
     def to_store(self) -> tuple[dict, bytes]:
         assert not self.is_polymorphic  # multi-signature UDFs not allowed for stored fns
-        md = {'signature': self.signature.as_dict(), 'batch_size': self.batch_size}
+        md = {'signature': self.signature.as_dict(), 'batch_size': self.batch_size, 'run_in_thread': self.run_in_thread}
         return md, cloudpickle.dumps(self.py_fn)
 
     @classmethod
@@ -235,7 +251,9 @@ class CallableFunction(Function):
         assert callable(py_fn)
         sig = Signature.from_dict(md['signature'])
         batch_size = md['batch_size']
-        return CallableFunction([sig], [py_fn], self_name=name, batch_size=batch_size)
+        # a UDF stored before run_in_thread existed has no entry and runs inline
+        run_in_thread = md.get('run_in_thread', False)
+        return CallableFunction([sig], [py_fn], self_name=name, batch_size=batch_size, run_in_thread=run_in_thread)
 
     def validate_call(self, bound_args: dict[str, 'exprs.Expr']) -> None:
         from pixeltable import exprs

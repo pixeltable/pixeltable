@@ -4,12 +4,15 @@
 import base64
 import datetime
 import gc
+import io
 import json
 import logging
 import math
 import os
 import re
+import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -20,10 +23,11 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+import pixeltable.utils.image as image_utils
 from pixeltable import catalog, exprs, functions as pxtf
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
-from pixeltable.functions.video import legacy_frame_iterator
+from pixeltable.functions.video import frame_iterator, legacy_frame_iterator
 
 from .conftest import SampleFileServer
 from .utils import (
@@ -33,6 +37,7 @@ from .utils import (
     create_all_datatypes_tbl,
     create_scalars_tbl,
     get_image_files,
+    get_video_files,
     pxt_raises,
     reload_catalog,
     skip_test_if_not_installed,
@@ -2383,6 +2388,143 @@ class TestExprs:
         (name,) = res.schema.keys()
         assert catalog.is_valid_identifier(name)
         assert res[name] == [None, 1]
+
+    def test_image_load(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        files = get_image_files(include_bad_image=True)
+        bad_file = next(f for f in files if 'bad_image' in f)
+        good_files = [f for f in files if 'bad_image' not in f][:8]
+        t = pxt.create_table(p('imgs'), {'idx': pxt.Int, 'img': pxt.Image | None})
+        t.add_computed_column(rot=t.img.rotate(90))
+
+        # the rows keep the order of the insert, although their images finish decoding in any order
+        rows = [{'idx': idx, 'img': f} for idx, f in enumerate(good_files)]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+        assert t.select(t.idx).head(len(rows))['idx'] == list(range(len(rows)))
+
+        # a null image gives None
+        validate_update_status(t.insert([{'idx': -1, 'img': None}]), expected_rows=1)
+        assert t.where(t.idx == -1).select(out=t.img.rotate(180)).collect()['out'] == [None]
+
+        # a file that fails validation gives an error for its own cell, and the other rows are inserted
+        status = t.insert([{'idx': -2, 'img': bad_file}, {'idx': -3, 'img': good_files[0]}], on_error='ignore')
+        assert status.num_excs > 0
+        res = t.where(t.idx < -1).order_by(t.idx).select(err=t.img.errortype, rot=t.rot).collect()
+        assert res['err'][0] is None and res['rot'][0] is not None
+        assert res['err'][1] is not None and res['rot'][1] is None
+
+        # an image that the user opened with PIL.Image.open() is not decoded yet. Two UDF calls on pool threads read
+        # it at the same time, and both get the decoded image.
+        t = pxt.create_table(p('lazy'), {'img': pxt.Image})
+        t.add_computed_column(rot=t.img.rotate(90))
+        t.add_computed_column(small=t.img.resize((32, 32)))
+        rows = [{'img': PIL.Image.open(f)} for f in good_files]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+
+        # a column with on_read validation validates and decodes its images in the query
+        t = pxt.create_table(p('on_read'), {'img': pxt.Image}, media_validation='on_read')
+        validate_update_status(t.insert({'img': f} for f in good_files), expected_rows=len(good_files))
+        res = t.select(out=t.img.rotate(90)).collect()
+        assert all(img is not None for img in res['out'])
+
+        # an image produced by an iterator has no file, and a UDF call reads it from memory
+        videos = pxt.create_table(p('videos'), {'video': pxt.Video})
+        frames = pxt.create_view(p('frames'), videos, iterator=frame_iterator(videos.video, fps=1))
+        frames.add_computed_column(rot=frames.frame.rotate(90))
+        validate_update_status(videos.insert([{'video': get_video_files(include_mpgs=False)[0]}]))
+        res = frames.select(frames.rot).collect()
+        assert len(res) > 0
+        assert all(img is not None for img in res['rot'])
+
+    def test_image_save(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        files = get_image_files()[:2]
+        t = pxt.create_table(p('imgs'), {'img': pxt.Image})
+        t.add_computed_column(rot=t.img.rotate(90))
+        t.add_computed_column(rot2=t.rot.rotate(90))
+        t.add_computed_column(rot_copy=t.img.rotate(90))
+        validate_update_status(t.insert({'img': f} for f in files), expected_rows=len(files))
+
+        # a computed column reads the image of the column it depends on from memory
+        res = t.select(t.img, t.rot2).collect()
+        assert [img.size for img in res['rot2']] == [img.size for img in res['img']]
+
+        # two columns with the same expr share one slot: the image is saved once and both columns store its url
+        res = t.select(rot_url=t.rot.fileurl, copy_url=t.rot_copy.fileurl).collect()
+        assert all(url is not None for url in res['rot_url'])
+        assert res['rot_url'] == res['copy_url']
+
+        # one image in two columns of two rows is saved four times at the same time, and each stored file holds it
+        shared_img = PIL.Image.effect_noise((64, 64), 32).convert('LA')
+        t = pxt.create_table(p('shared'), {'a': pxt.Image, 'b': pxt.Image})
+        validate_update_status(t.insert([{'a': shared_img, 'b': shared_img}] * 2), expected_rows=2)
+        res = t.select(t.a, t.b).collect()
+        for stored_img in [*res['a'], *res['b']]:
+            assert stored_img.mode == shared_img.mode
+            assert stored_img.tobytes() == shared_img.tobytes()
+
+        # two b64_encode() calls encode the image of a row at the same time, and each returns its own format
+        res = t.select(png=t.a.b64_encode('png'), webp=t.a.b64_encode('webp')).collect()
+        for image_format in ('png', 'webp'):
+            for b64_str in res[image_format]:
+                assert PIL.Image.open(io.BytesIO(base64.b64decode(b64_str))).format == image_format.upper()
+
+        # eight threads save one image in two formats at the same time, and each save gives the bytes of a lone save
+        formats = ['tiff', 'png'] * 200
+        lone_save = {image_format: image_utils.to_bytes(shared_img, image_format) for image_format in ('tiff', 'png')}
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            saved = list(pool.map(lambda image_format: image_utils.to_bytes(shared_img, image_format), formats))
+        assert saved == [lone_save[image_format] for image_format in formats]
+
+    @pytest.mark.db_roots('local', reason='patches PIL in the test process and reads stored files by local path')
+    def test_image_files(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+        p = db_root.make_catalog_path
+        files = get_image_files()[:8]
+        open_thread_names: list[str] = []
+        pil_open = PIL.Image.open
+
+        def tracking_open(*args: Any, **kwargs: Any) -> PIL.Image.Image:
+            open_thread_names.append(threading.current_thread().name)
+            return pil_open(*args, **kwargs)
+
+        monkeypatch.setattr(PIL.Image, 'open', tracking_open)
+        t = pxt.create_table(p('imgs'), {'img': pxt.Image})
+        t.add_computed_column(rot=t.img.rotate(90))
+        t.add_computed_column(same_file=image_path_as_image(t.img.localpath))
+
+        # an insert validates and decodes each image in one job on the cpu pool: the validation opens the file
+        # once and the decode opens it once
+        validate_update_status(t.insert({'img': f} for f in files), expected_rows=len(files))
+        assert len(open_thread_names) == 2 * len(files)
+        assert all(name.startswith('pxt-cpu') for name in open_thread_names)
+
+        # a query decodes each image once on the cpu pool, although two UDF calls read it
+        open_thread_names.clear()
+        res = t.select(out1=t.img.rotate(90), out2=t.img.rotate(180)).collect()
+        assert len(res) == len(files)
+        assert len(open_thread_names) == len(files)
+        assert all(name.startswith('pxt-cpu') for name in open_thread_names)
+
+        # a UDF that returns the path of an image file stores that file unchanged
+        res = t.select(src=t.img.localpath, stored=t.same_file.localpath).collect()
+        for src_path, stored_path in zip(res['src'], res['stored'], strict=True):
+            assert Path(src_path).read_bytes() == Path(stored_path).read_bytes()
+
+        # a stored image file that fails to decode gives an error for the cell of the UDF call that reads it, for a
+        # run_in_thread UDF (rotate) and for an unmarked UDF (convert)
+        t = pxt.create_table(p('corrupt'), {'img': pxt.Image})
+        validate_update_status(t.insert([{'img': PIL.Image.new('RGB', (8, 8))}]), expected_rows=1)
+        stored_path = t.select(path=t.img.localpath).collect()['path'][0]
+        Path(stored_path).write_bytes(b'not an image')
+        assert t.add_computed_column(rot=t.img.rotate(90), on_error='ignore').num_excs == 1
+        assert t.add_computed_column(gray=t.img.convert('L'), on_error='ignore').num_excs == 1
+        res = t.select(rot_err=t.rot.errortype, gray_err=t.gray.errortype).collect()
+        assert res['rot_err'] == res['gray_err'] == ['UnidentifiedImageError']
+
+
+@pxt.udf
+def image_path_as_image(path: str) -> PIL.Image.Image:
+    return path  # type: ignore[return-value]
 
 
 @pxt.udf

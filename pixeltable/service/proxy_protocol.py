@@ -41,7 +41,7 @@ from pixeltable.metadata import VERSION as MD_SCHEMA_VERSION, schema
 from pixeltable.query_clauses import SampleClause
 from pixeltable.row import RowBatch
 from pixeltable.utils import parse_local_file_path
-from pixeltable.utils.image import PNG_MODES
+from pixeltable.utils.image import PNG_MODES, save as save_image
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectStoreBase, home_bucket_uri
 
@@ -543,7 +543,7 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
         # an in-memory image; file-backed media travels as a path
         if obj.mode in PNG_MODES and obj.width > 0 and obj.height > 0:
             buf = io.BytesIO()
-            obj.save(buf, format='PNG')
+            save_image(obj, buf, format='PNG')
             return {_TAG: 'image', 'format': obj.format, **_ref_fields(sink.add_media_bytes(buf.getvalue(), '.png'))}
         # raw pixels round-trip any image, including an empty one or one in mode HSV
         return {

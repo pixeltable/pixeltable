@@ -34,6 +34,7 @@ from pixeltable.func import Batch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import exponential_backoff, parse_duration_str
+from pixeltable.utils.image import save as save_image
 from pixeltable.utils.local_store import TempStore
 
 if TYPE_CHECKING:
@@ -341,7 +342,7 @@ def _pil_to_gemini_image(image: PIL.Image.Image) -> 'genai.types.Image':
     from google.genai import types
 
     with io.BytesIO() as buffer:
-        image.save(buffer, format='webp')
+        save_image(image, buffer, format='webp')
         return types.Image(image_bytes=buffer.getvalue(), mime_type='image/webp')
 
 

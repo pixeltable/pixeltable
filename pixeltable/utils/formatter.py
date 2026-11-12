@@ -13,6 +13,7 @@ from PIL import Image
 from pypdfium2 import PdfDocument  # type: ignore[import-untyped]
 
 import pixeltable.type_system as ts
+import pixeltable.utils.image as image_utils
 from pixeltable.utils.http_server import get_file_uri
 
 
@@ -165,7 +166,7 @@ class Formatter:
         else:
             width = min(640, img.width)  # A single image: larger display
         with io.BytesIO() as buffer:
-            img.save(buffer, 'webp')
+            image_utils.save(img, buffer, 'webp')
             img_base64 = base64.b64encode(buffer.getvalue()).decode()
             return f"""
             <div class="pxt_image" style="width:{width}px;">

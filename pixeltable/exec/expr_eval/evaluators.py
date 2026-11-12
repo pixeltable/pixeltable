@@ -3,12 +3,17 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import datetime
+import functools
 import itertools
 import logging
 import sys
 from typing import Any, Callable, Iterator, cast
 
-from pixeltable import exceptions as excs, exprs, func, telemetry, telemetry_schemas
+import PIL.Image
+
+import pixeltable.type_system as ts
+import pixeltable.utils.image as image_utils
+from pixeltable import env, exceptions as excs, exprs, func, telemetry, telemetry_schemas
 
 from .interfaces import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
 
@@ -127,7 +132,14 @@ class FnCallEvaluator(Evaluator):
         skip_rows: list[exprs.DataRow] = []  # skip rows with Nones in non-nullable parameters
         rows_call_args: list[FnCallArgs] = []
         for row in rows:
-            args_kwargs = self.fn_call.make_args(row)
+            try:
+                args_kwargs = self.fn_call.make_args(row)
+            except Exception as exc:
+                # an argument that fails to load (eg, an image file that fails to decode) is an error of this cell
+                _, _, exc_tb = sys.exc_info()
+                row.set_exc(self.fn_call.slot_idx, exc)
+                self.dispatcher.dispatch_exc([row], self.fn_call.slot_idx, exc_tb, self.eval_ctx)
+                continue
             if args_kwargs is None:
                 # nothing to do here
                 row[self.fn_call.slot_idx] = None
@@ -290,6 +302,182 @@ class FnCallEvaluator(Evaluator):
         batched_call_args = self._create_batch_call_args(list(self._queued_call_args_iter()))
         task = asyncio.create_task(self.eval_batch(batched_call_args))
         self.dispatcher.register_task(task)
+
+
+class ThreadPoolFnCallEvaluator(Evaluator):
+    """
+    Evaluates calls of synchronous, non-batched functions that are marked run_in_thread. Each call runs as one job
+    on Env.cpu_pool.
+
+    Creates one task per row. A row with a None in a non-nullable parameter needs no call and completes in schedule().
+    """
+
+    fn_call: exprs.FunctionCall
+    fn: func.CallableFunction
+
+    def __init__(self, fn_call: exprs.FunctionCall, dispatcher: Dispatcher, exec_ctx: ExprEvalCtx):
+        super().__init__(dispatcher, exec_ctx)
+        self.fn_call = fn_call
+        self.fn = cast(func.CallableFunction, fn_call.fn)
+        assert self.fn.run_in_thread
+        assert not self.fn.is_async and not self.fn.is_batched
+        assert fn_call.resource_pool is None
+
+    def _cell_span(self, row: exprs.DataRow) -> contextlib.AbstractContextManager[telemetry.SpanHandle | None]:
+        """Context manager, with telemetry.span() semantics, covering one row's UDF call.
+
+        The span nests under the row's span; when the row has no span, returns a no-op nullcontext.
+        """
+        if row.span is None:
+            return contextlib.nullcontext()
+        # DEBUG so cell spans emit/suppress in lockstep with the row span they nest under.
+        # Set this span current only when an operation span is active. Each task copies the context at
+        # creation, so the ambient span is task-specific and concurrent UDF calls don't see each other's.
+        return telemetry.span(
+            f'pixeltable.udf.{self.fn.display_name}',
+            level=telemetry.DEBUG,
+            parent=row.span,
+            set_current=telemetry.current_span() is not None,
+            **telemetry_schemas.UdfCallAttrs(
+                udf_path=self.fn.self_path, column=self.dispatcher.col_names.get(self.fn_call.slot_idx)
+            ),
+        )
+
+    def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
+        assert self.fn_call.slot_idx >= 0
+
+        skip_rows: list[exprs.DataRow] = []  # skip rows with Nones in non-nullable parameters
+        for row in rows:
+            if self.dispatcher.exc_event.is_set():
+                return
+            try:
+                args_kwargs = self.fn_call.make_args(row)
+            except Exception as exc:
+                _, _, exc_tb = sys.exc_info()
+                row.set_exc(self.fn_call.slot_idx, exc)
+                self.dispatcher.dispatch_exc([row], self.fn_call.slot_idx, exc_tb, self.eval_ctx)
+                continue
+            if args_kwargs is None:
+                row[self.fn_call.slot_idx] = None
+                skip_rows.append(row)
+            else:
+                args, kwargs = args_kwargs
+                # the worker receives the argument values and never reads the DataRow
+                call_fn = functools.partial(self._call_udf, args, kwargs)
+                task = asyncio.create_task(self.eval_in_thread(row, call_fn))
+                self.dispatcher.register_task(task)
+
+        if len(skip_rows) > 0:
+            self.dispatcher.dispatch(skip_rows, self.eval_ctx)
+
+    def _call_udf(self, args: list[Any], kwargs: dict[str, Any]) -> Any:
+        # the metrics are recorded on the worker thread, so that the latency does not include the time the call
+        # waits for a free thread
+        with telemetry_schemas.udf_call(self.fn):
+            return self.fn.py_fn(*args, **kwargs)
+
+    async def eval_in_thread(self, row: exprs.DataRow, call_fn: Callable[[], Any]) -> None:
+        assert not row.has_val[self.fn_call.slot_idx]
+        assert not row.has_exc(self.fn_call.slot_idx)
+        # check for cancellation before starting something potentially long-running
+        if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+            with self._cell_span(row):
+                # run_in_executor() does not copy the context to the worker thread. The snapshot carries it there,
+                # so that spans reported inside the UDF nest under the cell span.
+                hooks_ctx = telemetry.capture_context()
+                thread_fn = functools.partial(telemetry.run_in_context, hooks_ctx, call_fn)
+                row[self.fn_call.slot_idx] = await loop.run_in_executor(env.Env.get().cpu_pool, thread_fn)
+            self.dispatcher.dispatch([row], self.eval_ctx)
+        except Exception as exc:
+            _, _, exc_tb = sys.exc_info()
+            row.set_exc(self.fn_call.slot_idx, exc)
+            self.dispatcher.dispatch_exc([row], self.fn_call.slot_idx, exc_tb, self.eval_ctx)
+
+
+class ImageLoadEvaluator(Evaluator):
+    """
+    Evaluates image ColumnRefs that validate their media file. The validation and the decode of one image run as one
+    job on Env.cpu_pool.
+
+    Creates one task per row that has a media file. A row without a media file completes in schedule().
+    """
+
+    col_ref: exprs.ColumnRef
+    unvalidated_slot_idx: int  # slot of the ColumnRef that holds the file before validation
+
+    def __init__(self, col_ref: exprs.ColumnRef, dispatcher: Dispatcher, exec_ctx: ExprEvalCtx):
+        super().__init__(dispatcher, exec_ctx)
+        assert col_ref.perform_validation and col_ref.col_type.is_image_type()
+        self.col_ref = col_ref
+        self.unvalidated_slot_idx = col_ref.components[0].slot_idx
+
+    def _cell_span(self, row: exprs.DataRow) -> contextlib.AbstractContextManager[telemetry.SpanHandle | None]:
+        """Context manager, with telemetry.span() semantics, covering the validation and decode of one row's image.
+
+        The span nests under the row's span; when the row has no span, returns a no-op nullcontext.
+        """
+        if row.span is None:
+            return contextlib.nullcontext()
+        # DEBUG so cell spans emit/suppress in lockstep with the row span they nest under
+        return telemetry.span('pixeltable.media.load', level=telemetry.DEBUG, parent=row.span)
+
+    def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
+        assert self.col_ref.slot_idx >= 0
+
+        rows_without_file: list[exprs.DataRow] = []
+        for row in rows:
+            if self.dispatcher.exc_event.is_set():
+                return
+            path = row.file_paths[self.unvalidated_slot_idx]
+            if path is None:
+                # an image without a media file (eg, a frame produced by an iterator) has nothing to validate
+                assert row.file_urls[self.unvalidated_slot_idx] is None
+                row.vals[self.col_ref.slot_idx] = row.vals[self.unvalidated_slot_idx]
+                row.has_val[self.col_ref.slot_idx] = True
+                rows_without_file.append(row)
+            else:
+                task = asyncio.create_task(self.eval_in_thread(row, path))
+                self.dispatcher.register_task(task)
+
+        if len(rows_without_file) > 0:
+            self.dispatcher.dispatch(rows_without_file, self.eval_ctx)
+
+    @classmethod
+    def _validate_and_load(cls, col_type: ts.ColumnType, path: str) -> PIL.Image.Image:
+        col_type.validate_media(path)
+        return image_utils.load(path)
+
+    async def eval_in_thread(self, row: exprs.DataRow, path: str) -> None:
+        slot_idx = self.col_ref.slot_idx
+        assert not row.has_val[slot_idx]
+        assert not row.has_exc(slot_idx)
+        # check for cancellation before starting something potentially long-running
+        if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+            with self._cell_span(row):
+                img = await loop.run_in_executor(
+                    env.Env.get().cpu_pool, self._validate_and_load, self.col_ref.col_type, path
+                )
+            # both slots get the decoded image, so that no reader of either slot decodes the file again
+            row.vals[self.unvalidated_slot_idx] = img
+            row.vals[slot_idx] = img
+            row.has_val[slot_idx] = True
+            row.file_paths[slot_idx] = path
+            row.file_urls[slot_idx] = row.file_urls[self.unvalidated_slot_idx]
+            self.dispatcher.dispatch([row], self.eval_ctx)
+        except excs.Error as exc:
+            # a media validation error is recorded in the slot and does not fail the query
+            self.dispatcher.row_builder.set_exc(row, slot_idx, exc)
+            self.dispatcher.dispatch([row], self.eval_ctx)
+        except Exception as exc:
+            _, _, exc_tb = sys.exc_info()
+            row.set_exc(slot_idx, exc)
+            self.dispatcher.dispatch_exc([row], slot_idx, exc_tb, self.eval_ctx)
 
 
 class NestedRowList:

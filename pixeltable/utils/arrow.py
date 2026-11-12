@@ -9,6 +9,7 @@ import pyarrow as pa
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+import pixeltable.utils.image as image_utils
 
 if TYPE_CHECKING:
     import pixeltable as pxt
@@ -253,7 +254,7 @@ def record_batches_from_rows(
                                 val = f.read()
                         else:
                             buf = io.BytesIO()
-                            val.save(buf, format='png')
+                            image_utils.save(val, buf, format='png')
                             val = buf.getvalue()
                     elif not isinstance(val, bytes):
                         raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'unknown image type {type(val)}')
