@@ -697,7 +697,7 @@ t.add_computed_column(
     # Use haiku model for concise responses
     response=anthropic.messages(
         messages=[{'role': 'user', 'content': t.prompt}],
-        model='claude-3-haiku-20240307'
+        model='claude-haiku-4-5'
     )
 )
 

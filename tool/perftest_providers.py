@@ -39,7 +39,7 @@ def create_provider_configs(max_tokens: int) -> dict[str, ProviderConfig]:
         'anthropic': ProviderConfig(
             prompt_udf=create_simple_messages_prompt,
             udf=pxtf.anthropic.messages,
-            default_model='claude-3-haiku-20240307',
+            default_model='claude-haiku-4-5',
             kwargs={
                 'max_tokens': max_tokens,
                 'model_kwargs': {
@@ -97,13 +97,13 @@ def create_provider_configs(max_tokens: int) -> dict[str, ProviderConfig]:
         'bedrock': ProviderConfig(
             prompt_udf=create_simple_messages_prompt,
             udf=pxtf.bedrock.converse,
-            default_model='anthropic.claude-3-haiku-20240307-v1:0',
+            default_model='anthropic.claude-haiku-4-5-20251001-v1:0',
             kwargs={'model_kwargs': {'max_tokens': max_tokens, 'temperature': 0.7}},
         ),
         'openrouter': ProviderConfig(
             prompt_udf=create_chatgpt_prompt,
             udf=pxtf.openrouter.chat_completions,
-            default_model='anthropic/claude-3.5-sonnet',
+            default_model='anthropic/claude-sonnet-5.5',
             kwargs={'model_kwargs': {'max_tokens': max_tokens, 'temperature': 0.7}},
         ),
     }
