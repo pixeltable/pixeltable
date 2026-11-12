@@ -64,7 +64,7 @@ async def chat_completions(
 
     Args:
         messages: A list of messages comprising the conversation so far.
-        model: ID of the model to use (e.g., `'anthropic/claude-3.5-sonnet'`, `'openai/gpt-4'`).
+        model: ID of the model to use (e.g., `'anthropic/claude-sonnet-5.5'`, `'openai/gpt-4'`).
         model_kwargs: Additional OpenAI-compatible parameters.
         tools: List of tools available to the model.
         tool_choice: Controls which (if any) tool is called by the model.
@@ -80,7 +80,7 @@ async def chat_completions(
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(
         ...     response=chat_completions(
-        ...         messages, model='anthropic/claude-3.5-sonnet'
+        ...         messages, model='anthropic/claude-sonnet-5.5'
         ...     )
         ... )
 
@@ -89,7 +89,7 @@ async def chat_completions(
         >>> tbl.add_computed_column(
         ...     response=chat_completions(
         ...         messages,
-        ...         model='anthropic/claude-3.5-sonnet',
+        ...         model='anthropic/claude-sonnet-5.5',
         ...         provider={'require_parameters': True, 'order': ['Anthropic']},
         ...     )
         ... )

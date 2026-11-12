@@ -1,16 +1,11 @@
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/_logo/pxt-dark.svg">
-  <img alt="Pixeltable" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/release/_logo/pxt-light.svg" width="40%">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/logo-dark.svg">
+  <img alt="Pixeltable" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/logo-light.svg" width="40%">
 </picture>
 
 # The backend agents build with
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/table-build-dark.svg">
-  <img align="right" width="420" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/table-build-light.svg" alt="Animation: app.py declares a videos table one line at a time. Three videos are inserted, the transcript and summary columns fill in for each row, and a POST to /search returns the matching video from the same table.">
-</picture>
-
-### Multimodal database, orchestration, and serving in one file, by the co-creators of Apache Parquet and Impala.
+### Multimodal database, orchestration, and serving in one file
 
 Pixeltable is an open-source multimodal database you use from Python. Build AI apps on video, images, audio and documents without writing scripts to keep files, model outputs and search indexes in sync.
 
@@ -31,6 +26,13 @@ pip install -U 'pixeltable[serve]'
 [![stress-tests status](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml)
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 [![Python](https://img.shields.io/pypi/pyversions/pixeltable)](https://pypi.org/project/pixeltable/)
+
+<picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/stack-slider-narrow-dark.svg">
+  <source media="(max-width: 600px)" srcset="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/stack-slider-narrow-light.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/stack-slider-dark.svg">
+  <img width="100%" src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/_hero/stack-slider-light.svg" alt="Animation: a handle sweeps between two drawings of the same 13 jobs a request needs. Usually, they run across 12 systems (a bucket, a metadata database, queues and workers, a vector database, an API service and more) that your app talks to one by one. With Pixeltable, they live in one app.py, with its videos table and the APIs the other jobs use.">
+</picture>
 
 You declare tables, computed columns and HTTP routes in `app.py`. Insert a row and Pixeltable runs the computations, stores the results and updates the indexes.
 
