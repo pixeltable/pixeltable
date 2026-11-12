@@ -20,15 +20,12 @@ class UdfServer:
 
     udf_path: str
     overloads: list[func.CallableFunction]
-    # Modal's task ID of the container that runs this server
-    task_id: str | None
+    # the provider's ID of the container that runs this server
+    container_id: str | None
     lock: threading.Lock
 
-    def start(self, udf_path: str, port: int, task_id: str | None, project_dir: Path | None = None) -> None:
-        """Serve the calls to the UDF at udf_path on port, in a thread of its own.
-
-        project_dir: the project root with the UDF's module and the config file
-        """
+    def __init__(self, udf_path: str, container_id: str | None, project_dir: Path | None = None) -> None:
+        """project_dir: the root of the unpacked project, with its config file"""
         if project_dir is not None:
             Config.init(reinit=True, project_root=project_dir)
         # initializes the Env now instead of in the first call
@@ -37,9 +34,11 @@ class UdfServer:
         fn = resolve_symbol(udf_path)
         assert isinstance(fn, func.CallableFunction)
         self.overloads = fn._resolved_fns
-        self.task_id = task_id
+        self.container_id = container_id
         self.lock = threading.Lock()
 
+    def start(self, port: int) -> None:
+        """Serve the UDF's calls on port, in a thread of its own."""
         # only a serving process needs hypercorn
         import hypercorn.asyncio
         import hypercorn.config
@@ -67,8 +66,6 @@ class UdfServer:
             if not message.get('more_body', False):
                 break
         if scope['method'] != 'POST':
-            # GETs come from Modal, which polls /metrics, and from ModalServerClient, which probes for a running
-            # container
             status, body = 404, b''
         else:
             try:
@@ -105,7 +102,7 @@ class UdfServer:
                         values = [fn.py_fn(*request.args, **request.kwargs)]
                 except Exception as exc:
                     error = exc
-                response = UdfCallResponse(values, error, time.monotonic() - start, self.task_id)
+                response = UdfCallResponse(values, error, time.monotonic() - start, self.container_id)
                 return response.encode(fn.signature.get_return_type())
             finally:
                 # self.lock lets only one call run at a time, so the TempStore contains only this call's files

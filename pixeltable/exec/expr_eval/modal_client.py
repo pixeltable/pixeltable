@@ -86,8 +86,8 @@ class UdfCallResponse:
     error: Exception | None
     # how long the UDF ran in the container
     duration_seconds: float
-    # Modal's task ID of the container that ran the call
-    task_id: str | None
+    # the provider's ID of the container that ran the call
+    container_id: str | None
 
     def encode(self, return_type: ts.ColumnType) -> bytes:
         values = self.values
@@ -98,7 +98,7 @@ class UdfCallResponse:
                 'values': values,
                 'error': None if self.error is None else self._pickled_error(),
                 'duration_seconds': self.duration_seconds,
-                'task_id': self.task_id,
+                'container_id': self.container_id,
             }
         )
 
@@ -106,7 +106,7 @@ class UdfCallResponse:
     def decode(cls, body: bytes) -> Self:
         wire = _decode_body(body)
         error = None if wire['error'] is None else pickle.loads(wire['error'])
-        return cls(wire['values'], error, wire['duration_seconds'], wire['task_id'])
+        return cls(wire['values'], error, wire['duration_seconds'], wire['container_id'])
 
     def _pickled_error(self) -> bytes:
         """Pickle error, or a RuntimeError with its type and message if error does not survive pickling."""
@@ -143,11 +143,11 @@ _CONNECT_SECONDS = 10
 class ModalEndpoints:
     """The URLs of a database's Modal Servers, and the proxy token for calls to them."""
 
-    SERVERS_VAR: ClassVar[str] = 'PXT_MODAL_SERVERS'
-    PROXY_KEY_VAR: ClassVar[str] = 'MODAL_PROXY_KEY'
-    PROXY_SECRET_VAR: ClassVar[str] = 'MODAL_PROXY_SECRET'
+    SERVERS_VAR: ClassVar[str] = 'PXT_UDF_SERVERS'
+    KEY_VAR: ClassVar[str] = 'PXT_UDF_SERVERS_KEY'
+    SECRET_VAR: ClassVar[str] = 'PXT_UDF_SERVERS_SECRET'
     # the key of the process's ModalEndpoints in Env.get_resource_pool_info()
-    REGISTRY_KEY: ClassVar[str] = 'modal-endpoints'
+    _REGISTRY_KEY: ClassVar[str] = 'modal-endpoints'
 
     # keyed by UDF path
     server_urls: dict[str, str]
@@ -155,19 +155,25 @@ class ModalEndpoints:
     proxy_secret: str = dataclasses.field(repr=False)
 
     @classmethod
-    def from_env(cls) -> Self:
+    def get(cls) -> Self:
+        """Return the process's endpoints, read from the environment at the first call."""
+        return Env.get().get_resource_pool_info(cls._REGISTRY_KEY, cls._from_env)
+
+    @classmethod
+    def _from_env(cls) -> Self:
         """Read the endpoints from the environment: SERVERS_VAR is a JSON object from UDF path to URL."""
-        values: list[str] = []
-        for var in (cls.SERVERS_VAR, cls.PROXY_KEY_VAR, cls.PROXY_SECRET_VAR):
-            value = os.environ.get(var)
-            if value is None or value == '':
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_CONFIGURATION,
-                    f'The UDFs in the pixeltable.udf setting run on Modal, which requires {var} in the environment',
-                )
-            values.append(value)
+        servers, proxy_key, proxy_secret = (
+            os.environ.get(var, '') for var in (cls.SERVERS_VAR, cls.KEY_VAR, cls.SECRET_VAR)
+        )
+        if servers == '' or proxy_key == '' or proxy_secret == '':
+            # the control plane sets the variables in the pods of a hosted database
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                'The pixeltable.udf setting works only in a hosted database: this process has no UDF servers '
+                f'({cls.SERVERS_VAR}, {cls.KEY_VAR} and {cls.SECRET_VAR} are not all set)',
+            )
         try:
-            server_urls = json.loads(values[0])
+            server_urls = json.loads(servers)
         except json.JSONDecodeError:
             server_urls = None
         if not isinstance(server_urls, dict) or not all(isinstance(url, str) for url in server_urls.values()):
@@ -175,12 +181,12 @@ class ModalEndpoints:
                 excs.ErrorCode.INVALID_CONFIGURATION,
                 f'{cls.SERVERS_VAR} in the environment is not a JSON object from UDF path to URL',
             )
-        return cls(server_urls, values[1], values[2])
+        return cls(server_urls, proxy_key, proxy_secret)
 
 
 @register_client('modal', credential_param=None)
 def _() -> httpx.AsyncClient:
-    endpoints: ModalEndpoints = Env.get().get_resource_pool_info(ModalEndpoints.REGISTRY_KEY, ModalEndpoints.from_env)
+    endpoints = ModalEndpoints.get()
     # with HTTP/2, concurrent calls to a Server share one connection
     # retries=2 retries a failed connection attempt up to twice; httpx never resends a request
     transport = httpx.AsyncHTTPTransport(http2=True, retries=2)
@@ -224,15 +230,12 @@ class ModalServerClient:
     def __init__(self, udf_path: str, timeout_seconds: int) -> None:
         self.udf_path = udf_path
         self.timeout = httpx.Timeout(timeout_seconds, connect=_CONNECT_SECONDS)
-        endpoints: ModalEndpoints = Env.get().get_resource_pool_info(
-            ModalEndpoints.REGISTRY_KEY, ModalEndpoints.from_env
-        )
-        url = endpoints.server_urls.get(udf_path)
+        url = ModalEndpoints.get().server_urls.get(udf_path)
         if url is None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
                 f'{udf_path!r} is in the pixeltable.udf setting, but {ModalEndpoints.SERVERS_VAR} has no Modal Server '
-                'for it',
+                'for it. Run `pxt db update` to deploy it.',
             )
         self.url = url
         self.container_running = asyncio.Event()
@@ -285,7 +288,7 @@ class ModalServerClient:
         result = UdfCallResponse.decode(response.content)
         _logger.debug(
             f'Modal call of {self.udf_path}: {len(call_args.rows)} rows in {time.monotonic() - start:.2f}s, '
-            f'UDF {result.duration_seconds:.2f}s, container {result.task_id}'
+            f'UDF {result.duration_seconds:.2f}s, container {result.container_id}'
         )
         return result
 

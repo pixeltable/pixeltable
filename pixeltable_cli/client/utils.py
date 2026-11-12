@@ -3,6 +3,7 @@ pidfile, tail the log on failed startup), the stdlib HTTP client (get/post), and
 helpers. Kept to the
 stdlib plus psutil, so importing this on every `pxt` invocation stays cheap."""
 
+import contextlib
 import http.client
 import json
 import os
@@ -17,7 +18,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -323,8 +324,14 @@ def _restart_if_mismatched(health: dict[str, Any]) -> None:
     diff = _identity_diff(identity(), health)
     if _serves_another_project(health):
         diff = [*diff, 'project_root']
-    if len(diff) == 0:
-        return
+    if len(diff) > 0:
+        # Identity mismatch: the daemon was launched against a different install or env snapshot than the
+        # client now sees (eg, after pip install -U pixeltable, or after installing another package).
+        _replace_daemon(health)
+
+
+def _replace_daemon(health: dict[str, Any]) -> None:
+    """Stop the daemon that reported health and start a new one. Raises DaemonBusyError if it is serving requests."""
     in_flight = health.get('in_flight', [])
     if len(in_flight) > 0:
         raise DaemonBusyError(
@@ -332,10 +339,8 @@ def _restart_if_mismatched(health: dict[str, Any]) -> None:
             f'{describe_in_flight_requests(in_flight)}.\n'
             'Retry when the daemon is idle, or run `pxt daemon restart -f`, which stops every request in progress.'
         )
-    # Identity mismatch: the daemon was launched against a different install or env snapshot than the
-    # client now sees (eg, after pip install -U pixeltable, or after installing another package). Restart it
-    # ourselves rather than making the user do it: a non-None health response means fetch_health() already
-    # verified the responder is our daemon.
+    # Restart it ourselves rather than making the user do it: a non-None health response means fetch_health()
+    # already verified the responder is our daemon.
     reported_pid = health.get('pid')
     # Refuse to target the process if its pid doesn't look real
     if not isinstance(reported_pid, int) or isinstance(reported_pid, bool) or reported_pid <= 0:
@@ -486,12 +491,33 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None, params:
 
 def _send(method: str, path: str, body: dict[str, Any] | None, params: dict[str, Any] | None) -> Any:
     try:
-        base = ensure_running()
+        return _send_once(method, path, body, params)
+    except RequestFailedError as e:
+        if e.error_code != 'STALE_CONFIG':
+            raise
+    # the daemon answers STALE_CONFIG before it runs the request, so the request runs once
+    health = fetch_health()
+    if health is not None:
+        with _daemon_failures():
+            _replace_daemon(health)
+    return _send_once(method, path, body, params)
+
+
+@contextlib.contextmanager
+def _daemon_failures() -> Iterator[None]:
+    """Raise a failure to start or replace the daemon as a RequestFailedError."""
+    try:
+        yield
     except DaemonBusyError as e:
         raise RequestFailedError(str(e), retryable=True, error_code='DAEMON_BUSY') from e
     except RuntimeError as e:
         # resending cannot start a daemon that just failed to
         raise RequestFailedError(str(e), retryable=False, error_code='DAEMON_UNREACHABLE') from e
+
+
+def _send_once(method: str, path: str, body: dict[str, Any] | None, params: dict[str, Any] | None) -> Any:
+    with _daemon_failures():
+        base = ensure_running()
 
     url = f'{base}{path}'
     if params is not None:

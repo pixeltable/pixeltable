@@ -521,14 +521,13 @@ class ModalScheduler(Scheduler):
         return resource_pool.startswith(cls._POOL_PREFIX)
 
     async def _main_loop(self) -> None:
-        item = await self.queue.get()
         while True:
+            item = await self.queue.get()
             # with all of the Server's containers busy, Modal queues a call, and the time in the queue counts against
             # the call's timeout
             await self.call_slots.acquire()
             task = asyncio.create_task(self._exec(item.request, item.exec_ctx))
             self.dispatcher.register_task(task)
-            item = await self.queue.get()
 
     async def _exec(self, request: FnCallArgs, exec_ctx: ExprEvalCtx) -> None:
         slot_idx = request.fn_call.slot_idx

@@ -35,7 +35,7 @@ _SERVED_UDFS = (
 _SERVER_SCRIPT = """
 import sys, time
 from pixeltable.serving.udf_server import UdfServer
-UdfServer().start(sys.argv[1], int(sys.argv[2]), None)
+UdfServer(sys.argv[1], None).start(int(sys.argv[2]))
 time.sleep(1e9)
 """
 
@@ -69,9 +69,9 @@ def udf_servers(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Ite
                     pass
                 time.sleep(0.2)
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv('PXT_MODAL_SERVERS', json.dumps(urls))
-            mp.setenv('MODAL_PROXY_KEY', 'wk-test')
-            mp.setenv('MODAL_PROXY_SECRET', 'ws-test')
+            mp.setenv('PXT_UDF_SERVERS', json.dumps(urls))
+            mp.setenv('PXT_UDF_SERVERS_KEY', 'wk-test')
+            mp.setenv('PXT_UDF_SERVERS_SECRET', 'ws-test')
             yield
     finally:
         for server in servers:
@@ -183,7 +183,7 @@ class TestUdfServer:
         monkeypatch.setenv('PIXELTABLE_UDF', json.dumps({'pixeltable.functions.image.resize': {}}))
         with pxt_raises(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            match=r"'pixeltable\.functions\.image\.resize' is in the pixeltable\.udf setting, but PXT_MODAL_SERVERS "
+            match=r"'pixeltable\.functions\.image\.resize' is in the pixeltable\.udf setting, but PXT_UDF_SERVERS "
             r'has no Modal Server for it',
         ):
             img_t.select(resize(img_t.img, (32, 16))).collect()

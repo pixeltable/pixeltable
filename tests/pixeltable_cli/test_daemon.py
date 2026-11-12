@@ -217,6 +217,43 @@ class TestDaemon:
 
         _replacement_pid(daemon_port, project, drift_env, pid)
 
+    def test_replace_daemon_after_config_change(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """A command after an edit of the project's config file replaces an idle daemon and runs with the new
+        config; it does not replace a daemon that is serving a request."""
+        project = tmp_path / 'project'
+        _create_pxt_project(project)
+        config_file = project / 'pixeltable.toml'
+        assert _pxt(daemon_port, project, {}, 'service', 'example', '--out', 'docs_app.py').returncode == 0
+        # the daemon checks its config for this command
+        check = ('schema', 'check', 'docs_app.py', '--json')
+        pid = _pxt_health(daemon_port, cwd=project)['pid']
+        assert _pxt(daemon_port, project, {}, *check).returncode == 0
+        assert _pxt_health(daemon_port, cwd=project)['pid'] == pid
+
+        config_file.write_text("[pixeltable]\ntime_zone = 'America/Anchorage'\n", encoding='utf-8')
+        r = _pxt(daemon_port, project, {}, *check)
+        assert r.returncode == 0, r.stderr
+        pid = _replacement_pid(daemon_port, project, {}, pid)
+        r = _pxt(daemon_port, project, {}, 'config', '--json')
+        assert r.returncode == 0, r.stderr
+        assert 'America/Anchorage' in r.stdout
+
+        # an unchanged config keeps the daemon
+        assert _pxt(daemon_port, project, {}, *check).returncode == 0
+        assert _pxt_health(daemon_port, cwd=project)['pid'] == pid
+
+        with _busy_daemon(daemon_port, project, {}):
+            config_file.write_text("[pixeltable]\ntime_zone = 'Europe/Zurich'\n", encoding='utf-8')
+            r = _pxt(daemon_port, project, {}, *check)
+            assert r.returncode == 1
+            error = json.loads(r.stdout)
+            assert error['error_code'] == 'DAEMON_BUSY'
+            assert 'pxt daemon restart -f' in error['message']
+            assert psutil.pid_exists(pid)
+
+        assert _pxt(daemon_port, project, {}, *check).returncode == 0
+        _replacement_pid(daemon_port, project, {}, pid)
+
     def test_service_without_fastapi(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
         """Without fastapi, pxt schema update succeeds, and pxt service update prints the install command."""
         project = tmp_path / 'project'
