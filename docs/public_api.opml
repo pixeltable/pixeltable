@@ -406,6 +406,10 @@
           <outline text="udf|pixeltable.functions.bfl.fill" />
           <outline text="udf|pixeltable.functions.bfl.expand" />
         </outline>
+        <outline text="module|pixeltable.functions.cohere">
+          <outline text="udf|pixeltable.functions.cohere.embeddings" />
+          <outline text="udf|pixeltable.functions.cohere.rerank" />
+        </outline>
         <outline text="module|pixeltable.functions.deepseek">
           <outline text="udf|pixeltable.functions.deepseek.chat_completions" />
         </outline>
