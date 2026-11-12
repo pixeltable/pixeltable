@@ -11,7 +11,6 @@ from unittest import mock
 
 import plan_claude_ci_fix as plan
 
-
 RUN_9 = 'https://github.com/o/r/actions/runs/9'
 
 
