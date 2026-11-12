@@ -168,14 +168,13 @@ class InsertableTable(LocalTable):
                         source=None, query=query, print_stats=print_stats, fail_on_exception=fail_on_exception
                     )
                 else:
-                    for row_batch in data_source.valid_row_batch():
-                        status += self._tbl_version.get().insert(
-                            source=row_batch,
-                            query=None,
-                            print_stats=print_stats,
-                            fail_on_exception=fail_on_exception,
-                            return_rows=return_rows,
-                        )
+                    status += self._tbl_version.get().insert(
+                        source=data_source.valid_row_batch(),
+                        query=None,
+                        print_stats=print_stats,
+                        fail_on_exception=fail_on_exception,
+                        return_rows=return_rows,
+                    )
             except excs.ExprEvalError as e:
                 excs.raise_from_expr_eval_err(e)
 

@@ -1297,26 +1297,37 @@ class TableVersion:
 
     def insert(
         self,
-        source: list[dict[str, Any]] | SqlDataSource | None,
+        source: Iterable[list[dict[str, Any]]] | SqlDataSource | None,
         query: Query | None,
         print_stats: bool = False,
         fail_on_exception: bool = True,
         return_rows: bool = False,
     ) -> UpdateStatus:
         """
-        Insert rows into this table from an explicit list of dicts, a Query, or a SqlDataSource.
+        Insert rows into this table from batches of dicts, a Query, or a SqlDataSource, as a single new version.
         """
+        from pixeltable.io.data_sources import SqlDataSource
         from pixeltable.plan import Planner
 
         assert self.is_insertable
         # Exactly one of source / query must be specified
         assert (source is None) != (query is None)
-        with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
-            if query is not None:
-                plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
-            else:
-                plan = Planner.create_insert_plan(self, source, ignore_errors=not fail_on_exception)
-            telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(plan)))
+
+        def create_plan(batch: list[dict[str, Any]] | SqlDataSource | None) -> 'exec.ExecNode':
+            with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
+                if query is not None:
+                    plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
+                else:
+                    assert batch is not None
+                    plan = Planner.create_insert_plan(self, batch, ignore_errors=not fail_on_exception)
+                telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(plan)))
+            return plan
+
+        plans: Iterator[exec.ExecNode]
+        if source is None or isinstance(source, SqlDataSource):
+            plans = iter([create_plan(source)])
+        else:
+            plans = (create_plan(batch) for batch in source)
 
         rowid_gen: Iterator[int] | None = None
         # For data-versioned tables, generate rowids from the table's sequence.
@@ -1333,7 +1344,7 @@ class TableVersion:
 
         with get_runtime().report_progress():
             result = self._insert(
-                plan,
+                plans,
                 time.time(),
                 print_stats=print_stats,
                 rowids=rowid_gen,
@@ -1344,7 +1355,7 @@ class TableVersion:
 
     def _insert(
         self,
-        exec_plan: 'exec.ExecNode',
+        exec_plans: Iterator['exec.ExecNode'],
         timestamp: float,
         *,
         rowids: Iterator[int] | None = None,
@@ -1352,17 +1363,24 @@ class TableVersion:
         abort_on_exc: bool = False,
         return_rows: bool = False,
     ) -> UpdateStatus:
-        """Insert rows produced by exec_plan and propagate to views"""
+        """Insert the rows produced by exec_plans as a single new version, then propagate to views once"""
+        first_plan = next(exec_plans, None)
+        if first_plan is None:
+            return UpdateStatus()
         if self.is_data_versioned:
             # we're creating a new version
             self.bump_version(timestamp, bump_schema_version=False)
-        exec_plan.ctx.title = self.display_str()
-        cols_with_excs, row_counts, rows = self.store_tbl.insert_rows(
-            exec_plan, rowids=rowids, abort_on_exc=abort_on_exc, return_rows=return_rows
-        )
-        result = UpdateStatus(
-            cols_with_excs=self._cols_with_excs_names(cols_with_excs), rows=rows, row_count_stats=row_counts
-        )
+        result = UpdateStatus()
+        for exec_plan in itertools.chain([first_plan], exec_plans):
+            exec_plan.ctx.title = self.display_str()
+            cols_with_excs, row_counts, rows = self.store_tbl.insert_rows(
+                exec_plan, rowids=rowids, abort_on_exc=abort_on_exc, return_rows=return_rows
+            )
+            if print_stats:
+                exec_plan.ctx.profile.print(num_rows=row_counts.num_rows)
+            result += UpdateStatus(
+                cols_with_excs=self._cols_with_excs_names(cols_with_excs), rows=rows, row_count_stats=row_counts
+            )
 
         # update views
         for view in self.mutable_views:
@@ -1375,7 +1393,7 @@ class TableVersion:
                 view_plan = Planner.create_view_load_plan(
                     view.get().path, created_at_current_version=view.get().path.get_bases()
                 )
-                status = view.get()._insert(view_plan, timestamp, print_stats=print_stats)
+                status = view.get()._insert(iter([view_plan]), timestamp, print_stats=print_stats)
             result += status.to_cascade()
 
         # Use the net status after all propagations
@@ -1383,8 +1401,6 @@ class TableVersion:
             self.set_version_update_status(result)
             self._write_md(new_version=True, new_schema_version=False)
             _logger.info(f'TableVersion {self.name}: new version {self.version}')
-        if print_stats:
-            exec_plan.ctx.profile.print(num_rows=result.num_rows)
         return result
 
     def update(
@@ -1458,7 +1474,7 @@ class TableVersion:
                 )
             if insert_if_not_exists:
                 insert_status = self.insert(
-                    unmatched_rows, None, print_stats=False, fail_on_exception=False, return_rows=return_rows
+                    [unmatched_rows], None, print_stats=False, fail_on_exception=False, return_rows=return_rows
                 )
                 result += insert_status.to_cascade()
         return result
