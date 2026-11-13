@@ -43,6 +43,7 @@ class MatrixConfig(NamedTuple):
     pytest_markers: str = DEFAULT_MARKERS
     xdist_workers: str = DEFAULT_XDIST_WORKERS
     pre_test_cmd: str = ''  # Extra bash command to be run just before tests
+    random_ops_seconds: int = 1800
 
     @property
     def display_name(self) -> str:
@@ -59,6 +60,7 @@ class MatrixConfig(NamedTuple):
             'pytest-markers': self.pytest_markers,
             'xdist-workers': self.xdist_workers,
             'pre-test-cmd': self.pre_test_cmd,
+            'random-ops-seconds': str(self.random_ops_seconds),
         }
 
 
@@ -82,9 +84,15 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
     ]
 
     if trigger == 'pull_request':
-        # On every push to a PR, the minimal tests on the basic platforms as well
+        # On every push to a PR, the minimal tests on the basic platforms as well, and a shorter random-ops run than the
+        # merge queue's
         configs.extend(
             MatrixConfig('minimal', 'py', platform, '3.11', uv_options='--no-dev') for platform in BASIC_PLATFORMS
+        )
+        configs.append(
+            MatrixConfig(
+                'random-ops', 'random-ops', MAIN_PLATFORM, '3.11', uv_options='--no-dev', random_ops_seconds=600
+            )
         )
 
     else:
