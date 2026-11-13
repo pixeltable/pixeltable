@@ -211,8 +211,8 @@ class TestParquet:
         tab.insert(str(parquet_dir), source_format='parquet')
         assert tab.count() == len1 * 2
 
-    def test_insert_multi_batch_single_version(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
-        """An insert from a source with several record batches creates one version of the table and of each view."""
+    def test_insert_row_groups_single_version(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
+        """An insert from a Parquet file with several row groups creates one version of the table and of each view."""
         p = db_root.make_catalog_path
         parquet_path = tmp_path / 'batches.parquet'
         pa_parquet.write_table(pa.table({'n': list(range(6))}), str(parquet_path), row_group_size=2)
