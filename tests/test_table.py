@@ -4242,6 +4242,19 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
+    def test_add_column_replace_failure(self, db_root: DatabaseRoot) -> None:
+        """A failed add_column(if_exists='replace') keeps the column it would have replaced."""
+        path = db_root.make_catalog_path('tbl')
+        t = pxt.create_table(path, {'a': pxt.Int | None, 'c': pxt.Int | None})
+        t.insert(a=0, c=1)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Cannot add non-nullable column 'c'"):
+            t.add_column(c=pxt.String, if_exists='replace')
+        assert t.select(t.c).collect()['c'] == [1]
+
+        reload_catalog()
+        t = pxt.get_table(path)
+        assert t.select(t.c).collect()['c'] == [1]
+
     @staticmethod
     @pxt.udf
     def recompute_int_udf(i: int, params: pxt.Json) -> int:
