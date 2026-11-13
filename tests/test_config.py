@@ -4,11 +4,13 @@ import re
 import subprocess
 import sys
 import time
+import tomllib
 from pathlib import Path
 from textwrap import dedent
-from typing import Iterator
+from typing import Any, Iterator
 
 import pytest
+import toml
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
@@ -839,6 +841,27 @@ class TestConfig:
             load('[[pixeltable.database]]\ndb_verbosity = 2\n')
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='input_media_dest'):
             load("[[pixeltable.database]]\ninput_media_dest = 's3://local/input/'\n")
+
+    def test_default_config_appears_whole(self, tmp_path: Path) -> None:
+        """A process that starts while another creates the default config file never reads a partial file."""
+        config_file = tmp_path / 'config.toml'
+        visible_during_write: list[bool] = []
+        dump = toml.dump
+
+        def checked_dump(*args: Any, **kwargs: Any) -> str:
+            visible_during_write.append(config_file.exists())
+            return dump(*args, **kwargs)
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv('PIXELTABLE_HOME', str(tmp_path / 'home'))
+            mp.setenv('PIXELTABLE_CONFIG', str(config_file))
+            mp.setattr(toml, 'dump', checked_dump)
+            Config.init(reinit=True)
+        Config.init(reinit=True)
+
+        assert visible_during_write == [False]
+        assert 'file_cache_size_g' in tomllib.loads(config_file.read_text())['pixeltable']
+        assert sorted(path.name for path in tmp_path.iterdir()) == ['config.toml', 'home']
 
     def test_reload_if_changed(self, tmp_path: Path) -> None:
         """The config file is re-read after it changes, which is how a running daemon picks up an edit."""

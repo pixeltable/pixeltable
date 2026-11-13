@@ -6,7 +6,7 @@ from ..utils import skip_test_if_not_installed
 
 
 class TestStubRouter:
-    def test_declaration_surface(self) -> None:
+    def test_declaration_surface(self, init_env: None) -> None:
         """The stub answers every route declaration the real router offers, so an app file imports either way."""
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter

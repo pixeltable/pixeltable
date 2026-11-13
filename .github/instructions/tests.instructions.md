@@ -10,6 +10,10 @@ applyTo: "tests/**"
 - Prefer `db_root: DatabaseRoot` and `db_root.make_catalog_path()` for portable catalog tests.
   `uses_db` and plain paths are valid for in-process tests; they require
   `@pytest.mark.db_roots('local', reason='...')`. The reason explains the restriction or is `TODO: convert`.
+- A test that reaches `Env.get()`, directly or through a helper such as `skip_test_if_not_installed()`,
+  requests `init_env`; `uses_db` and `db_root` include it. Without it, the test would use whatever an earlier
+  test on its xdist worker set up, or the developer's real Pixeltable home and database when it runs first, so
+  `tests/conftest.py` fails such a test.
 - Use `pxt_raises(..., match=...)` for Pixeltable errors, and `pytest.raises(..., match=...)` for other
   exceptions. Verify meaningful error text.
 - New tests making live third-party model/service calls need `remote_api` and `very_expensive`; mocked
