@@ -475,13 +475,13 @@ class FunctionCall(Expr):
         parameters_by_pos = self.fn.signature.parameters_by_pos
         for idx in self.arg_idxs:
             val = self._arg_val(data_row, idx)
-            # a position past the parameter list belongs to a *args parameter
-            param = parameters_by_pos[idx] if idx < len(parameters_by_pos) else None
+            # a value past the declared parameters goes to *args, which accepts None
             if (
                 val is None
-                and param is not None
-                and param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-                and not param.col_type.nullable
+                and idx < len(parameters_by_pos)
+                and parameters_by_pos[idx].kind
+                in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                and not parameters_by_pos[idx].col_type.nullable
             ):
                 return None
             args.append(val)
@@ -494,13 +494,13 @@ class FunctionCall(Expr):
             if param_name in init_param_names:
                 continue
             val = self._arg_val(data_row, idx)
-            # a name outside the parameter list belongs to a **kwargs parameter
-            param = parameters.get(param_name)
+            # a keyword argument without a declared parameter goes to **kwargs, which accepts None
             if (
                 val is None
-                and param is not None
-                and param.kind in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-                and not param.col_type.nullable
+                and param_name in parameters
+                and parameters[param_name].kind
+                in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                and not parameters[param_name].col_type.nullable
             ):
                 return None
             kwargs[param_name] = val

@@ -1,0 +1,44 @@
+[project]
+name = "modal-poc"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pixeltable[serve]",
+    "modal>=1.6",
+    "hypercorn>=0.17",
+    "torch>=2.11",
+    "transformers>=5.6",
+    "timm>=1.0.11",
+]
+
+[tool.uv.sources]
+pixeltable = { path = "..", editable = true }
+
+[tool.pixeltable]
+# ModalServerClient logs one line per Modal call, at DEBUG
+log_level = "DEBUG"
+
+[tool.pixeltable.udf.'pixeltable.functions.video.clip']
+cpu = 2
+
+[tool.pixeltable.udf.'pixeltable.functions.video.segment_video']
+cpu = 2
+
+[tool.pixeltable.udf.'pixeltable.functions.video.concat_videos']
+cpu = 2
+
+[tool.pixeltable.udf.'pixeltable.functions.image.rotate']
+cpu = 1
+
+[tool.pixeltable.udf.'pixeltable.functions.huggingface.clip']
+cpu = 2
+memory_mb = 4096
+
+[tool.pixeltable.udf.'pixeltable.functions.huggingface.image_captioning']
+cpu = 2
+memory_mb = 8192
+gpu = "T4"
+
+[tool.pixeltable.udf.'pixeltable.functions.huggingface.detr_for_object_detection']
+cpu = 2
+memory_mb = 4096
