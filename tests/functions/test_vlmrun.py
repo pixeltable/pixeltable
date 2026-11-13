@@ -84,7 +84,7 @@ class TestVLMRunClient:
             t.insert(prompt='A red circle')
 
 
-@pytest.mark.skip_merge_queue
+@pytest.mark.very_expensive
 @rerun_on_network_error()
 class TestVLMRun:
     @pytest.mark.parametrize(
@@ -168,7 +168,6 @@ class TestVLMRun:
         structured = json.loads(row['structured']['choices'][0]['message']['content'])
         assert isinstance(structured['title'], str) and isinstance(structured['num_pages'], int)
 
-    @pytest.mark.expensive
     def test_generate_image(self, uses_db: None) -> None:
         skip_test_if_not_installed('vlmrun')
         skip_test_if_no_client('vlmrun')
@@ -183,7 +182,6 @@ class TestVLMRun:
         row = t.collect()[0]
         assert all(isinstance(row[col], PIL.Image.Image) for col in ('generated', 'edited', 'annotated'))
 
-    @pytest.mark.very_expensive
     def test_generate_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('vlmrun')
         skip_test_if_no_client('vlmrun')

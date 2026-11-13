@@ -30,7 +30,7 @@ _VIDEO_URL = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests
 _PDF_URL = 'https://storage.googleapis.com/vlm-data-public-prod/hub/examples/document.invoice/sample-invoice.pdf'
 
 
-@pytest.mark.skip_merge_queue
+@pytest.mark.very_expensive
 @rerun_on_network_error()
 class TestVlmrunGateway:
     def test_chat_completions(self, uses_db: None) -> None:
