@@ -8,6 +8,7 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
+import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.io import import_csv
@@ -324,6 +325,18 @@ class TestPandas:
                 primary_key='ts_n',
             )
         assert 'Primary key column `ts_n` cannot contain null values.' in str(exc_info.value)
+
+    def test_df_row_to_pxt_row_rejects_non_integral_float_for_int(self) -> None:
+        """_df_row_to_pxt_row must reject non-integral floats for Int columns instead of truncating."""
+        from pixeltable.io.pandas import _df_row_to_pxt_row
+
+        schema = {'pk': ts.IntType(), 'v': ts.StringType()}
+        # Simulate a row tuple (index, pk_val, v_val)
+        row = (0, 1.9, 'a')
+        with pytest.raises(excs.RequestError) as exc_info:
+            _df_row_to_pxt_row(row, schema, {})
+        assert 'non-integral float' in str(exc_info.value)
+        assert '1.9' in str(exc_info.value)
 
 
 def _assert_equals_with_nans(a: list[float], b: list[float]) -> bool:
