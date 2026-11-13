@@ -2878,19 +2878,14 @@ class TestTable:
         assert t.where(t.c2 == 200).count() == 0
 
         # unknown primary key: insert
-        if is_data_versioned:
-            v = pxt.create_view(p('view'), t, additional_columns={'c1_upper': t.c1.upper()})
         validate_update_status(
             t.batch_update([{'c1': 'zwei', 'c2': 2}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='insert'),
             expected_row_counts=RowCountStats(ins_rows=1, upd_rows=1),
-            expected_cascade_row_counts=RowCountStats(ins_rows=1, upd_rows=1) if is_data_versioned else RowCountStats(),
+            expected_cascade_row_counts=RowCountStats(),
         )
         assert t.count() == num_rows + 1
         assert t.where(t.c2 == 2).collect()[0]['c1'] == 'zwei'
         assert t.where(t.c2 == 200).collect()[0]['c1'] == 'zweihundert'
-        if is_data_versioned:
-            assert v.where(v.c2 == 2).collect()[0]['c1_upper'] == 'ZWEI'
-            assert v.where(v.c2 == 200).collect()[0]['c1_upper'] == 'ZWEIHUNDERT'
 
         # test composite primary key
         schema: dict[str, Any] = {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.Float | None}

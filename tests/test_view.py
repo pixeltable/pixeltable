@@ -8,6 +8,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import functions as pxtf
+from pixeltable.catalog import RowCountStats
 from pixeltable.func import Batch
 from pixeltable.types import ColumnSpec
 
@@ -1529,6 +1530,40 @@ class TestView:
         assert sorted(r['n'] for r in v1.collect()) == [5, 9]
         assert sorted(r['own'] for r in v2.collect()) == [50, 90]
         assert sorted(r['own3'] for r in v3.collect()) == [51, 91]
+
+    def test_upsert_propagation(self, db_root: DatabaseRoot) -> None:
+        """batch_update(if_not_exists='insert') propagates both its updates and its inserts to every kind of view."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'x': pxt.Int, 'n': pxt.Int}, primary_key='id')
+        t.insert([{'id': 1, 'x': 1, 'n': 1}, {'id': 2, 'x': 2, 'n': 2}, {'id': 3, 'x': 8, 'n': 1}])
+        v = pxt.create_view(p('v'), t, additional_columns={'x2': t.x * 2})
+        vv = pxt.create_view(p('vv'), v, additional_columns={'x3': v.x2 + 1})
+        fv = pxt.create_view(p('fv'), t.where(t.x > 5))
+        cv = pxt.create_view(p('cv'), t, iterator=simple_iterator(t.n))
+
+        validate_update_status(
+            t.batch_update(
+                [{'id': 1, 'x': 10, 'n': 1}, {'id': 3, 'x': 3, 'n': 1}, {'id': 4, 'x': 40, 'n': 2}],
+                if_not_exists='insert',
+            ),
+            expected_row_counts=RowCountStats(ins_rows=1, upd_rows=2),
+            expected_cascade_row_counts=RowCountStats(ins_rows=1 + 1 + 1 + 2, upd_rows=2 + 2 + 1 + 2),
+        )
+        assert list(vv.select(vv.id, vv.x2, vv.x3).order_by(vv.id).collect()) == [
+            {'id': 1, 'x2': 20, 'x3': 21},
+            {'id': 2, 'x2': 4, 'x3': 5},
+            {'id': 3, 'x2': 6, 'x3': 7},
+            {'id': 4, 'x2': 80, 'x3': 81},
+        ]
+        assert fv.select(fv.id).order_by(fv.id).collect()['id'] == [1, 4]
+        assert list(cv.select(cv.id, cv.icol).order_by(cv.id, cv.pos).collect()) == [
+            {'id': 1, 'icol': 0},
+            {'id': 2, 'icol': 0},
+            {'id': 2, 'icol': 1},
+            {'id': 3, 'icol': 0},
+            {'id': 4, 'icol': 0},
+            {'id': 4, 'icol': 1},
+        ]
 
     def test_recompute_column(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
