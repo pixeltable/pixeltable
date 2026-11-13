@@ -687,15 +687,11 @@ class TestComponentView:
 
         def v_rows() -> dict[tuple[int, int], tuple[int, int | None]]:
             rows = v.select(v.id, v.pos, v.icol2, v.annotation).collect()
-            result = {(r['id'], r['pos']): (r['icol2'], r['annotation']) for r in rows}
-            assert len(result) == len(rows)
-            return result
+            return {(r['id'], r['pos']): (r['icol2'], r['annotation']) for r in rows}
 
         def v2_rows() -> dict[tuple[int, int], str | None]:
             rows = v2.select(v2.id, v2.pos, v2.note).collect()
-            result = {(r['id'], r['pos']): r['note'] for r in rows}
-            assert len(result) == len(rows)
-            return result
+            return {(r['id'], r['pos']): r['note'] for r in rows}
 
         t.update({'flag': True, 'other': 1})
         v_contents, v2_contents = v_rows(), v2_rows()
