@@ -11,6 +11,7 @@ from pixeltable_cli.client.utils import (
     ensure_running,
     fetch_health,
     kill_and_wait,
+    pid_is_our_daemon,
     plural,
     port_is_open,
     read_pidfile,
@@ -111,8 +112,8 @@ def _stop(force: bool, ok_if_absent: bool = False) -> None:
         pid_to_kill = health.get('pid')
     elif health is None and tracked_pid is not None:
         # No responder but we have a pidfile entry. Could be a hung daemon (PID alive but not
-        # listening) or a stale pidfile (PID gone).
-        pid_to_kill = tracked_pid
+        # listening) or a stale pidfile, whose PID is gone or now belongs to an unrelated process.
+        pid_to_kill = tracked_pid if pid_is_our_daemon(tracked_pid) else None
     else:
         # health is not None, tracked_pid is None: no pidfile but something is responding.
         # Refuse unless forced - we have no proof the responder is ours.
@@ -133,7 +134,10 @@ def _stop(force: bool, ok_if_absent: bool = False) -> None:
         os.remove(pidfile_path())
     except OSError:
         pass
-    print(f'pxt: stopped daemon (PID {pid_to_kill})')
+    if pid_to_kill is None:
+        print(f'pxt: no daemon running; removed a stale pidfile (PID {tracked_pid})')
+    else:
+        print(f'pxt: stopped daemon (PID {pid_to_kill})')
 
 
 def _status(as_json: bool) -> None:

@@ -268,10 +268,20 @@ def _pid_cmdline(pid: int) -> str | None:
     return line if line != '' else None
 
 
-def _pid_is_our_daemon(pid: int) -> bool:
+def pid_is_our_daemon(pid: int) -> bool:
     """Best-effort check that pid is one of our daemon processes rather than an unrelated process."""
     cmdline = _pid_cmdline(pid)
     return cmdline is not None and _DAEMON_CMDLINE_RE.search(cmdline) is not None
+
+
+def _is_running(proc: psutil.Process) -> bool:
+    """proc.is_running(), except that a process psutil fails to read counts as gone."""
+    try:
+        return proc.is_running()
+    except OSError:
+        # on Linux, psutil re-raises FileNotFoundError when /proc/<pid>/stat is gone before /proc/<pid>, as
+        # during an exit
+        return False
 
 
 def kill_and_wait(pid: int, timeout: float = 5.0) -> None:
@@ -289,7 +299,7 @@ def kill_and_wait(pid: int, timeout: float = 5.0) -> None:
         return
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if not proc.is_running():
+        if not _is_running(proc):
             return
         time.sleep(0.1)
     try:
@@ -362,17 +372,17 @@ def ensure_running() -> str:
         # daemon. An unconfirmed PID is treated as a stale pidfile and we just spawn.
         stale_pid = read_pidfile()
         try:
-            # a psutil.Process carries the creation time, so is_running() below tells the daemon apart from a
+            # a psutil.Process carries the creation time, so _is_running() below tells the daemon apart from a
             # process that inherits its pid during the grace window
             daemon = psutil.Process(stale_pid) if stale_pid is not None else None
-        except psutil.NoSuchProcess:
+        except (psutil.NoSuchProcess, OSError):
             daemon = None
-        if daemon is not None and _pid_is_our_daemon(daemon.pid):
+        if daemon is not None and pid_is_our_daemon(daemon.pid):
             # It may just be slow to answer, so give it a grace window before concluding it is hung;
             # a daemon that comes up in the meantime goes through the same checks as one that
             # answered right away.
             health = _await_health(_STARTUP_GRACE_PERIOD_SECS)
-            if health is None and daemon.is_running():
+            if health is None and _is_running(daemon):
                 kill_and_wait(daemon.pid)
         if health is None:
             spawn_detached()

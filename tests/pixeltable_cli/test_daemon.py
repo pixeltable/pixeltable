@@ -19,6 +19,7 @@ from typing import Any, Iterator
 import psutil
 import pytest
 
+from pixeltable_cli.client.utils import kill_and_wait
 from pixeltable_cli.server import http_server
 from pixeltable_cli.utils import pidfile_path, working_dirs_path
 
@@ -71,6 +72,17 @@ def _replacement_pid(port: int, cwd: pathlib.Path, env_overrides: dict[str, str]
     # unlike pid_exists(), is_running() compares creation times, so a pid that the OS reissued reads as gone
     assert not daemon.is_running()
     return health['pid']
+
+
+@contextlib.contextmanager
+def _bystander() -> Iterator[subprocess.Popen[bytes]]:
+    """A process unrelated to pxt, alive until the block exits."""
+    proc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'], stdin=subprocess.DEVNULL)
+    try:
+        yield proc
+    finally:
+        proc.kill()
+        proc.wait()
 
 
 def _user_site(userbase: pathlib.Path) -> pathlib.Path:
@@ -205,6 +217,7 @@ class TestDaemon:
         _create_pxt_project(project)
         drift_env = {'PIXELTABLE_TEST_DRIFT': '1'}
         pid = _pxt_health(daemon_port, cwd=project)['pid']
+        daemon = psutil.Process(pid)
 
         with _busy_daemon(daemon_port, project, {}):
             r = _pxt(daemon_port, project, drift_env, 'ls', '/', '--json')
@@ -215,7 +228,7 @@ class TestDaemon:
             assert 'POST /api/service/check' in error['message']
             assert 'pxt daemon restart -f' in error['message']
             assert 'pixeltable_env' not in error['message']
-            assert psutil.pid_exists(pid)
+            assert daemon.is_running()
 
         _replacement_pid(daemon_port, project, drift_env, pid)
 
@@ -289,6 +302,27 @@ class TestDaemon:
             with contextlib.suppress(psutil.NoSuchProcess):
                 daemon.resume()
 
+    def test_kill_and_wait_spares_recycled_pid(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """kill_and_wait() does not signal a process that inherited the pid of the process it was asked to kill."""
+        init = psutil.Process.__init__
+        snapshots: list[psutil.Process] = []
+
+        def init_as_earlier_process(self: psutil.Process, pid: int | None = None) -> None:
+            # kill_and_wait()'s own Process records an earlier creation time, as if the daemon it was asked to kill
+            # had exited and the OS had given its pid to the bystander; later Processes record the true one
+            init(self, pid)
+            if len(snapshots) == 0:
+                snapshots.append(self)
+                self._ident = (self.pid, self._ident[1] - 100)  # type: ignore[attr-defined]
+
+        with _bystander() as bystander:
+            with monkeypatch.context() as m:
+                m.setattr(psutil.Process, '__init__', init_as_earlier_process)
+                kill_and_wait(bystander.pid)
+
+            assert len(snapshots) == 1
+            assert bystander.poll() is None
+
     def test_keep_briefly_unresponsive_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
         """A daemon that misses a health probe but answers within the client's grace period keeps serving, and
         keeps what it holds for its clients, such as their working directories."""
@@ -348,6 +382,19 @@ class TestDaemon:
         pathlib.Path(pidfile_path(daemon_port)).write_text(pidfile_content, encoding='utf-8')
 
         assert _pxt_health(daemon_port, cwd=project)['project_root'] == str(project)
+
+    def test_stop_spares_process_named_by_stale_pidfile(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """With no daemon answering, pxt daemon stop removes a pidfile that names an unrelated process and leaves
+        that process running."""
+        pidfile = pathlib.Path(pidfile_path(daemon_port))
+        with _bystander() as bystander:
+            pidfile.write_text(str(bystander.pid), encoding='utf-8')
+
+            r = _pxt(daemon_port, tmp_path, {}, 'daemon', 'stop')
+            assert r.returncode == 0, r.stderr
+            assert r.stdout == f'pxt: no daemon running; removed a stale pidfile (PID {bystander.pid})\n'
+            assert not pidfile.exists()
+            assert bystander.poll() is None
 
     @pytest.mark.parametrize('content', ['not json', '{"working_dirs": []}'])
     def test_unusable_working_dirs_file(self, daemon_port: int, tmp_path: pathlib.Path, content: str) -> None:

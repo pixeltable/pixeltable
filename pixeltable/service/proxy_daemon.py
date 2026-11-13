@@ -207,25 +207,26 @@ def stop(db: str) -> None:
         except (psutil.Error, OSError):
             pass  # already gone, with nothing to wait on
         else:
-            deadline = time.monotonic() + _STOP_TIMEOUT
-            while time.monotonic() < deadline and proc.is_running() and pid_alive(pid):
-                # Reap promptly if the daemon is our own child, so its zombie isn't mistaken for a live
-                # process and we don't wait out the full timeout; a no-op when it was launched by a
-                # different process (e.g. a prior `pxt localproxy start`), in which case init reaps it.
-                # os.WNOHANG is POSIX-only (Windows defines os.waitpid but not WNOHANG); Windows has no
-                # zombies, so there is nothing to reap.
-                if hasattr(os, 'WNOHANG'):
-                    try:
-                        os.waitpid(pid, os.WNOHANG)
-                    except (ChildProcessError, OSError):
-                        pass
-                time.sleep(0.05)
-            if proc.is_running() and pid_alive(pid):
-                # Graceful shutdown overran the timeout; force termination so we never leak the daemon.
-                try:
+            try:
+                deadline = time.monotonic() + _STOP_TIMEOUT
+                while time.monotonic() < deadline and proc.is_running() and pid_alive(pid):
+                    # Reap promptly if the daemon is our own child, so its zombie isn't mistaken for a live
+                    # process and we don't wait out the full timeout; a no-op when it was launched by a
+                    # different process (e.g. a prior `pxt localproxy start`), in which case init reaps it.
+                    # os.WNOHANG is POSIX-only (Windows defines os.waitpid but not WNOHANG); Windows has no
+                    # zombies, so there is nothing to reap.
+                    if hasattr(os, 'WNOHANG'):
+                        try:
+                            os.waitpid(pid, os.WNOHANG)
+                        except (ChildProcessError, OSError):
+                            pass
+                    time.sleep(0.05)
+                if proc.is_running() and pid_alive(pid):
+                    # Graceful shutdown overran the timeout; force termination so we never leak the daemon.
                     proc.kill()
-                except (psutil.Error, OSError):
-                    pass  # exited after the check
+            except (psutil.Error, OSError):
+                # gone or exiting: on Linux, is_running() can raise FileNotFoundError during an exit
+                pass
     _port_lock(db).unlink(missing_ok=True)
 
 
