@@ -1711,13 +1711,8 @@ def text_to_image(
         requires_safety_checker=False,
     )
 
-    try:
-        if device == 'cuda' and hasattr(pipeline, 'enable_model_cpu_offload'):
-            pipeline.enable_model_cpu_offload()
-        if hasattr(pipeline, 'enable_memory_efficient_attention'):
-            pipeline.enable_memory_efficient_attention()
-    except Exception:
-        pass  # Ignore optimization failures
+    if device == 'cuda':
+        pipeline.enable_model_cpu_offload()
 
     generator = None if seed is None else torch.Generator(device=device).manual_seed(seed)
 
@@ -1910,13 +1905,8 @@ def image_to_image(
         requires_safety_checker=False,
     )
 
-    try:
-        if device == 'cuda' and hasattr(pipeline, 'enable_model_cpu_offload'):
-            pipeline.enable_model_cpu_offload()
-        if hasattr(pipeline, 'enable_memory_efficient_attention'):
-            pipeline.enable_memory_efficient_attention()
-    except Exception:
-        pass  # Ignore optimization failures
+    if device == 'cuda':
+        pipeline.enable_model_cpu_offload()
 
     generator = None if seed is None else torch.Generator(device=device).manual_seed(seed)
 
@@ -2160,13 +2150,8 @@ def image_to_video(
         variant='fp16' if device == 'cuda' else None,
     )
 
-    try:
-        if device == 'cuda' and hasattr(pipe, 'enable_model_cpu_offload'):
-            pipe.enable_model_cpu_offload()
-        if hasattr(pipe, 'enable_memory_efficient_attention'):
-            pipe.enable_memory_efficient_attention()
-    except Exception:
-        pass  # Ignore optimization failures
+    if device == 'cuda':
+        pipe.enable_model_cpu_offload()
 
     generator = None if seed is None else torch.Generator(device=device).manual_seed(seed)
 

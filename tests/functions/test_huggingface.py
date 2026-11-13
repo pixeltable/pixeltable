@@ -655,10 +655,9 @@ class TestHuggingface:
         )
 
         validate_update_status(t.insert(prompt=test_prompt), expected_rows=1)
-        result = t.select(t.image).collect()[0]
-
-        # Verify we got an image
-        assert result['image'] is not None
+        img = t.select(t.image).collect()[0]['image']
+        assert img.size == (256, 256)
+        assert np.asarray(img).std() > 0
 
     @pytest.mark.xdist_group('large_model')
     def test_image_to_image(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
@@ -683,10 +682,8 @@ class TestHuggingface:
         validate_update_status(
             t.insert(img=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH), prompt=test_prompt), expected_rows=1
         )
-        result = t.select(t.modified_image).collect()[0]
-
-        # Verify we got a modified image
-        assert result['modified_image'] is not None
+        img = t.select(t.modified_image).collect()[0]['modified_image']
+        assert np.asarray(img).std() > 0
 
     @pytest.mark.xdist_group('large_model')
     def test_image_to_video(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
