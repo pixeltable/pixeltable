@@ -14,7 +14,6 @@ import pixeltable as pxt
 from pixeltable import env, exprs, telemetry_schemas
 from pixeltable.func import Tools
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import exponential_backoff
 
 if TYPE_CHECKING:
@@ -373,7 +372,7 @@ def _anthropic_response_to_pxt_tool_calls(response: dict) -> dict | None:
     return pxt_tool_calls
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['invoke_tools', 'messages']
 
 
 def __dir__() -> list[str]:

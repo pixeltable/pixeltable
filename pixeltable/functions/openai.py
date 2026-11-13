@@ -25,7 +25,6 @@ from pixeltable import env, exceptions as excs, exprs, telemetry_schemas, type_s
 from pixeltable.config import Config
 from pixeltable.func import Batch, Tools
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import parse_duration_str
 from pixeltable.utils.image import to_base64
 from pixeltable.utils.local_store import TempStore
@@ -1969,7 +1968,21 @@ def _responses_output_to_pxt_tool_calls(response: dict) -> dict | None:
     return pxt_tool_calls
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'chat_completions',
+    'decisions',
+    'embeddings',
+    'image_edits',
+    'image_generations',
+    'image_variations',
+    'invoke_tools',
+    'moderations',
+    'responses',
+    'speech',
+    'transcriptions',
+    'translations',
+    'vision',
+]
 
 
 def __dir__() -> list[str]:

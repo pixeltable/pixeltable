@@ -597,7 +597,7 @@ class StoreBase:
                 num_rows, table=self.tbl_version.get().name, table_id=str(self.tbl_version.id)
             )
             row_counts = RowCountStats(
-                ins_rows=num_rows, num_excs=num_excs, skipped_rows=exec_plan.ctx.num_skipped_rows + num_conflicts
+                inserted_rows=num_rows, num_excs=num_excs, skipped_rows=exec_plan.ctx.num_skipped_rows + num_conflicts
             )
 
             return cols_with_excs, row_counts, (inserted_rows if return_rows else None)
@@ -785,7 +785,7 @@ class StoreBase:
             if len(bind_params) > 0:
                 flush()
 
-        row_counts = RowCountStats(upd_rows=num_rows, num_excs=num_excs)
+        row_counts = RowCountStats(updated_rows=num_rows, num_excs=num_excs)
         return cols_with_excs, row_counts, (updated_rows if return_rows else None)
 
     def _sql_update(self, stmt: sql.Update, params: list[dict[str, Any]]) -> None:
@@ -951,9 +951,9 @@ class StoreView(StoreBase):
 
 
 class StoreComponentView(StoreView):
-    """A view that stores components of its base, as produced by a ComponentIterator
+    """A view that stores components of its base, as produced by an iterator
 
-    PK: now also includes pos, the position returned by the ComponentIterator for the base row identified by base_rowid
+    PK: now also includes pos, the position returned by the iterator for the base row identified by base_rowid
     """
 
     def __init__(self, catalog_view: catalog.TableVersion):

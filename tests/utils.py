@@ -46,7 +46,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs, telemetry
 from pixeltable._query import ResultSet
-from pixeltable.catalog import Path as PxtPath, retry_md_read_loop
+from pixeltable.catalog import Path as PxtPath, RowCountStats, retry_md_read_loop
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
@@ -1021,10 +1021,20 @@ def ensure_s3_pytest_resources_access() -> None:
         pytest.skip(f'S3 bucket not reachable or not configured: {exc}')
 
 
-def validate_update_status(status: pxt.UpdateStatus, expected_rows: int | None = None) -> None:
+def validate_update_status(
+    status: pxt.UpdateStatus,
+    expected_rows: int | None = None,
+    *,
+    expected_row_counts: RowCountStats | None = None,
+    expected_cascade_row_counts: RowCountStats | None = None,
+) -> None:
     assert status.num_excs == 0
     if expected_rows is not None:
         assert status.num_rows == expected_rows, status
+    if expected_row_counts is not None:
+        assert status.row_count_stats == expected_row_counts, status
+    if expected_cascade_row_counts is not None:
+        assert status.cascade_row_count_stats == expected_cascade_row_counts, status
 
 
 def run_workers(target: Callable[[int], None], n_threads: int) -> list[tuple[int, BaseException]]:

@@ -16,7 +16,6 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable.env import Env
-from pixeltable.utils.code import local_public_names
 
 _SQL_ZERO = sql.literal(0)
 
@@ -258,7 +257,22 @@ def replace(self: date, year: int | None = None, month: int | None = None, day: 
     return self.replace(**kwargs)
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'add_days',
+    'day',
+    'isocalendar',
+    'isoformat',
+    'isoweekday',
+    'make_date',
+    'month',
+    'replace',
+    'strftime',
+    'strptime',
+    'today',
+    'toordinal',
+    'weekday',
+    'year',
+]
 
 
 def __dir__() -> list[str]:

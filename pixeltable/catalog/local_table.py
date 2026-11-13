@@ -1379,9 +1379,9 @@ class LocalTable(Table):
                     created_at=datetime.datetime.fromtimestamp(vers_md.version_md.created_at, tz=datetime.timezone.utc),
                     user=vers_md.version_md.user,
                     change_type=change_type,
-                    inserts=rcs.ins_rows,
-                    updates=rcs.upd_rows,
-                    deletes=rcs.del_rows,
+                    inserts=rcs.inserted_rows,
+                    updates=rcs.updated_rows,
+                    deletes=rcs.deleted_rows,
                     errors=rcs.num_excs,
                     schema_change=schema_change,
                 )

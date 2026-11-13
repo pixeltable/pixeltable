@@ -801,7 +801,7 @@ class TableVersion:
             plan.ctx.profile.print(num_rows=row_count)
 
         # TODO: what to do about system columns with exceptions?
-        row_counts = RowCountStats(upd_rows=row_count, num_excs=num_excs)  # add_columns
+        row_counts = RowCountStats(updated_rows=row_count, num_excs=num_excs)  # add_columns
         return UpdateStatus(cols_with_excs=self._cols_with_excs_names(cols_with_excs), row_count_stats=row_counts)
 
     def _own_col_refs(self, value_expr_dict: dict[str, Any] | None) -> set[int]:
@@ -1471,7 +1471,7 @@ class TableVersion:
                 insert_status = self.insert(
                     unmatched_rows, None, print_stats=False, fail_on_exception=False, return_rows=return_rows
                 )
-                result += insert_status.to_cascade()
+                result += insert_status
         return result
 
     def _update_rows(self, plan: 'exec.ExecNode', set_cols: list[Column], return_rows: bool) -> UpdateStatus:
@@ -1791,14 +1791,14 @@ class TableVersion:
 
         sql_where_clause = where.sql_expr(exprs.SqlElementCache()) if where is not None else None
         if self.is_data_versioned:
-            del_rows = self.store_tbl.soft_delete_rows(
+            deleted_rows = self.store_tbl.soft_delete_rows(
                 self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause
             )
         else:
-            del_rows = self.store_tbl.delete_rows(where_clause=sql_where_clause)
-        row_counts = RowCountStats(del_rows=del_rows)  # delete
+            deleted_rows = self.store_tbl.delete_rows(where_clause=sql_where_clause)
+        row_counts = RowCountStats(deleted_rows=deleted_rows)  # delete
         result = UpdateStatus(row_count_stats=row_counts)
-        if del_rows == 0:
+        if deleted_rows == 0:
             # self.version belongs to an earlier operation, and the views would match that operation's retired rows
             return result
 
