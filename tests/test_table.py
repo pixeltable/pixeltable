@@ -2878,9 +2878,8 @@ class TestTable:
         assert t.where(t.c2 == 200).count() == 0
 
         # unknown primary key: insert
-        status = t.batch_update([{'c1': 'zwei', 'c2': 2}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='insert')
         validate_update_status(
-            status,
+            t.batch_update([{'c1': 'zwei', 'c2': 2}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='insert'),
             expected_row_counts=RowCountStats(ins_rows=1, upd_rows=1),
             expected_cascade_row_counts=RowCountStats(),
         )
@@ -3114,9 +3113,8 @@ class TestTable:
         t.insert([{'id': 1, 'x': 1}, {'id': 2, 'x': 2}])
         v = pxt.create_view(p('view'), t, additional_columns={'x2': t.x * 2})
 
-        status = t.batch_update([{'id': 1, 'x': 10}, {'id': 3, 'x': 30}], if_not_exists='insert')
         validate_update_status(
-            status,
+            t.batch_update([{'id': 1, 'x': 10}, {'id': 3, 'x': 30}], if_not_exists='insert'),
             expected_row_counts=RowCountStats(ins_rows=1, upd_rows=1),
             expected_cascade_row_counts=RowCountStats(ins_rows=1, upd_rows=1),
         )
