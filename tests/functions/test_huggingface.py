@@ -682,7 +682,9 @@ class TestHuggingface:
         validate_update_status(
             t.insert(img=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH), prompt=test_prompt), expected_rows=1
         )
-        img = t.select(t.modified_image).collect()[0]['modified_image']
+        res = t.select(t.modified_image, width=t.img.width, height=t.img.height).collect()[0]
+        img = res['modified_image']
+        assert img.size == (res['width'], res['height'])
         assert np.asarray(img).std() > 0
 
     @pytest.mark.xdist_group('large_model')
