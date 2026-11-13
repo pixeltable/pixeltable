@@ -145,7 +145,8 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     strategy:
-      fail-fast: false
+      # Merge queue only, so that validate fails at the first failure rather than after the slowest leg
+      fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
 
     defaults:
