@@ -27,6 +27,7 @@ from pixeltable.utils.object_stores import ObjectOps
 from .column import Column
 from .globals import (
     _ROWID_COLUMN_NAME,
+    PY_RERUN_HINT,
     IndexSpec,
     MediaValidation,
     fold_identifier,
@@ -946,7 +947,7 @@ class TableVersion:
         if self.schema_version != expected_schema_version:
             raise excs.ConcurrencyError(
                 excs.ErrorCode.CONCURRENT_MODIFICATION,
-                f'Table {self.name!r} was modified since update_all() computed its changes; re-run update_all().',
+                f'Table {self.name!r} was modified while this update was in progress. {PY_RERUN_HINT}',
             )
 
         self._validate_idx_drops(dropped_idx_ids)
@@ -1113,31 +1114,28 @@ class TableVersion:
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
     def alter_column(self, col: Column, type_: ts.ColumnType) -> None:
-        """Alter the type of a column. Currently only supports widening a value column to nullable."""
-        assert self.is_mutable
-        assert not col.is_computed
-        assert not col.is_pk
-        if type_ == col.col_type:
-            # no-op
-            return
-
-        valid_change = type_.matches(col.col_type) and not col.col_type.nullable and type_.nullable
-        if not valid_change:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Column {col.name!r} type cannot be changed from {col.col_type} to {type_}',
-            )
-
-        # alter column type from required to nullable
+        """Change the type of a data column as a new schema version."""
         old_type = col.col_type
-        col.col_type = type_
-        self._schema_version_md.columns[col.id].col_type = type_.as_dict()
+        self.alter_col_type_in_version(col, type_)
         self.bump_version(bump_schema_version=True)
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(
             f'Altered column {col.name!r} type from {old_type} to {type_} in table {self.name}, new version: '
             f'{self.version}'
         )
+
+    def alter_col_type_in_version(self, col: Column, type_: ts.ColumnType) -> None:
+        """Change the type of a data column within the current schema version, without writing the metadata."""
+        assert self.is_mutable
+        assert not col.is_computed and not col.is_pk
+        # the only supported change makes the column nullable
+        assert not col.col_type.nullable and type_ == col.col_type.copy(nullable=True)
+        cat = get_runtime().catalog
+        cat.mark_modified_tv(self.handle)
+        # the expressions that reference col keep its old type
+        cat.invalidate_after_xact(self)
+        col.col_type = type_
+        self._schema_version_md.columns[col.id].col_type = type_.as_dict()
 
     def _alter_value_expr_in_version(self, col: Column, new_value_expr: exprs.Expr) -> None:
         """Replace a computed column's value expression within the current schema version."""
@@ -1270,8 +1268,8 @@ class TableVersion:
         get_runtime().catalog.record_column_dependencies(self)
         self.path.clear_cached_md()
         _logger.info(
-            f'Altered value expression of column {col.name!r} in table {self.name} from {old_value_expr} to '
-            f'{new_value_expr}, new version: {self.version}'
+            f'Altered value expression of column {col.name!r} in table {self.name} from {old_value_expr!s} to '
+            f'{new_value_expr!s}, new version: {self.version}'
         )
 
         if not recompute:
@@ -1302,9 +1300,12 @@ class TableVersion:
         print_stats: bool = False,
         fail_on_exception: bool = True,
         return_rows: bool = False,
+        skip_existing_keys: bool = False,
     ) -> UpdateStatus:
         """
         Insert rows into this table from an explicit list of dicts, a Query, or a SqlDataSource.
+
+        With skip_existing_keys, a row whose primary key is already in the table is not inserted.
         """
         from pixeltable.plan import Planner
 
@@ -1313,9 +1314,13 @@ class TableVersion:
         assert (source is None) != (query is None)
         with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
             if query is not None:
-                plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
+                plan = Planner.create_query_insert_plan(
+                    self, query, ignore_errors=not fail_on_exception, skip_existing_keys=skip_existing_keys
+                )
             else:
-                plan = Planner.create_insert_plan(self, source, ignore_errors=not fail_on_exception)
+                plan = Planner.create_insert_plan(
+                    self, source, ignore_errors=not fail_on_exception, skip_existing_keys=skip_existing_keys
+                )
             telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(plan)))
 
         rowid_gen: Iterator[int] | None = None
@@ -1339,6 +1344,7 @@ class TableVersion:
                 rowids=rowid_gen,
                 abort_on_exc=fail_on_exception,
                 return_rows=return_rows,
+                skip_existing_keys=skip_existing_keys,
             )
             return result
 
@@ -1351,6 +1357,7 @@ class TableVersion:
         print_stats: bool = False,
         abort_on_exc: bool = False,
         return_rows: bool = False,
+        skip_existing_keys: bool = False,
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
         if self.is_data_versioned:
@@ -1358,7 +1365,11 @@ class TableVersion:
             self.bump_version(timestamp, bump_schema_version=False)
         exec_plan.ctx.title = self.display_str()
         cols_with_excs, row_counts, rows = self.store_tbl.insert_rows(
-            exec_plan, rowids=rowids, abort_on_exc=abort_on_exc, return_rows=return_rows
+            exec_plan,
+            rowids=rowids,
+            abort_on_exc=abort_on_exc,
+            return_rows=return_rows,
+            skip_existing_keys=skip_existing_keys,
         )
         result = UpdateStatus(
             cols_with_excs=self._cols_with_excs_names(cols_with_excs), rows=rows, row_count_stats=row_counts
@@ -1762,7 +1773,7 @@ class TableVersion:
         # for now we require that the updated rows can be identified via SQL, rather than via a Python filter
         if analysis_info.filter is not None:
             raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter}'
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter!s}'
             )
 
     def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:

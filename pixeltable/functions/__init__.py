@@ -50,7 +50,7 @@ from . import (
     whisperx,
     yolox,
 )
-from .globals import count, filter, map, max, mean, min, sort, sum
+from .globals import coalesce, count, filter, map, max, mean, min, sort, sum
 
 __all__ = [
     'CodecContextMetadata',
@@ -61,6 +61,7 @@ __all__ = [
     'audio',
     'bedrock',
     'bfl',
+    'coalesce',
     'count',
     'date',
     'deepseek',

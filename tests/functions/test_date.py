@@ -1,5 +1,5 @@
 import time
-from datetime import date
+from datetime import date, datetime
 from typing import Callable
 from zoneinfo import ZoneInfo
 
@@ -116,3 +116,40 @@ class TestDate:
             _ = t.select(t.dt, outp=t.dt + 1)
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='requires numeric types'):
             _ = t.select(t.dt, outm=t.dt - 1)
+
+    def test_today_and_parse(self, uses_db: None) -> None:
+        default_tz = ZoneInfo('America/Anchorage')
+        Env.get().default_time_zone = default_tz
+        from pixeltable.functions.date import strptime, today
+
+        t = pxt.create_table(
+            'test_tbl', {'n': pxt.Int, 'local': pxt.String | None, 'iso': pxt.String | None, 'tz': pxt.String | None}
+        )
+        rows = [
+            {'n': 0, 'local': '01.10.2026', 'iso': '2026-10-01', 'tz': 'Pacific/Kiritimati'},
+            {'n': 1, 'local': '2026-10-01', 'iso': None, 'tz': None},
+            {'n': 2, 'local': None, 'iso': None, 'tz': None},
+        ]
+        validate_update_status(t.insert(rows), expected_rows=3)
+        status = t.add_computed_column(parsed=strptime(t.local, '%d.%m.%Y'), on_error='ignore')
+        assert status.num_excs == 1
+        res = (
+            t.select(t.parsed, err=t.parsed.errormsg, cast=t.iso.astype(pxt.Date | None), selected=today())
+            .order_by(t.n)
+            .collect()
+        )
+        assert res['parsed'] == [date(2026, 10, 1), None, None]
+        assert "does not match format '%d.%m.%Y'" in res['err'][1]
+        assert res['cast'] == [date(2026, 10, 1), None, None]
+
+        expected = datetime.now(default_tz).date()
+        assert res['selected'] == [expected] * 3
+        assert pxt.eval_udf(today) == expected
+
+        # an explicit time zone, and a null one, which means the default time zone
+        kiritimati = datetime.now(ZoneInfo('Pacific/Kiritimati')).date()
+        assert t.where(today('Pacific/Kiritimati') == kiritimati).count() == 3
+        assert t.where((t.tz == None) & (today(t.tz) == expected)).count() == 2
+        t.add_computed_column(stored_today=today(t.tz))
+        assert t.order_by(t.n).select(t.stored_today).collect()['stored_today'] == [kiritimati, expected, expected]
+        assert pxt.eval_udf(today, 'Pacific/Kiritimati') == kiritimati

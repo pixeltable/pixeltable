@@ -49,7 +49,7 @@ from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectSto
 if TYPE_CHECKING:
     from pixeltable._query import Query
 
-PROTOCOL_VERSION = 9
+PROTOCOL_VERSION = 10
 
 
 def protocol_mismatch_message(client_version: int, server_version: int, catalog_uri: Path) -> str:

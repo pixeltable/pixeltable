@@ -63,6 +63,7 @@ from .type_system import (
     Timestamp,
     Video,
 )
+from .types import FunctionKind, FunctionList, FunctionMetadata
 
 # isort: split
 from .api import (
@@ -78,6 +79,7 @@ from .api import (
     create_view,
     drop_dir,
     drop_table,
+    eval_udf,
     get_dir_contents,
     get_dir_tree,
     get_table,
@@ -121,6 +123,9 @@ __all__ = [
     'ExternalServiceError',
     'Float',
     'Function',
+    'FunctionKind',
+    'FunctionList',
+    'FunctionMetadata',
     'Image',
     'IndexMetadata',
     'InsertableTable',
@@ -158,6 +163,7 @@ __all__ = [
     'create_view',
     'drop_dir',
     'drop_table',
+    'eval_udf',
     'expr_udf',
     'functions',
     'get_dir_contents',

@@ -134,11 +134,7 @@ class ExprTemplateFunction(Function):
 
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         assert not self.is_polymorphic
-        expr = self.instantiate(args, kwargs)
-        row_builder = exprs.RowBuilder(output_exprs=[expr], columns=[], input_exprs=[])
-        row = row_builder.make_row()
-        row_builder.eval(row, ctx=row_builder.default_eval_ctx)
-        return row[row_builder.get_output_exprs()[0].slot_idx]
+        return self.instantiate(args, kwargs).eval_without_row()
 
     @property
     def display_name(self) -> str:

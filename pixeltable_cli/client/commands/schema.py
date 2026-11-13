@@ -245,6 +245,8 @@ Notes:
   model base, and every udf its columns call has a module path another process resolves.
   Takes no TARGET and reads no catalog, so it says nothing about what a target already contains;
   'pxt schema diff' answers that.
+  A warning reports a computed column that references no column: Python code in a model body, such
+  as str() or `is None`, runs once at class definition and leaves a constant.
   A warning reports a project module whose name an installed distribution also answers to: the
   project root goes on sys.path after the installed packages, so an import reads the installed one.
 

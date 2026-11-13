@@ -1,6 +1,7 @@
 # ruff: noqa: F401
 
 from .aggregation_node import AggregationNode
+from .anti_join_node import AntiJoinNode
 from .cache_prefetch_node import CachePrefetchNode
 from .cell_materialization_node import CellMaterializationNode
 from .cell_reconstruction_node import CellReconstructionNode

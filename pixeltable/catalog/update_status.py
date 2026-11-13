@@ -18,6 +18,7 @@ class RowCountStats:
     deleted_rows: int = 0
     updated_rows: int = 0
     num_excs: int = 0  # total number of exceptions
+    skipped_rows: int = 0  # rows not inserted because their primary key is already in the table
 
     @property
     def num_rows(self) -> int:
@@ -33,6 +34,7 @@ class RowCountStats:
             deleted_rows=self.deleted_rows,
             updated_rows=self.updated_rows + self.inserted_rows,
             num_excs=self.num_excs,
+            skipped_rows=self.skipped_rows,
         )
 
     def __add__(self, other: 'RowCountStats') -> 'RowCountStats':
@@ -44,6 +46,7 @@ class RowCountStats:
             deleted_rows=self.deleted_rows + other.deleted_rows,
             updated_rows=self.updated_rows + other.updated_rows,
             num_excs=self.num_excs + other.num_excs,
+            skipped_rows=self.skipped_rows + other.skipped_rows,
         )
 
 
@@ -140,6 +143,9 @@ class UpdateStatus:
             msg += f' in {duration:.2f} s'
             if duration > 0:
                 msg += f' ({self.num_rows / duration:.2f} rows/s)'
+        num_skipped = self.row_count_stats.skipped_rows
+        if num_skipped > 0:
+            msg += f'; skipped {num_skipped} existing row{"" if num_skipped == 1 else "s"}'
         return msg
 
     @classmethod
@@ -157,6 +163,8 @@ class UpdateStatus:
             messages.append(f'{self.__cnt_str(stats.deleted_rows, "row")} deleted')
         if stats.updated_rows > 0:
             messages.append(f'{self.__cnt_str(stats.updated_rows, "row")} updated')
+        if stats.skipped_rows > 0:
+            messages.append(f'{self.__cnt_str(stats.skipped_rows, "existing row")} skipped')
         if stats.num_excs > 0:
             messages.append(self.__cnt_str(stats.num_excs, 'exception'))
         p.text(', '.join(messages) + '.' if len(messages) > 0 else 'No rows affected.')
