@@ -402,7 +402,7 @@ class SqlNode(ExecNode):
             excluded_tv = exclude_deleted_at_current_version.get()
             excluded_rowid_cols = excluded_tv.store_tbl.rowid_columns()
             path_rowid_cols = tbl.tbl_version.get().store_tbl.rowid_columns()
-            assert len(excluded_rowid_cols) == len(path_rowid_cols)
+            assert len(excluded_rowid_cols) >= len(path_rowid_cols)
             on_clause = sql.and_(
                 *[c1 == c2 for c1, c2 in zip(excluded_rowid_cols, path_rowid_cols)],
                 excluded_tv.store_tbl.v_max_col == excluded_tv.version,

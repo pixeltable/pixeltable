@@ -1691,16 +1691,13 @@ class TableVersion:
         if cascade:
             base_versions = [None if len(plans) == 0 else self.version, *base_versions]  # don't update in place
             changed_qids = {c.qid for c in modified_cols} | {c.qid for c in recomputed_view_cols}
+            changed_dependents = self.get_dependent_columns(modified_cols)
 
             # propagate to views
             for view in self.mutable_views:
                 view_tv = view.get()
                 recomputed_cols = [col for col in recomputed_view_cols if col.get_tbl().id == view.id]
-                # any and all are equivalent since all iterator columns share the same input columns meaning
-                # if one is recomputed they all are. However any is more efficient since it can short circuit.
-                needs_iterator_reload = view_tv.is_component_view and any(
-                    view_tv.is_iterator_column(col) for col in recomputed_cols
-                )
+                needs_iterator_reload = any(view_tv.is_iterator_column(col) for col in changed_dependents)
 
                 membership_change = base_membership_change or (
                     # an update can move a row in or out of a filtered view, but only if it changed one of the columns
@@ -1713,7 +1710,7 @@ class TableVersion:
                 assert len(updated_bases) > 0  # the table where the update started always has a plan
 
                 view_plans: list[exec.ExecNode] = []
-                if needs_iterator_reload or (membership_change and view_tv.is_component_view):
+                if needs_iterator_reload:
                     view_plans.append(
                         Planner.create_view_load_plan(view_tv.path, created_at_current_version=updated_bases)
                     )
@@ -2119,8 +2116,8 @@ class TableVersion:
         return f'{"Table" if self.is_insertable else "View"} {self.name!r}'
 
     def is_iterator_column(self, col: Column) -> bool:
-        """Returns True if col is produced by an iterator (including the pos column)"""
-        return col.is_iterator_col
+        """Returns True if col is produced by this table's iterator (including the pos column)"""
+        return col.get_tbl().id == self.id and col.is_iterator_col
 
     def iterator_columns(self) -> list[Column]:
         """Return all iterator-produced columns (including the pos column)"""

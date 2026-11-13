@@ -100,6 +100,32 @@ class scaled_iterator(pxt.PxtIterator):
         self.i = pos
 
 
+class CounterRow(TypedDict):
+    i: int
+
+
+@pxt.iterator(unstored_cols=['i'])
+class unstored_counter(pxt.PxtIterator):
+    """Emits n rows, none of whose columns are stored."""
+
+    def __init__(self, n: int):
+        self.n = n
+        self.i = 0
+
+    def __next__(self) -> CounterRow:
+        if self.i >= self.n:
+            raise StopIteration
+        row: CounterRow = {'i': self.i}
+        self.i += 1
+        return row
+
+    def close(self) -> None:
+        pass
+
+    def seek(self, pos: int, **kwargs: Any) -> None:
+        self.i = pos
+
+
 class MixedCaseRow(TypedDict):
     MyOutput: int
     Frame: int
@@ -648,6 +674,172 @@ class TestComponentView:
         # n=3 becomes n=1, which no longer satisfies the filter
         t.update({'n': 1}, where=t.n == 3)
         assert len(v.collect()) == 4
+
+    def test_membership_change_keeps_view_local_values(self, db_root: DatabaseRoot) -> None:
+        """A base table update that changes a component view's membership keeps the non-computed values of view rows
+        that stay."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'flag': pxt.Bool, 'n': pxt.Int, 'other': pxt.Int | None})
+        t.insert(
+            [
+                {'id': 1, 'flag': True, 'n': 2},
+                {'id': 2, 'flag': True, 'n': 3},
+                {'id': 3, 'flag': False, 'n': 2},
+                {'id': 4, 'flag': True, 'n': 0},
+            ]
+        )
+        v = pxt.create_view(p('view'), t.where(t.flag == True), iterator=simple_iterator(t.n))
+        v.add_computed_column(icol2=v.icol * 2)
+        v.add_column(annotation=pxt.Int | None)
+        v2 = pxt.create_view(p('view2'), v)
+        v2.add_column(note=pxt.String | None)
+        v.update({'annotation': 42})
+        v2.update({'note': 'x'})
+
+        def v_rows() -> dict[tuple[int, int], tuple[int, int | None]]:
+            rows = v.select(v.id, v.pos, v.icol2, v.annotation).collect()
+            return {(r['id'], r['pos']): (r['icol2'], r['annotation']) for r in rows}
+
+        def v2_rows() -> dict[tuple[int, int], str | None]:
+            rows = v2.select(v2.id, v2.pos, v2.note).collect()
+            return {(r['id'], r['pos']): r['note'] for r in rows}
+
+        assert v_rows() == {
+            (1, 0): (0, 42),
+            (1, 1): (2, 42),
+            (2, 0): (0, 42),
+            (2, 1): (2, 42),
+            (2, 2): (4, 42),
+        }  # fmt: skip
+        assert v2_rows() == {
+            (1, 0): 'x',
+            (1, 1): 'x',
+            (2, 0): 'x',
+            (2, 1): 'x',
+            (2, 2): 'x',
+        }  # fmt: skip
+
+        t.update({'flag': True, 'other': 1})
+        assert v_rows() == {
+            (1, 0): (0, 42),
+            (1, 1): (2, 42),
+            (2, 0): (0, 42),
+            (2, 1): (2, 42),
+            (2, 2): (4, 42),
+            (3, 0): (0, None),
+            (3, 1): (2, None),
+        }
+        assert v2_rows() == {
+            (1, 0): 'x',
+            (1, 1): 'x',
+            (2, 0): 'x',
+            (2, 1): 'x',
+            (2, 2): 'x',
+            (3, 0): None,
+            (3, 1): None,
+        }
+
+        t.update({'flag': False}, where=t.id == 1)
+        assert v_rows() == {
+            (2, 0): (0, 42),
+            (2, 1): (2, 42),
+            (2, 2): (4, 42),
+            (3, 0): (0, None),
+            (3, 1): (2, None),
+        }  # fmt: skip
+        assert v2_rows() == {
+            (2, 0): 'x',
+            (2, 1): 'x',
+            (2, 2): 'x',
+            (3, 0): None,
+            (3, 1): None,
+        }  # fmt: skip
+
+        t.update({'flag': True}, where=t.id == 1)
+        assert v_rows() == {
+            (1, 0): (0, None),
+            (1, 1): (2, None),
+            (2, 0): (0, 42),
+            (2, 1): (2, 42),
+            (2, 2): (4, 42),
+            (3, 0): (0, None),
+            (3, 1): (2, None),
+        }
+        assert v2_rows() == {
+            (1, 0): None,
+            (1, 1): None,
+            (2, 0): 'x',
+            (2, 1): 'x',
+            (2, 2): 'x',
+            (3, 0): None,
+            (3, 1): None,
+        }
+
+        t.insert([{'id': 5, 'flag': True, 'n': 2}])
+        assert v_rows() == {
+            (1, 0): (0, None),
+            (1, 1): (2, None),
+            (2, 0): (0, 42),
+            (2, 1): (2, 42),
+            (2, 2): (4, 42),
+            (3, 0): (0, None),
+            (3, 1): (2, None),
+            (5, 0): (0, None),
+            (5, 1): (2, None),
+        }
+        assert v2_rows() == {
+            (1, 0): None,
+            (1, 1): None,
+            (2, 0): 'x',
+            (2, 1): 'x',
+            (2, 2): 'x',
+            (3, 0): None,
+            (3, 1): None,
+            (5, 0): None,
+            (5, 1): None,
+        }
+
+    def test_update_unstored_iterator_param(self, db_root: DatabaseRoot) -> None:
+        """Updating the input of an iterator without stored columns re-evaluates the iterator."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int})
+        t.insert([{'n': 2}])
+        v = pxt.create_view(p('view'), t, iterator=unstored_counter(t.n))
+        fv = pxt.create_view(p('filtered_view'), t.where(t.n > 0), iterator=unstored_counter(t.n))
+
+        t.update({'n': 5})
+        assert v.select(v.i).order_by(v.pos).collect()['i'] == [0, 1, 2, 3, 4]
+        assert fv.select(fv.i).order_by(fv.pos).collect()['i'] == [0, 1, 2, 3, 4]
+
+        t.update({'n': 0})
+        assert v.count() == 0
+        assert fv.count() == 0
+
+    def test_membership_change_keeps_errors(self, db_root: DatabaseRoot) -> None:
+        """A base update that changes a view's membership keeps the errors of stored cells in rows that stay."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'x': pxt.Int, 'flag': pxt.Bool, 'n': pxt.Int})
+        t.insert([{'x': 0, 'flag': True, 'n': 2}, {'x': 1, 'flag': True, 'n': 2}, {'x': 2, 'flag': False, 'n': 2}])
+        fv = pxt.create_view(p('filtered_view'), t.where(t.flag == True), additional_columns={'r': fail_on_odd(t.x)})
+        cv = pxt.create_view(p('component_view'), t.where(t.flag == True), iterator=simple_iterator(t.n))
+        cv.add_computed_column(r=fail_on_odd(cv.icol), on_error='ignore')
+
+        t.update({'flag': True})
+        res = fv.select(fv.x, fv.r, fv.r.errortype).order_by(fv.x).collect()
+        assert list(res) == [
+            {'x': 0, 'r': 0, 'r_errortype': None},
+            {'x': 1, 'r': None, 'r_errortype': 'ValueError'},
+            {'x': 2, 'r': 2, 'r_errortype': None},
+        ]
+        res = cv.select(cv.x, cv.icol, cv.r, cv.r.errortype).order_by(cv.x, cv.pos).collect()
+        assert [(r['x'], r['icol'], r['r_errortype']) for r in res] == [
+            (0, 0, None),
+            (0, 1, 'ValueError'),
+            (1, 0, None),
+            (1, 1, 'ValueError'),
+            (2, 0, None),
+            (2, 1, 'ValueError'),
+        ]
 
     def test_update_iterator_param_with_dependent_view(self, db_root: DatabaseRoot) -> None:
         """A view on an iterator view also updates when the base iterator param changes."""

@@ -982,18 +982,14 @@ class Planner:
         target = view.tbl_version.get()
         recomputed_cols = set(recompute_targets)
 
-        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(
+        eval_cols, select_list, identity_cols = cls._build_update_columns(
             target, set(), recomputed_cols, return_rows=False
         )
-        # Identity columns are all other stored columns that aren't being recomputed
-        # and go through select_list as ColumnRefs (no separate columns= path) unlike other update plans
-        evaluated_cols: list[Column] = identity_cols + eval_cols
-        select_list: list[exprs.Expr] = [exprs.ColumnRef(c.column_version_md()) for c in identity_cols] + eval_exprs
-
         # Read the just-expired rows (v_max == current_version) to copy stored column values
         plan = cls.create_query_plan(
             FromClause(tbls=[view]),
             select_list,
+            columns=identity_cols,
             where_clause=target.predicate,
             ignore_errors=True,
             created_at_current_version=created_at_current_version,
@@ -1001,7 +997,9 @@ class Planner:
         )
         # Register output columns with the row builder
         plan.row_builder.set_table_output(
-            target, expr_cols=[(col, select_list[i].slot_idx) for i, col in enumerate(evaluated_cols)]
+            target,
+            identity_cols=identity_cols,
+            expr_cols=[(col, select_list[i].slot_idx) for i, col in enumerate(eval_cols)],
         )
         plan = cls._add_cell_materialization_node(plan)
         plan = cls._add_save_node(plan)
