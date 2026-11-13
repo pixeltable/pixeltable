@@ -544,15 +544,10 @@ class LocalTable(Table):
         schema: Mapping[str, TypeForm | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
-        from pixeltable.catalog import retry_md_write_loop
-
         self._validate_column_schema(schema)
         schema = fold_mapping_keys(schema)
 
-        # a retry loop is necessary because drop column needs it
-        # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
-        @retry_md_write_loop(tvps=[self._tbl_version_path], lock_mutable_tree=True)
-        def do_add_columns() -> list[Column] | None:
+        def get_new_cols() -> list[Column]:
             self._check_mutable('add columns to')
 
             # make a copy of schema so del operations below don't modify the caller's dict
@@ -562,25 +557,16 @@ class LocalTable(Table):
             cols_to_ignore = self._ignore_or_drop_existing_columns(
                 list(schema_copy.keys()), IfExistsParam.validated(if_exists, 'if_exists')
             )
-            # if all columns to be added already exist and user asked to ignore
-            # existing columns, there's nothing to do.
             for cname in cols_to_ignore:
                 assert cname in schema_copy
                 del schema_copy[cname]
-            if len(schema_copy) == 0:
-                return None
             new_cols = [Column.create(name, spec) for name, spec in schema_copy.items()]
             for new_col in new_cols:
                 self._verify_column(new_col)
             return new_cols
 
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
-        new_cols = do_add_columns()
-        if new_cols is None:
-            return UpdateStatus()
-
-        assert self._tbl_version is not None
-        get_runtime().catalog.add_columns(self._tbl_version_path, new_cols)
+        get_runtime().catalog.add_columns(self._tbl_version_path, get_new_cols)
         FileCache.get().emit_eviction_warnings()
         # TODO: return the row count here?
         return UpdateStatus()

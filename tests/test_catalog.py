@@ -548,6 +548,31 @@ class TestLocking:
         res = t2.select(t2.a, t2.b, t2.c).collect()
         assert len(res) == 1 and res[0]['b'] == 2 and res[0]['c'] == 101, res
 
+    def test_concurrent_add_same_column(self, is_data_versioned: bool, uses_db: None, fault_injection: None) -> None:
+        """add_column(if_exists='ignore') must ignore a column of the same name added by a concurrent schema change."""
+        t = self.make_tbl(is_data_versioned=is_data_versioned)
+        fault = BlockFault(filter=lambda kwargs: kwargs['op_class'] is TblOpClass.MD_WRITE)
+
+        def add_b() -> None:
+            t.add_column(b=pxt.String | None, if_exists='ignore')
+
+        (
+            MultiThreadedScenario()
+            .then_inject_fault(thread_id=0, loc=FaultLocation.CATALOG_AFTER_TBL_LOCK, fault=fault)
+            .then_run_until(thread_id=0, name='add column b', event=fault.reached, fn=add_b)
+            .then_run_until(
+                thread_id=1,
+                name='add column b again, which waits',
+                poll_condition=lambda: self.is_blocked_on_tbl_lock(t),
+                fn=add_b,
+            )
+            .then_unblock(thread_id=2, fault=fault)
+            .execute()
+        )
+
+        # Re-fetch: this thread's handle predates the schema change.
+        assert pxt.get_table('tbl').columns() == ['a', 'b']
+
     def test_concurrent_insert_schema_change(self, uses_db: None, fault_injection: None) -> None:
         """An insert waiting for a schema change must populate the newly added computed column."""
         t = pxt.create_table('tbl', {'a': pxt.Int | None}, _is_data_versioned=True)
