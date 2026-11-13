@@ -202,12 +202,8 @@ class _VlmRunClient:
     ) -> 'vlmrun.client.types.AgentExecutionResponse':
         """Runs an agent execution and returns it on completion.
 
-        Submits the execution and polls it, since VLM Run cuts off a request after about 5 minutes. A failure after
-        the submission, or of a submission that timed out or lost its connection, raises an error that the scheduler
-        doesn't retry, since a rerun would pay for another execution.
+        Submits the execution and polls it, since VLM Run cuts off a request after about 5 minutes.
         """
-        from vlmrun.client.exceptions import NetworkError, RequestTimeoutError  # type: ignore[import-untyped]
-
         execution = None
         try:
             execution = await asyncio.to_thread(
@@ -224,14 +220,7 @@ class _VlmRunClient:
                 await asyncio.sleep(5.0)
                 execution = await asyncio.to_thread(self._sdk.executions.get, execution.id)
         except Exception as exc:
-            submitted = execution is not None or isinstance(exc, (NetworkError, RequestTimeoutError))
-            what = 'agent execution' if execution is None else f'execution {execution.id}'
-            raise pxt.ExternalServiceError(
-                pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE if submitted else pxt.ErrorCode.PROVIDER_ERROR,
-                f'VLM Run {what} failed: {exc}',
-                provider='vlmrun',
-                status_code=getattr(exc, 'http_status', None),
-            ) from exc
+            raise _execution_error(exc, None if execution is None else execution.id) from exc
         if execution.status == 'failed':
             detail = execution.model_dump(mode='json', include={'status', 'response', 'usage'})
             raise pxt.ExternalServiceError(
@@ -340,10 +329,39 @@ def _json(resp: httpx.Response) -> dict[str, Any]:
     return result
 
 
+def _execution_error(exc: Exception, execution_id: str | None) -> pxt.ExternalServiceError:
+    """Returns the error for an agent execution that failed with `exc`, before submission if `execution_id` is None.
+
+    The scheduler retries only the error of a rate-limited submission. Any other failure may leave a paid execution
+    running, and a rerun would pay for another.
+    """
+    from vlmrun.client import exceptions as sdk_errors
+
+    code = pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE
+    if execution_id is None:
+        # VLM Run refused these submissions, so they started no execution
+        refused = {
+            sdk_errors.RateLimitError: pxt.ErrorCode.RATE_LIMITED,
+            sdk_errors.AuthenticationError: pxt.ErrorCode.PROVIDER_AUTH_ERROR,
+            sdk_errors.ValidationError: pxt.ErrorCode.PROVIDER_BAD_REQUEST,
+        }
+        code = refused.get(type(exc), code)
+    what = 'agent execution' if execution_id is None else f'execution {execution_id}'
+    # the SDK's message without its suggestion, which can recommend a retry
+    message = exc.message if isinstance(exc, sdk_errors.VLMRunError) else str(exc)
+    return pxt.ExternalServiceError(
+        code,
+        f'VLM Run {what} failed: {message[:_MAX_DETAIL_LEN]}',
+        provider='vlmrun',
+        status_code=getattr(exc, 'http_status', None),
+    )
+
+
 def _artifact_id(ref: str, prefix: str) -> str:
     """Returns the id of an artifact with the given type prefix, as in `vid_a1b2c3`, from `ref`: the id itself, or a URL
     named after it, as in `https://vlm.run/workspace/vid_a1b2c3.mp4`."""
-    match = re.fullmatch(rf'(?:.*/)?({prefix}_\w{{6}})(?:\.\w+)?', ref)
+    path = urllib.parse.urlsplit(ref).path.rstrip('/')
+    match = re.fullmatch(rf'(?:.*/)?({prefix}_\w{{6}})(?:\.\w+)?', path)
     if match is None:
         raise pxt.ExternalServiceError(
             pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,

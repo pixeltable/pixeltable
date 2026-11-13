@@ -100,6 +100,53 @@ class TestVLMRunClient:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=match):
             t.insert(prompt='A red circle')
 
+    def test_execution_errors(self, init_env: None) -> None:
+        """The scheduler retries only a rate-limited submission: any other failure may leave a paid execution."""
+        skip_test_if_not_installed('vlmrun')
+        import pydantic
+        from vlmrun.client import exceptions as sdk_errors  # type: ignore[import-untyped]
+        from vlmrun.client.types import AgentExecutionResponse  # type: ignore[import-untyped]
+
+        from pixeltable.exec.expr_eval.schedulers import _is_retryable_udf_error
+        from pixeltable.functions.vlmrun import _execution_error
+
+        # a polled status outside the SDK's JobStatus fails its validation, with no wait for the deadline
+        with pytest.raises(pydantic.ValidationError) as unknown_status:
+            AgentExecutionResponse(id='e1', name='n', created_at='2026-11-12T00:00:00Z', status='cancelled', usage={})
+        code = pxt.ErrorCode
+        cases: list[tuple[Exception, str | None, pxt.ErrorCode]] = [
+            (
+                sdk_errors.ServerError(message='upstream request timed out', http_status=504),
+                None,
+                code.PROVIDER_UNEXPECTED_RESPONSE,
+            ),
+            (
+                sdk_errors.RequestTimeoutError('Request timed out: read timeout=30'),
+                None,
+                code.PROVIDER_UNEXPECTED_RESPONSE,
+            ),
+            (sdk_errors.NetworkError('Connection error: connection aborted'), None, code.PROVIDER_UNEXPECTED_RESPONSE),
+            (sdk_errors.AuthenticationError(), None, code.PROVIDER_AUTH_ERROR),
+            (sdk_errors.ValidationError(message='Unknown model'), None, code.PROVIDER_BAD_REQUEST),
+            (sdk_errors.RateLimitError(), None, code.RATE_LIMITED),
+            (sdk_errors.RateLimitError(), 'e1', code.PROVIDER_UNEXPECTED_RESPONSE),
+            (unknown_status.value, 'e1', code.PROVIDER_UNEXPECTED_RESPONSE),
+        ]
+        for exc, execution_id, expected in cases:
+            err = _execution_error(exc, execution_id)
+            assert err.error_code == expected, (exc, err)
+            assert _is_retryable_udf_error(err)[0] == (expected == code.RATE_LIMITED), (exc, err)
+            assert 'Suggestion' not in str(err)
+
+    def test_artifact_id(self) -> None:
+        from pixeltable.functions.vlmrun import _artifact_id
+
+        for ref in ('vid_e9a2b3', 'https://vlm.run/workspace/vid_e9a2b3.mp4', 'https://vlm.run/vid_e9a2b3.mp4?t=1#x'):
+            assert _artifact_id(ref, 'vid') == 'vid_e9a2b3'
+        for ref in ('vid_e9a2b', 'img_e9a2b3', 'https://vlm.run/vid_e9a2b3.mp4/x', 'xvid_e9a2b3'):
+            with pxt_raises(pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, match='unrecognized artifact id'):
+                _artifact_id(ref, 'vid')
+
 
 @pytest.mark.remote_api
 @pytest.mark.very_expensive
