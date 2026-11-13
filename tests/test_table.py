@@ -20,6 +20,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
+from pixeltable.catalog import RowCountStats
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
@@ -2878,9 +2879,11 @@ class TestTable:
 
         # unknown primary key: insert
         status = t.batch_update([{'c1': 'zwei', 'c2': 2}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='insert')
-        validate_update_status(status, expected_rows=2)
-        assert (status.row_count_stats.ins_rows, status.row_count_stats.upd_rows) == (1, 1)
-        assert status.cascade_row_count_stats.num_rows == 0
+        validate_update_status(
+            status,
+            expected_row_counts=RowCountStats(ins_rows=1, upd_rows=1),
+            expected_cascade_row_counts=RowCountStats(),
+        )
         assert t.count() == num_rows + 1
         assert t.where(t.c2 == 2).collect()[0]['c1'] == 'zwei'
         assert t.where(t.c2 == 200).collect()[0]['c1'] == 'zweihundert'
@@ -3112,8 +3115,11 @@ class TestTable:
         v = pxt.create_view(p('view'), t, additional_columns={'x2': t.x * 2})
 
         status = t.batch_update([{'id': 1, 'x': 10}, {'id': 3, 'x': 30}], if_not_exists='insert')
-        assert (status.row_count_stats.ins_rows, status.row_count_stats.upd_rows) == (1, 1)
-        assert (status.cascade_row_count_stats.ins_rows, status.cascade_row_count_stats.upd_rows) == (1, 1)
+        validate_update_status(
+            status,
+            expected_row_counts=RowCountStats(ins_rows=1, upd_rows=1),
+            expected_cascade_row_counts=RowCountStats(ins_rows=1, upd_rows=1),
+        )
         assert list(v.select(v.id, v.x2).order_by(v.id).collect()) == [
             {'id': 1, 'x2': 20},
             {'id': 2, 'x2': 4},
