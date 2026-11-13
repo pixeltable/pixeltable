@@ -693,6 +693,9 @@ class TestComponentView:
             rows = v2.select(v2.id, v2.pos, v2.note).collect()
             return {(r['id'], r['pos']): r['note'] for r in rows}
 
+        assert v_rows() == {(1, 0): (0, 42), (1, 1): (2, 42), (2, 0): (0, 42), (2, 1): (2, 42), (2, 2): (4, 42)}
+        assert v2_rows() == {(1, 0): 'x', (1, 1): 'x', (2, 0): 'x', (2, 1): 'x', (2, 2): 'x'}
+
         t.update({'flag': True, 'other': 1})
         assert v_rows() == {
             (1, 0): (0, 42),
@@ -703,21 +706,63 @@ class TestComponentView:
             (3, 0): (0, None),
             (3, 1): (2, None),
         }
-        assert v2_rows() == {k: None if k[0] == 3 else 'x' for k in v_rows()}
+        assert v2_rows() == {
+            (1, 0): 'x',
+            (1, 1): 'x',
+            (2, 0): 'x',
+            (2, 1): 'x',
+            (2, 2): 'x',
+            (3, 0): None,
+            (3, 1): None,
+        }
 
         t.update({'flag': False}, where=t.id == 1)
-        assert {k[0] for k in v_rows()} == {2, 3}
+        assert v_rows() == {(2, 0): (0, 42), (2, 1): (2, 42), (2, 2): (4, 42), (3, 0): (0, None), (3, 1): (2, None)}
+        assert v2_rows() == {(2, 0): 'x', (2, 1): 'x', (2, 2): 'x', (3, 0): None, (3, 1): None}
+
         t.update({'flag': True}, where=t.id == 1)
-        v_contents, v2_contents = v_rows(), v2_rows()
-        assert v_contents[1, 0] == (0, None) and v_contents[1, 1] == (2, None)
-        assert v_contents[2, 0] == (0, 42)
-        assert v2_contents[1, 0] is None and v2_contents[2, 0] == 'x'
+        assert v_rows() == {
+            (1, 0): (0, None),
+            (1, 1): (2, None),
+            (2, 0): (0, 42),
+            (2, 1): (2, 42),
+            (2, 2): (4, 42),
+            (3, 0): (0, None),
+            (3, 1): (2, None),
+        }
+        assert v2_rows() == {
+            (1, 0): None,
+            (1, 1): None,
+            (2, 0): 'x',
+            (2, 1): 'x',
+            (2, 2): 'x',
+            (3, 0): None,
+            (3, 1): None,
+        }
 
         t.insert([{'id': 5, 'flag': True, 'n': 2}])
-        v_contents, v2_contents = v_rows(), v2_rows()
-        assert len(v_contents) == 9 and len(v2_contents) == 9
-        assert v_contents[5, 0] == (0, None) and v_contents[2, 2] == (4, 42)
-        assert v2_contents[5, 0] is None and v2_contents[2, 2] == 'x'
+        assert v_rows() == {
+            (1, 0): (0, None),
+            (1, 1): (2, None),
+            (2, 0): (0, 42),
+            (2, 1): (2, 42),
+            (2, 2): (4, 42),
+            (3, 0): (0, None),
+            (3, 1): (2, None),
+            (5, 0): (0, None),
+            (5, 1): (2, None),
+        }
+        assert v2_rows() == {
+            (1, 0): None,
+            (1, 1): None,
+            (2, 0): 'x',
+            (2, 1): 'x',
+            (2, 2): 'x',
+            (3, 0): None,
+            (3, 1): None,
+            (5, 0): None,
+            (5, 1): None,
+        }
 
     def test_update_unstored_iterator_param(self, db_root: DatabaseRoot) -> None:
         """Updating the input of an iterator without stored columns re-evaluates the iterator."""
