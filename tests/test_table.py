@@ -7,6 +7,8 @@ import os
 import platform
 import random
 import re
+import shutil
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Literal, TypedDict, cast
@@ -20,6 +22,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
+from pixeltable.catalog import RowCountStats
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
@@ -73,6 +76,25 @@ def add_unstored_table_base_val(vals: Batch[int]) -> Batch[int]:
 @pxt.udf
 def square(x: int) -> int:
     return x * x
+
+
+@pxt.udf
+def random_value(s: str) -> float:
+    return random.random()
+
+
+@pxt.udf
+def refuse_x(s: str) -> str:
+    if s == 'x':
+        raise ValueError("refuse_x(): 'x'")
+    return s
+
+
+@pxt.udf
+def copy_clip(video: pxt.Video, out_dir: str) -> pxt.Video:
+    clip_path = Path(out_dir) / f'{uuid.uuid4()}.mp4'
+    shutil.copy(video, clip_path)
+    return str(clip_path)
 
 
 @pxt.udf
@@ -2532,6 +2554,23 @@ class TestTable:
         else:
             assert PIL.Image.open(res[1]['path']).size == res[1]['img'].size
 
+    @pytest.mark.db_roots(
+        'local', 'proxy', reason="copy_clip() runs in the database process, which can't see the client's temp dir"
+    )
+    def test_temp_dir_file_paths(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'video': pxt.Video})
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            t.add_computed_column(clip=copy_clip(t.video, tmp_dir))
+            video_path = Path(tmp_dir) / 'video.mp4'
+            shutil.copy(get_video_files()[0], video_path)
+            validate_update_status(t.insert(video=str(video_path)), 1)
+            assert video_path.exists()
+
+        res = t.select(video=t.video.localpath, clip=t.clip.localpath).collect()
+        assert Path(res[0]['video']).exists()
+        assert Path(res[0]['clip']).exists()
+
     @pytest.mark.skipif(
         'PIXELTABLE_INPUT_MEDIA_DEST' in os.environ or 'PIXELTABLE_OUTPUT_MEDIA_DEST' in os.environ,
         reason='Specifying a default media destination disrupts the file cache counts',
@@ -2879,7 +2918,8 @@ class TestTable:
         # unknown primary key: insert
         validate_update_status(
             t.batch_update([{'c1': 'zwei', 'c2': 2}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='insert'),
-            expected_rows=2,
+            expected_row_counts=RowCountStats(inserted_rows=1, updated_rows=1),
+            expected_cascade_row_counts=RowCountStats(),
         )
         assert t.count() == num_rows + 1
         assert t.where(t.c2 == 2).collect()[0]['c1'] == 'zwei'
@@ -3191,10 +3231,156 @@ class TestTable:
         assert rows_by_id[4]['name'] == 'd'
         restore()
 
-        # backward compatibility: positional cascade/if_not_exists still work
-        status = t.batch_update([{'id': 1, 'name': 'pos'}], False, 'error')
-        assert status.rows is None  # default return_rows=False
+        # the parameters after rows are keyword-only
+        with pytest.raises(TypeError, match='takes 2 positional arguments but 3 were given'):
+            t.batch_update([{'id': 1, 'name': 'pos'}], False)  # type: ignore[misc]
+
+    def test_insert_if_exists(self, db_root: DatabaseRoot, is_data_versioned: bool, tmp_path: Path) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('test'),
+            {'id': pxt.Int, 'name': pxt.String, 'img': pxt.Image | None},
+            primary_key='id',
+            _is_data_versioned=is_data_versioned,
+        )
+        t.add_computed_column(tag=random_value(t.name))
+        t.add_computed_column(checked=refuse_x(t.name))
+        t.insert([{'id': 1, 'name': 'a'}, {'id': 2, 'name': 'b'}])
+        tags = {r['id']: r['tag'] for r in t.select(t.id, t.tag).collect()}
+
+        # the row with an existing key is skipped without evaluating its computed columns, where refuse_x() would fail
+        status = t.insert([{'id': 1, 'name': 'x'}, {'id': 3, 'name': 'c'}], if_exists='ignore', return_rows=True)
+        assert (status.num_rows, status.row_count_stats.skipped_rows) == (1, 1)
+        assert status.rows is not None and [r['id'] for r in status.rows] == [3]
+        assert t.where(t.id == 1).select(t.name, t.tag).collect()[0] == {'name': 'a', 'tag': tags[1]}
+        # running the same call again inserts nothing
+        status = t.insert([{'id': 1, 'name': 'x'}, {'id': 3, 'name': 'c'}], if_exists='ignore', return_rows=True)
+        assert (status.num_rows, status.row_count_stats.skipped_rows) == (0, 2)
+        assert status.rows == []
+        assert t.count() == 3
+
+        # if several rows share a new key, the first one is inserted
+        status = t.insert([{'id': 6, 'name': 'f'}, {'id': 6, 'name': 'f2'}], if_exists='ignore')
+        assert (status.num_rows, status.row_count_stats.skipped_rows) == (1, 1)
+        assert t.where(t.id == 6).select(t.name).collect()['name'] == ['f']
+
+        # the single-row form
+        status = t.insert(id=7, name='g', if_exists='ignore')
         assert status.num_rows == 1
+        status = t.insert(id=7, name='x', if_exists='ignore')
+        assert (status.num_rows, status.row_count_stats.skipped_rows) == (0, 1)
+
+        # a CSV file
+        csv_path = tmp_path / 'rows.csv'
+        csv_path.write_text('id,name\n1,x\n8,h\n', encoding='utf-8')
+        status = t.insert(str(csv_path), if_exists='ignore')
+        assert (status.num_rows, status.row_count_stats.skipped_rows) == (1, 1)
+        assert t.where(t.id == 8).select(t.name).collect()['name'] == ['h']
+
+        # a query
+        src = pxt.create_table(p('src'), {'id': pxt.Int, 'name': pxt.String})
+        src.insert([{'id': 2, 'name': 'x'}, {'id': 9, 'name': 'i'}])
+        status = t.insert(src.select(src.id, src.name), if_exists='ignore')
+        assert (status.num_rows, status.row_count_stats.skipped_rows) == (1, 1)
+        assert t.where(t.id == 2).select(t.name).collect()['name'] == ['b']
+
+        # a deleted row no longer exists
+        t.where(t.id == 3).delete()
+        status = t.insert([{'id': 3, 'name': 'c2'}], if_exists='ignore')
+        assert status.num_rows == 1
+        assert t.where(t.id == 3).select(t.name).collect()['name'] == ['c2']
+
+        # a new row may contain media
+        img = get_image_files()[0]
+        t.insert([{'id': 10, 'name': 'j', 'img': img}], if_exists='ignore')
+        assert t.where(t.id == 10).select(t.img).collect()[0]['img'] is not None
+
+        # if_exists='error' (the default) refuses an existing key
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key value'):
+            t.insert([{'id': 1, 'name': 'a'}])
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="if_exists must be 'error' or 'ignore'"):
+            t.insert([{'id': 1, 'name': 'a'}], if_exists='update')  # type: ignore[call-overload]
+
+        if is_data_versioned:
+            # a view sees the inserted rows; views of operational tables are not supported yet (PXT-1101)
+            v = pxt.create_view(p('test_view'), t)
+            t.insert([{'id': 1, 'name': 'x'}, {'id': 11, 'name': 'k'}], if_exists='ignore')
+            assert v.where(v.id == 11).count() == 1
+
+        # a composite key with a timestamp
+        ts = datetime.datetime(2024, 1, 1, 12, 0)
+        pairs = pxt.create_table(
+            p('pairs'),
+            {'at': pxt.Timestamp, 'b': pxt.String, 'v': pxt.Int},
+            primary_key=['at', 'b'],
+            _is_data_versioned=is_data_versioned,
+        )
+        pairs.insert([{'at': ts, 'b': 'x', 'v': 1}])
+        status = pairs.insert([{'at': ts, 'b': 'x', 'v': 9}, {'at': ts, 'b': 'y', 'v': 2}], if_exists='ignore')
+        assert (status.num_rows, status.row_count_stats.skipped_rows) == (1, 1)
+        assert pairs.order_by(pairs.b).select(pairs.b, pairs.v).collect()['v'] == [1, 2]
+
+        # string keys that are longer than the prefix in a data-versioned table's unique index
+        long_keys = pxt.create_table(
+            p('long_keys'), {'s': pxt.String, 'v': pxt.Int}, primary_key='s', _is_data_versioned=is_data_versioned
+        )
+        status1 = long_keys.insert(
+            [{'s': 'a' * 256 + 'x', 'v': 1}, {'s': 'a' * 256 + 'y', 'v': 2}, {'s': 'b', 'v': 3}], if_exists='ignore'
+        )
+        status2 = long_keys.insert([{'s': 'a' * 256 + 'z', 'v': 4}, {'s': 'b', 'v': 5}], if_exists='ignore')
+        counts = [(status.num_rows, status.row_count_stats.skipped_rows) for status in (status1, status2)]
+        if is_data_versioned:
+            # the index stores the first 256 characters, so the three long keys are one key
+            assert counts == [(2, 1), (0, 2)]
+            assert long_keys.count() == 2
+        else:
+            assert counts == [(3, 0), (1, 1)]
+            assert long_keys.count() == 4
+
+        # a null key from a query matches no stored key
+        null_keys = pxt.create_table(p('null_keys'), {'s': pxt.String | None, 'v': pxt.Int})
+        null_keys.insert([{'s': None, 'v': 6}, {'s': 'b', 'v': 7}, {'s': 'c', 'v': 8}])
+        status = long_keys.insert(null_keys.select(null_keys.s, null_keys.v), if_exists='ignore')
+        assert status.row_count_stats.skipped_rows == 1
+        assert long_keys.where(long_keys.s == 'c').select(long_keys.v).collect()['v'] == [8]
+
+        # a table without a primary key
+        no_pk = pxt.create_table(p('no_pk'), {'id': pxt.Int}, _is_data_versioned=is_data_versioned)
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="if_exists='ignore' matches rows by primary key"):
+            no_pk.insert([{'id': 1}], if_exists='ignore')
+
+        # a Json key
+        json_key = pxt.create_table(
+            p('json_key'), {'k': pxt.Json, 'v': pxt.Int}, primary_key='k', _is_data_versioned=is_data_versioned
+        )
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="does not support the Json primary key column 'k'"):
+            json_key.insert([{'k': {'a': 1}, 'v': 1}], if_exists='ignore')
+
+    def test_insert_if_exists_many_keys(self, db_root: DatabaseRoot) -> None:
+        # 4 key columns for each of 20,000 keys exceed Postgres's limit of 65535 bind parameters per statement
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('test'),
+            {'a': pxt.Int, 'b': pxt.Int, 'c': pxt.Int, 'd': pxt.Int, 'name': pxt.String},
+            primary_key=['a', 'b', 'c', 'd'],
+        )
+        rows = [{'a': i, 'b': i + 1, 'c': i + 2, 'd': i + 3, 'name': 'x'} for i in range(20_000)]
+        status = t.insert(rows, if_exists='ignore')
+        assert status.num_rows == 20_000
+        status = t.insert(rows, if_exists='ignore')
+        assert (status.num_rows, status.row_count_stats.skipped_rows) == (0, 20_000)
+        assert t.count() == 20_000
+
+        # the same keys from a query
+        copy = pxt.create_table(
+            p('copy'),
+            {'a': pxt.Int, 'b': pxt.Int, 'c': pxt.Int, 'd': pxt.Int, 'name': pxt.String},
+            primary_key=['a', 'b', 'c', 'd'],
+        )
+        copy.insert([rows[0]])
+        status = copy.insert(t.select(t.a, t.b, t.c, t.d, t.name), if_exists='ignore')
+        assert (status.num_rows, status.row_count_stats.skipped_rows) == (19_999, 1)
+        assert copy.count() == 20_000
 
     def test_update_return_rows(
         self, db_root: DatabaseRoot, is_data_versioned: bool, local_embed: pxt.Function

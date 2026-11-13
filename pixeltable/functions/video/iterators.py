@@ -14,7 +14,6 @@ import pixeltable as pxt
 import pixeltable.utils.av as av_utils
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 
 _logger = logging.getLogger(__name__)
@@ -166,7 +165,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
             self.start_extraction_time = None
 
         _logger.debug(
-            f'FrameIterator: path={self.video_path} fps={self.fps} num_frames={self.num_frames} '
+            f'frame_iterator: path={self.video_path} fps={self.fps} num_frames={self.num_frames} '
             f'keyframes_only={self.keyframes_only}'
         )
         self._start_decoding()
@@ -664,13 +663,12 @@ def _(bound_args: dict[str, Any]) -> None:
             )
 
 
-_class_names = [
-    'FrameAttrs',
+__all__ = [
     'Frame',
-    'frame_iterator',
+    'FrameAttrs',
     'LegacyFrame',
-    'legacy_frame_iterator',
     'VideoSegment',
+    'frame_iterator',
+    'legacy_frame_iterator',
     'video_splitter',
 ]
-__all__ = local_public_names(__name__) + _class_names

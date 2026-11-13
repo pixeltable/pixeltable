@@ -250,7 +250,8 @@ jobs:
           cd dashboard && npm install --silent && npm run build
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
-        # A timeout so that a hung test doesn't keep merge queue for hours
+        # A timeout so that a hung test doesn't keep merge queue for hours. The stack-dump watchdog in `run` sleeps
+        # 5100 s, 5 minutes short of this value.
         timeout-minutes: 90
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
@@ -261,6 +262,22 @@ jobs:
         # --basetemp pins pytest's temp root dir so that the Archive step below works on all platforms
         # -n comes from the matrix
         run: |
+          if [[ "$RUNNER_OS" != 'Windows' ]]; then
+            # 5 minutes before the 90-minute timeout above, a stack dump from each pytest process: the controller and
+            # its xdist workers (`python -c import sys;exec(eval(sys.stdin.readline()))`), with the SIGUSR1 handler in
+            # tests/conftest.py. One process at a time, since they share stderr.
+            (
+              # /dev/null, since the trap kills only the subshell, and an orphaned sleep with the step's output would
+              # hold the step open until the end of the sleep
+              sleep 5100 > /dev/null 2>&1
+              for pid in $(pgrep -f 'bin/pytest |exec\(eval\(sys\.stdin'); do
+                echo "Stack dump of pid $pid: $(ps -o command= -p "$pid" | cut -c1-100)"
+                kill -USR1 "$pid" || true
+                sleep 2
+              done
+            ) &
+            trap "kill $! 2> /dev/null || true" EXIT
+          fi
           echo 'Running tests with markers: ${{ matrix.pytest-markers }}'
           echo 'xdist workers             : ${{ matrix.xdist-workers }}'
           echo 'Extra pre-test command    : ${{ matrix.pre-test-cmd }}'

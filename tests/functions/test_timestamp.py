@@ -238,3 +238,55 @@ class TestTimestamp:
             .collect()
         )
         assert res['out'] == [dt.replace(minute=0).astimezone(Env.get().default_time_zone) for dt in test_dts]
+
+    def test_now(self, uses_db: None) -> None:
+        default_tz = ZoneInfo('America/Anchorage')
+        Env.get().default_time_zone = default_tz
+        from pixeltable.functions.timestamp import now
+
+        t = pxt.create_table('test_tbl', {'n': pxt.Int})
+        t.add_computed_column(inserted_at=now())
+        t.add_computed_column(queried_at=now(), stored=False)
+        before_insert = datetime.now(timezone.utc)
+        validate_update_status(t.insert({'n': n} for n in range(3)), expected_rows=3)
+        after_insert = datetime.now(timezone.utc)
+        res = t.select(t.inserted_at, t.queried_at, selected_at=now()).collect()
+        after_query = datetime.now(timezone.utc)
+        assert all(before_insert <= ts <= after_insert for ts in res['inserted_at'])
+        assert all(after_insert <= ts <= after_query for ts in res['queried_at'] + res['selected_at'])
+
+        evaluated = pxt.eval_udf(now)
+        assert after_query <= evaluated <= datetime.now(timezone.utc)
+        assert evaluated.tzinfo == default_tz
+
+        before_recompute = datetime.now(timezone.utc)
+        t.recompute_columns('inserted_at')
+        assert all(before_recompute <= ts for ts in t.select(t.inserted_at).collect()['inserted_at'])
+
+    def test_parse(self, uses_db: None) -> None:
+        default_tz = ZoneInfo('America/Anchorage')
+        Env.get().default_time_zone = default_tz
+        from pixeltable.functions.timestamp import strptime
+
+        t = pxt.create_table('test_tbl', {'n': pxt.Int, 'local': pxt.String | None, 'iso': pxt.String | None})
+        rows = [
+            {'n': 0, 'local': '01/10/2026 10:30', 'iso': '2026-10-01T10:30:00'},
+            {'n': 1, 'local': 'not a date', 'iso': '2026-10-01T10:30:00+02:00'},
+            {'n': 2, 'local': None, 'iso': None},
+        ]
+        validate_update_status(t.insert(rows), expected_rows=3)
+        status = t.add_computed_column(parsed=strptime(t.local, '%d/%m/%Y %H:%M'), on_error='ignore')
+        assert status.num_excs == 1
+        res = t.select(t.parsed, err=t.parsed.errormsg, cast=t.iso.astype(pxt.Timestamp | None)).order_by(t.n).collect()
+        assert res['parsed'] == [datetime(2026, 10, 1, 10, 30, tzinfo=default_tz), None, None]
+        assert "does not match format '%d/%m/%Y %H:%M'" in res['err'][1]
+        assert res['cast'] == [
+            datetime(2026, 10, 1, 10, 30, tzinfo=default_tz),
+            datetime(2026, 10, 1, 8, 30, tzinfo=timezone.utc),
+            None,
+        ]
+
+        # a format with a time zone
+        assert pxt.eval_udf(strptime, '2026-10-01 10:30 +0200', '%Y-%m-%d %H:%M %z') == datetime(
+            2026, 10, 1, 8, 30, tzinfo=timezone.utc
+        )

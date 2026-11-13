@@ -14,7 +14,6 @@ import pixeltable as pxt
 from pixeltable import env, type_system as ts
 from pixeltable.func import Batch
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     from voyageai import AsyncClient
@@ -307,7 +306,7 @@ async def _(
     return [np.array(emb, dtype=np.float32) for emb in result.embeddings]
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['embeddings', 'multimodal_embed', 'rerank']
 
 
 def __dir__() -> list[str]:

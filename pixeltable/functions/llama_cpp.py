@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Any
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.env import Env
-from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     import llama_cpp
@@ -148,7 +147,7 @@ def cleanup() -> None:
         _model_cache.clear()
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['cleanup', 'create_chat_completion']
 
 
 def __dir__() -> list[str]:

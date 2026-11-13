@@ -172,7 +172,7 @@ class TestDocument:
     def test_doc_splitter(self, pdf: bool, uses_db: None) -> None:
         skip_test_if_not_installed('markitdown', 'spacy', 'tiktoken')
 
-        # DocumentSplitter does not support XML
+        # document_splitter() does not support XML
         file_paths = [path for path in self.valid_doc_paths() if not path.endswith('.xml')]
         file_paths = [p for p in file_paths if pdf == p.endswith('.pdf')]
         extensions = {os.path.splitext(p)[1] for p in file_paths}

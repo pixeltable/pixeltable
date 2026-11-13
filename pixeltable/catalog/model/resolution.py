@@ -212,7 +212,8 @@ class TableSchemaChangeSet(TypedDict):
     # name -> (spec, origin). A 'base_query' column comes from the view's base query select() list and refers to
     # the base table's columns; a 'model_body' column refers to the view's own visible columns.
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
-    # name -> (spec, origin), for existing computed columns whose value expression is being replaced
+    # name -> (spec, origin), for existing computed columns with a new value expression and data columns with a new
+    # type
     altered_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
     dropped_columns: list[str]
     new_idxs: list[IndexDefinition]
@@ -411,6 +412,8 @@ def prepare_model_updates(
     # changeset adds.
     altered_exprs: dict[str, exprs.Expr] = {}
     for name, (spec, origin) in altered_columns.items():
+        if 'value' not in spec:
+            continue
         resolved = resolve_model_value_expr(tvp, spec['value'], origin)
         _check_query_columns(resolved, name, display_name)
         unresolved_names: list[str] = [

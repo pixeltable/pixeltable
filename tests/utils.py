@@ -37,6 +37,7 @@ import more_itertools
 import numpy as np
 import pandas as pd
 import PIL.Image
+import pydantic
 import pytest
 import sqlalchemy as sql
 from typing_extensions import TypeForm
@@ -45,7 +46,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs, telemetry
 from pixeltable._query import ResultSet
-from pixeltable.catalog import Path as PxtPath, retry_md_read_loop
+from pixeltable.catalog import Path as PxtPath, RowCountStats, retry_md_read_loop
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
@@ -754,6 +755,49 @@ def assert_type_eq(col_type: ts.ColumnType, pxt_type: TypeForm) -> None:
     assert col_type == ts.ColumnType.normalize_type(pxt_type)
 
 
+def typed_dict_fields(t: type) -> tuple[dict[str, ts.ColumnType], frozenset[str]]:
+    """Resolve a TypedDict to (field_types, optional_keys). Optional keys are meaningful at the top level."""
+    jt = ts.JsonType.from_python_type(t)
+    assert isinstance(jt, ts.JsonType), t
+    assert jt.type_schema is not None and isinstance(jt.type_schema.type_spec, dict), t
+    return jt.type_schema.type_spec, jt.type_schema.optional_keys
+
+
+def pydantic_model_fields(model: type) -> dict[str, ts.ColumnType]:
+    """Per-field JsonType conversion of a Pydantic model, keyed by JSON key. Fields whose annotation can't be
+    converted to a Pixeltable type are omitted (callers must declare them in overrides)."""
+    assert issubclass(model, pydantic.BaseModel)
+    out: dict[str, ts.ColumnType] = {}
+    for name, info in model.model_fields.items():
+        try:
+            ct = ts.ColumnType.normalize_type(info.annotation)
+        except Exception:
+            continue
+        out[info.alias or name] = ct
+    return out
+
+
+def assert_sdk_mirrors(
+    pairs: list[tuple[type, list[type[pydantic.BaseModel]]]], synth: frozenset[str] = frozenset()
+) -> None:
+    """Each TypedDict has the keys of its SDK models combined, plus synth, and each of its typed keys accepts
+    the key's type in every SDK model that has the key."""
+    for ours, sdk_models in pairs:
+        ours_fields, _ = typed_dict_fields(ours)
+        sdk_keys = {info.alias or name for model in sdk_models for name, info in model.model_fields.items()}
+        assert set(ours_fields) - synth == sdk_keys, (
+            f'{ours.__name__} keys drifted: missing {sdk_keys - set(ours_fields)}, '
+            f'extra {set(ours_fields) - synth - sdk_keys}'
+        )
+        for model in sdk_models:
+            for key, sdk_type in pydantic_model_fields(model).items():
+                ours_type = ours_fields[key]
+                # model_dump() emits exactly the declared fields, so the SDK's dict schemas are closed
+                assert ours_type.is_supertype_of(sdk_type.with_closed_dicts()), (
+                    f'{ours.__name__}.{key} drifted from {model.__name__}: ours={ours_type} sdk={sdk_type}'
+                )
+
+
 def assert_resultset_eq(
     r1: ResultSet, r2: ResultSet, compare_col_names: bool = False, compare_col_types: bool = True
 ) -> None:
@@ -977,10 +1021,20 @@ def ensure_s3_pytest_resources_access() -> None:
         pytest.skip(f'S3 bucket not reachable or not configured: {exc}')
 
 
-def validate_update_status(status: pxt.UpdateStatus, expected_rows: int | None = None) -> None:
+def validate_update_status(
+    status: pxt.UpdateStatus,
+    expected_rows: int | None = None,
+    *,
+    expected_row_counts: RowCountStats | None = None,
+    expected_cascade_row_counts: RowCountStats | None = None,
+) -> None:
     assert status.num_excs == 0
     if expected_rows is not None:
         assert status.num_rows == expected_rows, status
+    if expected_row_counts is not None:
+        assert status.row_count_stats == expected_row_counts, status
+    if expected_cascade_row_counts is not None:
+        assert status.cascade_row_count_stats == expected_cascade_row_counts, status
 
 
 def run_workers(target: Callable[[int], None], n_threads: int) -> list[tuple[int, BaseException]]:

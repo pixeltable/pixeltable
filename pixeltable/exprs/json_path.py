@@ -61,7 +61,7 @@ class JsonPath(Expr):
         # distinguishing attributes (other than identity)
         self._relative_path_root_id = random.getrandbits(63) if anchor is None else None
 
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
         self.cell_files = None
 
     @classmethod
@@ -299,7 +299,7 @@ class JsonPath(Expr):
     def __getitem__(self, index: object) -> 'JsonPath':
         if isinstance(index, (str, int, slice)):
             return self._append(index)
-        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid json list index: {index}')
+        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid json list index: {index!s}')
 
     def default_column_name(self) -> str | None:
         anchor_name = self.anchor.default_column_name() if self.anchor is not None else ''

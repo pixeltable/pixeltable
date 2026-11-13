@@ -20,7 +20,6 @@ import numpy as np
 import pixeltable as pxt
 from pixeltable import type_system as ts
 from pixeltable.func import Batch
-from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     from synapse.ml.fabric.service_discovery import FabricEnvConfig  # type: ignore[import-not-found]
@@ -291,7 +290,7 @@ def _(model: str, model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
     return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['chat_completions', 'embeddings']
 
 
 def __dir__() -> list[str]:

@@ -13,7 +13,7 @@ yfinance # For financial data tool
 # Embeddings & NLP
 sentence-transformers # For embedding generation
 transformers # Dependency for sentence-transformers
-tiktoken # For token counting in DocumentSplitter
+tiktoken # For token counting in document_splitter()
 
 # Utilities & Dependencies
 requests # For HTTP requests (often used implicitly)

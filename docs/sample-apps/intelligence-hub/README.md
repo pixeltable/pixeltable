@@ -17,7 +17,7 @@ flowchart TD
   end
 
   subgraph process [AI Processing -- Computed Columns]
-    Chunk["Document Chunking\n(DocumentSplitter)"]
+    Chunk["Document Chunking\n(document_splitter())"]
     Embed["Embedding Index\n(sentence-transformers)"]
     Summarize["LLM Summarization\n(OpenAI or llama.cpp)"]
     Score["Relevance Scoring\n(custom UDF)"]

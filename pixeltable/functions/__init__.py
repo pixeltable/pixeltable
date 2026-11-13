@@ -4,10 +4,7 @@ General Pixeltable UDFs.
 This parent module contains general-purpose UDFs that apply to multiple data types.
 """
 
-# ruff: noqa: F401
-
 from pixeltable.functions.media_metadata import CodecContextMetadata, ContainerMetadata, StreamMetadata
-from pixeltable.utils.code import local_public_names
 
 from . import (
     anthropic,
@@ -53,11 +50,64 @@ from . import (
     whisperx,
     yolox,
 )
-from .globals import count, filter, map, max, mean, min, sort, sum
+from .globals import coalesce, count, filter, map, max, mean, min, sort, sum
 
-__all__ = local_public_names(__name__, exclude=['globals', 'media_metadata', 'model_support']) + local_public_names(
-    globals.__name__
-)
+__all__ = [
+    'CodecContextMetadata',
+    'ContainerMetadata',
+    'StreamMetadata',
+    'anthropic',
+    'array',
+    'audio',
+    'bedrock',
+    'bfl',
+    'coalesce',
+    'count',
+    'date',
+    'deepseek',
+    'document',
+    'fabric',
+    'fal',
+    'filter',
+    'fireworks',
+    'gemini',
+    'groq',
+    'huggingface',
+    'image',
+    'jina',
+    'json',
+    'llama_cpp',
+    'map',
+    'math',
+    'max',
+    'mean',
+    'min',
+    'mistralai',
+    'nebius',
+    'net',
+    'ollama',
+    'openai',
+    'openrouter',
+    'replicate',
+    'runwayml',
+    'sort',
+    'string',
+    'sum',
+    'timestamp',
+    'together',
+    'twelvelabs',
+    'util',
+    'uuid',
+    'video',
+    'vision',
+    'vllm',
+    'vlmrun',
+    'vlmrun_gateway',
+    'voyageai',
+    'whisper',
+    'whisperx',
+    'yolox',
+]
 
 
 def __dir__() -> list[str]:

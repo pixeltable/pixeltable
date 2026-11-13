@@ -1,4 +1,5 @@
 import ctypes
+import faulthandler
 import functools
 import gc
 import hashlib
@@ -9,6 +10,7 @@ import os
 import pathlib
 import platform
 import shutil
+import signal
 import sys
 import threading
 import urllib.parse
@@ -70,6 +72,11 @@ def pytest_addoption(parser: argparsing.Parser) -> None:
 def pytest_configure(config: PytestConfig) -> None:
     global DO_RERUN  # noqa: PLW0603
     DO_RERUN = not config.getoption('--no-rerun')
+    if hasattr(signal, 'SIGUSR1'):
+        # CI sends SIGUSR1 to the pytest controller and its xdist workers shortly before the test step's timeout, for a
+        # stack dump of a hang outside any test, where faulthandler_timeout has no effect. The dump goes to a dup of
+        # stderr, as with pytest's faulthandler plugin, since output capture redirects fd 2 during a test.
+        faulthandler.register(signal.SIGUSR1, file=os.dup(2), all_threads=True)
 
 
 # Fixtures that download a Hugging Face model. Any test requesting one of these is implicitly a

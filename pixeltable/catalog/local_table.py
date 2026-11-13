@@ -674,7 +674,7 @@ class LocalTable(Table):
         if not value_expr.is_bound_by([self._tbl_version_path]):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'The value expression of column {col_name!r} ({value_expr}) is not bound by {self._display_str()}',
+                f'The value expression of column {col_name!r} ({value_expr!s}) is not bound by {self._display_str()}',
             )
 
     @classmethod
@@ -752,7 +752,7 @@ class LocalTable(Table):
 
             if len(dependent_views) > 0:
                 dependent_views_str = '\n'.join(
-                    sorted(f'view: {view._path()}, predicate: {predicate}' for view, predicate in dependent_views)
+                    sorted(f'view: {view._path()}, predicate: {predicate!s}' for view, predicate in dependent_views)
                 )
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -811,17 +811,20 @@ class LocalTable(Table):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter the type of primary key column {col.name!r}'
                 )
-
-            # TODO(PXT-960): follow up: allow alteration if it doesn't invalidate any dependents, and doesn't change
-            # their column types.
-            dependent_user_cols = self._get_dependent_user_cols(col)
-            if len(dependent_user_cols) > 0:
+            if new_col_type == col.col_type:
+                return
+            if col.col_type.nullable or new_col_type != col.col_type.copy(nullable=True):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Cannot alter column {col.name!r} because the following columns depend on it: '
-                    f'{", ".join(c.qualified_name for c in dependent_user_cols)}',
+                    f'Column {col.name!r} type cannot be changed from {col.col_type} to {new_col_type}',
                 )
-
+            dependents = get_runtime().catalog.get_non_nullable_dependents(col)
+            if len(dependents) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Column {col.name!r} cannot become nullable: non-nullable columns depend on it: '
+                    f'{", ".join(dependents)}',
+                )
             self._tbl_version.get().alter_column(col, new_col_type)
 
         do_alter_column()
@@ -1137,6 +1140,7 @@ class LocalTable(Table):
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -1148,6 +1152,7 @@ class LocalTable(Table):
         /,
         *,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -1162,6 +1167,7 @@ class LocalTable(Table):
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         return_rows: bool = False,
         **kwargs: Any,
@@ -1192,6 +1198,7 @@ class LocalTable(Table):
     def batch_update(
         self,
         rows: Iterable[dict[str, Any]],
+        *,
         cascade: bool = True,
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
         return_rows: bool = False,
@@ -1301,7 +1308,7 @@ class LocalTable(Table):
             if where is not None and not where.is_bound_by([self._tbl_version_path]):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'`where` predicate ({where}) is not bound by {self._display_str()}',
+                    f'`where` predicate ({where!s}) is not bound by {self._display_str()}',
                 )
 
             tv = self._tbl_version.get()
@@ -1372,9 +1379,9 @@ class LocalTable(Table):
                     created_at=datetime.datetime.fromtimestamp(vers_md.version_md.created_at, tz=datetime.timezone.utc),
                     user=vers_md.version_md.user,
                     change_type=change_type,
-                    inserts=rcs.ins_rows,
-                    updates=rcs.upd_rows,
-                    deletes=rcs.del_rows,
+                    inserts=rcs.inserted_rows,
+                    updates=rcs.updated_rows,
+                    deletes=rcs.deleted_rows,
                     errors=rcs.num_excs,
                     schema_change=schema_change,
                 )

@@ -8,13 +8,14 @@ Usage example:
 >>> t.select(t.date_col.year, t.date_col.weekday()).collect()
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import TypedDict
+from zoneinfo import ZoneInfo
 
 import sqlalchemy as sql
 
 import pixeltable as pxt
-from pixeltable.utils.code import local_public_names
+from pixeltable.env import Env
 
 _SQL_ZERO = sql.literal(0)
 
@@ -86,6 +87,62 @@ def make_date(year: int, month: int, day: int) -> date:
 @make_date.to_sql
 def _(year: sql.ColumnElement, month: sql.ColumnElement, day: sql.ColumnElement) -> sql.ColumnElement:
     return sql.func.make_date(year.cast(sql.Integer), month.cast(sql.Integer), day.cast(sql.Integer))
+
+
+@pxt.udf(is_deterministic=False)
+def today(tz: str | None = None) -> date:
+    """
+    Return the current date in the time zone `tz`, or in the default time zone if `tz` is `None`.
+
+    A query, or a computed column with `stored=False`, evaluates it when the query runs. A stored computed column
+    records the date of the insert, and a recompute replaces it with the date of the recompute.
+
+    Args:
+        tz: A time zone name from the
+            [IANA Time Zone Database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones), such as
+            `'America/New_York'`.
+
+    Examples:
+        The tasks that are due today:
+
+        >>> t.where(t.due_date == pxtf.date.today()).collect()
+
+        The tasks that are due today in Tokyo:
+
+        >>> t.where(t.due_date == pxtf.date.today('Asia/Tokyo')).collect()
+    """
+    tzinfo = Env.get().default_time_zone if tz is None else ZoneInfo(tz)
+    return datetime.now().astimezone(tzinfo).date()
+
+
+@today.to_sql
+def _(tz: sql.ColumnElement | None = None) -> sql.ColumnElement:
+    if tz is None:
+        return sql.cast(sql.func.now(), sql.Date)
+    # a null tz falls back to the session's TimeZone, which Env sets from default_time_zone
+    zone = sql.func.coalesce(tz, sql.func.current_setting('TimeZone'))
+    return sql.cast(sql.func.timezone(zone, sql.func.now()), sql.Date)
+
+
+@pxt.udf
+def strptime(date_string: str, format: str) -> date:
+    """
+    Parse a date from date_string according to format.
+
+    Equivalent to `datetime.strptime(date_string, format).date()`; see
+    [`datetime.strptime()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.strptime). For an
+    ISO 8601 string, `astype(pxt.Date)` is enough.
+
+    Args:
+        date_string: The string to parse.
+        format: The format of date_string. For a complete list of formatting directives, see
+            [`strftime()` and `strptime()` Behavior](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior).
+
+    Examples:
+        >>> t.add_computed_column(picked_on=pxtf.date.strptime(t.picked, '%d.%m.%Y'))
+    """
+    # date_str w/o time zone info: datetime.strptime() returns a naive datetime, and date() keeps it that way
+    return datetime.strptime(date_string, format).date()
 
 
 @pxt.udf(is_method=True)
@@ -200,7 +257,22 @@ def replace(self: date, year: int | None = None, month: int | None = None, day: 
     return self.replace(**kwargs)
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'add_days',
+    'day',
+    'isocalendar',
+    'isoformat',
+    'isoweekday',
+    'make_date',
+    'month',
+    'replace',
+    'strftime',
+    'strptime',
+    'today',
+    'toordinal',
+    'weekday',
+    'year',
+]
 
 
 def __dir__() -> list[str]:

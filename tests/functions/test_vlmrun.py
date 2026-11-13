@@ -25,7 +25,7 @@ from ..utils import (
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 _MODEL = 'vlmrun-orion-2:fast'
-# video and document generation on the fast tier returned made-up artifact ids in live tests
+# image, video and document generation on the fast tier returned made-up artifact ids in live tests
 _GENERATION_MODEL = 'vlmrun-orion-2:auto'
 
 
@@ -64,15 +64,11 @@ class TestVLMRunClient:
             Config.init(reinit=True, project_root=project_root)
 
     @pytest.mark.parametrize(
-        ('udf', 'key'),
-        [
-            ('generate_image', 'response_format'),
-            ('generate_image', 'toolsets'),
-            ('generate_image', 'messages'),
-            ('chat_completions', 'model'),
-        ],
+        ('udf', 'key'), [('generate_image', 'prompt'), ('generate_image', 'json_schema'), ('chat_completions', 'model')]
     )
     def test_reserved_model_kwargs(self, uses_db: None, udf: str, key: str) -> None:
+        if udf == 'generate_image':
+            skip_test_if_not_installed('vlmrun')
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
         model_kwargs = {key: 'x'}
         if udf == 'generate_image':
@@ -80,8 +76,76 @@ class TestVLMRunClient:
         else:
             messages = [{'role': 'user', 'content': t.prompt}]
             t.add_computed_column(out=pxtf.vlmrun.chat_completions(messages, model=_MODEL, model_kwargs=model_kwargs))
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=f'cannot contain `{key}`'):
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=f'cannot contain `{key}`: this function sets it'):
             t.insert(prompt='A red circle')
+
+    @pytest.mark.parametrize(
+        ('model_kwargs', 'match'),
+        [
+            ({'toolsets': ['web']}, 'cannot contain `toolsets`: it accepts the VLM Run agent execution config fields'),
+            (
+                {'temperature': 0.5, 'max_tokens': 10},
+                'cannot contain `max_tokens`, `temperature`: it accepts the VLM Run agent execution config fields .*'
+                '`service_tier`',
+            ),
+            ({'service_tier': 'fastest'}, r'(?s)Invalid `model_kwargs`.*service_tier'),
+            ({'response_model': 'x'}, r'(?s)Invalid `model_kwargs`.*response_model'),
+        ],
+    )
+    def test_generation_model_kwargs(self, uses_db: None, model_kwargs: dict[str, Any], match: str) -> None:
+        """`model_kwargs` of a generation UDF holds fields of the agent execution config, and nothing else."""
+        skip_test_if_not_installed('vlmrun')
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t.add_computed_column(out=pxtf.vlmrun.generate_image(t.prompt, model=_MODEL, model_kwargs=model_kwargs))
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=match):
+            t.insert(prompt='A red circle')
+
+    def test_execution_errors(self, init_env: None) -> None:
+        """The scheduler retries only a rate-limited submission: any other failure may leave a paid execution."""
+        skip_test_if_not_installed('vlmrun')
+        import pydantic
+        from vlmrun.client import exceptions as sdk_errors  # type: ignore[import-untyped]
+        from vlmrun.client.types import AgentExecutionResponse  # type: ignore[import-untyped]
+
+        from pixeltable.exec.expr_eval.schedulers import _is_retryable_udf_error
+        from pixeltable.functions.vlmrun import _execution_error
+
+        # a polled status outside the SDK's JobStatus fails its validation, with no wait for the deadline
+        with pytest.raises(pydantic.ValidationError) as unknown_status:
+            AgentExecutionResponse(id='e1', name='n', created_at='2026-11-12T00:00:00Z', status='cancelled', usage={})
+        code = pxt.ErrorCode
+        cases: list[tuple[Exception, str | None, pxt.ErrorCode]] = [
+            (
+                sdk_errors.ServerError(message='upstream request timed out', http_status=504),
+                None,
+                code.PROVIDER_UNEXPECTED_RESPONSE,
+            ),
+            (
+                sdk_errors.RequestTimeoutError('Request timed out: read timeout=30'),
+                None,
+                code.PROVIDER_UNEXPECTED_RESPONSE,
+            ),
+            (sdk_errors.NetworkError('Connection error: connection aborted'), None, code.PROVIDER_UNEXPECTED_RESPONSE),
+            (sdk_errors.AuthenticationError(), None, code.PROVIDER_AUTH_ERROR),
+            (sdk_errors.ValidationError(message='Unknown model'), None, code.PROVIDER_BAD_REQUEST),
+            (sdk_errors.RateLimitError(), None, code.RATE_LIMITED),
+            (sdk_errors.RateLimitError(), 'e1', code.PROVIDER_UNEXPECTED_RESPONSE),
+            (unknown_status.value, 'e1', code.PROVIDER_UNEXPECTED_RESPONSE),
+        ]
+        for exc, execution_id, expected in cases:
+            err = _execution_error(exc, execution_id)
+            assert err.error_code == expected, (exc, err)
+            assert _is_retryable_udf_error(err)[0] == (expected == code.RATE_LIMITED), (exc, err)
+            assert 'Suggestion' not in str(err)
+
+    def test_artifact_id(self) -> None:
+        from pixeltable.functions.vlmrun import _artifact_id
+
+        for ref in ('vid_e9a2b3', 'https://vlm.run/workspace/vid_e9a2b3.mp4', 'https://vlm.run/vid_e9a2b3.mp4?t=1#x'):
+            assert _artifact_id(ref, 'vid') == 'vid_e9a2b3'
+        for ref in ('vid_e9a2b', 'img_e9a2b3', 'https://vlm.run/vid_e9a2b3.mp4/x', 'xvid_e9a2b3'):
+            with pxt_raises(pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE, match='unrecognized artifact id'):
+                _artifact_id(ref, 'vid')
 
 
 @pytest.mark.very_expensive
@@ -172,10 +236,18 @@ class TestVLMRun:
         skip_test_if_not_installed('vlmrun')
         skip_test_if_no_client('vlmrun')
         t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'image': pxt.Image})
-        t.add_computed_column(generated=pxtf.vlmrun.generate_image(t.prompt, model=_MODEL))
-        t.add_computed_column(edited=pxtf.vlmrun.generate_image('Blur all the faces', image=t.image, model=_MODEL))
         t.add_computed_column(
-            annotated=pxtf.vlmrun.annotate_image('Draw bounding boxes around all objects', t.image, model=_MODEL)
+            generated=pxtf.vlmrun.generate_image(
+                t.prompt, model=_GENERATION_MODEL, model_kwargs={'service_tier': 'standard'}
+            )
+        )
+        t.add_computed_column(
+            edited=pxtf.vlmrun.generate_image('Blur all the faces', image=t.image, model=_GENERATION_MODEL)
+        )
+        t.add_computed_column(
+            annotated=pxtf.vlmrun.annotate_image(
+                'Draw bounding boxes around all objects', t.image, model=_GENERATION_MODEL
+            )
         )
         validate_update_status(t.insert(prompt='A red circle on a white background', image=get_image_files()[0]), 1)
 
