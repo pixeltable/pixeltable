@@ -85,7 +85,7 @@ def embed(text: str) -> pxt.Array[(4,), pxt.Float]:
 
 
 class TestTableModel:
-    def test_referenced_functions(self) -> None:
+    def test_referenced_functions(self, init_env: None) -> None:
         """Every function a declaration persists is reported, whichever declaration holds it."""
         TableModel = pxt.model_base()
 
@@ -2869,7 +2869,7 @@ class TestTableModel:
             class MultiBase(TableModel, name='multi_base', base=ValidTableModel.order_by(ValidTableModel.id).limit(10)):
                 pass
 
-    def test_aggregation_rejected(self) -> None:
+    def test_aggregation_rejected(self, init_env: None) -> None:
         """A view is maintained one base row at a time, so nothing in a model may aggregate."""
         TableModel = pxt.model_base()
 

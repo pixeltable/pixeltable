@@ -12,7 +12,7 @@ from ..utils import skip_test_if_not_installed
 @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Tool is not supported on Linux ARM')
 @pytest.mark.expensive
 class TestDbDumpTool:
-    def test_db_dump_tool(self) -> None:
+    def test_db_dump_tool(self, init_env: None) -> None:
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('spacy')  # the view's iterator splits on sentences
         # A generous timeout to allow for a large HF download

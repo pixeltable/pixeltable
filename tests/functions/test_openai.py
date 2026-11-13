@@ -972,7 +972,7 @@ class TestOpenaiTypedDictAdherence:
         for col in (t.chat_text, t.tool_name, t.resp_text, t.item_text):
             assert_type_eq(col.col_type, pxt.String | None)
 
-    def test_chat_completion(self) -> None:
+    def test_chat_completion(self, init_env: None) -> None:
         skip_test_if_not_installed('openai')
         from openai.types import completion_usage
         from openai.types.chat import (
@@ -1017,7 +1017,7 @@ class TestOpenaiTypedDictAdherence:
             ]
         )
 
-    def test_response(self) -> None:
+    def test_response(self, init_env: None) -> None:
         skip_test_if_not_installed('openai')
         import typing
 
@@ -1054,7 +1054,7 @@ class TestOpenaiTypedDictAdherence:
             synth=frozenset({'output_text'}),
         )
 
-    def test_exact_mirror_types(self) -> None:
+    def test_exact_mirror_types(self, init_env: None) -> None:
         """JsonType equality for TypedDicts that are exact mirrors of an SDK Pydantic model."""
         skip_test_if_not_installed('openai')
         from openai.types import (
@@ -1096,7 +1096,7 @@ class TestOpenaiTypedDictAdherence:
                 f'{ours.__name__} drifted from {sdk.__module__}.{sdk.__name__}:\n  ours: {ours_jt}\n  sdk:  {sdk_jt}'
             )
 
-    def test_transcription_response(self) -> None:
+    def test_transcription_response(self, init_env: None) -> None:
         """TranscriptionResponse unions Transcription + TranscriptionVerbose; we add synth srt/vtt and
         re-type usage as plain dict to avoid committing to one variant of the SDK Usage union."""
         skip_test_if_not_installed('openai')
@@ -1134,7 +1134,7 @@ class TestOpenaiTypedDictAdherence:
         # every field is path-dependent
         assert ours_optional == frozenset(ours_fields.keys())
 
-    def test_translation_response(self) -> None:
+    def test_translation_response(self, init_env: None) -> None:
         """TranslationResponse unions Translation + TranslationVerbose; we add synth srt/vtt."""
         skip_test_if_not_installed('openai')
         from openai.types.audio.translation import Translation
@@ -1160,7 +1160,7 @@ class TestOpenaiTypedDictAdherence:
 
         assert ours_optional == frozenset(ours_fields.keys())
 
-    def test_decision_response(self) -> None:
+    def test_decision_response(self, init_env: None) -> None:
         """DecisionResponse mirrors Decision except for its flattened answer variants."""
         skip_test_if_not_installed('openai')
         from openai.types.decision import Decision
@@ -1177,7 +1177,7 @@ class TestOpenaiTypedDictAdherence:
                 f'DecisionResponse field {name!r} drifted: ours={ours_fields[name]} sdk={sdk_fields[name]}'
             )
 
-    def test_decision_answer(self) -> None:
+    def test_decision_answer(self, init_env: None) -> None:
         """DecisionAnswer flattens the SDK's four answer variants into one TypedDict."""
         skip_test_if_not_installed('openai')
         from openai.types import decision as sdk_decision
@@ -1212,7 +1212,7 @@ class TestOpenaiTypedDictAdherence:
         assert set(ours_fields) == set().union(*(v.model_fields for v in probability_variants))
         assert ours_optional == {'label'}
 
-    def test_images_response(self) -> None:
+    def test_images_response(self, init_env: None) -> None:
         """ImagesResponse mirrors SDK ImagesResponse field-for-field, except data is non-null
         (we guarantee a populated list in _decode_image_response), and fields that newer SDKs added are optional."""
         skip_test_if_not_installed('openai')
