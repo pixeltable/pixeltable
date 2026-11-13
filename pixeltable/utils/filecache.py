@@ -199,9 +199,6 @@ class FileCache:
         clear(None) removes all entries from the cache, and is purely a test utility.
         """
         with self._lock:
-            self.new_redownload_witnessed = False
-            self.evicted_working_set_keys.clear()
-
             if tbl_id is None:
                 # remove every cache file on disk, not just the entries this instance tracks: another FileCache
                 # instance or process may have written files we never adopted. The lock file and any foreign
@@ -215,6 +212,8 @@ class FileCache:
                 self.reset_session_stats()
                 return
 
+            self.new_redownload_witnessed = False
+            self.evicted_working_set_keys.clear()
             entries_to_remove = [e for e in self.cache.values() if e.tbl_id == tbl_id]
             _logger.debug(f'clearing {self.num_files(tbl_id)} entries from file cache for table {tbl_id}')
             for entry in entries_to_remove:
