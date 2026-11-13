@@ -179,23 +179,14 @@ class InsertableTable(LocalTable):
             # in on_error='abort' mode the exec raises the internal ExprEvalError on the first failing cell;
             # convert it to a user-facing Error (on_error='ignore' records per-cell errors and never raises)
             try:
-                if query is not None:
-                    status = self._tbl_version.get().insert(
-                        source=None,
-                        query=query,
-                        print_stats=print_stats,
-                        fail_on_exception=fail_on_exception,
-                        skip_existing_keys=skip_existing_keys,
-                    )
-                else:
-                    status = self._tbl_version.get().insert(
-                        source=data_source.valid_rows(),
-                        query=None,
-                        print_stats=print_stats,
-                        fail_on_exception=fail_on_exception,
-                        return_rows=return_rows,
-                        skip_existing_keys=skip_existing_keys,
-                    )
+                status = self._tbl_version.get().insert(
+                    source=data_source.valid_rows() if query is None else None,
+                    query=query,
+                    print_stats=print_stats,
+                    fail_on_exception=fail_on_exception,
+                    return_rows=return_rows,
+                    skip_existing_keys=skip_existing_keys,
+                )
             except excs.ExprEvalError as e:
                 excs.raise_from_expr_eval_err(e)
 

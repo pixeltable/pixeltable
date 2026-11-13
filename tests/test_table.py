@@ -1231,7 +1231,9 @@ class TestTable:
         expected = [{'n': 0, 's': 'str_0'}, {'n': 10, 's': 'str_1'}, {'n': 20, 's': 'str_2'}]
         assert list(t3.select(t3.n, t3.s).order_by(t3.n).collect()) == expected
 
-        t3.insert(src_query)
+        status = t3.insert(src_query, return_rows=True)
+        assert status.rows is not None
+        assert sorted(status.rows, key=lambda row: row['n']) == expected
         assert list(t3.select(t3.n, t3.s).order_by(t3.n).collect()) == [row for row in expected for _ in range(2)]
 
     def test_component_view_query_as_source(self, db_root: DatabaseRoot) -> None:
