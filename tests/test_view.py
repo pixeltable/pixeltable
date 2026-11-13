@@ -203,13 +203,17 @@ class TestView:
 
         # update data: cascade to view
         status = t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
-        assert status.num_rows == 5 * 2  # *2: rows affected in both base table and view
+        validate_update_status(
+            status, expected_row_counts=RowCountStats(upd_rows=5), expected_cascade_row_counts=RowCountStats(upd_rows=5)
+        )
         assert t.count() == 120
         check_view(t, v)
 
         # base table delete is reflected in view
         status = t.delete(where=t.c2 < 5)
-        assert status.num_rows == 5 * 2  # *2: rows affected in both base table and view
+        validate_update_status(
+            status, expected_row_counts=RowCountStats(del_rows=5), expected_cascade_row_counts=RowCountStats(del_rows=5)
+        )
         assert t.count() == 115
         check_view(t, v)
 
@@ -495,7 +499,11 @@ class TestView:
         status = t.update(
             {'c4': True, 'c3': t.c3 + 1, 'c10': t.c10 - 1.0}, where=(t.c2 >= 5) & (t.c2 < 15), cascade=True
         )
-        assert status.num_rows == 10 * 2  # 10 base rows + 5 in v1 + 5 in v2
+        validate_update_status(
+            status,
+            expected_row_counts=RowCountStats(upd_rows=10),
+            expected_cascade_row_counts=RowCountStats(upd_rows=10),
+        )
         assert t.count() == 120
         assert v1.count() == 10
         assert v2.count() == 10
@@ -504,7 +512,11 @@ class TestView:
 
         # base table delete is reflected in view
         status = t.delete(where=(t.c2 >= 5) & (t.c2 < 15))
-        assert status.num_rows == 10 * 2  # 10 base rows + 5 in v1 + 5 in v2
+        validate_update_status(
+            status,
+            expected_row_counts=RowCountStats(del_rows=10),
+            expected_cascade_row_counts=RowCountStats(del_rows=10),
+        )
         assert t.count() == 110
         assert v1.count() == 5
         assert v2.count() == 5
@@ -575,7 +587,11 @@ class TestView:
         # update data: cascade to both views
         base_version, v1_version, v2_version = version(t), version(v1), version(v2)
         status = t.update({'c4': True, 'c3': t.c3 + 1}, where=t.c2 < 15, cascade=True)
-        assert status.num_rows == 15 + 10 + 5
+        validate_update_status(
+            status,
+            expected_row_counts=RowCountStats(upd_rows=15),
+            expected_cascade_row_counts=RowCountStats(upd_rows=15),
+        )
         assert t.count() == 120
         # all versions were incremented
         assert version(t) == base_version + 1
@@ -586,7 +602,11 @@ class TestView:
         # update data: cascade only to v2
         base_version, v1_version, v2_version = version(t), version(v1), version(v2)
         status = t.update({'c10': t.c10 - 1.0}, where=t.c2 < 15, cascade=True)
-        assert status.num_rows == 15 + 5
+        validate_update_status(
+            status,
+            expected_row_counts=RowCountStats(upd_rows=15),
+            expected_cascade_row_counts=RowCountStats(upd_rows=5),
+        )
         assert t.count() == 120
         # v1 did not get updated
         assert version(t) == base_version + 1
@@ -597,7 +617,9 @@ class TestView:
         # base table delete is reflected in both views
         base_version, v1_version, v2_version = version(t), version(v1), version(v2)
         status = t.delete(where=t.c2 == 0)
-        assert status.num_rows == 1 + 1 + 1
+        validate_update_status(
+            status, expected_row_counts=RowCountStats(del_rows=1), expected_cascade_row_counts=RowCountStats(del_rows=2)
+        )
         assert t.count() == 119
         assert v1.count() == 9
         assert v2.count() == 4
@@ -610,7 +632,9 @@ class TestView:
         # base table delete is reflected only in v1
         base_version, v1_version, v2_version = version(t), version(v1), version(v2)
         status = t.delete(where=t.c2 == 5)
-        assert status.num_rows == 1 + 1
+        validate_update_status(
+            status, expected_row_counts=RowCountStats(del_rows=1), expected_cascade_row_counts=RowCountStats(del_rows=1)
+        )
         assert t.count() == 118
         assert v1.count() == 8
         assert v2.count() == 4
