@@ -967,13 +967,13 @@ class Planner:
         target = view.tbl_version.get()
         recomputed_cols = set(recompute_targets)
 
-        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(
+        eval_cols, select_list, identity_cols = cls._build_update_columns(
             target, set(), recomputed_cols, return_rows=False
         )
         # Read the just-expired rows (v_max == current_version) to copy stored column values
         plan = cls.create_query_plan(
             FromClause(tbls=[view]),
-            eval_exprs,
+            select_list,
             columns=identity_cols,
             where_clause=target.predicate,
             ignore_errors=True,
@@ -984,7 +984,7 @@ class Planner:
         plan.row_builder.set_table_output(
             target,
             identity_cols=identity_cols,
-            expr_cols=[(col, eval_exprs[i].slot_idx) for i, col in enumerate(eval_cols)],
+            expr_cols=[(col, select_list[i].slot_idx) for i, col in enumerate(eval_cols)],
         )
         plan = cls._add_cell_materialization_node(plan)
         plan = cls._add_save_node(plan)
