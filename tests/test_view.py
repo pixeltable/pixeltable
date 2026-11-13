@@ -1547,7 +1547,7 @@ class TestView:
                 if_not_exists='insert',
             ),
             expected_row_counts=RowCountStats(ins_rows=1, upd_rows=2),
-            expected_cascade_row_counts=RowCountStats(ins_rows=1 + 1 + 1 + 2, upd_rows=2 + 2 + 1 + 2),
+            expected_cascade_row_counts=RowCountStats(ins_rows=5, upd_rows=7),
         )
         assert list(vv.select(vv.id, vv.x2, vv.x3).order_by(vv.id).collect()) == [
             {'id': 1, 'x2': 20, 'x3': 21},
