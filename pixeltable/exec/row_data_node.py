@@ -24,8 +24,8 @@ class RowDataNode(ExecNode):
 
     input_rows: Iterator[dict[str, Any]]
     set_pk: bool  # if True, assign synthetic pks (input row position); needed for iterator expansion
-    _is_closed: bool
     _is_consumed: bool
+    _is_closed: bool
 
     # output_exprs is declared in the superclass, but we redeclare it here with a more specific type
     output_exprs: list[exprs.ColumnRef]
@@ -44,8 +44,8 @@ class RowDataNode(ExecNode):
         self.tbl = tbl
         self.input_rows = iter(rows)
         self.set_pk = set_pk
-        self._is_closed = False
         self._is_consumed = False
+        self._is_closed = False
 
     def _open(self) -> None:
         assert not self._is_closed, 'RowDataNode is not reusable'
@@ -99,7 +99,7 @@ class RowDataNode(ExecNode):
                 assert col_info is not None
                 output_row[col_info.slot_idx] = None
             output_batch.add_row(output_row)
-            if self.ctx.batch_size > 0 and len(output_batch) == self.ctx.batch_size:
+            if self.ctx.batch_size > 0 and len(output_batch) >= self.ctx.batch_size:
                 _logger.debug(f'RowDataNode: yielding batch of {len(output_batch)} rows')
                 yield output_batch
                 output_batch = DataRowBatch(self.row_builder)
