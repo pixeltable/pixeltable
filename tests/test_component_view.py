@@ -693,8 +693,20 @@ class TestComponentView:
             rows = v2.select(v2.id, v2.pos, v2.note).collect()
             return {(r['id'], r['pos']): r['note'] for r in rows}
 
-        assert v_rows() == {(1, 0): (0, 42), (1, 1): (2, 42), (2, 0): (0, 42), (2, 1): (2, 42), (2, 2): (4, 42)}
-        assert v2_rows() == {(1, 0): 'x', (1, 1): 'x', (2, 0): 'x', (2, 1): 'x', (2, 2): 'x'}
+        assert v_rows() == {
+            (1, 0): (0, 42),
+            (1, 1): (2, 42),
+            (2, 0): (0, 42),
+            (2, 1): (2, 42),
+            (2, 2): (4, 42),
+        }  # fmt: skip
+        assert v2_rows() == {
+            (1, 0): 'x',
+            (1, 1): 'x',
+            (2, 0): 'x',
+            (2, 1): 'x',
+            (2, 2): 'x',
+        }  # fmt: skip
 
         t.update({'flag': True, 'other': 1})
         assert v_rows() == {
@@ -717,8 +729,20 @@ class TestComponentView:
         }
 
         t.update({'flag': False}, where=t.id == 1)
-        assert v_rows() == {(2, 0): (0, 42), (2, 1): (2, 42), (2, 2): (4, 42), (3, 0): (0, None), (3, 1): (2, None)}
-        assert v2_rows() == {(2, 0): 'x', (2, 1): 'x', (2, 2): 'x', (3, 0): None, (3, 1): None}
+        assert v_rows() == {
+            (2, 0): (0, 42),
+            (2, 1): (2, 42),
+            (2, 2): (4, 42),
+            (3, 0): (0, None),
+            (3, 1): (2, None),
+        }  # fmt: skip
+        assert v2_rows() == {
+            (2, 0): 'x',
+            (2, 1): 'x',
+            (2, 2): 'x',
+            (3, 0): None,
+            (3, 1): None,
+        }  # fmt: skip
 
         t.update({'flag': True}, where=t.id == 1)
         assert v_rows() == {
