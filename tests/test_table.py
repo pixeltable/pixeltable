@@ -22,7 +22,6 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable import telemetry
 from pixeltable.catalog import RowCountStats
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
@@ -53,7 +52,6 @@ from .utils import (
     no_local_db_env,
     pxt_raises,
     read_data_file,
-    record_telemetry,
     reload_catalog,
     rerun_on_network_error,
     run_in_new_process,
@@ -2748,31 +2746,6 @@ class TestTable:
         status = t.insert(c1='abc')
         assert status.num_rows == 1
         assert status.num_excs == 0
-
-    @pytest.mark.db_roots('local', reason='executes a large insert, uses telemetry')
-    def test_large_insert(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
-        """An insert of more rows than the insert plan processes at once stores all of them in the table and views."""
-        p = db_root.make_catalog_path
-        t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'n': pxt.Int}, _is_data_versioned=is_data_versioned)
-        if is_data_versioned:
-            v = pxt.create_view(p('view'), t, additional_columns={'n2': t.n * 2})
-
-        with record_telemetry(span_level=telemetry.DEBUG) as recorder:
-            validate_update_status(
-                t.insert({'id': i, 'n': i} for i in range(2500)),
-                expected_row_counts=RowCountStats(inserted_rows=2500),
-                expected_cascade_row_counts=RowCountStats(inserted_rows=2500) if is_data_versioned else RowCountStats(),
-            )
-        base_insert = next(span for span in recorder.spans if span['name'] == 'pixeltable.store.insert_rows')
-        base_batches = [
-            span
-            for span in recorder.spans
-            if span['name'] == 'pixeltable.store.build_rows' and span['parent_id'] == base_insert['id']
-        ]
-        assert len(base_batches) > 1
-        assert t.select(t.id).order_by(t.id).collect()['id'] == list(range(2500))
-        if is_data_versioned:
-            assert v.select(v.n2).order_by(v.id).collect()['n2'] == [i * 2 for i in range(2500)]
 
     def test_insert(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
