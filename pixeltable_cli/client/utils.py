@@ -8,7 +8,6 @@ import http.client
 import json
 import os
 import platform
-import re
 import shlex
 import socket
 import subprocess
@@ -63,20 +62,27 @@ def session_key() -> str:
     proc = psutil.Process(os.getppid())
     if _IS_WINDOWS:
         proc = proc.parent() or proc
-    return _process_key(proc)
+    return process_key(proc)
 
 
 def session_is_live(session: str) -> bool:
     """Whether session, a session_key() value, identifies a running shell."""
-    pid, _, _ = session.partition(':')
-    try:
-        return _process_key(psutil.Process(int(pid))) == session
-    except (ValueError, psutil.Error):
-        return False
+    return _process_with_key(session) is not None
 
 
-def _process_key(proc: psutil.Process) -> str:
+def process_key(proc: psutil.Process) -> str:
+    """proc's pid and creation time, which together identify it even after the OS reissues the pid."""
     return f'{proc.pid}:{proc.create_time()}'
+
+
+def _process_with_key(key: str) -> psutil.Process | None:
+    """The running process that key, a process_key() value, identifies, or None."""
+    pid, _, _ = key.partition(':')
+    try:
+        proc = psutil.Process(int(pid))
+        return proc if process_key(proc) == key else None
+    except (ValueError, psutil.Error, OSError):
+        return None
 
 
 def base_url() -> str:
@@ -92,14 +98,13 @@ def _daemon_log_path() -> str:
     return os.path.join(_resolve_pixeltable_home(), 'logs', f'pxt-daemon-{get_port()}.log')
 
 
-def read_pidfile() -> int | None:
-    """The PID the daemon recorded, or None if the file is missing or holds no usable one."""
+def read_pidfile() -> psutil.Process | None:
+    """The daemon the pidfile records, or None if the file is missing or unusable or that daemon is gone."""
     try:
         with open(pidfile_path(), encoding='utf-8') as f:
-            pid = int(f.read().strip())
-    except (OSError, ValueError):
+            return _process_with_key(f.read().strip())
+    except OSError:
         return None
-    return pid if pid > 0 else None
 
 
 def fetch_health(timeout: float = 0.3) -> dict[str, Any] | None:
@@ -234,47 +239,6 @@ def wait_for_health(timeout: float = _STARTUP_HEALTH_TIMEOUT_SECS) -> dict[str, 
 _STARTUP_GRACE_PERIOD_SECS = 10.0
 
 
-# The module the daemon is launched as (see spawn_detached()). We match the `-m <module>` launch
-# form rather than a bare substring so a recycled PID whose argv merely mentions the module name
-# (eg `python -c '...pixeltable_cli.server.daemon...'`) isn't mistaken for our daemon and killed.
-_DAEMON_MODULE = 'pixeltable_cli.server.daemon'
-_DAEMON_CMDLINE_RE = re.compile(rf'-m\s+{re.escape(_DAEMON_MODULE)}(\s|$)')
-
-
-def _pid_cmdline(pid: int) -> str | None:
-    """The command line of pid as a single string, or None if it can't be read."""
-    # Linux exposes argv directly and cheaply via /proc; no subprocess needed.
-    try:
-        with open(f'/proc/{pid}/cmdline', 'rb') as f:
-            raw = f.read()
-        if raw != b'':
-            return raw.replace(b'\x00', b' ').decode('utf-8', errors='replace')
-    except OSError:
-        pass
-    if _IS_WINDOWS:
-        # Windows has neither /proc nor ps; psutil reads the command line out of the process itself
-        try:
-            args = psutil.Process(pid).cmdline()
-        except (psutil.Error, OSError):
-            return None
-        return ' '.join(args) if len(args) > 0 else None
-    # macOS/BSD (and Linux without a readable /proc entry): ask ps for the full command line.
-    try:
-        out = subprocess.run(
-            ['ps', '-p', str(pid), '-o', 'args='], capture_output=True, text=True, timeout=2.0, check=False
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    line = out.stdout.strip()
-    return line if line != '' else None
-
-
-def pid_is_our_daemon(pid: int) -> bool:
-    """Best-effort check that pid is one of our daemon processes rather than an unrelated process."""
-    cmdline = _pid_cmdline(pid)
-    return cmdline is not None and _DAEMON_CMDLINE_RE.search(cmdline) is not None
-
-
 def kill_and_wait(proc: psutil.Process, timeout: float = 5.0) -> None:
     """Terminate proc, wait up to timeout seconds for it to exit, then kill it. It never signals a process that
     received proc.pid after the creation of proc."""
@@ -358,18 +322,11 @@ def ensure_running() -> str:
     health = fetch_health()
     if health is None:
         # Nothing is answering /api/health. Either no daemon is up, or one we started bound the
-        # port and then wedged before serving health. The pidfile records the PID, but PIDs get
-        # recycled and the file is only bookkeeping, so a live PID is not proof of ownership: only
-        # reclaim the port (kill the holder) once we've confirmed the live process is a pxt daemon.
-        # The command line doesn't name the port, so the check can't tell this port's daemon from
-        # another port's daemon that has since inherited the PID. An unconfirmed PID is treated as a
-        # stale pidfile and we just spawn.
-        stale_pid = read_pidfile()
-        try:
-            daemon = psutil.Process(stale_pid) if stale_pid is not None else None
-        except (psutil.NoSuchProcess, OSError):
-            daemon = None
-        if daemon is not None and pid_is_our_daemon(daemon.pid):
+        # port and then wedged before serving health. The pidfile records the daemon's pid and
+        # creation time, so a pid that the OS has since given to another process doesn't pass for
+        # the daemon.
+        daemon = read_pidfile()
+        if daemon is not None:
             # It may just be slow to answer, so give it a grace window before concluding it is hung;
             # a daemon that comes up in the meantime goes through the same checks as one that
             # answered right away.

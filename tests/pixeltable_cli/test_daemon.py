@@ -19,7 +19,7 @@ from typing import Any, Iterator
 import psutil
 import pytest
 
-from pixeltable_cli.client.utils import kill_and_wait
+from pixeltable_cli.client.utils import kill_and_wait, process_key
 from pixeltable_cli.server import http_server
 from pixeltable_cli.utils import pidfile_path, working_dirs_path
 
@@ -279,7 +279,7 @@ class TestDaemon:
 
         pid1 = _pxt_health(daemon_port, cwd=project)['pid']
         pidfile = pathlib.Path(pidfile_path(daemon_port))
-        assert pidfile.read_text(encoding='utf-8').strip() == str(pid1)
+        assert pidfile.read_text(encoding='utf-8').strip() == process_key(psutil.Process(pid1))
         # Suspending the current daemon holds it: it continues to hold the port but doesn't respond on it.
         daemon = psutil.Process(pid1)
         daemon.suspend()
@@ -348,7 +348,8 @@ class TestDaemon:
             timeout=_HEALTH_TIMEOUT_SECS,
         )
 
-        assert pathlib.Path(pidfile_path(daemon_port)).read_text(encoding='utf-8').strip() == str(pid1)
+        pidfile_content = pathlib.Path(pidfile_path(daemon_port)).read_text(encoding='utf-8').strip()
+        assert pidfile_content == process_key(psutil.Process(pid1))
         assert _pxt_health(daemon_port, cwd=project)['pid'] == pid1
 
     @pytest.mark.parametrize('pidfile_content', ['not-an-int', '0', '-1'])
@@ -362,17 +363,16 @@ class TestDaemon:
 
         assert _pxt_health(daemon_port, cwd=project)['project_root'] == str(project)
 
-    def test_stop_spares_unrelated_process_in_stale_pidfile(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
-        """With no daemon answering, pxt daemon stop removes a pidfile with the pid of an unrelated process and
-        leaves that process running."""
-        pidfile = pathlib.Path(pidfile_path(daemon_port))
+    def test_stop_spares_process_that_inherited_pidfile_pid(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """With no daemon answering, pxt daemon stop leaves alone a process that inherited the pid in the pidfile."""
         with bystander_process() as bystander:
-            pidfile.write_text(str(bystander.pid), encoding='utf-8')
+            # the pidfile of a daemon created before the bystander, as if the OS had given its pid to the bystander
+            earlier = psutil.Process(bystander.pid).create_time() - 100
+            pathlib.Path(pidfile_path(daemon_port)).write_text(f'{bystander.pid}:{earlier}', encoding='utf-8')
 
             r = _pxt(daemon_port, tmp_path, {}, 'daemon', 'stop')
-            assert r.returncode == 0, r.stderr
-            assert r.stdout == f'pxt: no daemon running; removed a stale pidfile (PID {bystander.pid})\n'
-            assert not pidfile.exists()
+            assert r.returncode == 1
+            assert r.stderr == 'pxt: no daemon running\n'
             assert bystander.poll() is None
 
     def test_stop_kills_unresponsive_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:

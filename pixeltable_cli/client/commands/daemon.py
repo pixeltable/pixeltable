@@ -13,7 +13,6 @@ from pixeltable_cli.client.utils import (
     ensure_running,
     fetch_health,
     kill_and_wait,
-    pid_is_our_daemon,
     plural,
     port_is_open,
     read_pidfile,
@@ -79,7 +78,8 @@ def _start() -> None:
 
 
 def _stop(force: bool, ok_if_absent: bool = False) -> None:
-    tracked_pid = read_pidfile()
+    tracked = read_pidfile()
+    tracked_pid = tracked.pid if tracked is not None else None
     health = fetch_health()
 
     in_flight = health.get('in_flight', []) if health is not None else []
@@ -113,10 +113,8 @@ def _stop(force: bool, ok_if_absent: bool = False) -> None:
             sys.exit(1)
         pid_to_kill = health.get('pid')
     elif health is None and tracked_pid is not None:
-        # No responder but we have a pidfile entry. Could be a hung daemon (PID alive but not
-        # listening) or a stale pidfile, whose PID is gone or now belongs to another process. The
-        # command-line check spares a process that isn't a pxt daemon, but not another port's daemon.
-        pid_to_kill = tracked_pid if pid_is_our_daemon(tracked_pid) else None
+        # No responder, but the pidfile's daemon is alive: a hung daemon, holding the port without listening.
+        pid_to_kill = tracked_pid
     else:
         # health is not None, tracked_pid is None: no pidfile but something is responding.
         # Refuse unless forced - we have no proof the responder is ours.
@@ -129,19 +127,17 @@ def _stop(force: bool, ok_if_absent: bool = False) -> None:
             sys.exit(1)
         pid_to_kill = health.get('pid')
 
-    if pid_to_kill is not None:
-        with contextlib.suppress(psutil.NoSuchProcess, OSError):  # a daemon already gone needs no kill
+    if tracked is not None and pid_to_kill == tracked_pid:
+        kill_and_wait(tracked)
+    elif pid_to_kill is not None:
+        with contextlib.suppress(psutil.NoSuchProcess, OSError):  # a responder already gone needs no kill
             kill_and_wait(psutil.Process(pid_to_kill))
-    # Daemon's atexit handler only fires on graceful exit; clean up the pidfile here so a
-    # subsequent stop doesn't trip the "stale pidfile" branch.
+    # the daemon's atexit handler removes the pidfile only on a graceful exit
     try:
         os.remove(pidfile_path())
     except OSError:
         pass
-    if pid_to_kill is None:
-        print(f'pxt: no daemon running; removed a stale pidfile (PID {tracked_pid})')
-    else:
-        print(f'pxt: stopped daemon (PID {pid_to_kill})')
+    print(f'pxt: stopped daemon (PID {pid_to_kill})')
 
 
 def _status(as_json: bool) -> None:
