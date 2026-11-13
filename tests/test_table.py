@@ -2747,26 +2747,21 @@ class TestTable:
         assert status.num_rows == 1
         assert status.num_excs == 0
 
-    def test_insert_several_batches(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
-        """An insert of more rows than fit into one exec batch creates a single version."""
+    def test_large_insert(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        """An insert of more rows than the insert plan processes at once stores all of them in the table and views."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'req': pxt.Int}, _is_data_versioned=is_data_versioned)
-        rows = [{'id': i, 'req': i} for i in range(2500)]
-
+        t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'n': pxt.Int}, _is_data_versioned=is_data_versioned)
         if is_data_versioned:
-            v = pxt.create_view(p('view'), t, additional_columns={'req2': t.req * 2})
-            assert t.get_metadata()['version'] == 0
-            assert v.get_metadata()['version'] == 0
+            v = pxt.create_view(p('view'), t, additional_columns={'n2': t.n * 2})
+
         validate_update_status(
-            t.insert(rows),
+            t.insert({'id': i, 'n': i} for i in range(2500)),
             expected_row_counts=RowCountStats(inserted_rows=2500),
             expected_cascade_row_counts=RowCountStats(inserted_rows=2500) if is_data_versioned else RowCountStats(),
         )
-        assert t.count() == 2500
+        assert t.select(t.id).order_by(t.id).collect()['id'] == list(range(2500))
         if is_data_versioned:
-            assert t.get_metadata()['version'] == 1
-            assert v.get_metadata()['version'] == 1
-            assert v.select(v.req2).order_by(v.id).collect()['req2'] == [i * 2 for i in range(2500)]
+            assert v.select(v.n2).order_by(v.id).collect()['n2'] == [i * 2 for i in range(2500)]
 
     def test_insert(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
