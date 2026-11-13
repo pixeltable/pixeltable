@@ -25,6 +25,7 @@ class RowDataNode(ExecNode):
     input_rows: Iterator[dict[str, Any]]
     set_pk: bool  # if True, assign synthetic pks (input row position); needed for iterator expansion
     _is_closed: bool
+    _is_consumed: bool
 
     # output_exprs is declared in the superclass, but we redeclare it here with a more specific type
     output_exprs: list[exprs.ColumnRef]
@@ -44,6 +45,7 @@ class RowDataNode(ExecNode):
         self.input_rows = iter(rows)
         self.set_pk = set_pk
         self._is_closed = False
+        self._is_consumed = False
 
     def _open(self) -> None:
         assert not self._is_closed, 'RowDataNode is not reusable'
@@ -54,6 +56,8 @@ class RowDataNode(ExecNode):
         self._is_closed = True
 
     async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
+        assert not self._is_consumed, 'RowDataNode can only be iterated once'
+        self._is_consumed = True
         # input rows can only provide values for this table's columns
         user_cols_by_name = {
             col_ref.col.name: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)
