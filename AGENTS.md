@@ -42,9 +42,6 @@ When asked to review with structure-review, follow `.claude/skills/structure-rev
 - Never commit real credentials or expose secrets or private diagnostic paths in user-facing responses.
 - Agents must not manually edit users' `~/.pixeltable/` state. Use supported SDK/CLI operations;
   library code implementing storage is not prohibited from writing its managed files.
-- Every test that reaches `Env.get()`, including through `skip_test_if_not_installed()`, requests the
-  `init_env` fixture (`uses_db` and `db_root` include it). Without it, a test that runs first on its worker
-  would use the developer's real `~/.pixeltable/` home and database, so `tests/conftest.py` fails such a test.
 - Agents may deploy docs only with `make docs-deploy TARGET=dev`; `stage` and `prod` are for humans.
 - Validate user input with a specific `pixeltable.exceptions.Error` subclass and matching `ErrorCode`;
   constructing `Error` itself or using a mismatched code asserts. Assertions are for internal invariants.
