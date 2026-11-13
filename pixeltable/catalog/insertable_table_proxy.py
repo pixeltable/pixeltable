@@ -90,6 +90,8 @@ class InsertableTableProxy(TableProxy):
                 data_source.src_pk = []
                 data_source.infer_schema()
                 data_source.prepare_for_insert_into_table()
+                # TODO: this materializes all rows of the source to send them in one request; streaming them to the
+                # daemon would bound the client's memory
                 rows = self._convert_local_paths(data_source.valid_rows())
                 return self._dispatch(
                     'insert',
@@ -149,6 +151,8 @@ class InsertableTableProxy(TableProxy):
             data_source.src_pk = []
             data_source.infer_schema()
             data_source.prepare_for_insert_into_table()
+            # TODO: this materializes all rows of the source to send them in one request; streaming them to the
+            # daemon would bound the client's memory
             rows = list(data_source.valid_rows())
         else:
             raise excs.RequestError(

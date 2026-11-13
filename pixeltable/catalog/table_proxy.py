@@ -402,6 +402,8 @@ class TableProxy(Table):
         if not check_required:
             converter.reqd_col_names.clear()
         converter.prepare_for_insert_into_table()
+        # TODO: this materializes all rows to send them in one request; streaming them to the daemon would bound the
+        # client's memory
         return list(converter.valid_rows())
 
     def update(
