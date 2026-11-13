@@ -89,7 +89,7 @@ class TestAnthropic:
 class TestAnthropicTypedDictAdherence:
     """Detect drift between the TypedDict mirrors and the SDK Pydantic models. Doesn't need credentials."""
 
-    def test_mirrors(self) -> None:
+    def test_mirrors(self, init_env: None) -> None:
         skip_test_if_not_installed('anthropic')
         from anthropic.types import ContentBlock, Message, Usage
 
