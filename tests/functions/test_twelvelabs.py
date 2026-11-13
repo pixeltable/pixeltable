@@ -234,6 +234,7 @@ class TestTwelveLabsLocal:
         assert res['similarity'][0] == pytest.approx(1.0)
 
 
+@pytest.mark.expensive
 @pytest.mark.skip_merge_queue
 @rerun_on_network_error()
 class TestTwelveLabs:

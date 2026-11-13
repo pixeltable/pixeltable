@@ -19,6 +19,7 @@ class TestReplicateClient:
         assert all(c.is_closed for c in http_clients)
 
 
+@pytest.mark.expensive
 @pytest.mark.skip_merge_queue
 @rerun_on_network_error()
 class TestReplicate:
@@ -39,7 +40,6 @@ class TestReplicate:
         print(results['output'][0])
         assert len(results['output'][0]) > 0
 
-    @pytest.mark.expensive
     def test_image_generations(self, uses_db: None) -> None:
         skip_test_if_not_installed('replicate')
         skip_test_if_no_client('replicate')

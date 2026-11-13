@@ -181,6 +181,7 @@ def test_unavailable_video_model_error() -> None:
     )
 
 
+@pytest.mark.expensive
 @pytest.mark.skip_merge_queue
 @pytest.mark.usefixtures('bedrock_us_east_1')
 @rerun_on_network_error()
@@ -769,7 +770,6 @@ class TestBedrock:
 
         _run_converse_text(['qwen.qwen3-next-80b-a3b'])
 
-    @pytest.mark.expensive
     def test_invoke_model_stability_image(self, uses_db: None, bedrock_us_west_2: None) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model

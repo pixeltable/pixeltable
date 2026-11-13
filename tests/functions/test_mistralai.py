@@ -19,6 +19,7 @@ class TestMistralClient:
         assert all(c.is_closed for c in http_clients)
 
 
+@pytest.mark.expensive
 @pytest.mark.skip_merge_queue
 @rerun_on_network_error()
 class TestMistral:
