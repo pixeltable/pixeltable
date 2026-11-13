@@ -338,7 +338,7 @@ addopts = '-v -m "not skip_merge_queue and not expensive and not very_expensive 
 faulthandler_timeout = 600
 markers = [
     "skip_merge_queue: calls a live service not reliable enough for the merge queue, downloads a model or dataset, or uses an external object store; runs in the scheduled unit test configurations, not on PRs or in the merge queue",
-    "expensive: calls a remote API at a high dollar cost; runs only on the standard+ and standard++ CI configurations",
+    "expensive: too costly to run on every CI configuration, e.g. a remote API at a high dollar cost; runs only on the standard+ and standard++ configurations (with skip_merge_queue, not in the merge queue)",
     "very_expensive: calls a remote API at a very high dollar cost; runs only on the standard++ CI configuration",
     "resource_intensive: needs more memory or disk than a standard GitHub-hosted runner; runs only on the large runner",
     "benchmark: marks tests as benchmark tests (excluded from regular test runs)",

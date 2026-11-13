@@ -25,6 +25,7 @@ class TestFalClient:
 
 
 @pytest.mark.expensive
+@pytest.mark.skip_merge_queue
 @rerun_on_network_error()
 class TestFal:
     def test_text_to_image(self, uses_db: None) -> None:

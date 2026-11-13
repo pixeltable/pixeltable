@@ -16,8 +16,6 @@ from tool.ci_tool import (
 # The triggers under which a fully populated matrix is generated; 'pull_request' deliberately runs a reduced one.
 FULL_TRIGGERS = tuple(t for t in TRIGGERS if t != 'pull_request')
 
-TIERED_MARKERS = (EXPENSIVE_MARKERS, VERY_EXPENSIVE_MARKERS, RESOURCE_INTENSIVE_MARKERS)
-
 
 class TestBuildConfigs:
     """Invariants on the generated CI matrix.
@@ -58,21 +56,17 @@ class TestBuildConfigs:
         ('trigger', 'force_all', 'tiered'),
         [
             ('pull_request', False, ()),
-            ('merge_group', False, ()),
+            ('merge_group', False, (EXPENSIVE_MARKERS,)),
             ('schedule', False, (EXPENSIVE_MARKERS, RESOURCE_INTENSIVE_MARKERS)),
             ('schedule', True, (VERY_EXPENSIVE_MARKERS, RESOURCE_INTENSIVE_MARKERS)),
         ],
     )
     def test_markers_by_trigger(self, trigger: str, force_all: bool, tiered: tuple[str, ...]) -> None:
+        suffix = ' and not skip_merge_queue' if trigger in ('pull_request', 'merge_group') else ''
         configs = build_configs(trigger, force_all=force_all, has_aws_credentials=True)
         markers = [cfg.pytest_markers for cfg in configs if cfg.test_category == 'py']
-        assert sorted(m for m in markers if m in TIERED_MARKERS) == sorted(tiered)
-        untiered = (
-            f'{DEFAULT_MARKERS} and not skip_merge_queue'
-            if trigger in ('pull_request', 'merge_group')
-            else DEFAULT_MARKERS
-        )
-        assert {m for m in markers if m not in TIERED_MARKERS} == {untiered}
+        assert sorted(m for m in markers if m != DEFAULT_MARKERS + suffix) == sorted(m + suffix for m in tiered)
+        assert DEFAULT_MARKERS + suffix in markers
 
     def test_unknown_trigger_is_rejected(self) -> None:
         with pytest.raises(AssertionError):

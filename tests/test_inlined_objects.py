@@ -24,6 +24,7 @@ from .utils import (
 )
 
 
+@pytest.mark.expensive  # Large data volumes
 class TestInlinedObjects:
     def test_null_arrays(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path

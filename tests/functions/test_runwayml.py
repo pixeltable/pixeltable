@@ -108,6 +108,7 @@ class TestRunwayML:
         assert 'output' in results['output'][0]
 
     @pytest.mark.expensive
+    @pytest.mark.skip_merge_queue
     def test_text_to_image(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')
         skip_test_if_no_client('runwayml')

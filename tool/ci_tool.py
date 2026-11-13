@@ -105,24 +105,22 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
             MatrixConfig('otel', 'otel', MAIN_PLATFORM, '3.11', uv_options='--no-dev --extra otel --extra serve')
         )
 
+        # force_all is set by the "Run on all platforms" checkbox on a workflow dispatch, and by the weekly
+        # scheduled run.
+        if force_all:
+            configs.append(
+                MatrixConfig('standard++', 'py', MAIN_PLATFORM, '3.11', pytest_markers=VERY_EXPENSIVE_MARKERS)
+            )
+            configs.append(MatrixConfig('notebooks++', 'ipynb', 'ubuntu-large', '3.11'))
+            configs.extend(MatrixConfig('standard', 'py', platform, '3.11') for platform in EXPENSIVE_PLATFORMS)
+        else:
+            configs.append(MatrixConfig('standard+', 'py', MAIN_PLATFORM, '3.11', pytest_markers=EXPENSIVE_MARKERS))
+
         if trigger == 'merge_group':
-            configs.append(MatrixConfig('standard', 'py', MAIN_PLATFORM, '3.11'))
             # Non-HF notebooks. HF-dependent notebooks are gated behind --include-expensive, which only the
             # weekly run passes (see NB_TEST_OPTS in pytest.yml), so they are excluded here.
             configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.11'))
-
         else:
-            # force_all is set by the "Run on all platforms" checkbox on a workflow dispatch, and by the weekly
-            # scheduled run.
-            if force_all:
-                configs.append(
-                    MatrixConfig('standard++', 'py', MAIN_PLATFORM, '3.11', pytest_markers=VERY_EXPENSIVE_MARKERS)
-                )
-                configs.append(MatrixConfig('notebooks++', 'ipynb', 'ubuntu-large', '3.11'))
-                configs.extend(MatrixConfig('standard', 'py', platform, '3.11') for platform in EXPENSIVE_PLATFORMS)
-            else:
-                configs.append(MatrixConfig('standard+', 'py', MAIN_PLATFORM, '3.11', pytest_markers=EXPENSIVE_MARKERS))
-
             configs.append(
                 MatrixConfig(
                     'resource-intensive',
