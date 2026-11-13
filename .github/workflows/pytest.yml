@@ -153,7 +153,8 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     strategy:
-      fail-fast: false
+      # Merge queue only, so that validate fails at the first failure rather than after the slowest leg
+      fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
 
     defaults:
@@ -265,7 +266,8 @@ jobs:
           if [[ "$RUNNER_OS" != 'Windows' ]]; then
             # 5 minutes before the 90-minute timeout above, a stack dump from each pytest process: the controller and
             # its xdist workers (`python -c import sys;exec(eval(sys.stdin.readline()))`), with the SIGUSR1 handler in
-            # tests/conftest.py. One process at a time, since they share stderr.
+            # tests/conftest.py. One process at a time, since they share stderr. Then the Postgres server's state, for
+            # a worker stuck in a statement: what its backend is waiting on, and which backend holds that lock.
             (
               # /dev/null, since the trap kills only the subshell, and an orphaned sleep with the step's output would
               # hold the step open until the end of the sleep
@@ -275,6 +277,7 @@ jobs:
                 kill -USR1 "$pid" || true
                 sleep 2
               done
+              ./scripts/dump-pg-state.sh || true
             ) &
             trap "kill $! 2> /dev/null || true" EXIT
           fi
@@ -344,6 +347,8 @@ jobs:
         run: ./scripts/check-notebooks.sh
       - name: Archive log files
         if: ${{ always() && matrix.test-category == 'py' }}
+        # Diagnostic only: a failed upload must not fail the job.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: pixeltable-pytest-logs-${{ matrix.display-name }}-${{ matrix.os }}-${{ matrix.python-version }}

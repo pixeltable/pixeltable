@@ -2158,9 +2158,19 @@ class Catalog(CatalogBase):
                 f'{subject} {verb} dropped or replaced while this update was in progress. {PY_RERUN_HINT}',
             ) from e
 
-    def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
-        @retry_md_write_loop(tvps=[tbl], lock_mutable_tree=False)
-        def add_fn() -> None:
+    def add_columns(self, tbl: TableVersionPath, cols_fn: Callable[[], list[Column]]) -> None:
+        """Add the columns returned by cols_fn().
+
+        cols_fn() runs in the transaction that writes the new columns, so its existence checks against the table's
+        columns still hold at the time of the write.
+        """
+
+        # lock_mutable_tree=True: cols_fn() may drop existing columns, which requires locking the tree
+        @retry_md_write_loop(tvps=[tbl], lock_mutable_tree=True)
+        def add_fn() -> bool:
+            cols = cols_fn()
+            if len(cols) == 0:
+                return False
             tv = self._get_tbl_version(TableVersionKey(tbl.tbl_id, None))
             md, ops = tv.add_columns_ops(cols)
             md.tbl_md.pending_stmt = schema.TableStatement.ADD_COLUMNS
@@ -2172,8 +2182,10 @@ class Catalog(CatalogBase):
                 schema_version_md=md.schema_version_md,
                 pending_ops=ops,
             )
+            return True
 
-        add_fn()
+        if not add_fn():
+            return
         # force a reload in order to see the new columns/idxs
         self._clear_tv_cache(TableVersionKey(tbl.tbl_id, None))
         self._roll_forward()

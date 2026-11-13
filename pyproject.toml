@@ -338,7 +338,8 @@ extraPaths = ["packages/opentelemetry-instrumentation-pixeltable/src"]
 testpaths = ["tests"]
 addopts = '-v -m "not skip_merge_queue and not expensive and not very_expensive and not resource_intensive and not benchmark and not otel" --strict-markers'
 # Dump all thread stacks when a test runs longer than this many seconds; the test keeps running
-faulthandler_timeout = 600
+# Keep this above the slowest test's runtime: a dump during a still-running test can hang the worker
+faulthandler_timeout = 1800
 markers = [
     "skip_merge_queue: calls a live service not reliable enough for the merge queue, downloads a model or dataset, or uses an external object store; runs in the scheduled unit test configurations, not on PRs or in the merge queue",
     "expensive: too costly to run on every CI configuration, e.g. a remote API at a high dollar cost; runs only on the standard+ and standard++ configurations (with skip_merge_queue, not in the merge queue)",

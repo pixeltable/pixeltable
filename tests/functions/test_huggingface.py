@@ -647,10 +647,9 @@ class TestHuggingface:
         )
 
         validate_update_status(t.insert(prompt=test_prompt), expected_rows=1)
-        result = t.select(t.image).collect()[0]
-
-        # Verify we got an image
-        assert result['image'] is not None
+        img = t.select(t.image).collect()[0]['image']
+        assert img.size == (256, 256)
+        assert np.asarray(img).std() > 0
 
     def test_image_to_image(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_no_config('token', 'hf')
@@ -674,10 +673,10 @@ class TestHuggingface:
         validate_update_status(
             t.insert(img=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH), prompt=test_prompt), expected_rows=1
         )
-        result = t.select(t.modified_image).collect()[0]
-
-        # Verify we got a modified image
-        assert result['modified_image'] is not None
+        res = t.select(t.modified_image, width=t.img.width, height=t.img.height).collect()[0]
+        img = res['modified_image']
+        assert img.size == (res['width'], res['height'])
+        assert np.asarray(img).std() > 0
 
     @pytest.mark.resource_intensive
     def test_image_to_video(self, uses_db: None, sample_file_server: SampleFileServer) -> None:

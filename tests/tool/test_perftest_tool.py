@@ -9,7 +9,7 @@ from ..utils import skip_test_if_no_client, skip_test_if_not_installed
 
 @pytest.mark.skip_merge_queue  # Spawns a subprocess that runs a live LLM request
 class TestPerftestTool:
-    def test_perftest_tool(self) -> None:
+    def test_perftest_tool(self, init_env: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('openai')

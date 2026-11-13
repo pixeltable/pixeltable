@@ -70,7 +70,7 @@ class TestDocument:
         assert status.num_rows == len(file_paths)
         assert status.num_excs >= len(file_paths)
 
-    def test_get_document_handle(self) -> None:
+    def test_get_document_handle(self, init_env: None) -> None:
         skip_test_if_not_installed('markitdown', 'mistune')
 
         file_paths = self.valid_doc_paths()
