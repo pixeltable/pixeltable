@@ -1686,9 +1686,7 @@ class TableVersion:
             for view in self.mutable_views:
                 view_tv = view.get()
                 recomputed_cols = [col for col in recomputed_view_cols if col.get_tbl().id == view.id]
-                needs_iterator_reload = view_tv.is_component_view and any(
-                    col.get_tbl().id == view.id and view_tv.is_iterator_column(col) for col in changed_dependents
-                )
+                needs_iterator_reload = any(view_tv.is_iterator_column(col) for col in changed_dependents)
 
                 membership_change = base_membership_change or (
                     # an update can move a row in or out of a filtered view, but only if it changed one of the columns
@@ -2107,8 +2105,8 @@ class TableVersion:
         return f'{"Table" if self.is_insertable else "View"} {self.name!r}'
 
     def is_iterator_column(self, col: Column) -> bool:
-        """Returns True if col is produced by an iterator (including the pos column)"""
-        return col.is_iterator_col
+        """Returns True if col is produced by this table's iterator (including the pos column)"""
+        return col.get_tbl().id == self.id and col.is_iterator_col
 
     def iterator_columns(self) -> list[Column]:
         """Return all iterator-produced columns (including the pos column)"""
