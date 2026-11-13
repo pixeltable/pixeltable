@@ -20,7 +20,7 @@ import pixeltable as pxt
 from pixeltable.functions.huggingface import clip
 
 # Iterators: Tools to transform data, like extracting frames from video
-from pixeltable.iterators import FrameIterator
+from pixeltable.functions.video import frame_iterator
 
 # --- End Pixeltable Imports ---
 
@@ -58,14 +58,14 @@ video_table = pxt.create_table(
 )
 
 # Define a Pixeltable 'view'. Views are derived from tables or other views.
-# Here, we use FrameIterator to automatically extract frames from videos in 'video_table'.
+# Here, we use frame_iterator() to automatically extract frames from videos in 'video_table'.
 # The view effectively creates a new "table" where each row represents one frame.
 frames_view = pxt.create_view(
     'media_search.frames',  # Name of the view
     video_table,  # Source table
     # The iterator defines how to generate rows for the view.
-    # FrameIterator extracts frames at a specified FPS.
-    iterator=FrameIterator.create(video=video_table.video, fps=1),
+    # frame_iterator() extracts frames at a specified FPS.
+    iterator=frame_iterator(video=video_table.video, fps=1),
 )
 
 # Create an embedding index on the 'frame' column of the 'frames_view'.

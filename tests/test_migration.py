@@ -171,6 +171,9 @@ class TestMigration:
                     # Drop the pickled-function columns so the insert-based verification below can run; a real user
                     # would do the same to make such a table writable again.
                     self._drop_pickled_columns()
+                    # Older dumps contain a view over a ComponentIterator subclass, which is no longer supported; its
+                    # iterator loads as invalid and would block inserts into the base table.
+                    pxt.drop_table('custom_iterator', force=True, if_not_exists='ignore')
 
                     # TODO: We need many more of these sorts of checks.
                     if 12 <= old_version <= 14:

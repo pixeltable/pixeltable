@@ -999,7 +999,7 @@ class FastAPIRouter(fastapi.APIRouter):
             # [{"prompt": "a sunset over the ocean", "result": "..."}]
             ```
 
-            Compute the rows of a view `frames` (defined over `t` with a `FrameIterator`) for a
+            Compute the rows of a view `frames` (defined over `t` using `frame_iterator()`) for a
             given base table row:
 
             >>> router.add_compute_route(frames, path='/frames', outputs=['pos', 'frame'])
@@ -1364,8 +1364,8 @@ class FastAPIRouter(fastapi.APIRouter):
 
             Nothing is inserted into `t`; the computed row is passed only to `format_response`.
 
-            Batch form, aggregating the rows of a view `frames` (defined over `t` with a
-            `FrameIterator`) for a given base table row:
+            Batch form, aggregating the rows of a view `frames` (defined over `t` using
+            `frame_iterator()`) for a given base table row:
 
             >>> class FrameRow(pydantic.BaseModel):
             ...     pos: int
