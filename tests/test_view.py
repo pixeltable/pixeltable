@@ -8,6 +8,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import functions as pxtf
+from pixeltable.catalog import RowCountStats
 from pixeltable.func import Batch
 from pixeltable.types import ColumnSpec
 
@@ -202,13 +203,17 @@ class TestView:
 
         # update data: cascade to view
         status = t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
-        assert status.num_rows == 5 * 2  # *2: rows affected in both base table and view
+        validate_update_status(
+            status, expected_row_counts=RowCountStats(upd_rows=5), expected_cascade_row_counts=RowCountStats(upd_rows=5)
+        )
         assert t.count() == 120
         check_view(t, v)
 
         # base table delete is reflected in view
         status = t.delete(where=t.c2 < 5)
-        assert status.num_rows == 5 * 2  # *2: rows affected in both base table and view
+        validate_update_status(
+            status, expected_row_counts=RowCountStats(del_rows=5), expected_cascade_row_counts=RowCountStats(del_rows=5)
+        )
         assert t.count() == 115
         check_view(t, v)
 
@@ -494,7 +499,11 @@ class TestView:
         status = t.update(
             {'c4': True, 'c3': t.c3 + 1, 'c10': t.c10 - 1.0}, where=(t.c2 >= 5) & (t.c2 < 15), cascade=True
         )
-        assert status.num_rows == 10 * 2  # 10 base rows + 5 in v1 + 5 in v2
+        validate_update_status(
+            status,
+            expected_row_counts=RowCountStats(upd_rows=10),
+            expected_cascade_row_counts=RowCountStats(upd_rows=10),
+        )
         assert t.count() == 120
         assert v1.count() == 10
         assert v2.count() == 10
@@ -503,7 +512,11 @@ class TestView:
 
         # base table delete is reflected in view
         status = t.delete(where=(t.c2 >= 5) & (t.c2 < 15))
-        assert status.num_rows == 10 * 2  # 10 base rows + 5 in v1 + 5 in v2
+        validate_update_status(
+            status,
+            expected_row_counts=RowCountStats(del_rows=10),
+            expected_cascade_row_counts=RowCountStats(del_rows=10),
+        )
         assert t.count() == 110
         assert v1.count() == 5
         assert v2.count() == 5
@@ -574,7 +587,11 @@ class TestView:
         # update data: cascade to both views
         base_version, v1_version, v2_version = version(t), version(v1), version(v2)
         status = t.update({'c4': True, 'c3': t.c3 + 1}, where=t.c2 < 15, cascade=True)
-        assert status.num_rows == 15 + 10 + 5
+        validate_update_status(
+            status,
+            expected_row_counts=RowCountStats(upd_rows=15),
+            expected_cascade_row_counts=RowCountStats(upd_rows=15),
+        )
         assert t.count() == 120
         # all versions were incremented
         assert version(t) == base_version + 1
@@ -585,7 +602,11 @@ class TestView:
         # update data: cascade only to v2
         base_version, v1_version, v2_version = version(t), version(v1), version(v2)
         status = t.update({'c10': t.c10 - 1.0}, where=t.c2 < 15, cascade=True)
-        assert status.num_rows == 15 + 5
+        validate_update_status(
+            status,
+            expected_row_counts=RowCountStats(upd_rows=15),
+            expected_cascade_row_counts=RowCountStats(upd_rows=5),
+        )
         assert t.count() == 120
         # v1 did not get updated
         assert version(t) == base_version + 1
@@ -596,7 +617,9 @@ class TestView:
         # base table delete is reflected in both views
         base_version, v1_version, v2_version = version(t), version(v1), version(v2)
         status = t.delete(where=t.c2 == 0)
-        assert status.num_rows == 1 + 1 + 1
+        validate_update_status(
+            status, expected_row_counts=RowCountStats(del_rows=1), expected_cascade_row_counts=RowCountStats(del_rows=2)
+        )
         assert t.count() == 119
         assert v1.count() == 9
         assert v2.count() == 4
@@ -609,7 +632,9 @@ class TestView:
         # base table delete is reflected only in v1
         base_version, v1_version, v2_version = version(t), version(v1), version(v2)
         status = t.delete(where=t.c2 == 5)
-        assert status.num_rows == 1 + 1
+        validate_update_status(
+            status, expected_row_counts=RowCountStats(del_rows=1), expected_cascade_row_counts=RowCountStats(del_rows=1)
+        )
         assert t.count() == 118
         assert v1.count() == 8
         assert v2.count() == 4
@@ -1529,6 +1554,40 @@ class TestView:
         assert sorted(r['n'] for r in v1.collect()) == [5, 9]
         assert sorted(r['own'] for r in v2.collect()) == [50, 90]
         assert sorted(r['own3'] for r in v3.collect()) == [51, 91]
+
+    def test_upsert_propagation(self, db_root: DatabaseRoot) -> None:
+        """batch_update(if_not_exists='insert') propagates both its updates and its inserts to every kind of view."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'x': pxt.Int, 'n': pxt.Int}, primary_key='id')
+        t.insert([{'id': 1, 'x': 1, 'n': 1}, {'id': 2, 'x': 2, 'n': 2}, {'id': 3, 'x': 8, 'n': 1}])
+        v = pxt.create_view(p('v'), t, additional_columns={'x2': t.x * 2})
+        vv = pxt.create_view(p('vv'), v, additional_columns={'x3': v.x2 + 1})
+        fv = pxt.create_view(p('fv'), t.where(t.x > 5))
+        cv = pxt.create_view(p('cv'), t, iterator=simple_iterator(t.n))
+
+        validate_update_status(
+            t.batch_update(
+                [{'id': 1, 'x': 10, 'n': 1}, {'id': 3, 'x': 3, 'n': 1}, {'id': 4, 'x': 40, 'n': 2}],
+                if_not_exists='insert',
+            ),
+            expected_row_counts=RowCountStats(ins_rows=1, upd_rows=2),
+            expected_cascade_row_counts=RowCountStats(ins_rows=5, upd_rows=7),
+        )
+        assert list(vv.select(vv.id, vv.x2, vv.x3).order_by(vv.id).collect()) == [
+            {'id': 1, 'x2': 20, 'x3': 21},
+            {'id': 2, 'x2': 4, 'x3': 5},
+            {'id': 3, 'x2': 6, 'x3': 7},
+            {'id': 4, 'x2': 80, 'x3': 81},
+        ]
+        assert fv.select(fv.id).order_by(fv.id).collect()['id'] == [1, 4]
+        assert list(cv.select(cv.id, cv.icol).order_by(cv.id, cv.pos).collect()) == [
+            {'id': 1, 'icol': 0},
+            {'id': 2, 'icol': 0},
+            {'id': 2, 'icol': 1},
+            {'id': 3, 'icol': 0},
+            {'id': 4, 'icol': 0},
+            {'id': 4, 'icol': 1},
+        ]
 
     def test_recompute_column(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
