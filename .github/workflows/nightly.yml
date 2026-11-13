@@ -150,6 +150,7 @@ jobs:
         run: pytest -v -m 'not very_expensive' --junitxml=junit-report.xml tests
       - name: Upload test report
         if: always()
+        # Diagnostic only: a failed upload must not fail the job.
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:

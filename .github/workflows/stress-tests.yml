@@ -66,6 +66,7 @@ jobs:
         run: ./scripts/stress-tests.sh ${{ matrix.options }} 12 18000
       - name: Archive log files
         if: ${{ always() }}
+        # Diagnostic only: a failed upload must not fail the job.
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
@@ -113,6 +114,7 @@ jobs:
         run: python -u tool/abnormal_termination.py --cycles 10 --home pxt-home
       - name: Archive log files
         if: ${{ always() }}
+        # Diagnostic only: a failed upload must not fail the job.
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:

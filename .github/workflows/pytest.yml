@@ -320,6 +320,7 @@ jobs:
         run: ./scripts/check-notebooks.sh
       - name: Archive log files
         if: ${{ always() && matrix.test-category == 'py' }}
+        # Diagnostic only: a failed upload must not fail the job.
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
