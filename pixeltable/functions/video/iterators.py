@@ -14,7 +14,6 @@ import pixeltable as pxt
 import pixeltable.utils.av as av_utils
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 
 _logger = logging.getLogger(__name__)
@@ -664,13 +663,12 @@ def _(bound_args: dict[str, Any]) -> None:
             )
 
 
-_class_names = [
-    'FrameAttrs',
+__all__ = [
     'Frame',
-    'frame_iterator',
+    'FrameAttrs',
     'LegacyFrame',
-    'legacy_frame_iterator',
     'VideoSegment',
+    'frame_iterator',
+    'legacy_frame_iterator',
     'video_splitter',
 ]
-__all__ = local_public_names(__name__) + _class_names

@@ -21,7 +21,6 @@ import pydantic
 import pixeltable as pxt
 from pixeltable.env import Env, register_client
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import is_retryable_error, redact_url
 from pixeltable.utils.local_store import TempStore
 
@@ -787,7 +786,7 @@ async def generate_document(
     return str(path)
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['annotate_image', 'chat_completions', 'generate_document', 'generate_image', 'generate_video']
 
 
 def __dir__() -> list[str]:

@@ -19,7 +19,6 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.spacy import get_spacy_model
 
 
@@ -909,7 +908,65 @@ def _(bound_args: dict[str, Any]) -> None:
         )
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'capitalize',
+    'casefold',
+    'center',
+    'contains',
+    'contains_re',
+    'count',
+    'endswith',
+    'fill',
+    'find',
+    'findall',
+    'format',
+    'fullmatch',
+    'index',
+    'isalnum',
+    'isalpha',
+    'isascii',
+    'isdecimal',
+    'isdigit',
+    'isidentifier',
+    'islower',
+    'isnumeric',
+    'isspace',
+    'istitle',
+    'isupper',
+    'join',
+    'len',
+    'ljust',
+    'lower',
+    'lstrip',
+    'match',
+    'normalize',
+    'pad',
+    'partition',
+    'removeprefix',
+    'removesuffix',
+    'repeat',
+    'replace',
+    'replace_re',
+    'reverse',
+    'rfind',
+    'rindex',
+    'rjust',
+    'rpartition',
+    'rsplit',
+    'rstrip',
+    'slice',
+    'slice_replace',
+    'split',
+    'splitlines',
+    'startswith',
+    'string_splitter',
+    'strip',
+    'swapcase',
+    'title',
+    'upper',
+    'wrap',
+    'zfill',
+]
 
 
 def __dir__() -> list[str]:

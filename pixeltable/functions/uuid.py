@@ -7,7 +7,6 @@ import uuid
 import sqlalchemy as sql
 
 import pixeltable as pxt
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.uuid import uuid7 as _uuid7_impl
 
 
@@ -87,7 +86,7 @@ def _(u: sql.ColumnElement) -> sql.ColumnElement:
     return sql.func.replace(u.cast(sql.Text), '-', '')
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['hex', 'to_string', 'uuid4', 'uuid7']
 
 
 def __dir__() -> list[str]:
