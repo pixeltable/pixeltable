@@ -13,9 +13,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal, NamedTuple, NoReturn
 
-DEFAULT_MARKERS = 'not expensive and not very_expensive and not resource_intensive and not benchmark'
-EXPENSIVE_MARKERS = 'not very_expensive and not resource_intensive and not benchmark'
 VERY_EXPENSIVE_MARKERS = 'not resource_intensive and not benchmark'
+EXPENSIVE_MARKERS = f'{VERY_EXPENSIVE_MARKERS} and not very_expensive'
+DEFAULT_MARKERS = f'{EXPENSIVE_MARKERS} and not expensive'
 RESOURCE_INTENSIVE_MARKERS = 'resource_intensive'
 
 # Note: in addition to these pytest marker expressions, the tests that actually run are implicitly filtered by
