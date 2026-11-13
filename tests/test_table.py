@@ -2748,21 +2748,14 @@ class TestTable:
         assert status.num_excs == 0
 
     def test_insert_several_batches(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
-        """An insert of more rows than fit into one exec batch is all-or-nothing and creates a single version."""
+        """An insert of more rows than fit into one exec batch creates a single version."""
         p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'req': pxt.Int}, _is_data_versioned=is_data_versioned)
         rows = [{'id': i, 'req': i} for i in range(2500)]
 
-        bad_rows = [*rows[:1500], {'id': 1500}, *rows[1501:]]
-        with pxt_raises(
-            pxt.ErrorCode.MISSING_REQUIRED, match=r"Missing required column\(s\) \(req\) in row \{'id': 1500\}"
-        ):
-            t.insert(bad_rows)
-        assert t.count() == 0
-
         if is_data_versioned:
             v = pxt.create_view(p('view'), t, additional_columns={'req2': t.req * 2})
-            num_versions = len(t.get_versions()), len(v.get_versions())
+            assert [tbl.get_metadata()['version'] for tbl in (t, v)] == [0, 0]
         validate_update_status(
             t.insert(rows),
             expected_row_counts=RowCountStats(inserted_rows=2500),
@@ -2770,7 +2763,7 @@ class TestTable:
         )
         assert t.count() == 2500
         if is_data_versioned:
-            assert (len(t.get_versions()), len(v.get_versions())) == (num_versions[0] + 1, num_versions[1] + 1)
+            assert [tbl.get_metadata()['version'] for tbl in (t, v)] == [1, 1]
             assert v.select(v.req2).order_by(v.id).collect()['req2'] == [i * 2 for i in range(2500)]
 
     def test_insert(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
@@ -2836,6 +2829,16 @@ class TestTable:
             new_rows = [{col_name: row[col_name] for col_name in col_names} for row in rows]
             t.insert(new_rows)
         assert 'Missing' in str(exc_info.value)
+
+        pxt.drop_table(tbl_name, if_not_exists='ignore')
+        t = pxt.create_table(tbl_name, {'id': pxt.Int, 'req': pxt.Int}, _is_data_versioned=is_data_versioned)
+        bad_rows = [{'id': i, 'req': i} for i in range(2500)]
+        del bad_rows[1500]['req']
+        with pxt_raises(
+            pxt.ErrorCode.MISSING_REQUIRED, match=r"Missing required column\(s\) \(req\) in row \{'id': 1500\}"
+        ):
+            t.insert(bad_rows)
+        assert t.count() == 0
 
         # incompatible schema
         for (col_name, col_type), value_col_name in zip(
