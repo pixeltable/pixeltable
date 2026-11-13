@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Mapping, Sequence
 from uuid import UUID
 
 from pixeltable.env import Env
+from pixeltable.service.proxy_protocol import LocalFile
 
 from .catalog_base import CatalogBase
 from .insertable_table_proxy import InsertableTableProxy
@@ -126,6 +127,7 @@ class CatalogProxy(CatalogBase):
         base: 'Query | None',
         idxs: list['IndexDefinition'],
         is_data_versioned: bool,
+        if_exists: IfExistsParam,
     ) -> tuple[Table, bool]:
         args = {
             'path': path,
@@ -139,6 +141,7 @@ class CatalogProxy(CatalogBase):
             'base': base.as_dict() if base is not None else None,
             'idxs': idxs,
             'is_data_versioned': is_data_versioned,
+            'if_exists': if_exists,
         }
         md, was_created = self.client.send_request('CatalogBase', 'create_from_model', args)
         return self._make_table(md, is_anon_snapshot=False), was_created
@@ -219,3 +222,23 @@ class CatalogProxy(CatalogBase):
         self.client.send_request(
             'CatalogBase', 'drop_dir', {'path': path, 'if_not_exists': if_not_exists, 'force': force}
         )
+
+    def create_table_from_md(self, path: Path, md: list[TableVersionMd]) -> Table:
+        new_md = self.client.send_request('CatalogBase', 'create_table_from_md', {'path': path, 'md': md})
+        return self._make_table(new_md, is_anon_snapshot=False)
+
+    def load_store_rows(
+        self, tbl_id: UUID, rows_file: str, new_media: dict[str, str], prev_media: dict[str, str]
+    ) -> dict[str, str]:
+        # a LocalFile is uploaded with the request
+        args = {
+            'tbl_id': tbl_id,
+            'rows_file': LocalFile(rows_file),
+            'new_media': {url: LocalFile(path) for url, path in new_media.items()},
+            'prev_media': prev_media,
+        }
+        return self.client.send_request('CatalogBase', 'load_store_rows', args)
+
+    def finish_copy(self, tbl_id: UUID, num_rows: int, dest_path: Path, if_exists: IfExistsParam) -> bool:
+        args = {'tbl_id': tbl_id, 'num_rows': num_rows, 'dest_path': dest_path, 'if_exists': if_exists}
+        return self.client.send_request('CatalogBase', 'finish_copy', args)

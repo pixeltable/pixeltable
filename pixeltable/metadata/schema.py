@@ -186,6 +186,7 @@ class TableState(Enum):
     LIVE = 0
     ROLLFORWARD = 1  # finalizing pending table ops
     ROLLBACK = 2  # rolling back pending table ops
+    COPYING = 3  # a copy of another table that does not hold all of its rows yet; it refuses every other write
 
 
 class TableStatement(Enum):

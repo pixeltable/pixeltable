@@ -22,6 +22,7 @@ import sqlalchemy as sql
 
 from pixeltable import exceptions as excs, telemetry, telemetry_schemas
 from pixeltable._query import Query
+from pixeltable._version import __version__
 from pixeltable.catalog import (
     Catalog,
     InsertableTable,
@@ -34,6 +35,7 @@ from pixeltable.catalog import (
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
+from pixeltable.metadata import VERSION as MD_SCHEMA_VERSION
 from pixeltable.row import RowBatch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.local_store import TempStore
@@ -369,6 +371,25 @@ def _get_table_by_id(request: ProxyRequest) -> list | None:
     return load()
 
 
+def _create_table_from_md(request: ProxyRequest) -> list:
+    # md is written as received, so it must be of this database's metadata version
+    if request.schema_version != MD_SCHEMA_VERSION:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'Cannot create a table from metadata of version {request.schema_version} in a database of metadata '
+            f'version {MD_SCHEMA_VERSION}; use the Pixeltable version that the database runs ({__version__}).',
+        )
+    kwargs = _deserialize_args(request)
+    cat = get_runtime().catalog
+    tbl = cat.create_table_from_md(**kwargs)
+
+    @retry_md_read_loop(tbl_keys=[TableVersionKey(tbl._id, None)])
+    def load() -> list:
+        return cat.read_md_for_export(tbl)
+
+    return load()
+
+
 def _get_table_paths_md(request: ProxyRequest) -> list:
     return get_runtime().catalog.get_table_paths_md_export(**proxy_protocol.deserialize_request(request))
 
@@ -511,6 +532,18 @@ def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
         print_stats=kwargs['print_stats'],
         return_rows=kwargs['return_rows'],
     )
+
+
+def _load_store_rows(request: ProxyRequest) -> dict[str, str]:
+    kwargs = proxy_protocol.deserialize_request(request)
+    # A request can also give a file as a plain path string. Only an uploaded file is accepted, so that a caller
+    # cannot have the daemon read one of its own files.
+    uploaded = request._uploaded_names.keys()
+    if kwargs['rows_file'] not in uploaded or not uploaded >= set(kwargs['new_media'].values()):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, 'load_store_rows(): the rows and media files must be uploaded files'
+        )
+    return get_runtime().catalog.load_store_rows(**kwargs)
 
 
 def _compute(request: ProxyRequest, tbl: LocalTable) -> Any:
@@ -698,6 +731,9 @@ _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
     ('CatalogBase', 'get_dir_contents'): _catalog_method,
     ('CatalogBase', 'create_dir'): _catalog_method,
     ('CatalogBase', 'drop_dir'): _catalog_method,
+    ('CatalogBase', 'create_table_from_md'): _create_table_from_md,
+    ('CatalogBase', 'load_store_rows'): _load_store_rows,
+    ('CatalogBase', 'finish_copy'): _catalog_method,
     ('Query', 'collect'): _query_collect,
     ('Query', 'count'): _query_count,
 }

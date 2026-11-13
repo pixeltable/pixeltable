@@ -165,6 +165,8 @@ class LockRequest:
     write_paths: Collection[Path]
     # also lock each directory's descendants and tables, or each table's views and snapshots
     lock_path_subtree: bool
+    # the operation loads rows into its write targets while they are in TableState.COPYING
+    fills_copy: bool
 
     def __init__(
         self,
@@ -177,6 +179,7 @@ class LockRequest:
         lock_mutable_tree: bool = False,
         write_paths: Collection[Path] | None = None,
         lock_path_subtree: bool = False,
+        fills_copy: bool = False,
     ) -> None:
         self.op_class = op_class
         self.read_tvps = read_tvps or ()
@@ -186,6 +189,7 @@ class LockRequest:
         self.lock_mutable_tree = lock_mutable_tree
         self.write_paths = write_paths or ()
         self.lock_path_subtree = lock_path_subtree
+        self.fills_copy = fills_copy
         assert self.for_write or not (self.write_tvps or self.write_tbl_ids or self.write_paths), op_class
         assert self.op_class is not TblOpClass.DATA_READ or (self.read_tvps or self.read_tbl_keys), (
             'DATA_READ requires at least one table or table path'

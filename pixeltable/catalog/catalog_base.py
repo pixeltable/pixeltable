@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from .table import Table
     from .table_metadata import TableMetadata
     from .table_path import TableMdPath, TablePath
+    from .types import TableVersionMd
 
 
 class CatalogBase(abc.ABC):
@@ -72,6 +73,7 @@ class CatalogBase(abc.ABC):
         base: 'Query | None',
         idxs: list['IndexDefinition'],
         is_data_versioned: bool,
+        if_exists: IfExistsParam,
     ) -> tuple[Table, bool]: ...
 
     @abc.abstractmethod
@@ -105,3 +107,33 @@ class CatalogBase(abc.ABC):
 
     @abc.abstractmethod
     def drop_dir(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None: ...
+
+    @abc.abstractmethod
+    def create_table_from_md(self, path: Path, md: list[TableVersionMd]) -> Table:
+        """Create a base table at path with the metadata and history of another base table, and an empty store table.
+
+        The new table is a copy in progress: it refuses every write except load_store_rows(), finish_copy() and
+        drop_table().
+        """
+
+    @abc.abstractmethod
+    def load_store_rows(
+        self, tbl_id: UUID, rows_file: str, new_media: dict[str, str], prev_media: dict[str, str]
+    ) -> dict[str, str]:
+        """Insert the store rows in the Parquet file rows_file into the copy in progress tbl_id.
+
+        Args:
+            new_media: url -> local path of each media file that these rows are the first to reference
+            prev_media: url -> stored url of each media file that an earlier call stored and these rows reference
+
+        Returns:
+            url -> stored url, for each url in new_media
+        """
+
+    @abc.abstractmethod
+    def finish_copy(self, tbl_id: UUID, num_rows: int, dest_path: Path, if_exists: IfExistsParam) -> bool:
+        """Make the copy in progress tbl_id, which must hold num_rows rows, a live table at dest_path.
+
+        Returns whether the table is at dest_path. It is not when if_exists is 'ignore' and another table is at
+        dest_path.
+        """

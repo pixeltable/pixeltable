@@ -21,16 +21,20 @@ from typing import Any
 import httpx
 import numpy as np
 import PIL.Image
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 import requests
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.catalog import TablePathKey, TableVersionKey
+from pixeltable.catalog import IfExistsParam, InsertableTable, TablePathKey, TableVersionKey, table_copy
+from pixeltable.catalog.catalog_proxy import CatalogProxy
 from pixeltable.catalog.path import Path as CatalogPath
 from pixeltable.catalog.update_status import RowCountStats
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.runtime import get_runtime
 from pixeltable.service import proxy_client, proxy_daemon, proxy_dispatch, proxy_protocol
 from pixeltable.service.management_client import Credential
 from pixeltable.service.proxy_client import HttpTransport, ProxyClient, TunnelTransport
@@ -40,7 +44,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, StorageTarget
 
-from .utils import pxt_raises, reload_env
+from .utils import DatabaseRoot, get_image_files, pxt_raises, reload_env
 
 _KEY = Credential('api_key', 'key', 'the PIXELTABLE_API_KEY environment variable')
 
@@ -1068,6 +1072,91 @@ class TestProxyDaemon:
         assert error['client_protocol_version'] == client_version
         assert error['server_protocol_version'] == proxy_protocol.PROTOCOL_VERSION
         return error['message']
+
+    @staticmethod
+    def _start_copy(
+        db_root: DatabaseRoot, export_dir: pathlib.Path
+    ) -> tuple[CatalogProxy, pxt.Table, table_copy._Chunk]:
+        """Start a copy as copy_table() does before it loads rows: export a local table of two rows, which reference
+        one image file, into export_dir and create the empty copy 'copy' in the catalog of db_root.
+
+        Returns the catalog, the copy and the single chunk of the export.
+        """
+        src = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
+        src.insert({'id': i, 'img': get_image_files()[0]} for i in range(2))
+        assert isinstance(src, InsertableTable)
+        export = table_copy._export_table(src, export_dir)
+        (chunk,) = export.chunks
+        copy_path = CatalogPath.parse(db_root.make_catalog_path('copy'))
+        cat = get_runtime().get_catalog(copy_path)
+        assert isinstance(cat, CatalogProxy)
+        return cat, cat.create_table_from_md(copy_path, export.md), chunk
+
+    @pytest.mark.db_roots('proxy', 'cloud', reason='sends the requests of a table copy to a daemon')
+    def test_copy_requests_refused(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
+        p = db_root.make_catalog_path
+        cat, copy, chunk = self._start_copy(db_root, tmp_path)
+        rows_file = str(chunk.rows_file)
+
+        # A rows file or a media file that the request gives as a path, which would be a file of the daemon. Only
+        # uploaded files are accepted.
+        for file_args in (
+            {'rows_file': rows_file, 'new_media': {}},
+            {'rows_file': proxy_protocol.LocalFile(rows_file), 'new_media': chunk.new_media},
+        ):
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be uploaded files'):
+                cat.client.send_request(
+                    'CatalogBase', 'load_store_rows', {'tbl_id': copy._id, 'prev_media': {}, **file_args}
+                )
+
+        # A local media url outside of the media directories of the copy: the url of the source's file, which the
+        # rows keep when new_media leaves it out, or a file that prev_media gives as stored.
+        for prev_media in ({}, chunk.new_media):
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='is not a media file of'):
+                cat.load_store_rows(copy._id, rows_file, new_media={}, prev_media=prev_media)
+
+        # rows beyond the history of the copy, whose rowids a later insert into the copy would assign
+        rows = pq.read_table(rows_file)
+        shifted_rows_file = str(tmp_path / 'shifted_rows.parquet')
+        pq.write_table(
+            rows.set_column(rows.schema.get_field_index('rowid'), 'rowid', pa.array([100, 101])), shifted_rows_file
+        )
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='is not a row of the history of'):
+            cat.load_store_rows(copy._id, shifted_rows_file, new_media=chunk.new_media, prev_media={})
+
+        # other writes to a copy in progress
+        with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'is a copy that create_table\(\) has not finished'):
+            copy.insert([{'id': 100}])
+        with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'is a copy that create_table\(\) has not finished'):
+            copy.add_column(note=pxt.String | None)
+        with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'create_table\(\) has not finished copying it'):
+            pxt.move(p('copy'), p('moved'))
+
+        # the copy holds no rows, and drop_table() is accepted
+        assert copy.count() == 0
+        pxt.drop_table(p('copy'))
+
+    @pytest.mark.db_roots('proxy', 'cloud', reason='sends the requests of a table copy to a daemon')
+    def test_copy_requests_repeated(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
+        """A client sends a request again when the response to it is lost, even if the daemon committed it."""
+        cat, copy, chunk = self._start_copy(db_root, tmp_path)
+        rows_file = str(chunk.rows_file)
+        dst_path = db_root.make_catalog_path('dst')
+
+        # a repeated load_store_rows() is refused, so that the copy does not hold the rows twice
+        cat.load_store_rows(copy._id, rows_file, new_media=chunk.new_media, prev_media={})
+        with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='a call was repeated'):
+            cat.load_store_rows(copy._id, rows_file, new_media=chunk.new_media, prev_media={})
+
+        # a repeated finish_copy() finds the copy finished
+        for _ in range(2):
+            assert cat.finish_copy(copy._id, chunk.num_rows, CatalogPath.parse(dst_path), IfExistsParam.ERROR)
+        assert sorted(pxt.get_table(dst_path).collect()['id']) == [0, 1]
+
+        # a finished copy refuses rows
+        with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='is not a copy in progress'):
+            cat.load_store_rows(copy._id, rows_file, new_media={}, prev_media={})
+        assert pxt.get_table(dst_path).count() == 2
 
 
 class _ScriptedResponse:

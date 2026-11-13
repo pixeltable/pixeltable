@@ -2,6 +2,7 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
+    57: 'TableState.COPYING for a table that a copy is still filling',
     56: 'Case-insensitive identifiers: dir/table/column/index names are stored case-folded',
     55: 'Prohibit pickle-backed functions (apply()/local UDFs) in catalog metadata; drop the functions table',
     54: 'Normalize function serialization to list form (signatures/templates)',

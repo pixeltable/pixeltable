@@ -27,6 +27,7 @@ from pixeltable.utils import fault_injection
 from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.object_stores import PXT_BUCKETS_DIR
 
+from . import table_copy
 from .catalog_base import CatalogBase
 from .column import Column
 from .dir import Dir
@@ -808,6 +809,8 @@ class Catalog(CatalogBase):
         """Refresh metadata for all read and write targets and their mutable views, if requested."""
         # Track refreshed write targets and views to avoid loading the same table twice.
         refreshed: set[UUID] = set()
+        # finalization completes a drop, which a copy in progress accepts
+        refuse_copying = check_pending_ops and not request.fills_copy
         for tvp in request.write_tvps:
             self._refresh_path_cache(
                 tbl=tvp,
@@ -815,6 +818,7 @@ class Catalog(CatalogBase):
                 mutable_tree=request.lock_mutable_tree,
                 check_pending_ops=check_pending_ops,
                 refreshed=refreshed,
+                refuse_copying=refuse_copying,
             )
         for tbl_id in request.write_tbl_ids:
             self._refresh_tbl_cache(
@@ -822,6 +826,7 @@ class Catalog(CatalogBase):
                 mutable_tree=request.lock_mutable_tree,
                 check_pending_ops=check_pending_ops,
                 refreshed=refreshed,
+                refuse_copying=refuse_copying,
             )
         for tvp in request.read_tvps:
             self._refresh_path_cache(tbl=tvp, for_write=False, check_pending_ops=check_pending_ops)
@@ -905,6 +910,7 @@ class Catalog(CatalogBase):
         mutable_tree: bool = False,
         check_pending_ops: bool = True,
         refreshed: set[UUID] | None = None,
+        refuse_copying: bool = False,
     ) -> None:
         """Refresh cached table versions along the path, starting with the bases."""
         path_handles = tbl.get_tbl_versions()
@@ -918,6 +924,7 @@ class Catalog(CatalogBase):
                 mutable_tree=mutable_tree,
                 check_pending_ops=check_pending_ops,
                 refreshed=refreshed,
+                refuse_copying=refuse_copying,
             )
 
     def _refresh_tbl_cache(
@@ -927,11 +934,13 @@ class Catalog(CatalogBase):
         mutable_tree: bool = False,
         check_pending_ops: bool = True,
         refreshed: set[UUID] | None = None,
+        refuse_copying: bool = False,
     ) -> None:
         """Refresh a target's cached metadata and optionally check for pending operations.
 
         With `mutable_tree`, also refresh all mutable descendant views. If supplied, `refreshed` tracks visited ids
-        to avoid refreshing a write target twice.
+        to avoid refreshing a write target twice. With `refuse_copying`, raise an error if the target is in
+        TableState.COPYING.
 
         This method takes no locks. Callers that need locks must acquire them before reading metadata.
         """
@@ -944,6 +953,11 @@ class Catalog(CatalogBase):
         if row is None:
             raise excs.table_was_dropped(key.tbl_id)
         tbl_md = schema.md_from_dict(schema.TableMd, row.md)
+        if refuse_copying and tbl_md.tbl_state == schema.TableState.COPYING:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE,
+                f'Table {tbl_md.name!r} is a copy that create_table() has not finished. It cannot be changed.',
+            )
 
         if check_pending_ops:
             pending_ops_q = sql.select(sql.func.count()).where(schema.PendingTableOp.tbl_id == row.id)
@@ -1509,6 +1523,17 @@ class Catalog(CatalogBase):
             # If src_obj is None, it means `if_not_exists='ignore'` and the source doesn't exist.
             # If dest_obj is None and src_obj is not None, then we can proceed with the move.
             if isinstance(src_obj, LocalTable):
+                # A copy in progress stays at the path it was created at, so that a failed copy can drop it there.
+                # The state is read from the store: a cached TableMd can be older than a committed finish_copy().
+                if (
+                    src_obj._tbl_version is not None
+                    and self.load_tbl_md(TableVersionKey(src_obj._id, None)).tbl_md.tbl_state
+                    == schema.TableState.COPYING
+                ):
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_STATE,
+                        f'Cannot move {src_obj._display_str()}: create_table() has not finished copying it',
+                    )
                 self._move_table(
                     src_obj._id, new_path.name, dest_dir._id, is_pure_snapshot=src_obj._tbl_version is None
                 )
@@ -1817,6 +1842,144 @@ class Catalog(CatalogBase):
 
         return get_tbl_fn(), is_created
 
+    def create_table_from_md(self, path: Path, md: list[TableVersionMd]) -> LocalTable:
+        """
+        Creates a base table at path from md, the metadata of every version of another base table (as returned by
+        collect_tbl_history()). The new table has a new id, the history of md and an empty store table. It is in
+        TableState.COPYING: load_store_rows() fills it and finish_copy() makes it a live table.
+        """
+        tbl_id = uuid4()
+        tbl_md, version_mds, schema_version_mds = table_copy.md_for_copy(md, tbl_id, path.name)
+
+        # one transaction creates the metadata and the store table, so that a failure leaves nothing behind and the
+        # table needs no pending ops
+        @retry_md_write_loop()
+        def create_fn() -> None:
+            self._handle_path_collision(path, InsertableTable, False, IfExistsParam.ERROR)
+            dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+            assert dir is not None
+            current_version_md = next(m for m in version_mds if m.version == tbl_md.current_version)
+            current_schema_version_md = next(
+                m for m in schema_version_mds if m.schema_version == tbl_md.current_schema_version
+            )
+            self.write_tbl_md(tbl_id, dir._id, tbl_md, current_version_md, current_schema_version_md)
+            for version_md in version_mds:
+                if version_md is not current_version_md:
+                    self.write_tbl_md(tbl_id, None, None, version_md, None)
+            for schema_version_md in schema_version_mds:
+                if schema_version_md is not current_schema_version_md:
+                    self.write_tbl_md(tbl_id, None, None, None, schema_version_md)
+            # The value expressions reference the new table, so they resolve only once its metadata is written. A
+            # failed check rolls the writes back.
+            table_copy.check_value_exprs_are_valid(schema_version_mds, tbl_md.current_schema_version, md[0].tbl_md.name)
+            self._create_store_tbl(tbl_md)
+
+        create_fn()
+        return self._get_base_tbl(tbl_id)
+
+    def _get_base_tbl(self, tbl_id: UUID) -> InsertableTable:
+        @retry_md_read_loop(tbl_keys=[TableVersionKey(tbl_id, None)])
+        def get_tbl_fn() -> LocalTable | None:
+            return self.get_table_by_id(tbl_id)
+
+        tbl = get_tbl_fn()
+        if tbl is None:
+            raise excs.table_was_dropped(tbl_id)
+        if not isinstance(tbl, InsertableTable):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'{tbl._display_str()} is not a base table, so it is not a copy'
+            )
+        return tbl
+
+    def _load_copying_tbl_md(self, tbl_id: UUID, method: str) -> schema.TableMd:
+        """Return the TableMd of tbl_id, and raise an error if the table is not in TableState.COPYING."""
+        # read from the store: a cached TableMd can be older than a committed finish_copy()
+        tbl_md = self.load_tbl_md(TableVersionKey(tbl_id, None)).tbl_md
+        if tbl_md.tbl_state != schema.TableState.COPYING:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_STATE, f'{method}(): {tbl_md.name!r} is not a copy in progress'
+            )
+        return tbl_md
+
+    def load_store_rows(
+        self, tbl_id: UUID, rows_file: str, new_media: dict[str, str], prev_media: dict[str, str]
+    ) -> dict[str, str]:
+        """Insert the store rows in the Parquet file rows_file into the table tbl_id, which must be in
+        TableState.COPYING.
+
+        Args:
+            new_media: url -> local path of each media file that these rows are the first to reference
+            prev_media: url -> stored url of each media file that an earlier call stored and these rows reference
+
+        Returns:
+            url -> stored url, for each url in new_media
+        """
+        tbl = self._get_base_tbl(tbl_id)
+        # checked before the media files are stored, so that a refused call stores none
+        with self.begin_md_read_xact():
+            self._load_copying_tbl_md(tbl_id, 'load_store_rows')
+        md = self.collect_tbl_history(tbl_id, None)
+        # object store I/O runs outside of a transaction, so that it does not hold a db connection
+        placed_media = table_copy.place_media(tbl._tbl_version.get(), md, rows_file, new_media)
+
+        request = LockRequest(
+            TblOpClass.DATA_WRITE, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True, fills_copy=True
+        )
+        with self._begin_xact(request):
+            self._load_copying_tbl_md(tbl_id, 'load_store_rows')
+            tv = tbl._tbl_version.get()
+            # A client sends a request again after a 5xx response, so an earlier call may have committed these rows.
+            # The rows of a call commit together, so the first row is enough to tell.
+            if table_copy.holds_first_row(tv, rows_file):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_STATE,
+                    f'load_store_rows(): {tv.name!r} already holds these rows; a call was repeated',
+                )
+            table_copy.insert_rows(tv, md, rows_file, prev_media | placed_media)
+        return placed_media
+
+    def finish_copy(self, tbl_id: UUID, num_rows: int, dest_path: Path, if_exists: IfExistsParam) -> bool:
+        """Make the table tbl_id, which must be in TableState.COPYING, a live table at dest_path.
+
+        One transaction checks that the table holds num_rows rows, sets its state to LIVE, applies if_exists to a
+        table at dest_path and moves the table there. dest_path therefore never holds an incomplete copy, and a
+        failure leaves a table at dest_path as it was.
+
+        Returns whether the table is at dest_path. It is not when if_exists is 'ignore' and another table is at
+        dest_path.
+        """
+        tbl = self._get_base_tbl(tbl_id)
+        tbl_path = tbl._path()
+        is_replace = if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
+
+        @retry_md_write_loop(paths=[tbl_path, dest_path], lock_path_subtree=is_replace)
+        def finish_fn() -> bool:
+            dest_obj = self._get_schema_object(dest_path)
+            if dest_obj is not None and dest_obj._id == tbl_id:
+                # a client sends a request again after a 5xx response, and the earlier call committed
+                return True
+            tbl_md = self._load_copying_tbl_md(tbl_id, 'finish_copy')
+            count_stmt = sql.select(sql.func.count()).select_from(tbl._tbl_version.get().store_tbl.sa_tbl)
+            num_stored_rows = get_runtime().conn.execute(count_stmt).scalar_one()
+            if num_stored_rows != num_rows:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_STATE,
+                    f'finish_copy(): {tbl_md.name!r} holds {num_stored_rows} rows, not the {num_rows} rows of the '
+                    'copied table',
+                )
+            if self._handle_path_collision(dest_path, InsertableTable, False, if_exists) is not None:
+                return False
+            tbl_md.tbl_state = schema.TableState.LIVE
+            self.write_tbl_md(tbl_id, None, tbl_md, None, None)
+            self._clear_tv_cache(TableVersionKey(tbl_id, None))
+            self._move(tbl_path, dest_path, IfExistsParam.ERROR, IfNotExistsParam.ERROR)
+            return True
+
+        is_at_dest_path = finish_fn()
+        # finalizes the drop of a table that if_exists replaced
+        self._roll_forward()
+        return is_at_dest_path
+
     def create_view(
         self,
         path: Path,
@@ -1958,6 +2121,7 @@ class Catalog(CatalogBase):
         base: 'pxt.Query | None',
         idxs: list[IndexDefinition],
         is_data_versioned: bool,
+        if_exists: IfExistsParam,
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 
@@ -1978,16 +2142,19 @@ class Catalog(CatalogBase):
             tbl_handle, columns, display_name, iterator, base, idxs, is_data_versioned
         )
 
-        # If the table already exists, rebind to it and report that nothing was created.
-        existing = self.get_table(path, IfNotExistsParam.IGNORE)
-        if existing is not None:
-            return existing, False
+        # _create_table() cannot ignore an existing table: the column references built above point at tbl_id, which
+        # the existing table does not have
+        if if_exists == IfExistsParam.IGNORE:
+            existing = self.get_table(path, IfNotExistsParam.IGNORE)
+            if existing is not None:
+                return existing, False
+        create_if_exists = IfExistsParam.ERROR if if_exists == IfExistsParam.IGNORE else if_exists
 
         if base is None:
             return self._create_table(
                 path=path,
                 columns=additional_cols,
-                if_exists=IfExistsParam.ERROR,
+                if_exists=create_if_exists,
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
@@ -2012,7 +2179,7 @@ class Catalog(CatalogBase):
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
-                if_exists=IfExistsParam.ERROR,
+                if_exists=create_if_exists,
                 additional_idxs=resolved_idxs,
                 explicit_tbl_id=tbl_id,
             )
