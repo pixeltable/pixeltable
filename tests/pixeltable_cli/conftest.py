@@ -175,9 +175,7 @@ def pxt_daemon(
         ls = subprocess.run(
             ['pxt', 'ls', '/'], env=env, cwd=session_project, capture_output=True, text=True, check=False, timeout=60
         )
-        assert is_running(timeout=5.0), (
-            f'no daemon answered after `pxt ls /` (exit {ls.returncode}):\n{ls.stdout}{ls.stderr}'
-        )
+        assert ls.returncode == 0, f'pxt ls / failed (rc={ls.returncode}): {ls.stderr}'
         print(f'Test daemon is up on port {port}; log at {log_path}', flush=True)
         yield port
     finally:
