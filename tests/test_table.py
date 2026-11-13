@@ -2749,6 +2749,7 @@ class TestTable:
         assert status.num_rows == 1
         assert status.num_excs == 0
 
+    @pytest.mark.db_roots('local', reason='subscribes an in-process telemetry subscriber the daemon cannot see')
     def test_large_insert(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """An insert of more rows than the insert plan processes at once stores all of them in the table and views."""
         p = db_root.make_catalog_path
@@ -2762,22 +2763,21 @@ class TestTable:
                 expected_row_counts=RowCountStats(inserted_rows=2500),
                 expected_cascade_row_counts=RowCountStats(inserted_rows=2500) if is_data_versioned else RowCountStats(),
             )
-        if db_root.id == 'local':
-            spans_by_id = {span['id']: span for span in recorder.spans}
+        spans_by_id = {span['id']: span for span in recorder.spans}
 
-            def is_view_load(span: dict[str, Any]) -> bool:
-                while span['parent_id'] is not None:
-                    span = spans_by_id[span['parent_id']]
-                    if span['name'] == 'pixeltable.view_load':
-                        return True
-                return False
+        def is_view_load(span: dict[str, Any]) -> bool:
+            while span['parent_id'] is not None:
+                span = spans_by_id[span['parent_id']]
+                if span['name'] == 'pixeltable.view_load':
+                    return True
+            return False
 
-            base_batch_sizes = [
-                span['attrs']['pxt.rows']
-                for span in recorder.spans
-                if span['name'] == 'pixeltable.store.build_rows' and not is_view_load(span)
-            ]
-            assert base_batch_sizes == [1024, 1024, 452]
+        base_batch_sizes = [
+            span['attrs']['pxt.rows']
+            for span in recorder.spans
+            if span['name'] == 'pixeltable.store.build_rows' and not is_view_load(span)
+        ]
+        assert base_batch_sizes == [1024, 1024, 452]
         assert t.select(t.id).order_by(t.id).collect()['id'] == list(range(2500))
         if is_data_versioned:
             assert v.select(v.n2).order_by(v.id).collect()['n2'] == [i * 2 for i in range(2500)]
