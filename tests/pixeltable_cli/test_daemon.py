@@ -23,6 +23,8 @@ from pixeltable_cli.client.utils import kill_and_wait
 from pixeltable_cli.server import http_server
 from pixeltable_cli.utils import pidfile_path, working_dirs_path
 
+from ..utils import bystander_process
+
 _HEALTH_TIMEOUT_SECS = 180.0
 
 
@@ -72,17 +74,6 @@ def _replacement_pid(port: int, cwd: pathlib.Path, env_overrides: dict[str, str]
     # unlike pid_exists(), is_running() compares creation times, so a pid that the OS reissued reads as gone
     assert not daemon.is_running()
     return health['pid']
-
-
-@contextlib.contextmanager
-def _bystander() -> Iterator[subprocess.Popen[bytes]]:
-    """A process unrelated to pxt, alive until the block exits."""
-    proc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'], stdin=subprocess.DEVNULL)
-    try:
-        yield proc
-    finally:
-        proc.kill()
-        proc.wait()
 
 
 def _user_site(userbase: pathlib.Path) -> pathlib.Path:
@@ -304,7 +295,7 @@ class TestDaemon:
 
     def test_kill_and_wait_spares_recycled_pid(self) -> None:
         """kill_and_wait() does not signal a process that inherited the pid of the process it was given."""
-        with _bystander() as bystander:
+        with bystander_process() as bystander:
             daemon = psutil.Process(bystander.pid)
             # an earlier creation time, as if the daemon had exited and the OS had given its pid to the bystander
             daemon._ident = (daemon.pid, daemon._ident[1] - 100)  # type: ignore[attr-defined]
@@ -375,7 +366,7 @@ class TestDaemon:
         """With no daemon answering, pxt daemon stop removes a pidfile that names an unrelated process and leaves
         that process running."""
         pidfile = pathlib.Path(pidfile_path(daemon_port))
-        with _bystander() as bystander:
+        with bystander_process() as bystander:
             pidfile.write_text(str(bystander.pid), encoding='utf-8')
 
             r = _pxt(daemon_port, tmp_path, {}, 'daemon', 'stop')

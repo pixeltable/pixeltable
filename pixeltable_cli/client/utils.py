@@ -375,8 +375,6 @@ def ensure_running() -> str:
         # stale pidfile and we just spawn.
         stale_pid = read_pidfile()
         try:
-            # a psutil.Process carries the creation time, so _is_running() and kill_and_wait() below tell the daemon
-            # apart from a process that inherits its pid during the grace window
             daemon = psutil.Process(stale_pid) if stale_pid is not None else None
         except (psutil.NoSuchProcess, OSError):
             daemon = None

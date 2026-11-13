@@ -5,6 +5,7 @@ import io
 import json
 import math
 import pathlib
+import shutil
 import socket
 import socketserver
 import ssl
@@ -21,6 +22,7 @@ from typing import Any
 import httpx
 import numpy as np
 import PIL.Image
+import psutil
 import pytest
 import requests
 
@@ -40,7 +42,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, StorageTarget
 
-from .utils import pxt_raises, reload_env
+from .utils import bystander_process, pxt_raises, reload_env
 
 _KEY = Credential('api_key', 'key', 'the PIXELTABLE_API_KEY environment variable')
 
@@ -1068,6 +1070,40 @@ class TestProxyDaemon:
         assert error['client_protocol_version'] == client_version
         assert error['server_protocol_version'] == proxy_protocol.PROTOCOL_VERSION
         return error['message']
+
+    @pytest.mark.parametrize(('creation_time_offset', 'live'), [(0.0, True), (None, True), (-100.0, False)])
+    def test_port_lock_names_its_daemon_by_creation_time(
+        self, init_env: None, creation_time_offset: float | None, live: bool
+    ) -> None:
+        """A port.lock that records an earlier creation time than the process with its pid has is stale: that daemon
+        is gone and the OS gave its pid to another process. One that records none, from an older daemon, goes by the
+        pid alone."""
+        db = 'port_lock_test'
+        proxy_daemon.create(db)
+        try:
+            with bystander_process() as bystander:
+                info: dict[str, Any] = {'port': 1, 'pid': bystander.pid}
+                if creation_time_offset is not None:
+                    info['started_at'] = psutil.Process(bystander.pid).create_time() + creation_time_offset
+                (proxy_daemon.proxy_home(db) / 'port.lock').write_text(json.dumps(info))
+                assert proxy_daemon.read_port_lock(db) == (info if live else None)
+        finally:
+            shutil.rmtree(proxy_daemon.proxy_home(db))
+
+    def test_stop_spares_a_process_that_inherited_the_daemons_pid(self, init_env: None) -> None:
+        """stop() removes a stale port.lock without signaling the process that now has its pid."""
+        db = 'port_lock_test'
+        proxy_daemon.create(db)
+        lock = proxy_daemon.proxy_home(db) / 'port.lock'
+        try:
+            with bystander_process() as bystander:
+                started_at = psutil.Process(bystander.pid).create_time()
+                lock.write_text(json.dumps({'port': 1, 'pid': bystander.pid, 'started_at': started_at - 100}))
+                proxy_daemon.stop(db)
+                assert not lock.exists()
+                assert bystander.poll() is None
+        finally:
+            shutil.rmtree(proxy_daemon.proxy_home(db))
 
 
 class _ScriptedResponse:

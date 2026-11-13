@@ -36,7 +36,7 @@ from pixeltable.catalog import fold_identifier
 from pixeltable.config import Config
 from pixeltable.env import Env, validate_db_name
 from pixeltable.runtime import get_runtime, reset_runtime
-from pixeltable.utils.process import is_pid, pid_alive
+from pixeltable.utils.process import is_pid, pid_alive, process_timestamp
 
 from . import proxy_dispatch
 from .proxy_protocol import KEEP_ALIVE_S, decode_body, iter_body_chunks
@@ -65,7 +65,7 @@ def _port_lock(db: str) -> Path:
 
 
 def read_port_lock(db: str) -> dict[str, Any] | None:
-    """Return {'port', 'pid'} for a live daemon, or None if the lock is absent or stale."""
+    """Return {'port', 'pid', 'started_at'} for a live daemon, or None if the lock is absent or stale."""
     lock = _port_lock(db)
     if not lock.exists():
         return None
@@ -74,7 +74,12 @@ def read_port_lock(db: str) -> dict[str, Any] | None:
     except (ValueError, OSError):
         return None
     # the pid is whatever the file holds, so it is validated before it reaches a platform call
-    return info if is_pid(info.get('pid')) and pid_alive(info['pid']) else None
+    if not is_pid(info.get('pid')) or not pid_alive(info['pid']):
+        return None
+    # A daemon that dies leaves its lock behind, and the OS can reissue its pid to any process; the creation time
+    # tells them apart. A lock from an older daemon, without one, falls back on the pid alone.
+    started_at = info.get('started_at')
+    return info if started_at is None or process_timestamp(info['pid']) == started_at else None
 
 
 def endpoint(db: str) -> str | None:
@@ -198,19 +203,17 @@ def stop(db: str) -> None:
     """Stop the daemon for db (if running) and remove its port.lock."""
     info = read_port_lock(db)
     if info is not None:
-        pid = info['pid']
-        # One psutil.Process throughout: it compares creation times, so neither the wait nor the kill can reach a
-        # process that inherits the pid after this point. The first terminate() still trusts port.lock's bare pid,
-        # which records no creation time. pid_alive() also counts a zombie as gone, unlike is_running().
+        # read_port_lock() matched the daemon's creation time, and a psutil.Process keeps comparing it, so neither
+        # the wait nor the kill reaches a process that inherits the pid later
         try:
-            proc = psutil.Process(pid)
+            proc = psutil.Process(info['pid'])
             proc.terminate()
         except (psutil.Error, OSError):
             pass  # already gone, with nothing to wait on
         else:
             try:
                 deadline = time.monotonic() + _STOP_TIMEOUT
-                while time.monotonic() < deadline and proc.is_running() and pid_alive(pid):
+                while time.monotonic() < deadline and proc.is_running():
                     # Reap promptly if the daemon is our own child, so its zombie isn't mistaken for a live
                     # process and we don't wait out the full timeout; a no-op when it was launched by a
                     # different process (e.g. a prior `pxt localproxy start`), in which case init reaps it.
@@ -218,11 +221,11 @@ def stop(db: str) -> None:
                     # zombies, so there is nothing to reap.
                     if hasattr(os, 'WNOHANG'):
                         try:
-                            os.waitpid(pid, os.WNOHANG)
+                            os.waitpid(proc.pid, os.WNOHANG)
                         except (ChildProcessError, OSError):
                             pass
                     time.sleep(0.05)
-                if proc.is_running() and pid_alive(pid):
+                if proc.is_running():
                     # Graceful shutdown overran the timeout; force termination so we never leak the daemon.
                     proc.kill()
             except (psutil.Error, OSError):
@@ -420,7 +423,7 @@ def _serve(test_mode: bool = False, host: str | None = None, port: int | None = 
     port = sock.getsockname()[1]
 
     lock = config.home / _LOCK_NAME  # this process's home is proxy_<db>
-    lock.write_text(json.dumps({'port': port, 'pid': os.getpid()}))
+    lock.write_text(json.dumps({'port': port, 'pid': os.getpid(), 'started_at': process_timestamp(os.getpid())}))
 
     def _cleanup(*_: Any) -> None:
         lock.unlink(missing_ok=True)
