@@ -8,6 +8,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
+from pixeltable.catalog import RowCountStats
 from pixeltable.functions.video import frame_iterator, legacy_frame_iterator
 
 from .test_iterator import simple_iterator
@@ -147,6 +148,20 @@ class colliding_iterator(pxt.PxtIterator):
 
     def close(self) -> None:
         pass
+
+
+@pxt.udf
+def fail_on_odd(i: int) -> int:
+    if i % 2 == 1:
+        raise ValueError('odd')
+    return i
+
+
+@pxt.udf(is_deterministic=False)
+def fail_on_odd_nondeterministic(i: int) -> int:
+    if i % 2 == 1:
+        raise ValueError('odd')
+    return i
 
 
 class TestComponentView:
@@ -495,7 +510,11 @@ class TestComponentView:
         # load data
         rows = [{'video': p, 'int1': i, 'int2': len(video_filepaths) - i} for i, p in enumerate(video_filepaths)]
         status = video_t.insert(rows)
-        assert status.num_rows == video_t.count() + v1.count() + v2.count()
+        validate_update_status(
+            status,
+            expected_row_counts=RowCountStats(ins_rows=len(rows)),
+            expected_cascade_row_counts=RowCountStats(ins_rows=20 * len(rows)),
+        )
         check_view()
 
         # update int1: propagates to int3, img1, int5, img3, int7
@@ -507,8 +526,10 @@ class TestComponentView:
         if db_root.id == 'local':
             video_url = Path(video_filepaths[0]).as_uri()
             status = video_t.update({'int1': video_t.int1 + 1}, where=video_t.video == video_url)
-            assert (
-                status.num_rows == 1 + v1.where(v1.video == video_url).count() + v2.where(v2.video == video_url).count()
+            validate_update_status(
+                status,
+                expected_row_counts=RowCountStats(upd_rows=1),
+                expected_cascade_row_counts=RowCountStats(upd_rows=20),
             )
             assert sorted(str.split('.')[1] for str in status.updated_cols) == [
                 'img1',
@@ -522,7 +543,11 @@ class TestComponentView:
 
             # update int2: propagates to img4, int6, int7
             status = video_t.update({'int2': video_t.int2 + 1}, where=video_t.video == video_url)
-            assert status.num_rows == 1 + v2.where(v2.video == video_url).count()
+            validate_update_status(
+                status,
+                expected_row_counts=RowCountStats(upd_rows=1),
+                expected_cascade_row_counts=RowCountStats(upd_rows=10),
+            )
             assert sorted(str.split('.')[1] for str in status.updated_cols) == ['img4', 'int2', 'int6', 'int7']
             check_view()
 
@@ -543,6 +568,51 @@ class TestComponentView:
 
         # the second attempt succeeds
         _ = pxt.create_view(p('view'), t, iterator=error_iterator(t.i, 100))
+
+    @pytest.mark.parametrize('deterministic', [True, False])
+    def test_failed_iterator_args(self, db_root: DatabaseRoot, deterministic: bool) -> None:
+        # a failed iterator argument produces no view rows for that base row
+        # deterministic and non-deterministic UDFs take different paths
+        fn = fail_on_odd if deterministic else fail_on_odd_nondeterministic
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'i': pxt.Int})
+        t.insert({'i': i} for i in range(4))
+        v = pxt.create_view(p('view'), t, iterator=simple_iterator(fn(t.i)))
+        assert v.order_by(v.i, v.icol).select(v.i, v.icol).collect()['i'] == [2, 2]
+        validate_update_status(t.insert({'i': i} for i in range(4, 8)))
+        assert v.where(v.i >= 4).count() == 4 + 6
+
+        # compute() honors on_error instead
+        assert [row['icol'] for row in v.compute([{'i': 1}, {'i': 2}], on_error='ignore')] == [0, 1]
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='odd'):
+            v.compute([{'i': 1}], on_error='abort')
+
+    def test_failed_view_column(self, db_root: DatabaseRoot) -> None:
+        # a deterministic view column over base columns is evaluated before the iterator; its error must survive
+        # the copy into each view row
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'i': pxt.Int})
+        t.insert([{'i': 3}])
+        v = pxt.create_view(p('view'), t, iterator=simple_iterator(t.i), additional_columns={'c': fail_on_odd(t.i)})
+        status = t.insert([{'i': 5}, {'i': 2}], on_error='ignore')
+        assert status.num_excs == 5
+        res = v.order_by(v.i, v.icol).select(v.i, v.c, v.c.errortype).collect()
+        assert res['i'] == [2, 2, 3, 3, 3, 5, 5, 5, 5, 5]
+        assert res['c'] == [2, 2] + [None] * 8
+        assert res['c_errortype'] == [None, None] + ['ValueError'] * 8
+
+    def test_wrapped_nondeterministic_view_column(self, db_root: DatabaseRoot) -> None:
+        # a deterministic function of a nondeterministic value is nondeterministic, and is evaluated per view row
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test'), {'i': pxt.Int})
+        t.insert([{'i': 3}])
+        v = pxt.create_view(
+            p('view'), t, iterator=simple_iterator(t.i), additional_columns={'id': pxtf.uuid.uuid4().to_string()}
+        )
+        t.insert([{'i': 2}])
+        ids = v.select(v.id).collect()['id']
+        assert len(ids) == 5
+        assert len(set(ids)) == 5
 
     def test_update_iterator_param(self, db_root: DatabaseRoot) -> None:
         """Updating a base table column used as an iterator parameter re-evaluates the iterator."""

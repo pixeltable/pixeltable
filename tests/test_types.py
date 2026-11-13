@@ -38,7 +38,6 @@ from pixeltable.type_system import (
     IntType,
     Json,
     JsonType,
-    Required,
     String,
     StringType,
     Timestamp,
@@ -338,10 +337,6 @@ class TestTypes:
             assert ColumnType.from_python_type(Union[None, py_type]) == nullable_pxt_type  # noqa: RUF036
             assert ColumnType.from_python_type(py_type | None) == nullable_pxt_type
             assert ColumnType.from_python_type(None | py_type) == nullable_pxt_type  # noqa: RUF036
-
-            # `Required[T]` is deprecated, but still resolves to a non-nullable `T`
-            with pytest.warns(excs.PixeltableDeprecationWarning, match=r'`Required\[T\]` is deprecated'):
-                assert ColumnType.from_python_type(Required[py_type]) == non_nullable_pxt_type
 
             assert str(non_nullable_pxt_type) == string
             assert str(nullable_pxt_type) == f'{string} | None'
@@ -657,8 +652,6 @@ class TestTypes:
     def test_type_errors(self, init_env: None) -> None:
         from .module_with_future_annotations import make_unresolvable_typed_dict
 
-        with pytest.raises(excs.RequestError, match='Bare `Required` is not a valid type'):
-            ColumnType.from_python_type(Required)
         with pxt_raises(
             pxt.ErrorCode.INVALID_TYPE,
             match=r"Cannot resolve the field types of TypedDict `Unresolvable`: name 'LocalFloat' is not defined",
