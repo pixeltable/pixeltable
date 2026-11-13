@@ -161,11 +161,10 @@ class InsertableTable(LocalTable):
         return_rows: bool = False,
         skip_existing_keys: bool = False,
     ) -> pxt.UpdateStatus:
-        """Insert row batches into this table from a `TableDataConduit`."""
+        """Insert the rows of a `TableDataConduit` into this table."""
         from pixeltable.io.table_data_conduit import QueryTableDataConduit
 
         start_ts = time.perf_counter()
-        status = pxt.UpdateStatus()
         query = data_source.pxt_query if isinstance(data_source, QueryTableDataConduit) else None
         read_tbl_keys = query.referenced_tbl_keys() if query is not None else None
         # ON CONFLICT DO NOTHING skips a concurrent writer's key only under READ COMMITTED, not REPEATABLE READ
@@ -181,7 +180,7 @@ class InsertableTable(LocalTable):
             # convert it to a user-facing Error (on_error='ignore' records per-cell errors and never raises)
             try:
                 if query is not None:
-                    status += self._tbl_version.get().insert(
+                    status = self._tbl_version.get().insert(
                         source=None,
                         query=query,
                         print_stats=print_stats,
@@ -189,7 +188,7 @@ class InsertableTable(LocalTable):
                         skip_existing_keys=skip_existing_keys,
                     )
                 else:
-                    status += self._tbl_version.get().insert(
+                    status = self._tbl_version.get().insert(
                         source=data_source.valid_rows(),
                         query=None,
                         print_stats=print_stats,
