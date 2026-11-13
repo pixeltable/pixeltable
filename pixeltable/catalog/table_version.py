@@ -1460,7 +1460,7 @@ class TableVersion:
                 insert_status = self.insert(
                     unmatched_rows, None, print_stats=False, fail_on_exception=False, return_rows=return_rows
                 )
-                result += insert_status.to_cascade()
+                result += insert_status
         return result
 
     def _update_rows(self, plan: 'exec.ExecNode', set_cols: list[Column], return_rows: bool) -> UpdateStatus:

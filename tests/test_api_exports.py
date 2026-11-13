@@ -14,7 +14,6 @@ from pixeltable.func import Function, GeneratingFunction
     [
         'pixeltable',
         'pixeltable.io',
-        'pixeltable.iterators',
         'pixeltable.functions',
         *sorted(info.name for info in pkgutil.walk_packages(pxt.functions.__path__, 'pixeltable.functions.')),
     ],

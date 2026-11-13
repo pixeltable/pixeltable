@@ -100,7 +100,7 @@ With Pixeltable, you define your *entire* data processing and AI workflow declar
   frames = pxt.create_view(
     'frames',
     videos,
-    iterator=FrameIterator.create(
+    iterator=pxt.functions.video.frame_iterator(
         video=videos.video,
         fps=1
     )
@@ -274,7 +274,7 @@ python -m spacy download en_core_web_sm
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.functions import openai, huggingface
-from pixeltable.iterators import DocumentSplitter
+from pixeltable.functions.document import document_splitter
 
 # Manage your tables by directories
 directory = "my_docs"
@@ -289,7 +289,7 @@ docs.insert([{'doc': 'https://github.com/pixeltable/pixeltable/raw/release/docs/
 chunks = pxt.create_view(
     'doc_chunks',
     docs,
-    iterator=DocumentSplitter.create(document=docs.doc, separators='sentence')
+    iterator=document_splitter(document=docs.doc, separators='sentence')
 )
 
 # Explicitly create the embedding function object

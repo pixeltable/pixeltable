@@ -900,9 +900,9 @@ class StoreView(StoreBase):
 
 
 class StoreComponentView(StoreView):
-    """A view that stores components of its base, as produced by a ComponentIterator
+    """A view that stores components of its base, as produced by an iterator
 
-    PK: now also includes pos, the position returned by the ComponentIterator for the base row identified by base_rowid
+    PK: now also includes pos, the position returned by the iterator for the base row identified by base_rowid
     """
 
     def __init__(self, catalog_view: catalog.TableVersion):

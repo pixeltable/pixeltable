@@ -472,8 +472,10 @@ class FunctionCall(Expr):
         parameters_by_pos = self.fn.signature.parameters_by_pos
         for idx in self.arg_idxs:
             val = self._arg_val(data_row, idx)
+            # a value past the declared parameters goes to *args, which accepts None
             if (
                 val is None
+                and idx < len(parameters_by_pos)
                 and parameters_by_pos[idx].kind
                 in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
                 and not parameters_by_pos[idx].col_type.nullable
@@ -489,8 +491,10 @@ class FunctionCall(Expr):
             if param_name in init_param_names:
                 continue
             val = self._arg_val(data_row, idx)
+            # a keyword argument without a declared parameter goes to **kwargs, which accepts None
             if (
                 val is None
+                and param_name in parameters
                 and parameters[param_name].kind
                 in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
                 and not parameters[param_name].col_type.nullable

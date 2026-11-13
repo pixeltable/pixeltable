@@ -95,6 +95,7 @@ class TestMigration:
 
     @rerun(reruns=3, reruns_delay=8)  # Deal with occasional concurrency issues
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Does not run on Windows')
+    @pytest.mark.skipif('t4' in os.environ.get('PXTTEST_CI_OS', ''), reason='Too slow on t4 CI instances')
     def test_db_migration(self, init_env: None) -> None:
         skip_test_if_not_installed('transformers')
         # the dumps contain a sentence-mode string_splitter view, which needs spacy to compute inserted rows
@@ -170,6 +171,9 @@ class TestMigration:
                     # Drop the pickled-function columns so the insert-based verification below can run; a real user
                     # would do the same to make such a table writable again.
                     self._drop_pickled_columns()
+                    # Older dumps contain a view over a ComponentIterator subclass, which is no longer supported; its
+                    # iterator loads as invalid and would block inserts into the base table.
+                    pxt.drop_table('custom_iterator', force=True, if_not_exists='ignore')
 
                     # TODO: We need many more of these sorts of checks.
                     if 12 <= old_version <= 14:

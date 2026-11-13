@@ -59,7 +59,6 @@ from .type_system import (
     Image,
     Int,
     Json,
-    Required,
     String,
     Timestamp,
     Video,
@@ -94,7 +93,7 @@ from .api import (
 )
 
 # This import must go last to avoid circular imports.
-from . import functions, io, iterators, telemetry  # isort: skip
+from . import functions, io, telemetry  # isort: skip
 
 __all__ = [
     'URI',
@@ -132,7 +131,6 @@ __all__ = [
     'PxtIterator',
     'Query',
     'RequestError',
-    'Required',
     'ResultCursor',
     'ResultSet',
     'Row',
@@ -169,7 +167,6 @@ __all__ = [
     'init',
     'io',
     'iterator',
-    'iterators',
     'list_dirs',
     'list_functions',
     'list_tables',

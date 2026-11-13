@@ -20,6 +20,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
+from pixeltable.catalog import RowCountStats
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
@@ -2879,7 +2880,8 @@ class TestTable:
         # unknown primary key: insert
         validate_update_status(
             t.batch_update([{'c1': 'zwei', 'c2': 2}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='insert'),
-            expected_rows=2,
+            expected_row_counts=RowCountStats(ins_rows=1, upd_rows=1),
+            expected_cascade_row_counts=RowCountStats(),
         )
         assert t.count() == num_rows + 1
         assert t.where(t.c2 == 2).collect()[0]['c1'] == 'zwei'
