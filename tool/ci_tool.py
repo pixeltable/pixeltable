@@ -84,6 +84,7 @@ class MatrixConfig(NamedTuple):
     pytest_options: str = DEFAULT_PYTEST
     xdist_workers: str = DEFAULT_XDIST_WORKERS
     pre_test_cmd: str = ''  # Extra bash command to be run just before tests
+    random_ops_seconds: int = 1800
 
     @property
     def display_name(self) -> str:
@@ -100,6 +101,7 @@ class MatrixConfig(NamedTuple):
             'pytest-options': self.pytest_options,
             'xdist-workers': self.xdist_workers,
             'pre-test-cmd': self.pre_test_cmd,
+            'random-ops-seconds': str(self.random_ops_seconds),
         }
 
 
@@ -122,13 +124,19 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
     ]
 
     if trigger == 'pull_request':
-        # On every push to a PR we run only the slim tests. It is strictly a subset of what the merge queue runs.
+        # On every push to a PR we run the slim tests, a strict subset of what the merge queue runs, and a shorter
+        # random-ops run than the merge queue's.
         slim_pytest = DEFAULT_PYTEST + ' ' + ' '.join(SLIM_TESTS)
         configs.extend(
             MatrixConfig('slim', 'py', platform, '3.11', pytest_options=slim_pytest) for platform in ALL_PLATFORMS
         )
         # Also exercise the newest supported Python on the main platform
         configs.append(MatrixConfig('slim', 'py', MAIN_PLATFORM, '3.15', pytest_options=slim_pytest))
+        configs.append(
+            MatrixConfig(
+                'random-ops', 'random-ops', MAIN_PLATFORM, '3.11', uv_options='--no-dev', random_ops_seconds=600
+            )
+        )
 
     else:
         # A non-PR trigger: merge queue, workflow dispatch, or schedule.
