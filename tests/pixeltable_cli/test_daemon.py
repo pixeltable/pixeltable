@@ -19,8 +19,11 @@ from typing import Any, Iterator
 import psutil
 import pytest
 
+from pixeltable_cli.client.utils import kill_and_wait, process_key
 from pixeltable_cli.server import http_server
 from pixeltable_cli.utils import pidfile_path, working_dirs_path
+
+from ..utils import bystander_process
 
 _HEALTH_TIMEOUT_SECS = 180.0
 
@@ -64,10 +67,12 @@ def _pxt(port: int, cwd: pathlib.Path, env_overrides: dict[str, str], *args: str
 
 def _replacement_pid(port: int, cwd: pathlib.Path, env_overrides: dict[str, str], pid: int) -> int:
     """Run `pxt health`, check that a new daemon replaced the one with pid, and return the new daemon's pid."""
+    daemon = psutil.Process(pid)
     health = _pxt_health(port, cwd=cwd, env_overrides=env_overrides)
     assert health['pid'] != pid
     assert psutil.pid_exists(health['pid'])
-    assert not psutil.pid_exists(pid)
+    # unlike pid_exists(), is_running() compares creation times, so a pid that the OS reissued reads as gone
+    assert not daemon.is_running()
     return health['pid']
 
 
@@ -131,13 +136,13 @@ class TestDaemon:
 
         health1 = _pxt_health(daemon_port, cwd=project1)
         assert health1['project_root'] == str(project1)
-        assert psutil.pid_exists(health1['pid'])
+        daemon1 = psutil.Process(health1['pid'])
 
         health2 = _pxt_health(daemon_port, cwd=project2)
         assert health2['project_root'] == str(project2)
         assert health2['pid'] != health1['pid']
         assert psutil.pid_exists(health2['pid'])
-        assert not psutil.pid_exists(health1['pid'])
+        assert not daemon1.is_running()
 
     def test_replace_drifted_identity_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
         """A client does not talk to a daemon built from a different environment."""
@@ -147,13 +152,13 @@ class TestDaemon:
 
         health1 = _pxt_health(daemon_port, cwd=project, env_overrides={drift_env_var: '1'})
         assert drift_env_var in health1['pixeltable_env']
-        assert psutil.pid_exists(health1['pid'])
+        daemon1 = psutil.Process(health1['pid'])
 
         health2 = _pxt_health(daemon_port, cwd=project)
         assert drift_env_var not in health2['pixeltable_env']
         assert health2['pid'] != health1['pid']
         assert psutil.pid_exists(health2['pid'])
-        assert not psutil.pid_exists(health1['pid'])
+        assert not daemon1.is_running()
 
     @pytest.mark.skipif(site.ENABLE_USER_SITE is not True, reason='a venv disables the user site directory')
     def test_replace_daemon_after_install(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
@@ -203,6 +208,7 @@ class TestDaemon:
         _create_pxt_project(project)
         drift_env = {'PIXELTABLE_TEST_DRIFT': '1'}
         pid = _pxt_health(daemon_port, cwd=project)['pid']
+        daemon = psutil.Process(pid)
 
         with _busy_daemon(daemon_port, project, {}):
             r = _pxt(daemon_port, project, drift_env, 'ls', '/', '--json')
@@ -213,7 +219,7 @@ class TestDaemon:
             assert 'POST /api/service/check' in error['message']
             assert 'pxt daemon restart -f' in error['message']
             assert 'pixeltable_env' not in error['message']
-            assert psutil.pid_exists(pid)
+            assert daemon.is_running()
 
         _replacement_pid(daemon_port, project, drift_env, pid)
 
@@ -273,7 +279,7 @@ class TestDaemon:
 
         pid1 = _pxt_health(daemon_port, cwd=project)['pid']
         pidfile = pathlib.Path(pidfile_path(daemon_port))
-        assert pidfile.read_text(encoding='utf-8').strip() == str(pid1)
+        assert pidfile.read_text(encoding='utf-8').strip() == process_key(psutil.Process(pid1))
         # Suspending the current daemon holds it: it continues to hold the port but doesn't respond on it.
         daemon = psutil.Process(pid1)
         daemon.suspend()
@@ -282,10 +288,19 @@ class TestDaemon:
             assert health2['project_root'] == str(project)
             assert health2['pid'] != pid1
             assert psutil.pid_exists(health2['pid'])
-            assert not psutil.pid_exists(pid1)
+            assert not daemon.is_running()
         finally:
             with contextlib.suppress(psutil.NoSuchProcess):
                 daemon.resume()
+
+    def test_kill_and_wait_spares_recycled_pid(self) -> None:
+        """kill_and_wait() spares a process that inherited the pid of its target."""
+        with bystander_process() as bystander:
+            daemon = psutil.Process(bystander.pid)
+            # an earlier creation time, as if the daemon had exited and the OS had given its pid to the bystander
+            daemon._ident = (daemon.pid, daemon._ident[1] - 100)  # type: ignore[attr-defined]
+            kill_and_wait(daemon)
+            assert bystander.poll() is None
 
     def test_keep_briefly_unresponsive_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
         """A daemon that misses a health probe but answers within the client's grace period keeps serving, and
@@ -333,7 +348,8 @@ class TestDaemon:
             timeout=_HEALTH_TIMEOUT_SECS,
         )
 
-        assert pathlib.Path(pidfile_path(daemon_port)).read_text(encoding='utf-8').strip() == str(pid1)
+        pidfile_content = pathlib.Path(pidfile_path(daemon_port)).read_text(encoding='utf-8').strip()
+        assert pidfile_content == process_key(psutil.Process(pid1))
         assert _pxt_health(daemon_port, cwd=project)['pid'] == pid1
 
     @pytest.mark.parametrize('pidfile_content', ['not-an-int', '0', '-1'])
@@ -346,6 +362,34 @@ class TestDaemon:
         pathlib.Path(pidfile_path(daemon_port)).write_text(pidfile_content, encoding='utf-8')
 
         assert _pxt_health(daemon_port, cwd=project)['project_root'] == str(project)
+
+    def test_stop_spares_process_that_inherited_pidfile_pid(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """With no daemon answering, pxt daemon stop leaves alone a process that inherited the pid in the pidfile."""
+        with bystander_process() as bystander:
+            # the pidfile of a daemon created before the bystander, as if the OS had given its pid to the bystander
+            earlier = psutil.Process(bystander.pid).create_time() - 100
+            pathlib.Path(pidfile_path(daemon_port)).write_text(f'{bystander.pid}:{earlier}', encoding='utf-8')
+
+            r = _pxt(daemon_port, tmp_path, {}, 'daemon', 'stop')
+            assert r.returncode == 1
+            assert r.stderr == 'pxt: no daemon running\n'
+            assert bystander.poll() is None
+
+    def test_stop_kills_unresponsive_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """With the daemon not answering, pxt daemon stop kills the daemon in the pidfile."""
+        project = tmp_path / 'project'
+        _create_pxt_project(project)
+        pid = _pxt_health(daemon_port, cwd=project)['pid']
+        daemon = psutil.Process(pid)
+        daemon.suspend()
+        try:
+            r = _pxt(daemon_port, project, {}, 'daemon', 'stop')
+            assert r.returncode == 0, r.stderr
+            assert r.stdout == f'pxt: stopped daemon (PID {pid})\n'
+            assert not daemon.is_running()
+        finally:
+            with contextlib.suppress(psutil.NoSuchProcess):
+                daemon.resume()
 
     @pytest.mark.parametrize('content', ['not json', '{"working_dirs": []}'])
     def test_unusable_working_dirs_file(self, daemon_port: int, tmp_path: pathlib.Path, content: str) -> None:

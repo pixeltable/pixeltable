@@ -8,8 +8,10 @@ import signal
 import sys
 import threading
 
+import psutil
+
 from pixeltable.config import Config
-from pixeltable_cli.client.utils import is_running
+from pixeltable_cli.client.utils import is_running, process_key
 from pixeltable_cli.server.daemon_state import state as daemon_state
 from pixeltable_cli.server.http_server import bind, run
 from pixeltable_cli.utils import get_port, pidfile_path, working_dirs_path
@@ -18,22 +20,22 @@ _LOOPBACK = '127.0.0.1'
 
 
 def _write_pidfile(port: int) -> None:
-    """Record our PID. The bound listen socket is the actual single-daemon mutex; the
+    """Record our PID and creation time. The bound listen socket is the actual single-daemon mutex; the
     pidfile is only bookkeeping for tools like `pxt daemon status`."""
     path = pidfile_path(port)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
-        f.write(str(os.getpid()))
+        f.write(process_key(psutil.Process()))
 
 
 def _remove_pidfile_if_ours(port: int) -> None:
     path = pidfile_path(port)
     try:
         with open(path, encoding='utf-8') as f:
-            owner = int(f.read().strip())
-    except (OSError, ValueError):
+            owner = f.read().strip()
+    except OSError:
         return
-    if owner != os.getpid():
+    if owner != process_key(psutil.Process()):
         return
     try:
         os.remove(path)

@@ -6,6 +6,8 @@ import os
 import sys
 from typing import Any
 
+import psutil
+
 from pixeltable_cli.client.utils import (
     describe_in_flight_requests,
     ensure_running,
@@ -76,7 +78,8 @@ def _start() -> None:
 
 
 def _stop(force: bool, ok_if_absent: bool = False) -> None:
-    tracked_pid = read_pidfile()
+    tracked = read_pidfile()
+    tracked_pid = tracked.pid if tracked is not None else None
     health = fetch_health()
 
     in_flight = health.get('in_flight', []) if health is not None else []
@@ -110,8 +113,7 @@ def _stop(force: bool, ok_if_absent: bool = False) -> None:
             sys.exit(1)
         pid_to_kill = health.get('pid')
     elif health is None and tracked_pid is not None:
-        # No responder but we have a pidfile entry. Could be a hung daemon (PID alive but not
-        # listening) or a stale pidfile (PID gone).
+        # No responder, but the pidfile's daemon is alive: a hung daemon, holding the port without listening.
         pid_to_kill = tracked_pid
     else:
         # health is not None, tracked_pid is None: no pidfile but something is responding.
@@ -125,10 +127,12 @@ def _stop(force: bool, ok_if_absent: bool = False) -> None:
             sys.exit(1)
         pid_to_kill = health.get('pid')
 
-    if pid_to_kill is not None:
-        kill_and_wait(pid_to_kill)
-    # Daemon's atexit handler only fires on graceful exit; clean up the pidfile here so a
-    # subsequent stop doesn't trip the "stale pidfile" branch.
+    if tracked is not None and pid_to_kill == tracked_pid:
+        kill_and_wait(tracked)
+    elif pid_to_kill is not None:
+        with contextlib.suppress(psutil.NoSuchProcess, OSError):  # a responder already gone needs no kill
+            kill_and_wait(psutil.Process(pid_to_kill))
+    # the daemon's atexit handler removes the pidfile only on a graceful exit
     try:
         os.remove(pidfile_path())
     except OSError:
