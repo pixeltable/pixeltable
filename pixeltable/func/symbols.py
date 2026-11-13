@@ -38,6 +38,17 @@ def import_error_msg(e: ImportError) -> str:
     return msg
 
 
+def load_error_msg(source: str, e: Exception) -> str:
+    """Return the message for e, raised while importing source.
+
+    The message for an exception other than Error includes its type, such as 'SyntaxError: invalid syntax'.
+    """
+    reason = str(e)
+    if not isinstance(e, excs.Error):
+        reason = type(e).__name__ if reason == '' else f'{type(e).__name__}: {reason}'
+    return f'error loading {source}: {reason}'
+
+
 def validate_symbol_path(fn_path: str) -> None:
     path_elems = fn_path.split('.')
     fn_name = path_elems[-1]

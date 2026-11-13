@@ -15,10 +15,12 @@ from pixeltable.utils.project import project_fingerprint
 from pixeltable_cli.types import CheckReport, SchemaChangeOp, SchemaPlan, TableDiff
 from pixeltable_cli.utils import PxtPath
 
+from ..globals import PY_RERUN_HINT
 from .definition import TableModelMeta
 from .diff import PY_DESTRUCTIVE_HINT
 
 _DESTRUCTIVE_HINT = "Re-run 'pxt schema update' with --allow-destructive to apply these changes."
+_RERUN_HINT = "Re-run 'pxt schema update'."
 
 
 def schema_diff(app_file: str, catalog_dir: PxtPath) -> SchemaPlan:
@@ -53,9 +55,10 @@ def schema_update(app_file: str, catalog_dir: PxtPath, *, allow_destructive: boo
             diffs = base.update_all(catalog_dir, allow_destructive=allow_destructive)
         except excs.Error as e:
             message = e.message
+            # update_all() closes some errors with instructions for the Python API; a CLI user needs this command
             if e.error_code is excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE:
-                # update_all() closes its refusal with instructions for the Python API; a CLI user needs the flag
                 message = message.replace(PY_DESTRUCTIVE_HINT, _DESTRUCTIVE_HINT)
+            message = message.replace(PY_RERUN_HINT, _RERUN_HINT)
             migrated = [d.path for d in applied if d.resolution != 'up_to_date']
             if len(migrated) > 0:
                 # the migrations from earlier bases are already committed; name them, so the error doesn't

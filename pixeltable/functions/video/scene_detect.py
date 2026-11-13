@@ -6,7 +6,6 @@ import numpy as np
 import pixeltable as pxt
 import pixeltable.functions.video.iterators as video_iterators
 from pixeltable.env import Env
-from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     from scenedetect.detectors import SceneDetector  # type: ignore[import-untyped]
@@ -579,4 +578,11 @@ def _scene_detect(video: str, fps: float | None, detector: 'SceneDetector') -> l
         frame_iter.close()
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'SceneInfo',
+    'scene_detect_adaptive',
+    'scene_detect_content',
+    'scene_detect_hash',
+    'scene_detect_histogram',
+    'scene_detect_threshold',
+]

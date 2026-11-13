@@ -8,6 +8,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
+from pixeltable.catalog import RowCountStats
 from pixeltable.functions.video import frame_iterator, legacy_frame_iterator
 
 from .test_iterator import simple_iterator
@@ -509,7 +510,11 @@ class TestComponentView:
         # load data
         rows = [{'video': p, 'int1': i, 'int2': len(video_filepaths) - i} for i, p in enumerate(video_filepaths)]
         status = video_t.insert(rows)
-        assert status.num_rows == video_t.count() + v1.count() + v2.count()
+        validate_update_status(
+            status,
+            expected_row_counts=RowCountStats(inserted_rows=len(rows)),
+            expected_cascade_row_counts=RowCountStats(inserted_rows=20 * len(rows)),
+        )
         check_view()
 
         # update int1: propagates to int3, img1, int5, img3, int7
@@ -521,8 +526,10 @@ class TestComponentView:
         if db_root.id == 'local':
             video_url = Path(video_filepaths[0]).as_uri()
             status = video_t.update({'int1': video_t.int1 + 1}, where=video_t.video == video_url)
-            assert (
-                status.num_rows == 1 + v1.where(v1.video == video_url).count() + v2.where(v2.video == video_url).count()
+            validate_update_status(
+                status,
+                expected_row_counts=RowCountStats(updated_rows=1),
+                expected_cascade_row_counts=RowCountStats(updated_rows=20),
             )
             assert sorted(str.split('.')[1] for str in status.updated_cols) == [
                 'img1',
@@ -536,7 +543,11 @@ class TestComponentView:
 
             # update int2: propagates to img4, int6, int7
             status = video_t.update({'int2': video_t.int2 + 1}, where=video_t.video == video_url)
-            assert status.num_rows == 1 + v2.where(v2.video == video_url).count()
+            validate_update_status(
+                status,
+                expected_row_counts=RowCountStats(updated_rows=1),
+                expected_cascade_row_counts=RowCountStats(updated_rows=10),
+            )
             assert sorted(str.split('.')[1] for str in status.updated_cols) == ['img4', 'int2', 'int6', 'int7']
             check_view()
 

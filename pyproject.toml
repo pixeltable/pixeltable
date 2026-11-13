@@ -220,6 +220,8 @@ dev = [
     "snowflake-sqlalchemy>=1.7.0 ; python_version < '3.15'",
     # fastapi powers `pxt service` (user-defined services); the pxt daemon itself is stdlib-only
     "fastapi[standard]>=0.120.0,!=0.137.0,!=0.137.1",
+    "modal>=1.6",
+    "hypercorn>=0.17",
     "imagehash>=4.3",
     "scipy>=1 ; python_version < '3.14'",
     "scipy>=1.17 ; python_version >= '3.14'",
@@ -264,6 +266,7 @@ exclude = [
     "/dashboard",
     "/docs",
     "/local",
+    "/modal-poc",
     "/tests",
     "/tool",
 ]
@@ -335,7 +338,8 @@ extraPaths = ["packages/opentelemetry-instrumentation-pixeltable/src"]
 testpaths = ["tests"]
 addopts = '-v -m "not remote_api and not expensive and not very_expensive and not benchmark and not otel" --strict-markers'
 # Dump all thread stacks when a test runs longer than this many seconds; the test keeps running
-faulthandler_timeout = 600
+# Keep this above the slowest test's runtime: a dump during a still-running test can hang the worker
+faulthandler_timeout = 1800
 markers = [
     "expensive: marks tests as expensive to run",
     "very_expensive: marks tests as very expensive to run, or as depending on an unreliable external service",

@@ -1,5 +1,6 @@
 import os
 import platform
+import warnings
 from collections import OrderedDict
 
 import pytest
@@ -83,3 +84,13 @@ class TestFileCache:
             t.insert({'index': len(image_files) + n, 'image': image_urls[n]} for n in range(10, 15))
         # Check that we saw the warning exactly once
         assert sum(r.category is pxt.PixeltableWarning for r in record) == 1
+
+    def test_eviction_warning_as_error(self, uses_db: None) -> None:
+        """With warnings as errors, a re-download warning fails only the operation that triggered it."""
+        fc = FileCache.get()
+        fc.new_redownload_witnessed = True
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', pxt.PixeltableWarning)
+            with pytest.raises(pxt.PixeltableWarning, match='had to be downloaded multiple times'):
+                fc.emit_eviction_warnings()
+            fc.emit_eviction_warnings()

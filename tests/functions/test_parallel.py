@@ -70,21 +70,70 @@ def _tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
     return {'choices': [{'message': {'tool_calls': [{'function': {'name': name, 'arguments': json.dumps(args)}}]}}]}
 
 
+@pytest.mark.expensive
+@pytest.mark.remote_api
+def test_free_tier(anonymous: None) -> None:
+    from pixeltable.functions.openai import invoke_tools
+
+    tools = pxt.tools(parallel.search, parallel.extract)
+    t = pxt.create_table(
+        'test_tbl',
+        {
+            'id': pxt.Int,
+            'objective': pxt.String | None,
+            'url': pxt.String | None,
+            'missing_url': pxt.String | None,
+            'response': pxt.Json,
+        },
+    )
+    t.add_computed_column(sources=parallel.search(t.objective, search_queries=_QUERIES))
+    t.add_computed_column(
+        page=parallel.extract(t.url, objective='What is Pixeltable?', full_content=True, allow_live_fetch=False)
+    )
+    t.add_computed_column(missing_page=parallel.extract(t.missing_url))
+    t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+
+    rows = [
+        {
+            'id': 0,
+            'objective': _OBJECTIVE,
+            'url': _URL,
+            'missing_url': _MISSING_URL,
+            'response': _tool_call('search', {'objective': _OBJECTIVE, 'mode': 'fast'}),
+        },
+        # null inputs skip the direct calls, so this row makes only the extract tool call
+        {'id': 1, 'response': _tool_call('extract', {'url': _URL})},
+    ]
+    validate_update_status(t.insert(rows), 2)
+    first, second = t.order_by(t.id).collect()
+
+    sources = first['sources']
+    assert sources['search_id'].startswith('search_')
+    assert len(sources['session_id']) > 0
+    assert len(sources['results']) > 0
+    assert all(result['url'].startswith('http') for result in sources['results'])
+    assert all(len(result['excerpts']) > 0 for result in sources['results'])
+
+    page = first['page']
+    assert page['extract_id'].startswith('extract_')
+    assert page['errors'] == []
+    assert 'pixeltable' in page['results'][0]['full_content'].lower()
+
+    missing_page = first['missing_page']
+    assert missing_page['results'] == []
+    assert missing_page['errors'][0]['url'] == _MISSING_URL
+    assert missing_page['errors'][0]['http_status_code'] == 404
+
+    assert first['tool_calls']['extract'] is None
+    assert len(first['tool_calls']['search'][0]['results']) > 0
+    assert second['tool_calls']['search'] is None
+    assert len(second['tool_calls']['extract'][0]['results']) == 1
+
+
+@pytest.mark.expensive
 @pytest.mark.remote_api
 @rerun_on_network_error()
 class TestParallel:
-    def test_search(self, anonymous: None) -> None:
-        t = pxt.create_table('test_tbl', {'objective': pxt.String | None})
-        t.add_computed_column(sources=parallel.search(t.objective, search_queries=_QUERIES))
-
-        validate_update_status(t.insert(objective=_OBJECTIVE), 1)
-        response = t.select(t.sources).collect()['sources'][0]
-        assert response['search_id'].startswith('search_')
-        assert len(response['session_id']) > 0
-        assert len(response['results']) > 0
-        assert all(result['url'].startswith('http') for result in response['results'])
-        assert all(len(result['excerpts']) > 0 for result in response['results'])
-
     def test_search_with_key(self, authenticated: None) -> None:
         t = pxt.create_table('test_tbl', {'objective': pxt.String | None})
         t.add_computed_column(
@@ -98,18 +147,6 @@ class TestParallel:
         assert all(len(result['excerpts']) > 0 for result in response['results'])
         assert all(item['count'] > 0 for item in response['usage'])
 
-    def test_extract(self, anonymous: None) -> None:
-        t = pxt.create_table('test_tbl', {'url': pxt.String | None})
-        t.add_computed_column(
-            page=parallel.extract(t.url, objective='What is Pixeltable?', full_content=True, allow_live_fetch=False)
-        )
-
-        validate_update_status(t.insert(url=_URL), 1)
-        response = t.select(t.page).collect()['page'][0]
-        assert response['extract_id'].startswith('extract_')
-        assert response['errors'] == []
-        assert 'pixeltable' in response['results'][0]['full_content'].lower()
-
     def test_extract_with_key(self, authenticated: None) -> None:
         t = pxt.create_table('test_tbl', {'url': pxt.String | None})
         t.add_computed_column(page=parallel.extract(t.url, objective='What is Pixeltable?', links=True))
@@ -119,34 +156,6 @@ class TestParallel:
         assert response['errors'] == []
         assert len(response['results'][0]['excerpts']) > 0
         assert all(link.startswith('http') for link in response['results'][0]['links'])
-
-    def test_missing_page(self, anonymous: None) -> None:
-        t = pxt.create_table('test_tbl', {'url': pxt.String | None})
-        t.add_computed_column(page=parallel.extract(t.url))
-
-        validate_update_status(t.insert(url=_MISSING_URL), 1)
-        response = t.select(t.page).collect()['page'][0]
-        assert response['results'] == []
-        assert response['errors'][0]['url'] == _MISSING_URL
-        assert response['errors'][0]['http_status_code'] == 404
-
-    def test_tool_invocations(self, anonymous: None) -> None:
-        from pixeltable.functions.openai import invoke_tools
-
-        tools = pxt.tools(parallel.search, parallel.extract)
-        t = pxt.create_table('test_tbl', {'id': pxt.Int | None, 'response': pxt.Json | None})
-        t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
-
-        rows = [
-            {'id': 0, 'response': _tool_call('search', {'objective': _OBJECTIVE, 'mode': 'fast'})},
-            {'id': 1, 'response': _tool_call('extract', {'url': _URL})},
-        ]
-        validate_update_status(t.insert(rows), 2)
-        searched, extracted = t.order_by(t.id).collect()['tool_calls']
-        assert searched['extract'] is None
-        assert len(searched['search'][0]['results']) > 0
-        assert extracted['search'] is None
-        assert len(extracted['extract'][0]['results']) == 1
 
     def test_tool_invocations_with_key(self, authenticated: None) -> None:
         from pixeltable.functions.openai import invoke_tools

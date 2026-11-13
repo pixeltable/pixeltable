@@ -14,7 +14,6 @@ import math
 import sqlalchemy as sql
 
 import pixeltable as pxt
-from pixeltable.utils.code import local_public_names
 
 
 @pxt.udf(is_method=True)
@@ -250,7 +249,22 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.cast(self, sql.Float)
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'abs',
+    'bitwise_and',
+    'bitwise_or',
+    'bitwise_xor',
+    'ceil',
+    'exp',
+    'floor',
+    'log',
+    'log10',
+    'pow',
+    'round',
+    'sqrt',
+    'to_float',
+    'to_int',
+]
 
 
 def __dir__() -> list[str]:

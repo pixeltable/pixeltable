@@ -21,7 +21,6 @@ from pixeltable import exceptions as excs
 from pixeltable.env import Env, register_client
 from pixeltable.func.mcp import mcp_session
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import extract_retry_delay_from_headers
 
 if TYPE_CHECKING:
@@ -581,7 +580,7 @@ async def extract(
     return cast(ParallelExtractResponse, await _client().extract(request))
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['extract', 'search']
 
 
 def __dir__() -> list[str]:

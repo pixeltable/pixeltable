@@ -224,22 +224,6 @@ class ExprEvalNode(ExecNode):
             f'#input={self.num_input_rows} #output={self.num_output_rows}'
         )
 
-    @classmethod
-    def _resource_pools(cls, eval_ctx: ExprEvalCtx) -> set[str]:
-        """The resource pools of every FunctionCall in eval_ctx, including the calls a JsonMapper runs per element.
-
-        A mapper's target is evaluated in a nested context of its own, so those calls reach the same dispatcher
-        and need their schedulers registered here too.
-        """
-        pools: set[str] = set()
-        for evaluator in eval_ctx.slot_evaluators.values():
-            if isinstance(evaluator, FnCallEvaluator):
-                if evaluator.fn_call.resource_pool is not None:
-                    pools.add(evaluator.fn_call.resource_pool)
-            elif isinstance(evaluator, JsonMapperDispatcher):
-                pools |= cls._resource_pools(evaluator.nested_eval_ctx)
-        return pools
-
     def _init_schedulers(self) -> None:
         for pool_name in self._resource_pools(self.eval_ctx):
             for scheduler in SCHEDULERS:
@@ -250,6 +234,16 @@ class ExprEvalNode(ExecNode):
                 raise excs.InternalError(
                     excs.ErrorCode.INTERNAL_ERROR, f'No scheduler found for resource pool {pool_name}'
                 )
+
+    def _resource_pools(self, eval_ctx: ExprEvalCtx) -> set[str]:
+        """Return the resource pools of the function calls in eval_ctx."""
+        pools: set[str] = set()
+        for evaluator in eval_ctx.slot_evaluators.values():
+            if isinstance(evaluator, FnCallEvaluator) and evaluator.resource_pool is not None:
+                pools.add(evaluator.resource_pool)
+            elif isinstance(evaluator, JsonMapperDispatcher):
+                pools |= self._resource_pools(evaluator.nested_eval_ctx)
+        return pools
 
     async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         """
@@ -400,7 +394,9 @@ class ExprEvalNode(ExecNode):
             first_row = rows[0]
             input_vals = [first_row[idx] for idx in dependency_idxs]
             e = exec_ctx.row_builder.unique_exprs[slot_with_exc]
-            self.error = excs.ExprEvalError(e, f'expression {e}', first_row.get_exc(e.slot_idx), exc_tb, input_vals, 0)
+            self.error = excs.ExprEvalError(
+                e, f'expression {e!s}', first_row.get_exc(e.slot_idx), exc_tb, input_vals, 0
+            )
             self.exc_event.set()
             return
 

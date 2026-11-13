@@ -46,15 +46,15 @@ class ArithmeticExpr(Expr):
         if not op1.col_type.is_numeric_type() and not op1.col_type.is_json_type():
             raise excs.RequestError(
                 excs.ErrorCode.TYPE_MISMATCH,
-                f'{self}: {operator} requires numeric types, but left operand has type `{op1.col_type}`',
+                f'{self!s}: {operator} requires numeric types, but left operand has type `{op1.col_type}`',
             )
         if not op2.col_type.is_numeric_type() and not op2.col_type.is_json_type():
             raise excs.RequestError(
                 excs.ErrorCode.TYPE_MISMATCH,
-                f'{self}: {operator} requires numeric types, but right operand has type `{op2.col_type}`',
+                f'{self!s}: {operator} requires numeric types, but right operand has type `{op2.col_type}`',
             )
 
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     @property
     def _op1(self) -> Expr:
@@ -66,8 +66,8 @@ class ArithmeticExpr(Expr):
 
     def __repr__(self) -> str:
         # add parentheses around operands that are ArithmeticExprs to express precedence
-        op1_str = f'({self._op1})' if isinstance(self._op1, ArithmeticExpr) else str(self._op1)
-        op2_str = f'({self._op2})' if isinstance(self._op2, ArithmeticExpr) else str(self._op2)
+        op1_str = f'({self._op1!s})' if isinstance(self._op1, ArithmeticExpr) else str(self._op1)
+        op2_str = f'({self._op2!s})' if isinstance(self._op2, ArithmeticExpr) else str(self._op2)
         return f'{op1_str} {self.operator} {op2_str}'
 
     def _equals(self, other: ArithmeticExpr) -> bool:

@@ -7,18 +7,16 @@ import typing
 from dataclasses import dataclass
 from textwrap import dedent
 from types import MethodType
-from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, Self, TypeVar, overload
+from typing import Any, Callable, ClassVar, Generic, Iterator, Self, TypeVar, overload
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
 from pixeltable.catalog.globals import _POS_COLUMN_NAME, fold_identifier, fold_mapping_keys
 from pixeltable.exprs.expr import ValidationError
 from pixeltable.func.symbols import import_error_msg, resolve_symbol
+from pixeltable.types import FunctionKind, FunctionMetadata
 
+from .function import function_metadata
 from .signature import Signature
-
-if TYPE_CHECKING:
-    from pixeltable.iterators.base import ComponentIterator
-
 
 ITERATOR_GUIDE_URL = 'https://docs.pixeltable.com/howto/cookbooks/core/custom-iterators'
 
@@ -98,12 +96,12 @@ class GeneratingFunction:
     corresponding GeneratingFunction represents a one-to-many expansion of *columns* of inputs.
     """
 
+    kind: ClassVar[FunctionKind] = 'iterator'
     decorated_callable: Callable
     unstored_cols: list[str]
     fqn: str
     signature: Signature
     has_seek: bool
-    is_legacy_retrofit: bool
 
     _default_output_schema: dict[str, ts.ColumnType] | None
     _conditional_output_schema: Callable[[dict[str, exprs.Expr]], dict[str, type]] | None
@@ -128,12 +126,28 @@ class GeneratingFunction:
                 f'Iterator `{self.fqn}` with `unstored_cols` must implement a `seek()` method.',
             )
 
-        self.is_legacy_retrofit = False
-
     @property
     def name(self) -> str:
         """The unqualified name, which is the last component of fqn."""
         return self.fqn.rsplit('.', 1)[-1]
+
+    def comment(self) -> str | None:
+        # not inspect.getdoc(), which falls back to a base class's docstring
+        own_doc = self.decorated_callable.__doc__
+        return None if own_doc is None else inspect.cleandoc(own_doc)
+
+    def info(self, path: str) -> FunctionMetadata:
+        """Describe this iterator, with path as its import path."""
+        output_schema = self.fixed_output_schema
+        outputs: dict[str, str] | None
+        if output_schema is None:
+            outputs = None
+            returns = '(columns depend on the arguments)'
+        else:
+            outputs = {name: t.pretty_str() for name, t in output_schema.items()}
+            returns = '{' + ', '.join(f'{name}: {t}' for name, t in outputs.items()) + '}'
+        call = f'{path}({self.signature.params_str(with_defaults=True)}) -> {returns}'
+        return function_metadata(path, self.name, self.kind, call, [self.signature], self.comment(), outputs)
 
     def _infer_properties(self) -> None:
         self.py_sig = inspect.signature(self.decorated_callable, eval_str=True)
@@ -242,6 +256,11 @@ class GeneratingFunction:
                 )
             self._default_output_schema[name] = col_type
 
+    @property
+    def fixed_output_schema(self) -> dict[str, ts.ColumnType] | None:
+        """The output columns of every call; None if they depend on the arguments."""
+        return self._default_output_schema if self._conditional_output_schema is None else None
+
     def call_output_schema(self, bound_args: dict[str, exprs.Expr]) -> dict[str, ts.ColumnType]:
         if self._conditional_output_schema is None:
             if self._default_output_schema is None:
@@ -311,30 +330,6 @@ class GeneratingFunction:
 
         return self.decorated_callable(**kwargs)
 
-    @classmethod
-    def _retrofit(cls, iterator_cls: type['ComponentIterator']) -> 'GeneratingFunction':
-        it = GeneratingFunction.__new__(GeneratingFunction)
-        it.decorated_callable = iterator_cls
-        it.fqn = f'{iterator_cls.__module__}.{iterator_cls.__qualname__}'
-        it.signature = Signature.create(iterator_cls, return_type=ts.JsonType())
-        it.py_sig = inspect.signature(iterator_cls, eval_str=True)
-        it.unstored_cols = []
-
-        def call_output_schema(bound_args: dict[str, exprs.Expr]) -> dict[str, ts.ColumnType]:
-            literal_args = {k: v.val for k, v in bound_args.items() if isinstance(v, exprs.Literal)}
-            schema, _ = iterator_cls.output_schema(**literal_args)
-            return schema
-
-        it.call_output_schema = call_output_schema  # type: ignore[method-assign]
-        it._validate = lambda _: None  # Validation in legacy iterators was done in output_schema()
-        it.is_legacy_retrofit = True
-        # __new__() skips __init__(), so the fields it would have set are set here; a legacy iterator
-        # positions itself with set_pos() rather than seek()
-        it.has_seek = False
-        it._default_output_schema = None
-        it._conditional_output_schema = None
-        return it
-
     # validate decorator
     def validate(self, fn: Callable[[dict[str, Any]], bool]) -> Callable[[dict[str, Any]], bool]:
         if self._validate is not None:
@@ -362,16 +357,11 @@ class GeneratingFunction:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'GeneratingFunction':
-        from pixeltable.iterators.base import ComponentIterator
-
         try:
             fqn = d['fqn']
             iterator_cls = resolve_symbol(fqn)
             if isinstance(iterator_cls, GeneratingFunction):
                 return iterator_cls
-            if isinstance(iterator_cls, type) and issubclass(iterator_cls, ComponentIterator):
-                # Support legacy ComponentIterator pattern for backward compatibility
-                return cls._retrofit(iterator_cls)
             return InvalidGeneratingFunction(
                 fqn,
                 d,
@@ -537,7 +527,7 @@ class GeneratingFunctionCall:
         if isinstance(it, InvalidGeneratingFunction):
             validation_error = IteratorValidationError(it.fqn, it.error_msg)
             # We can't instantiate the GeneratingFunction, so nothing more to do (we can't bind arguments nor
-            # reconstruct outputs of legacy iterators).
+            # reconstruct missing outputs).
             return cls(it, args, kwargs, {}, outputs, validation_error)
 
         # Bind args and kwargs against the latest version of the iterator defined as in code.
@@ -554,18 +544,7 @@ class GeneratingFunctionCall:
         output_schema = it.call_output_schema(bound_args)
 
         if outputs is None:
-            # For legacy iterators, `outputs` was not persisted, and there is no practical way to reconstruct it as
-            # part of the schema migration. In that case we just query the iterator for it, but we lose the ability to
-            # sanity check against any schema evolution of the iterator.
-            if it.is_legacy_retrofit:
-                literal_args = {k: v.val for k, v in bound_args.items() if isinstance(v, exprs.Literal)}
-                for param_name, param in it.py_sig.parameters.items():
-                    if param_name not in bound_args and param.default is not inspect.Parameter.empty:
-                        literal_args[param_name] = param.default
-                _, unstored_cols = it.decorated_callable.output_schema(literal_args)  # type: ignore[attr-defined]
-            else:
-                unstored_cols = it.unstored_cols
-            outputs = _make_outputs(output_schema, unstored_cols)
+            outputs = _make_outputs(output_schema, it.unstored_cols)
         else:
             # Validate call_output_schema against stored outputs
             assert any(output.is_pos_column for output in outputs.values())

@@ -19,7 +19,6 @@ from pixeltable import env, type_system as ts
 from pixeltable.config import Config
 from pixeltable.runtime import get_runtime
 from pixeltable.utils import av as av_utils
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import retry_if_retryable_error
 from pixeltable.utils.image import to_base64
 
@@ -780,8 +779,7 @@ async def _poll_embedding_task(
 embed.conditional_return_type(_embedding_array_type)
 
 
-_class_names = ['EmbeddingResult']
-__all__ = local_public_names(__name__) + _class_names
+__all__ = ['EmbeddingResult', 'async_embed', 'async_embed_asset', 'embed']
 
 
 def __dir__() -> list[str]:

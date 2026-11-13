@@ -53,7 +53,7 @@ class RowidRef(Expr):
                 catalog.TableVersionKey(normalized_base_id, normalized_base_effective_version)
             )
         self.rowid_component_idx = idx
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     @property
     def tbl_id(self) -> UUID:
