@@ -180,7 +180,7 @@ class InsertableTable(LocalTable):
             # convert it to a user-facing Error (on_error='ignore' records per-cell errors and never raises)
             try:
                 status = self._tbl_version.get().insert(
-                    source=data_source.valid_rows() if query is None else None,
+                    source=data_source.rows() if query is None else None,
                     query=query,
                     print_stats=print_stats,
                     fail_on_exception=fail_on_exception,

@@ -68,7 +68,7 @@ class TableDataConduit:
     reqd_col_names: set[str] = field(default_factory=set)
     computed_col_names: set[str] = field(default_factory=set)
 
-    total_rows: int = 0  # total number of rows emitted via valid_rows()
+    total_rows: int = 0  # total number of rows emitted via rows()
 
     _K_BATCH_SIZE_BYTES = 256 * 2**20
 
@@ -133,7 +133,7 @@ class TableDataConduit:
     def infer_schema(self) -> dict[str, ts.ColumnType]:
         raise NotImplementedError
 
-    def valid_rows(self) -> Iterator[dict[str, Any]]:
+    def rows(self) -> Iterator[dict[str, Any]]:
         raise NotImplementedError
 
     def prepare_for_insert_into_table(self) -> None:
@@ -283,7 +283,7 @@ class RowDataTableDataConduit(TableDataConduit):
             output_row[col_name] = checked_val
         return output_row
 
-    def valid_rows(self) -> Iterator[dict[str, Any]]:
+    def rows(self) -> Iterator[dict[str, Any]]:
         if self.raw_rows is None:
             return
         for row in self.raw_rows:
@@ -332,7 +332,7 @@ class PandasTableDataConduit(TableDataConduit):
             self.source_column_map = {}
         self.check_source_columns_are_insertable(self.pd_df.columns)
 
-    def valid_rows(self) -> Iterator[dict[str, Any]]:
+    def rows(self) -> Iterator[dict[str, Any]]:
         for row in self.pd_df.itertuples():
             yield _df_row_to_pxt_row(row, self.src_schema, self.source_column_map)
 
@@ -644,7 +644,7 @@ class HFTableDataConduit(TableDataConduit):
         # Return as list of array views (shares memory with reshaped)
         return list(reshaped)
 
-    def valid_rows(self) -> Iterator[dict[str, Any]]:
+    def rows(self) -> Iterator[dict[str, Any]]:
         import datasets
 
         for split_name, split_dataset in self.dataset_dict.items():
@@ -737,7 +737,7 @@ class ParquetTableDataConduit(TableDataConduit):
         self.check_source_columns_are_insertable(self.pq_ds.schema.names)
         self.total_rows = 0
 
-    def valid_rows(self) -> Iterator[dict[str, Any]]:
+    def rows(self) -> Iterator[dict[str, Any]]:
         from pixeltable.utils.arrow import iter_tuples2
 
         try:
@@ -769,7 +769,7 @@ class PydanticTableDataConduit(TableDataConduit):
                 )
             try:
                 # mode='python' (the default) keeps datetimes/dates as native objects and renders nested models
-                # as dicts, so that coercing each cell in valid_rows() yields the same values as
+                # as dicts, so that coercing each cell in rows() yields the same values as
                 # the equivalent dict input (e.g. naive timestamps get localized to the session time zone, rather
                 # than left as ISO strings).
                 dumped_row = row.model_dump()
@@ -783,7 +783,7 @@ class PydanticTableDataConduit(TableDataConduit):
         """Validates the Pydantic model against the table"""
         self._validate_pydantic_model(type(cast(Sequence[pydantic.BaseModel], self.source)[0]))
 
-    def valid_rows(self) -> Iterator[dict[str, Any]]:
+    def rows(self) -> Iterator[dict[str, Any]]:
         """Converts the Pydantic models to dicts that can be inserted into the table"""
         sorted_reqd_cols = sorted(self.reqd_col_names)
         # convert rows one-by-one in order to be able to print meaningful error messages

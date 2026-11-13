@@ -92,7 +92,7 @@ class InsertableTableProxy(TableProxy):
                 data_source.prepare_for_insert_into_table()
                 # TODO: this materializes all rows of the source to send them in one request; streaming them to the
                 # daemon would bound the client's memory
-                rows = self._convert_local_paths(data_source.valid_rows())
+                rows = self._convert_local_paths(data_source.rows())
                 return self._dispatch(
                     'insert',
                     {
@@ -153,7 +153,7 @@ class InsertableTableProxy(TableProxy):
             data_source.prepare_for_insert_into_table()
             # TODO: this materializes all rows of the source to send them in one request; streaming them to the
             # daemon would bound the client's memory
-            rows = list(data_source.valid_rows())
+            rows = list(data_source.rows())
         else:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
