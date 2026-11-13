@@ -64,10 +64,12 @@ def _pxt(port: int, cwd: pathlib.Path, env_overrides: dict[str, str], *args: str
 
 def _replacement_pid(port: int, cwd: pathlib.Path, env_overrides: dict[str, str], pid: int) -> int:
     """Run `pxt health`, check that a new daemon replaced the one with pid, and return the new daemon's pid."""
+    daemon = psutil.Process(pid)
     health = _pxt_health(port, cwd=cwd, env_overrides=env_overrides)
     assert health['pid'] != pid
     assert psutil.pid_exists(health['pid'])
-    assert not psutil.pid_exists(pid)
+    # unlike pid_exists(), is_running() compares creation times, so a pid that the OS reissued reads as gone
+    assert not daemon.is_running()
     return health['pid']
 
 
@@ -131,13 +133,13 @@ class TestDaemon:
 
         health1 = _pxt_health(daemon_port, cwd=project1)
         assert health1['project_root'] == str(project1)
-        assert psutil.pid_exists(health1['pid'])
+        daemon1 = psutil.Process(health1['pid'])
 
         health2 = _pxt_health(daemon_port, cwd=project2)
         assert health2['project_root'] == str(project2)
         assert health2['pid'] != health1['pid']
         assert psutil.pid_exists(health2['pid'])
-        assert not psutil.pid_exists(health1['pid'])
+        assert not daemon1.is_running()
 
     def test_replace_drifted_identity_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
         """A client does not talk to a daemon built from a different environment."""
@@ -147,13 +149,13 @@ class TestDaemon:
 
         health1 = _pxt_health(daemon_port, cwd=project, env_overrides={drift_env_var: '1'})
         assert drift_env_var in health1['pixeltable_env']
-        assert psutil.pid_exists(health1['pid'])
+        daemon1 = psutil.Process(health1['pid'])
 
         health2 = _pxt_health(daemon_port, cwd=project)
         assert drift_env_var not in health2['pixeltable_env']
         assert health2['pid'] != health1['pid']
         assert psutil.pid_exists(health2['pid'])
-        assert not psutil.pid_exists(health1['pid'])
+        assert not daemon1.is_running()
 
     @pytest.mark.skipif(site.ENABLE_USER_SITE is not True, reason='a venv disables the user site directory')
     def test_replace_daemon_after_install(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
@@ -282,7 +284,7 @@ class TestDaemon:
             assert health2['project_root'] == str(project)
             assert health2['pid'] != pid1
             assert psutil.pid_exists(health2['pid'])
-            assert not psutil.pid_exists(pid1)
+            assert not daemon.is_running()
         finally:
             with contextlib.suppress(psutil.NoSuchProcess):
                 daemon.resume()

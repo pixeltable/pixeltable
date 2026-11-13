@@ -9,7 +9,6 @@ import os
 import platform
 import re
 import shlex
-import signal
 import socket
 import subprocess
 import sys
@@ -285,24 +284,25 @@ def _pid_alive(pid: int) -> bool:
 
 def kill_and_wait(pid: int, timeout: float = 5.0) -> None:
     assert pid > 0, pid
-    # Wait on the PID itself (not /health) so a hung-but-alive daemon that still holds the
-    # listen socket is detected and SIGKILLed; otherwise the next spawn would fail with
+    # Wait on the process itself (not /health) so a hung-but-alive daemon that still holds the
+    # listen socket is detected and killed; otherwise the next spawn would fail with
     # 'address already in use' because we returned early on the health probe.
-    # Windows has no SIGKILL; os.kill(pid, SIGTERM) calls TerminateProcess, which is
-    # already a hard kill, so the fallback below is a no-op there.
-    sigkill = getattr(signal, 'SIGKILL', signal.SIGTERM)
+    # Once the daemon exits, the OS can give its pid to another process, so the wait and the kill go through one
+    # psutil.Process: it compares creation times and never signals a recycled pid.
+    # On Windows terminate() is already TerminateProcess, so the kill() fallback is a no-op there.
     try:
-        os.kill(pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError, OSError):
+        proc = psutil.Process(pid)
+        proc.terminate()
+    except (psutil.Error, OSError):
         return
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if not _pid_alive(pid):
+        if not proc.is_running():
             return
         time.sleep(0.1)
     try:
-        os.kill(pid, sigkill)
-    except (ProcessLookupError, PermissionError, OSError):
+        proc.kill()
+    except (psutil.Error, OSError):
         pass
 
 
@@ -374,7 +374,8 @@ def ensure_running() -> str:
             # a daemon that comes up in the meantime goes through the same checks as one that
             # answered right away.
             health = _await_health(_STARTUP_GRACE_PERIOD_SECS)
-            if health is None:
+            # confirm again: during the grace window the daemon can exit and the OS can reissue its pid
+            if health is None and _pid_is_our_daemon(stale_pid):
                 kill_and_wait(stale_pid)
         if health is None:
             spawn_detached()
