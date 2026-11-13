@@ -99,6 +99,32 @@ class scaled_iterator(pxt.PxtIterator):
         self.i = pos
 
 
+class CounterRow(TypedDict):
+    i: int
+
+
+@pxt.iterator(unstored_cols=['i'])
+class unstored_counter(pxt.PxtIterator):
+    """Emits n rows, none of whose columns are stored."""
+
+    def __init__(self, n: int):
+        self.n = n
+        self.i = 0
+
+    def __next__(self) -> CounterRow:
+        if self.i >= self.n:
+            raise StopIteration
+        row: CounterRow = {'i': self.i}
+        self.i += 1
+        return row
+
+    def close(self) -> None:
+        pass
+
+    def seek(self, pos: int, **kwargs: Any) -> None:
+        self.i = pos
+
+
 class MixedCaseRow(TypedDict):
     MyOutput: int
     Frame: int
@@ -692,6 +718,48 @@ class TestComponentView:
         assert len(v_contents) == 9 and len(v2_contents) == 9
         assert v_contents[5, 0] == (0, None) and v_contents[2, 2] == (4, 42)
         assert v2_contents[5, 0] is None and v2_contents[2, 2] == 'x'
+
+    def test_update_unstored_iterator_param(self, db_root: DatabaseRoot) -> None:
+        """Updating the input of an iterator without stored columns re-evaluates the iterator."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int})
+        t.insert([{'n': 2}])
+        v = pxt.create_view(p('view'), t, iterator=unstored_counter(t.n))
+        fv = pxt.create_view(p('filtered_view'), t.where(t.n > 0), iterator=unstored_counter(t.n))
+
+        t.update({'n': 5})
+        assert v.select(v.i).order_by(v.pos).collect()['i'] == [0, 1, 2, 3, 4]
+        assert fv.select(fv.i).order_by(fv.pos).collect()['i'] == [0, 1, 2, 3, 4]
+
+        t.update({'n': 0})
+        assert v.count() == 0
+        assert fv.count() == 0
+
+    def test_membership_change_keeps_errors(self, db_root: DatabaseRoot) -> None:
+        """A base update that changes a view's membership keeps the errors of stored cells in rows that stay."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'x': pxt.Int, 'flag': pxt.Bool, 'n': pxt.Int})
+        t.insert([{'x': 0, 'flag': True, 'n': 2}, {'x': 1, 'flag': True, 'n': 2}, {'x': 2, 'flag': False, 'n': 2}])
+        fv = pxt.create_view(p('filtered_view'), t.where(t.flag == True), additional_columns={'r': fail_on_odd(t.x)})
+        cv = pxt.create_view(p('component_view'), t.where(t.flag == True), iterator=simple_iterator(t.n))
+        cv.add_computed_column(r=fail_on_odd(cv.icol), on_error='ignore')
+
+        t.update({'flag': True})
+        res = fv.select(fv.x, fv.r, fv.r.errortype).order_by(fv.x).collect()
+        assert list(res) == [
+            {'x': 0, 'r': 0, 'r_errortype': None},
+            {'x': 1, 'r': None, 'r_errortype': 'ValueError'},
+            {'x': 2, 'r': 2, 'r_errortype': None},
+        ]
+        res = cv.select(cv.x, cv.icol, cv.r, cv.r.errortype).order_by(cv.x, cv.pos).collect()
+        assert [(r['x'], r['icol'], r['r_errortype']) for r in res] == [
+            (0, 0, None),
+            (0, 1, 'ValueError'),
+            (1, 0, None),
+            (1, 1, 'ValueError'),
+            (2, 0, None),
+            (2, 1, 'ValueError'),
+        ]
 
     def test_update_iterator_param_with_dependent_view(self, db_root: DatabaseRoot) -> None:
         """A view on an iterator view also updates when the base iterator param changes."""
