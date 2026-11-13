@@ -223,7 +223,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                             spec['type'], allow_builtin_types=False
                         )
                     if 'value' in spec:
-                        spec['value'] = bind_query_templates(spec['value'].copy(), catalog_dir)
+                        spec['value'] = bind_query_templates(spec['value'], catalog_dir)
                     origin: Literal['base_query', 'model_body'] = (
                         'base_query' if col_name in base_query_cols else 'model_body'
                     )

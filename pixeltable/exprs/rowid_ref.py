@@ -84,9 +84,9 @@ class RowidRef(Expr):
         ]
 
     # override
-    def copy(self) -> RowidRef:
+    def _with_components(self, components: list[Expr]) -> RowidRef:
         # deepcopy(tvh) is needed to create a copy for the local thread/catalog
-        result = super().copy()
+        result = super()._with_components(components)
         result.tbl = copy.deepcopy(self.tbl)
         result.normalized_base = copy.deepcopy(self.normalized_base)
         return result

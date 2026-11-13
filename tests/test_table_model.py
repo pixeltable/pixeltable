@@ -1222,6 +1222,42 @@ class TestTableModel:
         assert res['lower_code'] == ['a', 'b', 'c']
         assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(p('')).values())
 
+    def test_view_model_on_iterator_view(self, db_root: DatabaseRoot) -> None:
+        """A view model stacks on an iterator view model whose iterator argument is a compound expression."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Trips(TableModel, name='trips'):
+            id: pxt.Int
+            route: pxt.String
+            meta: pxt.Json[{'codes': [str]}]
+
+        class Stops(
+            TableModel,
+            name='stops',
+            base=Trips,
+            iterator=pxtf.string.string_splitter(Trips.route + ' Home.', separators='sentence'),
+        ):
+            pass
+
+        class LoudStops(TableModel, name='loud_stops', base=Stops.where(Stops.pos > 0)):
+            loud = Stops.text.upper()
+
+        class TripCodes(
+            TableModel, name='trip_codes', base=Trips, iterator=pxtf.json.list_iterator(code=Trips.meta.codes)
+        ):
+            pass
+
+        class LowerTripCodes(TableModel, name='lower_trip_codes', base=TripCodes):
+            lower_code = TripCodes.code.lower()
+
+        TableModel.update_all(p(''))
+        Trips.insert([{'id': 1, 'route': 'Oslo. Rome.', 'meta': {'codes': ['A', 'B']}}])
+        res = LoudStops.table.order_by(LoudStops.pos).collect()
+        assert [s.strip() for s in res['loud']] == ['ROME.', 'HOME.']
+        assert LowerTripCodes.table.order_by(LowerTripCodes.pos).collect()['lower_code'] == ['a', 'b']
+        assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(p('')).values())
+
     # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
     @pytest.mark.filterwarnings('ignore:.*was not locked for read:pixeltable.exceptions.PixeltableWarning')
     def test_update_all_creates_queried_table(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
