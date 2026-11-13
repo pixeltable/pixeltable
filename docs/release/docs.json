@@ -111,6 +111,7 @@
                       "sdk/latest/anthropic",
                       "sdk/latest/bedrock",
                       "sdk/latest/bfl",
+                      "sdk/latest/cohere",
                       "sdk/latest/deepseek",
                       "sdk/latest/fabric",
                       "sdk/latest/fal",

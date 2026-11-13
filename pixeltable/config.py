@@ -1009,6 +1009,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'rate_limits': 'Per-model rate limits for Bedrock API requests',
     },
     'bfl': {'api_key': 'Black Forest Labs (BFL) API key', 'rate_limit': 'Rate limit for BFL API requests'},
+    'cohere': {'api_key': 'Cohere API key', 'rate_limit': 'Rate limit for Cohere API requests'},
     'deepseek': {
         'api_key': 'Deepseek API key',
         'base_url': 'Deepseek API base URL',
