@@ -182,6 +182,11 @@ def _df_row_to_pxt_row(
             # for any type but a float, convert these to None
             nval = None
         elif pxt_type.is_int_type():
+            if isinstance(val, (float, np.floating)) and not float(val).is_integer():
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_TYPE,
+                    f'Value {val!r} in column `{col_name}` cannot be converted to int without loss of precision',
+                )
             nval = int(val)
         elif pxt_type.is_bool_type():
             nval = bool(val)
