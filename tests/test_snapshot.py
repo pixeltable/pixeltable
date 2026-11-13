@@ -358,8 +358,8 @@ class TestSnapshot:
 
         validate_update_status(
             t.insert(rows),
-            expected_row_counts=RowCountStats(ins_rows=len(rows)),
-            expected_cascade_row_counts=RowCountStats(ins_rows=len(rows) * 2),
+            expected_row_counts=RowCountStats(inserted_rows=len(rows)),
+            expected_cascade_row_counts=RowCountStats(inserted_rows=len(rows) * 2),
         )
         verify(v1, v2, s)
 
@@ -391,8 +391,8 @@ class TestSnapshot:
         # insert into the base table
         validate_update_status(
             t.insert({'id': i, 'v': i} for i in range(5, 8)),
-            expected_row_counts=RowCountStats(ins_rows=3),
-            expected_cascade_row_counts=RowCountStats(ins_rows=3),
+            expected_row_counts=RowCountStats(inserted_rows=3),
+            expected_cascade_row_counts=RowCountStats(inserted_rows=3),
         )
         assert t.count() == 8
         assert v.count() == 8
@@ -401,8 +401,8 @@ class TestSnapshot:
         # update the base column the view's computed column depends on
         validate_update_status(
             t.update({'v': t.v + 100}),
-            expected_row_counts=RowCountStats(upd_rows=8),
-            expected_cascade_row_counts=RowCountStats(upd_rows=8),
+            expected_row_counts=RowCountStats(updated_rows=8),
+            expected_cascade_row_counts=RowCountStats(updated_rows=8),
         )
         assert v.select(v.doubled).order_by(v.id).collect()['doubled'] == [(i + 100) * 2 for i in range(8)]
         verify_snap(snap)
@@ -410,8 +410,8 @@ class TestSnapshot:
         # delete from the base table
         validate_update_status(
             t.where(t.id >= 5).delete(),
-            expected_row_counts=RowCountStats(del_rows=3),
-            expected_cascade_row_counts=RowCountStats(del_rows=3),
+            expected_row_counts=RowCountStats(deleted_rows=3),
+            expected_cascade_row_counts=RowCountStats(deleted_rows=3),
         )
         assert v.count() == 5
         verify_snap(snap)
