@@ -694,8 +694,7 @@ class TestComponentView:
             return {(r['id'], r['pos']): r['note'] for r in rows}
 
         t.update({'flag': True, 'other': 1})
-        v_contents, v2_contents = v_rows(), v2_rows()
-        assert v_contents == {
+        assert v_rows() == {
             (1, 0): (0, 42),
             (1, 1): (2, 42),
             (2, 0): (0, 42),
@@ -704,7 +703,7 @@ class TestComponentView:
             (3, 0): (0, None),
             (3, 1): (2, None),
         }
-        assert v2_contents == {k: None if k[0] == 3 else 'x' for k in v_contents}
+        assert v2_rows() == {k: None if k[0] == 3 else 'x' for k in v_rows()}
 
         t.update({'flag': False}, where=t.id == 1)
         assert {k[0] for k in v_rows()} == {2, 3}
