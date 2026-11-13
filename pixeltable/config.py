@@ -597,13 +597,19 @@ class Config:
 
         else:
             config_dict = self.__create_default_config(self.__config_file)
-            with open(self.__config_file, 'w', encoding='utf-8') as stream:
-                try:
-                    toml.dump(config_dict, stream)
-                except Exception as exc:
-                    raise excs.InternalError(
-                        excs.ErrorCode.INTERNAL_ERROR, f'Could not create config file: {self.__config_file}'
-                    ) from exc
+            # renamed into place once complete, so a process starting at the same time never reads a partial file
+            tmp_file = self.__config_file.with_name(f'{self.__config_file.name}.{os.getpid()}.tmp')
+            try:
+                with open(tmp_file, 'w', encoding='utf-8') as stream:
+                    try:
+                        toml.dump(config_dict, stream)
+                    except Exception as exc:
+                        raise excs.InternalError(
+                            excs.ErrorCode.INTERNAL_ERROR, f'Could not create config file: {self.__config_file}'
+                        ) from exc
+                os.replace(tmp_file, self.__config_file)
+            finally:
+                tmp_file.unlink(missing_ok=True)
             _logger.info(f'Created default config file at: {self.__config_file}')
             return self.__add_path(config_dict, self.__config_file)
 
