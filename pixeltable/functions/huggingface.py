@@ -1706,8 +1706,7 @@ def text_to_image(
         model_id,
         AutoPipelineForText2Image.from_pretrained,
         device=device,
-        dtype=torch.float16 if device == 'cuda' else torch.float32,
-        device_map='auto' if device == 'cuda' else None,
+        torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
         safety_checker=None,
         requires_safety_checker=False,
     )
@@ -1906,8 +1905,7 @@ def image_to_image(
         model_id,
         AutoPipelineForImage2Image.from_pretrained,
         device=device,
-        dtype=torch.float16 if device == 'cuda' else torch.float32,
-        device_map='auto' if device == 'cuda' else None,
+        torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
         safety_checker=None,
         requires_safety_checker=False,
     )
