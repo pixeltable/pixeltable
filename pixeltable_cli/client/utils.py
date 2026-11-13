@@ -290,7 +290,8 @@ def kill_and_wait(proc: psutil.Process, timeout: float = 5.0) -> None:
     # listen socket is detected and killed; otherwise the next spawn would fail with
     # 'address already in use' because we returned early on the health probe.
     # A psutil.Process rather than a pid: it compares creation times, so neither the wait nor the kill can reach a
-    # process that inherits the pid after the daemon's exit.
+    # process that inherits the pid after the caller took proc. Ruling out a pid already recycled at that point is
+    # up to the caller.
     # On Windows terminate() is already TerminateProcess, so the kill() fallback is a no-op there.
     try:
         proc.terminate()
@@ -368,8 +369,10 @@ def ensure_running() -> str:
         # Nothing is answering /api/health. Either no daemon is up, or one we started bound the
         # port and then wedged before serving health. The pidfile records the PID, but PIDs get
         # recycled and the file is only bookkeeping, so a live PID is not proof of ownership: only
-        # reclaim the port (kill the holder) once we've confirmed the live process is actually our
-        # daemon. An unconfirmed PID is treated as a stale pidfile and we just spawn.
+        # reclaim the port (kill the holder) once we've confirmed the live process is a pxt daemon.
+        # The command line doesn't name the port, so the check can't tell this port's daemon from
+        # another port's daemon that has since inherited the PID. An unconfirmed PID is treated as a
+        # stale pidfile and we just spawn.
         stale_pid = read_pidfile()
         try:
             # a psutil.Process carries the creation time, so _is_running() and kill_and_wait() below tell the daemon

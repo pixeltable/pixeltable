@@ -114,7 +114,8 @@ def _stop(force: bool, ok_if_absent: bool = False) -> None:
         pid_to_kill = health.get('pid')
     elif health is None and tracked_pid is not None:
         # No responder but we have a pidfile entry. Could be a hung daemon (PID alive but not
-        # listening) or a stale pidfile, whose PID is gone or now belongs to an unrelated process.
+        # listening) or a stale pidfile, whose PID is gone or now belongs to another process. The
+        # command-line check spares a process that isn't a pxt daemon, but not another port's daemon.
         pid_to_kill = tracked_pid if pid_is_our_daemon(tracked_pid) else None
     else:
         # health is not None, tracked_pid is None: no pidfile but something is responding.

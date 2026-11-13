@@ -200,7 +200,8 @@ def stop(db: str) -> None:
     if info is not None:
         pid = info['pid']
         # One psutil.Process throughout: it compares creation times, so neither the wait nor the kill can reach a
-        # process that inherits the daemon's pid. pid_alive() also counts a zombie as gone, unlike is_running().
+        # process that inherits the pid after this point. The first terminate() still trusts port.lock's bare pid,
+        # which records no creation time. pid_alive() also counts a zombie as gone, unlike is_running().
         try:
             proc = psutil.Process(pid)
             proc.terminate()
