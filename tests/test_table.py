@@ -2878,14 +2878,19 @@ class TestTable:
         assert t.where(t.c2 == 200).count() == 0
 
         # unknown primary key: insert
+        if is_data_versioned:
+            v = pxt.create_view(p('view'), t, additional_columns={'c1_upper': t.c1.upper()})
         validate_update_status(
             t.batch_update([{'c1': 'zwei', 'c2': 2}, {'c1': 'zweihundert', 'c2': 200}], if_not_exists='insert'),
             expected_row_counts=RowCountStats(ins_rows=1, upd_rows=1),
-            expected_cascade_row_counts=RowCountStats(),
+            expected_cascade_row_counts=RowCountStats(ins_rows=1, upd_rows=1) if is_data_versioned else RowCountStats(),
         )
         assert t.count() == num_rows + 1
         assert t.where(t.c2 == 2).collect()[0]['c1'] == 'zwei'
         assert t.where(t.c2 == 200).collect()[0]['c1'] == 'zweihundert'
+        if is_data_versioned:
+            assert v.where(v.c2 == 2).collect()[0]['c1_upper'] == 'ZWEI'
+            assert v.where(v.c2 == 200).collect()[0]['c1_upper'] == 'ZWEIHUNDERT'
 
         # test composite primary key
         schema: dict[str, Any] = {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.Float | None}
@@ -3105,24 +3110,6 @@ class TestTable:
         # filter not expressible in SQL
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not expressible'):
             img_t.update({'split': 'train'}, where=img_t.img.width > 100)
-
-    def test_batch_update_insert_status_with_view(self, db_root: DatabaseRoot) -> None:
-        """An upsert reports its base-table inserts as direct and its view rows as cascade."""
-        p = db_root.make_catalog_path
-        t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'x': pxt.Int}, primary_key='id')
-        t.insert([{'id': 1, 'x': 1}, {'id': 2, 'x': 2}])
-        v = pxt.create_view(p('view'), t, additional_columns={'x2': t.x * 2})
-
-        validate_update_status(
-            t.batch_update([{'id': 1, 'x': 10}, {'id': 3, 'x': 30}], if_not_exists='insert'),
-            expected_row_counts=RowCountStats(ins_rows=1, upd_rows=1),
-            expected_cascade_row_counts=RowCountStats(ins_rows=1, upd_rows=1),
-        )
-        assert list(v.select(v.id, v.x2).order_by(v.id).collect()) == [
-            {'id': 1, 'x2': 20},
-            {'id': 2, 'x2': 4},
-            {'id': 3, 'x2': 60},
-        ]
 
     def test_batch_update_computed_pk(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
