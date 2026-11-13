@@ -1081,7 +1081,7 @@ class Planner:
         # TODO: this plan holds all of its rows in memory at once: exec_ctx has batch_size 0 (from
         # _create_query_plan()), so the scan returns a single batch, and SqlNode runs its SELECT without
         # stream_results, so the driver fetches the whole result set first. Propagating an insert to a view loads
-        # every base row created at the new version, so an insert that streams its source (TableDataConduit,
+        # every base row created at the new version, so an insert that streams its source (SourceAdapter,
         # SqlDataSource) or a Query still materializes the entire insert, once per view.
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)

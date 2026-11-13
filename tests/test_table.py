@@ -1167,7 +1167,7 @@ class TestTable:
         assert res1['c2'] == [r['c2'] for r in rows]
 
         # generator source: schema inference consumes the one-shot iterator, so table creation must insert the
-        # rows the conduit already materialized rather than re-reading the (now exhausted) generator
+        # rows the adapter already materialized rather than re-reading the (now exhausted) generator
         t2 = pxt.create_table(p('from_gen'), source=(dict(r) for r in rows))
         res2 = t2.order_by(t2.c1).collect()
         assert res2['c1'] == [r['c1'] for r in rows]

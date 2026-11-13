@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
     from pixeltable import exprs
     from pixeltable.func.function import Function
-    from pixeltable.io.table_data_conduit import PydanticTableDataConduit
+    from pixeltable.io.source_adapter import PydanticAdapter
     from pixeltable.row import RowBatch
     from pixeltable.service.proxy_client import ProxyClient
     from pixeltable.types import ColumnSpec
@@ -382,9 +382,9 @@ class TableProxy(Table):
         - plain dicts are sent as-is
         """
         if isinstance(source[0], pydantic.BaseModel):
-            from pixeltable.io.table_data_conduit import PydanticTableDataConduit
+            from pixeltable.io.source_adapter import PydanticAdapter
 
-            source = self._pydantic_to_rows(PydanticTableDataConduit(source), check_required=False)
+            source = self._pydantic_to_rows(PydanticAdapter(source), check_required=False)
         rows: list[dict[str, Any]] = []
         for source_row in source:
             if not isinstance(source_row, dict):
@@ -394,9 +394,7 @@ class TableProxy(Table):
             rows.append(source_row)
         return rows
 
-    def _pydantic_to_rows(
-        self, converter: PydanticTableDataConduit, *, check_required: bool = True
-    ) -> list[dict[str, Any]]:
+    def _pydantic_to_rows(self, converter: PydanticAdapter, *, check_required: bool = True) -> list[dict[str, Any]]:
         """Validate pydantic models against this table's schema and convert them to insertable dicts."""
         converter.add_table_info(self)
         if not check_required:

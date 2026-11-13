@@ -256,22 +256,22 @@ class LocalTable(Table):
         outputs: Sequence[str | ColumnRef] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
     ) -> RowBatch:
-        from pixeltable.io.table_data_conduit import PydanticTableDataConduit, RowDataTableDataConduit, TableDataConduit
+        from pixeltable.io.source_adapter import PydanticAdapter, RowDataAdapter, SourceAdapter
         from pixeltable.plan import Planner
 
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
         # str/bytes are technically Sequences; reject them explicitly so we don't fall through to
-        # TableDataConduit.create() which would treat a string as a path/URL and trigger file I/O.
+        # SourceAdapter.create() which would treat a string as a path/URL and trigger file I/O.
         if isinstance(source, (str, bytes)) or not isinstance(source, Sequence) or len(source) == 0:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'compute() requires a non-empty sequence of dicts or pydantic models; got {type(source).__name__}',
             )
         fail_on_exc = OnErrorParam.fail_on_exception(on_error)
-        # TableDataConduit.is_rowdata_structure() only accepts list (not arbitrary Sequence) for the
+        # SourceAdapter.is_rowdata_structure() only accepts list (not arbitrary Sequence) for the
         # dict-source dispatch, so normalize to list here.
-        data_source = TableDataConduit.create(list(source))
-        if not isinstance(data_source, (RowDataTableDataConduit, PydanticTableDataConduit)):
+        data_source = SourceAdapter.create(list(source))
+        if not isinstance(data_source, (RowDataAdapter, PydanticAdapter)):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'compute() requires a sequence of dicts or pydantic models; got {type(source).__name__}',

@@ -36,8 +36,8 @@ if TYPE_CHECKING:
     from pixeltable.api import RowData, TableDataSource
 
 
-class TableDataConduitFormat(str, enum.Enum):
-    """Supported formats for TableDataConduit"""
+class SourceFormat(str, enum.Enum):
+    """Supported formats for SourceAdapter"""
 
     JSON = 'json'
     CSV = 'csv'
@@ -52,7 +52,7 @@ class TableDataConduitFormat(str, enum.Enum):
 
 
 @dataclass
-class TableDataConduit:
+class SourceAdapter:
     source: 'TableDataSource'
     source_format: str | None = None
     source_column_map: dict[str, str] | None = None
@@ -79,35 +79,33 @@ class TableDataConduit:
         source_format: str | None = None,
         src_schema_overrides: dict[str, ts.ColumnType] | None = None,
         extra_fields: dict[str, Any] | None = None,
-    ) -> 'TableDataConduit':
-        """Factory that returns a concrete TableDataConduit subclass based on the source type."""
-        assert source_format is None or TableDataConduitFormat.is_valid(source_format), (
-            f'Invalid source_format {source_format}'
-        )
+    ) -> 'SourceAdapter':
+        """Factory that returns a concrete SourceAdapter subclass based on the source type."""
+        assert source_format is None or SourceFormat.is_valid(source_format), f'Invalid source_format {source_format}'
         if isinstance(source, Sequence) and len(source) > 0 and isinstance(source[0], pydantic.BaseModel):
-            return PydanticTableDataConduit(source)
+            return PydanticAdapter(source)
 
-        tds = TableDataConduit(
+        tds = SourceAdapter(
             source, source_format=source_format, src_schema_overrides=src_schema_overrides, extra_fields=extra_fields
         )
         if isinstance(tds.source, (pxt.Table, pxt.Query)):
-            return QueryTableDataConduit.from_tds(tds)
+            return QueryAdapter.from_tds(tds)
         if isinstance(tds.source, pd.DataFrame):
-            return PandasTableDataConduit.from_tds(tds)
-        if HFTableDataConduit.is_applicable(tds):
-            return HFTableDataConduit.from_tds(tds)
+            return PandasAdapter.from_tds(tds)
+        if HFAdapter.is_applicable(tds):
+            return HFAdapter.from_tds(tds)
         if tds.source_format == 'csv' or (isinstance(tds.source, str) and '.csv' in tds.source.lower()):
-            return CSVTableDataConduit.from_tds(tds)
+            return CSVAdapter.from_tds(tds)
         if tds.source_format == 'excel' or (isinstance(tds.source, str) and '.xls' in tds.source.lower()):
-            return ExcelTableDataConduit.from_tds(tds)
+            return ExcelAdapter.from_tds(tds)
         if tds.source_format == 'json' or (isinstance(tds.source, str) and '.json' in tds.source.lower()):
-            return JsonTableDataConduit.from_tds(tds)
+            return JsonAdapter.from_tds(tds)
         if tds.source_format == 'parquet' or (
             isinstance(tds.source, str) and any(s in tds.source.lower() for s in ['.parquet', '.pq', '.parq'])
         ):
-            return ParquetTableDataConduit.from_tds(tds)
+            return ParquetAdapter.from_tds(tds)
         if tds.is_rowdata_structure(tds.source) or isinstance(tds.source, Iterator):
-            return RowDataTableDataConduit.from_tds(tds)
+            return RowDataAdapter.from_tds(tds)
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported data source type: {type(tds.source)}'
         )
@@ -185,11 +183,11 @@ class TableDataConduit:
             )
 
 
-class QueryTableDataConduit(TableDataConduit):
+class QueryAdapter(SourceAdapter):
     pxt_query: pxt.Query = None
 
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> 'QueryTableDataConduit':
+    def from_tds(cls, tds: SourceAdapter) -> 'QueryAdapter':
         tds_fields = {f.name for f in fields(tds)}
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
@@ -212,12 +210,12 @@ class QueryTableDataConduit(TableDataConduit):
         self.check_source_columns_are_insertable(self.pxt_query.schema.keys())
 
 
-class RowDataTableDataConduit(TableDataConduit):
+class RowDataAdapter(SourceAdapter):
     raw_rows: RowData | None = None
     disable_mapping: bool = True
 
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> 'RowDataTableDataConduit':
+    def from_tds(cls, tds: SourceAdapter) -> 'RowDataAdapter':
         tds_fields = {f.name for f in fields(tds)}
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
@@ -290,11 +288,11 @@ class RowDataTableDataConduit(TableDataConduit):
             yield self._translate_row(row)
 
 
-class PandasTableDataConduit(TableDataConduit):
+class PandasAdapter(SourceAdapter):
     pd_df: pd.DataFrame = None
 
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> PandasTableDataConduit:
+    def from_tds(cls, tds: SourceAdapter) -> PandasAdapter:
         tds_fields = {f.name for f in fields(tds)}
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
@@ -337,28 +335,28 @@ class PandasTableDataConduit(TableDataConduit):
             yield _df_row_to_pxt_row(row, self.src_schema, self.source_column_map)
 
 
-class CSVTableDataConduit(TableDataConduit):
+class CSVAdapter(SourceAdapter):
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> 'PandasTableDataConduit':
+    def from_tds(cls, tds: SourceAdapter) -> 'PandasAdapter':
         tds_fields = {f.name for f in fields(tds)}
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         assert isinstance(t.source, str)
         path = fetch_url(t.source, allow_local_file=True)
         t.source = pd.read_csv(path, **t.extra_fields)
-        return PandasTableDataConduit.from_tds(t)
+        return PandasAdapter.from_tds(t)
 
 
-class ExcelTableDataConduit(TableDataConduit):
+class ExcelAdapter(SourceAdapter):
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> 'PandasTableDataConduit':
+    def from_tds(cls, tds: SourceAdapter) -> 'PandasAdapter':
         tds_fields = {f.name for f in fields(tds)}
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         assert isinstance(t.source, str)
         path = fetch_url(t.source, allow_local_file=True)
         t.source = pd.read_excel(path, **t.extra_fields)
-        return PandasTableDataConduit.from_tds(t)
+        return PandasAdapter.from_tds(t)
 
 
 def _parse_jsonl_from_path(path: Path, extra_fields: dict[str, Any]) -> list[dict]:
@@ -383,9 +381,9 @@ def _parse_jsonl_from_path(path: Path, extra_fields: dict[str, Any]) -> list[dic
     return rows
 
 
-class JsonTableDataConduit(TableDataConduit):
+class JsonAdapter(SourceAdapter):
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> RowDataTableDataConduit:
+    def from_tds(cls, tds: SourceAdapter) -> RowDataAdapter:
         tds_fields = {f.name for f in fields(tds)}
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
@@ -397,12 +395,12 @@ class JsonTableDataConduit(TableDataConduit):
         else:
             rows = json.loads(path.read_text(encoding='utf-8'), **t.extra_fields)
         t.source = rows
-        t2 = RowDataTableDataConduit.from_tds(t)
+        t2 = RowDataAdapter.from_tds(t)
         t2.disable_mapping = False
         return t2
 
 
-class HFTableDataConduit(TableDataConduit):
+class HFAdapter(SourceAdapter):
     """HuggingFace dataset importer"""
 
     column_name_for_split: str | None = None
@@ -411,7 +409,7 @@ class HFTableDataConduit(TableDataConduit):
     hf_schema_source: dict[str, Any] = None
 
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> HFTableDataConduit:
+    def from_tds(cls, tds: SourceAdapter) -> HFAdapter:
         tds_fields = {f.name for f in fields(tds)}
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
@@ -451,7 +449,7 @@ class HFTableDataConduit(TableDataConduit):
         )
 
     @classmethod
-    def is_applicable(cls, tds: TableDataConduit) -> bool:
+    def is_applicable(cls, tds: SourceAdapter) -> bool:
         return (
             isinstance(tds.source_format, str) and tds.source_format.lower() == 'huggingface'
         ) or cls._is_dataset_class(tds.source)
@@ -692,11 +690,11 @@ class HFTableDataConduit(TableDataConduit):
             offset += chunk_size
 
 
-class ParquetTableDataConduit(TableDataConduit):
+class ParquetAdapter(SourceAdapter):
     pq_ds: ParquetDataset | None = None
 
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> 'ParquetTableDataConduit':
+    def from_tds(cls, tds: SourceAdapter) -> 'ParquetAdapter':
         tds_fields = {f.name for f in fields(tds)}
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
@@ -752,7 +750,7 @@ class ParquetTableDataConduit(TableDataConduit):
 
 
 @dataclass
-class PydanticTableDataConduit(TableDataConduit):
+class PydanticAdapter(SourceAdapter):
     dumped_rows: list[dict[str, Any]] = field(default_factory=list, init=False)
 
     def __post_init__(self) -> None:
@@ -796,7 +794,7 @@ class PydanticTableDataConduit(TableDataConduit):
                         excs.ErrorCode.MISSING_REQUIRED, f'Missing required column {col_name!r} in row {i}'
                     )
             # Coerce each cell to its column's stored representation, exactly as the dict path does
-            # (RowDataTableDataConduit._translate_row). This is what makes a pydantic model behave like the
+            # (RowDataAdapter._translate_row). This is what makes a pydantic model behave like the
             # equivalent dict: timestamps localized, enums accepted only when their members are int/str values, etc.
             assert self.pxt_schema is not None
             pxt_row: dict[str, Any] = {}
