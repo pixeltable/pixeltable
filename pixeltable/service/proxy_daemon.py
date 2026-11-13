@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
 import httpx
+import psutil
 import sqlalchemy as sql
 
 import pixeltable as pxt
@@ -35,7 +36,7 @@ from pixeltable.catalog import fold_identifier
 from pixeltable.config import Config
 from pixeltable.env import Env, validate_db_name
 from pixeltable.runtime import get_runtime, reset_runtime
-from pixeltable.utils.process import is_pid, pid_alive, process_timestamp
+from pixeltable.utils.process import is_pid, pid_alive
 
 from . import proxy_dispatch
 from .proxy_protocol import KEEP_ALIVE_S, decode_body, iter_body_chunks
@@ -193,28 +194,21 @@ def start(db: str, test_mode: bool = False) -> str:
     raise excs.InternalError(excs.ErrorCode.INTERNAL_ERROR, msg)
 
 
-def _is_same_process(pid: int, started_at: float | None) -> bool:
-    """Whether pid is alive and still the process created at started_at: the OS reissues the pid of an exited
-    process."""
-    return pid_alive(pid) and process_timestamp(pid) == started_at
-
-
 def stop(db: str) -> None:
     """Stop the daemon for db (if running) and remove its port.lock."""
     info = read_port_lock(db)
     if info is not None:
         pid = info['pid']
-        started_at = process_timestamp(pid)
+        # One psutil.Process throughout: it compares creation times, so neither the wait nor the kill can reach a
+        # process that inherits the daemon's pid. pid_alive() also counts a zombie as gone, unlike is_running().
         try:
-            os.kill(pid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError, OSError):
-            # POSIX raises ProcessLookupError once the process is gone. Windows os.kill() maps to
-            # TerminateProcess via OpenProcess(PROCESS_ALL_ACCESS) and raises PermissionError (WinError 5) or
-            # OSError (WinError 87) for an already-exited process. In every case there is nothing left to wait on.
-            pid = None
-        if pid is not None:
+            proc = psutil.Process(pid)
+            proc.terminate()
+        except (psutil.Error, OSError):
+            pass  # already gone, with nothing to wait on
+        else:
             deadline = time.monotonic() + _STOP_TIMEOUT
-            while time.monotonic() < deadline and _is_same_process(pid, started_at):
+            while time.monotonic() < deadline and proc.is_running() and pid_alive(pid):
                 # Reap promptly if the daemon is our own child, so its zombie isn't mistaken for a live
                 # process and we don't wait out the full timeout; a no-op when it was launched by a
                 # different process (e.g. a prior `pxt localproxy start`), in which case init reaps it.
@@ -226,15 +220,12 @@ def stop(db: str) -> None:
                     except (ChildProcessError, OSError):
                         pass
                 time.sleep(0.05)
-            if _is_same_process(pid, started_at):
+            if proc.is_running() and pid_alive(pid):
                 # Graceful shutdown overran the timeout; force termination so we never leak the daemon.
-                # SIGKILL is absent on Windows, where os.kill() already terminates unconditionally.
                 try:
-                    os.kill(pid, getattr(signal, 'SIGKILL', signal.SIGTERM))
-                except (ProcessLookupError, PermissionError, OSError):
-                    # The process exited between the liveness check and here; on Windows os.kill() raises
-                    # PermissionError/OSError rather than ProcessLookupError once the target is gone.
-                    pass
+                    proc.kill()
+                except (psutil.Error, OSError):
+                    pass  # exited after the check
     _port_lock(db).unlink(missing_ok=True)
 
 

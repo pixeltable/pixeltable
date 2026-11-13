@@ -274,14 +274,6 @@ def _pid_is_our_daemon(pid: int) -> bool:
     return cmdline is not None and _DAEMON_CMDLINE_RE.search(cmdline) is not None
 
 
-def _pid_alive(pid: int) -> bool:
-    assert pid > 0, pid
-    # On POSIX this is the os.kill(pid, 0) probe, counting a pid owned by another user as alive. Windows can't
-    # use that probe: signal 0 is CTRL_C_EVENT there, and when the event can't be sent, CPython 3.11 goes on to
-    # call TerminateProcess on the pid, killing the process it was only meant to probe.
-    return psutil.pid_exists(pid)
-
-
 def kill_and_wait(pid: int, timeout: float = 5.0) -> None:
     assert pid > 0, pid
     # Wait on the process itself (not /health) so a hung-but-alive daemon that still holds the
@@ -369,14 +361,19 @@ def ensure_running() -> str:
         # reclaim the port (kill the holder) once we've confirmed the live process is actually our
         # daemon. An unconfirmed PID is treated as a stale pidfile and we just spawn.
         stale_pid = read_pidfile()
-        if stale_pid is not None and _pid_alive(stale_pid) and _pid_is_our_daemon(stale_pid):
+        try:
+            # a psutil.Process carries the creation time, so is_running() below tells the daemon apart from a
+            # process that inherits its pid during the grace window
+            daemon = psutil.Process(stale_pid) if stale_pid is not None else None
+        except psutil.NoSuchProcess:
+            daemon = None
+        if daemon is not None and _pid_is_our_daemon(daemon.pid):
             # It may just be slow to answer, so give it a grace window before concluding it is hung;
             # a daemon that comes up in the meantime goes through the same checks as one that
             # answered right away.
             health = _await_health(_STARTUP_GRACE_PERIOD_SECS)
-            # confirm again: during the grace window the daemon can exit and the OS can reissue its pid
-            if health is None and _pid_is_our_daemon(stale_pid):
-                kill_and_wait(stale_pid)
+            if health is None and daemon.is_running():
+                kill_and_wait(daemon.pid)
         if health is None:
             spawn_detached()
             # the daemon we spawn defers to one that already holds the port, so the responder is not
