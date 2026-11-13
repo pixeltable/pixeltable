@@ -194,8 +194,9 @@ jobs:
         # cmake is needed for certain CI environments where it is not preinstalled.
         run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==7.1.1=gpl*'
       - name: Install ollama
-        # test_ollama.py is marked skip_merge_queue, and the ollama notebook runs only in the weekly run
-        if: ${{ github.event_name != 'merge_group' && matrix.uv-options == '' && startsWith(matrix.os, 'ubuntu') && matrix.python-version == '3.11' }}
+        # test_ollama.py runs only on standard+ and standard++ outside the merge queue, and the ollama notebook only in
+        # the weekly run
+        if: ${{ github.event_name != 'merge_group' && (startsWith(matrix.display-name, 'standard+') || matrix.test-category == 'ipynb') }}
         run: |
           ./scripts/retry.sh 3 30 ./scripts/install-ollama.sh
           sleep 10  # Wait for the ollama server to start
