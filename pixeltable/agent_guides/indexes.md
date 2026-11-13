@@ -104,6 +104,9 @@ top = notes.order_by(sim, asc=False).limit(3).select(notes.text, score=sim).coll
 - The metric `'l2'` scores by Euclidean distance: lower is closer.
 - `similarity()` cannot be the value of a computed column: evaluating it raises `similarity(): cannot be used in a
   computed column`.
+- A computed column that calls a `@pxt.query` can search: the query passes its parameter to `similarity()`, and the
+  column runs the search once per row, on insert. A label table's best match for each image, or an earlier copy of
+  the same photo, is such a column (`pxt guide queries` says which rows the search sees).
 - A snapshot has no indexes: `similarity()` on a snapshot raises `Snapshot does not support indices`.
 - `notes.text.embedding(idx='text_idx')` selects the stored vectors.
 

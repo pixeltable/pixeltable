@@ -53,7 +53,9 @@ every row and writes it back.
 Why: the stored values are stale until the script runs again, and nothing recomputes them when their inputs change.
 
 Instead: a computed column for a value derived from the row's own data, or a query for a value that depends on other
-rows, another table or the current time.
+rows, another table or the current time. A value from other rows that is fixed when the row arrives, such as an
+earlier near-duplicate or the best match in a label table, is a column that calls a `@pxt.query`; it runs on insert
+and can search an embedding index with `similarity()`.
 
 Not a finding: writing values that come from outside the tables, such as a person's decision or an external system's
 state.
@@ -97,6 +99,9 @@ Instead: compute the per-group value with a `group_by()` query, then look it up 
 
 A window aggregate, such as `pxtf.min(t.at, group_by=t.key)` in `select()`, is not the fix: in this release it
 returns a running value (`pxt guide queries`).
+
+A value that is fixed once the row arrives, such as an earlier near-duplicate found with `similarity()`, does not need
+a query per row on every read: make the `@pxt.query` call a column, which runs once per row, on insert.
 
 Not a finding:
 
@@ -180,7 +185,9 @@ runs; a separate vector database such as Chroma, FAISS, Pinecone or pgvector.
 Why: a second store is neither versioned nor updated in the same transaction as the tables, and it duplicates a
 table, an embedding index or a stored computed column.
 
-Instead: a table; an embedding index; a stored computed column as the cache of a model call.
+Instead: a table; an embedding index; a stored computed column as the cache of a model call. Embeddings of a fixed
+set, such as label texts, go in a table with an embedding index, and a column that calls a `@pxt.query` finds the
+best match.
 
 Not a finding: an export at the end of a pipeline, such as `collect().to_pandas()` written to a file for someone else.
 
