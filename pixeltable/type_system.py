@@ -11,7 +11,6 @@ import types
 import typing
 import urllib.request
 import uuid
-import warnings
 from pathlib import Path
 from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union, is_typeddict
 
@@ -368,19 +367,6 @@ class ColumnType:
                 )
                 if underlying is not None:
                     return underlying.copy(nullable=True)
-        elif origin is Required:
-            assert len(type_args) == 1
-            warnings.warn(
-                '`Required[T]` is deprecated and will be removed in a future version; use `T` instead. '
-                'Bare types such as `pxt.Int` are now non-nullable by default; use `pxt.Int | None` for a '
-                'nullable column.',
-                excs.PixeltableDeprecationWarning,
-                stacklevel=2,
-            )
-            underlying = cls.from_python_type(type_args[0], allow_builtin_types=allow_builtin_types)
-            if underlying is None:
-                return None
-            return underlying.copy(nullable=False)
         elif origin is typing.Required or origin is typing.NotRequired:
             # Required[T]/NotRequired[T] mark a TypedDict field's key presence (recorded in __optional_keys__), so
             # the field's value type is simply T
@@ -392,7 +378,7 @@ class ColumnType:
             if isinstance(parameters, ColumnType):
                 return parameters.copy(nullable=False)
         else:
-            # It's something other than T | None, Required[T], or an explicitly annotated type.
+            # It's something other than T | None, a TypedDict field qualifier, or an explicitly annotated type.
             # for non-generic types, get_origin returns None, so we use the type itself as the origin
             origin = origin or t
             if isinstance(origin, type):
@@ -1937,9 +1923,6 @@ class DocumentType(ColumnType):
         DocumentHandle.validate(val)
 
 
-T = typing.TypeVar('T')
-
-
 class _PxtType:
     """
     Base class for the Pixeltable type-hint family. Subclasses of this class are meant to be used as type hints, both
@@ -1959,22 +1942,6 @@ class _PxtType:
     @classmethod
     def as_col_type(cls, nullable: bool) -> ColumnType:
         raise NotImplementedError()
-
-
-class Required(_PxtType, typing.Generic[T]):
-    """
-    Deprecated marker class to indicate that a column is non-nullable in a schema definition.
-
-    Bare types such as `pxt.Int` are non-nullable, so `Required[T]` is equivalent to `T`. Use `T | None` to declare a
-    nullable column.
-    """
-
-    @classmethod
-    def as_col_type(cls, nullable: bool) -> ColumnType:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_TYPE,
-            'Bare `Required` is not a valid type; use `Required[T]` for some valid type `T`.',
-        )
 
 
 String = typing.Annotated[str, StringType(nullable=False)]
