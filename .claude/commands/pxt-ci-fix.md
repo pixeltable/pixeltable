@@ -50,8 +50,9 @@ guess. Use `gh run view <id> --log-failed` and `gh api repos/<owner>/<repo>/acti
    person already closed or took over the same failure, or when `main` already has the fix and this is nightly.
 2. **Cause.** Name the failing tests or jobs, the first place the state goes wrong, and whether the cause is a
    product bug, a dependency change, a release lag, infra, or core catalog/transaction/concurrency.
-3. **Decide.** Choose `opened`, `flagged`, or `skipped` before you edit. Flag means: open or update a
-   GitHub issue with the investigation, and do not open a fix PR.
+3. **Decide.** Choose `opened`, `flagged`, or `skipped` before you edit. Flag means: do not open a fix PR, and put
+   the investigation in a GitHub issue. When an open issue already covers the same failing test or job, comment on it
+   with this run instead of opening another.
 4. **Fix**, only for `opened`. Branch from the default branch onto `branch`. Make the smallest change
    that addresses the root cause. Add a regression test when the failure is in library code. Run the failing tests
    and `make format` / `make check` on the changed files.

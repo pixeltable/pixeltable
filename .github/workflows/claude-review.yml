@@ -113,11 +113,15 @@ jobs:
           if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
+      # No continue-on-error here or on the result step: a CI-fix that could not run fails the job.
       - id: claude
-        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # A scheduled run's actor is whoever pushed to the default branch last, often github-merge-queue[bot], and the
+          # action refuses a bot it was not told to allow. Any bot is safe here: plan-ci-fix admits only scheduled runs
+          # on the default branch, and the prompt is fixed.
+          allowed_bots: '*'
           additional_permissions: |
             actions: read
           prompt: /pxt-ci-fix ci-fix-context.json
@@ -141,7 +145,6 @@ jobs:
             | join(", ")' "$EXECUTION_FILE"
       - id: result
         if: steps.claude.outcome == 'success'
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -228,6 +231,9 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          # A review of a CI-fix PR inherits the scheduled run's actor, which can be a bot. A comment request never
+          # needs this: the plan job already refused a commenter without write access.
+          allowed_bots: ${{ github.event_name == 'workflow_run' && '*' || '' }}
           settings: '{"permissions": {"additionalDirectories": ["${{ runner.temp }}/pr-head"]}}'
           prompt: >-
             /pxt-review https://github.com/${{ github.repository }}/pull/${{ env.PR_NUMBER }}
