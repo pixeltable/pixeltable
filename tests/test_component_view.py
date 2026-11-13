@@ -512,8 +512,8 @@ class TestComponentView:
         status = video_t.insert(rows)
         validate_update_status(
             status,
-            expected_row_counts=RowCountStats(ins_rows=len(rows)),
-            expected_cascade_row_counts=RowCountStats(ins_rows=20 * len(rows)),
+            expected_row_counts=RowCountStats(inserted_rows=len(rows)),
+            expected_cascade_row_counts=RowCountStats(inserted_rows=20 * len(rows)),
         )
         check_view()
 
@@ -528,8 +528,8 @@ class TestComponentView:
             status = video_t.update({'int1': video_t.int1 + 1}, where=video_t.video == video_url)
             validate_update_status(
                 status,
-                expected_row_counts=RowCountStats(upd_rows=1),
-                expected_cascade_row_counts=RowCountStats(upd_rows=20),
+                expected_row_counts=RowCountStats(updated_rows=1),
+                expected_cascade_row_counts=RowCountStats(updated_rows=20),
             )
             assert sorted(str.split('.')[1] for str in status.updated_cols) == [
                 'img1',
@@ -545,8 +545,8 @@ class TestComponentView:
             status = video_t.update({'int2': video_t.int2 + 1}, where=video_t.video == video_url)
             validate_update_status(
                 status,
-                expected_row_counts=RowCountStats(upd_rows=1),
-                expected_cascade_row_counts=RowCountStats(upd_rows=10),
+                expected_row_counts=RowCountStats(updated_rows=1),
+                expected_cascade_row_counts=RowCountStats(updated_rows=10),
             )
             assert sorted(str.split('.')[1] for str in status.updated_cols) == ['img4', 'int2', 'int6', 'int7']
             check_view()

@@ -204,7 +204,9 @@ class TestView:
         # update data: cascade to view
         status = t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
         validate_update_status(
-            status, expected_row_counts=RowCountStats(upd_rows=5), expected_cascade_row_counts=RowCountStats(upd_rows=5)
+            status,
+            expected_row_counts=RowCountStats(updated_rows=5),
+            expected_cascade_row_counts=RowCountStats(updated_rows=5),
         )
         assert t.count() == 120
         check_view(t, v)
@@ -212,7 +214,9 @@ class TestView:
         # base table delete is reflected in view
         status = t.delete(where=t.c2 < 5)
         validate_update_status(
-            status, expected_row_counts=RowCountStats(del_rows=5), expected_cascade_row_counts=RowCountStats(del_rows=5)
+            status,
+            expected_row_counts=RowCountStats(deleted_rows=5),
+            expected_cascade_row_counts=RowCountStats(deleted_rows=5),
         )
         assert t.count() == 115
         check_view(t, v)
@@ -501,8 +505,8 @@ class TestView:
         )
         validate_update_status(
             status,
-            expected_row_counts=RowCountStats(upd_rows=10),
-            expected_cascade_row_counts=RowCountStats(upd_rows=10),
+            expected_row_counts=RowCountStats(updated_rows=10),
+            expected_cascade_row_counts=RowCountStats(updated_rows=10),
         )
         assert t.count() == 120
         assert v1.count() == 10
@@ -514,8 +518,8 @@ class TestView:
         status = t.delete(where=(t.c2 >= 5) & (t.c2 < 15))
         validate_update_status(
             status,
-            expected_row_counts=RowCountStats(del_rows=10),
-            expected_cascade_row_counts=RowCountStats(del_rows=10),
+            expected_row_counts=RowCountStats(deleted_rows=10),
+            expected_cascade_row_counts=RowCountStats(deleted_rows=10),
         )
         assert t.count() == 110
         assert v1.count() == 5
@@ -589,8 +593,8 @@ class TestView:
         status = t.update({'c4': True, 'c3': t.c3 + 1}, where=t.c2 < 15, cascade=True)
         validate_update_status(
             status,
-            expected_row_counts=RowCountStats(upd_rows=15),
-            expected_cascade_row_counts=RowCountStats(upd_rows=15),
+            expected_row_counts=RowCountStats(updated_rows=15),
+            expected_cascade_row_counts=RowCountStats(updated_rows=15),
         )
         assert t.count() == 120
         # all versions were incremented
@@ -604,8 +608,8 @@ class TestView:
         status = t.update({'c10': t.c10 - 1.0}, where=t.c2 < 15, cascade=True)
         validate_update_status(
             status,
-            expected_row_counts=RowCountStats(upd_rows=15),
-            expected_cascade_row_counts=RowCountStats(upd_rows=5),
+            expected_row_counts=RowCountStats(updated_rows=15),
+            expected_cascade_row_counts=RowCountStats(updated_rows=5),
         )
         assert t.count() == 120
         # v1 did not get updated
@@ -618,7 +622,9 @@ class TestView:
         base_version, v1_version, v2_version = version(t), version(v1), version(v2)
         status = t.delete(where=t.c2 == 0)
         validate_update_status(
-            status, expected_row_counts=RowCountStats(del_rows=1), expected_cascade_row_counts=RowCountStats(del_rows=2)
+            status,
+            expected_row_counts=RowCountStats(deleted_rows=1),
+            expected_cascade_row_counts=RowCountStats(deleted_rows=2),
         )
         assert t.count() == 119
         assert v1.count() == 9
@@ -633,7 +639,9 @@ class TestView:
         base_version, v1_version, v2_version = version(t), version(v1), version(v2)
         status = t.delete(where=t.c2 == 5)
         validate_update_status(
-            status, expected_row_counts=RowCountStats(del_rows=1), expected_cascade_row_counts=RowCountStats(del_rows=1)
+            status,
+            expected_row_counts=RowCountStats(deleted_rows=1),
+            expected_cascade_row_counts=RowCountStats(deleted_rows=1),
         )
         assert t.count() == 118
         assert v1.count() == 8
@@ -1570,8 +1578,8 @@ class TestView:
                 [{'id': 1, 'x': 10, 'n': 1}, {'id': 3, 'x': 3, 'n': 1}, {'id': 4, 'x': 40, 'n': 2}],
                 if_not_exists='insert',
             ),
-            expected_row_counts=RowCountStats(ins_rows=1, upd_rows=2),
-            expected_cascade_row_counts=RowCountStats(ins_rows=5, upd_rows=7),
+            expected_row_counts=RowCountStats(inserted_rows=1, updated_rows=2),
+            expected_cascade_row_counts=RowCountStats(inserted_rows=5, updated_rows=7),
         )
         assert list(vv.select(vv.id, vv.x2, vv.x3).order_by(vv.id).collect()) == [
             {'id': 1, 'x2': 20, 'x3': 21},
