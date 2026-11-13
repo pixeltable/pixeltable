@@ -8,7 +8,7 @@ import pixeltable as pxt
 import pixeltable.utils.av as av_utils
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
-from pixeltable.functions import util
+from pixeltable.functions import media_metadata as util
 from pixeltable.functions.math import abs as pxt_abs, floor as pxt_floor
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore

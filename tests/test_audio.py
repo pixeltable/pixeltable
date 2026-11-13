@@ -9,7 +9,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exprs
-from pixeltable.functions import util as functions_util
+from pixeltable.functions import media_metadata as functions_util
 from pixeltable.functions.audio import audio_splitter, encode_audio
 from pixeltable.utils import av as av_utils
 

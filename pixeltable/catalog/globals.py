@@ -14,9 +14,10 @@ from pixeltable.types import ColumnSpec
 
 if TYPE_CHECKING:
     from pixeltable import exprs, index
-    from pixeltable.globals import TableDataSource
+    from pixeltable.api import TableDataSource
 
     from .column import Column
+    from .path import Path
     from .types import ColumnVersionMd
 
 _T = TypeVar('_T')
@@ -39,6 +40,9 @@ class DirEntry:
     # Only populated for table entries when get_dir_contents() was called with with_error_counts=True;
     # None otherwise (including for directory entries).
     table_error_count: int | None = None
+
+    # Set for views and snapshots by get_dir_contents(with_base_paths=True)
+    base_path: Path | None = None
 
 
 class IndexSpec(NamedTuple):

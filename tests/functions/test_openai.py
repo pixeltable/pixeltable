@@ -1140,7 +1140,7 @@ class TestOpenaiTypedDictAdherence:
         # size: _pydantic_fields() drops its str | Literal[...] | None annotation; str | None is the mirror.
         overrides = {'data', 'size'}
         # declared by newer SDKs only, so a response from an older one lacks them
-        added_by_sdk = {'safety_identifier'}  # openai>=3.33
+        added_by_sdk = {'safety_identifier', 'svg_usage'}  # openai>=3.33 / >=3.46
         absent_from_sdk = added_by_sdk - set(SdkImagesResponse.model_fields)
         assert set(ours_fields) - absent_from_sdk == set(SdkImagesResponse.model_fields), (
             f'ImagesResponse field set drifted: ours={set(ours_fields)} sdk={set(SdkImagesResponse.model_fields)}'

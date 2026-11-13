@@ -688,7 +688,7 @@ class TestFastAPI:
             orig_w, orig_h = img.size
         pxt.create_dir(p('test_serve'))
         # Unlike video.resize (which tolerates None width/height and preserves aspect ratio),
-        # image.resize requires concrete ints - so width and height must be Required, and every
+        # image.resize requires concrete ints - so width and height must be non-nullable, and every
         # insert (even the /rotate one, which doesn't care about them) has to supply them.
         t = pxt.create_table(
             p('test_serve/images'),
@@ -834,7 +834,7 @@ class TestFastAPI:
         # Use sample-16-bit.wav specifically so the mime type in upload mode is deterministic.
         audio_path = next(f for f in get_audio_files() if f.endswith('sample-16-bit.wav'))
         pxt.create_dir(p('test_serve'))
-        # factor and end_time are Required because multiply_volume's `factor` param must be non-None
+        # factor and end_time are non-nullable because multiply_volume's `factor` param must be non-None
         # on every insert (the `scaled` computed column runs on every row).
         t = pxt.create_table(
             p('test_serve/audios'),
