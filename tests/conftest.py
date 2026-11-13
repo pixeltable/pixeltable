@@ -368,6 +368,8 @@ def _reset_catalog_state() -> None:
     FileCache.get().validate()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
     FileCache.get().set_lease_seconds(Env.get()._file_cache_lease_s)  # reset any per-test override
+    # evictions under an earlier test's capacity override would otherwise cause re-download warnings in this test
+    FileCache.get().reset_session_stats()
 
 
 def _validate_catalog_state() -> None:
