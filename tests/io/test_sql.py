@@ -511,7 +511,7 @@ class TestSql:
     def test_image_bytes_via_override(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Source `LargeBinary` column holding raw image bytes + `schema_overrides={'c_img': pxt.Image}`.
         SqlDataNode must spill the bytes to TempStore so on-write media validation still runs (mirroring
-        InMemoryDataNode's image-bytes handling)."""
+        RowDataNode's image-bytes handling)."""
         p = db_root.make_catalog_path
         engine = _import_engine('sqlite', tmp_path)
         img_paths = get_image_files()[:2]

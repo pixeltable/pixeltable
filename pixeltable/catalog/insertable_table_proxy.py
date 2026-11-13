@@ -90,7 +90,7 @@ class InsertableTableProxy(TableProxy):
                 data_source.src_pk = []
                 data_source.infer_schema()
                 data_source.prepare_for_insert_into_table()
-                rows = self._convert_local_paths(row for batch in data_source.valid_row_batch() for row in batch)
+                rows = self._convert_local_paths(data_source.valid_rows())
                 return self._dispatch(
                     'insert',
                     {
@@ -148,9 +148,8 @@ class InsertableTableProxy(TableProxy):
         elif isinstance(data_source, PandasTableDataConduit):
             data_source.src_pk = []
             data_source.infer_schema()
-            data_source.prepare_for_insert_into_table()  # populates valid_rows (df -> pxt-native dicts)
-            assert data_source.valid_rows is not None
-            rows = data_source.valid_rows
+            data_source.prepare_for_insert_into_table()
+            rows = list(data_source.valid_rows())
         else:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,

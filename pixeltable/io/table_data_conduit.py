@@ -62,14 +62,13 @@ class TableDataConduit:
     src_schema: dict[str, ts.ColumnType] | None = None
     pxt_pk: list[str] | None = None
     src_pk: list[str] | None = None
-    valid_rows: RowData | None = None
     extra_fields: dict[str, Any] = field(default_factory=dict)
     tbl_name: str | None = None
 
     reqd_col_names: set[str] = field(default_factory=set)
     computed_col_names: set[str] = field(default_factory=set)
 
-    total_rows: int = 0  # total number of rows emitted via valid_row_batch Iterator
+    total_rows: int = 0  # total number of rows emitted via valid_rows()
 
     _K_BATCH_SIZE_BYTES = 256 * 2**20
 
@@ -134,7 +133,7 @@ class TableDataConduit:
     def infer_schema(self) -> dict[str, ts.ColumnType]:
         raise NotImplementedError
 
-    def valid_row_batch(self) -> Iterator[RowData]:
+    def valid_rows(self) -> Iterator[dict[str, Any]]:
         raise NotImplementedError
 
     def prepare_for_insert_into_table(self) -> None:
@@ -216,7 +215,6 @@ class QueryTableDataConduit(TableDataConduit):
 class RowDataTableDataConduit(TableDataConduit):
     raw_rows: RowData | None = None
     disable_mapping: bool = True
-    batch_count: int = 0
 
     @classmethod
     def from_tds(cls, tds: TableDataConduit) -> 'RowDataTableDataConduit':
@@ -230,7 +228,6 @@ class RowDataTableDataConduit(TableDataConduit):
             t.raw_rows = cast(RowData, tds.source)
         else:
             t.raw_rows = tds.source
-        t.batch_count = 0
         return t
 
     def infer_schema(self) -> dict[str, ts.ColumnType]:
@@ -253,9 +250,6 @@ class RowDataTableDataConduit(TableDataConduit):
         # are errors in the incoming row format
         if self.source_column_map is None:
             self.source_column_map = {}
-        self.valid_rows = [self._translate_row(row) for row in self.raw_rows]
-
-        self.batch_count = 1 if self.raw_rows is not None else 0
 
     def _translate_row(self, row: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(row, dict):
@@ -289,15 +283,15 @@ class RowDataTableDataConduit(TableDataConduit):
             output_row[col_name] = checked_val
         return output_row
 
-    def valid_row_batch(self) -> Iterator[RowData]:
-        if self.batch_count > 0:
-            self.batch_count -= 1
-            yield self.valid_rows
+    def valid_rows(self) -> Iterator[dict[str, Any]]:
+        if self.raw_rows is None:
+            return
+        for row in self.raw_rows:
+            yield self._translate_row(row)
 
 
 class PandasTableDataConduit(TableDataConduit):
     pd_df: pd.DataFrame = None
-    batch_count: int = 0
 
     @classmethod
     def from_tds(cls, tds: TableDataConduit) -> PandasTableDataConduit:
@@ -306,7 +300,6 @@ class PandasTableDataConduit(TableDataConduit):
         t = cls(**kwargs)
         assert isinstance(tds.source, pd.DataFrame)
         t.pd_df = tds.source
-        t.batch_count = 0
         return t
 
     def infer_schema_part1(self) -> tuple[dict[str, ts.ColumnType], list[str]]:
@@ -338,16 +331,10 @@ class PandasTableDataConduit(TableDataConduit):
         if self.source_column_map is None:
             self.source_column_map = {}
         self.check_source_columns_are_insertable(self.pd_df.columns)
-        # Convert all rows to insertable format
-        self.valid_rows = [
-            _df_row_to_pxt_row(row, self.src_schema, self.source_column_map) for row in self.pd_df.itertuples()
-        ]
-        self.batch_count = 1
 
-    def valid_row_batch(self) -> Iterator[RowData]:
-        if self.batch_count > 0:
-            self.batch_count -= 1
-            yield self.valid_rows
+    def valid_rows(self) -> Iterator[dict[str, Any]]:
+        for row in self.pd_df.itertuples():
+            yield _df_row_to_pxt_row(row, self.src_schema, self.source_column_map)
 
 
 class CSVTableDataConduit(TableDataConduit):
@@ -657,7 +644,7 @@ class HFTableDataConduit(TableDataConduit):
         # Return as list of array views (shares memory with reshaped)
         return list(reshaped)
 
-    def valid_row_batch(self) -> Iterator['RowData']:
+    def valid_rows(self) -> Iterator[dict[str, Any]]:
         import datasets
 
         for split_name, split_dataset in self.dataset_dict.items():
@@ -675,7 +662,14 @@ class HFTableDataConduit(TableDataConduit):
                 for batch in split_dataset.skip(16).iter(batch_size=batch_size):
                     yield from self._process_arrow_table(batch, split_name, features)
 
-    def _process_arrow_table(self, table: 'pa.Table', split_name: str, features: dict[str, Any]) -> Iterator[RowData]:
+    def _process_arrow_table(
+        self, table: 'pa.Table', split_name: str, features: dict[str, Any]
+    ) -> Iterator[dict[str, Any]]:
+        mapped_split_col_name = (
+            self.source_column_map.get(self.column_name_for_split, self.column_name_for_split)
+            if self.column_name_for_split is not None
+            else None
+        )
         # get chunk boundaries from first column's ChunkedArray
         first_column = table.column(0)
         offset = 0
@@ -684,25 +678,18 @@ class HFTableDataConduit(TableDataConduit):
             # zero-copy slice using existing chunk boundaries
             batch = table.slice(offset, chunk_size)
 
-            # we assemble per-row dicts by from lists of per-column values
-            rows: list[dict[str, Any]] = [{} for _ in range(chunk_size)]
-            if self.column_name_for_split is not None:
-                mapped_split_col_name = self.source_column_map.get(
-                    self.column_name_for_split, self.column_name_for_split
-                )
-                for row in rows:
+            col_names = [self.source_column_map.get(col_name, col_name) for col_name in batch.schema.names]
+            col_values = [
+                self._convert_column(batch.column(col_idx), features[col_name])
+                for col_idx, col_name in enumerate(batch.schema.names)
+            ]
+            for i in range(chunk_size):
+                row = {col_name: values[i] for col_name, values in zip(col_names, col_values)}
+                if mapped_split_col_name is not None:
                     row[mapped_split_col_name] = split_name
-
-            for col_idx, col_name in enumerate(batch.schema.names):
-                feature = features[col_name]
-                mapped_col_name = self.source_column_map.get(col_name, col_name)
-                column = batch.column(col_idx)
-                values = self._convert_column(column, feature)
-                for i, val in enumerate(values):
-                    rows[i][mapped_col_name] = val
+                yield row
 
             offset += chunk_size
-            yield rows
 
 
 class ParquetTableDataConduit(TableDataConduit):
@@ -750,15 +737,15 @@ class ParquetTableDataConduit(TableDataConduit):
         self.check_source_columns_are_insertable(self.pq_ds.schema.names)
         self.total_rows = 0
 
-    def valid_row_batch(self) -> Iterator[RowData]:
+    def valid_rows(self) -> Iterator[dict[str, Any]]:
         from pixeltable.utils.arrow import iter_tuples2
 
         try:
             for fragment in self.pq_ds.fragments:
                 for batch in fragment.to_batches():
-                    dict_batch = list(iter_tuples2(batch, self.source_column_map, self.pxt_schema))
-                    self.total_rows += len(dict_batch)
-                    yield dict_batch
+                    for row in iter_tuples2(batch, self.source_column_map, self.pxt_schema):
+                        self.total_rows += 1
+                        yield row
         except Exception as e:
             _logger.error(f'Error after inserting {self.total_rows} rows from Parquet file into table: {e}')
             raise e
@@ -767,7 +754,6 @@ class ParquetTableDataConduit(TableDataConduit):
 @dataclass
 class PydanticTableDataConduit(TableDataConduit):
     dumped_rows: list[dict[str, Any]] = field(default_factory=list, init=False)
-    pxt_rows: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         # serialize before any transaction: model serializers are user code that can call Pixeltable
@@ -783,7 +769,7 @@ class PydanticTableDataConduit(TableDataConduit):
                 )
             try:
                 # mode='python' (the default) keeps datetimes/dates as native objects and renders nested models
-                # as dicts, so that coercing each cell in prepare_for_insert_into_table() yields the same values as
+                # as dicts, so that coercing each cell in valid_rows() yields the same values as
                 # the equivalent dict input (e.g. naive timestamps get localized to the session time zone, rather
                 # than left as ISO strings).
                 dumped_row = row.model_dump()
@@ -794,9 +780,11 @@ class PydanticTableDataConduit(TableDataConduit):
             self.dumped_rows.append(fold_mapping_keys(dumped_row))
 
     def prepare_for_insert_into_table(self) -> None:
-        """Validates and converts the Pydantic models to dicts that can be inserted into the table"""
-        assert len(self.pxt_rows) == 0, 'prepare_for_insert_into_table should only be called once'
+        """Validates the Pydantic model against the table"""
         self._validate_pydantic_model(type(cast(Sequence[pydantic.BaseModel], self.source)[0]))
+
+    def valid_rows(self) -> Iterator[dict[str, Any]]:
+        """Converts the Pydantic models to dicts that can be inserted into the table"""
         sorted_reqd_cols = sorted(self.reqd_col_names)
         # convert rows one-by-one in order to be able to print meaningful error messages
         for i, raw_row in enumerate(self.dumped_rows):
@@ -826,7 +814,7 @@ class PydanticTableDataConduit(TableDataConduit):
                         excs.ErrorCode.UNSUPPORTED_OPERATION,
                         f'Error in column {col_name!r} (row {i}): {msg[0].lower() + msg[1:]}',
                     ) from e
-            self.pxt_rows.append(pxt_row)
+            yield pxt_row
 
     def _validate_pydantic_model(self, model: type[pydantic.BaseModel]) -> None:
         """
@@ -908,6 +896,3 @@ class PydanticTableDataConduit(TableDataConduit):
                         f'Pydantic model `{model.__name__}` has field {field_name!r} with nested model '
                         f'`{model_type.__name__}`, which is not JSON-convertible',
                     )
-
-    def valid_row_batch(self) -> Iterator[RowData]:
-        yield self.pxt_rows

@@ -402,7 +402,7 @@ class TableProxy(Table):
         if not check_required:
             converter.reqd_col_names.clear()
         converter.prepare_for_insert_into_table()
-        return converter.pxt_rows
+        return list(converter.valid_rows())
 
     def update(
         self,

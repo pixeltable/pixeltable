@@ -83,7 +83,7 @@ class SqlDataNode(ExecNode):
                         excs.ErrorCode.UNSUPPORTED_OPERATION, f'Error in column {col.name}: expected non-None value'
                     )
                 if col.col_type.is_image_type() and isinstance(val, bytes):
-                    # Mirror InMemoryDataNode: spill image bytes to TempStore and assign the resulting path.
+                    # Mirror RowDataNode: spill image bytes to TempStore and assign the resulting path.
                     # DataRow.__setitem__ only runs on-write media validation when given a path/URL, not bytes.
                     filepath, _ = TempStore.save_media_object(
                         val, col.tbl_handle.id, col.id, col.get_tbl().version, format=None

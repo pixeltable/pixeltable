@@ -284,11 +284,11 @@ class Planner:
     def create_insert_plan(
         cls,
         tbl: catalog.TableVersion,
-        source: list[dict[str, Any]] | SqlDataSource,
+        source: Iterable[dict[str, Any]] | SqlDataSource,
         ignore_errors: bool,
         skip_existing_keys: bool = False,
     ) -> exec.ExecNode:
-        """Creates a plan for TableVersion.insert() from either in-memory rows or a SqlDataSource.
+        """Creates a plan for TableVersion.insert() from either a stream of row dicts or a SqlDataSource.
 
         With skip_existing_keys, the plan drops each row whose primary key is already in tbl, before computing its
         computed columns.
@@ -330,27 +330,24 @@ class Planner:
     def _create_input_plan(
         cls,
         tbl: catalog.TableVersion,
-        source: list[dict[str, Any]] | SqlDataSource,
+        source: Iterable[dict[str, Any]] | SqlDataSource,
         row_builder: exprs.RowBuilder,
         set_pk: bool = False,
         skip_existing_keys: bool = False,
     ) -> tuple[exec.ExecNode, int]:
         """
-        Creates the input stage shared by insert/compute plans: materializes 'source' (in-memory rows or a
+        Creates the input stage shared by insert/compute plans: materializes 'source' (a stream of row dicts or a
         SqlDataSource, containing values for the mutable columns of 'tbl'), plus a prefetch node for media
         inputs. Returns the plan and its exec batch size.
         """
         from pixeltable.io.data_sources import SqlDataSource
 
         plan: exec.ExecNode
-        batch_size: int
         if isinstance(source, SqlDataSource):
             plan = exec.SqlDataNode(tbl.handle, source, row_builder)
-            batch_size = 1024
         else:
-            assert isinstance(source, list)
-            plan = exec.InMemoryDataNode(tbl.handle, source, row_builder, set_pk=set_pk)
-            batch_size = 0
+            plan = exec.RowDataNode(tbl.handle, source, row_builder, set_pk=set_pk)
+        batch_size = 1024
 
         if skip_existing_keys:
             # ahead of the prefetch node: a skipped row's media isn't fetched
@@ -431,7 +428,7 @@ class Planner:
 
         Plan shape:
         - the input rows are handled identically to insert:
-            - InMemoryDataNode
+            - RowDataNode
             - PrefetchNode
         - each table in 'path' adds its incremental nodes:
             - ExprEvalNode + FilterNode for view predicate enforcement
@@ -480,7 +477,7 @@ class Planner:
             assert result is not None
             return result
 
-        # InMemoryDataNode requires a slot for every value it is given, so drop values for columns the plan doesn't read
+        # RowDataNode requires a slot for every value it is given, so drop values for columns the plan doesn't read
         input_col_names = {e.col_md.name for e in row_builder.input_exprs if isinstance(e, exprs.ColumnRef)}
         rows = [{name: val for name, val in row.items() if name in input_col_names} for row in rows]
         plan, _ = cls._create_input_plan(base_tv, rows, row_builder, set_pk=True)
@@ -1081,6 +1078,11 @@ class Planner:
                 row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, input=plan
             )
 
+        # TODO: this plan holds all of its rows in memory at once: exec_ctx has batch_size 0 (from
+        # _create_query_plan()), so the scan returns a single batch, and SqlNode runs its SELECT without
+        # stream_results, so the driver fetches the whole result set first. Propagating an insert to a view loads
+        # every base row created at the new version, so an insert that streams its source (TableDataConduit,
+        # SqlDataSource) or a Query still materializes the entire insert, once per view.
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
         if any(c.col_type.needs_cell_materialization() for c in stored_cols):
