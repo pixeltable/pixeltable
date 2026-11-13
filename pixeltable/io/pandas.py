@@ -131,6 +131,14 @@ def __pd_dtype_to_pxt_type(pd_dtype: DtypeObj, nullable: bool) -> ts.ColumnType 
     if isinstance(pd_dtype, pd.StringDtype):
         return ts.StringType(nullable=nullable)
     if is_extension_array_dtype(pd_dtype):
+        # Nullable and pyarrow-backed numeric/boolean extension dtypes (Int64, Float64, boolean, ...)
+        kind = getattr(pd_dtype, 'kind', None)
+        if kind == 'b':
+            return ts.BoolType(nullable=nullable)
+        if kind in ('i', 'u'):
+            return ts.IntType(nullable=nullable)
+        if kind == 'f':
+            return ts.FloatType(nullable=nullable)
         return None
     # Most other pandas dtypes are directly NumPy compatible
     assert isinstance(pd_dtype, np.dtype)
@@ -175,7 +183,10 @@ def _df_row_to_pxt_row(
     for val, (col_name, pxt_type) in zip(row[1:], schema.items()):
         pxt_name = col_mapping.get(col_name, col_name)
         nval: Any
-        if pxt_type.is_float_type():
+        if val is None or val is pd.NA or val is pd.NaT:
+            # missing values in object and nullable extension columns; float('nan') is handled below
+            nval = None
+        elif pxt_type.is_float_type():
             nval = float(val)
         elif isinstance(val, float) and np.isnan(val):
             # pandas uses NaN for empty cells, even for types other than float;

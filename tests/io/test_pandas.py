@@ -104,6 +104,37 @@ class TestPandas:
         t.insert(df)
         assert t.count() == 2 * len(df)
 
+    def test_import_pandas_missing_values(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        df = pd.DataFrame(
+            {
+                'id': [0, 1, 2],
+                'bool_obj': pd.Series([True, False, None], dtype=object),
+                'str_obj': pd.Series(['a', None, 'c'], dtype=object),
+                'int_obj': pd.Series([1, None, 3], dtype=object),
+                'float_obj': pd.Series([1.5, None, 3.0], dtype=object),
+                'str_na': pd.Series(['a', pd.NA, 'c'], dtype='string'),
+                'bool_ext': pd.Series([True, pd.NA, False], dtype='boolean'),
+                'int_ext': pd.Series([1, pd.NA, 3], dtype='Int64'),
+                'float_ext': pd.Series([1.5, pd.NA, 3.0], dtype='Float64'),
+            }
+        )
+        t = pxt.io.import_pandas(p('test_missing'), df)
+        md = t.get_metadata()['columns']
+        assert md['bool_ext']['type_'] == 'Bool | None'
+        assert md['int_ext']['type_'] == 'Int | None'
+        assert md['float_ext']['type_'] == 'Float | None'
+
+        res = t.order_by(t.id).collect()
+        assert res['bool_obj'] == [True, False, None]
+        assert res['str_obj'] == ['a', None, 'c']
+        assert res['int_obj'] == [1, None, 3]
+        assert res['float_obj'] == [1.5, None, 3.0]
+        assert res['str_na'] == ['a', None, 'c']
+        assert res['bool_ext'] == [True, None, False]
+        assert res['int_ext'] == [1, None, 3]
+        assert res['float_ext'] == [1.5, None, 3.0]
+
     @pytest.mark.db_roots(
         'local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]'
     )
