@@ -3,6 +3,7 @@ pidfile, tail the log on failed startup), the stdlib HTTP client (get/post), and
 helpers. Kept to the
 stdlib plus psutil, so importing this on every `pxt` invocation stays cheap."""
 
+import contextlib
 import http.client
 import json
 import os
@@ -284,16 +285,14 @@ def _is_running(proc: psutil.Process) -> bool:
         return False
 
 
-def kill_and_wait(pid: int, timeout: float = 5.0) -> None:
-    assert pid > 0, pid
+def kill_and_wait(proc: psutil.Process, timeout: float = 5.0) -> None:
     # Wait on the process itself (not /health) so a hung-but-alive daemon that still holds the
     # listen socket is detected and killed; otherwise the next spawn would fail with
     # 'address already in use' because we returned early on the health probe.
-    # Once the daemon exits, the OS can give its pid to another process, so the wait and the kill go through one
-    # psutil.Process: it compares creation times and never signals a recycled pid.
+    # A psutil.Process rather than a pid: it compares creation times, so neither the wait nor the kill can reach a
+    # process that inherits the pid after the daemon's exit.
     # On Windows terminate() is already TerminateProcess, so the kill() fallback is a no-op there.
     try:
-        proc = psutil.Process(pid)
         proc.terminate()
     except (psutil.Error, OSError):
         return
@@ -342,7 +341,8 @@ def _restart_if_mismatched(health: dict[str, Any]) -> None:
     # Refuse to target the process if its pid doesn't look real
     if not isinstance(reported_pid, int) or isinstance(reported_pid, bool) or reported_pid <= 0:
         raise RuntimeError(f'daemon on port {get_port()} reported an invalid pid ({reported_pid!r}); not restarting it')
-    kill_and_wait(reported_pid)
+    with contextlib.suppress(psutil.NoSuchProcess, OSError):  # a daemon already gone needs no kill
+        kill_and_wait(psutil.Process(reported_pid))
     spawn_detached()
     new_health = wait_for_health()
     # Cross-verify: the new responder must have a fresh PID and an identity that matches the client's.
@@ -372,8 +372,8 @@ def ensure_running() -> str:
         # daemon. An unconfirmed PID is treated as a stale pidfile and we just spawn.
         stale_pid = read_pidfile()
         try:
-            # a psutil.Process carries the creation time, so _is_running() below tells the daemon apart from a
-            # process that inherits its pid during the grace window
+            # a psutil.Process carries the creation time, so _is_running() and kill_and_wait() below tell the daemon
+            # apart from a process that inherits its pid during the grace window
             daemon = psutil.Process(stale_pid) if stale_pid is not None else None
         except (psutil.NoSuchProcess, OSError):
             daemon = None
@@ -383,7 +383,7 @@ def ensure_running() -> str:
             # answered right away.
             health = _await_health(_STARTUP_GRACE_PERIOD_SECS)
             if health is None and _is_running(daemon):
-                kill_and_wait(daemon.pid)
+                kill_and_wait(daemon)
         if health is None:
             spawn_detached()
             # the daemon we spawn defers to one that already holds the port, so the responder is not

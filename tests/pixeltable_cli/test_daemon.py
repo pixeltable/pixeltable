@@ -302,25 +302,13 @@ class TestDaemon:
             with contextlib.suppress(psutil.NoSuchProcess):
                 daemon.resume()
 
-    def test_kill_and_wait_spares_recycled_pid(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """kill_and_wait() does not signal a process that inherited the pid of the process it was asked to kill."""
-        init = psutil.Process.__init__
-        snapshots: list[psutil.Process] = []
-
-        def init_as_earlier_process(self: psutil.Process, pid: int | None = None) -> None:
-            # kill_and_wait()'s own Process records an earlier creation time, as if the daemon it was asked to kill
-            # had exited and the OS had given its pid to the bystander; later Processes record the true one
-            init(self, pid)
-            if len(snapshots) == 0:
-                snapshots.append(self)
-                self._ident = (self.pid, self._ident[1] - 100)  # type: ignore[attr-defined]
-
+    def test_kill_and_wait_spares_recycled_pid(self) -> None:
+        """kill_and_wait() does not signal a process that inherited the pid of the process it was given."""
         with _bystander() as bystander:
-            with monkeypatch.context() as m:
-                m.setattr(psutil.Process, '__init__', init_as_earlier_process)
-                kill_and_wait(bystander.pid)
-
-            assert len(snapshots) == 1
+            daemon = psutil.Process(bystander.pid)
+            # an earlier creation time, as if the daemon had exited and the OS had given its pid to the bystander
+            daemon._ident = (daemon.pid, daemon._ident[1] - 100)  # type: ignore[attr-defined]
+            kill_and_wait(daemon)
             assert bystander.poll() is None
 
     def test_keep_briefly_unresponsive_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:

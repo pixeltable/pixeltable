@@ -6,6 +6,8 @@ import os
 import sys
 from typing import Any
 
+import psutil
+
 from pixeltable_cli.client.utils import (
     describe_in_flight_requests,
     ensure_running,
@@ -127,7 +129,8 @@ def _stop(force: bool, ok_if_absent: bool = False) -> None:
         pid_to_kill = health.get('pid')
 
     if pid_to_kill is not None:
-        kill_and_wait(pid_to_kill)
+        with contextlib.suppress(psutil.NoSuchProcess, OSError):  # a daemon already gone needs no kill
+            kill_and_wait(psutil.Process(pid_to_kill))
     # Daemon's atexit handler only fires on graceful exit; clean up the pidfile here so a
     # subsequent stop doesn't trip the "stale pidfile" branch.
     try:
