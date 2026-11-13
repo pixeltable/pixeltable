@@ -31,6 +31,7 @@ from . import (
     net,
     ollama,
     openai,
+    openllm,
     openrouter,
     replicate,
     runwayml,
