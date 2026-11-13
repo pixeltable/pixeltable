@@ -212,9 +212,7 @@ class FileCache:
                         self._try_remove_file(Path(path_str))
                 self.cache.clear()
                 self.total_size = 0
-                self.num_requests, self.num_hits, self.num_evictions = 0, 0, 0
-                self.keys_retrieved.clear()
-                self.keys_evicted_after_retrieval.clear()
+                self.reset_session_stats()
                 return
 
             entries_to_remove = [e for e in self.cache.values() if e.tbl_id == tbl_id]
@@ -223,6 +221,16 @@ class FileCache:
                 self._try_remove_file(entry.path)
                 self.cache.pop(entry.key, None)
                 self.total_size -= entry.size
+
+    def reset_session_stats(self) -> None:
+        """Reset the stats collected for the current session, including the record of evicted files behind the
+        re-download warning. Leaves the cached files in place."""
+        with self._lock:
+            self.num_requests, self.num_hits, self.num_evictions = 0, 0, 0
+            self.keys_retrieved.clear()
+            self.keys_evicted_after_retrieval.clear()
+            self.evicted_working_set_keys.clear()
+            self.new_redownload_witnessed = False
 
     def validate(self) -> None:
         """
@@ -243,6 +251,9 @@ class FileCache:
                     self.cache[key].size for key in self.evicted_working_set_keys if key in self.cache
                 )
                 suggested_cache_size = self.capacity_bytes + extra_capacity_needed + (1 << 30)
+                # reset before warning: when warnings are errors, warn() raises, and a flag left set would fail
+                # every later operation in the session
+                self.new_redownload_witnessed = False
                 warnings.warn(
                     f'{len(self.evicted_working_set_keys)} media file(s) had to be downloaded multiple times '
                     'this session, because they were evicted\nfrom the file cache after their first access. The '
@@ -253,7 +264,6 @@ class FileCache:
                     excs.PixeltableWarning,
                     stacklevel=2,
                 )
-                self.new_redownload_witnessed = False
 
     def _url_hash(self, url: str) -> str:
         h = hashlib.sha256()
