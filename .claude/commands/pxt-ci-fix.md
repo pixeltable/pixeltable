@@ -31,7 +31,7 @@ recreate those.
   and flag for a human. Do not open a fix PR. Marcel closed #1906 for this reason.
 - Do not push to a branch a person owns. Only push `branch` from the context file.
 - Do not invent Jira secrets, Jira API calls, or PXT ticket numbers. There is no in-repo Jira integration. Flag
-  with a GitHub issue when a human must take over, after searching for an open issue that already names this run.
+  with a GitHub issue when a human must take over, as step 3 describes.
 - Keep the diff surgical. Prefer a one-line pin, env var, or skipped retired model over a compatibility shim.
   Follow `AGENTS.md`. Built-in UDFs must not mutate their arguments.
 
@@ -50,8 +50,9 @@ guess. Use `gh run view <id> --log-failed` and `gh api repos/<owner>/<repo>/acti
    person already closed or took over the same failure, or when `main` already has the fix and this is nightly.
 2. **Cause.** Name the failing tests or jobs, the first place the state goes wrong, and whether the cause is a
    product bug, a dependency change, a release lag, infra, or core catalog/transaction/concurrency.
-3. **Decide.** Choose `opened`, `flagged`, or `skipped` before you edit. Flag means: open or update a
-   GitHub issue with the investigation, and do not open a fix PR.
+3. **Decide.** Choose `opened`, `flagged`, or `skipped` before you edit. Flag means: do not open a fix PR, and put
+   the investigation in a GitHub issue. When an open issue already covers the same failing test or job, comment on it
+   with this run instead of opening another, unless a person took that issue over.
 4. **Fix**, only for `opened`. Branch from the default branch onto `branch`. Make the smallest change
    that addresses the root cause. Add a regression test when the failure is in library code. Run the failing tests
    and `make format` / `make check` on the changed files.
