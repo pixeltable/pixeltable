@@ -58,6 +58,25 @@ def _bucket_credentials(
     )
 
 
+def test_bucket_credentials_redact_secrets() -> None:
+    response = GetBucketCredentialsResponse(
+        access_key_id='AKIATEST',
+        secret_access_key='super-secret-value',
+        session_token='session-token-value',
+        endpoint_url='https://r2.example.com',
+        resolved_bucket_name='physical-home',
+        ttl_seconds=3600,
+    )
+
+    secrets = ('super-secret-value', 'session-token-value')
+    texts = (repr(response), str(response))
+    assert all(secret not in text for secret in secrets for text in texts)
+
+    restored = GetBucketCredentialsResponse.model_validate_json(response.model_dump_json())
+    assert restored.secret_access_key == 'super-secret-value'
+    assert restored.session_token == 'session-token-value'
+
+
 def _clips_model(name: str, destination: str) -> Any:
     """The model base of table `name`, whose one computed column writes to destination."""
     base = pxt.model_base()
