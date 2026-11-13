@@ -222,14 +222,18 @@ class TestParquet:
         t.insert([{'n': 100}])
         v = pxt.create_view(p('v'), t, additional_columns={'n2': t.n * 2})
         fv = pxt.create_view(p('fv'), v.where(v.n % 2 == 0))
-        assert [tbl.get_metadata()['version'] for tbl in (t, v, fv)] == [1, 0, 0]
+        assert t.get_metadata()['version'] == 1
+        assert v.get_metadata()['version'] == 0
+        assert fv.get_metadata()['version'] == 0
 
         validate_update_status(
             t.insert(str(parquet_path), source_format='parquet'),
             expected_row_counts=RowCountStats(inserted_rows=6),
             expected_cascade_row_counts=RowCountStats(inserted_rows=9),
         )
-        assert [tbl.get_metadata()['version'] for tbl in (t, v, fv)] == [2, 1, 1]
+        assert t.get_metadata()['version'] == 2
+        assert v.get_metadata()['version'] == 1
+        assert fv.get_metadata()['version'] == 1
         assert v.select(v.n, v.n2).order_by(v.n).collect()['n2'] == [0, 2, 4, 6, 8, 10, 200]
         assert fv.select(fv.n).order_by(fv.n).collect()['n'] == [0, 2, 4, 100]
 

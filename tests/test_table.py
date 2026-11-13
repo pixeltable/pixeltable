@@ -2755,7 +2755,8 @@ class TestTable:
 
         if is_data_versioned:
             v = pxt.create_view(p('view'), t, additional_columns={'req2': t.req * 2})
-            assert [tbl.get_metadata()['version'] for tbl in (t, v)] == [0, 0]
+            assert t.get_metadata()['version'] == 0
+            assert v.get_metadata()['version'] == 0
         validate_update_status(
             t.insert(rows),
             expected_row_counts=RowCountStats(inserted_rows=2500),
@@ -2763,7 +2764,8 @@ class TestTable:
         )
         assert t.count() == 2500
         if is_data_versioned:
-            assert [tbl.get_metadata()['version'] for tbl in (t, v)] == [1, 1]
+            assert t.get_metadata()['version'] == 1
+            assert v.get_metadata()['version'] == 1
             assert v.select(v.req2).order_by(v.id).collect()['req2'] == [i * 2 for i in range(2500)]
 
     def test_insert(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
