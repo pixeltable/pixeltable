@@ -43,6 +43,7 @@ class TestInlinedObjects:
         assert all(row['data'] is not None for row in res)
         assert all(row['i'] % 2 == 0 for row in res)
 
+    @pytest.mark.resource_intensive
     def test_insert_arrays(self, db_root: DatabaseRoot) -> None:
         """Test storing arrays of various sizes and dtypes."""
         p = db_root.make_catalog_path

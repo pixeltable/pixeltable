@@ -234,8 +234,7 @@ class TestTwelveLabsLocal:
         assert res['similarity'][0] == pytest.approx(1.0)
 
 
-@pytest.mark.expensive
-@pytest.mark.skip_merge_queue
+@pytest.mark.very_expensive
 @rerun_on_network_error()
 class TestTwelveLabs:
     @pytest.mark.parametrize('model_name', ['marengo3.0', 'marengo3.5'])

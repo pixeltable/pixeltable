@@ -73,14 +73,18 @@ def pytest_configure(config: PytestConfig) -> None:
 
 
 # Fixtures that download a Hugging Face model. Any test requesting one of these is implicitly a
-# Hugging Face test and is marked 'skip_merge_queue'.
+# Hugging Face test and is marked 'skip_merge_queue', in the 'large_model' xdist group.
 _HF_FIXTURES = frozenset({'clip_embed', 'e5_embed', 'all_mpnet_embed'})
 
 
+# tryfirst: xdist's worker reads the xdist_group marks in its own pytest_collection_modifyitems, which is registered
+# after this conftest and so otherwise runs first
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         if _HF_FIXTURES.intersection(getattr(item, 'fixturenames', ())):
             item.add_marker(pytest.mark.skip_merge_queue)
+            item.add_marker(pytest.mark.xdist_group('large_model'))
 
     offenders: list[str] = []
     for item in items:
@@ -807,12 +811,14 @@ def local_embed() -> pxt.Function:
 
 # Parametrized embedding selectors for tests that assert real-model semantics:
 # - the 'local_embed' param runs the full test body against the download-free embedding
-# - the real-model param is marked 'skip_merge_queue'
+# - the real-model param is marked 'skip_merge_queue', in the 'large_model' xdist group
 # Each fixture returns (embedding, is_dummy_model); skip model-dependent assertions when is_dummy_model.
 @pytest.fixture(
     params=[
         pytest.param(False, id='local_embed'),
-        pytest.param(True, id='clip_embed', marks=pytest.mark.skip_merge_queue),
+        pytest.param(
+            True, id='clip_embed', marks=[pytest.mark.skip_merge_queue, pytest.mark.xdist_group('large_model')]
+        ),
     ]
 )
 def clip_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:
@@ -824,7 +830,9 @@ def clip_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:
 @pytest.fixture(
     params=[
         pytest.param(False, id='local_embed'),
-        pytest.param(True, id='mpnet_embed', marks=pytest.mark.skip_merge_queue),
+        pytest.param(
+            True, id='mpnet_embed', marks=[pytest.mark.skip_merge_queue, pytest.mark.xdist_group('large_model')]
+        ),
     ]
 )
 def mpnet_or_local(request: pytest.FixtureRequest) -> tuple[pxt.Function, bool]:

@@ -14,8 +14,7 @@ from ..utils import (
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
-@pytest.mark.expensive
-@pytest.mark.skip_merge_queue
+@pytest.mark.very_expensive
 @rerun_on_network_error()
 class TestVoyageAI:
     @pytest.mark.parametrize('output_dimension', [None, 512])

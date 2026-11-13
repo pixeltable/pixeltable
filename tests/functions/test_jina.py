@@ -7,8 +7,7 @@ from ..utils import rerun_on_network_error, skip_test_if_no_client, validate_upd
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
-@pytest.mark.expensive
-@pytest.mark.skip_merge_queue
+@pytest.mark.very_expensive
 @rerun_on_network_error()
 class TestJina:
     def test_embeddings(self, uses_db: None) -> None:
