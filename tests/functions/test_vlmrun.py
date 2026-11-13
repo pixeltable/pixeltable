@@ -82,15 +82,14 @@ class TestVLMRunClient:
     @pytest.mark.parametrize(
         ('model_kwargs', 'match'),
         [
+            ({'toolsets': ['web']}, 'cannot contain `toolsets`: it accepts the VLM Run agent execution config fields'),
             (
-                {'toolsets': ['web']},
-                'cannot contain `toolsets`: it is not a field of the VLM Run agent execution config',
-            ),
-            (
-                {'temperature': 0.5},
-                'cannot contain `temperature`: it is not a field of the VLM Run agent execution config',
+                {'temperature': 0.5, 'max_tokens': 10},
+                'cannot contain `max_tokens`, `temperature`: it accepts the VLM Run agent execution config fields .*'
+                '`service_tier`',
             ),
             ({'service_tier': 'fastest'}, r'(?s)Invalid `model_kwargs`.*service_tier'),
+            ({'response_model': 'x'}, r'(?s)Invalid `model_kwargs`.*response_model'),
         ],
     )
     def test_generation_model_kwargs(self, uses_db: None, model_kwargs: dict[str, Any], match: str) -> None:

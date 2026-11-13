@@ -218,22 +218,25 @@ class _VlmRunClient:
                 config=config,
                 toolsets=[toolset],
             )
+            _logger.info(f'Submitted VLM Run execution {execution.id}')
             # not executions.wait(), which keeps polling a failed execution until its own timeout
             while execution.status not in ('completed', 'failed'):
                 await asyncio.sleep(5.0)
                 execution = await asyncio.to_thread(self._sdk.executions.get, execution.id)
         except Exception as exc:
             submitted = execution is not None or isinstance(exc, (NetworkError, RequestTimeoutError))
+            what = 'agent execution' if execution is None else f'execution {execution.id}'
             raise pxt.ExternalServiceError(
                 pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE if submitted else pxt.ErrorCode.PROVIDER_ERROR,
-                f'VLM Run agent execution failed: {exc}',
+                f'VLM Run {what} failed: {exc}',
                 provider='vlmrun',
                 status_code=getattr(exc, 'http_status', None),
             ) from exc
         if execution.status == 'failed':
+            detail = execution.model_dump(mode='json', include={'status', 'response', 'usage'})
             raise pxt.ExternalServiceError(
                 pxt.ErrorCode.PROVIDER_UNEXPECTED_RESPONSE,
-                f'VLM Run execution {execution.id} failed: {str(execution.model_dump(mode="json"))[:_MAX_DETAIL_LEN]}',
+                f'VLM Run execution {execution.id} failed: {str(detail)[:_MAX_DETAIL_LEN]}',
                 provider='vlmrun',
             )
         return execution
@@ -383,8 +386,8 @@ async def _resolve_messages(messages: list, client: _VlmRunClient, file_ids: lis
     return messages
 
 
-def _response_format(artifact: _Artifact) -> tuple[str, dict[str, Any]]:
-    """Returns the key of the generated artifact in the response, and a `response_format` that asks for it."""
+def _output_schema(artifact: _Artifact) -> tuple[str, dict[str, Any]]:
+    """Returns the key of the generated artifact in the response, and a JSON schema that asks for it."""
     from vlmrun.types import refs  # type: ignore[import-untyped]
 
     key: str = artifact
@@ -397,7 +400,7 @@ def _response_format(artifact: _Artifact) -> tuple[str, dict[str, Any]]:
     else:
         fields = {key: ({'image': refs.ImageRef, 'document': refs.DocumentRef}[artifact], ...)}
     output_model = pydantic.create_model(f'{artifact.title()}Output', **fields)
-    return key, {'type': 'json_schema', 'schema': output_model.model_json_schema()}
+    return key, output_model.model_json_schema()
 
 
 def _check_model_kwargs(model_kwargs: dict[str, Any] | None, reserved: tuple[str, ...]) -> None:
@@ -416,25 +419,27 @@ async def _generate(
     *,
     artifact: _Artifact,
     toolset: str,
-    system_message: str,
+    instruction: str,
     model: str,
     model_kwargs: dict[str, Any] | None,
 ) -> Path:
     """Runs a generation request and returns the path of a TempStore file that holds the generated artifact."""
     from vlmrun.client.types import AgentExecutionConfig  # type: ignore[import-untyped]
 
-    _check_model_kwargs(model_kwargs, ('prompt', 'json_schema', 'response_model'))
+    _check_model_kwargs(model_kwargs, ('prompt', 'json_schema'))
     unknown = sorted((model_kwargs or {}).keys() - AgentExecutionConfig.model_fields.keys())
     if len(unknown) > 0:
+        accepted = sorted(AgentExecutionConfig.model_fields.keys() - {'prompt', 'json_schema', 'response_model'})
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_ARGUMENT,
-            f'`model_kwargs` cannot contain `{unknown[0]}`: it is not a field of the VLM Run agent execution config',
+            f'`model_kwargs` cannot contain {", ".join(f"`{k}`" for k in unknown)}: it accepts the VLM Run agent '
+            f'execution config fields {", ".join(f"`{k}`" for k in accepted)}',
         )
     prefix, extension = _ARTIFACT_TYPES[artifact]
-    key, response_format = _response_format(artifact)
+    key, json_schema = _output_schema(artifact)
     try:
         config = AgentExecutionConfig(
-            **(model_kwargs or {}), prompt=f'{system_message}\n\n{prompt}', json_schema=response_format['schema']
+            **(model_kwargs or {}), prompt=f'{instruction}\n\n{prompt}', json_schema=json_schema
         )
     except pydantic.ValidationError as exc:
         raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'Invalid `model_kwargs`: {exc}') from exc
@@ -615,7 +620,7 @@ async def generate_image(
         {'image': image},
         artifact='image',
         toolset='image-gen',
-        system_message='Always return a generated image in your response.',
+        instruction='Always return a generated image in your response.',
         model=model,
         model_kwargs=model_kwargs,
     )
@@ -661,7 +666,7 @@ async def annotate_image(
         {'image': image},
         artifact='image',
         toolset='viz',
-        system_message='Always return an annotated image in your response.',
+        instruction='Always return an annotated image in your response.',
         model=model,
         model_kwargs=model_kwargs,
     )
@@ -710,7 +715,7 @@ async def generate_video(
         {'image': image, 'video': video},
         artifact='video',
         toolset='video',
-        system_message='Always return a generated video in your response.',
+        instruction='Always return a generated video in your response.',
         model=model,
         model_kwargs=model_kwargs,
     )
@@ -757,7 +762,7 @@ async def generate_document(
         {'document': document},
         artifact='document',
         toolset='document',
-        system_message='Always return a generated document in your response.',
+        instruction='Always return a generated document in your response.',
         model=model,
         model_kwargs=model_kwargs,
     )
