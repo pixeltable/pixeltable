@@ -20,6 +20,7 @@ from typing_extensions import Self
 
 from pixeltable import exceptions as excs
 from pixeltable.service.resources import DatabaseCapacity, ServiceResources, UdfResources
+from pixeltable.utils.file_io import atomic_write
 
 if TYPE_CHECKING:
     from pixeltable import catalog
@@ -597,19 +598,14 @@ class Config:
 
         else:
             config_dict = self.__create_default_config(self.__config_file)
-            # renamed into place once complete, so a process starting at the same time never reads a partial file
-            tmp_file = self.__config_file.with_name(f'{self.__config_file.name}.{os.getpid()}.tmp')
-            try:
-                with open(tmp_file, 'w', encoding='utf-8') as stream:
-                    try:
-                        toml.dump(config_dict, stream)
-                    except Exception as exc:
-                        raise excs.InternalError(
-                            excs.ErrorCode.INTERNAL_ERROR, f'Could not create config file: {self.__config_file}'
-                        ) from exc
-                os.replace(tmp_file, self.__config_file)
-            finally:
-                tmp_file.unlink(missing_ok=True)
+            # a process starting at the same time must never read a partial file
+            with atomic_write(self.__config_file, mode='w', encoding='utf-8') as stream:
+                try:
+                    toml.dump(config_dict, stream)
+                except Exception as exc:
+                    raise excs.InternalError(
+                        excs.ErrorCode.INTERNAL_ERROR, f'Could not create config file: {self.__config_file}'
+                    ) from exc
             _logger.info(f'Created default config file at: {self.__config_file}')
             return self.__add_path(config_dict, self.__config_file)
 
