@@ -147,7 +147,7 @@ jobs:
       - name: Run the unit tests
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
-        run: pytest -v -m 'not expensive and not very_expensive and not resource_intensive' --junitxml=junit-report.xml tests
+        run: pytest -v -m 'not very_expensive and not resource_intensive' --junitxml=junit-report.xml tests
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4

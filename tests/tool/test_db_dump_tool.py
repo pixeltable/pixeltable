@@ -10,7 +10,6 @@ from ..utils import skip_test_if_not_installed
 
 @pytest.mark.skipif(platform.system() == 'Windows', reason='Tool is not supported on Windows')
 @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Tool is not supported on Linux ARM')
-@pytest.mark.skip_merge_queue
 class TestDbDumpTool:
     def test_db_dump_tool(self) -> None:
         skip_test_if_not_installed('transformers')

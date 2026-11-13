@@ -78,7 +78,7 @@ env:
   # only on the weekly scheduled run (or a run-on-all-platforms dispatch). The merge queue runs the remaining non-HF
   # notebooks; PRs and the other scheduled runs run none.
   NB_TEST_OPTS: >-
-    ${{ (github.event_name == 'schedule' || inputs.run_on_all_platforms) && '--include-very-expensive --include-expensive' || '' }}
+    ${{ (github.event.schedule == '24 1 * * 2' || inputs.run_on_all_platforms) && '--include-very-expensive --include-expensive' || '' }}
   UV_VERSION: 0.12.3
 
   # The llama-cpp-python build fails in CI with LLaVA support enabled. If we ever want to test specific LLaVA
@@ -194,7 +194,8 @@ jobs:
         # cmake is needed for certain CI environments where it is not preinstalled.
         run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==7.1.1=gpl*'
       - name: Install ollama
-        if: ${{ matrix.uv-options == '' && startsWith(matrix.os, 'ubuntu') && matrix.python-version == '3.11' }}
+        # test_ollama.py is marked skip_merge_queue, and the ollama notebook runs only in the weekly run
+        if: ${{ github.event_name != 'merge_group' && matrix.uv-options == '' && startsWith(matrix.os, 'ubuntu') && matrix.python-version == '3.11' }}
         run: |
           ./scripts/retry.sh 3 30 ./scripts/install-ollama.sh
           sleep 10  # Wait for the ollama server to start
