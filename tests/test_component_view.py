@@ -665,7 +665,8 @@ class TestComponentView:
         assert len(v.collect()) == 4
 
     def test_membership_change_keeps_view_local_values(self, db_root: DatabaseRoot) -> None:
-        """A base update that changes a component view's membership keeps the non-computed values of rows that stay."""
+        """A base table update that changes a component view's membership keeps the non-computed values of view rows
+        that stay."""
         p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'flag': pxt.Bool, 'n': pxt.Int, 'other': pxt.Int | None})
         t.insert(
@@ -684,16 +685,20 @@ class TestComponentView:
         v.update({'annotation': 42})
         v2.update({'note': 'x'})
 
-        def contents() -> tuple[dict[tuple[int, int], Any], dict[tuple[int, int], Any]]:
-            v_rows = v.select(v.id, v.pos, v.icol2, v.annotation).collect()
-            v2_rows = v2.select(v2.id, v2.pos, v2.note).collect()
-            v_contents = {(r['id'], r['pos']): (r['icol2'], r['annotation']) for r in v_rows}
-            v2_contents = {(r['id'], r['pos']): r['note'] for r in v2_rows}
-            assert len(v_contents) == len(v_rows) and len(v2_contents) == len(v2_rows)
-            return v_contents, v2_contents
+        def v_rows() -> dict[tuple[int, int], tuple[int, int | None]]:
+            rows = v.select(v.id, v.pos, v.icol2, v.annotation).collect()
+            result = {(r['id'], r['pos']): (r['icol2'], r['annotation']) for r in rows}
+            assert len(result) == len(rows)
+            return result
+
+        def v2_rows() -> dict[tuple[int, int], str | None]:
+            rows = v2.select(v2.id, v2.pos, v2.note).collect()
+            result = {(r['id'], r['pos']): r['note'] for r in rows}
+            assert len(result) == len(rows)
+            return result
 
         t.update({'flag': True, 'other': 1})
-        v_contents, v2_contents = contents()
+        v_contents, v2_contents = v_rows(), v2_rows()
         assert v_contents == {
             (1, 0): (0, 42),
             (1, 1): (2, 42),
@@ -706,15 +711,15 @@ class TestComponentView:
         assert v2_contents == {k: None if k[0] == 3 else 'x' for k in v_contents}
 
         t.update({'flag': False}, where=t.id == 1)
-        assert {k[0] for k in contents()[0]} == {2, 3}
+        assert {k[0] for k in v_rows()} == {2, 3}
         t.update({'flag': True}, where=t.id == 1)
-        v_contents, v2_contents = contents()
+        v_contents, v2_contents = v_rows(), v2_rows()
         assert v_contents[1, 0] == (0, None) and v_contents[1, 1] == (2, None)
         assert v_contents[2, 0] == (0, 42)
         assert v2_contents[1, 0] is None and v2_contents[2, 0] == 'x'
 
         t.insert([{'id': 5, 'flag': True, 'n': 2}])
-        v_contents, v2_contents = contents()
+        v_contents, v2_contents = v_rows(), v2_rows()
         assert len(v_contents) == 9 and len(v2_contents) == 9
         assert v_contents[5, 0] == (0, None) and v_contents[2, 2] == (4, 42)
         assert v2_contents[5, 0] is None and v2_contents[2, 2] == 'x'
