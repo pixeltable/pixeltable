@@ -1072,7 +1072,7 @@ class TestProxyDaemon:
         return error['message']
 
     @pytest.mark.parametrize(('creation_time_offset', 'live'), [(0.0, True), (None, True), (-100.0, False)])
-    def test_port_lock_names_its_daemon_by_creation_time(
+    def test_port_lock_matches_its_daemon_by_creation_time(
         self, init_env: None, creation_time_offset: float | None, live: bool
     ) -> None:
         """A port.lock that records an earlier creation time than the process with its pid has is stale: that daemon

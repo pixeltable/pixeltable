@@ -275,36 +275,27 @@ def pid_is_our_daemon(pid: int) -> bool:
     return cmdline is not None and _DAEMON_CMDLINE_RE.search(cmdline) is not None
 
 
-def _is_running(proc: psutil.Process) -> bool:
-    """proc.is_running(), except that a process psutil fails to read counts as gone."""
-    try:
-        return proc.is_running()
-    except OSError:
-        # on Linux, psutil re-raises FileNotFoundError when /proc/<pid>/stat is gone before /proc/<pid>, as
-        # during an exit
-        return False
-
-
 def kill_and_wait(proc: psutil.Process, timeout: float = 5.0) -> None:
+    """Terminate proc, wait up to timeout seconds for it to exit, then kill it. It never signals a process that
+    received proc.pid after the creation of proc."""
     # Wait on the process itself (not /health) so a hung-but-alive daemon that still holds the
     # listen socket is detected and killed; otherwise the next spawn would fail with
     # 'address already in use' because we returned early on the health probe.
-    # A psutil.Process rather than a pid: it compares creation times, so neither the wait nor the kill can reach a
-    # process that inherits the pid after the caller took proc. Ruling out a pid already recycled at that point is
-    # up to the caller.
     # On Windows terminate() is already TerminateProcess, so the kill() fallback is a no-op there.
     try:
         proc.terminate()
     except (psutil.Error, OSError):
         return
     deadline = time.time() + timeout
-    while time.time() < deadline:
-        if not _is_running(proc):
-            return
-        time.sleep(0.1)
     try:
+        while time.time() < deadline:
+            if not proc.is_running():
+                return
+            time.sleep(0.1)
         proc.kill()
     except (psutil.Error, OSError):
+        # gone or exiting: on Linux, psutil re-raises FileNotFoundError when /proc/<pid>/stat is gone before
+        # /proc/<pid>, as during an exit
         pass
 
 
@@ -383,7 +374,7 @@ def ensure_running() -> str:
             # a daemon that comes up in the meantime goes through the same checks as one that
             # answered right away.
             health = _await_health(_STARTUP_GRACE_PERIOD_SECS)
-            if health is None and _is_running(daemon):
+            if health is None:
                 kill_and_wait(daemon)
         if health is None:
             spawn_detached()

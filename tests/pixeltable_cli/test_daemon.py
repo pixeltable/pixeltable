@@ -294,7 +294,7 @@ class TestDaemon:
                 daemon.resume()
 
     def test_kill_and_wait_spares_recycled_pid(self) -> None:
-        """kill_and_wait() does not signal a process that inherited the pid of the process it was given."""
+        """kill_and_wait() spares a process that inherited the pid of its target."""
         with bystander_process() as bystander:
             daemon = psutil.Process(bystander.pid)
             # an earlier creation time, as if the daemon had exited and the OS had given its pid to the bystander
@@ -362,9 +362,9 @@ class TestDaemon:
 
         assert _pxt_health(daemon_port, cwd=project)['project_root'] == str(project)
 
-    def test_stop_spares_process_named_by_stale_pidfile(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
-        """With no daemon answering, pxt daemon stop removes a pidfile that names an unrelated process and leaves
-        that process running."""
+    def test_stop_spares_unrelated_process_in_stale_pidfile(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """With no daemon answering, pxt daemon stop removes a pidfile with the pid of an unrelated process and
+        leaves that process running."""
         pidfile = pathlib.Path(pidfile_path(daemon_port))
         with bystander_process() as bystander:
             pidfile.write_text(str(bystander.pid), encoding='utf-8')
@@ -374,6 +374,22 @@ class TestDaemon:
             assert r.stdout == f'pxt: no daemon running; removed a stale pidfile (PID {bystander.pid})\n'
             assert not pidfile.exists()
             assert bystander.poll() is None
+
+    def test_stop_kills_unresponsive_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """With the daemon not answering, pxt daemon stop kills the daemon in the pidfile."""
+        project = tmp_path / 'project'
+        _create_pxt_project(project)
+        pid = _pxt_health(daemon_port, cwd=project)['pid']
+        daemon = psutil.Process(pid)
+        daemon.suspend()
+        try:
+            r = _pxt(daemon_port, project, {}, 'daemon', 'stop')
+            assert r.returncode == 0, r.stderr
+            assert r.stdout == f'pxt: stopped daemon (PID {pid})\n'
+            assert not daemon.is_running()
+        finally:
+            with contextlib.suppress(psutil.NoSuchProcess):
+                daemon.resume()
 
     @pytest.mark.parametrize('content', ['not json', '{"working_dirs": []}'])
     def test_unusable_working_dirs_file(self, daemon_port: int, tmp_path: pathlib.Path, content: str) -> None:
