@@ -757,6 +757,8 @@ class Expr(abc.ABC):
           or [`date.strptime()`][pixeltable.functions.date.strptime].
         - String to Image: the string is a file path or URL.
 
+        A Float does not cast to Int; use [`to_int()`][pixeltable.functions.math.to_int] instead.
+
         Args:
             new_type: The type to cast to.
 
@@ -774,6 +776,12 @@ class Expr(abc.ABC):
 
         # Interpret the type argument the same way we would if given in a schema
         col_type = ts.ColumnType.normalize_type(new_type, allow_builtin_types=False)
+        if self.col_type.is_float_type() and col_type.is_int_type():
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'Cannot convert {self!s} from Float to Int with astype(). Use {self!s}.to_int() to truncate toward '
+                f'zero, or apply floor(), ceil() or round() first, as in {self!s}.floor().to_int().',
+            )
         if not self.col_type.nullable:
             # This expression is non-nullable; we can prove that the output is non-nullable, regardless of
             # whether new_type is given as nullable.
