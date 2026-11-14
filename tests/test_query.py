@@ -16,6 +16,7 @@ import pixeltable as pxt
 from pixeltable.functions.string import isalpha, isascii
 from pixeltable.functions.video import frame_iterator
 
+from .conftest import SampleFileServer
 from .utils import (
     DatabaseRoot,
     ReloadTester,
@@ -751,6 +752,16 @@ class TestQuery:
         assert [tuple(row.values()) for row in query.collect()] == [('a1', 2), ('a0', 3)]
         assert rows(query.limit(1)) == [('a1', 2)]
 
+        # order_by() on the grouping exprs in another order, also followed by another expr
+        expected = [('x', 0, 1), (None, 0, 2), ('x', 1, 1), (None, 1, 1)]
+        query = t3.where(is_small(t3.v)).group_by(t3.a, t3.b).select(t3.a, t3.b, n=count(t3.v))
+        for ordering in ([t3.b, t3.a], [t3.b], [t3.b, t3.a, t3.v]):
+            assert [tuple(row.values()) for row in query.order_by(*ordering).collect()] == expected
+        res = t3.where(is_small(t3.v)).select(t3.a, t3.b).distinct().order_by(t3.b, t3.a).collect()
+        assert [tuple(row.values()) for row in res] == [row[:2] for row in expected]
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'limited to the grouping expressions \(a, b\)'):
+            _ = query.order_by(t3.b, t3.v).collect()
+
         # order_by() on anything else conflicts with the ordering on the grouping exprs
         for ordering, ordering_text in ((t.v, '(v, asc=True)'), (count(t.v), '(globals.count(v), asc=True)')):
             with pxt_raises(
@@ -818,21 +829,16 @@ class TestQuery:
         assert t.order_by(t.k).select(t.id).collect()['id'] == [1, 3, 0, 2]
         assert t.order_by(t.k, asc=False).select(t.id).collect()['id'] == [2, 0, 3, 1]
 
-    def test_order_by_read_validated_media(self, db_root: DatabaseRoot) -> None:
+    def test_order_by_read_validated_media(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
         """order_by() on a media column with media_validation='on_read' orders by the stored file url."""
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test_order_by_media'), {'id': pxt.Int, 'img': pxt.Image}, media_validation='on_read')
-        files = sorted(get_image_files()[:4], reverse=True)
-        validate_update_status(t.insert({'id': i, 'img': f} for i, f in enumerate(files)), expected_rows=4)
+        urls = sorted((sample_file_server.url(f, db_root) for f in get_image_files()[:4]), reverse=True)
+        validate_update_status(t.insert({'id': i, 'img': url} for i, url in enumerate(urls)), expected_rows=4)
 
-        res = t.select(t.id, url=t.img.fileurl).collect()
-        by_url = [row_id for _, row_id in sorted(zip(res['url'], res['id']))]
-        assert t.order_by(t.img).select(t.id).collect()['id'] == by_url
-        assert t.order_by(t.img, asc=False).select(t.id).collect()['id'] == by_url[::-1]
-        assert t.order_by(t.img).select(t.id, t.img.width).collect()['id'] == by_url
-        if db_root.id == 'local':
-            # the stored url is the source file's url
-            assert by_url == [3, 2, 1, 0]
+        assert t.order_by(t.img).select(t.id).collect()['id'] == [3, 2, 1, 0]
+        assert t.order_by(t.img, asc=False).select(t.id).collect()['id'] == [0, 1, 2, 3]
+        assert t.order_by(t.img).select(t.id, t.img.width).collect()['id'] == [3, 2, 1, 0]
 
     def test_count_join(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Tests for join...count queries"""
