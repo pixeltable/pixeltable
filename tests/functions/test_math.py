@@ -102,10 +102,11 @@ class TestMath:
         """to_int() truncates toward zero and returns the same values from Python and from Postgres."""
         floats = [0.0, 2.5, 3.5, 2.7, -2.7, 3e9, 9.2e18]
         ints = [0, 5, -5, 2**31, 2**53 + 1, 2**62 + 1, -(2**62) - 1]
-        t = pxt.create_table('test_tbl', {'id': pxt.Int, 'x': pxt.Float, 'i': pxt.Int})
+        bools = [i == 0 for i in ints]
+        t = pxt.create_table('test_tbl', {'id': pxt.Int, 'x': pxt.Float, 'i': pxt.Int, 'b': pxt.Bool})
         t.add_computed_column(x_before=t.x.to_int())
         t.add_computed_column(i_before=pxtf.math.to_int(t.i))
-        t.insert({'id': row_id, 'x': x, 'i': i} for row_id, (x, i) in enumerate(zip(floats, ints)))
+        t.insert({'id': row_id, 'x': x, 'i': i, 'b': b} for row_id, (x, i, b) in enumerate(zip(floats, ints, bools)))
         t.add_computed_column(x_after=t.x.to_int())
         t.add_computed_column(i_after=pxtf.math.to_int(t.i))
         assert t.x.to_int().col_type.is_int_type()
@@ -121,6 +122,9 @@ class TestMath:
                 # a non-SQLizable identity function forces evaluation in Python
                 x_py=t.x.apply(lambda x: x, col_type=pxt.Float).to_int(),
                 i_py=pxtf.math.to_int(t.i.apply(lambda i: i, col_type=pxt.Int)),
+                i_abs=pxtf.math.to_int(t.i.abs()),
+                b_col=pxtf.math.to_int(t.b),
+                b_pred=pxtf.math.to_int(t.i == 0),
             )
             .order_by(t.id)
             .collect()
@@ -130,6 +134,8 @@ class TestMath:
             assert all(type(val) is int for val in res[col]), col
         for col in ('i_before', 'i_after', 'i_sql', 'i_py'):
             assert res[col] == ints, col
+        assert res['i_abs'] == [abs(i) for i in ints]
+        assert res['b_col'] == res['b_pred'] == [int(b) for b in bools]
 
         assert t.where(t.x.to_int() == 2).select(t.x).order_by(t.id).collect()['x'] == [2.5, 2.7]
 

@@ -63,9 +63,6 @@ class TypeCast(Expr):
         ):
             return None
 
-        if self.col_type.is_int_type() and op1_lit.col_type.is_float_type():
-            return None
-
         op1_val = op1_lit.val
         if self.col_type.is_int_type():
             return Literal(int(op1_val), self.col_type)

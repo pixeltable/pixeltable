@@ -1520,7 +1520,7 @@ class TestExprs:
         assert all('Expected non-None value' in msg for msg in errormsgs), errormsgs
 
         # Float to Int requires to_int()
-        match = r'Use .*\.to_int\(\) to truncate toward zero'
+        match = r'Use to_int\(\) to truncate toward zero'
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=match):
             t.c3.astype(pxt.Int)
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=match):

@@ -779,8 +779,8 @@ class Expr(abc.ABC):
         if self.col_type.is_float_type() and col_type.is_int_type():
             raise excs.RequestError(
                 excs.ErrorCode.TYPE_MISMATCH,
-                f'Cannot convert {self!s} from Float to Int with astype(). Use {self!s}.to_int() to truncate toward '
-                f'zero, or apply floor(), ceil() or round() first, as in {self!s}.floor().to_int().',
+                f'Cannot convert {self!s} from Float to Int with astype(). Use to_int() to truncate toward zero, '
+                'or apply floor(), ceil() or round() first, as in t.x.floor().to_int().',
             )
         if not self.col_type.nullable:
             # This expression is non-nullable; we can prove that the output is non-nullable, regardless of

@@ -50,7 +50,8 @@ def ceil(self: float) -> float:
 
 @ceil.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.ceiling(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.ceiling(self, type_=sql.Float)
 
 
 @pxt.udf(is_method=True)
@@ -72,7 +73,8 @@ def floor(self: float) -> float:
 
 @floor.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.floor(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.floor(self, type_=sql.Float)
 
 
 @pxt.udf(is_method=True)
@@ -91,7 +93,8 @@ def round(self: float, digits: int | None = None) -> float:
 @round.to_sql
 def _(self: sql.ColumnElement, digits: sql.ColumnElement | None = None) -> sql.ColumnElement:
     if digits is None:
-        return sql.func.round(self)
+        # without type_, SQLAlchemy leaves the element's type as NullType
+        return sql.func.round(self, type_=sql.Float)
     else:
         return sql.cast(sql.func.round(sql.cast(self, sql.Numeric), sql.cast(digits, sql.Integer)), sql.Float)
 
@@ -238,11 +241,13 @@ def to_int(self: float) -> int:
 
 
 @to_int.to_sql
-def _(self: sql.ColumnElement) -> sql.ColumnElement:
+def _(self: sql.ColumnElement) -> sql.ColumnElement | None:
     if isinstance(self.type, sql.Integer):
-        # trunc() converts a BIGINT to DOUBLE PRECISION, which is inexact above 2**53
         return sql.cast(self, sql.BigInteger)
-    return sql.cast(sql.func.trunc(self), sql.BigInteger)
+    if isinstance(self.type, sql.Float):
+        return sql.cast(sql.func.trunc(self), sql.BigInteger)
+    # trunc() rejects a BOOLEAN and converts a BIGINT to DOUBLE PRECISION, which is inexact above 2**53
+    return None
 
 
 @pxt.udf(is_method=True)
