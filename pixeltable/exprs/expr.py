@@ -1013,7 +1013,7 @@ class Expr(abc.ABC):
         )
 
     def _unsupported_operand_error(
-        self, op: ComparisonOperator | StringOperator | ArithmeticOperator, other: object
+        self, op: ComparisonOperator | StringOperator | ArithmeticOperator | LogicalOperator, other: object
     ) -> excs.RequestError:
         if isinstance(other, datetime.timedelta):
             if self.col_type.is_timestamp_type() or self.col_type.is_date_type():
@@ -1091,10 +1091,18 @@ class Expr(abc.ABC):
         from .compound_predicate import CompoundPredicate
 
         if not self.col_type.is_bool_type():
-            raise TypeError(f'Expression does not return a boolean: {self.col_type}')
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'{self!s}: {op} requires Bool operands, but this expression has type `{self.col_type}`',
+            )
         other_expr = other if isinstance(other, Expr) else Expr.from_object(other)
-        if other_expr is None or not other_expr.col_type.is_bool_type():
-            raise TypeError(f'Other needs to be an expression that returns a boolean: {other!r}')
+        if other_expr is None:
+            raise self._unsupported_operand_error(op, other)
+        if not other_expr.col_type.is_bool_type():
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'{self!s}: {op} requires Bool operands, but the other operand has type `{other_expr.col_type}`',
+            )
         return CompoundPredicate(op, [self, other_expr])
 
     def __and__(self, other: object) -> Expr:

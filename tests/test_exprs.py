@@ -202,21 +202,30 @@ class TestExprs:
         rows = t.select(t.c2, a=t.c4 & True, b=True & t.c4, c=t.c4 | False, d=False | t.c4).order_by(t.c2).collect()
         assert all(r['a'] == r['b'] == r['c'] == r['d'] == (r['c2'] % 2 == 1) for r in rows)
 
-        with pytest.raises(TypeError, match='needs to be an expression that returns a boolean'):
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match='c4: & requires Bool operands, but the other operand has type `Int`'
+        ):
             _ = t.c4 & 5
-        with pytest.raises(TypeError, match='needs to be an expression that returns a boolean'):
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match=r'c4: \| requires Bool operands, but the other operand has type `String`'
+        ):
             _ = t.c4 | 'x'
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match='c4: & requires Bool operands, but the other operand has type `Int`'
+        ):
+            _ = t.c4 & t.c2
 
         # a non-bool column must fail at construction too, in both operand orders (t.c2 is Int)
-        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+        not_bool = 'requires Bool operands, but this expression has type `Int`'
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=f'c2: & {not_bool}'):
             _ = t.c2 & True
-        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=f'c2: & {not_bool}'):
             _ = True & t.c2
-        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=rf'c2: \| {not_bool}'):
             _ = t.c2 | False
-        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=rf'c2: \| {not_bool}'):
             _ = False | t.c2
-        with pytest.raises(TypeError, match='Expression does not return a boolean'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=f'c2: & {not_bool}'):
             _ = t.c2 & t.c4
 
     def test_exception_handling(self, test_tbl: pxt.Table) -> None:
@@ -559,6 +568,9 @@ class TestExprs:
             ),
             (lambda: t.c3 < td, r'c3: < is not defined for a timedelta; `timedelta.total_seconds\(\)`'),
             (lambda: td / t.c3, r'c3: / is not defined for a timedelta; `timedelta.total_seconds\(\)`'),
+            (lambda: t.c4 & object(), r'c4: the other operand of & needs to be .* `object`'),
+            (lambda: object() & t.c4, r'c4: the other operand of & needs to be .* `object`'),
+            (lambda: t.c4 | object(), r'c4: the other operand of \| needs to be .* `object`'),
         ]
         for make_expr, match in cases:
             with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=match):
