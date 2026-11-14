@@ -6,7 +6,7 @@ import os
 import pathlib
 import re
 import textwrap
-from typing import Any
+from typing import Any, Iterator, TypedDict
 
 import numpy as np
 import pytest
@@ -62,6 +62,16 @@ def as_dict(diff: TableDiff) -> dict[str, Any]:
             for op in diff.ops
         ],
     }
+
+
+class LegRow(TypedDict):
+    leg: int
+
+
+@pxt.iterator
+def legs(num_legs: int) -> Iterator[LegRow]:
+    for leg in range(num_legs):
+        yield {'leg': leg}
 
 
 @pxt.udf
@@ -1229,19 +1239,14 @@ class TestTableModel:
 
         class Trips(TableModel, name='trips'):
             id: pxt.Int
-            route: pxt.String
+            num_stops: pxt.Int
             meta: pxt.Json[{'codes': [str]}]
 
-        class Stops(
-            TableModel,
-            name='stops',
-            base=Trips,
-            iterator=pxtf.string.string_splitter(Trips.route + ' Home.', separators='sentence'),
-        ):
+        class Legs(TableModel, name='legs', base=Trips, iterator=legs(Trips.num_stops + 1)):
             pass
 
-        class LoudStops(TableModel, name='loud_stops', base=Stops.where(Stops.pos > 0)):
-            loud = Stops.text.upper()
+        class LaterLegs(TableModel, name='later_legs', base=Legs.where(Legs.pos > 0)):
+            next_leg = Legs.leg + 1
 
         class TripCodes(
             TableModel, name='trip_codes', base=Trips, iterator=pxtf.json.list_iterator(code=Trips.meta.codes)
@@ -1252,9 +1257,8 @@ class TestTableModel:
             lower_code = TripCodes.code.lower()
 
         TableModel.update_all(p(''))
-        Trips.insert([{'id': 1, 'route': 'Oslo. Rome.', 'meta': {'codes': ['A', 'B']}}])
-        res = LoudStops.table.order_by(LoudStops.pos).collect()
-        assert [s.strip() for s in res['loud']] == ['ROME.', 'HOME.']
+        Trips.insert([{'id': 1, 'num_stops': 2, 'meta': {'codes': ['A', 'B']}}])
+        assert LaterLegs.table.order_by(LaterLegs.pos).collect()['next_leg'] == [2, 3]
         assert LowerTripCodes.table.order_by(LowerTripCodes.pos).collect()['lower_code'] == ['a', 'b']
         assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(p('')).values())
 

@@ -424,11 +424,7 @@ class FunctionCall(Expr):
         where a variable is replaced with a specific value.
         """
         res = super().substitute(spec)
-        if any(self.equals(old) for old in spec):
-            # spec replaces this call; the replacement carries its own return type
-            return res
-        assert isinstance(res, FunctionCall)
-        if res.is_valid:
+        if isinstance(res, FunctionCall) and res.is_valid:
             # If this FunctionCall is valid, re-evaluate the call_return_type of the substituted expression. If the
             # FunctionCall is not valid, it isn't safe to do this. (Really we should be asserting that it *is* valid,
             # but we still need to be able to do substitutions on invalid FunctionCalls, because loading an
