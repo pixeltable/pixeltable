@@ -539,6 +539,22 @@ class TestExprs:
             t.select(t.c6 + t.c2.apply(math.floor, col_type=pxt.Int)).collect()
         assert '+ requires numeric types, but left operand has type `dict`' in str(exc_info.value)
 
+    def test_int_mod_negative_operands(self, db_root: DatabaseRoot) -> None:
+        """Int % evaluated in SQL must match Python's %, including for negative operands."""
+        t = pxt.create_table(db_root.make_catalog_path('mod_tbl'), {'a': pxt.Int, 'b': pxt.Int})
+        # computed columns are evaluated in Python on insert
+        t.add_computed_column(py_mod=t.a % t.b)
+        t.add_computed_column(py_floordiv=t.a // t.b)
+        t.insert({'a': a, 'b': b} for a in (-7, -6, 0, 6, 7) for b in (-3, 3))
+        res = t.select(t.a, t.b, t.py_mod, t.py_floordiv, sql_mod=t.a % t.b, sql_floordiv=t.a // t.b).collect()
+        for row in res:
+            assert row['py_mod'] == row['a'] % row['b']
+            assert row['sql_mod'] == row['py_mod'], f'{row["a"]} % {row["b"]}'
+            assert row['sql_floordiv'] == row['py_floordiv'], f'{row["a"]} // {row["b"]}'
+            assert row['a'] == (row['sql_floordiv'] * row['b']) + row['sql_mod']
+        assert t.where(t.a % t.b == t.py_mod).count() == t.count()
+        assert t.where(t.a % 3 == 2).select(t.a).order_by(t.a).collect()['a'] == [-7, -7]
+
     def test_pow(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         res = (
