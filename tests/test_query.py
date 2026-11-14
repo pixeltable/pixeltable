@@ -752,9 +752,16 @@ class TestQuery:
         assert rows(query.limit(1)) == [('a1', 2)]
 
         # order_by() on anything else conflicts with the ordering on the grouping exprs
-        for ordering in (t.v, count(t.v)):
-            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Incompatible ordering requirements'):
+        for ordering, ordering_text in ((t.v, '(v, asc=True)'), (count(t.v), '(globals.count(v), asc=True)')):
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                match=r'order_by\(\) is limited to the grouping expressions \(acct\) when part of an aggregate query '
+                r'cannot run in SQL',
+            ) as exc_info:
                 _ = t.where(is_small(t.v)).group_by(t.acct).select(t.acct, n=count(t.v)).order_by(ordering).collect()
+            message = str(exc_info.value)
+            assert ordering_text in message
+            assert 'sort the collected rows' in message
 
     def test_order_by_python_exprs(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """order_by() on an expression without a SQL translation raises an error."""
@@ -771,7 +778,7 @@ class TestQuery:
         def double(x: int) -> int:
             return x * 2
 
-        advice = 'Add the value as a stored computed column'
+        advice = 'add the value as a stored computed column'
         count = pxt.functions.count
         queries: list[tuple[pxt.Query, str, bool]] = [
             (t.order_by(double(t.x)).select(t.id), 'double(x)', True),

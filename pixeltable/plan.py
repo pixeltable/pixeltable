@@ -232,8 +232,8 @@ class Analyzer:
             msg = f'Invalid order_by() expression, needs to be expressible in SQL: {orig_expr!s}.'
             if not item.expr.contains_(cls=exprs.FunctionCall, filter=lambda e: bool(e.is_agg_fn_call)):
                 msg += (
-                    ' As a workaround, you can add the value as a stored computed column of a scalar type (cast with .astype() if needed) '
-                    'and use that column with order_by().'
+                    ' As a workaround, you can add the value as a stored computed column of a scalar type '
+                    '(cast with .astype() if needed) and use that column with order_by().'
                 )
             raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, msg)
 
@@ -1137,6 +1137,14 @@ class Planner:
 
         if with_grouping:
             grouping_ordering = [OrderByItem(e, None) for e in analyzer.group_by_clause]
+            if combine_order_by_clauses([analyzer.order_by_clause, grouping_ordering]) is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'order_by() is limited to the grouping expressions '
+                    f'({", ".join(str(e) for e in analyzer.group_by_clause)}) when part of an aggregate query '
+                    f'cannot run in SQL: {print_order_by_clause(analyzer.order_by_clause)}. '
+                    'As a workaround, you can sort the collected rows.',
+                )
             ob_clauses.append(grouping_ordering)
             for fn_call in analyzer.agg_fn_calls:
                 # agg functions with an ordering requirement are implicitly ascending
