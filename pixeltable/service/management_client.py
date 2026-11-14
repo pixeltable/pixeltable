@@ -209,8 +209,8 @@ def is_refusal(status_code: int) -> bool:
 def refusal(status_code: int, reason: str, sent: Credential, purpose: str) -> excs.Error:
     """The error for a refusal status (see is_refusal); for a 401 or a 403, it says which credential was sent.
 
-    reason is a sentence without its final period. Shared with the database tunnel, so that a credential
-    refused there reads the same as one the control plane refused.
+    reason is a sentence without its final period. Shared with the gateway transport to a database, so that a
+    credential refused there reads the same as one the control plane refused.
     """
     if status_code == 409:
         return excs.ConcurrencyError(
