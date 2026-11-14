@@ -53,6 +53,8 @@ assistant.select(assistant.message, assistant.tool_output).collect()
 
 `pxt service list` prints the URL. POST `/ask` with `{"message": "..."}`. Chat history is another table with an embedding index: [Agent memory](/howto/cookbooks/agents/pattern-agent-memory). MCP tools load with `pxt.mcp_udfs(...)` and go into the same `pxt.tools()` list.
 
+For web search and page extraction, `pxt.tools(pxtf.parallel.search, pxtf.parallel.extract)` works without a Parallel account: [Working with Parallel](/howto/providers/working-with-parallel).
+
 A full chat app: [`uvx pixeltable-new`](https://github.com/pixeltable/pixeltable-new) copies the [starter kit](/resources/starter-kit) agent. Pass `agent` as the last argument to `pxt schema update`. `/ask` needs `ANTHROPIC_API_KEY`.
 
 On Cloud, sign in with `pxt login`, or set `PIXELTABLE_API_KEY`. `pxt org create` provisions `main`. Then run `pxt db update`, `pxt schema update`, and `pxt service update` against `pxt://org:main`. [Pixeltable Cloud](/cloud).
