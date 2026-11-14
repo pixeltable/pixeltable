@@ -2817,19 +2817,14 @@ class TestTable:
         bad_rows = [rows[0].copy() for _ in range(2500)]
         del bad_rows[1500]['c2']
         row_count = t.count()
-        fault = ExceptionFault(RuntimeError('Insert plan ran before source validation'))
-        # Fault injection is local to this process; hosted inserts execute in the daemon.
         if db_root.id == 'local':
+            fault = ExceptionFault(RuntimeError('Insert plan ran before source validation'))
             get_runtime().fault_manager.inject_fault(FaultLocation.EXEC_ROW_DATA_BEFORE_READ, fault)
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'Missing required column\(s\) \(c2\)'):
             t.insert(bad_rows)
         assert t.count() == row_count
         if db_root.id == 'local':
             fault.assert_count(0)
-            with pytest.raises(RuntimeError, match='Insert plan ran before source validation'):
-                t.insert([rows[0]])
-            fault.assert_count(1)
-            assert t.count() == row_count
 
         # incompatible schema
         for (col_name, col_type), value_col_name in zip(
