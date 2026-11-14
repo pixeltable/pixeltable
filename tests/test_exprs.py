@@ -2188,19 +2188,20 @@ class TestExprs:
         # now()
         now_ts = pxtf.timestamp.posix_timestamp(pxtf.timestamp.now())
         due_ts = pxtf.timestamp.posix_timestamp(t.due)
-        before = datetime.datetime.now().timestamp()
         res = (
             t.group_by(t.grp)
-            .select(t.grp, total_age=pxtf.sum(now_ts - due_ts), min_age=now_ts - pxtf.max(due_ts))
+            .select(t.grp, now=now_ts, total_age=pxtf.sum(now_ts - due_ts), min_age=now_ts - pxtf.max(due_ts))
             .order_by(t.grp)
             .collect()
         )
-        after = datetime.datetime.now().timestamp()
         due_sums = [dues[0].timestamp() + dues[1].timestamp(), dues[2].timestamp()]
-        for total_age, due_sum, num_rows in zip(res['total_age'], due_sums, (2, 1)):
-            assert num_rows * before - due_sum - 0.001 <= total_age <= num_rows * after - due_sum + 0.001
-        for min_age, max_due in zip(res['min_age'], (dues[1], dues[2])):
-            assert before - max_due.timestamp() - 0.001 <= min_age <= after - max_due.timestamp() + 0.001
+        max_dues = [dues[1].timestamp(), dues[2].timestamp()]
+        for row, due_sum, max_due, num_rows in zip(res, due_sums, max_dues, (2, 1)):
+            assert row['total_age'] == pytest.approx(num_rows * row['now'] - due_sum, abs=1.0)
+            assert row['min_age'] == pytest.approx(row['now'] - max_due, abs=1.0)
+        res = t.group_by(t.grp).select(t.grp, now=pxtf.timestamp.now(), n=pxtf.count(t.n)).order_by(t.grp).collect()
+        assert res['now'][0] == res['now'][1]
+        assert res['n'] == [2, 1]
 
         # json mapper
         incremented = pxtf.map(t.j, lambda x: x + 1)
@@ -2211,6 +2212,9 @@ class TestExprs:
         assert res['n'] == [1, 1, 1]
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='Invalid non-aggregate expression in aggregate query'):
             _ = t.group_by(t.grp).select(out=incremented, n=pxtf.count(t.n)).collect()
+        for query in (t.group_by(t.j), t):
+            with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'Aggregate function in the lambda of map\(\)'):
+                _ = query.select(out=pxtf.map(t.j, lambda x: pxtf.count(x))).collect()
 
     def test_function_call_errors(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
