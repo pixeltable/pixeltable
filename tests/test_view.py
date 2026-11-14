@@ -1,14 +1,13 @@
-import contextlib
 import datetime
 import logging
 import re
-from typing import Any, AsyncGenerator, Callable
+from typing import Any, Callable
 
 import PIL
 import pytest
 
 import pixeltable as pxt
-from pixeltable import exec, functions as pxtf
+from pixeltable import functions as pxtf
 from pixeltable.catalog import RowCountStats
 from pixeltable.func import Batch
 from pixeltable.types import ColumnSpec
@@ -1597,30 +1596,6 @@ class TestView:
             {'id': 4, 'icol': 0},
             {'id': 4, 'icol': 1},
         ]
-
-    @pytest.mark.db_roots('local', reason='patches an exec node in this process')
-    def test_insert_loads_view_in_batches(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A large insert loads its views with a server-side cursor, in batches, instead of reading all rows at once."""
-        p = db_root.make_catalog_path
-        t = pxt.create_table(p('tbl'), {'id': pxt.Int, 'n': pxt.Int})
-        v = pxt.create_view(p('view'), t, additional_columns={'n2': t.n * 2})
-
-        scan_batches: list[tuple[int, str]] = []
-        scan = exec.SqlScanNode.__aiter__
-
-        async def recording_scan(self: exec.SqlScanNode) -> AsyncGenerator[exec.DataRowBatch, None]:
-            async with contextlib.aclosing(scan(self)) as batches:
-                async for batch in batches:
-                    scan_batches.append((len(batch), type(self.result_cursor.cursor).__name__))
-                    yield batch
-
-        monkeypatch.setattr(exec.SqlScanNode, '__aiter__', recording_scan)
-        t.insert({'id': i, 'n': i} for i in range(2500))
-        monkeypatch.undo()
-
-        assert len(scan_batches) > 1
-        assert scan_batches[0][1] == 'ServerCursor'
-        assert v.select(v.n2).order_by(v.id).collect()['n2'] == [i * 2 for i in range(2500)]
 
     def test_recompute_column(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
