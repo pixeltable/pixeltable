@@ -2212,9 +2212,11 @@ class TestExprs:
         assert res['n'] == [1, 1, 1]
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match='Invalid non-aggregate expression in aggregate query'):
             _ = t.group_by(t.grp).select(out=incremented, n=pxtf.count(t.n)).collect()
-        for query in (t.group_by(t.j), t):
-            with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'Aggregate function in the lambda of map\(\)'):
-                _ = query.select(out=pxtf.map(t.j, lambda x: pxtf.count(x))).collect()
+        for mapper_fn in (pxtf.map, pxtf.filter, pxtf.sort):
+            match = rf'Aggregate function in the lambda of {mapper_fn.__name__}\(\)'
+            for query in (t.group_by(t.j), t):
+                with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=match):
+                    _ = query.select(out=mapper_fn(t.j, lambda x: pxtf.count(x) > 0)).collect()
 
     def test_function_call_errors(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
