@@ -790,13 +790,13 @@ class PydanticTableDataConduit(TableDataConduit):
             self.dumped_rows.append(fold_mapping_keys(dumped_row))
 
     def prepare_for_insert_into_table(self) -> None:
-        """Validates the Pydantic model and the rows against the table"""
+        """Validate the Pydantic model and the rows against the table"""
         self._validate_pydantic_model(type(cast(Sequence[pydantic.BaseModel], self.source)[0]))
         for i, raw_row in enumerate(self.dumped_rows):
             self._convert_row(i, raw_row)
 
     def rows(self) -> Iterator[dict[str, Any]]:
-        """Converts the Pydantic models to dicts that can be inserted into the table"""
+        """Convert the Pydantic models to insertable dicts"""
         for i, raw_row in enumerate(self.dumped_rows):
             yield self._convert_row(i, raw_row)
 
