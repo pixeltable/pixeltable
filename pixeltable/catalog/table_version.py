@@ -1929,6 +1929,8 @@ class TableVersion:
         # force reload on next operation
         self.is_validated = False
         get_runtime().catalog.remove_tbl_version(self.key)
+        # a pinned instance of the reverted version must not keep serving from the cache
+        get_runtime().catalog._clear_tv_cache(TableVersionKey(self.id, old_version))
 
         # delete newly-added data
         # Do this at the end, after all DB operations have completed.
