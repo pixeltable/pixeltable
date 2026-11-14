@@ -59,9 +59,9 @@ class TestAnthropic:
         )
         assert len(reply['content'][0]['text']) > 0
 
-        # a message without content reaches the API, which rejects it
+        # a message without content reaches the API, which rejects it; text inherits the error from output
         status = t.insert(input=None, on_error='ignore')
-        assert status.num_excs == 2
+        assert status.num_excs == 3
         res = t.where(t.input == None).select(t.output.errormsg, t.output2.errormsg).collect()[0]
         assert all('messages.0.content: Input should be a valid array' in msg for msg in res.values())
 
