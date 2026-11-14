@@ -480,10 +480,9 @@ class SqlNode(ExecNode):
                 self._log_explain(stmt)
 
             conn = get_runtime().conn
+            execution_options = {'stream_results': True} if self.stream_results else {}
             with telemetry.span('pixeltable.sa.select'):
-                result_cursor = conn.execute(
-                    stmt, self.bound_args, execution_options={'stream_results': True} if self.stream_results else {}
-                )
+                result_cursor = conn.execute(stmt, self.bound_args, execution_options=execution_options)
             self.result_cursor = result_cursor
             for _ in w:
                 pass
