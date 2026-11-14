@@ -2814,6 +2814,7 @@ class TestTable:
             t.insert(new_rows)
         assert 'Missing' in str(exc_info.value)
 
+        # The insert source validation should happen before the (potentially expensive) plan is executed.
         bad_rows = [rows[0].copy() for _ in range(2500)]
         del bad_rows[1500]['c2']
         row_count = t.count()
