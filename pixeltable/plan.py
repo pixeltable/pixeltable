@@ -1100,28 +1100,28 @@ class Planner:
                 )
 
     @classmethod
-    def _create_combined_ordering(cls, analyzer: Analyzer, verify_agg: bool) -> OrderByClause | None:
-        """Verify that the various ordering requirements don't conflict and return a combined ordering"""
+    def _create_combined_ordering(cls, analyzer: Analyzer, with_grouping: bool) -> OrderByClause:
+        """
+        Combine the ordering requirements of the order_by() clause and the window functions.
+
+        Raises if they conflict.
+
+        Args:
+            with_grouping: if True, also add the ordering on the grouping exprs and on each aggregate's order_by
+        """
         ob_clauses: list[OrderByClause] = [analyzer.order_by_clause.copy()]
 
-        if verify_agg:
-            ordering: OrderByClause
-            for fn_call in analyzer.window_fn_calls:
-                # window functions require ordering by the group_by/order_by clauses
-                gb, ob = fn_call.get_window_sort_exprs()
-                ordering = [OrderByItem(e, None) for e in gb] + [OrderByItem(e, True) for e in ob]
-                ob_clauses.append(ordering)
+        for fn_call in analyzer.window_fn_calls:
+            # window functions require ordering by the group_by/order_by clauses
+            gb, ob = fn_call.get_window_sort_exprs()
+            ob_clauses.append([OrderByItem(e, None) for e in gb] + [OrderByItem(e, True) for e in ob])
+
+        if with_grouping:
+            grouping_ordering = [OrderByItem(e, None) for e in analyzer.group_by_clause]
+            ob_clauses.append(grouping_ordering)
             for fn_call in analyzer.agg_fn_calls:
                 # agg functions with an ordering requirement are implicitly ascending
-                ordering = [OrderByItem(e, None) for e in analyzer.group_by_clause] + [
-                    OrderByItem(e, True) for e in fn_call.get_agg_order_by()
-                ]
-                ob_clauses.append(ordering)
-
-        if len(ob_clauses) == 0:
-            return None
-        elif len(ob_clauses) == 1:
-            return ob_clauses[0]
+                ob_clauses.append(grouping_ordering + [OrderByItem(e, True) for e in fn_call.get_agg_order_by()])
 
         combined_ordering = ob_clauses[0]
         for ordering in ob_clauses[1:]:
@@ -1283,12 +1283,11 @@ class Planner:
         if deleted_at_current_version is None:
             deleted_at_current_version = []
         sql_elements = analyzer.sql_elements
-        is_python_agg = not sql_elements.contains_all(analyzer.agg_fn_calls) or not sql_elements.contains_all(
-            analyzer.window_fn_calls
-        )
         ctx = exec.ExecContext(row_builder)
 
-        combined_ordering = cls._create_combined_ordering(analyzer, verify_agg=is_python_agg)
+        # raises on an order_by() that conflicts with a window function; the grouping exprs are
+        # added once we know whether we need an AggregationNode
+        _ = cls._create_combined_ordering(analyzer, with_grouping=False)
         cls._verify_join_clauses(analyzer)
 
         # materialized with SQL table scans (ie, single-table SELECT statements):
@@ -1424,9 +1423,9 @@ class Planner:
                     plan = exec.ExprEvalNode(row_builder, agg_input, sql_exprs, input=plan)
                     plan.set_gc(False)
 
-                assert combined_ordering is not None
+                # with_grouping=True: AggregationNode starts a new group whenever the grouping exprs change value
                 input_sql_node = plan.get_node(exec.SqlNode)
-                input_sql_node.set_order_by(combined_ordering)
+                input_sql_node.set_order_by(cls._create_combined_ordering(analyzer, with_grouping=True))
                 plan = exec.AggregationNode(
                     tbl.tbl_version,
                     row_builder,

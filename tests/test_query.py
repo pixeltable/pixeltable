@@ -504,6 +504,19 @@ class TestQuery:
         def value(self) -> int:
             return 0
 
+    @pxt.uda
+    class py_sum(pxt.Aggregator):
+        total: int
+
+        def __init__(self) -> None:
+            self.total = 0
+
+        def update(self, val: int) -> None:
+            self.total += val
+
+        def value(self) -> int:
+            return self.total
+
     def test_limit_0(self, test_tbl: pxt.Table, is_data_versioned: bool) -> None:
         t = test_tbl
 
@@ -638,6 +651,110 @@ class TestQuery:
         # Should return the number of distinct c1 values in filtered rows
         distinct_c1_filtered = len(t.where(t.c2 < 10).select(t.c1).distinct().collect())
         assert cnt == distinct_c1_filtered
+
+    def test_group_by_python_exprs(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        """group_by() and distinct() return one row per key when part of the query is evaluated in Python."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('test_group_by'),
+            {'acct': pxt.String, 'v': pxt.Int, 'info': pxt.Json},
+            _is_data_versioned=is_data_versioned,
+        )
+        # consecutive rows have different keys
+        validate_update_status(
+            t.insert({'acct': f'a{i % 2}', 'v': i, 'info': {'v': i}} for i in range(6)), expected_rows=6
+        )
+        t2 = pxt.create_table(
+            p('test_group_by_2'), {'acct': pxt.String, 'w': pxt.Int}, _is_data_versioned=is_data_versioned
+        )
+        validate_update_status(t2.insert({'acct': f'a{i % 2}', 'w': i} for i in range(4)), expected_rows=4)
+        t3 = pxt.create_table(
+            p('test_group_by_3'),
+            {'a': pxt.String | None, 'b': pxt.Int, 'v': pxt.Int},
+            _is_data_versioned=is_data_versioned,
+        )
+        validate_update_status(
+            t3.insert({'a': None if i % 2 == 0 else 'x', 'b': (i // 2) % 2, 'v': i} for i in range(8)), expected_rows=8
+        )
+
+        @pxt.udf(_force_stored=True)
+        def is_small(x: int) -> bool:
+            return x < 5
+
+        @pxt.udf(_force_stored=True)
+        def tag(x: int) -> str:
+            return f'<{x}>'
+
+        @pxt.udf(_force_stored=True)
+        def upper(s: str) -> str:
+            return s.upper()
+
+        count = pxt.functions.count
+
+        def rows(query: pxt.Query) -> list[tuple]:
+            # key=repr: None is not comparable to str
+            return sorted((tuple(row.values()) for row in query.collect()), key=repr)
+
+        # where() in SQL
+        assert rows(t.where(t.v < 5).group_by(t.acct).select(t.acct, n=count(t.v), s=pxt.functions.sum(t.v))) == [
+            ('a0', 3, 6),
+            ('a1', 2, 4),
+        ]
+        # where() in Python, alone and with a conjunct in SQL
+        assert rows(t.where(is_small(t.v)).group_by(t.acct).select(t.acct, n=count(t.v), s=pxt.functions.sum(t.v))) == [
+            ('a0', 3, 6),
+            ('a1', 2, 4),
+        ]
+        assert rows(t.where(is_small(t.v) & (t.v > 0)).group_by(t.acct).select(t.acct, n=count(t.v))) == [
+            ('a0', 2),
+            ('a1', 2),
+        ]
+        assert rows(t.where(is_small(t.v)).select(n=count(t.v))) == [(5,)]
+        assert rows(t.where(is_small(t.v)).select(t.acct).distinct()) == [('a0',), ('a1',)]
+
+        # select list in Python, over an aggregate and over a grouping expr
+        assert rows(t.group_by(t.acct).select(t.acct, n=tag(count(t.v)))) == [('a0', '<3>'), ('a1', '<3>')]
+        assert rows(t.group_by(t.acct).select(a=upper(t.acct), n=count(t.v))) == [('A0', 3), ('A1', 3)]
+
+        # user-defined aggregate
+        assert rows(t.where(is_small(t.v)).group_by(t.acct).select(t.acct, s=self.py_sum(t.v))) == [
+            ('a0', 6),
+            ('a1', 4),
+        ]
+
+        # grouping expr other than a column
+        assert rows(t.where(is_small(t.v)).group_by(t.v % 2).select(k=t.v % 2, n=count(t.v))) == [(0, 3), (1, 2)]
+
+        # several grouping exprs, one with nulls
+        assert rows(t3.where(is_small(t3.v)).group_by(t3.a, t3.b).select(t3.a, t3.b, n=count(t3.v))) == [
+            ('x', 0, 1),
+            ('x', 1, 1),
+            (None, 0, 2),
+            (None, 1, 1),
+        ]
+        assert rows(t3.where(is_small(t3.v)).group_by(t3.a).select(t3.a, n=count(t3.v))) == [('x', 2), (None, 3)]
+        assert rows(t3.where(is_small(t3.v)).select(t3.a, t3.b).distinct()) == [
+            ('x', 0),
+            ('x', 1),
+            (None, 0),
+            (None, 1),
+        ]
+
+        # aggregate over a Json column
+        assert rows(t.group_by(t.acct).select(t.acct, n=count(t.info))) == [('a0', 3), ('a1', 3)]
+
+        query = t.join(t2, on=t.acct == t2.acct).where(is_small(t.v)).group_by(t.acct).select(t.acct, n=count(t2.w))
+        assert rows(query) == [('a0', 6), ('a1', 4)]
+
+        # order_by() on the grouping expr, with limit()
+        query = t.where(is_small(t.v)).group_by(t.acct).select(t.acct, n=count(t.v)).order_by(t.acct, asc=False)
+        assert [tuple(row.values()) for row in query.collect()] == [('a1', 2), ('a0', 3)]
+        assert rows(query.limit(1)) == [('a1', 2)]
+
+        # order_by() on anything else conflicts with the ordering on the grouping exprs
+        for ordering in (t.v, count(t.v)):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Incompatible ordering requirements'):
+                _ = t.where(is_small(t.v)).group_by(t.acct).select(t.acct, n=count(t.v)).order_by(ordering).collect()
 
     def test_count_join(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Tests for join...count queries"""
