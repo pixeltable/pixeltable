@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import datetime
 import hashlib
 import importlib
 import inspect
@@ -912,17 +913,21 @@ class Expr(abc.ABC):
             return Comparison(op, self, other)
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
             return Comparison(op, self, Literal(other))
-        raise TypeError(f'Other must be Expr or literal: {type(other)}')
+        raise self._unsupported_operand_error(op, other)
 
     def __neg__(self) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, -1)
 
-    def __add__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
+    def __add__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp | exprs.FunctionCall:
+        if isinstance(other, datetime.timedelta):
+            return self._add_timedelta(other, sign=1)
         if self.col_type.is_string_type():
             return self._make_string_expr(StringOperator.CONCAT, other)
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
 
-    def __sub__(self, other: object) -> 'exprs.ArithmeticExpr':
+    def __sub__(self, other: object) -> exprs.ArithmeticExpr | exprs.FunctionCall:
+        if isinstance(other, datetime.timedelta):
+            return self._add_timedelta(other, sign=-1)
         return self._make_arithmetic_expr(ArithmeticOperator.SUB, other)
 
     def __mul__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
@@ -958,12 +963,18 @@ class Expr(abc.ABC):
             return round_fn(self)
         return round_fn(self, ndigits)
 
-    def __radd__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
+    def __radd__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp | exprs.FunctionCall:
+        if isinstance(other, datetime.timedelta):
+            return self._add_timedelta(other, sign=1)
         if self.col_type.is_string_type():
             return self._rmake_string_expr(StringOperator.CONCAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.ADD, other)
 
     def __rsub__(self, other: object) -> 'exprs.ArithmeticExpr':
+        if isinstance(other, datetime.timedelta):
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH, f'timedelta - {self!s}: a timedelta has to be the right operand of -'
+            )
         return self._rmake_arithmetic_expr(ArithmeticOperator.SUB, other)
 
     def __rmul__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
@@ -980,6 +991,42 @@ class Expr(abc.ABC):
     def __rfloordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
 
+    def _add_timedelta(self, td: datetime.timedelta, sign: int) -> exprs.FunctionCall:
+        """Add sign * td to a Timestamp or Date expression."""
+        from pixeltable.functions import date as date_fns, timestamp as timestamp_fns
+
+        if self.col_type.is_timestamp_type():
+            return timestamp_fns.add_seconds(self, sign * td.total_seconds())
+        if self.col_type.is_date_type():
+            if td.seconds != 0 or td.microseconds != 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'{self!s}: a timedelta added to or subtracted from a Date needs to be a whole number of days, '
+                    f'but got {td!r}',
+                )
+            return date_fns.add_days(self, sign * td.days)
+        hint = '; convert it with `astype(pxt.Timestamp)` first' if self.col_type.is_json_type() else ''
+        raise excs.RequestError(
+            excs.ErrorCode.TYPE_MISMATCH,
+            f'{self!s}: a timedelta can only be added to or subtracted from a Timestamp or Date expression, '
+            f'but this one has type `{self.col_type}`{hint}',
+        )
+
+    def _unsupported_operand_error(
+        self, op: ComparisonOperator | StringOperator | ArithmeticOperator, other: object
+    ) -> excs.RequestError:
+        if isinstance(other, datetime.timedelta):
+            return excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'{self!s}: {op} is not defined for a timedelta; `timedelta.total_seconds()` returns its length in '
+                'seconds',
+            )
+        return excs.RequestError(
+            excs.ErrorCode.TYPE_MISMATCH,
+            f'{self!s}: the other operand of {op} needs to be an expression or a literal, '
+            f'but it has type `{type(other).__name__}`',
+        )
+
     def _make_string_expr(self, op: StringOperator, other: object) -> 'exprs.StringOp':
         """
         Make left-handed version of string expression.
@@ -991,7 +1038,7 @@ class Expr(abc.ABC):
             return StringOp(op, self, other)
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
             return StringOp(op, self, Literal(other))
-        raise TypeError(f'Other must be Expr or literal: {type(other)}')
+        raise self._unsupported_operand_error(op, other)
 
     def _rmake_string_expr(self, op: StringOperator, other: object) -> 'exprs.StringOp':
         """
@@ -1004,7 +1051,7 @@ class Expr(abc.ABC):
         assert not isinstance(other, Expr)  # Else the left-handed form would have evaluated first
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
             return StringOp(op, Literal(other), self)
-        raise TypeError(f'Other must be Expr or literal: {type(other)}')
+        raise self._unsupported_operand_error(op, other)
 
     def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'exprs.ArithmeticExpr':
         """
@@ -1018,7 +1065,7 @@ class Expr(abc.ABC):
             return ArithmeticExpr(op, self, other)
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
             return ArithmeticExpr(op, self, Literal(other))
-        raise TypeError(f'Other must be Expr or literal: {type(other)}')
+        raise self._unsupported_operand_error(op, other)
 
     def _rmake_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'exprs.ArithmeticExpr':
         """
@@ -1032,7 +1079,7 @@ class Expr(abc.ABC):
         assert not isinstance(other, Expr)  # Else the left-handed form would have evaluated first
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
             return ArithmeticExpr(op, Literal(other), self)
-        raise TypeError(f'Other must be Expr or literal: {type(other)}')
+        raise self._unsupported_operand_error(op, other)
 
     def _make_compound_predicate(self, op: LogicalOperator, other: object) -> Expr:
         """

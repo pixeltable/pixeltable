@@ -335,6 +335,8 @@
           <outline text="udf|pixeltable.functions.timestamp.strip_timezone" />
           <outline text="udf|pixeltable.functions.timestamp.toordinal" />
           <outline text="udf|pixeltable.functions.timestamp.posix_timestamp" />
+          <outline text="udf|pixeltable.functions.timestamp.add_seconds" />
+          <outline text="udf|pixeltable.functions.timestamp.seconds_since" />
         </outline>
         <outline text="module|pixeltable.functions.uuid">
           <outline text="udf|pixeltable.functions.uuid.uuid4" />

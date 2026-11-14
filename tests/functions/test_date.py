@@ -1,5 +1,5 @@
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Callable
 from zoneinfo import ZoneInfo
 
@@ -9,6 +9,7 @@ import pixeltable as pxt
 from pixeltable import exprs
 from pixeltable.env import Env
 from pixeltable.functions.date import (
+    add_days,
     day,
     isocalendar,
     isoformat,
@@ -17,6 +18,7 @@ from pixeltable.functions.date import (
     month,
     replace,
     strftime,
+    today,
     toordinal,
     weekday,
     year,
@@ -109,13 +111,51 @@ class TestDate:
 
         assert res['out'] == test_dts
 
-    def test_date_arith(self, uses_db: None) -> None:
-        _, t = self.make_test_table()
+    def test_date_arithmetic(self, uses_db: None) -> None:
+        dts: list[date | None] = [*(date.fromisoformat(dt) for dt in self.TEST_DATES), None]
+        t = pxt.create_table('test_tbl', {'id': pxt.Int, 'dt': pxt.Date | None})
+        validate_update_status(t.insert({'id': i, 'dt': dt} for i, dt in enumerate(dts)), expected_rows=len(dts))
 
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='requires numeric types'):
             _ = t.select(t.dt, outp=t.dt + 1)
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='requires numeric types'):
             _ = t.select(t.dt, outm=t.dt - 1)
+
+        def shifted(days: int) -> list[date | None]:
+            return [None if dt is None else dt + timedelta(days=days) for dt in dts]
+
+        # a non-SQLizable identity function forces evaluation in Python
+        py_dt = t.dt.apply(lambda x: x, col_type=pxt.Date)
+        for dt_expr in (t.dt, py_dt):
+            res = (
+                t.select(
+                    plus=dt_expr + timedelta(days=30),
+                    rplus=timedelta(days=30) + dt_expr,
+                    minus=dt_expr - timedelta(days=366),
+                    negative=dt_expr + timedelta(days=-1),
+                    method=add_days(dt_expr, 7),
+                )
+                .order_by(t.id)
+                .collect()
+            )
+            assert res['plus'] == shifted(30)
+            assert res['rplus'] == shifted(30)
+            assert res['minus'] == shifted(-366)
+            assert res['negative'] == shifted(-1)
+            assert res['method'] == shifted(7)
+
+        # TODO: PXT-1825: run these filters on py_dt as well
+        assert t.where(t.dt < today() - timedelta(days=7)).count() == len(dts) - 1
+        assert t.where(t.dt > today() - timedelta(days=7)).count() == 0
+
+        whole_days = r'dt: a timedelta added to or subtracted from a Date needs to be a whole number of days'
+        for td in (timedelta(hours=25), timedelta(days=1, microseconds=1)):
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=whole_days):
+                _ = t.dt + td
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=whole_days):
+                _ = t.dt - td
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='timedelta - dt: a timedelta has to be the right operand'):
+            _ = timedelta(days=1) - t.dt
 
     def test_today_and_parse(self, uses_db: None) -> None:
         default_tz = ZoneInfo('America/Anchorage')

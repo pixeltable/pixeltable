@@ -11,7 +11,7 @@ import os
 import re
 import uuid
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Callable, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -538,6 +538,24 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as exc_info:
             t.select(t.c6 + t.c2.apply(math.floor, col_type=pxt.Int)).collect()
         assert '+ requires numeric types, but left operand has type `dict`' in str(exc_info.value)
+
+    def test_unsupported_operand(self, test_tbl: pxt.Table) -> None:
+        """An operand that is neither an expression nor a literal raises TYPE_MISMATCH."""
+        t = test_tbl
+        td = datetime.timedelta(hours=1)
+        cases: list[tuple[Callable[[], Expr], str]] = [
+            (lambda: t.c2 + object(), r'c2: the other operand of \+ needs to be .* `object`'),
+            (lambda: object() - t.c2, r'c2: the other operand of - needs to be .* `object`'),
+            (lambda: t.c3 < object(), r'c3: the other operand of < needs to be .* `object`'),
+            (lambda: t.c1 + object(), r'c1: the other operand of \+ needs to be .* `object`'),
+            (lambda: object() + t.c1, r'c1: the other operand of \+ needs to be .* `object`'),
+            (lambda: t.c5 * td, r'c5: \* is not defined for a timedelta; `timedelta.total_seconds\(\)`'),
+            (lambda: t.c3 < td, r'c3: < is not defined for a timedelta; `timedelta.total_seconds\(\)`'),
+            (lambda: td / t.c3, r'c3: / is not defined for a timedelta; `timedelta.total_seconds\(\)`'),
+        ]
+        for make_expr, match in cases:
+            with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=match):
+                _ = make_expr()
 
     def test_int_mod_negative_operands(self, db_root: DatabaseRoot) -> None:
         """Int % evaluated in SQL must match Python's %, including for negative operands."""

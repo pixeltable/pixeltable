@@ -388,7 +388,77 @@ def posix_timestamp(self: datetime.datetime) -> float:
     return self.timestamp()
 
 
+def _to_utc(dt: datetime.datetime) -> datetime.datetime:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=Env.get().default_time_zone)
+    return dt.astimezone(datetime.timezone.utc)
+
+
+@pxt.udf(is_method=True)
+def add_seconds(self: datetime.datetime, seconds: float) -> datetime.datetime:
+    """
+    Add `seconds` to the timestamp.
+
+    The offset is elapsed time: 86400 seconds across a daylight saving time change move the wall-clock time by 23 or
+    25 hours. A timestamp without a time zone is in the default time zone. `t.ts + timedelta(...)` and
+    `t.ts - timedelta(...)` are shorthand for `add_seconds()`.
+    [`seconds_since()`][pixeltable.functions.timestamp.seconds_since] returns the offset between two timestamps.
+
+    Args:
+        seconds: The number of seconds to add. A negative number subtracts.
+
+    Examples:
+        The time one hour after `created_at`:
+
+        >>> t.select(t.created_at.add_seconds(3600)).collect()
+
+        The tickets created during the last 7 days:
+
+        >>> t.where(
+        ...     t.created_at > pxtf.timestamp.now() - datetime.timedelta(days=7)
+        ... ).collect()
+    """
+    # an aware datetime adds a timedelta to its wall-clock time
+    result = _to_utc(self) + datetime.timedelta(seconds=seconds)
+    if self.tzinfo is None:
+        return result.astimezone(Env.get().default_time_zone).replace(tzinfo=None)
+    return result.astimezone(self.tzinfo)
+
+
+@add_seconds.to_sql
+def _(self: sql.ColumnElement, seconds: sql.ColumnElement) -> sql.ColumnElement:
+    # make_interval(years, months, weeks, days, hours, mins, secs); an interval's days are wall-clock days
+    return self + sql.func.make_interval(0, 0, 0, 0, 0, 0, seconds.cast(sql.Float))
+
+
+@pxt.udf(is_method=True)
+def seconds_since(self: datetime.datetime, start: datetime.datetime) -> float:
+    """
+    Return the number of seconds from `start` to the timestamp.
+
+    The result is elapsed time, and it is negative if the timestamp is earlier than `start`. A timestamp without a
+    time zone is in the default time zone.
+    [`add_seconds()`][pixeltable.functions.timestamp.add_seconds] adds such an offset to a timestamp.
+
+    Args:
+        start: The start of the measured interval.
+
+    Examples:
+        The time each ticket took to resolve, in hours:
+
+        >>> t.select(hours=t.resolved_at.seconds_since(t.created_at) / 3600).collect()
+    """
+    # subtraction of two datetimes with the same tzinfo compares their wall-clock times
+    return (_to_utc(self) - _to_utc(start)).total_seconds()
+
+
+@seconds_since.to_sql
+def _(self: sql.ColumnElement, start: sql.ColumnElement) -> sql.ColumnElement:
+    return (sql.extract('epoch', self) - sql.extract('epoch', start)).cast(sql.Float)
+
+
 __all__ = [
+    'add_seconds',
     'astimezone',
     'date',
     'day',
@@ -404,6 +474,7 @@ __all__ = [
     'posix_timestamp',
     'replace',
     'second',
+    'seconds_since',
     'strftime',
     'strip_timezone',
     'strptime',
