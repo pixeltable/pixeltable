@@ -141,14 +141,12 @@ class TableDataConduit:
         """
         raise NotImplementedError
 
-    def _validate_rows(self) -> None:
-        """Convert every row and discard the result, so that a bad row fails before the insert plan evaluates any
-        computed column. The insert converts the rows again, instead of keeping a converted copy of the source.
-        """
-        for _ in self.rows():
-            pass
-
     def prepare_for_insert_into_table(self) -> None:
+        """Validate the source against the target table, before the insert plan runs.
+
+        Each implementation decides how much of the source it validates here. Validating every row lets a bad row fail
+        before the insert plan evaluates any computed column.
+        """
         if self.source is None:
             return
         raise NotImplementedError
@@ -262,7 +260,8 @@ class RowDataTableDataConduit(TableDataConduit):
         # are errors in the incoming row format
         if self.source_column_map is None:
             self.source_column_map = {}
-        self._validate_rows()
+        for row in self.raw_rows or []:
+            self._translate_row(row)
 
     def _translate_row(self, row: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(row, dict):
@@ -344,7 +343,8 @@ class PandasTableDataConduit(TableDataConduit):
         if self.source_column_map is None:
             self.source_column_map = {}
         self.check_source_columns_are_insertable(self.pd_df.columns)
-        self._validate_rows()
+        for row in self.pd_df.itertuples():
+            _df_row_to_pxt_row(row, self.src_schema, self.source_column_map)
 
     def rows(self) -> Iterator[dict[str, Any]]:
         for row in self.pd_df.itertuples():
@@ -796,40 +796,42 @@ class PydanticTableDataConduit(TableDataConduit):
     def prepare_for_insert_into_table(self) -> None:
         """Validates the Pydantic model and the rows against the table"""
         self._validate_pydantic_model(type(cast(Sequence[pydantic.BaseModel], self.source)[0]))
-        self._validate_rows()
+        for i, raw_row in enumerate(self.dumped_rows):
+            self._convert_row(i, raw_row)
 
     def rows(self) -> Iterator[dict[str, Any]]:
         """Converts the Pydantic models to dicts that can be inserted into the table"""
-        sorted_reqd_cols = sorted(self.reqd_col_names)
-        # convert rows one-by-one in order to be able to print meaningful error messages
         for i, raw_row in enumerate(self.dumped_rows):
-            # explicitly check that all required columns are present and non-None in the rows,
-            # because we ignore nullability when validating the pydantic model
-            for col_name in sorted_reqd_cols:
-                if raw_row.get(col_name) is None:
-                    raise excs.RequestError(
-                        excs.ErrorCode.MISSING_REQUIRED, f'Missing required column {col_name!r} in row {i}'
-                    )
-            # Coerce each cell to its column's stored representation, exactly as the dict path does
-            # (RowDataTableDataConduit._translate_row). This is what makes a pydantic model behave like the
-            # equivalent dict: timestamps localized, enums accepted only when their members are int/str values, etc.
-            assert self.pxt_schema is not None
-            pxt_row: dict[str, Any] = {}
-            for col_name, val in raw_row.items():
-                col_type = self.pxt_schema.get(col_name)
-                if col_type is None:
-                    # not a table column; leave it for downstream validation to report
-                    pxt_row[col_name] = val
-                    continue
-                try:
-                    pxt_row[col_name] = col_type.create_literal(val)
-                except TypeError as e:
-                    msg = str(e)
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'Error in column {col_name!r} (row {i}): {msg[0].lower() + msg[1:]}',
-                    ) from e
-            yield pxt_row
+            yield self._convert_row(i, raw_row)
+
+    def _convert_row(self, i: int, raw_row: dict[str, Any]) -> dict[str, Any]:
+        # explicitly check that all required columns are present and non-None in the rows,
+        # because we ignore nullability when validating the pydantic model
+        for col_name in sorted(self.reqd_col_names):
+            if raw_row.get(col_name) is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.MISSING_REQUIRED, f'Missing required column {col_name!r} in row {i}'
+                )
+        # Coerce each cell to its column's stored representation, exactly as the dict path does
+        # (RowDataTableDataConduit._translate_row). This is what makes a pydantic model behave like the
+        # equivalent dict: timestamps localized, enums accepted only when their members are int/str values, etc.
+        assert self.pxt_schema is not None
+        pxt_row: dict[str, Any] = {}
+        for col_name, val in raw_row.items():
+            col_type = self.pxt_schema.get(col_name)
+            if col_type is None:
+                # not a table column; leave it for downstream validation to report
+                pxt_row[col_name] = val
+                continue
+            try:
+                pxt_row[col_name] = col_type.create_literal(val)
+            except TypeError as e:
+                msg = str(e)
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Error in column {col_name!r} (row {i}): {msg[0].lower() + msg[1:]}',
+                ) from e
+        return pxt_row
 
     def _validate_pydantic_model(self, model: type[pydantic.BaseModel]) -> None:
         """
