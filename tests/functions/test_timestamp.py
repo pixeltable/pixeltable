@@ -221,6 +221,7 @@ class TestTimestamp:
                     f=dt_expr.add_seconds(t.f),
                     since=t.end.seconds_since(dt_expr),
                     rsince=dt_expr.seconds_since(t.end),
+                    posix=dt_expr.posix_timestamp(),
                 )
                 .order_by(t.id)
                 .collect()
@@ -235,6 +236,7 @@ class TestTimestamp:
             ]
             assert res['since'] == expected_since
             assert res['rsince'] == [None if s is None else -s for s in expected_since]
+            assert res['posix'] == [None if row['dt'] is None else row['dt'].timestamp() for row in rows]
 
     def test_timestamp_arithmetic_exprs(self, uses_db: None) -> None:
         rows, t = self.make_arithmetic_table()
@@ -265,6 +267,10 @@ class TestTimestamp:
         week_ago = pxtf.timestamp.now() - timedelta(days=7)
         assert t.where(t.dt < week_ago).count() == sum(row['dt'] is not None for row in rows)
         assert t.where(t.dt > week_ago).count() == 0
+        cutoff = datetime(2021, 1, 1, tzinfo=timezone.utc).timestamp()
+        assert t.where(t.dt.posix_timestamp() < cutoff).count() == sum(
+            row['dt'] is not None and row['dt'].timestamp() < cutoff for row in rows
+        )
 
         assert str(t.dt - timedelta(hours=1)) == 'add_seconds(dt, -3600.0)'
 

@@ -388,6 +388,11 @@ def posix_timestamp(self: datetime.datetime) -> float:
     return self.timestamp()
 
 
+@posix_timestamp.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.extract('epoch', self).cast(sql.Float)
+
+
 def _to_utc(dt: datetime.datetime) -> datetime.datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=Env.get().default_time_zone)
