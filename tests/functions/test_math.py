@@ -150,6 +150,26 @@ class TestMath:
         assert res['ceil'] == [3, -2]
         assert res['round'] == [3, -3]
 
+        # update() and delete() accept only a filter that runs in Postgres
+        status = t.update({'x': 1.5}, where=pxtf.math.to_int(t.b) == 1)
+        assert status.num_rows == 1
+        assert t.where(t.id == 0).select(t.x, t.x_before, t.x_after).collect()[0] == {
+            'x': 1.5,
+            'x_before': 1,
+            'x_after': 1,
+        }
+        filters = [
+            (pxtf.math.to_int(t.i.abs()) == 2**62 + 1, 2),
+            ((t.x // 2).to_int() == -2, 1),
+            (t.x.pow(2).to_int() == 7, 1),
+            (t.x.abs().to_int() == 2, 1),
+            (pxtf.math.to_int(t.i // 2) == -3, 1),
+            ((t.x**2).to_int() == 2, 1),
+        ]
+        for where, num_rows in filters:
+            assert t.delete(where=where).num_rows == num_rows, where
+        assert t.count() == 0
+
         # values without an Int equivalent
         t = pxt.create_table('errors_tbl', {'id': pxt.Int, 'x': pxt.Float})
         t.add_computed_column(out=t.x.to_int())

@@ -28,7 +28,8 @@ def abs(self: float) -> float:
 
 @abs.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.abs(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.abs(self, type_=self.type)
 
 
 @pxt.udf(is_method=True)
@@ -111,7 +112,8 @@ def pow(self: float, other: float) -> float:
 
 @pow.to_sql
 def _(self: sql.ColumnElement, other: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.pow(self, other)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.pow(self, other, type_=sql.Float)
 
 
 @pxt.udf(is_method=True)
@@ -250,7 +252,10 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement | None:
         return sql.cast(self, sql.BigInteger)
     if isinstance(self.type, sql.Float):
         return sql.cast(sql.func.trunc(self), sql.BigInteger)
-    # trunc() rejects a BOOLEAN and converts an untyped BIGINT to DOUBLE PRECISION, which is inexact above 2**53
+    if isinstance(self.type, sql.Boolean):
+        # Postgres casts a boolean only to integer
+        return sql.cast(sql.cast(self, sql.Integer), sql.BigInteger)
+    # trunc() converts an untyped BIGINT to DOUBLE PRECISION, which is inexact above 2**53
     return None
 
 
