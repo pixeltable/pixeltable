@@ -25,7 +25,6 @@ class RowDataNode(ExecNode):
     input_rows: Iterator[dict[str, Any]]
     set_pk: bool  # if True, assign synthetic pks (input row position); needed for iterator expansion
     _is_consumed: bool
-    _is_closed: bool
 
     # output_exprs is declared in the superclass, but we redeclare it here with a more specific type
     output_exprs: list[exprs.ColumnRef]
@@ -45,15 +44,14 @@ class RowDataNode(ExecNode):
         self.input_rows = iter(rows)
         self.set_pk = set_pk
         self._is_consumed = False
-        self._is_closed = False
 
     def _open(self) -> None:
-        assert not self._is_closed, 'RowDataNode is not reusable'
+        assert not self._is_consumed, 'RowDataNode is not reusable'
 
     def _close(self) -> None:
         # Release references to input rows. When images are present, this may free up a significant amount of memory.
         self.input_rows = iter(())
-        self._is_closed = True
+        self._is_consumed = True
 
     async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         assert not self._is_consumed, 'RowDataNode can only be iterated once'
