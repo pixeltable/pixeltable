@@ -1,0 +1,14 @@
+# Pixeltable project configuration (https://docs.pixeltable.com).
+# Entry 1 is your local database. Entry 2 is a Pixeltable Cloud database:
+# replace 'pxt://<your-org>:<your-db>' with your own org and database before `pxt db update`.
+
+[[pixeltable.database]]
+exclude = ['logs/**', '__pycache__/**', 'output/**', 'publish/**', 'data/**', 'probe_*', 'repro_*', 'scratch*', 'seed.py', 'client_demo.py']
+
+[[pixeltable.database]]
+name = 'pxt://<your-org>:<your-db>'
+cpu = 0.5
+memory_mb = 1024
+disk_gb = 10
+workers = 1
+exclude = ['.venv/**', '__pycache__/**', '*.pyc', '.git/**', 'logs/**', '.env*', 'output/**', 'publish/**', 'data/**', 'probe_*', 'repro_*', 'scratch*', 'seed.py', 'client_demo.py']
