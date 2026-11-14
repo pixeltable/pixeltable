@@ -1080,8 +1080,8 @@ class Planner:
                 row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, input=plan
             )
 
-        # this scan reads every base row created at the current version, which after a large insert is the entire
-        # insert; stream it in batches so that it isn't held in memory at once
+        # This scan reads every base row created at the current version, which is an arbitrary number of rows. Stream
+        # it so that it isn't held in memory at once.
         sql_node = plan.get_node(exec.SqlNode)
         assert sql_node is not None
         sql_node.stream_results = True
