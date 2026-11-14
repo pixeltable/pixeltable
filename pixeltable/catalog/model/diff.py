@@ -316,7 +316,7 @@ def _value_expr_dict(
     value: Any, tbl_path: catalog.TablePath, *, catalog_dir: str, origin: Literal['base_query', 'model_body']
 ) -> dict[str, Any]:
     value_expr = exprs.Expr.from_object(value)
-    value_expr = bind_query_templates(value_expr.copy(), catalog_dir)
+    value_expr = bind_query_templates(value_expr, catalog_dir)
     return resolve_model_value_expr(tbl_path, value_expr, origin).as_dict()
 
 

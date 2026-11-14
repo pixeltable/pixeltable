@@ -35,10 +35,9 @@ class ObjectRef(Expr):
         return [('addr', id(self))]
 
     def substitute(self, subs: ExprDict[Expr]) -> Expr:
-        # Just return self; we need to avoid creating a new id after doing the substitution, because otherwise
-        # we'll wind up in a situation where the scope_anchor of the enclosing JsonMapper is different from the
-        # nested ObjectRefs inside its target_expr (and therefore occupies a different slot_idx).
-        return self
+        # copy() keeps _expr_id; with a new id, the scope_anchor of the enclosing JsonMapper would differ from the
+        # nested ObjectRefs inside its target_expr (and therefore occupy a different slot_idx).
+        return self.copy()
 
     def scope(self) -> ExprScope:
         return self._scope

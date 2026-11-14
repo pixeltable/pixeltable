@@ -6,7 +6,7 @@ import os
 import pathlib
 import re
 import textwrap
-from typing import Any
+from typing import Any, Iterator, TypedDict
 
 import numpy as np
 import pytest
@@ -62,6 +62,16 @@ def as_dict(diff: TableDiff) -> dict[str, Any]:
             for op in diff.ops
         ],
     }
+
+
+class LegRow(TypedDict):
+    leg: int
+
+
+@pxt.iterator
+def legs(num_legs: int) -> Iterator[LegRow]:
+    for leg in range(num_legs):
+        yield {'leg': leg}
 
 
 @pxt.udf
@@ -1220,6 +1230,36 @@ class TestTableModel:
         res = TripCodes.table.order_by(TripCodes.id, TripCodes.pos).collect()
         assert res['code'] == ['A', 'B', 'C']
         assert res['lower_code'] == ['a', 'b', 'c']
+        assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(p('')).values())
+
+    def test_view_model_on_iterator_view(self, db_root: DatabaseRoot) -> None:
+        """A view model stacks on an iterator view model whose iterator argument is a compound expression."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Trips(TableModel, name='trips'):
+            id: pxt.Int
+            num_stops: pxt.Int
+            meta: pxt.Json[{'codes': [str]}]
+
+        class Legs(TableModel, name='legs', base=Trips, iterator=legs(Trips.num_stops + 1)):
+            pass
+
+        class LaterLegs(TableModel, name='later_legs', base=Legs.where(Legs.pos > 0)):
+            next_leg = Legs.leg + 1
+
+        class TripCodes(
+            TableModel, name='trip_codes', base=Trips, iterator=pxtf.json.list_iterator(code=Trips.meta.codes)
+        ):
+            pass
+
+        class LowerTripCodes(TableModel, name='lower_trip_codes', base=TripCodes):
+            lower_code = TripCodes.code.lower()
+
+        TableModel.update_all(p(''))
+        Trips.insert([{'id': 1, 'num_stops': 2, 'meta': {'codes': ['A', 'B']}}])
+        assert LaterLegs.table.order_by(LaterLegs.pos).collect()['next_leg'] == [2, 3]
+        assert LowerTripCodes.table.order_by(LowerTripCodes.pos).collect()['lower_code'] == ['a', 'b']
         assert all(d.resolution == 'up_to_date' for d in TableModel.get_model_diff(p('')).values())
 
     # PXT-1343: a @pxt.query UDF's table is not in the operation's lock set
