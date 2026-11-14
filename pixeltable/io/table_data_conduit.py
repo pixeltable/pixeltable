@@ -134,11 +134,7 @@ class TableDataConduit:
         raise NotImplementedError
 
     def rows(self) -> Iterator[dict[str, Any]]:
-        """Yield the rows of the source, converted for insertion into the target table.
-
-        Raises a RequestError at the first row that cannot be converted. In-memory sources can be iterated more than
-        once.
-        """
+        """Yield the rows of the source, converted for insertion into the target table."""
         raise NotImplementedError
 
     def prepare_for_insert_into_table(self) -> None:
@@ -256,6 +252,7 @@ class RowDataTableDataConduit(TableDataConduit):
         # are errors in the incoming row format
         if self.source_column_map is None:
             self.source_column_map = {}
+        # Validate rows
         for row in self.raw_rows or []:
             self._translate_row(row)
 
@@ -339,6 +336,7 @@ class PandasTableDataConduit(TableDataConduit):
         if self.source_column_map is None:
             self.source_column_map = {}
         self.check_source_columns_are_insertable(self.pd_df.columns)
+        # Validate rows
         for row in self.pd_df.itertuples():
             _df_row_to_pxt_row(row, self.src_schema, self.source_column_map)
 
