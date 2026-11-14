@@ -4166,6 +4166,19 @@ class TestTable:
             t1.revert()
         assert 'version 0' in str(excinfo.value)
 
+    def test_revert_pinned_version(self, db_root: DatabaseRoot) -> None:
+        """A handle pinned to a version must not keep serving rows after that version is reverted."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_revert_pinned'), {'a': pxt.Int})
+        t.insert([{'a': 1}])
+        t.insert([{'a': 2}])
+        pinned = pxt.get_table(p('test_revert_pinned:2'))
+        assert sorted(r['a'] for r in pinned.collect()) == [1, 2]
+
+        t.revert()
+        with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND):
+            pinned.collect()
+
     def test_add_column(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         t = test_tbl
         orig_cols = set(t.columns())
