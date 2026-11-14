@@ -819,6 +819,7 @@ class TestQuery:
             message = str(exc_info.value)
             assert expr_text in message
             assert (advice in message) == has_advice
+            assert ('sort the collected rows' in message) != has_advice
 
         # a where() in Python does not affect an order_by() in SQL
         res = t.where(double(t.x) > 2).order_by(t.x, asc=False).select(t.x).collect()

@@ -236,6 +236,8 @@ class Analyzer:
                 ' As a workaround, you can add the value as a stored computed column of a scalar type '
                 '(cast with .astype() if needed) and use that column with order_by().'
             )
+        else:
+            msg += ' As a workaround, you can sort the collected rows.'
         raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, msg)
 
     def _determine_agg_status(self, e: exprs.Expr, grouping_expr_ids: set[int]) -> tuple[bool, bool]:
@@ -1139,17 +1141,19 @@ class Planner:
         if with_grouping:
             # AggregationNode only needs equal grouping values to be adjacent: follow the order of order_by()
             order_by_ids = [item.expr._expr_id for item in analyzer.order_by_clause]
-            grouping_exprs = {e._expr_id: e for e in analyzer.group_by_clause}
-            ordered_exprs = [grouping_exprs[expr_id] for expr_id in order_by_ids if expr_id in grouping_exprs]
+            grouping_exprs_by_id = {e._expr_id: e for e in analyzer.group_by_clause}
+            ordered_exprs = [
+                grouping_exprs_by_id[expr_id] for expr_id in order_by_ids if expr_id in grouping_exprs_by_id
+            ]
             ordered_exprs.extend(e for e in analyzer.group_by_clause if e._expr_id not in order_by_ids)
             grouping_ordering = [OrderByItem(e, None) for e in ordered_exprs]
             if combine_order_by_clauses([analyzer.order_by_clause, grouping_ordering]) is None:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot order by {print_order_by_clause(analyzer.order_by_clause)}: '
                     f'order_by() is limited to the grouping expressions '
                     f'({", ".join(str(e) for e in analyzer.group_by_clause)}) when part of an aggregate query '
-                    f'cannot run in SQL: {print_order_by_clause(analyzer.order_by_clause)}. '
-                    'As a workaround, you can sort the collected rows.',
+                    'cannot run in SQL. As a workaround, you can sort the collected rows.',
                 )
             ob_clauses.append(grouping_ordering)
             for fn_call in analyzer.agg_fn_calls:
