@@ -113,7 +113,13 @@ class Analyzer:
             self.stratify_exprs = [e.resolve_computed_cols() for e in sample_clause.stratify_exprs]
         else:
             self.stratify_exprs = []
+
         self.order_by_clause = [OrderByItem(e.resolve_computed_cols(), asc) for e, asc in order_by_clause]
+        # fix up ordering by on-read validated media cols: we order by the unvalidated stored value
+        for i, (e, asc) in enumerate(self.order_by_clause):
+            if isinstance(e, exprs.ColumnRef) and e.perform_validation:
+                self.order_by_clause[i] = OrderByItem(e.components[0], asc)
+        self._validate_order_by_exprs([e for e, _ in order_by_clause])
 
         self.sql_where_clause = None
         self.filter = None
@@ -217,6 +223,19 @@ class Analyzer:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_EXPRESSION, f'Grouping expression contains aggregate function: {e!s}'
                 )
+
+    def _validate_order_by_exprs(self, order_by_exprs: list[exprs.Expr]) -> None:
+        for orig_expr, item in zip(order_by_exprs, self.order_by_clause):
+            # SimilarityExpr is turned into SQL by as_order_by_clause()
+            if isinstance(item.expr, exprs.SimilarityExpr) or self.sql_elements.contains(item.expr):
+                continue
+            msg = f'Invalid order_by() expression, needs to be expressible in SQL: {orig_expr!s}.'
+            if not item.expr.contains_(cls=exprs.FunctionCall, filter=lambda e: bool(e.is_agg_fn_call)):
+                msg += (
+                    ' As a workaround, you can add the value as a stored computed column of a scalar type (cast with .astype() if needed) '
+                    'and use that column with order_by().'
+                )
+            raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, msg)
 
     def _determine_agg_status(self, e: exprs.Expr, grouping_expr_ids: set[int]) -> tuple[bool, bool]:
         """Determine whether expr is the input to or output of an aggregate function.

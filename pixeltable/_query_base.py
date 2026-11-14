@@ -848,6 +848,11 @@ class QueryBase(ABC):
     def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> Self:
         """Add an order-by clause to this Query.
 
+        Each expression must be expressible in SQL. A call to a Python UDF and a JSON path are not, including
+        in a computed column with `stored=False`. Executing the query raises `RequestError` rather than
+        returning unordered rows.
+        Add the value as a stored computed column of a scalar type and order by that column.
+
         Args:
             expr_list: expressions to order by
             asc: whether to order in ascending order (True) or descending order (False).

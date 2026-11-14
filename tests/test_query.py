@@ -756,6 +756,77 @@ class TestQuery:
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Incompatible ordering requirements'):
                 _ = t.where(is_small(t.v)).group_by(t.acct).select(t.acct, n=count(t.v)).order_by(ordering).collect()
 
+    def test_order_by_python_exprs(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        """order_by() on an expression without a SQL translation raises an error."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('test_order_by'), {'id': pxt.Int, 'x': pxt.Int, 'info': pxt.Json}, _is_data_versioned=is_data_versioned
+        )
+        validate_update_status(
+            t.insert({'id': i, 'x': x, 'info': {'k': x}} for i, x in enumerate([3, 1, 4, 2])), expected_rows=4
+        )
+        validate_update_status(t.add_computed_column(live=t.info.k.astype(pxt.Int), stored=False), expected_rows=4)
+
+        @pxt.udf(_force_stored=True)
+        def double(x: int) -> int:
+            return x * 2
+
+        advice = 'Add the value as a stored computed column'
+        count = pxt.functions.count
+        queries: list[tuple[pxt.Query, str, bool]] = [
+            (t.order_by(double(t.x)).select(t.id), 'double(x)', True),
+            (t.order_by(double(t.x), asc=False).select(t.id), 'double(x)', True),
+            (t.order_by(t.live).select(t.id), 'live', True),
+            (t.order_by(t.live, asc=False).select(t.id), 'live', True),
+            (t.order_by(t.info.k).select(t.id), 'info.k', True),
+            (t.order_by(t.info.k, asc=False).select(t.id), 'info.k', True),
+            (t.order_by(t.info.k.astype(pxt.Int)).select(t.id), 'info.k.astype(Int)', True),
+            # with other clauses
+            (t.order_by(t.x).order_by(double(t.x)).select(t.id), 'double(x)', True),
+            (t.where(t.x > 1).order_by(double(t.x)).select(t.id).limit(2), 'double(x)', True),
+            (t.where(double(t.x) > 2).order_by(double(t.x)).select(t.id), 'double(x)', True),
+            # an aggregate cannot be stored in a computed column
+            (
+                t.group_by(t.x).select(t.x, n=count(t.id)).order_by(double(count(t.id))),
+                'double(globals.count(id))',
+                False,
+            ),
+        ]
+        for query, expr_text, has_advice in queries:
+            with pxt_raises(
+                pxt.ErrorCode.INVALID_EXPRESSION,
+                match=r'Invalid order_by\(\) expression, needs to be expressible in SQL',
+            ) as exc_info:
+                _ = query.collect()
+            message = str(exc_info.value)
+            assert expr_text in message
+            assert (advice in message) == has_advice
+
+        # a where() in Python does not affect an order_by() in SQL
+        res = t.where(double(t.x) > 2).order_by(t.x, asc=False).select(t.x).collect()
+        assert res['x'] == [4, 3, 2]
+
+        # the advice works
+        validate_update_status(t.add_computed_column(k=t.info.k.astype(pxt.Int)), expected_rows=4)
+        assert t.order_by(t.k).select(t.id).collect()['id'] == [1, 3, 0, 2]
+        assert t.order_by(t.k, asc=False).select(t.id).collect()['id'] == [2, 0, 3, 1]
+
+    def test_order_by_read_validated_media(self, db_root: DatabaseRoot) -> None:
+        """order_by() on a media column with media_validation='on_read' orders by the stored file url."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_order_by_media'), {'id': pxt.Int, 'img': pxt.Image}, media_validation='on_read')
+        files = sorted(get_image_files()[:4], reverse=True)
+        validate_update_status(t.insert({'id': i, 'img': f} for i, f in enumerate(files)), expected_rows=4)
+
+        res = t.select(t.id, url=t.img.fileurl).collect()
+        by_url = [row_id for _, row_id in sorted(zip(res['url'], res['id']))]
+        assert t.order_by(t.img).select(t.id).collect()['id'] == by_url
+        assert t.order_by(t.img, asc=False).select(t.id).collect()['id'] == by_url[::-1]
+        assert t.order_by(t.img).select(t.id, t.img.width).collect()['id'] == by_url
+        if db_root.id == 'local':
+            # the stored url is the source file's url
+            assert by_url == [3, 2, 1, 0]
+
     def test_count_join(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Tests for join...count queries"""
         # TODO(PXT-1108): when the join+where bug is fixed, add some queries with where().
