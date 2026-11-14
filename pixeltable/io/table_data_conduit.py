@@ -134,7 +134,19 @@ class TableDataConduit:
         raise NotImplementedError
 
     def rows(self) -> Iterator[dict[str, Any]]:
+        """Yield the rows of the source, converted for insertion into the target table.
+
+        Raises a RequestError at the first row that cannot be converted. In-memory sources can be iterated more than
+        once.
+        """
         raise NotImplementedError
+
+    def _validate_rows(self) -> None:
+        """Convert every row and discard the result, so that a bad row fails before the insert plan evaluates any
+        computed column. The insert converts the rows again, instead of keeping a converted copy of the source.
+        """
+        for _ in self.rows():
+            pass
 
     def prepare_for_insert_into_table(self) -> None:
         if self.source is None:
@@ -250,8 +262,7 @@ class RowDataTableDataConduit(TableDataConduit):
         # are errors in the incoming row format
         if self.source_column_map is None:
             self.source_column_map = {}
-        for _ in self.rows():
-            pass
+        self._validate_rows()
 
     def _translate_row(self, row: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(row, dict):
@@ -333,8 +344,7 @@ class PandasTableDataConduit(TableDataConduit):
         if self.source_column_map is None:
             self.source_column_map = {}
         self.check_source_columns_are_insertable(self.pd_df.columns)
-        for _ in self.rows():
-            pass
+        self._validate_rows()
 
     def rows(self) -> Iterator[dict[str, Any]]:
         for row in self.pd_df.itertuples():
@@ -786,8 +796,7 @@ class PydanticTableDataConduit(TableDataConduit):
     def prepare_for_insert_into_table(self) -> None:
         """Validates the Pydantic model and the rows against the table"""
         self._validate_pydantic_model(type(cast(Sequence[pydantic.BaseModel], self.source)[0]))
-        for _ in self.rows():
-            pass
+        self._validate_rows()
 
     def rows(self) -> Iterator[dict[str, Any]]:
         """Converts the Pydantic models to dicts that can be inserted into the table"""
