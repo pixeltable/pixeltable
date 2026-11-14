@@ -250,6 +250,8 @@ class RowDataTableDataConduit(TableDataConduit):
         # are errors in the incoming row format
         if self.source_column_map is None:
             self.source_column_map = {}
+        for _ in self.rows():
+            pass
 
     def _translate_row(self, row: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(row, dict):
@@ -331,6 +333,8 @@ class PandasTableDataConduit(TableDataConduit):
         if self.source_column_map is None:
             self.source_column_map = {}
         self.check_source_columns_are_insertable(self.pd_df.columns)
+        for _ in self.rows():
+            pass
 
     def rows(self) -> Iterator[dict[str, Any]]:
         for row in self.pd_df.itertuples():
@@ -780,8 +784,10 @@ class PydanticTableDataConduit(TableDataConduit):
             self.dumped_rows.append(fold_mapping_keys(dumped_row))
 
     def prepare_for_insert_into_table(self) -> None:
-        """Validates the Pydantic model against the table"""
+        """Validates the Pydantic model and the rows against the table"""
         self._validate_pydantic_model(type(cast(Sequence[pydantic.BaseModel], self.source)[0]))
+        for _ in self.rows():
+            pass
 
     def rows(self) -> Iterator[dict[str, Any]]:
         """Converts the Pydantic models to dicts that can be inserted into the table"""

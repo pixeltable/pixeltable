@@ -83,6 +83,15 @@ def random_value(s: str) -> float:
     return random.random()
 
 
+recorded_calls: list[int] = []
+
+
+@pxt.udf
+def record_call(n: int) -> int:
+    recorded_calls.append(n)
+    return n
+
+
 @pxt.udf
 def refuse_x(s: str) -> str:
     if s == 'x':
@@ -2813,13 +2822,17 @@ class TestTable:
 
         pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'id': pxt.Int, 'req': pxt.Int}, _is_data_versioned=is_data_versioned)
+        t.add_computed_column(out=record_call(t.req))
         bad_rows = [{'id': i, 'req': i} for i in range(2500)]
         del bad_rows[1500]['req']
+        recorded_calls.clear()
         with pxt_raises(
             pxt.ErrorCode.MISSING_REQUIRED, match=r"Missing required column\(s\) \(req\) in row \{'id': 1500\}"
         ):
             t.insert(bad_rows)
         assert t.count() == 0
+        if db_root.id == 'local':
+            assert recorded_calls == []
 
         # incompatible schema
         for (col_name, col_type), value_col_name in zip(
