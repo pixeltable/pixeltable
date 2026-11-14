@@ -13,7 +13,7 @@ _logger = logging.getLogger(__name__)
 class RowDataNode(ExecNode):
     """
     Outputs a stream of row dicts as DataRowBatches of a particular table, ctx.batch_size rows at a time (or all in one
-    batch if it's 0).
+    batch if ctx.batch_size is 0).
 
     Populates slots of all non-computed columns (ie, output ColumnRefs)
     - with the values provided in the input rows
