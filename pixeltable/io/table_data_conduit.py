@@ -142,11 +142,7 @@ class TableDataConduit:
         raise NotImplementedError
 
     def prepare_for_insert_into_table(self) -> None:
-        """Validate the source against the target table, before the insert plan runs.
-
-        Each implementation decides how much of the source it validates here. Validating every row lets a bad row fail
-        before the insert plan evaluates any computed column.
-        """
+        """Validate the source against the target table, before the insert plan runs."""
         if self.source is None:
             return
         raise NotImplementedError
