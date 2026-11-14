@@ -113,8 +113,11 @@ class TestDate:
 
     def test_date_arithmetic(self, uses_db: None) -> None:
         dts: list[date | None] = [*(date.fromisoformat(dt) for dt in self.TEST_DATES), None]
-        t = pxt.create_table('test_tbl', {'id': pxt.Int, 'dt': pxt.Date | None})
-        validate_update_status(t.insert({'id': i, 'dt': dt} for i, dt in enumerate(dts)), expected_rows=len(dts))
+        ns = [3, -400, None, 0, 1, 2]
+        t = pxt.create_table('test_tbl', {'id': pxt.Int, 'dt': pxt.Date | None, 'n': pxt.Int | None})
+        validate_update_status(
+            t.insert({'id': i, 'dt': dt, 'n': n} for i, (dt, n) in enumerate(zip(dts, ns))), expected_rows=len(dts)
+        )
 
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='requires numeric types'):
             _ = t.select(t.dt, outp=t.dt + 1)
@@ -134,6 +137,7 @@ class TestDate:
                     minus=dt_expr - timedelta(days=366),
                     negative=dt_expr + timedelta(days=-1),
                     method=add_days(dt_expr, 7),
+                    col=add_days(dt_expr, t.n),
                 )
                 .order_by(t.id)
                 .collect()
@@ -143,6 +147,7 @@ class TestDate:
             assert res['minus'] == shifted(-366)
             assert res['negative'] == shifted(-1)
             assert res['method'] == shifted(7)
+            assert res['col'] == [None if dt is None or n is None else dt + timedelta(days=n) for dt, n in zip(dts, ns)]
 
         # TODO: PXT-1825: run these filters on py_dt as well
         assert t.where(t.dt < today() - timedelta(days=7)).count() == len(dts) - 1
@@ -156,6 +161,11 @@ class TestDate:
                 _ = t.dt - td
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='timedelta - dt: a timedelta has to be the right operand'):
             _ = timedelta(days=1) - t.dt
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH,
+            match='dt: < is not defined for a timedelta; a timedelta can only be added to or subtracted',
+        ):
+            _ = t.dt < timedelta(days=1)
 
     def test_today_and_parse(self, uses_db: None) -> None:
         default_tz = ZoneInfo('America/Anchorage')

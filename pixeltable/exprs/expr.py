@@ -1016,10 +1016,12 @@ class Expr(abc.ABC):
         self, op: ComparisonOperator | StringOperator | ArithmeticOperator, other: object
     ) -> excs.RequestError:
         if isinstance(other, datetime.timedelta):
+            if self.col_type.is_timestamp_type() or self.col_type.is_date_type():
+                hint = 'a timedelta can only be added to or subtracted from a Timestamp or Date expression'
+            else:
+                hint = '`timedelta.total_seconds()` returns its length in seconds'
             return excs.RequestError(
-                excs.ErrorCode.TYPE_MISMATCH,
-                f'{self!s}: {op} is not defined for a timedelta; `timedelta.total_seconds()` returns its length in '
-                'seconds',
+                excs.ErrorCode.TYPE_MISMATCH, f'{self!s}: {op} is not defined for a timedelta; {hint}'
             )
         return excs.RequestError(
             excs.ErrorCode.TYPE_MISMATCH,

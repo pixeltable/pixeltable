@@ -549,7 +549,14 @@ class TestExprs:
             (lambda: t.c3 < object(), r'c3: the other operand of < needs to be .* `object`'),
             (lambda: t.c1 + object(), r'c1: the other operand of \+ needs to be .* `object`'),
             (lambda: object() + t.c1, r'c1: the other operand of \+ needs to be .* `object`'),
-            (lambda: t.c5 * td, r'c5: \* is not defined for a timedelta; `timedelta.total_seconds\(\)`'),
+            (
+                lambda: t.c5 * td,
+                r'c5: \* is not defined for a timedelta; a timedelta can only be added to or subtracted',
+            ),
+            (
+                lambda: t.c5 > td,
+                r'c5: > is not defined for a timedelta; a timedelta can only be added to or subtracted',
+            ),
             (lambda: t.c3 < td, r'c3: < is not defined for a timedelta; `timedelta.total_seconds\(\)`'),
             (lambda: td / t.c3, r'c3: / is not defined for a timedelta; `timedelta.total_seconds\(\)`'),
         ]

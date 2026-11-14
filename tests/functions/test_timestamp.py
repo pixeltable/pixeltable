@@ -168,14 +168,16 @@ class TestTimestamp:
             {'dt': None, 'end': self.BEFORE_DST, 'i': 1, 'f': 1.0},
             {'dt': self.BEFORE_DST, 'end': None, 'i': None, 'f': None},
         ]
+        # the last four offsets end in half a microsecond
+        fs = [-0.25, 86400.0000005, -86400.0000005, 86400.0000015, 12345.6789015]
         rows.extend(
             {
                 'dt': datetime.fromisoformat(dt),
                 'end': datetime(2025, 5, 17, 3, 4, 5, 678901, tzinfo=la),
                 'i': 90,
-                'f': -0.25,
+                'f': f,
             }
-            for dt in self.TEST_DATETIMES
+            for dt, f in zip(self.TEST_DATETIMES, fs)
         )
         for row in rows:
             row['j'] = {'ts': '2025-11-02T01:30:00-07:00'}

@@ -428,7 +428,15 @@ def add_seconds(self: datetime.datetime, seconds: float) -> datetime.datetime:
 @add_seconds.to_sql
 def _(self: sql.ColumnElement, seconds: sql.ColumnElement) -> sql.ColumnElement:
     # make_interval(years, months, weeks, days, hours, mins, secs); an interval's days are wall-clock days
-    return self + sql.func.make_interval(0, 0, 0, 0, 0, 0, seconds.cast(sql.Float))
+    # make_interval() rounds secs as a whole; timedelta(seconds=) rounds only its fraction
+    secs = seconds.cast(sql.Float)
+    whole_secs = sql.func.trunc(secs)
+    microsecs = sql.func.round((secs - whole_secs) * 1e6)
+    return (
+        self
+        + sql.func.make_interval(0, 0, 0, 0, 0, 0, whole_secs)
+        + sql.func.make_interval(0, 0, 0, 0, 0, 0, microsecs / 1e6)
+    )
 
 
 @pxt.udf(is_method=True)
