@@ -2,6 +2,8 @@ import logging
 from typing import Any, AsyncGenerator, Iterable, Iterator
 
 from pixeltable import catalog, exprs
+from pixeltable.utils import fault_injection
+from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.local_store import TempStore
 
 from .data_row_batch import DataRowBatch
@@ -56,6 +58,7 @@ class RowDataNode(ExecNode):
     async def __aiter__(self) -> AsyncGenerator[DataRowBatch, None]:
         assert not self._is_consumed, 'RowDataNode can only be iterated once'
         self._is_consumed = True
+        fault_injection.process_fault(FaultLocation.EXEC_ROW_DATA_BEFORE_READ)
         # input rows can only provide values for this table's columns
         user_cols_by_name = {
             col_ref.col.name: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)

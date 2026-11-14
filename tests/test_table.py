@@ -27,9 +27,12 @@ from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
 from pixeltable.functions.video import legacy_frame_iterator
+from pixeltable.runtime import get_runtime
+from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.filecache import FileCache
 
 from .conftest import SampleFileServer
+from .fault_injection import ExceptionFault
 from .utils import (
     TESTS_DIR,
     DatabaseRoot,
@@ -81,15 +84,6 @@ def square(x: int) -> int:
 @pxt.udf
 def random_value(s: str) -> float:
     return random.random()
-
-
-recorded_calls: list[int] = []
-
-
-@pxt.udf
-def record_call(n: int) -> int:
-    recorded_calls.append(n)
-    return n
 
 
 @pxt.udf
@@ -2756,7 +2750,7 @@ class TestTable:
         assert status.num_rows == 1
         assert status.num_excs == 0
 
-    def test_insert(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+    def test_insert(self, db_root: DatabaseRoot, is_data_versioned: bool, fault_injection: None) -> None:
         p = db_root.make_catalog_path
         schema: dict[str, Any] = {
             'c1': pxt.String,
@@ -2820,19 +2814,22 @@ class TestTable:
             t.insert(new_rows)
         assert 'Missing' in str(exc_info.value)
 
-        pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'id': pxt.Int, 'req': pxt.Int}, _is_data_versioned=is_data_versioned)
-        t.add_computed_column(out=record_call(t.req))
-        bad_rows = [{'id': i, 'req': i} for i in range(2500)]
-        del bad_rows[1500]['req']
-        recorded_calls.clear()
-        with pxt_raises(
-            pxt.ErrorCode.MISSING_REQUIRED, match=r"Missing required column\(s\) \(req\) in row \{'id': 1500\}"
-        ):
-            t.insert(bad_rows)
-        assert t.count() == 0
+        bad_rows = [rows[0].copy() for _ in range(2500)]
+        del bad_rows[1500]['c2']
+        row_count = t.count()
+        fault = ExceptionFault(RuntimeError('Insert plan ran before source validation'))
+        # Fault injection is local to this process; hosted inserts execute in the daemon.
         if db_root.id == 'local':
-            assert recorded_calls == []
+            get_runtime().fault_manager.inject_fault(FaultLocation.EXEC_ROW_DATA_BEFORE_READ, fault)
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'Missing required column\(s\) \(c2\)'):
+            t.insert(bad_rows)
+        assert t.count() == row_count
+        if db_root.id == 'local':
+            fault.assert_count(0)
+            with pytest.raises(RuntimeError, match='Insert plan ran before source validation'):
+                t.insert([rows[0]])
+            fault.assert_count(1)
+            assert t.count() == row_count
 
         # incompatible schema
         for (col_name, col_type), value_col_name in zip(
