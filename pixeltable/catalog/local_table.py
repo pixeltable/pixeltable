@@ -288,7 +288,9 @@ class LocalTable(Table):
                 # the compute plan checks for the required columns that the outputs read
                 data_source.reqd_col_names.clear()
                 data_source.prepare_for_insert_into_table()
-                input_rows = [row for batch in data_source.valid_row_batch() for row in batch]
+                # TODO: this materializes all input rows; streaming them into the compute plan (RowDataNode accepts a
+                # stream) would bound memory, but create_compute_plan() currently validates and filters a list
+                input_rows = list(data_source.rows())
 
                 output_cols = path.columns()
                 if output_md is not None:

@@ -27,9 +27,12 @@ from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
 from pixeltable.functions.video import legacy_frame_iterator
+from pixeltable.runtime import get_runtime
+from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.filecache import FileCache
 
 from .conftest import SampleFileServer
+from .fault_injection import ExceptionFault
 from .utils import (
     TESTS_DIR,
     DatabaseRoot,
@@ -1231,7 +1234,9 @@ class TestTable:
         expected = [{'n': 0, 's': 'str_0'}, {'n': 10, 's': 'str_1'}, {'n': 20, 's': 'str_2'}]
         assert list(t3.select(t3.n, t3.s).order_by(t3.n).collect()) == expected
 
-        t3.insert(src_query)
+        status = t3.insert(src_query, return_rows=True)
+        assert status.rows is not None
+        assert sorted(status.rows, key=lambda row: row['n']) == expected
         assert list(t3.select(t3.n, t3.s).order_by(t3.n).collect()) == [row for row in expected for _ in range(2)]
 
     def test_component_view_query_as_source(self, db_root: DatabaseRoot) -> None:
@@ -2745,7 +2750,7 @@ class TestTable:
         assert status.num_rows == 1
         assert status.num_excs == 0
 
-    def test_insert(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+    def test_insert(self, db_root: DatabaseRoot, is_data_versioned: bool, fault_injection: None) -> None:
         p = db_root.make_catalog_path
         schema: dict[str, Any] = {
             'c1': pxt.String,
@@ -2808,6 +2813,19 @@ class TestTable:
             new_rows = [{col_name: row[col_name] for col_name in col_names} for row in rows]
             t.insert(new_rows)
         assert 'Missing' in str(exc_info.value)
+
+        # The insert source validation should happen before the (potentially expensive) plan is executed.
+        bad_rows = [rows[0].copy() for _ in range(2500)]
+        del bad_rows[1500]['c2']
+        row_count = t.count()
+        if db_root.id == 'local':
+            fault = ExceptionFault(RuntimeError('Insert plan ran before source validation'))
+            get_runtime().fault_manager.inject_fault(FaultLocation.EXEC_ROW_DATA_BEFORE_READ, fault)
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'Missing required column\(s\) \(c2\)'):
+            t.insert(bad_rows)
+        assert t.count() == row_count
+        if db_root.id == 'local':
+            fault.assert_count(0)
 
         # incompatible schema
         for (col_name, col_type), value_col_name in zip(

@@ -280,15 +280,17 @@ class Analyzer:
 
 
 class Planner:
+    _ROW_BATCH_SIZE = 1024
+
     @classmethod
     def create_insert_plan(
         cls,
         tbl: catalog.TableVersion,
-        source: list[dict[str, Any]] | SqlDataSource,
+        source: Iterable[dict[str, Any]] | SqlDataSource,
         ignore_errors: bool,
         skip_existing_keys: bool = False,
     ) -> exec.ExecNode:
-        """Creates a plan for TableVersion.insert() from either in-memory rows or a SqlDataSource.
+        """Creates a plan for TableVersion.insert() from either a stream of row dicts or a SqlDataSource.
 
         With skip_existing_keys, the plan drops each row whose primary key is already in tbl, before computing its
         computed columns.
@@ -299,7 +301,7 @@ class Planner:
         cls.__check_valid_columns(tbl, output_cols, 'inserted into')
 
         row_builder = exprs.RowBuilder([], output_cols, [], tbl)
-        plan, batch_size = cls._create_input_plan(tbl, source, row_builder, skip_existing_keys=skip_existing_keys)
+        plan = cls._create_input_plan(tbl, source, row_builder, skip_existing_keys=skip_existing_keys)
         computed_exprs = row_builder.output_exprs - row_builder.input_exprs
         if len(computed_exprs) > 0:
             plan = exec.ExprEvalNode(
@@ -309,7 +311,7 @@ class Planner:
         stored_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
         if any(c.col_type.needs_cell_materialization() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
-        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=batch_size, ignore_errors=ignore_errors))
+        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=cls._ROW_BATCH_SIZE, ignore_errors=ignore_errors))
         plan = cls._add_save_node(plan)
         return plan
 
@@ -330,33 +332,29 @@ class Planner:
     def _create_input_plan(
         cls,
         tbl: catalog.TableVersion,
-        source: list[dict[str, Any]] | SqlDataSource,
+        source: Iterable[dict[str, Any]] | SqlDataSource,
         row_builder: exprs.RowBuilder,
         set_pk: bool = False,
         skip_existing_keys: bool = False,
-    ) -> tuple[exec.ExecNode, int]:
+    ) -> exec.ExecNode:
         """
-        Creates the input stage shared by insert/compute plans: materializes 'source' (in-memory rows or a
+        Create the input stage shared by insert/compute plans from 'source' (a stream of row dicts or a
         SqlDataSource, containing values for the mutable columns of 'tbl'), plus a prefetch node for media
-        inputs. Returns the plan and its exec batch size.
+        inputs.
         """
         from pixeltable.io.data_sources import SqlDataSource
 
         plan: exec.ExecNode
-        batch_size: int
         if isinstance(source, SqlDataSource):
             plan = exec.SqlDataNode(tbl.handle, source, row_builder)
-            batch_size = 1024
         else:
-            assert isinstance(source, list)
-            plan = exec.InMemoryDataNode(tbl.handle, source, row_builder, set_pk=set_pk)
-            batch_size = 0
+            plan = exec.RowDataNode(tbl.handle, source, row_builder, set_pk=set_pk)
 
         if skip_existing_keys:
             # ahead of the prefetch node: a skipped row's media isn't fetched
             plan = exec.AntiJoinNode(tbl.handle, row_builder, plan)
         plan = cls._add_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)
-        return plan, batch_size
+        return plan
 
     @classmethod
     def columns_to_compute(
@@ -431,7 +429,7 @@ class Planner:
 
         Plan shape:
         - the input rows are handled identically to insert:
-            - InMemoryDataNode
+            - RowDataNode
             - PrefetchNode
         - each table in 'path' adds its incremental nodes:
             - ExprEvalNode + FilterNode for view predicate enforcement
@@ -480,10 +478,10 @@ class Planner:
             assert result is not None
             return result
 
-        # InMemoryDataNode requires a slot for every value it is given, so drop values for columns the plan doesn't read
+        # RowDataNode requires a slot for every value it is given, so drop values for columns the plan doesn't read
         input_col_names = {e.col_md.name for e in row_builder.input_exprs if isinstance(e, exprs.ColumnRef)}
         rows = [{name: val for name, val in row.items() if name in input_col_names} for row in rows]
-        plan, _ = cls._create_input_plan(base_tv, rows, row_builder, set_pk=True)
+        plan = cls._create_input_plan(base_tv, rows, row_builder, set_pk=True)
         # the plan preserves input row order (all ExprEvalNodes maintain input order), so output rows map
         # positionally to input rows; avail: exprs whose slots are materialized so far
         materialized = exprs.ExprSet(row_builder.input_exprs)
@@ -1081,6 +1079,12 @@ class Planner:
                 row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, input=plan
             )
 
+        # This scan reads every base row created at the current version, which is an arbitrary number of rows. Stream
+        # it so that it isn't held in memory at once.
+        sql_node = plan.get_node(exec.SqlNode)
+        assert sql_node is not None
+        sql_node.set_stream_results(True)
+        exec_ctx.batch_size = cls._ROW_BATCH_SIZE
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
         if any(c.col_type.needs_cell_materialization() for c in stored_cols):

@@ -161,11 +161,10 @@ class InsertableTable(LocalTable):
         return_rows: bool = False,
         skip_existing_keys: bool = False,
     ) -> pxt.UpdateStatus:
-        """Insert row batches into this table from a `TableDataConduit`."""
+        """Insert the rows of a `TableDataConduit` into this table."""
         from pixeltable.io.table_data_conduit import QueryTableDataConduit
 
         start_ts = time.perf_counter()
-        status = pxt.UpdateStatus()
         query = data_source.pxt_query if isinstance(data_source, QueryTableDataConduit) else None
         read_tbl_keys = query.referenced_tbl_keys() if query is not None else None
         # ON CONFLICT DO NOTHING skips a concurrent writer's key only under READ COMMITTED, not REPEATABLE READ
@@ -180,24 +179,14 @@ class InsertableTable(LocalTable):
             # in on_error='abort' mode the exec raises the internal ExprEvalError on the first failing cell;
             # convert it to a user-facing Error (on_error='ignore' records per-cell errors and never raises)
             try:
-                if query is not None:
-                    status += self._tbl_version.get().insert(
-                        source=None,
-                        query=query,
-                        print_stats=print_stats,
-                        fail_on_exception=fail_on_exception,
-                        skip_existing_keys=skip_existing_keys,
-                    )
-                else:
-                    for row_batch in data_source.valid_row_batch():
-                        status += self._tbl_version.get().insert(
-                            source=row_batch,
-                            query=None,
-                            print_stats=print_stats,
-                            fail_on_exception=fail_on_exception,
-                            return_rows=return_rows,
-                            skip_existing_keys=skip_existing_keys,
-                        )
+                status = self._tbl_version.get().insert(
+                    source=data_source.rows() if query is None else None,
+                    query=query,
+                    print_stats=print_stats,
+                    fail_on_exception=fail_on_exception,
+                    return_rows=return_rows,
+                    skip_existing_keys=skip_existing_keys,
+                )
             except excs.ExprEvalError as e:
                 excs.raise_from_expr_eval_err(e)
 
