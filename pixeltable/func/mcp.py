@@ -1,5 +1,6 @@
+import contextlib
 import inspect
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any, AsyncIterator, Sequence
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
@@ -8,7 +9,29 @@ from pixeltable.func.function import Function
 from pixeltable.func.signature import Parameter, Signature
 
 if TYPE_CHECKING:
+    import httpx2
     import mcp
+
+
+@contextlib.asynccontextmanager
+async def mcp_session(
+    url: str, *, http_client: 'httpx2.AsyncClient | None' = None, timeout: float | None = None
+) -> AsyncIterator['mcp.ClientSession']:
+    """An initialized MCP session over Streamable HTTP, for the duration of the context.
+
+    `http_client` replaces the SDK's default HTTP client, which is how a caller supplies headers or observes
+    responses. `timeout` bounds each request the session makes, not the session as a whole.
+    """
+    Env.get().require_package('mcp', [2])
+    import mcp
+    from mcp.client.streamable_http import streamable_http_client
+
+    async with (
+        streamable_http_client(url, http_client=http_client) as (read_stream, write_stream),
+        mcp.ClientSession(read_stream, write_stream, read_timeout_seconds=timeout) as session,
+    ):
+        await session.initialize()
+        yield session
 
 
 def mcp_udfs(url: str) -> list['pxt.func.Function']:
@@ -18,18 +41,8 @@ def mcp_udfs(url: str) -> list['pxt.func.Function']:
 
 
 async def mcp_udfs_async(url: str) -> list['pxt.func.Function']:
-    Env.get().require_package('mcp', [2])
-    import mcp
-    from mcp.client.streamable_http import streamable_http_client
-
-    list_tools_result: mcp.types.ListToolsResult | None = None
-    async with (
-        streamable_http_client(url) as (read_stream, write_stream),
-        mcp.ClientSession(read_stream, write_stream) as session,
-    ):
-        await session.initialize()
+    async with mcp_session(url) as session:
         list_tools_result = await session.list_tools()
-    assert list_tools_result is not None
 
     return [mcp_tool_to_udf(url, tool) for tool in list_tools_result.tools]
 
@@ -107,15 +120,9 @@ class McpFunction(Function):
         # TODO: open one session per McpFunction rather than one per call
         Env.get().require_package('mcp', [2])
         import mcp
-        from mcp.client.streamable_http import streamable_http_client
 
         error_msg: str | None = None
-        async with (
-            streamable_http_client(self.url) as (read_stream, write_stream),
-            mcp.ClientSession(read_stream, write_stream) as session,
-        ):
-            await session.initialize()
-
+        async with mcp_session(self.url) as session:
             if not self._is_verified:
                 current_tool = next(
                     (tool for tool in (await session.list_tools()).tools if tool.name == self.tool_name), None
