@@ -831,21 +831,22 @@ class Env:
 
     def _start_web_server(self) -> None:
         """
-        The http server root is the file system root.
-        eg: /home/media/foo.mp4 is located at http://127.0.0.1:{port}/home/media/foo.mp4
-        On Windows, the server will translate paths like http://127.0.0.1:{port}/c:/media/foo.mp4
+        The http server root is the file system root, behind a token that is new in every process.
+        eg: /home/media/foo.mp4 is located at http://127.0.0.1:{port}/{token}/home/media/foo.mp4
+        On Windows, the server will translate paths like http://127.0.0.1:{port}/{token}/c:/media/foo.mp4
         This arrangement enables serving objects hosted within _home,
         as well as external objects inserted into pixeltable or produced by pixeltable.
         The port is chosen dynamically to prevent conflicts.
         """
         # Port 0 means OS picks one for us.
-        self._httpd = make_server('127.0.0.1', 0)
-        port = self._httpd.server_address[1]
-        self._http_address = f'http://127.0.0.1:{port}'
+        httpd = make_server('127.0.0.1', 0)
+        self._httpd = httpd
+        self._http_address = httpd.http_address
+        port = httpd.server_address[1]
 
         def run_server() -> None:
-            logging.log(logging.INFO, f'running web server at {self._http_address}')
-            self._httpd.serve_forever()
+            logging.log(logging.INFO, f'running web server on port {port}')
+            httpd.serve_forever()
 
         # Run the server in a separate thread
         thread = threading.Thread(target=run_server, daemon=True)
