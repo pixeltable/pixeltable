@@ -8,7 +8,6 @@ pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 @pytest.mark.very_expensive
-@pytest.mark.remote_api
 @rerun_on_network_error()
 class TestJina:
     def test_embeddings(self, uses_db: None) -> None:

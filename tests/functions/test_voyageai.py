@@ -14,7 +14,6 @@ from ..utils import (
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
-@pytest.mark.remote_api
 @pytest.mark.very_expensive
 @rerun_on_network_error()
 class TestVoyageAI:

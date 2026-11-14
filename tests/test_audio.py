@@ -580,7 +580,7 @@ class TestAudio:
         return audio_data, duration_seconds, sample_rate
 
     @pytest.mark.db_roots('local', reason='pure UDF test')
-    @pytest.mark.very_expensive  # Downloads a Hugging Face dataset
+    @pytest.mark.skip_merge_queue  # Downloads a Hugging Face dataset
     @rerun_on_network_error()
     def test_encode_dataset_audio(self, uses_db: None) -> None:
         """

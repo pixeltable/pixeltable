@@ -1578,7 +1578,7 @@ class TestIndex:
         embed, is_dummy_model = mpnet_or_local
 
         def check(cond: bool) -> None:
-            # text-ordering results depend on real-model semantics; only assert them on the very_expensive tier
+            # text-ordering results depend on real-model semantics; only assert them with the real model
             if not is_dummy_model:
                 assert cond
 

@@ -7,8 +7,8 @@ from ..utils import rerun_on_network_error, skip_test_if_no_client, skip_test_if
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
-@pytest.mark.remote_api
-@pytest.mark.very_expensive  # Not really "very expensive", but Together AI is too unreliable for merge queue
+@pytest.mark.expensive
+@pytest.mark.skip_merge_queue
 @rerun_on_network_error()
 class TestTogether:
     def test_completions(self, uses_db: None) -> None:
@@ -87,7 +87,6 @@ class TestTogether:
         validate_update_status(t.insert(input='Together AI provides a variety of embeddings models.'), 1)
         assert len(t.collect()['embed'][0]) > 0
 
-    @pytest.mark.expensive
     def test_image_generations(self, uses_db: None) -> None:
         skip_test_if_not_installed('together')
         skip_test_if_no_client('together')
