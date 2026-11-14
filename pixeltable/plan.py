@@ -1291,7 +1291,7 @@ class Planner:
         combined_ordering = cls._create_combined_ordering(analyzer, verify_agg=is_python_agg)
         cls._verify_join_clauses(analyzer)
 
-        # materialized with SQL table scans (ie, single-table SELECT statements):
+        # materialized in SQL, by the SqlScanNode or SqlJoinNode:
         # - Select list subexprs that aren't aggregates. In a grouping aggregation, only the args of aggregate and
         # window function calls; the rest of the analyzer's select list is aggregate output, which is not allowed to be
         # materialized in the inner scan.
@@ -1332,6 +1332,10 @@ class Planner:
         plan: exec.ExecNode
         tbl = analyzer.from_clause.tvps[-1]
         if len(analyzer.from_clause.join_clauses) > 0:
+            # SqlJoinNode does not apply these arguments
+            assert len(columns) == 0
+            assert len(created_at_current_version) == 0 and len(deleted_at_current_version) == 0
+            assert exclude_deleted_at_current_version is None
             plan = exec.SqlJoinNode(
                 row_builder,
                 tbls=analyzer.from_clause.tvps,
