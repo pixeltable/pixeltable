@@ -1084,7 +1084,7 @@ class Planner:
         # it so that it isn't held in memory at once.
         sql_node = plan.get_node(exec.SqlNode)
         assert sql_node is not None
-        sql_node.stream_results = True
+        sql_node.set_stream_results(True)
         exec_ctx.batch_size = cls._ROW_BATCH_SIZE
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)

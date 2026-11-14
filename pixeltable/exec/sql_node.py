@@ -435,6 +435,9 @@ class SqlNode(ExecNode):
     def set_offset(self, offset: exprs.Expr) -> None:
         self.offset = offset
 
+    def set_stream_results(self, stream_results: bool) -> None:
+        self.stream_results = stream_results
+
     def _check_catalog_locks(self) -> None:
         """Check that Catalog holds read locks for the tables used by this query."""
         for input in self._cte_inputs:
