@@ -88,6 +88,7 @@ class SqlNode(ExecNode):
     columns: list[catalog.Column]  # columns copied unchanged into the output rows, via DataRow.cell_vals/cell_md
     cell_md_refs: list[exprs.ColumnPropertyRef]  # of ColumnRefs which also need DataRow.slot_cellmd for evaluation
     set_pk: bool
+    stream_results: bool
     num_pk_cols: int
     cte: sql.CTE | None
     sql_elements: exprs.SqlElementCache
@@ -158,6 +159,7 @@ class SqlNode(ExecNode):
 
         assert self.sql_elements.contains_all(self.select_list)
         self.set_pk = set_pk
+        self.stream_results = False
         self.num_pk_cols = 0
         if set_pk:
             # we also need to retrieve the pk columns
@@ -479,7 +481,10 @@ class SqlNode(ExecNode):
 
             conn = get_runtime().conn
             with telemetry.span('pixeltable.sa.select'):
-                result_cursor = conn.execute(stmt, self.bound_args)
+                result_cursor = conn.execute(
+                    stmt, self.bound_args, execution_options={'stream_results': True} if self.stream_results else {}
+                )
+            self.result_cursor = result_cursor
             for _ in w:
                 pass
 

@@ -280,6 +280,8 @@ class Analyzer:
 
 
 class Planner:
+    _ROW_BATCH_SIZE = 1024
+
     @classmethod
     def create_insert_plan(
         cls,
@@ -347,7 +349,7 @@ class Planner:
             plan = exec.SqlDataNode(tbl.handle, source, row_builder)
         else:
             plan = exec.RowDataNode(tbl.handle, source, row_builder, set_pk=set_pk)
-        batch_size = 1024
+        batch_size = cls._ROW_BATCH_SIZE
 
         if skip_existing_keys:
             # ahead of the prefetch node: a skipped row's media isn't fetched
@@ -1078,11 +1080,10 @@ class Planner:
                 row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, input=plan
             )
 
-        # TODO: this plan holds all of its rows in memory at once: exec_ctx has batch_size 0 (from
-        # _create_query_plan()), so the scan returns a single batch, and SqlNode runs its SELECT without
-        # stream_results, so the driver fetches the whole result set first. Propagating an insert to a view loads
-        # every base row created at the new version, so an insert that streams its source (TableDataConduit,
-        # SqlDataSource) or a Query still materializes the entire insert, once per view.
+        sql_node = plan.get_node(exec.SqlNode)
+        assert sql_node is not None
+        sql_node.stream_results = True
+        exec_ctx.batch_size = cls._ROW_BATCH_SIZE
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
         if any(c.col_type.needs_cell_materialization() for c in stored_cols):
