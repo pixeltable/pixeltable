@@ -790,7 +790,15 @@ class PydanticTableDataConduit(TableDataConduit):
     def prepare_for_insert_into_table(self) -> None:
         """Validate the Pydantic model and the rows against the table"""
         self._validate_pydantic_model(type(cast(Sequence[pydantic.BaseModel], self.source)[0]))
+        sorted_reqd_cols = sorted(self.reqd_col_names)
         for i, raw_row in enumerate(self.dumped_rows):
+            # explicitly check that all required columns are present and non-None in the rows,
+            # because we ignore nullability when validating the pydantic model
+            for col_name in sorted_reqd_cols:
+                if raw_row.get(col_name) is None:
+                    raise excs.RequestError(
+                        excs.ErrorCode.MISSING_REQUIRED, f'Missing required column {col_name!r} in row {i}'
+                    )
             self._convert_row(i, raw_row)
 
     def rows(self) -> Iterator[dict[str, Any]]:
@@ -799,13 +807,6 @@ class PydanticTableDataConduit(TableDataConduit):
             yield self._convert_row(i, raw_row)
 
     def _convert_row(self, i: int, raw_row: dict[str, Any]) -> dict[str, Any]:
-        # explicitly check that all required columns are present and non-None in the rows,
-        # because we ignore nullability when validating the pydantic model
-        for col_name in sorted(self.reqd_col_names):
-            if raw_row.get(col_name) is None:
-                raise excs.RequestError(
-                    excs.ErrorCode.MISSING_REQUIRED, f'Missing required column {col_name!r} in row {i}'
-                )
         # Coerce each cell to its column's stored representation, exactly as the dict path does
         # (RowDataTableDataConduit._translate_row). This is what makes a pydantic model behave like the
         # equivalent dict: timestamps localized, enums accepted only when their members are int/str values, etc.
