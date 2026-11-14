@@ -50,15 +50,16 @@ def ceil(self: float) -> float:
 
 @ceil.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.ceiling(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.ceiling(self, type_=sql.Float)
 
 
 @pxt.udf(is_method=True)
 def floor(self: float) -> float:
     """
-    Return the ceiling of the given number.
+    Return the floor of the given number.
 
-    Equivalent to Python [`float(math.floor(self))`](https://docs.python.org/3/library/math.html#math.ceil) if `self`
+    Equivalent to Python [`float(math.floor(self))`](https://docs.python.org/3/library/math.html#math.floor) if `self`
     is finite, or `self` itself if `self` is infinite. (This is slightly different from the default behavior of
     `math.floor(self)`, which always returns an `int` and raises an error if `self` is infinite. The behavior of
     Pixeltable generalizes the Python operator and is chosen to align with the SQL standard.)
@@ -72,7 +73,8 @@ def floor(self: float) -> float:
 
 @floor.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.floor(self)
+    # without type_, SQLAlchemy leaves the element's type as NullType
+    return sql.func.floor(self, type_=sql.Float)
 
 
 @pxt.udf(is_method=True)
@@ -91,7 +93,8 @@ def round(self: float, digits: int | None = None) -> float:
 @round.to_sql
 def _(self: sql.ColumnElement, digits: sql.ColumnElement | None = None) -> sql.ColumnElement:
     if digits is None:
-        return sql.func.round(self)
+        # without type_, SQLAlchemy leaves the element's type as NullType
+        return sql.func.round(self, type_=sql.Float)
     else:
         return sql.cast(sql.func.round(sql.cast(self, sql.Numeric), sql.cast(digits, sql.Integer)), sql.Float)
 
@@ -224,14 +227,27 @@ def to_int(self: float) -> int:
     """
     Convert a float to an integer by truncating toward zero.
 
-    Equivalent to Python [`int(self)`](https://docs.python.org/3/library/functions.html#int).
+    Equivalent to Python [`int(self)`](https://docs.python.org/3/library/functions.html#int). Raises an error for
+    infinity, NaN, and values outside the range of `Int`.
+
+    To round down, up or to the nearest integer instead, apply [`floor()`][pixeltable.functions.math.floor],
+    [`ceil()`][pixeltable.functions.math.ceil] or [`round()`][pixeltable.functions.math.round] first, as in
+    `t.x.floor().to_int()`.
     """
-    return builtins.int(self)
+    result = builtins.int(self)
+    if not -(2**63) <= result < 2**63:
+        raise OverflowError(f'{self} is outside the range of Int')
+    return result
 
 
 @to_int.to_sql
-def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.cast(self, sql.Integer)
+def _(self: sql.ColumnElement) -> sql.ColumnElement | None:
+    if isinstance(self.type, sql.Integer):
+        return sql.cast(self, sql.BigInteger)
+    if isinstance(self.type, sql.Float):
+        return sql.cast(sql.func.trunc(self), sql.BigInteger)
+    # trunc() rejects a BOOLEAN and converts a BIGINT to DOUBLE PRECISION, which is inexact above 2**53
+    return None
 
 
 @pxt.udf(is_method=True)
