@@ -104,7 +104,10 @@ class ArithmeticExpr(Expr):
                 # Avoid division by zero errors by converting any zero divisor to NULL.
                 zero = sql.cast(0, self._op2.col_type.to_sa_type())
                 nullif1 = sql.cast(sql.func.nullif(right, zero), self.col_type.to_sa_type())
-                return left % nullif1
+                # Postgres' % takes the sign of the dividend (truncated division), Python's takes the sign of the
+                # divisor (floored division); adjust the remainder so that the result matches Python's %.
+                rem = left % nullif1
+                return sql.case((sql.and_(rem != 0, (rem < 0) != (nullif1 < 0)), rem + nullif1), else_=rem)
             if self.col_type.is_float_type():
                 # Postgres does not support modulus for floats
                 return None
