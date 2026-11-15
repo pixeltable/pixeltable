@@ -16,7 +16,7 @@ from pixeltable.env import Env
 from pixeltable.service import management_client, receipts
 from pixeltable.service.db_md import DatabaseResources
 from pixeltable.service.management_protocol import (
-    LOCAL_DB_NAME_PREFIX,
+    LOCAL_DB_CLOUD_NAME_PREFIX,
     BlobRef,
     BlobUpload,
     DatabaseReport,
@@ -79,10 +79,14 @@ class LocalDatabase:
 
     def cloud_db_name(self) -> str:
         """Return the database's name in the control plane: name and a hash, unique within an organization."""
-        digest = hashlib.sha256(f'{self.install_id}:{self.name}'.encode()).hexdigest()
-        # a hosted name has at most 29 characters of [a-z0-9-]
-        label = ''.join(c if c.isascii() and c.isalnum() else '-' for c in self.name.lower())[:10].strip('-')
-        return f'{LOCAL_DB_NAME_PREFIX}{label}-{digest[:12]}' if label != '' else LOCAL_DB_NAME_PREFIX + digest[:12]
+        digest = hashlib.sha256(f'{self.install_id}:{self.name}'.encode()).hexdigest()[:12]
+        # a name in the control plane has at most 29 characters of [a-z0-9-]; the prefix, a hyphen and digest
+        # leave 10 for name
+        label = ''.join(c if c.isascii() and c.isalnum() else '-' for c in self.name.lower())
+        label = label[:10].strip('-')
+        if label == '':
+            return LOCAL_DB_CLOUD_NAME_PREFIX + digest
+        return f'{LOCAL_DB_CLOUD_NAME_PREFIX}{label}-{digest}'
 
 
 def local_database() -> LocalDatabase:
@@ -491,13 +495,13 @@ def _as_local_database(db_path: catalog.Path) -> LocalDatabase | None:
     """
     assert db_path.db is not None
     # a name without the prefix belongs to a hosted database; local_database() would start the local one
-    if not db_path.db.startswith(LOCAL_DB_NAME_PREFIX):
+    if not db_path.db.startswith(LOCAL_DB_CLOUD_NAME_PREFIX):
         return None
     local = local_database()
     if db_path.db != local.cloud_db_name():
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            f'{db_path.uri_str} is not the local database of this install: the prefix {LOCAL_DB_NAME_PREFIX!r} '
+            f'{db_path.uri_str} is not the local database of this install: the prefix {LOCAL_DB_CLOUD_NAME_PREFIX!r} '
             'is reserved for local databases.',
         )
     return local

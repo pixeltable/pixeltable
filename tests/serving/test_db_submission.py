@@ -21,6 +21,8 @@ import pixeltable
 from pixeltable import exceptions as excs, metadata
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config
+from pixeltable.env import Env
+from pixeltable.exec.expr_eval.modal_client import ModalEndpoints
 from pixeltable.service import management_client, receipts
 from pixeltable.service.db import (
     db_build_image,
@@ -248,6 +250,10 @@ class TestDbSubmission:
         assert submitted.db == local.cloud_db_name()
         servers = local_db_udf_servers()
         assert servers.urls == _UDF_URLS and servers.headers == _UDF_HEADERS
+        # ModalEndpoints.get() caches its result in Env; this patch discards it after the test
+        monkeypatch.setattr(Env.get(), '_resource_pool_info', {})
+        monkeypatch.delenv('PXT_UDF_SERVERS', raising=False)
+        assert ModalEndpoints.get() == ModalEndpoints(_UDF_URLS, _UDF_HEADERS)
 
         (project / 'app.py').write_text('x = 2\n')
         with pxt_raises(

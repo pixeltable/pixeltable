@@ -212,7 +212,21 @@ class TestNoWait:
 class TestDbUsage:
     @pytest.mark.parametrize(
         'argv',
-        [['frobnicate'], ['diff', 'my_dir'], ['status', 'pxt://acme'], ['update', 'pxt://acme:main', '--nope'], []],
+        [
+            ['frobnicate'],
+            ['diff', 'my_dir'],
+            ['status', 'pxt://acme'],
+            ['update', 'pxt://acme:main', '--nope'],
+            [],
+            # the verbs for a database's pods require a uri
+            ['logs'],
+            ['spans'],
+            ['start'],
+            ['stop'],
+            ['restart'],
+            ['build-image'],
+            ['diff', '--add-config-entry'],
+        ],
     )
     def test_usage_exits_1(self, argv: list[str], capsys: pytest.CaptureFixture[str]) -> None:
         """A usage error exits 1, since 2 means changes pending (diff) or a change still under way (the waits)."""
@@ -273,24 +287,84 @@ class TestDbDeleteWait:
             assert 'the change continues in Pixeltable Cloud' in err
 
 
+@pytest.mark.db_roots('local', reason='the daemon is faked, so no catalog is reached')
+class TestDbWithoutUri:
+    def test_verbs(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+        """Without a uri, `pxt db` diff, update, status, retry and delete act on the local database."""
+        uri = 'pxt://acme:local-main-0123456789ab'
+        report = {'db': 'local-main-0123456789ab', 'current': {'state': 'AVAILABLE'}}
+        settled = GenerationReceipt(
+            kind='database', resource_id='db-uuid', generation=2, db=report['db'], outcome=ReceiptOutcome.OBSERVED
+        )
+        posts: list[tuple[str, dict[str, Any]]] = []
+
+        def get_request(path: str, params: dict[str, Any] | None = None, *, raise_on_error: bool = False) -> Any:
+            if path == '/api/db/local':
+                return {'db_uri': uri}
+            assert path == '/api/db' and params is not None and (params['org'], params['db']) == ('acme', report['db'])
+            return {'report': report, 'worker_status': []}
+
+        def post_request(path: str, body: dict[str, Any], *, raise_on_error: bool = False) -> Any:
+            if path == '/api/receipts':
+                return {'receipts': [settled.model_dump(mode='json')]}
+            posts.append((path, body))
+            if path == '/api/db/diff':
+                return types.DbPlan.from_ops(uri, types.DbState.AVAILABLE, []).model_dump(mode='json')
+            return {'receipt': settled.model_dump(mode='json'), 'report': report}
+
+        monkeypatch.setattr(db_cmd, 'get_request', get_request)
+        monkeypatch.setattr(db_cmd, 'post_request', post_request)
+        monkeypatch.setattr(hosted, 'post_request', post_request)
+        monkeypatch.setattr(utils, 'stdin_is_a_tty', lambda: False)
+
+        def run(*argv: str) -> tuple[int, str, str]:
+            posts.clear()
+            code = 0
+            try:
+                db_cmd.run(list(argv))
+            except SystemExit as exc:
+                code = int(exc.code or 0)
+            out, err = capsys.readouterr()
+            return code, out, err
+
+        code, out, _ = run('status', '--json')
+        assert code == 0 and json.loads(out) == report and posts == []
+
+        for verb in ('diff', 'update'):
+            code, out, _ = run(verb, '--json')
+            assert code == utils.EXIT_IN_AGREEMENT
+            assert json.loads(out)['db_uri'] == uri
+            assert posts == [('/api/db/diff', {'db_uri': uri})]
+
+        code, out, _ = run('retry', '--no-wait', '--json')
+        assert code == 0 and json.loads(out) == report
+        assert posts == [('/api/db/retry', {'db_uri': uri, 'wait': False})]
+
+        # the prompt says that the deletion is of the UDF servers
+        code, _, err = run('delete')
+        assert code == utils.EXIT_REFUSED and posts == []
+        assert f'delete the UDF servers of the local database ({uri})? This is irreversible.' in err
+        code, out, _ = run('delete', '-f')
+        assert code == 0 and out.strip() == 'Deleted the UDF servers of the local database.'
+        assert posts == [('/api/db/delete', {'db_uri': uri, 'wait': False})]
+
+
 @pytest.mark.db_roots('local', reason='confirmation refuses deletion before contacting the control plane')
 class TestDbDelete:
     def test_requires_confirmation(self, cli: PxtRunner) -> None:
         uri = 'pxt://pixeltable:pxttest-delete-confirmation'
-        # without a uri, the command acts on the local database, which needs the control plane
-        for uri_args in ([uri],):
-            for output_args in ([], ['--json']):
-                result = cli('db', 'delete', *uri_args, *output_args, check=False)
-                assert result.returncode == 3, result.stderr
-                assert f'delete {uri}? This is irreversible.' in result.stderr
-                assert '--force/-f' in result.stderr
-                # it names the command that confirms the deletion, which this test leaves unrun
-                assert result.next_commands == [['pxt', 'db', 'delete', *uri_args, *output_args, '-f']]
-                if output_args:
-                    assert result.json['error_code'] == 'CONFIRMATION_REQUIRED'
-                    assert result.json['next'][0]['command'] == shlex.join(result.next_commands[0])
-                else:
-                    assert result.stdout == ''
+        for output_args in ([], ['--json']):
+            result = cli('db', 'delete', uri, *output_args, check=False)
+            assert result.returncode == 3, result.stderr
+            assert f'delete {uri}? This is irreversible.' in result.stderr
+            assert '--force/-f' in result.stderr
+            # the refusal has the command that confirms the deletion, which this test leaves unrun
+            assert result.next_commands == [['pxt', 'db', 'delete', uri, *output_args, '-f']]
+            if output_args:
+                assert result.json['error_code'] == 'CONFIRMATION_REQUIRED'
+                assert result.json['next'][0]['command'] == shlex.join(result.next_commands[0])
+            else:
+                assert result.stdout == ''
 
     def test_update_json_prints_pending_plan(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

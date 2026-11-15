@@ -107,7 +107,9 @@ def _add_db_uri(parser: argparse.ArgumentParser, verb: str) -> None:
 
 
 def run(argv: list[str]) -> None:
-    parser = _Parser(prog='pxt db', description='manage hosted databases', epilog=EPILOG)
+    parser = _Parser(
+        prog='pxt db', description='manage hosted databases and the UDF servers of the local database', epilog=EPILOG
+    )
     sub = parser.add_subparsers(dest='action', required=True)
 
     if argv == ['diff', '--json-schema']:
@@ -146,7 +148,7 @@ def run(argv: list[str]) -> None:
     p = sub.add_parser('list', help='list hosted databases')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
-    p = sub.add_parser('status', help='show status of a hosted database')
+    p = sub.add_parser('status', help='show status of a database')
     _add_db_uri(p, 'status')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
@@ -162,7 +164,7 @@ def run(argv: list[str]) -> None:
         ('start', 'start (wake) a stopped hosted database'),
         ('stop', 'stop (sleep) a running hosted database'),
         ('restart', 'restart a hosted database'),
-        ('retry', 'retry the failed current update of a hosted database'),
+        ('retry', 'retry the failed current update of a database'),
     ):
         p = sub.add_parser(verb, help=help_text)
         _add_db_uri(p, verb)
@@ -174,13 +176,18 @@ def run(argv: list[str]) -> None:
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     _add_no_wait(p)
 
-    p = sub.add_parser('delete', help='delete a hosted database')
+    p = sub.add_parser('delete', help='delete a hosted database, or the UDF servers of the local database')
     _add_db_uri(p, 'delete')
     p.add_argument('-f', '--force', action='store_true', help='skip confirmation')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     _add_no_wait(p)
 
     args = parser.parse_args(argv)
+    if getattr(args, 'add_config_entry', False) and args.db_uri is None:
+        parser.error(
+            "--add-config-entry needs a database uri; the local database's entry is the [[pixeltable.database]] "
+            "entry named 'local'"
+        )
 
     if args.action == 'diff':
         _diff(args)
@@ -266,8 +273,7 @@ def _change_lifecycle(args: argparse.Namespace) -> None:
 
 
 def _db_uri(args: argparse.Namespace, prog: str) -> str:
-    """Return the uri of the verb's database: the uri argument, or without one the uri of the local database in
-    Pixeltable Cloud."""
+    """Return the uri argument, or without one the uri of the local database in Pixeltable Cloud."""
     if args.db_uri is None:
         return get_request('/api/db/local')['db_uri']
     org, db = parse_db_uri(args.db_uri, prog=prog)
@@ -279,7 +285,7 @@ def _add_config_entry(args: argparse.Namespace, db_uri: str) -> str | None:
 
     Returns None without --add-config-entry, or when the project configuration already has the entry.
     """
-    if not args.add_config_entry or args.db_uri is None:
+    if not args.add_config_entry:
         return None
     try:
         config_file = add_database_entry(db_uri)
@@ -417,7 +423,13 @@ def _print_plan(plan: DbPlan, *, as_json: bool, applied: bool = False, error: di
 def _delete(args: argparse.Namespace) -> None:
     db_uri = _db_uri(args, 'pxt db delete')
     _, db = parse_db_uri(db_uri)
-    confirm_or_exit(f'delete {db_uri}? This is irreversible.', args.force)
+    if args.db_uri is None:
+        # the deletion leaves the local database and its data in place
+        what = 'the UDF servers of the local database'
+        confirm_or_exit(f'delete {what} ({db_uri})? This is irreversible.', args.force)
+    else:
+        what = f"database '{db}'"
+        confirm_or_exit(f'delete {db_uri}? This is irreversible.', args.force)
     with spinner(None if args.json_output else f'Submitting the deletion of {db_uri} ...'):
         accepted = DbLifecycleResponse.model_validate(post_request('/api/db/delete', {'db_uri': db_uri, 'wait': False}))
     settled = _await(db_uri, [accepted.receipt], args)
@@ -426,9 +438,9 @@ def _delete(args: argparse.Namespace) -> None:
     if args.json_output:
         print(json.dumps({'deleted' if deleted else 'deleting': db, 'receipt': settled[0].model_dump(mode='json')}))
     elif deleted:
-        print(f"Deleted database '{db}'.")
+        print(f'Deleted {what}.')
     else:
-        print(f"Deleting database '{db}'; its name stays taken until its teardown finishes.")
+        print(f'Deleting {what}; its name stays taken until its teardown finishes.')
     if not deleted:
         _print_receipts(db_uri, settled, waited=args.wait, show=not args.json_output)
 

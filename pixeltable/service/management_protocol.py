@@ -180,9 +180,8 @@ class BlobUpload(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict)
 
 
-# The control plane registers a local database in the organization of the request's credential, as a database that
-# has UDF servers and no pods. Its name there starts with this prefix, and a request has that name in its db field.
-LOCAL_DB_NAME_PREFIX = 'local-'
+# the first part of a local database's name in the control plane, which gives such a database UDF servers and no pods
+LOCAL_DB_CLOUD_NAME_PREFIX = 'local-'
 
 
 class DatabaseTarget(DatabaseResources):

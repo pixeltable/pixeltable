@@ -341,6 +341,22 @@ class TestPgdataDir:
         _reset_env(reinit=False, db_name=None)
 
 
+class TestHasLocalDb:
+    def test_has_local_db(self, uses_db: None, tmp_path: Path) -> None:
+        """An install has a local database once it has started one, and the check doesn't start it."""
+        skip_test_if_not_local()
+        assert Env.get().has_local_db()
+
+        # a process of an install that never started its database
+        home = tmp_path / 'home'
+        env = {k: v for k, v in os.environ.items() if k != 'PIXELTABLE_DB_CONNECT_STR'}
+        env.update(PIXELTABLE_HOME=str(home), PIXELTABLE_PGDATA=str(home / 'pgdata'))
+        script = 'from pixeltable.env import Env; print(Env.get().has_local_db())'
+        result = subprocess.run([sys.executable, '-c', script], env=env, capture_output=True, text=True, check=True)
+        assert result.stdout.splitlines()[-1] == 'False'
+        assert not (home / 'pgdata').exists()
+
+
 class TestEnsureConnected:
     def test_failed_connect_starts_over(self, uses_db: None, fault_injection: None) -> None:
         """A failed connect disposes its engine, and the next call connects."""
