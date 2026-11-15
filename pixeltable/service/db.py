@@ -105,6 +105,11 @@ def local_db_uri() -> str:
             'The pixeltable.db_uri setting is no longer supported, and a command without a uri acts on the local '
             f'database. Remove the setting, and pass the uri to act on the hosted database: {stale_db_uri}',
         )
+    return f'pxt://{_local_db_org()}:{local_database().cloud_db_name()}'
+
+
+def _local_db_org() -> str:
+    """Return the name of the organization with the local database's UDF servers: the credential's only one."""
     orgs = ListOrgsResponse.model_validate(management_client.api_call(ListOrgsRequest())).orgs
     if len(orgs) == 0:
         raise excs.RequestError(
@@ -118,7 +123,7 @@ def local_db_uri() -> str:
             f'The UDF servers of a local database belong to one organization, and your sign-in has {len(orgs)}. '
             'Set `PIXELTABLE_API_KEY` to an API key of the organization.',
         )
-    return f'pxt://{orgs[0].org}:{local_database().cloud_db_name()}'
+    return orgs[0].org
 
 
 def local_db_udf_servers() -> GetUdfServersResponse:
@@ -129,7 +134,7 @@ def local_db_udf_servers() -> GetUdfServersResponse:
             'The pixeltable.udf setting needs a project in order to create UDF servers. '
             'Run `pxt init` to write a project configuration, then `pxt db update`.',
         )
-    request = GetUdfServersRequest(db=local_database().cloud_db_name())
+    request = GetUdfServersRequest(org=_local_db_org(), db=local_database().cloud_db_name())
     try:
         servers = GetUdfServersResponse.model_validate(management_client.api_call(request))
     except excs.ExternalServiceError as exc:
@@ -480,13 +485,22 @@ def _local_db_config() -> DatabaseConfig:
 
 
 def _as_local_database(db_path: catalog.Path) -> LocalDatabase | None:
-    """Return the local database if db_path is local_db_uri()."""
+    """Return the local database if db_path is local_db_uri(), and None for a hosted database.
+
+    Raises an error for the name of another install's local database.
+    """
     assert db_path.db is not None
     # a name without the prefix belongs to a hosted database; local_database() would start the local one
     if not db_path.db.startswith(LOCAL_DB_NAME_PREFIX):
         return None
     local = local_database()
-    return local if db_path.db == local.cloud_db_name() else None
+    if db_path.db != local.cloud_db_name():
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'{db_path.uri_str} is not the local database of this install: the prefix {LOCAL_DB_NAME_PREFIX!r} '
+            'is reserved for local databases.',
+        )
+    return local
 
 
 def _check_local_db_has_udfs(db_path: catalog.Path) -> None:

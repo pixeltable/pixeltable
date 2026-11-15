@@ -226,9 +226,14 @@ class TestDbSubmission:
         with pxt_raises(excs.ErrorCode.INVALID_STATE, match='your sign-in has no organization'):
             local_db_uri()
         control_plane.orgs = ['acme', 'other']
-        with pxt_raises(excs.ErrorCode.INVALID_STATE, match='your sign-in has 2'):
-            local_db_uri()
+        for uri_or_servers in (local_db_uri, local_db_udf_servers):
+            with pxt_raises(excs.ErrorCode.INVALID_STATE, match='your sign-in has 2'):
+                uri_or_servers()
         control_plane.orgs = ['acme']
+
+        # the name of another install's local database
+        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match='is not the local database of this install'):
+            db_update('pxt://acme:local-main-000000000000')
 
         with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'have no servers\. Run `pxt db update`'):
             local_db_udf_servers()
