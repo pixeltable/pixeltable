@@ -2150,6 +2150,7 @@ class TestServiceOtel:
     )
     def test_run_otel(
         self,
+        init_env: None,
         tmp_path: pathlib.Path,
         monkeypatch: pytest.MonkeyPatch,
         excluded_urls_env: dict[str, str],

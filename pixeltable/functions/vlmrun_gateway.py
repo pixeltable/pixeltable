@@ -27,7 +27,6 @@ from pixeltable.config import Config
 from pixeltable.env import Env, register_client
 from pixeltable.func import Batch
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.documents import get_document_handle
 from pixeltable.utils.image import to_base64
 
@@ -831,7 +830,7 @@ async def transcriptions(
     return cast(TranscriptionResponse, result.model_dump(mode='json'))
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['analyze', 'chat_completions', 'embeddings', 'ocr', 'transcriptions']
 
 
 def __dir__() -> list[str]:

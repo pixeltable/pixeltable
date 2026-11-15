@@ -2,21 +2,23 @@ from __future__ import annotations
 
 import inspect
 from functools import reduce
-from typing import TYPE_CHECKING, Any, Callable, Iterable, overload
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Iterable, Sequence, overload
 
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
+from pixeltable.types import FunctionKind
 
 from .function import Function
 from .signature import Signature
 
 if TYPE_CHECKING:
-    from pixeltable._query import Query
+    from pixeltable._query import Query, ResultSet
     from pixeltable._query_base import QueryBase
 
 
 class QueryTemplateFunction(Function):
     """A parameterized query from which an executable Query is created with a function call."""
 
+    kind: ClassVar[FunctionKind] = 'query'
     template_query: 'QueryBase' | None
     self_name: str | None
     return_scalar: bool
@@ -115,8 +117,19 @@ class QueryTemplateFunction(Function):
     def is_async(self) -> bool:
         return True
 
+    def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
+        # _collect() opens its own transaction; _acollect() requires one
+        query, bound_args = self._query_and_args(args, kwargs)
+        return self._return_value(query._collect(args=bound_args))
+
     async def aexec(self, *args: Any, **kwargs: Any) -> Any:
-        # assert not self.is_polymorphic
+        query, bound_args = self._query_and_args(args, kwargs)
+        return self._return_value(await query._acollect(args=bound_args))
+
+    def _query_and_args(self, args: Sequence[Any], kwargs: dict[str, Any]) -> tuple[Query, dict[str, Any]]:
+        """Return the query over a table and the argument of each parameter, with defaults applied."""
+        from pixeltable._query import Query
+
         bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
         # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
@@ -126,16 +139,15 @@ class QueryTemplateFunction(Function):
                 if param.has_default() and param.name not in bound_args
             }
         )
-        from pixeltable._query import Query
-
-        # a route binds a template declared over a model to its table before serving it; nothing else does,
-        # so a template that is still declared over a model here has no table to read
+        # a template declared over a model has no table to read until bind_query_templates() replaces it
         if not isinstance(self.template_query, Query):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Query UDF {self.name!r} is declared over a model rather than a table, so it cannot be evaluated.',
             )
-        result = await self.template_query._acollect(args=bound_args)
+        return self.template_query, bound_args
+
+    def _return_value(self, result: ResultSet) -> Any:
         rows: list[Any] = list(result)
         if self.return_scalar:
             col_name = next(iter(self.template_query.schema))

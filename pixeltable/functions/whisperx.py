@@ -12,7 +12,6 @@ import pixeltable as pxt
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.functions.model_support import resolve_torch_device
-from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     from transformers import Wav2Vec2Model
@@ -195,7 +194,7 @@ _alignment_model_cache: dict[tuple[str, str, str | None], tuple['Wav2Vec2Model',
 _diarization_model_cache: dict[tuple[str, str | None], 'DiarizationPipeline'] = {}
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['transcribe']
 
 
 def __dir__() -> list[str]:

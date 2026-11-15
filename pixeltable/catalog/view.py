@@ -83,7 +83,7 @@ class View(LocalTable):
             if expr.contains_(cls=exprs.FunctionCall, filter=lambda e: cast(exprs.FunctionCall, e).is_agg_fn_call):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'{error_prefix}{item} aggregates over the base table: {expr}\n'
+                    f'{error_prefix}{item} aggregates over the base table: {expr!s}\n'
                     'Aggregates are not allowed in a view definition.',
                 )
 
@@ -226,7 +226,7 @@ class View(LocalTable):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Column {col.name!r}: Value expression cannot be computed in the context of the '
-                    f'base table {base.tbl_name()!r}\n{col.value_expr}',
+                    f'base table {base.tbl_name()!r}\n{col.value_expr!s}',
                 )
 
         iterator_args_expr: exprs.Expr = InlineDict(iterator_call.bound_args) if iterator_call is not None else None
@@ -398,6 +398,7 @@ class View(LocalTable):
         source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
         schema_overrides: dict[str, ts.ColumnType] | None = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        if_exists: Literal['error', 'ignore'] = 'error',
         print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:

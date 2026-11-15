@@ -11,7 +11,6 @@ import pixeltable as pxt
 from pixeltable import env
 from pixeltable.config import Config
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     import fireworks
@@ -78,7 +77,7 @@ async def chat_completions(
     return result.model_dump(mode='json')
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['chat_completions']
 
 
 def __dir__() -> list[str]:

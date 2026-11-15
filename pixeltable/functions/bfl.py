@@ -18,7 +18,6 @@ import PIL.Image
 
 import pixeltable as pxt
 from pixeltable.env import register_client
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 
 _logger = logging.getLogger(__name__)
@@ -481,7 +480,7 @@ async def expand(
     return await _client().generate(endpoint, payload)
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['edit', 'expand', 'fill', 'generate']
 
 
 def __dir__() -> list[str]:

@@ -23,7 +23,7 @@ class Variable(Expr):
     def __init__(self, name: str, col_type: ts.ColumnType):
         super().__init__(col_type)
         self.name = name
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     @property
     def _bind_name(self) -> str:

@@ -10,7 +10,6 @@ from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.functions import media_metadata as util
 from pixeltable.functions.math import abs as pxt_abs, floor as pxt_floor
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 
 
@@ -1561,4 +1560,23 @@ def zoom(
     )
 
 
-__all__ = local_public_names(__name__, exclude=['abs', 'floor'])
+__all__ = [
+    'adjust_brightness',
+    'crop',
+    'fade_in',
+    'fade_out',
+    'ffmpeg_filter',
+    'grayscale',
+    'mirror_x',
+    'mirror_y',
+    'overlay_image',
+    'overlay_text',
+    'pan',
+    'resize',
+    'reverse',
+    'rotate',
+    'scroll',
+    'speed',
+    'transition',
+    'zoom',
+]

@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
 import psutil
+import pydantic
 import sqlalchemy as sql
 import tzlocal
 from pillow_heif import register_heif_opener
@@ -32,6 +33,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
+from pixeltable.service.resources import UdfResources
 from pixeltable.utils import fault_injection
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import Dbms, PostgresqlDbms
@@ -55,6 +57,8 @@ _logger = logging.getLogger(__name__)
 LOG_FMT_STR = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
 T = TypeVar('T')
+
+_UDF_RESOURCES_ADAPTER = pydantic.TypeAdapter(dict[str, UdfResources])
 
 _DEFAULT_PROXY_DOMAIN = 'pxt.run'
 # The tunnel load balancer also listens on 9000, the default before 443; PIXELTABLE_CLOUD_HOST=pxt.run:9000 picks it
@@ -159,6 +163,8 @@ class Env:
 
     _resource_pool_info: dict[str, Any]
     _resource_pool_lock: threading.Lock
+    # the last result of udf_resources(), with the config setting that produced it
+    _udf_resources_cache: tuple[dict[str, Any], dict[str, UdfResources]] | None
     _dbms: Dbms | None
     _db_lock: threading.Lock  # serializes ensure_connected()
     _db_connected: bool
@@ -222,6 +228,7 @@ class Env:
 
         self._resource_pool_info = {}
         self._resource_pool_lock = threading.Lock()
+        self._udf_resources_cache = None
         self._dbms = None
         self._db_lock = threading.Lock()
         self._db_connected = False
@@ -287,12 +294,12 @@ class Env:
 
     @default_time_zone.setter
     def default_time_zone(self, tz: ZoneInfo | None) -> None:
-        """
-        This is not a publicly visible setter; it is only for testing purposes.
-        """
+        """Set the default time zone, or the configured one if tz is None."""
         self._default_time_zone = ZoneInfo(self._get_tz_name()) if tz is None else tz
-        self.engine.dispose()
-        self._create_engine()
+        if self._db_connected:
+            # the engine's connections use the default time zone
+            self.engine.dispose()
+            self._create_engine()
 
     def record_tbl_catalog_uri(self, tbl_id: UUID, catalog_uri: CatalogPath) -> None:
         """Record which catalog a table belongs to. The mapping is immutable per table id."""
@@ -910,6 +917,7 @@ class Env:
         self.__register_package('mcp')
         self.__register_package('mistralai')
         self.__register_package('mistune')
+        self.__register_package('modal')
         self.__register_package('ollama')
         self.__register_package('openai')
         self.__register_package('openpyxl')
@@ -1054,6 +1062,58 @@ class Env:
                 info = make_pool_info()
                 self._resource_pool_info[pool_id] = info
             return info
+
+    def udf_resources(self) -> dict[str, UdfResources]:
+        """Return the pixeltable.udf setting, keyed by each configured UDF's self_path."""
+        # pixeltable.func imports this module
+        from pixeltable import func
+        from pixeltable.func.symbols import resolve_symbol
+
+        config = Config.get()
+        setting = config.get_value('udf', dict)
+        if setting is None:
+            return {}
+        cache = self._udf_resources_cache
+        if cache is not None and cache[0] == setting:
+            return cache[1]
+        source = config.describe_setting('pixeltable', 'udf')
+        try:
+            entries = _UDF_RESOURCES_ADAPTER.validate_python(setting)
+        except pydantic.ValidationError as e:
+            raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid {source}:\n{e}') from e
+
+        result: dict[str, UdfResources] = {}
+        configured_paths: dict[str, str] = {}
+        for path, resources in entries.items():
+            try:
+                fn = resolve_symbol(path)
+            except AttributeError:
+                fn = None
+            if not isinstance(fn, func.CallableFunction):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION, f'{source}: {path!r} is not a UDF declared with @pxt.udf'
+                )
+            if not fn.is_builtin:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'{source}: {path!r} is not a built-in UDF; only built-in UDFs run on Modal',
+                )
+            if any(inspect.iscoroutinefunction(py_fn) for py_fn in fn.py_fns):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'{source}: {path!r} is async; only synchronous UDFs run on Modal',
+                )
+            assert fn.self_path is not None
+            # a module that re-exports a UDF gives it a second path, which resolves to the same UDF
+            if fn.self_path in configured_paths:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'{source}: {configured_paths[fn.self_path]!r} and {path!r} are the same UDF',
+                )
+            configured_paths[fn.self_path] = path
+            result[fn.self_path] = resources
+        self._udf_resources_cache = (setting, result)
+        return result
 
     @property
     def pgdata_dir(self) -> Path | None:

@@ -9,7 +9,6 @@ import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.func import Batch
 from pixeltable.functions.model_support import normalize_image_mode
-from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     from yolox.models import Yolox, YoloxProcessor  # type: ignore[import-untyped]
@@ -122,7 +121,7 @@ _model_cache: dict[tuple[str, str], 'Yolox'] = {}
 _processor_cache: dict[str, 'YoloxProcessor'] = {}
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['yolo_to_coco', 'yolox']
 
 
 def __dir__() -> list[str]:
