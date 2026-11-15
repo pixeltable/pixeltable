@@ -183,7 +183,7 @@ def _retry_info_from_attrs(obj: Any) -> RetryInfo | None:
     is_retryable: bool | None = None
     if len(codes) > 0:
         is_retryable = any(str(code).upper() in _RETRIABLE_ERROR_CODES for code in codes)
-    retry_delay = _extract_retry_delay_from_headers(getattr(obj, 'headers', None))
+    retry_delay = extract_retry_delay_from_headers(getattr(obj, 'headers', None))
     if retry_delay is not None:
         is_retryable = True
 
@@ -202,14 +202,14 @@ def _retry_info_from_aws_response(response: Any) -> RetryInfo | None:
     http_response = response.get('ResponseMetadata')
     if not isinstance(error, dict) or not isinstance(http_response, dict):
         return None
-    retry_delay = _extract_retry_delay_from_headers(http_response.get('HTTPHeaders'))
+    retry_delay = extract_retry_delay_from_headers(http_response.get('HTTPHeaders'))
     if retry_delay is not None and retry_delay >= 0:
         return RetryInfo(True, retry_delay)
     codes = (http_response.get('HTTPStatusCode'), error.get('Code'))
     return RetryInfo(any(str(code).upper() in _RETRIABLE_ERROR_CODES for code in codes), None)
 
 
-def _extract_retry_delay_from_headers(headers: Any | None) -> float | None:
+def extract_retry_delay_from_headers(headers: Any | None) -> float | None:
     """Extract retry delay from HTTP headers."""
     if headers is None:
         return None

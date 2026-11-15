@@ -20,6 +20,7 @@ from typing_extensions import Self
 
 from pixeltable import exceptions as excs
 from pixeltable.service.resources import DatabaseCapacity, ServiceResources, UdfResources
+from pixeltable.utils.file_io import atomic_write
 
 if TYPE_CHECKING:
     from pixeltable import catalog
@@ -597,7 +598,8 @@ class Config:
 
         else:
             config_dict = self.__create_default_config(self.__config_file)
-            with open(self.__config_file, 'w', encoding='utf-8') as stream:
+            # a process starting at the same time must never read a partial file
+            with atomic_write(self.__config_file, mode='w', encoding='utf-8') as stream:
                 try:
                     toml.dump(config_dict, stream)
                 except Exception as exc:
@@ -1060,6 +1062,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'metrics': 'Export metrics via OTLP (default: only when an OTLP endpoint is configured)',
         'logs': 'Export pixeltable logs via OTLP (default: false)',
     },
+    'parallel': {'api_key': 'Parallel API key', 'rate_limit': 'Rate limit for Parallel API requests'},
     'replicate': {'api_token': 'Replicate API token'},
     'runwayml': {'api_secret': 'RunwayML API secret'},
     'together': {

@@ -1,4 +1,6 @@
+import contextlib
 import ctypes
+import faulthandler
 import functools
 import gc
 import hashlib
@@ -9,6 +11,7 @@ import os
 import pathlib
 import platform
 import shutil
+import signal
 import sys
 import threading
 import urllib.parse
@@ -70,6 +73,11 @@ def pytest_addoption(parser: argparsing.Parser) -> None:
 def pytest_configure(config: PytestConfig) -> None:
     global DO_RERUN  # noqa: PLW0603
     DO_RERUN = not config.getoption('--no-rerun')
+    if hasattr(signal, 'SIGUSR1'):
+        # CI sends SIGUSR1 to the pytest controller and its xdist workers shortly before the test step's timeout, for a
+        # stack dump of a hang outside any test, where faulthandler_timeout has no effect. The dump goes to a dup of
+        # stderr, as with pytest's faulthandler plugin, since output capture redirects fd 2 during a test.
+        faulthandler.register(signal.SIGUSR1, file=os.dup(2), all_threads=True)
 
 
 # Fixtures that download a Hugging Face model. Any test requesting one of these is implicitly a
@@ -95,10 +103,42 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         )
 
 
-def pytest_runtest_setup(item: pytest.Item) -> None:
+@contextlib.contextmanager
+def _requires_init_env(item: pytest.Item) -> Iterator[None]:
+    """Fails a test that reaches Env.get() on its own thread without requesting init_env.
+
+    Such a test uses whatever environment an earlier test on its worker set up, or the developer's real home and
+    database when it runs first, so CI catches it only when it happens to run first.
+    """
+    if not isinstance(item, pytest.Function) or 'init_env' in item.fixturenames:
+        yield
+        return
+    get = Env.__dict__['get'].__func__
+    test_thread = threading.current_thread()
+
+    def guarded_get(cls: type[Env]) -> Env:
+        if threading.current_thread() is test_thread:
+            pytest.fail(f'{item.nodeid} reaches Env.get() without requesting the init_env fixture')
+        return get(cls)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(Env, 'get', classmethod(guarded_get))
+        yield
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_setup(item: pytest.Item) -> Generator[None, None, None]:
     current_test = os.environ.get('PYTEST_CURRENT_TEST')
     _logger.info(f'Running Pixeltable test: {current_test}')
     _clear_model_caches()
+    with _requires_init_env(item):
+        yield
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item: pytest.Item) -> Generator[None, None, None]:
+    with _requires_init_env(item):
+        yield
 
 
 def _clear_model_caches() -> None:
@@ -361,6 +401,8 @@ def _reset_catalog_state() -> None:
     FileCache.get().validate()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
     FileCache.get().set_lease_seconds(Env.get()._file_cache_lease_s)  # reset any per-test override
+    # evictions under an earlier test's capacity override would otherwise cause re-download warnings in this test
+    FileCache.get().reset_session_stats()
 
 
 def _validate_catalog_state() -> None:
