@@ -19,7 +19,7 @@ from typing_extensions import Self
 from pixeltable import exceptions as excs, exprs, func, type_system as ts
 from pixeltable.env import Env, register_client
 from pixeltable.runtime import get_runtime
-from pixeltable.service import proxy_protocol
+from pixeltable.service import db, proxy_protocol
 
 from .interfaces import FnCallArgs
 
@@ -139,59 +139,68 @@ _PROBE_SECONDS = 1.0
 _CONNECT_SECONDS = 10
 
 
+# the name of the HTTP header with the secret that UdfServer requires of a call
+UDF_SECRET_HEADER_NAME = 'Pxt-Udf-Secret'
+
+
 @dataclasses.dataclass(frozen=True)
 class ModalEndpoints:
-    """The URLs of a database's Modal Servers, and the proxy token for calls to them."""
+    """The URLs of a database's Modal Servers, and the headers that authorize calls to them."""
 
     SERVERS_VAR: ClassVar[str] = 'PXT_UDF_SERVERS'
-    KEY_VAR: ClassVar[str] = 'PXT_UDF_SERVERS_KEY'
-    SECRET_VAR: ClassVar[str] = 'PXT_UDF_SERVERS_SECRET'
+    HEADERS_VAR: ClassVar[str] = 'PXT_UDF_SERVERS_HEADERS'
     # the key of the process's ModalEndpoints in Env.get_resource_pool_info()
     _REGISTRY_KEY: ClassVar[str] = 'modal-endpoints'
 
     # keyed by UDF path
     server_urls: dict[str, str]
-    proxy_key: str
-    proxy_secret: str = dataclasses.field(repr=False)
+    # sent with every call
+    headers: dict[str, str] = dataclasses.field(repr=False)
 
     @classmethod
     def get(cls) -> Self:
-        """Return the process's endpoints, read from the environment at the first call."""
-        return Env.get().get_resource_pool_info(cls._REGISTRY_KEY, cls._from_env)
+        """Return the process's endpoints, loaded at the first call."""
+        return Env.get().get_resource_pool_info(cls._REGISTRY_KEY, cls._load)
 
     @classmethod
-    def _from_env(cls) -> Self:
-        """Read the endpoints from the environment: SERVERS_VAR is a JSON object from UDF path to URL."""
-        servers, proxy_key, proxy_secret = (
-            os.environ.get(var, '') for var in (cls.SERVERS_VAR, cls.KEY_VAR, cls.SECRET_VAR)
+    def _load(cls) -> Self:
+        """Read the endpoints from the environment, or get the local database's endpoints from the control plane."""
+        if os.environ.get(cls.SERVERS_VAR, '') != '':
+            return cls(cls._env_object(cls.SERVERS_VAR), cls._env_object(cls.HEADERS_VAR))
+        if Env.get().hosted_db() is not None:
+            # the control plane sets SERVERS_VAR in the pods of a release with UDF servers
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                "The pixeltable.udf setting has no effect here: the database's release was deployed without UDF "
+                f'servers ({cls.SERVERS_VAR} is not set). Run `pxt db update` to deploy them.',
+            )
+        servers = db.local_db_udf_servers()
+        return cls(servers.urls, servers.headers)
+
+    @classmethod
+    def _env_object(cls, var: str) -> dict[str, str]:
+        """Return the JSON object of strings in the environment variable var."""
+        text = os.environ.get(var, '')
+        if text == '':
+            raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'{var} is not set in the environment')
+        invalid = excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'{var} in the environment is not a JSON object of strings'
         )
-        if servers == '' or proxy_key == '' or proxy_secret == '':
-            # the control plane sets the variables in the pods of a hosted database
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_CONFIGURATION,
-                'The pixeltable.udf setting works only in a hosted database: this process has no UDF servers '
-                f'({cls.SERVERS_VAR}, {cls.KEY_VAR} and {cls.SECRET_VAR} are not all set)',
-            )
         try:
-            server_urls = json.loads(servers)
+            value = json.loads(text)
         except json.JSONDecodeError:
-            server_urls = None
-        if not isinstance(server_urls, dict) or not all(isinstance(url, str) for url in server_urls.values()):
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_CONFIGURATION,
-                f'{cls.SERVERS_VAR} in the environment is not a JSON object from UDF path to URL',
-            )
-        return cls(server_urls, proxy_key, proxy_secret)
+            raise invalid from None
+        if not isinstance(value, dict) or not all(isinstance(v, str) for v in value.values()):
+            raise invalid
+        return value
 
 
 @register_client('modal', credential_param=None)
 def _() -> httpx.AsyncClient:
-    endpoints = ModalEndpoints.get()
     # with HTTP/2, concurrent calls to a Server share one connection
     # retries=2 retries a failed connection attempt up to twice; httpx never resends a request
     transport = httpx.AsyncHTTPTransport(http2=True, retries=2)
-    headers = {'Modal-Key': endpoints.proxy_key, 'Modal-Secret': endpoints.proxy_secret}
-    return httpx.AsyncClient(transport=transport, headers=headers)
+    return httpx.AsyncClient(transport=transport, headers=ModalEndpoints.get().headers)
 
 
 class ModalServerClient:
@@ -234,8 +243,8 @@ class ModalServerClient:
         if url is None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
-                f'{udf_path!r} is in the pixeltable.udf setting, but {ModalEndpoints.SERVERS_VAR} has no Modal Server '
-                'for it. Run `pxt db update` to deploy it.',
+                f'{udf_path!r} is in the pixeltable.udf setting, but the database has no Modal Server for it. '
+                'Run `pxt db update` to deploy it.',
             )
         self.url = url
         self.container_running = asyncio.Event()
@@ -280,6 +289,14 @@ class ModalServerClient:
                 self.monitor.cancel()
                 self.monitor = None
 
+        if response.status_code == 401:
+            # Modal's proxy answers 401 for a proxy token that it doesn't accept, and UdfServer.handle() for a wrong
+            # secret; both are in ModalEndpoints.headers
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_AUTH_ERROR,
+                f'The UDF server of {self.udf_path} refused the credentials of this process (HTTP 401). If the UDF '
+                'servers were deployed again after this process started, restart the process.',
+            )
         if response.status_code != 200:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR,

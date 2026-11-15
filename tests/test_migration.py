@@ -150,6 +150,7 @@ class TestMigration:
             with orm.Session(env.engine) as session:
                 md = session.query(SystemInfo).one().md
                 assert md['schema_version'] == VERSION
+                assert len(md['install_id']) == 32
 
             try:
                 # PixeltableWarning is configured as an error in tests (see pyproject.toml). Dumps at or below

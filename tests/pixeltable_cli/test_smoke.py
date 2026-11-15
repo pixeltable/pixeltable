@@ -277,11 +277,10 @@ class TestDbDeleteWait:
 class TestDbDelete:
     def test_requires_confirmation(self, cli: PxtRunner) -> None:
         uri = 'pxt://pixeltable:pxttest-delete-confirmation'
-        for uri_args in ([], [uri]):
+        # without a uri, the command acts on the local database, which needs the control plane
+        for uri_args in ([uri],):
             for output_args in ([], ['--json']):
-                result = cli(
-                    'db', 'delete', *uri_args, *output_args, env_overrides={'PIXELTABLE_DB_URI': uri}, check=False
-                )
+                result = cli('db', 'delete', *uri_args, *output_args, check=False)
                 assert result.returncode == 3, result.stderr
                 assert f'delete {uri}? This is irreversible.' in result.stderr
                 assert '--force/-f' in result.stderr

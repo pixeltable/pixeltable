@@ -996,7 +996,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
             'Number of temporary database connections the engine may open beyond `db_pool_size` (default: 10)',
             int,
         ),
-        'db_uri': 'Base pxt:// URI for remote catalog access (e.g. pxt://myorg:mydb)',
+        'db_uri': 'Deprecated and no longer used: pass the pxt://org:db URI to the `pxt db` command instead',
     },
     'anthropic': {'api_key': 'Anthropic API key'},
     'azure': {'storage_account_name': 'Azure storage account name', 'storage_account_key': 'Azure storage account key'},

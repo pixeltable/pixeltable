@@ -1,6 +1,7 @@
 """An HTTP server that runs the calls to one UDF. Its client is pixeltable.exec.expr_eval.modal_client."""
 
 import asyncio
+import hmac
 import threading
 import time
 from pathlib import Path
@@ -10,7 +11,7 @@ from zoneinfo import ZoneInfo
 from pixeltable import exceptions as excs, func
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.exec.expr_eval.modal_client import UdfCallRequest, UdfCallResponse
+from pixeltable.exec.expr_eval.modal_client import UDF_SECRET_HEADER_NAME, UdfCallRequest, UdfCallResponse
 from pixeltable.func.symbols import resolve_symbol
 from pixeltable.utils.local_store import TempStore
 
@@ -22,9 +23,11 @@ class UdfServer:
     overloads: list[func.CallableFunction]
     # the provider's ID of the container that runs this server
     container_id: str | None
+    # a POST must have this value in UDF_SECRET_HEADER_NAME
+    secret: str
     lock: threading.Lock
 
-    def __init__(self, udf_path: str, container_id: str | None, project_dir: Path | None = None) -> None:
+    def __init__(self, udf_path: str, container_id: str | None, secret: str, project_dir: Path | None = None) -> None:
         """project_dir: the root of the unpacked project, with its config file"""
         if project_dir is not None:
             Config.init(reinit=True, project_root=project_dir)
@@ -35,6 +38,9 @@ class UdfServer:
         assert isinstance(fn, func.CallableFunction)
         self.overloads = fn._resolved_fns
         self.container_id = container_id
+        # an empty secret would equal the value of a missing header
+        assert secret != ''
+        self.secret = secret
         self.lock = threading.Lock()
 
     def start(self, port: int) -> None:
@@ -67,6 +73,8 @@ class UdfServer:
                 break
         if scope['method'] != 'POST':
             status, body = 404, b''
+        elif not self._is_authorized(scope):
+            status, body = 401, b''
         else:
             try:
                 status, body = 200, await asyncio.to_thread(self.run, bytes(request_body))
@@ -76,6 +84,10 @@ class UdfServer:
             {'type': 'http.response.start', 'status': status, 'headers': [(b'content-length', str(len(body)).encode())]}
         )
         await send({'type': 'http.response.body', 'body': body})
+
+    def _is_authorized(self, scope: dict[str, Any]) -> bool:
+        sent = next((value for name, value in scope['headers'] if name == UDF_SECRET_HEADER_NAME.lower().encode()), b'')
+        return hmac.compare_digest(sent, self.secret.encode())
 
     def run(self, request_body: bytes) -> bytes:
         """Run the UdfCallRequest in request_body and return the encoded UdfCallResponse."""

@@ -58,6 +58,7 @@ _IDEMPOTENT_OPS = frozenset(
         ManagementOperationType.PREPARE_UPDATE,
         ManagementOperationType.SUBMIT_UPDATE,
         ManagementOperationType.GET_RECEIPTS,
+        ManagementOperationType.GET_UDF_SERVERS,
     )
 ) | {GET_USAGE}
 
@@ -88,6 +89,7 @@ _PURPOSES = {
     ManagementOperationType.GET_RECEIPTS.value: 'read a database',
     ManagementOperationType.RETRY.value: 'retry a failed update',
     ManagementOperationType.GET_ARCHIVE.value: "download a database's project",
+    ManagementOperationType.GET_UDF_SERVERS.value: "call a database's UDF servers",
     ManagementOperationType.GET_LOGS.value: 'read logs',
     ManagementOperationType.GET_SPANS.value: 'read spans',
     ManagementOperationType.CREATE_ORG.value: 'create an organization',

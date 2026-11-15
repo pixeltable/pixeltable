@@ -12,6 +12,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.exec.expr_eval.modal_client import UDF_SECRET_HEADER_NAME
 from pixeltable.functions.image import resize, rotate
 from pixeltable.functions.string import format
 from pixeltable.functions.timestamp import make_timestamp
@@ -31,12 +32,22 @@ _SERVED_UDFS = (
     'pixeltable.functions.huggingface.sentence_transformer',
 )
 
-# serves the UDF at argv[1] on port argv[2] until the process is terminated
+# serves the UDF at argv[1] on port argv[2], with the secret argv[3], until the process is terminated
 _SERVER_SCRIPT = """
 import sys, time
 from pixeltable.serving.udf_server import UdfServer
-UdfServer(sys.argv[1], None).start(int(sys.argv[2]))
+UdfServer(sys.argv[1], None, sys.argv[3]).start(int(sys.argv[2]))
 time.sleep(1e9)
+"""
+
+_UDF_SECRET = 'udf-secret'
+
+# formats the width column of err_tbl with a UDF
+_WIDTH_QUERY_SCRIPT = """
+import pixeltable as pxt
+from pixeltable.functions.string import format
+t = pxt.get_table('err_tbl')
+t.select(format('{0}', t.width)).collect()
 """
 
 
@@ -55,7 +66,8 @@ def udf_servers(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Ite
                 'PIXELTABLE_HOME': str(tmp_path_factory.mktemp('udf-server') / '.pixeltable'),
                 'PIXELTABLE_TIME_ZONE': 'Pacific/Kiritimati',
             }
-            servers.append(subprocess.Popen([sys.executable, '-c', _SERVER_SCRIPT, udf_path, str(port)], env=env))
+            args = [sys.executable, '-c', _SERVER_SCRIPT, udf_path, str(port), _UDF_SECRET]
+            servers.append(subprocess.Popen(args, env=env))
             urls[udf_path] = f'http://127.0.0.1:{port}'
         deadline = time.monotonic() + 120
         for server, url in zip(servers, urls.values()):
@@ -70,8 +82,7 @@ def udf_servers(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Ite
                 time.sleep(0.2)
         with pytest.MonkeyPatch.context() as mp:
             mp.setenv('PXT_UDF_SERVERS', json.dumps(urls))
-            mp.setenv('PXT_UDF_SERVERS_KEY', 'wk-test')
-            mp.setenv('PXT_UDF_SERVERS_SECRET', 'ws-test')
+            mp.setenv('PXT_UDF_SERVERS_HEADERS', json.dumps({UDF_SECRET_HEADER_NAME: _UDF_SECRET}))
             yield
     finally:
         for server in servers:
@@ -161,7 +172,8 @@ class TestUdfServer:
         assert len(res['segments'][0]) > 1
 
     def test_errors(self, uses_db: None, udf_setting: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        """An exception of the UDF fails its row with the UDF's error, and a UDF without a Server fails the query."""
+        """An exception of the UDF fails its row with the UDF's error, a UDF without a Server fails the query, and a
+        call without the Server's secret is refused."""
         t = pxt.create_table('err_tbl', {'boxes': pxt.Json, 'width': pxt.Int})
         t.add_computed_column(resized=bboxes_resize(t.boxes, 'xyxy', width=t.width))
         status = t.insert(
@@ -183,10 +195,27 @@ class TestUdfServer:
         monkeypatch.setenv('PIXELTABLE_UDF', json.dumps({'pixeltable.functions.image.resize': {}}))
         with pxt_raises(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            match=r"'pixeltable\.functions\.image\.resize' is in the pixeltable\.udf setting, but PXT_UDF_SERVERS "
-            r'has no Modal Server for it',
+            match=r"'pixeltable\.functions\.image\.resize' is in the pixeltable\.udf setting, but the database has "
+            r'no Modal Server for it',
         ):
             img_t.select(resize(img_t.img, (32, 16))).collect()
+
+        # a server refuses a call that lacks its secret
+        url = json.loads(os.environ['PXT_UDF_SERVERS'])[_SERVED_UDFS[0]]
+        assert httpx.post(url, content=b'').status_code == 401
+        assert httpx.post(url, content=b'', headers={UDF_SECRET_HEADER_NAME: 'other'}).status_code == 401
+
+        # a query of a process with another secret fails
+        env = {
+            **os.environ,
+            'PIXELTABLE_UDF': json.dumps({'pixeltable.functions.string.format': {}}),
+            'PXT_UDF_SERVERS_HEADERS': json.dumps({UDF_SECRET_HEADER_NAME: 'other'}),
+        }
+        query = subprocess.run(
+            [sys.executable, '-c', _WIDTH_QUERY_SCRIPT], env=env, capture_output=True, text=True, check=False
+        )
+        assert query.returncode != 0
+        assert 'refused the credentials of this process (HTTP 401)' in query.stderr
 
     @pytest.mark.xdist_group('large_model')
     def test_batched_udf(self, uses_db: None, udf_setting: None) -> None:

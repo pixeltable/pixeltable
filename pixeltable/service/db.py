@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import dataclasses
 import hashlib
 import logging
 import urllib.error
@@ -11,9 +12,11 @@ from typing import Literal
 
 from pixeltable import catalog, exceptions as excs, metadata
 from pixeltable.config import Config, DatabaseConfig
+from pixeltable.env import Env
 from pixeltable.service import management_client, receipts
 from pixeltable.service.db_md import DatabaseResources
 from pixeltable.service.management_protocol import (
+    LOCAL_DB_NAME_PREFIX,
     BlobRef,
     BlobUpload,
     DatabaseReport,
@@ -22,6 +25,10 @@ from pixeltable.service.management_protocol import (
     DeleteDbRequest,
     GetDbRequest,
     GetDbResponse,
+    GetUdfServersRequest,
+    GetUdfServersResponse,
+    ListOrgsRequest,
+    ListOrgsResponse,
     PrepareUpdateRequest,
     PrepareUpdateResponse,
     ReportServiceInstanceRequest,
@@ -51,12 +58,97 @@ _DB_DESTRUCTIVE_HINT = "Re-run 'pxt db update' with --allow-destructive to apply
 
 DbAction = Literal['start', 'stop', 'restart', 'delete']
 
+# TODO: replace with the names of the local databases, once an install can have more than one
+LOCAL_DB_NAME = 'main'
+
 _LIFECYCLE_REQUESTS = {
     'start': StartDbRequest,
     'stop': StopDbRequest,
     'restart': RestartDbRequest,
     'delete': DeleteDbRequest,
 }
+
+
+@dataclasses.dataclass(frozen=True)
+class LocalDatabase:
+    """A local database, identified by its install and its name within the install."""
+
+    # SystemInfoMd.install_id
+    install_id: str
+    name: str
+
+    def cloud_db_name(self) -> str:
+        """Return the database's name in the control plane: name and a hash, unique within an organization."""
+        digest = hashlib.sha256(f'{self.install_id}:{self.name}'.encode()).hexdigest()
+        # a hosted name has at most 29 characters of [a-z0-9-]
+        label = ''.join(c if c.isascii() and c.isalnum() else '-' for c in self.name.lower())[:10].strip('-')
+        return f'{LOCAL_DB_NAME_PREFIX}{label}-{digest[:12]}' if label != '' else LOCAL_DB_NAME_PREFIX + digest[:12]
+
+
+def local_database() -> LocalDatabase:
+    """Return the install's local database, which this call starts if it isn't running."""
+    env = Env.get()
+    env.ensure_connected()
+    return LocalDatabase(install_id=metadata.install_id(env.engine), name=LOCAL_DB_NAME)
+
+
+def local_db_uri() -> str:
+    """Return the uri under which the control plane registers the local database.
+
+    The database belongs to the organization of the configured credential.
+    """
+    # TODO: remove this check one release after the one that dropped the pixeltable.db_uri setting
+    stale_db_uri = Config.get().get_string_value('db_uri')
+    if stale_db_uri is not None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            'The pixeltable.db_uri setting is no longer supported, and a command without a uri acts on the local '
+            f'database. Remove the setting, and pass the uri to act on the hosted database: {stale_db_uri}',
+        )
+    orgs = ListOrgsResponse.model_validate(management_client.api_call(ListOrgsRequest())).orgs
+    if len(orgs) == 0:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_STATE,
+            'The UDF servers of a local database belong to an organization, and your sign-in has no organization. '
+            'Create one in Pixeltable Cloud first.',
+        )
+    if len(orgs) > 1:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_STATE,
+            f'The UDF servers of a local database belong to one organization, and your sign-in has {len(orgs)}. '
+            'Set `PIXELTABLE_API_KEY` to an API key of the organization.',
+        )
+    return f'pxt://{orgs[0].org}:{local_database().cloud_db_name()}'
+
+
+def local_db_udf_servers() -> GetUdfServersResponse:
+    """Return the local database's UDF servers. Raises if they run another version of the project."""
+    if Config.get().project_root is None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            'The pixeltable.udf setting needs a project in order to create UDF servers. '
+            'Run `pxt init` to write a project configuration, then `pxt db update`.',
+        )
+    request = GetUdfServersRequest(db=local_database().cloud_db_name())
+    try:
+        servers = GetUdfServersResponse.model_validate(management_client.api_call(request))
+    except excs.ExternalServiceError as exc:
+        if exc.provider_http_status_code != 404:
+            raise
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_STATE,
+            'The UDFs in the pixeltable.udf setting have no servers. Run `pxt db update` to deploy them.',
+        ) from None
+    fingerprint = _db_target(_local_db_config()).fingerprint
+    assert fingerprint is not None
+    if len(fingerprint.compare(servers.fingerprint)) > 0:
+        changes = '\n'.join(f'  {line}' for line in fingerprint.changes(servers.fingerprint))
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_STATE,
+            f'The UDF servers of the pixeltable.udf setting run another version of the project:\n{changes}\n'
+            'Run `pxt db update` to deploy this one.',
+        )
+    return servers
 
 
 def db_diff(db_uri: str) -> DbPlan:
@@ -380,7 +472,31 @@ def _validated_db_uri(db_uri_str: str) -> catalog.Path:
     return path
 
 
+def _local_db_config() -> DatabaseConfig:
+    config = Config.get().get_database_config(catalog.Path())
+    return DatabaseConfig() if config is None else config
+
+
+def _as_local_database(db_path: catalog.Path) -> LocalDatabase | None:
+    """Return the local database if db_path is local_db_uri()."""
+    assert db_path.db is not None
+    # a name without the prefix belongs to a hosted database; local_database() would start the local one
+    if not db_path.db.startswith(LOCAL_DB_NAME_PREFIX):
+        return None
+    local = local_database()
+    return local if db_path.db == local.cloud_db_name() else None
+
+
 def _get_db_config(db_uri: catalog.Path) -> DatabaseConfig:
+    if _as_local_database(db_uri) is not None:
+        udf_setting = Config.get().get_value('udf', dict)
+        if udf_setting is None or len(udf_setting) == 0:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                'The local database has nothing to deploy: the project has no pixeltable.udf setting. '
+                'To update a hosted database, pass its uri: `pxt db update pxt://org:db`.',
+            )
+        return _local_db_config()
     config = Config.get().get_database_config(db_uri)
     if config is None:
         where = Config.get().project_config_file or 'the project configuration'

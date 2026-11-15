@@ -28,8 +28,10 @@ from .udf_server import UdfServer
 PORT = 8000
 # Servers take no parameters, so the container gets the UDF path from this environment variable
 UDF_PATH_VAR = 'PXT_UDF_PATH'
-# pxt://org:db of the hosted database with the UDF's project
+# pxt://org:db of the database in the control plane, which has the UDF's project
 DB_URI_VAR = 'PXT_DB_URI'
+# the secret that UdfServer requires of a call
+UDF_SECRET_VAR = 'PXT_UDF_SECRET'
 
 
 class ModalServer:
@@ -44,6 +46,9 @@ class ModalServer:
         has_project = prepare_project.prepare(os.environ[DB_URI_VAR], archive_dir)
         assert has_project
         self.server = UdfServer(
-            os.environ[UDF_PATH_VAR], os.environ.get('MODAL_TASK_ID'), prepare_project.project_dir(archive_dir)
+            os.environ[UDF_PATH_VAR],
+            os.environ.get('MODAL_TASK_ID'),
+            os.environ[UDF_SECRET_VAR],
+            prepare_project.project_dir(archive_dir),
         )
         self.server.start(PORT)

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -21,7 +22,16 @@ from pixeltable import exceptions as excs, metadata
 from pixeltable.catalog import Path as PxtPath
 from pixeltable.config import Config
 from pixeltable.service import management_client, receipts
-from pixeltable.service.db import db_build_image, db_change_lifecycle, db_diff, db_retry, db_update
+from pixeltable.service.db import (
+    db_build_image,
+    db_change_lifecycle,
+    db_diff,
+    db_retry,
+    db_update,
+    local_database,
+    local_db_udf_servers,
+    local_db_uri,
+)
 from pixeltable.service.db_md import DatabaseResources, DatabaseStatus
 from pixeltable.service.management_protocol import (
     BlobUpload,
@@ -34,6 +44,11 @@ from pixeltable.service.management_protocol import (
     GetDbResponse,
     GetReceiptsRequest,
     GetReceiptsResponse,
+    GetUdfServersRequest,
+    GetUdfServersResponse,
+    ListOrgsRequest,
+    ListOrgsResponse,
+    OrgRecord,
     PrepareUpdateRequest,
     PrepareUpdateResponse,
     RetryRequest,
@@ -47,6 +62,8 @@ from pixeltable_cli.types import DbPlan, DbState, GenerationReceipt, ReceiptErro
 from ..utils import pxt_raises
 
 _DB_URI = 'pxt://acme:main'
+_UDF_URLS = {'pixeltable.functions.video.clip': 'https://udf.example.com/clip'}
+_UDF_HEADERS = {'Pxt-Udf-Secret': 'secret'}
 
 
 class _ControlPlane:
@@ -77,6 +94,8 @@ class _ControlPlane:
         self.receipt_reads = 0
         self.deleting = False
         self.retries: list[RetryRequest] = []
+        # the names of the organizations in a ListOrgsResponse
+        self.orgs = ['acme']
 
     def api_call(self, request: Any, credential: Any = None) -> dict[str, Any]:
         if isinstance(request, PrepareUpdateRequest):
@@ -114,6 +133,17 @@ class _ControlPlane:
             return DbReceiptResponse(receipt=accepted).model_dump(mode='json')
         if isinstance(request, GetDbRequest):
             return GetDbResponse(report=self._report()).model_dump(mode='json')
+        if isinstance(request, ListOrgsRequest):
+            orgs = [OrgRecord(org_id=f'org_{org}', org=org, created_at=0.0, updated_at=0.0) for org in self.orgs]
+            return ListOrgsResponse(orgs=orgs).model_dump(mode='json')
+        if isinstance(request, GetUdfServersRequest):
+            targets = [s.database_target for s in self.submissions if s.db == request.db]
+            if len(targets) == 0:
+                raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, 'no UDF servers', status_code=404)
+            assert targets[-1] is not None and targets[-1].fingerprint is not None
+            return GetUdfServersResponse(
+                fingerprint=targets[-1].fingerprint, urls=_UDF_URLS, headers=_UDF_HEADERS
+            ).model_dump(mode='json')
         raise AssertionError(f'unexpected request {request.operation_type}')
 
     def _report(self) -> DatabaseReport:
@@ -180,6 +210,52 @@ class TestDbSubmission:
         db_update(_DB_URI, wait=False)
         assert len(control_plane.uploads) == 1, 'an unchanged project is not uploaded again'
         assert control_plane.submissions[1].blob == submitted.blob, 'an unchanged project is the same blob'
+
+    def test_local_database(self, init_env: None, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An update of the local database submits the install's identity, and local_udf_servers() returns
+        the servers only while the project matches their release."""
+        control_plane = _ControlPlane(generation=0, settled=_receipt(outcome=ReceiptOutcome.OBSERVED))
+        _serve(monkeypatch, control_plane)
+        local = local_database()
+        assert local == local_database()
+        assert local.name == 'main'
+        db_uri = local_db_uri()
+        assert db_uri == f'pxt://acme:{local.cloud_db_name()}'
+        # local_db_uri() requires exactly one organization
+        control_plane.orgs = []
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match='your sign-in has no organization'):
+            local_db_uri()
+        control_plane.orgs = ['acme', 'other']
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match='your sign-in has 2'):
+            local_db_uri()
+        control_plane.orgs = ['acme']
+
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'have no servers\. Run `pxt db update`'):
+            local_db_udf_servers()
+
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='the project has no pixeltable.udf setting'):
+            db_update(db_uri)
+        monkeypatch.setenv('PIXELTABLE_UDF', json.dumps({'pixeltable.functions.video.clip': {}}))
+        # the project has no entry for the local database, which then gets the defaults
+        db_update(db_uri)
+        (submitted,) = control_plane.submissions
+        assert submitted.db == local.cloud_db_name()
+        servers = local_db_udf_servers()
+        assert servers.urls == _UDF_URLS and servers.headers == _UDF_HEADERS
+
+        (project / 'app.py').write_text('x = 2\n')
+        with pxt_raises(
+            excs.ErrorCode.INVALID_STATE, match=r'(?s)run another version of the project.*app\.py.*Run `pxt db update`'
+        ):
+            local_db_udf_servers()
+
+        # a config that still has the removed pixeltable.db_uri setting
+        monkeypatch.setenv('PIXELTABLE_DB_URI', _DB_URI)
+        Config.init(reinit=True, project_root=project)
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='pixeltable.db_uri setting is no longer supported'):
+            local_db_uri()
+        monkeypatch.delenv('PIXELTABLE_DB_URI')
+        Config.init(reinit=True, project_root=project)
 
     def test_upload_network_failure(self, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A failed upload is retried once, then reported as a pixeltable error rather than a raw traceback."""
