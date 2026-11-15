@@ -233,8 +233,9 @@ class TestDbSubmission:
         with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'have no servers\. Run `pxt db update`'):
             local_db_udf_servers()
 
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='the project has no pixeltable.udf setting'):
-            db_update(db_uri)
+        for update_or_diff in (db_update, db_diff):
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='the project has no pixeltable.udf setting'):
+                update_or_diff(db_uri)
         monkeypatch.setenv('PIXELTABLE_UDF', json.dumps({'pixeltable.functions.video.clip': {}}))
         # the project has no entry for the local database, which then gets the defaults
         db_update(db_uri)

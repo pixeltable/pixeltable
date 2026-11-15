@@ -154,6 +154,7 @@ def local_db_udf_servers() -> GetUdfServersResponse:
 def db_diff(db_uri: str) -> DbPlan:
     """Diff the database at db_uri with the corresponding DatabaseConfig in the project configuration."""
     db_path = _validated_db_uri(db_uri)
+    _check_local_db_has_udfs(db_path)
     return _plan(db_path, _db_target(_get_db_config(db_path)))[0]
 
 
@@ -215,6 +216,7 @@ def db_update(
     Returns the submitted plan, with its receipt.
     """
     db_path = _validated_db_uri(db_uri)
+    _check_local_db_has_udfs(db_path)
     config = _get_db_config(db_path)
     target = _db_target(config)
     plan, prepared = _plan(db_path, target)
@@ -487,15 +489,24 @@ def _as_local_database(db_path: catalog.Path) -> LocalDatabase | None:
     return local if db_path.db == local.cloud_db_name() else None
 
 
+def _check_local_db_has_udfs(db_path: catalog.Path) -> None:
+    """Raise an error if db_path is the local database and the project has no pixeltable.udf setting.
+
+    An update of a local database deploys the UDF servers of that setting, and nothing else.
+    """
+    if _as_local_database(db_path) is None:
+        return
+    udf_setting = Config.get().get_value('udf', dict)
+    if udf_setting is None or len(udf_setting) == 0:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            'The local database has nothing to deploy: the project has no pixeltable.udf setting. '
+            'For a hosted database, pass its uri: pxt://org:db.',
+        )
+
+
 def _get_db_config(db_uri: catalog.Path) -> DatabaseConfig:
     if _as_local_database(db_uri) is not None:
-        udf_setting = Config.get().get_value('udf', dict)
-        if udf_setting is None or len(udf_setting) == 0:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_CONFIGURATION,
-                'The local database has nothing to deploy: the project has no pixeltable.udf setting. '
-                'To update a hosted database, pass its uri: `pxt db update pxt://org:db`.',
-            )
         return _local_db_config()
     config = Config.get().get_database_config(db_uri)
     if config is None:

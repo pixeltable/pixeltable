@@ -86,7 +86,11 @@ class UdfServer:
         await send({'type': 'http.response.body', 'body': body})
 
     def _is_authorized(self, scope: dict[str, Any]) -> bool:
-        sent = next((value for name, value in scope['headers'] if name == UDF_SECRET_HEADER_NAME.lower().encode()), b'')
+        """Whether the request with this ASGI scope has self.secret in its UDF_SECRET_HEADER_NAME header."""
+        # scope['headers'] is a list of (name, value) pairs of bytes, with the names in lowercase
+        header_name = UDF_SECRET_HEADER_NAME.lower().encode()
+        sent = next((value for name, value in scope['headers'] if name == header_name), b'')
+        # compare_digest() takes the same time for every wrong value, so a caller can't guess the secret from timings
         return hmac.compare_digest(sent, self.secret.encode())
 
     def run(self, request_body: bytes) -> bytes:
