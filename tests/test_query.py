@@ -789,37 +789,68 @@ class TestQuery:
         def double(x: int) -> int:
             return x * 2
 
-        advice = 'add the value as a stored computed column'
+        @pxt.query
+        def ranked(offset: int) -> pxt.Query:
+            return t.order_by(double(t.x + offset)).select(t.id)
+
+        store = (
+            'As a workaround, you can add the value as a stored computed column of a scalar type '
+            '(cast with .astype() if needed) and use that column with order_by().'
+        )
+        sort = 'As a workaround, you can sort the collected rows.'
+        rewrite = (
+            'so a stored computed column would not have the current value. As a workaround, you can rewrite the '
+            'expression with functions that have a SQL translation, or sort the collected rows.'
+        )
         count = pxt.functions.count
-        queries: list[tuple[pxt.Query, str, bool]] = [
-            (t.order_by(double(t.x)).select(t.id), 'double(x)', True),
-            (t.order_by(double(t.x), asc=False).select(t.id), 'double(x)', True),
-            (t.order_by(t.live).select(t.id), 'live', True),
-            (t.order_by(t.live, asc=False).select(t.id), 'live', True),
-            (t.order_by(t.info.k).select(t.id), 'info.k', True),
-            (t.order_by(t.info.k, asc=False).select(t.id), 'info.k', True),
-            (t.order_by(t.info.k.astype(pxt.Int)).select(t.id), 'info.k.astype(Int)', True),
+        posix_timestamp, now = pxt.functions.timestamp.posix_timestamp, pxt.functions.timestamp.now
+        # (query, order_by() expr, its part without a SQL translation, workaround)
+        queries: list[tuple[Callable[[], Any], str, str, str]] = [
+            (t.order_by(double(t.x)).select(t.id).collect, 'double(x)', 'double(x)', store),
+            (t.order_by(double(t.x), asc=False).select(t.id).collect, 'double(x)', 'double(x)', store),
+            (
+                t.order_by(double(t.x) + double(t.x) + t.x).select(t.id).collect,
+                '(double(x) + double(x)) + x',
+                'double(x)',
+                store,
+            ),
+            (t.order_by(t.live).select(t.id).collect, 'live', 'info.k', store),
+            (t.order_by(t.live, asc=False).select(t.id).collect, 'live', 'info.k', store),
+            (t.order_by(t.info.k).select(t.id).collect, 'info.k', 'info.k', store),
+            (t.order_by(t.info.k, asc=False).select(t.id).collect, 'info.k', 'info.k', store),
+            (t.order_by(t.info.k.astype(pxt.Int)).select(t.id).collect, 'info.k.astype(Int)', 'info.k', store),
             # with other clauses
-            (t.order_by(t.x).order_by(double(t.x)).select(t.id), 'double(x)', True),
-            (t.where(t.x > 1).order_by(double(t.x)).select(t.id).limit(2), 'double(x)', True),
-            (t.where(double(t.x) > 2).order_by(double(t.x)).select(t.id), 'double(x)', True),
+            (t.order_by(t.x).order_by(double(t.x)).select(t.id).collect, 'double(x)', 'double(x)', store),
+            (t.where(t.x > 1).order_by(double(t.x)).select(t.id).limit(2).collect, 'double(x)', 'double(x)', store),
+            (t.where(double(t.x) > 2).order_by(double(t.x)).select(t.id).collect, 'double(x)', 'double(x)', store),
             # an aggregate cannot be stored in a computed column
             (
-                t.group_by(t.x).select(t.x, n=count(t.id)).order_by(double(count(t.id))),
+                t.group_by(t.x).select(t.x, n=count(t.id)).order_by(double(count(t.id))).collect,
                 'double(globals.count(id))',
-                False,
+                'double(globals.count(id))',
+                sort,
+            ),
+            # a stored computed column cannot track now() or a query parameter
+            (
+                t.order_by(posix_timestamp(now()) - t.x).select(t.id).collect,
+                'posix_timestamp(now()) - x',
+                'posix_timestamp(now())',
+                f'The value depends on now(), {rewrite}',
+            ),
+            (
+                lambda: pxt.eval_udf(ranked, 1),
+                'double(x + offset)',
+                'double(x + offset)',
+                f'The value depends on the parameter offset, {rewrite}',
             ),
         ]
-        for query, expr_text, has_advice in queries:
-            with pxt_raises(
-                pxt.ErrorCode.INVALID_EXPRESSION,
-                match=r'Invalid order_by\(\) expression, needs to be expressible in SQL',
-            ) as exc_info:
-                _ = query.collect()
-            message = str(exc_info.value)
-            assert expr_text in message
-            assert (advice in message) == has_advice
-            assert ('sort the collected rows' in message) != has_advice
+        for run_query, expr_text, no_sql_text, workaround in queries:
+            with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION, match=r'Invalid order_by\(\) expression') as exc_info:
+                _ = run_query()
+            assert str(exc_info.value) == (
+                f'Invalid order_by() expression, needs to be expressible in SQL: {expr_text}. '
+                f'No SQL translation: {no_sql_text}. {workaround}'
+            )
 
         # a where() in Python does not affect an order_by() in SQL
         res = t.where(double(t.x) > 2).order_by(t.x, asc=False).select(t.x).collect()

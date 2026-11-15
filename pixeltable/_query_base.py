@@ -852,7 +852,9 @@ class QueryBase(ABC):
         to user-defined `@pxt.udf` functions or JSON paths (or by unstored computed columns that include those) is
         currently not supported.
         As a workaround, consider adding the ordering expression as a stored computed column of a scalar type and
-        ordering by that column instead.
+        ordering by that column instead. This workaround does not apply to an expression that depends on `now()`
+        or on a `@pxt.query` parameter: rewrite it with functions that have a SQL translation, or sort the collected
+        rows instead.
 
         Args:
             expr_list: expressions to order by

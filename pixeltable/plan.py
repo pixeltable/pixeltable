@@ -230,14 +230,34 @@ class Analyzer:
         # SimilarityExpr is turned into SQL by as_order_by_clause()
         if isinstance(e, exprs.SimilarityExpr) or self.sql_elements.contains(e):
             return
-        msg = f'Invalid order_by() expression, needs to be expressible in SQL: {orig_expr!s}.'
-        if not e.contains_(cls=exprs.FunctionCall, filter=lambda fn_call: bool(fn_call.is_agg_fn_call)):
+        # the smallest subexprs of e without a SQL translation; a dict removes duplicates and keeps their order
+        no_sql = dict.fromkeys(
+            str(s)
+            for s in e.subexprs()
+            if not self.sql_elements.contains(s) and self.sql_elements.contains_all(s.components)
+        )
+        msg = (
+            f'Invalid order_by() expression, needs to be expressible in SQL: {orig_expr!s}. '
+            f'No SQL translation: {", ".join(no_sql)}.'
+        )
+        calls_now = any(
+            fn_call.fn == pxt.functions.timestamp.now for fn_call in e.subexprs(expr_class=exprs.FunctionCall)
+        )
+        params = sorted({v.name for v in e.subexprs(expr_class=exprs.Variable)})
+        if e.contains_(cls=exprs.FunctionCall, filter=lambda fn_call: bool(fn_call.is_agg_fn_call)):
+            msg += ' As a workaround, you can sort the collected rows.'
+        elif calls_now or len(params) > 0:
+            inputs = (['now()'] if calls_now else []) + [f'the parameter {name}' for name in params]
+            msg += (
+                f' The value depends on {" and ".join(inputs)}, so a stored computed column would not have the '
+                'current value. As a workaround, you can rewrite the expression with functions that have a SQL '
+                'translation, or sort the collected rows.'
+            )
+        else:
             msg += (
                 ' As a workaround, you can add the value as a stored computed column of a scalar type '
                 '(cast with .astype() if needed) and use that column with order_by().'
             )
-        else:
-            msg += ' As a workaround, you can sort the collected rows.'
         raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, msg)
 
     def _determine_agg_status(self, e: exprs.Expr, grouping_expr_ids: set[int]) -> tuple[bool, bool]:
