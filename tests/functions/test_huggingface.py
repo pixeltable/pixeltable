@@ -314,6 +314,7 @@ class TestHuggingface:
                 seg=sam3_for_segmentation(t.img, input_boxes=[[1.0, 2.0, 3.0, 4.0]], input_boxes_labels=[1, 0])
             )
 
+    @pytest.mark.resource_intensive  # 24-45 minutes on a standard runner
     def test_sam3_for_video_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers', 'torchvision')
         skip_test_if_no_sam3()

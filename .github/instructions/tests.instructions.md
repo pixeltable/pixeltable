@@ -20,8 +20,8 @@ applyTo: "tests/**"
   unless the service is reliable enough for the merge queue (as OpenAI's is). Independently, mark tests
   too costly for every CI configuration `expensive` (for example, image generation; runs only on
   `standard+`/`standard++`), or `very_expensive` (for example, video generation; `standard++` only). Tests
-  that exceed a standard GitHub-hosted runner's memory or disk take `resource_intensive`. Register new
-  markers in `pyproject.toml`; put new markers on classes/methods.
+  that exceed a standard GitHub-hosted runner's memory or disk, or run for tens of minutes on its CPU, take
+  `resource_intensive`. Register new markers in `pyproject.toml`; put new markers on classes/methods.
 - Scope backend restrictions with `db_roots`; gate a single parametrization inside the test instead of
   applying `skipif`/`xfail` to every variant.
 - For catalog-parametrized media tests, use `sample_file_server.url(path, db_root)` so hosted modes get
