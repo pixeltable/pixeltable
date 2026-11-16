@@ -19,7 +19,6 @@ from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, exprs, type_system as ts
-from pixeltable.utils.code import local_public_names
 
 
 @pxt.udf
@@ -41,6 +40,25 @@ def dumps(obj: pxt.Json) -> str:
 @dumps.to_sql
 def _(obj: sql.ColumnElement) -> sql.ColumnElement:
     return obj.cast(sql.Text)
+
+
+@pxt.udf
+def loads(s: str) -> pxt.Json | None:
+    """
+    Parse a JSON string. The string `'null'` gives `None`.
+
+    Equivalent to [`json.loads()`](https://docs.python.org/3/library/json.html#json.loads).
+
+    Args:
+        s: A JSON-formatted string.
+
+    Returns:
+        The parsed JSON value.
+
+    Examples:
+        >>> t.add_computed_column(boxes=pxtf.json.loads(t.boxes_text))
+    """
+    return json.loads(s)
 
 
 def _jsonb_object_length(obj: sql.ColumnElement) -> sql.ColumnElement:
@@ -516,6 +534,8 @@ def list_iterator(
     All of the inputs must be *typed* `Json` expressions. Untyped Json will be rejected (the type schema is
     necessary in order for Pixeltable to determine the types of the output columns).
 
+    If any input list is null for a row, that row produces no output rows.
+
     Args:
         elements: A list of dictionaries to iterate over. The dictionary keys will be used as column names in the
             output. Cannot be specified together with keyword arguments.
@@ -529,15 +549,19 @@ def list_iterator(
         **kwargs: One or more lists to iterate over. The kwarg names will be used as column names in the output.
             Cannot be specified together with `elements`.
     """
-    assert (elements is None) != (builtins.len(kwargs) == 0)
-
-    if elements is not None:
-        yield from elements
+    if builtins.len(kwargs) == 0:
+        # Positional form is used, e.g. list_iterator(t.col)
+        # elements is None if the argument is null for this base row
+        if elements is not None:
+            yield from elements
 
     else:
+        # kwargs form is used, e.g. list_iterator(a=t.col_1, b=t.col_2)
         # TODO: Clean up the way kwargs are passed to the iterator (this works, but it's a bit clunk with
         #     unnecessary indirection)
-        kwargs_: dict[str, list] = kwargs['kwargs']  # type: ignore[assignment]
+        kwargs_: dict[str, list | None] = kwargs['kwargs']  # type: ignore[assignment]
+        if any(val is None for val in kwargs_.values()):
+            return
         zipped: Iterator[tuple]
         match mode:
             case 'strict':
@@ -622,7 +646,27 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
         return output_schema  # type: ignore[return-value]
 
 
-__all__ = local_public_names(__name__)
+__all__ = [
+    'concat',
+    'contains',
+    'count',
+    'dumps',
+    'flatten',
+    'get',
+    'is_empty',
+    'items',
+    'keys',
+    'len',
+    'list_iterator',
+    'loads',
+    'make_list',
+    'max',
+    'mean',
+    'merge',
+    'min',
+    'sum',
+    'values',
+]
 
 
 def __dir__() -> list[str]:

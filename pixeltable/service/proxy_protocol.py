@@ -26,6 +26,7 @@ from uuid import UUID, uuid4
 
 import numpy as np
 import PIL.Image
+import PIL.ImageFile
 from pydantic import BaseModel, PrivateAttr
 
 from pixeltable import exceptions as excs, exprs, func, type_system as ts
@@ -48,7 +49,7 @@ from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectSto
 if TYPE_CHECKING:
     from pixeltable._query import Query
 
-PROTOCOL_VERSION = 8
+PROTOCOL_VERSION = 10
 
 
 def protocol_mismatch_message(client_version: int, server_version: int, catalog_uri: Path) -> str:
@@ -387,6 +388,8 @@ class LocalFile:
     """A reference to a local file so _serialize()/_deserialize() can handle it correctly."""
 
     path: str
+    # the receiver gets the file as a PIL image instead of its path
+    as_image: bool = False
 
 
 @dataclasses.dataclass
@@ -410,6 +413,7 @@ class ProxyRequest(BaseModel):
 
     args: dict[str, Any]  # method kwargs
     request_id: str | None = None  # set for mutating methods (idempotency); unused for now
+    catalog_frozen: bool = False  # the client runs inside Catalog.freeze()
 
     # raw binary parts, referenced by index from the tagged values in args
     _binary_parts: list[bytes] = PrivateAttr(default_factory=list)
@@ -428,6 +432,7 @@ class ProxyResponse(TypedDict, total=False):
     # only one of these is set
     result: Any  # return value of the dispatched method
     error: dict[str, Any]  # excs.Error.to_dict(), set instead of result on failure
+    prohibited_write: bool  # the method attempted a write under the request's catalog_frozen
 
     # only set after a mutation or when is_stale_md == True
     current_md: list[TableVersionMd] | list[dict[str, Any]]
@@ -491,7 +496,7 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
             'v': {f.name: _serialize(getattr(obj, f.name), InlinePartSink()) for f in dataclasses.fields(obj)},
         }
     if isinstance(obj, DirEntry):
-        # only the fields any get_dir_contents() consumer reads: dir presence, table id/md, error count
+        # only the fields read by get_dir_contents() callers: dir presence, table id/md, error count, base path
         return {
             _TAG: 'DirEntry',
             'v': {
@@ -499,6 +504,7 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
                 'table': None if obj.table is None else {'id': _serialize(obj.table.id, sink), 'md': obj.table.md},
                 'dir_entries': {name: _serialize(child, sink) for name, child in obj.dir_entries.items()},
                 'table_error_count': obj.table_error_count,
+                'base_path': _serialize(obj.base_path, sink),
             },
         }
     if isinstance(obj, UpdateStatus):
@@ -554,7 +560,10 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
     if isinstance(obj, LocalFile):
         # carry the original file name so the receiver can restore it in error messages (its temp copy uses an
         # opaque name) and preserve the extension for media-type detection
-        return {_TAG: 'file', 'name': pathlib.Path(obj.path).name, **_ref_fields(sink.add_media_file(obj.path))}
+        file_tag = {_TAG: 'file', 'name': pathlib.Path(obj.path).name, **_ref_fields(sink.add_media_file(obj.path))}
+        if obj.as_image:
+            file_tag['image'] = True
+        return file_tag
     if isinstance(obj, MediaPath):
         return {_TAG: 'mediapath', 'v': obj.path}
     if isinstance(obj, list):
@@ -701,6 +710,8 @@ def _deserialize(
             # record the original file name so an error can reference it rather than the temp path
             if uploaded_names is not None:
                 uploaded_names[dest_str] = obj['name']
+            if obj.get('image', False):
+                return PIL.Image.open(dest_str)
             return dest_str
         if tag == 'mediapath':
             # persisted daemon media; the client localizes it from the daemon's /media endpoint (see ProxyClient)
@@ -745,6 +756,7 @@ def _deserialize(
                     id=_deserialize(table['id'], binary_parts, uploaded_names, remote_parts), md=table['md']
                 ),
                 table_error_count=v['table_error_count'],
+                base_path=_deserialize(v['base_path'], binary_parts, uploaded_names, remote_parts),
             )
         if tag == 'UpdateStatus':
             d = dict(v)
@@ -863,6 +875,30 @@ def encode_local_path(value: Any) -> Any:
     return value
 
 
+def encode_media_files(value: Any, col_type: ts.ColumnType | None) -> Any:
+    """Wrap the local media files in value, a value of col_type, as LocalFile references.
+
+    For an image opened from a file, the file itself is sent, so any changes to the image since it was opened are lost.
+    """
+    if value is None or col_type is None:
+        return value
+    if col_type.is_image_type() and isinstance(value, PIL.ImageFile.ImageFile) and value.filename != '':
+        return LocalFile(os.fsdecode(value.filename), as_image=True)
+    if col_type.is_media_type() and isinstance(value, str):
+        path = parse_local_file_path(value)
+        return value if path is None else LocalFile(str(path))
+    if isinstance(col_type, ts.JsonType) and col_type.type_schema is not None:
+        spec = col_type.type_schema.type_spec
+        if isinstance(spec, list) and isinstance(value, list):
+            variadic_type = col_type.type_schema.variadic_type
+            return [
+                encode_media_files(elem, spec[i] if i < len(spec) else variadic_type) for i, elem in enumerate(value)
+            ]
+        if isinstance(spec, dict) and isinstance(value, dict):
+            return {key: encode_media_files(elem, spec.get(key)) for key, elem in value.items()}
+    return value
+
+
 def deserialize_value(value: Any, parts: list[bytes]) -> Any:
     """Decode a value carried by a response, resolving its binary references from parts."""
     return _deserialize(value, parts)
@@ -920,6 +956,7 @@ def response_body(
     error_json: bytes = b'null',
     current_md_json: bytes = b'null',
     is_stale_md: bool = False,
+    prohibited_write: bool = False,
 ) -> bytes:
     """The wire body for a response whose fields are already encoded.
 
@@ -934,6 +971,8 @@ def response_body(
     head += current_md_json
     head += b',"is_stale_md":'
     head += b'true' if is_stale_md else b'false'
+    head += b',"prohibited_write":'
+    head += b'true' if prohibited_write else b'false'
     head += b'}'
     return encode_body(bytes(head), parts)
 
@@ -950,6 +989,7 @@ def encode_response(response: ProxyResponse) -> bytes:
         error_json=b'null' if error is None else _dumps(error).encode(),
         current_md_json=current_md_json,
         is_stale_md=response.get('is_stale_md', False),
+        prohibited_write=response.get('prohibited_write', False),
     )
 
 

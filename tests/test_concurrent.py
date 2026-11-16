@@ -243,6 +243,28 @@ class TestConcurrentOps:
         errors = run_workers(worker, n_threads=self.NUM_THREADS)
         self._assert_no_errors(errors)
 
+    def test_concurrent_insert_if_exists(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        """Concurrent insert(if_exists='ignore') calls with the same keys insert each key once."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('test'), {'id': pxt.Int, 'name': pxt.String}, primary_key='id', _is_data_versioned=is_data_versioned
+        )
+        rows = [{'id': i, 'name': str(i)} for i in range(500)]
+        statuses: list[pxt.UpdateStatus] = []
+        lock = threading.Lock()
+
+        def worker(_tid: int) -> None:
+            for start in range(0, len(rows), 50):
+                status = t.insert(rows[start : start + 50], if_exists='ignore')
+                with lock:
+                    statuses.append(status)
+
+        errors = run_workers(worker, n_threads=self.NUM_THREADS)
+        self._assert_no_errors(errors)
+        assert t.count() == len(rows)
+        assert sum(status.num_rows for status in statuses) == len(rows)
+        assert sum(status.row_count_stats.skipped_rows for status in statuses) == (self.NUM_THREADS - 1) * len(rows)
+
     def test_concurrent_select_insert(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """
         Concurrent threads doing select and insert operations on the same table.
@@ -250,7 +272,8 @@ class TestConcurrentOps:
         Also exercises limit/offset under plan caching: a literal-limit/offset SqlNode path,
         and a query-template-with-Variable-limit path that flows through an SQL bindparam in
         LIMIT. Each reader iteration runs both shapes so plan invalidation across writer
-        commits is exercised on plans that include limit/offset.
+        commits is exercised on plans that include limit/offset. On an operational table, inserts
+        don't create a new version, so the cached plans are reused across writer commits instead.
 
         TODO: programmatic validation of plan reuse (cache-hit count)
         """
@@ -338,10 +361,10 @@ class TestConcurrentOps:
         self._assert_no_errors(errors)
         assert t.count() == n0 + n_writers * writes_per_writer
 
-    def test_shared_join(self, db_root: DatabaseRoot) -> None:
+    def test_shared_join(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
-        t1 = pxt.create_table(p('t17_a'), {'id': pxt.Int, 'i': pxt.Int})
-        t2 = pxt.create_table(p('t17_b'), {'id': pxt.Int, 'f': pxt.Float})
+        t1 = pxt.create_table(p('t17_a'), {'id': pxt.Int, 'i': pxt.Int}, _is_data_versioned=is_data_versioned)
+        t2 = pxt.create_table(p('t17_b'), {'id': pxt.Int, 'f': pxt.Float}, _is_data_versioned=is_data_versioned)
         validate_update_status(t1.insert([{'id': i, 'i': i} for i in range(20)]), expected_rows=20)
         validate_update_status(t2.insert([{'id': i, 'f': i * 1.5} for i in range(20)]), expected_rows=20)
 
@@ -386,11 +409,11 @@ class TestConcurrentOps:
         errors = run_workers(worker, n_threads=self.NUM_THREADS)
         self._assert_no_errors(errors)
 
-    def test_table_methods(self, db_root: DatabaseRoot) -> None:
+    def test_table_methods(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Table read methods and at least one mutating op are usable from a thread other
         than the one that created the handle, concurrently across multiple threads."""
         p = db_root.make_catalog_path
-        t = pxt.create_table(p('t_xthread'), {'a': pxt.Int, 'keep': pxt.Int})
+        t = pxt.create_table(p('t_xthread'), {'a': pxt.Int, 'keep': pxt.Int}, _is_data_versioned=is_data_versioned)
         validate_update_status(t.insert([{'a': 1, 'keep': 1}]), expected_rows=1)
 
         def reader(_tid: int) -> None:

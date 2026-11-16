@@ -38,8 +38,11 @@ VERY_EXPENSIVE_NOTEBOOKS=(
     working-with-mistralai
     working-with-nebius
     working-with-openrouter
+    working-with-parallel
     working-with-replicate          # Unreliable
     working-with-together           # Poor reliability
+    working-with-vlmrun
+    working-with-vlmrun-gateway
     working-with-voyageai
 )
 

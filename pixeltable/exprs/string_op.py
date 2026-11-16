@@ -30,7 +30,7 @@ class StringOp(Expr):
                 if not op1.col_type.is_string_type() or not op2.col_type.is_string_type():
                     raise excs.RequestError(
                         excs.ErrorCode.TYPE_MISMATCH,
-                        f'{self}: {operator} on strings requires `String` and `String`, '
+                        f'{self!s}: {operator} on strings requires `String` and `String`, '
                         f'but operands have types `{op1.col_type}` and `{op2.col_type}`',
                     )
             case StringOperator.REPEAT:
@@ -39,11 +39,11 @@ class StringOp(Expr):
                 ):
                     raise excs.RequestError(
                         excs.ErrorCode.TYPE_MISMATCH,
-                        f'{self}: {operator} on strings requires `String` and `Int`, '
+                        f'{self!s}: {operator} on strings requires `String` and `Int`, '
                         f'but operands have types `{op1.col_type}` and `{op2.col_type}`',
                     )
 
-        self.id = self._create_id()
+        self._expr_id = self._create_id()
 
     @property
     def _op1(self) -> Expr:
@@ -55,8 +55,8 @@ class StringOp(Expr):
 
     def __repr__(self) -> str:
         # add parentheses around operands that are StringOpExpr to express precedence
-        op1_str = f'({self._op1})' if isinstance(self._op1, StringOp) else str(self._op1)
-        op2_str = f'({self._op2})' if isinstance(self._op2, StringOp) else str(self._op2)
+        op1_str = f'({self._op1!s})' if isinstance(self._op1, StringOp) else str(self._op1)
+        op2_str = f'({self._op2!s})' if isinstance(self._op2, StringOp) else str(self._op2)
         return f'{op1_str} {self.operator} {op2_str}'
 
     def _equals(self, other: StringOp) -> bool:

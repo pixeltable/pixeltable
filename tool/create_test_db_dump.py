@@ -16,7 +16,6 @@ import toml
 import pixeltable as pxt
 from pixeltable import functions as pxtf, metadata, type_system as ts
 from pixeltable.env import LOG_FMT_STR, Env
-from pixeltable.iterators.base import ComponentIterator
 from tool.udfs_for_db_dump import test_array_udf, test_binary_udf, test_date_udf, test_timestamp_udf, test_uuid_udf
 
 _logger = logging.getLogger(__name__)
@@ -49,44 +48,6 @@ SAMPLE_DOCUMENT_URLS = (
     'https://raw.githubusercontent.com/pixeltable/pixeltable/d8b91c59d6f1742ba75c20f318c0f9a2ae729768/'
     'tests/data/documents/1706.03762.pdf',
 )
-
-
-class CustomLegacyIterator(ComponentIterator):
-    """This is preserved in code for the benefit of version <= 45 database dumps that reference it."""
-
-    input_text: str
-    expand_by: int
-    idx: int
-
-    @classmethod
-    def input_schema(cls, *args: Any, **kwargs: Any) -> dict[str, ts.ColumnType]:
-        return {'text': ts.StringType(), 'expand_by': ts.IntType()}
-
-    @classmethod
-    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
-        return {'output_text': ts.StringType(), 'unstored_text': ts.StringType()}, ['unstored_text']
-
-    def __init__(self, text: str, expand_by: int) -> None:
-        self.input_text = text
-        self.expand_by = expand_by
-        self.idx = 0
-
-    def __next__(self) -> dict[str, Any]:
-        if self.idx >= self.expand_by:
-            raise StopIteration
-        result = {
-            'output_text': f'stored {self.input_text} {self.idx}',
-            'unstored_text': f'unstored {self.input_text} {self.idx}',
-        }
-        self.idx += 1
-        return result
-
-    def close(self) -> None:
-        pass
-
-    def set_pos(self, pos: int, **kwargs: Any) -> None:
-        assert 0 <= pos < self.expand_by
-        self.idx = pos
 
 
 class Dumper:

@@ -42,7 +42,7 @@ def combine_order_by_clauses(clauses: Iterable[OrderByClause]) -> OrderByClause 
     for clause in clauses:
         combined: OrderByClause = []
         for item1, item2 in zip(result, clause):
-            if item1.expr.id != item2.expr.id:
+            if item1.expr._expr_id != item2.expr._expr_id:
                 return None
             if item1.asc is not None and item2.asc is not None and item1.asc != item2.asc:
                 return None
@@ -61,7 +61,7 @@ def combine_order_by_clauses(clauses: Iterable[OrderByClause]) -> OrderByClause 
 
 def print_order_by_clause(clause: OrderByClause) -> str:
     return ', '.join(
-        f'({item.expr}{", asc=True" if item.asc is True else ""}{", asc=False" if item.asc is False else ""})'
+        f'({item.expr!s}{", asc=True" if item.asc is True else ""}{", asc=False" if item.asc is False else ""})'
         for item in clause
     )
 
@@ -142,7 +142,7 @@ class SqlNode(ExecNode):
             self.select_list.update(sql_subexprs)
         # We query for unstored outputs only if we're not loading a view; when we're loading a view, we are populating
         # those columns, so we need to keep them out of the select list. This isn't a problem, because view loads never
-        # need to call set_pos().
+        # need to call seek().
         # TODO: This is necessary because create_view_load_plan passes stored output columns to `RowBuilder` via the
         #     `columns` parameter (even though they don't appear in `output_exprs`). This causes them to be recorded as
         #     expressions in `RowBuilder`, which creates a conflict if we add them here. If `RowBuilder` is restructured
@@ -518,7 +518,7 @@ class SqlNode(ExecNode):
                     elif e.col_type.is_float_type():
                         output_row[slot_idx] = float(sql_row[i])
                     else:
-                        raise RuntimeError(f'Unexpected Decimal value for {e}')
+                        raise RuntimeError(f'Unexpected Decimal value for {e!s}')
                 elif e.col_type.is_array_type() and isinstance(sql_row[i], (list, HalfVector)):
                     # pgvector decodes VECTOR/HALFVEC values to lists of floats (>= 0.5) or HalfVector
                     # objects (< 0.5); all array data needs to be materialized as ndarrays
@@ -785,6 +785,7 @@ class SqlSampleNode(SqlNode):
 
     input_cte: sql.CTE | None
     pk_count: int
+    num_rowid_cols: int
     stratify_exprs: list[exprs.Expr] | None
     sample_clause: 'SampleClause'
     _cte_inputs: list[SqlNode]
@@ -806,7 +807,9 @@ class SqlSampleNode(SqlNode):
         assert isinstance(input, SqlNode)
         self.input_cte, input_col_map = input.to_cte(keep_pk=True)
         self.pk_count = input.num_pk_cols
-        assert self.pk_count > 1
+        self.num_rowid_cols = len(input.tbl.tbl_version.get().store_tbl.rowid_columns())
+        assert self.num_rowid_cols > 0, self.num_rowid_cols
+        assert self.num_rowid_cols <= self.pk_count, (self.num_rowid_cols, self.pk_count)
         sql_elements = exprs.SqlElementCache(input_col_map)
         assert sql_elements.contains_all(stratify_exprs)
         cell_md_col_refs = [cell_md_ref.col_ref for cell_md_ref in input.cell_md_refs]
@@ -843,8 +846,9 @@ class SqlSampleNode(SqlNode):
 
     def _create_key_sql(self, cte: sql.CTE) -> sql.ColumnElement:
         """Create an expression for randomly ordering rows with a given seed"""
-        rowid_cols = [*cte.c[-self.pk_count : -1]]  # exclude the version column
-        assert len(rowid_cols) > 0
+        # cte always ends with the rowid columns, then v_min (if data-versioned) and rank (if cte is row_rank_cte)
+        first_rowid_idx = len(self.input_cte.c) - self.pk_count
+        rowid_cols = [*cte.c[first_rowid_idx : first_rowid_idx + self.num_rowid_cols]]
         if self.sample_clause.seed is not None:
             # explicit seed: same value across executes, fine to inline
             seed_expr: sql.ColumnElement = sql.literal_column(str(self.sample_clause.seed))

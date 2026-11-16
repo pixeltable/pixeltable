@@ -3,7 +3,7 @@ title: 'SigNoz'
 description: 'Trace Pixeltable operations and LLM calls in SigNoz with OpenTelemetry'
 ---
 
-Pixeltable runs LLM calls inside computed columns and UDFs. [SigNoz](https://signoz.io) records each call as a trace: the operation, the row, the UDF, and, with an OpenInference instrumentor, the model request. This page sends Pixeltable's OpenTelemetry spans to SigNoz. The bridge itself, including metrics, is covered in [Observability](/platform/observability). Endpoint and header variables are in SigNoz's [OpenTelemetry environment variables](https://signoz.io/docs/ingestion/opentelemetry-environment-variables/).
+Pixeltable runs LLM calls inside computed columns and UDFs. [SigNoz](https://signoz.io) records each call as a trace: the operation, the row, the UDF, and, with an OpenInference instrumentor, the model request. This page sends Pixeltable's OpenTelemetry spans to SigNoz. The bridge itself, including metrics, is covered in [Observability](/platform/observability). Endpoint and header variables are in SigNoz's [OpenTelemetry environment variables](https://signoz.io/docs/ingestion/opentelemetry-environment-variables/). SigNoz's side of the same setup is [SigNoz's Pixeltable observability page](https://signoz.io/docs/pixeltable-observability/).
 
 One Pixeltable operation (`insert`, `add_computed_column`, `collect`, and the rest) is one trace. At `span_level='debug'` an OpenAI insert looks like this. `openai.chat_completions` runs on a resource pool, so its UDF span sits beside `pixeltable.row`. A UDF without a resource pool nests under `pixeltable.row`.
 

@@ -33,6 +33,7 @@
           <outline text="func|pixeltable.udf" />
           <outline text="func|pixeltable.uda" />
           <outline text="func|pixeltable.query" />
+          <outline text="func|pixeltable.eval_udf" />
           <outline text="func|pixeltable.iterator" />
           <outline text="func|pixeltable.tools" />
           <outline text="func|pixeltable.tool" />
@@ -136,6 +137,8 @@
           </outline>
           <outline text="class|pixeltable.DirContents" />
           <outline text="class|pixeltable.DirectoryNode" />
+          <outline text="class|pixeltable.FunctionList" />
+          <outline text="class|pixeltable.FunctionMetadata" />
           <outline text="class|pixeltable.IndexMetadata" />
           <outline text="class|pixeltable.Secret" />
           <outline text="class|pixeltable.TableMetadata" />
@@ -151,6 +154,7 @@
       <!-- Built-in Functions and Operators group -->
       <outline text="group|Built-in Functions and Operators">
         <outline text="module|pixeltable.functions">
+          <outline text="udf|pixeltable.functions.coalesce" />
           <outline text="func|pixeltable.functions.filter" />
           <outline text="func|pixeltable.functions.map" />
           <outline text="func|pixeltable.functions.sort" />
@@ -173,6 +177,8 @@
           <outline text="udf|pixeltable.functions.date.month" />
           <outline text="udf|pixeltable.functions.date.day" />
           <outline text="udf|pixeltable.functions.date.make_date" />
+          <outline text="udf|pixeltable.functions.date.today" />
+          <outline text="udf|pixeltable.functions.date.strptime" />
           <outline text="udf|pixeltable.functions.date.weekday" />
           <outline text="udf|pixeltable.functions.date.isoweekday" />
           <outline text="udf|pixeltable.functions.date.isocalendar" />
@@ -220,6 +226,7 @@
         <outline text="module|pixeltable.functions.json">
           <outline text="iter|pixeltable.functions.json.list_iterator" />
           <outline text="udf|pixeltable.functions.json.dumps" />
+          <outline text="udf|pixeltable.functions.json.loads" />
           <outline text="udf|pixeltable.functions.json.len" />
           <outline text="udf|pixeltable.functions.json.is_empty" />
           <outline text="udf|pixeltable.functions.json.contains" />
@@ -322,6 +329,8 @@
           <outline text="udf|pixeltable.functions.timestamp.isoformat" />
           <outline text="udf|pixeltable.functions.timestamp.strftime" />
           <outline text="udf|pixeltable.functions.timestamp.make_timestamp" />
+          <outline text="udf|pixeltable.functions.timestamp.now" />
+          <outline text="udf|pixeltable.functions.timestamp.strptime" />
           <outline text="udf|pixeltable.functions.timestamp.replace" />
           <outline text="udf|pixeltable.functions.timestamp.strip_timezone" />
           <outline text="udf|pixeltable.functions.timestamp.toordinal" />
@@ -472,6 +481,10 @@
         <outline text="module|pixeltable.functions.openrouter">
           <outline text="udf|pixeltable.functions.openrouter.chat_completions" />
         </outline>
+        <outline text="module|pixeltable.functions.parallel">
+          <outline text="udf|pixeltable.functions.parallel.search" />
+          <outline text="udf|pixeltable.functions.parallel.extract" />
+        </outline>
         <outline text="module|pixeltable.functions.replicate">
           <outline text="udf|pixeltable.functions.replicate.run" />
         </outline>
@@ -489,10 +502,26 @@
         </outline>
         <outline text="module|pixeltable.functions.twelvelabs">
           <outline text="udf|pixeltable.functions.twelvelabs.embed" />
+          <outline text="udf|pixeltable.functions.twelvelabs.async_embed" />
+          <outline text="udf|pixeltable.functions.twelvelabs.async_embed_asset" />
         </outline>
         <outline text="module|pixeltable.functions.vllm">
           <outline text="udf|pixeltable.functions.vllm.chat_completions" />
           <outline text="udf|pixeltable.functions.vllm.generate" />
+        </outline>
+        <outline text="module|pixeltable.functions.vlmrun">
+          <outline text="udf|pixeltable.functions.vlmrun.chat_completions" />
+          <outline text="udf|pixeltable.functions.vlmrun.generate_image" />
+          <outline text="udf|pixeltable.functions.vlmrun.annotate_image" />
+          <outline text="udf|pixeltable.functions.vlmrun.generate_video" />
+          <outline text="udf|pixeltable.functions.vlmrun.generate_document" />
+        </outline>
+        <outline text="module|pixeltable.functions.vlmrun_gateway">
+          <outline text="udf|pixeltable.functions.vlmrun_gateway.chat_completions" />
+          <outline text="udf|pixeltable.functions.vlmrun_gateway.ocr" />
+          <outline text="udf|pixeltable.functions.vlmrun_gateway.analyze" />
+          <outline text="udf|pixeltable.functions.vlmrun_gateway.embeddings" />
+          <outline text="udf|pixeltable.functions.vlmrun_gateway.transcriptions" />
         </outline>
         <outline text="module|pixeltable.functions.voyageai">
           <outline text="udf|pixeltable.functions.voyageai.embeddings" />
@@ -509,6 +538,7 @@
           <outline text="udf|pixeltable.functions.yolox.yolox" />
           <outline text="udf|pixeltable.functions.yolox.yolo_to_coco" />
         </outline>
+        <outline text="class|pixeltable.functions.twelvelabs.EmbeddingResult" />
         <outline text="class|pixeltable.functions.whisper.WhisperSegment" />
         <outline text="class|pixeltable.functions.whisper.WhisperTranscription" />
         <outline text="class|pixeltable.functions.whisper.WhisperWord" />

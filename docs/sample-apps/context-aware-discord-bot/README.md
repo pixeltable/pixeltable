@@ -127,7 +127,7 @@ python bot.py
 messages_view = pxt.create_view(
     'discord_bot.sentences',
     messages_table,
-    iterator=StringSplitter.create(
+    iterator=pxt.functions.string.string_splitter(
         text=messages_table.content,
         separators='sentence'
     )

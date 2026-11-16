@@ -19,7 +19,8 @@ import toml
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs
-from pixeltable.service.resources import DatabaseCapacity, ServiceResources
+from pixeltable.service.resources import DatabaseCapacity, ServiceResources, UdfResources
+from pixeltable.utils.file_io import atomic_write
 
 if TYPE_CHECKING:
     from pixeltable import catalog
@@ -597,7 +598,8 @@ class Config:
 
         else:
             config_dict = self.__create_default_config(self.__config_file)
-            with open(self.__config_file, 'w', encoding='utf-8') as stream:
+            # a process starting at the same time must never read a partial file
+            with atomic_write(self.__config_file, mode='w', encoding='utf-8') as stream:
                 try:
                     toml.dump(config_dict, stream)
                 except Exception as exc:
@@ -647,7 +649,7 @@ class Config:
         """
         Validate a config value against its declared type.
 
-        A scalar is returned as is; the dicts of a list[Pydantic model] option become model instances.
+        The dicts of a list[Pydantic model] option become model instances; any other value is returned as is.
         """
         origin_t = typing.get_origin(expected_type) or expected_type
         # isinstance() accepts a bool for int, so a TOML true would pass the check
@@ -941,6 +943,8 @@ class Config:
     def describe_setting(self, section: str, key: str) -> str:
         """A printable description of a setting, incl. its source."""
         source = self.get_value_source(key, section)
+        if source == 'env' and self.is_overridden(key, section):
+            return f'{section}.{key} in the config_overrides of pxt.init()'
         if source == 'env':
             return f'{env_var_name(section, key)} in the environment'
         if source == 'unset':
@@ -989,6 +993,11 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
             "its runtime image and its services' resources",
             list[DatabaseConfig],
         ),
+        'udf': (
+            "Resources of the Modal containers that run a UDF's calls, keyed by the UDF's path, eg "
+            "'pixeltable.functions.huggingface.clip'",
+            dict[str, UdfResources],
+        ),
         'db_pool_size': ('Number of database connections the engine keeps open (default: 5)', int),
         'db_pool_max_overflow': (
             'Number of temporary database connections the engine may open beyond `db_pool_size` (default: 10)',
@@ -1026,10 +1035,15 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
     'groq': {'api_key': 'Groq API key', 'rate_limit': 'Rate limit for Groq API requests'},
     'jina': {'api_key': 'Jina AI API key', 'rate_limit': 'Rate limit for Jina AI API requests'},
     'mistral': {'api_key': 'Mistral API key', 'rate_limit': 'Rate limit for Mistral API requests'},
+    'modal': {
+        'proxy_key': 'Modal proxy token ID, for the calls to the UDFs in pixeltable.udf',
+        'proxy_secret': 'Modal proxy token secret, for the calls to the UDFs in pixeltable.udf',
+    },
     'nebius': {
         'api_key': 'Nebius Token Factory API key',
         'rate_limit': 'Rate limit for Nebius Token Factory API requests',
     },
+    'ollama': {'host': 'Ollama server URL'},
     'openai': {
         'api_key': 'OpenAI API key',
         'base_url': 'OpenAI API base URL',
@@ -1057,14 +1071,28 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'metrics': 'Export metrics via OTLP (default: only when an OTLP endpoint is configured)',
         'logs': 'Export pixeltable logs via OTLP (default: false)',
     },
+    'parallel': {'api_key': 'Parallel API key', 'rate_limit': 'Rate limit for Parallel API requests'},
     'replicate': {'api_token': 'Replicate API token'},
     'runwayml': {'api_secret': 'RunwayML API secret'},
     'together': {
         'api_key': 'Together API key',
         'rate_limits': 'Per-model category rate limits for Together API requests',
     },
-    'twelvelabs': {'api_key': 'TwelveLabs API key', 'rate_limit': 'Rate limit for TwelveLabs API requests'},
+    'twelvelabs': {
+        'api_key': 'TwelveLabs API key',
+        'rate_limit': 'Rate limit for TwelveLabs API requests',
+        'timeout': 'Seconds to wait for asynchronous TwelveLabs operations to complete (default: 600)',
+    },
     'veo': {'rate_limits': 'Per-model rate limits for Veo API requests'},
+    'vlmrun': {
+        'api_key': 'VLM Run API key',
+        'rate_limit': 'Rate limit for VLM Run API requests',
+        'timeout': 'Maximum seconds for one VLM Run call, including its uploads, polling and download (default: 1800)',
+    },
+    'vlmrun_gateway': {
+        'base_url': 'VLM Run Gateway base URL (default: https://gateway.vlm.run/v1/openai)',
+        'rate_limit': 'Rate limit for VLM Run Gateway requests',
+    },
     'voyage': {'api_key': 'Voyage AI API key', 'rate_limit': 'Rate limit for Voyage AI API requests'},
     'pypi': {'api_key': 'PyPI API key (for internal use only)'},
 }
@@ -1090,7 +1118,7 @@ _INSTALLATION_KEYS = frozenset(
 
 # settings that contain credentials
 _SECRET_KEYS = frozenset(
-    {'api_key', 'api_secret', 'api_token', 'token', 'storage_account_key', 'exporter_otlp_headers'}
+    {'api_key', 'api_secret', 'api_token', 'token', 'storage_account_key', 'exporter_otlp_headers', 'proxy_secret'}
 )
 
 # whitelist of allowed setting overrides for individual dbs; the db_ prefix keeps them apart from the db

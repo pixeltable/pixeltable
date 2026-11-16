@@ -13,9 +13,11 @@ from pixeltable.metadata import schema
 
 from .column import Column
 from .globals import IndexSpec, MediaValidation
+from .path import Path
 from .types import TableVersionKey, TableVersionMd
 
 if TYPE_CHECKING:
+    from .table_metadata import TableMetadata
     from .table_version import TableVersion
 
 
@@ -266,3 +268,16 @@ def create_table_version_md(
         additional_md={},
     )
     return TableVersionMd(tbl_md, table_version_md, schema_version_md)
+
+
+def rebase_table_md(tbl_md: TableMetadata, catalog_uri: Path) -> TableMetadata:
+    """Rebase the path-valued fields of tbl_md (path, base) from in-db paths, as a hosted catalog returns them, onto
+    catalog_uri."""
+    tbl_md['path'] = _rebase_path(tbl_md['path'], catalog_uri)
+    if tbl_md['base'] is not None:
+        tbl_md['base'] = _rebase_path(tbl_md['base'], catalog_uri)
+    return tbl_md
+
+
+def _rebase_path(path_str: str, catalog_uri: Path) -> str:
+    return str(Path.parse(path_str, allow_versioned_path=True).with_catalog(catalog_uri))

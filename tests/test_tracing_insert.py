@@ -270,7 +270,7 @@ class TestInsertTracing:
             assert all(s['parent_id'] == insert_rows['id'] for s in encodes)
             assert all(s['ended'] for s in recorder.spans)
 
-    def test_model_load_span(self) -> None:
+    def test_model_load_span(self, init_env: None) -> None:
         """A model loaded outside any operation (eg, by `.using()`) still gets a span, as a root."""
         skip_test_if_not_installed('torch')
         with record_telemetry() as recorder:
@@ -280,8 +280,10 @@ class TestInsertTracing:
             assert load['parent_id'] is None and load['ended']
             assert load['attrs']['pxt.model_id'] == model_id
 
-    def test_op_spans(self, uses_db: None) -> None:
-        t = pxt.create_table('tracing_ops', {'c': pxt.Int | None, 's': pxt.String})
+    def test_op_spans(self, uses_db: None, is_data_versioned: bool) -> None:
+        t = pxt.create_table(
+            'tracing_ops', {'c': pxt.Int | None, 's': pxt.String}, _is_data_versioned=is_data_versioned
+        )
         t.add_computed_column(inc=pxtf.math.abs(t.c))
 
         with record_telemetry() as recorder:

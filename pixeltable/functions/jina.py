@@ -16,7 +16,6 @@ from pixeltable import type_system as ts
 from pixeltable.env import register_client
 from pixeltable.func import Batch
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.code import local_public_names
 
 _logger = logging.getLogger(__name__)
 
@@ -267,7 +266,7 @@ async def rerank(
     return {'results': formatted_results, 'usage': result.get('usage', {})}
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['embeddings', 'rerank']
 
 
 def __dir__() -> list[str]:

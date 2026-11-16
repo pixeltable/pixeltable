@@ -18,7 +18,6 @@ import PIL.Image
 
 import pixeltable as pxt
 from pixeltable.env import register_client
-from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 
 _logger = logging.getLogger(__name__)
@@ -173,7 +172,7 @@ def _client() -> _BflClient:
     return get_runtime().get_client('bfl')
 
 
-@pxt.udf(resource_pool='request-rate:bfl')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:bfl')
 async def generate(
     prompt: str,
     *,
@@ -247,7 +246,7 @@ async def generate(
     return await _client().generate(endpoint, payload)
 
 
-@pxt.udf(resource_pool='request-rate:bfl')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:bfl')
 async def edit(
     prompt: str,
     image: PIL.Image.Image,
@@ -338,7 +337,7 @@ async def edit(
     return await _client().generate(endpoint, payload)
 
 
-@pxt.udf(resource_pool='request-rate:bfl')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:bfl')
 async def fill(
     prompt: str,
     image: PIL.Image.Image,
@@ -404,7 +403,7 @@ async def fill(
     return await _client().generate(endpoint, payload)
 
 
-@pxt.udf(resource_pool='request-rate:bfl')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:bfl')
 async def expand(
     prompt: str,
     image: PIL.Image.Image,
@@ -481,7 +480,7 @@ async def expand(
     return await _client().generate(endpoint, payload)
 
 
-__all__ = local_public_names(__name__)
+__all__ = ['edit', 'expand', 'fill', 'generate']
 
 
 def __dir__() -> list[str]:
