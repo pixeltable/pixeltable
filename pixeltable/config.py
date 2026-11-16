@@ -726,23 +726,20 @@ class Config:
         - in place of the file's [[pixeltable.database]] list: a list with one entry for db_config (its name, vars
           and db_* settings), or no list if db_config is None
 
-        A secret in the project config file is an error for a hosted database.
+        A secret in the project config file is an error for a hosted database and for a project with a
+        pixeltable.udf setting.
         """
         is_hosted = db_config is not None and db_config.name != LOCAL_DATABASE
+        # the UDF servers of the pixeltable.udf setting get this config
+        has_udf_servers = self.get_value('udf', dict) is not None
         result: ConfigSections = {}
         for section, options in self.__project_config.items():
             for key, (value, _) in options.items():
                 if section == 'pixeltable' and key == 'database':
                     continue  # replaced by the entry for db_config
                 if key in _SECRET_KEYS:
-                    if is_hosted:
-                        assert db_config is not None
-                        raise excs.RequestError(
-                            excs.ErrorCode.INVALID_CONFIGURATION,
-                            f"'{section}.{key}' in {self.__project_config_file} is a secret, and a hosted "
-                            f'database receives its secrets through `pxt secret`. Remove it and run:\n'
-                            f'  pxt secret set {db_config.name} {env_var_name(section, key)}=<value>',
-                        )
+                    if is_hosted or has_udf_servers:
+                        raise self.__project_secret_error(section, key, db_config if is_hosted else None)
                     # an edit to a local secret still changes the config, and so restarts a local service
                     result.setdefault(section, {})[key] = hashlib.sha256(str(value).encode()).hexdigest()
                     continue
@@ -756,6 +753,28 @@ class Config:
             result.setdefault('pixeltable', {})['database'] = [entry]
 
         return result
+
+    def __project_secret_error(self, section: str, key: str, hosted_db: DatabaseConfig | None) -> excs.RequestError:
+        """Return the error for the secret section.key in the project config file.
+
+        hosted_db: the hosted database of the config, or None for the local database
+        """
+        env_var = env_var_name(section, key)
+        if hosted_db is not None:
+            advice = (
+                'and a hosted database receives its secrets through `pxt secret`. Remove it and run:\n'
+                f'  pxt secret set {hosted_db.name} {env_var}=<value>'
+            )
+        else:
+            advice = (
+                'and the UDF servers of the pixeltable.udf setting receive their secrets through `pxt secret`. '
+                f'Move it to {self.__config_file} or to the environment variable {env_var}, and run:\n'
+                f'  pxt secret set pxt://<org> {env_var}=<value>'
+            )
+        return excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f"'{section}.{key}' in {self.__project_config_file} is a secret, {advice}",
+        )
 
     def __own_database_values(self, field: Literal['vars', 'settings']) -> dict[str, tuple[str, Path | None]]:
         """Return the `vars` or `settings` of the database we are connected to, each with the file that supplied it.

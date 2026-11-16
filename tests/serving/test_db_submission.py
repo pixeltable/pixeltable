@@ -277,6 +277,21 @@ class TestDbSubmission:
         (op,) = create_db_update_ops(changed, deployed)
         assert op.description.endswith('which restarts the database') and op.requires_restart
 
+        # a secret in the project config file
+        udf_config = config_file.read_text(encoding='utf-8')
+        config_file.write_text(f"[openai]\napi_key = 'sk-project'\n\n{udf_config}", encoding='utf-8')
+        Config.init(reinit=True, project_root=project)
+        num_uploads = len(control_plane.uploads)
+        secret_error = r"(?s)'openai.api_key' in .* is a secret.*pxt secret set pxt://<org> OPENAI_API_KEY=<value>"
+        for update_or_diff in (db_update, db_diff):
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=secret_error):
+                update_or_diff(db_uri)
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=secret_error):
+            local_db_udf_servers()
+        assert len(control_plane.uploads) == num_uploads
+        config_file.write_text(udf_config, encoding='utf-8')
+        Config.init(reinit=True, project_root=project)
+
         (project / 'app.py').write_text('x = 2\n')
         with pxt_raises(
             excs.ErrorCode.INVALID_STATE, match=r'(?s)run another version of the project.*app\.py.*Run `pxt db update`'

@@ -704,6 +704,14 @@ class TestConfig:
             excs.ErrorCode.INVALID_CONFIGURATION, match=r'pxt secret set pxt://myorg:prod OPENAI_API_KEY=<value>'
         ):
             config.create_project_config(config.get_database_config(prod_uri))
+        # a project with a pixeltable.udf setting: the secret is refused for the local database as well
+        config = load("[openai]\napi_key = 'sk-project'\n\n[pixeltable.udf.'pixeltable.functions.video.clip']\n")
+        with pxt_raises(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            match=r'(?s)Move it to .*home\.toml or to the environment variable OPENAI_API_KEY, and run:.*'
+            r'pxt secret set pxt://<org> OPENAI_API_KEY=<value>',
+        ):
+            config.create_project_config(config.get_database_config(local_uri))
 
         config = load(f"[otel]\nexporter_otlp_headers = 'Authorization=Basic abc'\n{hosted}")
         with pxt_raises(

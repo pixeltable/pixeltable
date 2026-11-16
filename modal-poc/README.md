@@ -108,6 +108,7 @@ project". The same applies to any other change of the project's files.
 
 A UDF that needs a provider's API key reads it from the environment of its server. `pxt secret set pxt://<org>
 KEY=value` sets it for the organization, and the next `pxt db update` deploys the UDF servers with it.
+`pxt db update` refuses a project configuration file with a secret in it, such as an API key.
 
 ## Smoke test
 
