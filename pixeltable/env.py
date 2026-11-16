@@ -11,7 +11,6 @@ import logging
 import math
 import os
 import shutil
-import subprocess
 import threading
 import types
 import typing
@@ -880,7 +879,9 @@ class Env:
 
         try:
             # Get list of available encoders
-            result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True, timeout=10, check=True)
+            from pixeltable.utils.av import run_ffmpeg
+
+            result = run_ffmpeg(['-encoders'], timeout=10)
 
             if result.returncode == 0:
                 available_encoders = result.stdout

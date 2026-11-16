@@ -2638,6 +2638,26 @@ class TestVideo:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'transition duration.*exceeds duration'):
             u2.select(transition(u2.v1, u2.v2, duration=1.0)).collect()
 
+    def test_run_ffmpeg_ignores_stdin(self, tmp_path: Path) -> None:
+        """ffmpeg's overwrite prompt must neither read nor wait on the caller's stdin."""
+        output_path = tmp_path / 'existing.mp4'
+        output_path.touch()
+        read_fd, write_fd = os.pipe()
+        os.write(write_fd, b'y\n')
+        os.close(write_fd)
+        saved_stdin = os.dup(0)
+        os.dup2(read_fd, 0)
+        try:
+            av_utils.run_ffmpeg(['-i', get_video_files()[0], '-c', 'copy', str(output_path)], timeout=60)
+        except subprocess.CalledProcessError as e:
+            assert 'already exists' in e.stderr
+        finally:
+            os.dup2(saved_stdin, 0)
+            os.close(saved_stdin)
+        assert output_path.stat().st_size == 0
+        assert os.read(read_fd, 2) == b'y\n'
+        os.close(read_fd)
+
     @pytest.mark.db_roots('local', reason='pure UDF test')
     def test_ffmpeg_filter(self, uses_db: None) -> None:
         video_filepaths = get_video_files()

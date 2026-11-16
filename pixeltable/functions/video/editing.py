@@ -1,5 +1,4 @@
 import glob
-import logging
 import subprocess
 from pathlib import Path
 from typing import Any, Literal
@@ -16,8 +15,6 @@ from pixeltable.functions import media_metadata as util
 from pixeltable.utils.local_store import TempStore
 
 from .iterators import VideoSegment
-
-_logger = logging.getLogger(__name__)
 
 
 @pxt.uda(requires_order_by=True)
@@ -441,7 +438,7 @@ def segment_video(
         )
 
         try:
-            _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            _ = av_utils.run_ffmpeg(cmd)
             output_paths = sorted(glob.glob(f'{base_path}_segment_*.mp4'))
             # TODO: is this actually an error?
             # if len(output_paths) == 0:
@@ -471,7 +468,7 @@ def segment_video(
                 segment_path = f'{base_path}_segment_{len(output_paths)}.mp4'
                 cmd = av_utils.ffmpeg_clip_cmd(str(video), segment_path, start_time, target_duration)
 
-                _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                _ = av_utils.run_ffmpeg(cmd)
                 segment_duration = av_utils.get_video_duration(segment_path)
                 if segment_duration is None:
                     # a generated segment whose duration we cannot read
@@ -574,10 +571,9 @@ def _concat_videos(
 
     try:
         # First attempt: fast copy without re-encoding (works for compatible formats)
-        cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', str(filelist_path), '-c', 'copy', '-y', str(output_path)]
-        _logger.debug(f'_concat_videos(): {" ".join(cmd)}')
+        cmd = ['-f', 'concat', '-safe', '0', '-i', str(filelist_path), '-c', 'copy', '-y', str(output_path)]
         try:
-            _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            _ = av_utils.run_ffmpeg(cmd)
             return str(output_path)
         except subprocess.CalledProcessError:
             # Expected for mixed formats - continue to fallback
@@ -600,7 +596,7 @@ def _concat_videos(
         # - [0:a:0][1:a:0] - audio stream 0 from inputs 0 and 1
         # - concat=n=2:v=0:a=1[outa] - concat 2 inputs, 0 video, 1 audio stream, output to [outa]
 
-        cmd = ['ffmpeg']
+        cmd = []
         for video in videos:
             cmd.extend(['-i', video])
 
@@ -621,7 +617,7 @@ def _concat_videos(
             cmd.extend(['-c:a', 'aac'])
         cmd.extend(['-pix_fmt', 'yuv420p', str(output_path)])
 
-        _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        _ = av_utils.run_ffmpeg(cmd)
         return str(output_path)
 
     except subprocess.CalledProcessError as e:
