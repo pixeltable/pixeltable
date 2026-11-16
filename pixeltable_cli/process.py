@@ -1,6 +1,5 @@
 """Finding, probing and stopping processes by pid. Stdlib plus psutil, so the pxt client imports it cheaply."""
 
-import contextlib
 import sys
 
 import psutil
@@ -91,18 +90,20 @@ def find_process(pid: int, started_at: float | None) -> psutil.Process | None:
 
 
 def terminate_and_wait(proc: psutil.Process, timeout: float) -> None:
-    """Terminate proc, wait up to timeout seconds for it to exit, then kill it.
+    """Terminate proc and wait up to timeout seconds for it to exit; kill it if it is still running, and wait up to
+    timeout seconds again.
 
-    psutil never signals a process that reused proc.pid after the creation of proc, and wait() reaps proc if it is a
-    child of this process.
+    psutil never signals a process that reused proc.pid after the creation of proc. wait() reaps proc if it is a child
+    of this process, and otherwise returns once its parent has reaped it.
     """
     try:
         proc.terminate()
-        proc.wait(timeout)
-    except psutil.TimeoutExpired:
-        with contextlib.suppress(psutil.Error, OSError):
+        try:
+            proc.wait(timeout)
+        except psutil.TimeoutExpired:
             proc.kill()
+            proc.wait(timeout)
     except (psutil.Error, OSError):
-        # gone or exiting: on Linux, psutil re-raises FileNotFoundError when /proc/<pid>/stat is gone before
-        # /proc/<pid>, as during an exit
+        # Gone, exiting or still unreaped after the second wait. On Linux, psutil re-raises FileNotFoundError when
+        # /proc/<pid>/stat is gone before /proc/<pid>, as during an exit.
         pass
