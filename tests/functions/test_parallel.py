@@ -71,7 +71,7 @@ def _tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
 
 
 @pytest.mark.expensive
-@pytest.mark.remote_api
+@pytest.mark.skip_merge_queue
 def test_free_tier(anonymous: None) -> None:
     from pixeltable.functions.openai import invoke_tools
 
@@ -131,7 +131,7 @@ def test_free_tier(anonymous: None) -> None:
 
 
 @pytest.mark.expensive
-@pytest.mark.remote_api
+@pytest.mark.skip_merge_queue
 @rerun_on_network_error()
 class TestParallel:
     def test_search_with_key(self, authenticated: None) -> None:
