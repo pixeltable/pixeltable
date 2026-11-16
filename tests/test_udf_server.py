@@ -27,7 +27,7 @@ _SERVED_UDFS = (
     'pixeltable.functions.string.format',
     'pixeltable.functions.timestamp.make_timestamp',
     'pixeltable.functions.vision.bboxes_resize',
-    'pixeltable.functions.video.editing.clip',
+    'pixeltable.functions.video.clip',
     'pixeltable.functions.video.editing.segment_video',
     'pixeltable.functions.huggingface.sentence_transformer',
 )

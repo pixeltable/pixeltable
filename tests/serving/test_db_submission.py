@@ -174,7 +174,7 @@ def _receipt(**fields: Any) -> GenerationReceipt:
 
 
 @pytest.fixture
-def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def project(init_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # a released pxt: a development build of an unpinned project is refused before packaging
     monkeypatch.setattr(pixeltable, '__version__', '0.7.15')
     (tmp_path / 'pixeltable.toml').write_text(f'[[pixeltable.database]]\nname = "{_DB_URI}"\n', encoding='utf-8')
@@ -244,6 +244,12 @@ class TestDbSubmission:
         for update_or_diff in (db_update, db_diff):
             with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='the project has no pixeltable.udf setting'):
                 update_or_diff(db_uri)
+        # an update refuses a setting with an entry that is not a UDF, for a local and a hosted database
+        monkeypatch.setenv('PIXELTABLE_UDF', json.dumps({'json.dumps': {}}))
+        for update_or_diff in (db_update, db_diff):
+            for uri in (db_uri, _DB_URI):
+                with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match="'json.dumps' is not a UDF declared with"):
+                    update_or_diff(uri)
         monkeypatch.setenv('PIXELTABLE_UDF', json.dumps({'pixeltable.functions.video.clip': {}}))
         # the project has no entry for the local database, which then gets the defaults
         db_update(db_uri)
@@ -262,7 +268,7 @@ class TestDbSubmission:
         other_config = deployed.fingerprint.model_copy(update={'config': {'pixeltable': {'udf': {}}}})
         changed = deployed.model_copy(update={'fingerprint': other_config})
         (op,) = create_db_update_ops(changed, deployed, has_pods=False)
-        assert op.description.endswith('which deploys the UDF servers again') and not op.requires_restart
+        assert op.description.endswith('which redeploys the UDF servers') and not op.requires_restart
         (op,) = create_db_update_ops(changed, deployed)
         assert op.description.endswith('which restarts the database') and op.requires_restart
 

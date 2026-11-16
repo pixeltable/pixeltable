@@ -474,7 +474,7 @@ class TestProjectArchive:
         with tarfile.open(create_project_archive(tmp_path, local_entry()), 'r:bz2') as tar:
             assert 'project/dist/dep.whl' in tar.getnames()
 
-    def test_manifest_drift(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_manifest_drift(self, init_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A file rewritten or removed while it is packaged is caught before anything is uploaded or submitted."""
         # a released pxt: a development build of an unpinned project is refused before packaging
         monkeypatch.setattr(pixeltable, '__version__', '0.7.15')

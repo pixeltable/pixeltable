@@ -152,7 +152,7 @@ class ModalEndpoints:
     # the key of the process's ModalEndpoints in Env.get_resource_pool_info()
     _REGISTRY_KEY: ClassVar[str] = 'modal-endpoints'
 
-    # keyed by UDF path
+    # keyed by the UDF's path in the pixeltable.udf setting
     server_urls: dict[str, str]
     # sent with every call
     headers: dict[str, str] = dataclasses.field(repr=False)
@@ -224,7 +224,7 @@ class ModalServerClient:
     - send GETs only while a call waits for a container
     """
 
-    udf_path: str
+    setting_path: str
     timeout: httpx.Timeout
     url: str
     # clear if the last GET or POST found no running container
@@ -236,14 +236,14 @@ class ModalServerClient:
     # runs _monitor() while num_active_calls > 0
     monitor: asyncio.Task[None] | None
 
-    def __init__(self, udf_path: str, timeout_seconds: int) -> None:
-        self.udf_path = udf_path
+    def __init__(self, setting_path: str, timeout_seconds: int) -> None:
+        self.setting_path = setting_path
         self.timeout = httpx.Timeout(timeout_seconds, connect=_CONNECT_SECONDS)
-        url = ModalEndpoints.get().server_urls.get(udf_path)
+        url = ModalEndpoints.get().server_urls.get(setting_path)
         if url is None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
-                f'{udf_path!r} is in the pixeltable.udf setting, but the database has no Modal Server for it. '
+                f'{setting_path!r} is in the pixeltable.udf setting, but the database has no Modal Server for it. '
                 'Run `pxt db update` to deploy it.',
             )
         self.url = url
@@ -294,17 +294,17 @@ class ModalServerClient:
             # secret; both are in ModalEndpoints.headers
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_AUTH_ERROR,
-                f'The UDF server of {self.udf_path} refused the credentials of this process (HTTP 401). If the UDF '
+                f'The UDF server of {self.setting_path} refused the credentials of this process (HTTP 401). If the UDF '
                 'servers were deployed again after this process started, restart the process.',
             )
         if response.status_code != 200:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR,
-                f'Modal call of {self.udf_path} failed with status {response.status_code}: {response.text}',
+                f'Modal call of {self.setting_path} failed with status {response.status_code}: {response.text}',
             )
         result = UdfCallResponse.decode(response.content)
         _logger.debug(
-            f'Modal call of {self.udf_path}: {len(call_args.rows)} rows in {time.monotonic() - start:.2f}s, '
+            f'Modal call of {self.setting_path}: {len(call_args.rows)} rows in {time.monotonic() - start:.2f}s, '
             f'UDF {result.duration_seconds:.2f}s, container {result.container_id}'
         )
         return result
@@ -332,14 +332,14 @@ class ModalServerClient:
         except httpx.ReadTimeout as exc:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_TIMEOUT,
-                f'Modal call of {self.udf_path} got no response within {self.timeout.read}s (timeout_seconds in the '
-                'pixeltable.udf setting)',
+                f'Modal call of {self.setting_path} got no response within {self.timeout.read}s (timeout_seconds in '
+                'the pixeltable.udf setting)',
             ) from exc
         except httpx.TransportError as exc:
             # other transport errors, such as RemoteProtocolError, can also come after the UDF ran, so the call isn't
             # sent again
             raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_ERROR, f'Modal call of {self.udf_path} failed: {exc!r}'
+                excs.ErrorCode.PROVIDER_ERROR, f'Modal call of {self.setting_path} failed: {exc!r}'
             ) from exc
 
         # Modal answers 503 only when the Server has no running container; with every container busy, it queues the
@@ -356,7 +356,7 @@ class ModalServerClient:
             try:
                 status: int | None = (await http_client.get(self.url, timeout=_CONNECT_SECONDS)).status_code
             except httpx.HTTPError as exc:
-                _logger.debug(f'GET of the Modal Server of {self.udf_path} failed: {exc!r}')
+                _logger.debug(f'GET of the Modal Server of {self.setting_path} failed: {exc!r}')
                 status = None
 
             if status == 503:
@@ -366,7 +366,7 @@ class ModalServerClient:
                 for post in stuck:
                     post.cancel()
                 if len(stuck) > 0:
-                    _logger.debug(f'No Modal container of {self.udf_path} is running; cancelled {len(stuck)} POSTs')
+                    _logger.debug(f'No Modal container of {self.setting_path} is running; cancelled {len(stuck)} POSTs')
 
                 # after a 503, the first GETs come sooner, to catch a container that starts within seconds
                 await asyncio.sleep(min(_PROBE_SECONDS, 0.1 * 2**attempt))
@@ -385,5 +385,5 @@ class ModalServerClient:
         except TimeoutError:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR,
-                f'No Modal container of {self.udf_path} was ready within {_CONTAINER_WAIT_SECONDS}s',
+                f'No Modal container of {self.setting_path} was ready within {_CONTAINER_WAIT_SECONDS}s',
             ) from None

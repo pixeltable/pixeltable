@@ -163,7 +163,7 @@ def local_db_udf_servers() -> GetUdfServersResponse:
 def db_diff(db_uri: str) -> DbPlan:
     """Diff the database at db_uri with the corresponding DatabaseConfig in the project configuration."""
     db_path = _validated_db_uri(db_uri)
-    _check_local_db_has_udfs(db_path)
+    _check_udf_setting(db_path)
     return _plan(db_path, _db_target(_get_db_config(db_path)))[0]
 
 
@@ -231,7 +231,7 @@ def db_update(
     Returns the submitted plan, with its receipt.
     """
     db_path = _validated_db_uri(db_uri)
-    _check_local_db_has_udfs(db_path)
+    _check_udf_setting(db_path)
     config = _get_db_config(db_path)
     target = _db_target(config)
     plan, prepared = _plan(db_path, target)
@@ -515,15 +515,12 @@ def _as_local_database(db_path: catalog.Path) -> LocalDatabase | None:
     return local
 
 
-def _check_local_db_has_udfs(db_path: catalog.Path) -> None:
-    """Raise an error if db_path is the local database and the project has no pixeltable.udf setting.
+def _check_udf_setting(db_path: catalog.Path) -> None:
+    """Raise an error for an invalid pixeltable.udf setting, or for an empty one if db_path is the local database.
 
     An update of a local database deploys the UDF servers of that setting, and nothing else.
     """
-    if _as_local_database(db_path) is None:
-        return
-    udf_setting = Config.get().get_value('udf', dict)
-    if udf_setting is None or len(udf_setting) == 0:
+    if len(Env.get().udf_configs()) == 0 and _as_local_database(db_path) is not None:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
             'The local database has nothing to deploy: the project has no pixeltable.udf setting. '

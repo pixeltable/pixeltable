@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import datetime
 import http.server
 import importlib
@@ -59,6 +60,16 @@ LOG_FMT_STR = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(
 T = TypeVar('T')
 
 _UDF_RESOURCES_ADAPTER = pydantic.TypeAdapter(dict[str, UdfResources])
+
+
+@dataclasses.dataclass(frozen=True)
+class UdfConfig:
+    """A UDF's entry in the pixeltable.udf setting."""
+
+    # the UDF's path in the setting; the control plane identifies the UDF's server by it
+    setting_path: str
+    resources: UdfResources
+
 
 _DEFAULT_PROXY_DOMAIN = 'pxt.run'
 # The tunnel load balancer also listens on 9000, the default before 443; PIXELTABLE_CLOUD_HOST=pxt.run:9000 picks it
@@ -163,8 +174,8 @@ class Env:
 
     _resource_pool_info: dict[str, Any]
     _resource_pool_lock: threading.Lock
-    # the last result of udf_resources(), with the config setting that produced it
-    _udf_resources_cache: tuple[dict[str, Any], dict[str, UdfResources]] | None
+    # the last result of udf_configs(), with the config setting that produced it
+    _udf_configs_cache: tuple[dict[str, Any], dict[str, UdfConfig]] | None
     _dbms: Dbms | None
     _db_lock: threading.Lock  # serializes ensure_connected()
     _db_connected: bool
@@ -228,7 +239,7 @@ class Env:
 
         self._resource_pool_info = {}
         self._resource_pool_lock = threading.Lock()
-        self._udf_resources_cache = None
+        self._udf_configs_cache = None
         self._dbms = None
         self._db_lock = threading.Lock()
         self._db_connected = False
@@ -1072,8 +1083,8 @@ class Env:
                 self._resource_pool_info[pool_id] = info
             return info
 
-    def udf_resources(self) -> dict[str, UdfResources]:
-        """Return the pixeltable.udf setting, keyed by each configured UDF's self_path."""
+    def udf_configs(self) -> dict[str, UdfConfig]:
+        """Return the entries of the pixeltable.udf setting, keyed by each UDF's self_path."""
         # pixeltable.func imports this module
         from pixeltable import func
         from pixeltable.func.symbols import resolve_symbol
@@ -1082,7 +1093,7 @@ class Env:
         setting = config.get_value('udf', dict)
         if setting is None:
             return {}
-        cache = self._udf_resources_cache
+        cache = self._udf_configs_cache
         if cache is not None and cache[0] == setting:
             return cache[1]
         source = config.describe_setting('pixeltable', 'udf')
@@ -1091,8 +1102,7 @@ class Env:
         except pydantic.ValidationError as e:
             raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid {source}:\n{e}') from e
 
-        result: dict[str, UdfResources] = {}
-        configured_paths: dict[str, str] = {}
+        result: dict[str, UdfConfig] = {}
         for path, resources in entries.items():
             try:
                 fn = resolve_symbol(path)
@@ -1114,14 +1124,13 @@ class Env:
                 )
             assert fn.self_path is not None
             # a module that re-exports a UDF gives it a second path, which resolves to the same UDF
-            if fn.self_path in configured_paths:
+            if fn.self_path in result:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,
-                    f'{source}: {configured_paths[fn.self_path]!r} and {path!r} are the same UDF',
+                    f'{source}: {result[fn.self_path].setting_path!r} and {path!r} are the same UDF',
                 )
-            configured_paths[fn.self_path] = path
-            result[fn.self_path] = resources
-        self._udf_resources_cache = (setting, result)
+            result[fn.self_path] = UdfConfig(path, resources)
+        self._udf_configs_cache = (setting, result)
         return result
 
     @property
