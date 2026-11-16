@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import json
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -245,12 +244,18 @@ class TestDbSubmission:
             with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='the project has no pixeltable.udf setting'):
                 update_or_diff(db_uri)
         # an update refuses a setting with an entry that is not a UDF, for a local and a hosted database
-        monkeypatch.setenv('PIXELTABLE_UDF', json.dumps({'json.dumps': {}}))
+        config_file = project / 'pixeltable.toml'
+        database_entry = config_file.read_text(encoding='utf-8')
+        config_file.write_text(f"[pixeltable.udf.'json.dumps']\n{database_entry}", encoding='utf-8')
+        Config.init(reinit=True, project_root=project)
         for update_or_diff in (db_update, db_diff):
             for uri in (db_uri, _DB_URI):
                 with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match="'json.dumps' is not a UDF declared with"):
                     update_or_diff(uri)
-        monkeypatch.setenv('PIXELTABLE_UDF', json.dumps({'pixeltable.functions.video.clip': {}}))
+        config_file.write_text(
+            f"[pixeltable.udf.'pixeltable.functions.video.clip']\n{database_entry}", encoding='utf-8'
+        )
+        Config.init(reinit=True, project_root=project)
         # the project has no entry for the local database, which then gets the defaults
         db_update(db_uri)
         (submitted,) = control_plane.submissions

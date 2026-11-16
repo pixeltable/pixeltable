@@ -575,8 +575,8 @@ class TestConfig:
 
     @pytest.mark.db_roots('local', reason="a proxy catalog's daemon evaluates its queries with its own config")
     def test_udf_setting(self, uses_db: None, project_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """pixeltable.udf comes from the project config, the environment or pxt.init(), and a query that calls a UDF
-        reports an invalid entry together with its source."""
+        """pixeltable.udf comes from a config file only, and a query that calls a UDF reports an invalid entry
+        together with its file."""
         t = pxt.create_table('tbl', {'x': pxt.Int})
         t.insert([{'x': 1}])
         config_file = project_env / 'pixeltable.toml'
@@ -625,36 +625,22 @@ class TestConfig:
         with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r"Invalid type for option 'pixeltable\.udf'"):
             load('[pixeltable]\nudf = 4\n')
 
-        # the environment wins over the file, and pxt.init() wins over both
-        load(entry('pixeltable.functions.video.clip', 'cpu = 0'))
+        # an environment variable doesn't set it
         monkeypatch.setenv('PIXELTABLE_UDF', json.dumps({'pixeltable.functions.video.clip': {'cpu': 4}}))
-        assert t.select(y=double(t.x)).collect()['y'] == [2]
-        monkeypatch.setenv('PIXELTABLE_UDF', json.dumps({'pixeltable.functions.video.clip': {'cpus': 4}}))
-        with pxt_raises(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            match=r'(?s)PIXELTABLE_UDF in the environment.*Extra inputs are not permitted',
+        with (
+            pytest.warns(excs.PixeltableWarning, match=r'Ignoring PIXELTABLE_UDF: pixeltable\.udf can only be set'),
+            pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=rf'(?s){in_file}.*greater than 0'),
         ):
-            t.select(y=double(t.x)).collect()
-        monkeypatch.setenv('PIXELTABLE_UDF', 'not json')
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r"'pixeltable\.udf': not json"):
+            load(entry('pixeltable.functions.video.clip', 'cpu = 0'))
             t.select(y=double(t.x)).collect()
 
-        Config.init(
-            config_overrides={'pixeltable.udf': {'pixeltable.functions.video.clip': {'cpu': 4}}},
-            reinit=True,
-            project_root=project_env,
-        )
-        assert t.select(y=double(t.x)).collect()['y'] == [2]
-        Config.init(
-            config_overrides={'pixeltable.udf': {'pixeltable.functions.video.clip': {'cpu': -1}}},
-            reinit=True,
-            project_root=project_env,
-        )
-        with pxt_raises(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            match=r'(?s)pixeltable\.udf in the config_overrides of pxt\.init\(\).*greater than 0',
-        ):
-            t.select(y=double(t.x)).collect()
+        # and neither does pxt.init()
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Cannot override pixeltable\.udf'):
+            Config.init(
+                config_overrides={'pixeltable.udf': {'pixeltable.functions.video.clip': {'cpu': 4}}},
+                reinit=True,
+                project_root=project_env,
+            )
 
     def test_create_project_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         home = tmp_path / 'home.toml'

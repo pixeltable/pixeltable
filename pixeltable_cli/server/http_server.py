@@ -26,10 +26,10 @@ from urllib.parse import parse_qs, unquote, urlparse
 import pydantic
 
 from pixeltable import exceptions as excs
-from pixeltable.config import Config, env_var_name
+from pixeltable.config import Config
 from pixeltable.service import management_client
 
-from .daemon_state import compare_env_values, config_fingerprint, state as daemon_state
+from .daemon_state import compare_env_values, config_fingerprint, fingerprinted_settings, state as daemon_state
 from .router import Method, RawResponse, Request
 from .routes import router
 
@@ -53,7 +53,7 @@ _ENV_HEADER = 'x-pxt-env-fingerprint'
 def _changed_settings(names: list[str]) -> str:
     """One line per changed setting: how the file or the environment holding it spells it, and where it is."""
     config = Config.get()
-    keys = {env_var_name(ck.section, ck.key): ck for ck in config.env_keys()}
+    keys = fingerprinted_settings()
     lines: list[str] = []
     for name in names:
         ck = keys.get(name)

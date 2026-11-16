@@ -5,13 +5,14 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Iterator
+from typing import Iterable, Iterator
 
 import httpx
 import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.config import Config
 from pixeltable.exec.expr_eval.modal_client import UDF_SECRET_HEADER_NAME
 from pixeltable.functions.image import resize, rotate
 from pixeltable.functions.string import format
@@ -91,15 +92,23 @@ def udf_servers(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Ite
             server.wait()
 
 
+def _set_udf_setting(project_root: Path, udf_paths: Iterable[str]) -> None:
+    """Write udf_paths into the pixeltable.udf setting of the project at project_root."""
+    setting = ''.join(f"[pixeltable.udf.'{udf_path}']\n" for udf_path in udf_paths)
+    (project_root / 'pixeltable.toml').write_text(setting, encoding='utf-8')
+    Config.init(reinit=True, project_root=project_root)
+
+
 @pytest.fixture
-def udf_setting(udf_servers: None, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Puts _SERVED_UDFS into the pixeltable.udf setting."""
-    monkeypatch.setenv('PIXELTABLE_UDF', json.dumps({udf_path: {} for udf_path in _SERVED_UDFS}))
+def udf_setting(udf_servers: None, project_env: Path) -> Path:
+    """Puts _SERVED_UDFS into the pixeltable.udf setting of a project and returns the project's root."""
+    _set_udf_setting(project_env, _SERVED_UDFS)
+    return project_env
 
 
 @pytest.mark.db_roots('local', reason='the pixeltable.udf setting of this process routes the calls')
 class TestUdfServer:
-    def test_scalar_values(self, uses_db: None, udf_setting: None) -> None:
+    def test_scalar_values(self, uses_db: None, udf_setting: Path) -> None:
         """Calls in a computed column, a select() and a query function return the UDF's results."""
         t = pxt.create_table('udf_server_tbl', {'s': pxt.String | None, 'boxes': pxt.Json, 'rel_boxes': pxt.Json})
         # variadic arguments; a null goes to the UDF
@@ -142,7 +151,7 @@ class TestUdfServer:
         ts = t.select(ts=make_timestamp(2026, 1, 2, 3, 4)).limit(1).collect()['ts'][0]
         assert ts == expected and ts.utcoffset() == expected.utcoffset()
 
-    def test_media(self, uses_db: None, udf_setting: None) -> None:
+    def test_media(self, uses_db: None, udf_setting: Path) -> None:
         """Images and videos travel to the UDF and back, also nested in a result."""
         img_t = pxt.create_table('img_tbl', {'img': pxt.Image | None})
         img_t.add_computed_column(rotated=rotate(img_t.img, 90))
@@ -171,7 +180,7 @@ class TestUdfServer:
         assert 0.5 < res['duration'][0] < 1.5
         assert len(res['segments'][0]) > 1
 
-    def test_errors(self, uses_db: None, udf_setting: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_errors(self, uses_db: None, udf_setting: Path) -> None:
         """An exception of the UDF fails its row with the UDF's error, a UDF without a Server fails the query, and a
         call without the Server's secret is refused."""
         t = pxt.create_table('err_tbl', {'boxes': pxt.Json, 'width': pxt.Int})
@@ -192,7 +201,7 @@ class TestUdfServer:
 
         img_t = pxt.create_table('img_tbl', {'img': pxt.Image})
         img_t.insert([{'img': get_image_files()[0]}])
-        monkeypatch.setenv('PIXELTABLE_UDF', json.dumps({'pixeltable.functions.image.resize': {}}))
+        _set_udf_setting(udf_setting, ['pixeltable.functions.image.resize'])
         with pxt_raises(
             excs.ErrorCode.INVALID_CONFIGURATION,
             match=r"'pixeltable\.functions\.image\.resize' is in the pixeltable\.udf setting, but the database has "
@@ -206,19 +215,22 @@ class TestUdfServer:
         assert httpx.post(url, content=b'', headers={UDF_SECRET_HEADER_NAME: 'other'}).status_code == 401
 
         # a query of a process with another secret fails
-        env = {
-            **os.environ,
-            'PIXELTABLE_UDF': json.dumps({'pixeltable.functions.string.format': {}}),
-            'PXT_UDF_SERVERS_HEADERS': json.dumps({UDF_SECRET_HEADER_NAME: 'other'}),
-        }
+        _set_udf_setting(udf_setting, ['pixeltable.functions.string.format'])
+        env = {**os.environ, 'PXT_UDF_SERVERS_HEADERS': json.dumps({UDF_SECRET_HEADER_NAME: 'other'})}
+        # the process reads the pixeltable.udf setting of the project in its working directory
         query = subprocess.run(
-            [sys.executable, '-c', _WIDTH_QUERY_SCRIPT], env=env, capture_output=True, text=True, check=False
+            [sys.executable, '-c', _WIDTH_QUERY_SCRIPT],
+            env=env,
+            cwd=udf_setting,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         assert query.returncode != 0
         assert 'refused the credentials of this process (HTTP 401)' in query.stderr
 
     @pytest.mark.xdist_group('large_model')
-    def test_batched_udf(self, uses_db: None, udf_setting: None) -> None:
+    def test_batched_udf(self, uses_db: None, udf_setting: Path) -> None:
         """The batches of a batched UDF run on the server, one call per batch."""
         skip_test_if_not_installed('sentence_transformers')
         from pixeltable.functions.huggingface import sentence_transformer

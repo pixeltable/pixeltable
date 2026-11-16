@@ -81,6 +81,7 @@ def _user_site(userbase: pathlib.Path) -> pathlib.Path:
 def _busy_daemon(port: int, project: pathlib.Path, env_overrides: dict[str, str]) -> Iterator[None]:
     """Keep the daemon on port serving a request until the block exits."""
     release = project / 'release'
+    release.unlink(missing_ok=True)
     # an application file whose import waits for release
     (project / 'app.py').write_text(
         f'import pathlib, time\nwhile not pathlib.Path({str(release)!r}).exists():\n    time.sleep(0.05)\n',
@@ -266,6 +267,11 @@ class TestDaemon:
             assert 'OPENAI_API_KEY' in error['message']
             assert 'sk-pxt-test-aaaa' not in error['message']
             assert psutil.pid_exists(pid)
+
+        # an edit of pixeltable.udf replaces the daemon too
+        config_file.write_text("[pixeltable.udf.'pixeltable.functions.string.format']\n", encoding='utf-8')
+        assert _pxt(daemon_port, project, {}, *check).returncode == 0
+        _replacement_pid(daemon_port, project, {}, pid)
 
     def test_service_without_fastapi(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
         """Without fastapi, pxt schema update succeeds, and pxt service update prints the install command."""

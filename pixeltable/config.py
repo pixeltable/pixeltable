@@ -693,8 +693,11 @@ class Config:
         if section == 'pixeltable' and key in _FILE_ONLY_KEYS:
             if env_var not in self.__reported_env_vars:
                 self.__reported_env_vars.add(env_var)
+                config_file = self.__config_file
+                if key not in _INSTALLATION_KEYS and self.__project_config_file is not None:
+                    config_file = self.__project_config_file
                 warnings.warn(
-                    f'Ignoring {env_var}: {section}.{key} can only be set via the config file ({self.__config_file}).',
+                    f'Ignoring {env_var}: {section}.{key} can only be set via the config file ({config_file}).',
                     category=excs.PixeltableWarning,
                     stacklevel=2,
                 )
@@ -1089,9 +1092,9 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
 }
 
 
-# settings that govern the file cache the whole instance shares, and so can only be set in the config file
-# settings only a config file may set; an environment variable or a pxt.init() override is ignored
-_FILE_ONLY_KEYS = frozenset({'file_cache_size_g', 'file_cache_lease_s'})
+# settings that must have the same value in every process of the instance or project: only a config file can set
+# them, not an environment variable or pxt.init()
+_FILE_ONLY_KEYS = frozenset({'file_cache_size_g', 'file_cache_lease_s', 'udf'})
 
 # settings that configure the installation rather than one project, so a project config file may not set them
 _INSTALLATION_KEYS = frozenset(
