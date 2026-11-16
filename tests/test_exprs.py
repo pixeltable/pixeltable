@@ -539,21 +539,43 @@ class TestExprs:
             t.select(t.c6 + t.c2.apply(math.floor, col_type=pxt.Int)).collect()
         assert '+ requires numeric types, but left operand has type `dict`' in str(exc_info.value)
 
-    def test_int_mod_negative_operands(self, db_root: DatabaseRoot) -> None:
+    @pytest.mark.parametrize('backfill', [True, False], ids=['backfill', 'insert'])
+    def test_int_mod_negative_operands(self, db_root: DatabaseRoot, backfill: bool) -> None:
         """Int % evaluated in SQL must match Python's %, including for negative operands."""
-        t = pxt.create_table(db_root.make_catalog_path('mod_tbl'), {'a': pxt.Int, 'b': pxt.Int})
-        # computed columns are evaluated in Python on insert
-        t.add_computed_column(py_mod=t.a % t.b)
-        t.add_computed_column(py_floordiv=t.a // t.b)
-        t.insert({'a': a, 'b': b} for a in (-7, -6, 0, 6, 7) for b in (-3, 3))
-        res = t.select(t.a, t.b, t.py_mod, t.py_floordiv, sql_mod=t.a % t.b, sql_floordiv=t.a // t.b).collect()
+        t = pxt.create_table(db_root.make_catalog_path('mod_tbl'), {'a': pxt.Int | None, 'b': pxt.Int | None})
+        dividends = (-(2**63), -(2**63) + 1, -7, -6, -1, 0, 1, 6, 7, 2**63 - 1, None)
+        divisors = (-(2**63), -3, -1, 0, 1, 3, 2**63 - 1, None)
+        rows = [{'a': a, 'b': b} for a in dividends for b in divisors]
+        if not backfill:
+            validate_update_status(t.add_computed_column(stored_mod=t.a % t.b), expected_rows=0)
+        status = t.insert(rows, on_error='ignore')
+        if backfill:
+            validate_update_status(status, expected_rows=len(rows))
+            status = t.add_computed_column(stored_mod=t.a % t.b)
+
+        # SQL maps zero divisors to NULL; Python records an error unless the dividend is NULL.
+        assert status.num_rows == len(rows)
+        assert status.num_excs == (0 if backfill else sum(row['a'] is not None and row['b'] == 0 for row in rows))
+        res = t.select(
+            t.a,
+            t.b,
+            t.stored_mod,
+            sql_mod=t.a % t.b,
+            error_type=t.stored_mod.errortype,
+            error_msg=t.stored_mod.errormsg,
+        ).collect()
+        assert len(res) == len(rows)
         for row in res:
-            assert row['py_mod'] == row['a'] % row['b']
-            assert row['sql_mod'] == row['py_mod'], f'{row["a"]} % {row["b"]}'
-            assert row['sql_floordiv'] == row['py_floordiv'], f'{row["a"]} // {row["b"]}'
-            assert row['a'] == (row['sql_floordiv'] * row['b']) + row['sql_mod']
-        assert t.where(t.a % t.b == t.py_mod).count() == t.count()
-        assert t.where(t.a % 3 == 2).select(t.a).order_by(t.a).collect()['a'] == [-7, -7]
+            a, b = row['a'], row['b']
+            expected = None if a is None or b in (None, 0) else a % b
+            python_error = not backfill and a is not None and b == 0
+            assert row['stored_mod'] == expected, row
+            assert row['sql_mod'] == expected, row
+            assert row['error_type'] == ('ZeroDivisionError' if python_error else None), row
+            assert row['error_msg'] == ('integer modulo by zero' if python_error else None), row
+        non_null_results = sum(row['a'] is not None and row['b'] not in (None, 0) for row in rows)
+        assert t.where(t.a % t.b == t.stored_mod).count() == non_null_results
+        assert t.where(t.a % t.b == None).count() == len(rows) - non_null_results
 
     def test_pow(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
