@@ -182,8 +182,13 @@ def db_fingerprint(db_path: catalog.Path, *, desired: bool = False) -> ProjectFi
     return None if report.current is None else report.current.resources.fingerprint
 
 
-def create_db_update_ops(target: DatabaseResources, current: DatabaseResources | None) -> list[DbChangeOp]:
-    """The operations needed to reconcile current with target."""
+def create_db_update_ops(
+    target: DatabaseResources, current: DatabaseResources | None, *, has_pods: bool = True
+) -> list[DbChangeOp]:
+    """The operations needed to reconcile current with target.
+
+    has_pods: False for a local database
+    """
     ops: list[DbChangeOp] = []
 
     if target.fingerprint is not None:
@@ -200,7 +205,8 @@ def create_db_update_ops(target: DatabaseResources, current: DatabaseResources |
                     DbChangeOp.upload_archive(target.fingerprint.changes(current.fingerprint, {ProjectPart.ARCHIVE}))
                 )
             if ProjectPart.CONFIG in changed:
-                ops.append(DbChangeOp.config(target.fingerprint.changes(current.fingerprint, {ProjectPart.CONFIG})))
+                changes = target.fingerprint.changes(current.fingerprint, {ProjectPart.CONFIG})
+                ops.append(DbChangeOp.config(changes, has_pods=has_pods))
 
     current_capacity = DatabaseCapacity() if current is None else current.capacity()
     for field, value in current_capacity.changes(target.capacity()).model_dump(exclude_none=True).items():
@@ -335,7 +341,9 @@ def _plan(db_path: catalog.Path, target: DatabaseTarget) -> tuple[DbPlan, Prepar
         plan = DbPlan.from_ops(
             db_path.uri_str,
             None if current is None else current.state,
-            create_db_update_ops(target, None if current is None else current.resources),
+            create_db_update_ops(
+                target, None if current is None else current.resources, has_pods=_as_local_database(db_path) is None
+            ),
         )
     plan.generation = prepared.generations.database or 0
     receipt = prepared.report.receipt

@@ -25,6 +25,7 @@ from pixeltable.env import Env
 from pixeltable.exec.expr_eval.modal_client import ModalEndpoints
 from pixeltable.service import management_client, receipts
 from pixeltable.service.db import (
+    create_db_update_ops,
     db_build_image,
     db_change_lifecycle,
     db_diff,
@@ -254,6 +255,16 @@ class TestDbSubmission:
         monkeypatch.setattr(Env.get(), '_resource_pool_info', {})
         monkeypatch.delenv('PXT_UDF_SERVERS', raising=False)
         assert ModalEndpoints.get() == ModalEndpoints(_UDF_URLS, _UDF_HEADERS)
+
+        # a changed setting deploys the UDF servers of a local database again, and restarts a hosted one
+        deployed = submitted.database_target
+        assert deployed is not None and deployed.fingerprint is not None
+        other_config = deployed.fingerprint.model_copy(update={'config': {'pixeltable': {'udf': {}}}})
+        changed = deployed.model_copy(update={'fingerprint': other_config})
+        (op,) = create_db_update_ops(changed, deployed, has_pods=False)
+        assert op.description.endswith('which deploys the UDF servers again') and not op.requires_restart
+        (op,) = create_db_update_ops(changed, deployed)
+        assert op.description.endswith('which restarts the database') and op.requires_restart
 
         (project / 'app.py').write_text('x = 2\n')
         with pxt_raises(

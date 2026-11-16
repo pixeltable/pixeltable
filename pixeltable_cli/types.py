@@ -396,16 +396,32 @@ class DbChangeOp(ChangeOp):
         )
 
     @classmethod
-    def config(cls, changes: list[str]) -> DbChangeOp:
-        """The project config changed; the pods read the new settings when they restart."""
+    def user_secrets(cls) -> DbChangeOp:
+        """The secrets of a local database or of its organization changed since its UDF servers were deployed."""
+        return cls(
+            target='config',
+            name='secrets',
+            op='alter',
+            severity='additive',
+            description='secrets changed, which redeploys the UDF servers',
+            requires_restart=False,
+        )
+
+    @classmethod
+    def config(cls, changes: list[str], *, has_pods: bool = True) -> DbChangeOp:
+        """The project config changed; the pods read the new settings when they restart.
+
+        has_pods: False for a local database, whose update deploys its UDF servers again and restarts nothing.
+        """
+        effect = 'restarts the database' if has_pods else 'redeploys the UDF servers'
         return cls(
             target='config',
             name='config',
             op='alter',
             severity='additive',
-            description=f'{_summary(changes)}, which restarts the database',
+            description=f'{_summary(changes)}, which {effect}',
             details={'changes': '; '.join(changes)},
-            requires_restart=True,
+            requires_restart=has_pods,
         )
 
     @classmethod
