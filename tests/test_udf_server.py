@@ -208,6 +208,12 @@ class TestUdfServer:
             r'no Modal Server for it',
         ):
             img_t.select(resize(img_t.img, (32, 16))).collect()
+        # a query without rows makes no lookup, and the first insert fails the query
+        empty_t = pxt.create_table('empty_tbl', {'img': pxt.Image})
+        assert len(empty_t.select(resize(empty_t.img, (32, 16))).collect()) == 0
+        empty_t.add_computed_column(small=resize(empty_t.img, (32, 16)))
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'no Modal Server for it'):
+            empty_t.insert([{'img': get_image_files()[0]}])
 
         # a server refuses a call that lacks its secret
         url = json.loads(os.environ['PXT_UDF_SERVERS'])[_SERVED_UDFS[0]]

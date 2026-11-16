@@ -7,7 +7,9 @@ answers, not what a real control plane does with them.
 from __future__ import annotations
 
 import base64
+import concurrent.futures
 import hashlib
+import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -98,6 +100,7 @@ class _ControlPlane:
         self.retries: list[RetryRequest] = []
         # the names of the organizations in a ListOrgsResponse
         self.orgs = ['acme']
+        self.udf_server_lookups = 0
 
     def api_call(self, request: Any, credential: Any = None) -> dict[str, Any]:
         if isinstance(request, PrepareUpdateRequest):
@@ -139,6 +142,7 @@ class _ControlPlane:
             orgs = [OrgRecord(org_id=f'org_{org}', org=org, created_at=0.0, updated_at=0.0) for org in self.orgs]
             return ListOrgsResponse(orgs=orgs).model_dump(mode='json')
         if isinstance(request, GetUdfServersRequest):
+            self.udf_server_lookups += 1
             targets = [s.database_target for s in self.submissions if s.db == request.db]
             if len(targets) == 0:
                 raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, 'no UDF servers', status_code=404)
@@ -265,7 +269,19 @@ class TestDbSubmission:
         # ModalEndpoints.get() caches its result in Env; this patch discards it after the test
         monkeypatch.setattr(Env.get(), '_resource_pool_info', {})
         monkeypatch.delenv('PXT_UDF_SERVERS', raising=False)
-        assert ModalEndpoints.get() == ModalEndpoints(_UDF_URLS, _UDF_HEADERS)
+        # concurrent first calls make one lookup
+        lookups = control_plane.udf_server_lookups
+        start = threading.Barrier(4)
+
+        def get_endpoints() -> ModalEndpoints:
+            start.wait()
+            return ModalEndpoints.get()
+
+        with concurrent.futures.ThreadPoolExecutor(4) as executor:
+            endpoints = list(executor.map(lambda _: get_endpoints(), range(4)))
+        assert endpoints[0] == ModalEndpoints(_UDF_URLS, _UDF_HEADERS)
+        assert all(e is endpoints[0] for e in endpoints)
+        assert control_plane.udf_server_lookups == lookups + 1
 
         # a changed setting deploys the UDF servers of a local database again, and restarts a hosted one
         deployed = submitted.database_target

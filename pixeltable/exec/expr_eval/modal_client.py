@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import pickle
+import threading
 import time
 from typing import Any, ClassVar
 
@@ -151,6 +152,8 @@ class ModalEndpoints:
     HEADERS_VAR: ClassVar[str] = 'PXT_UDF_SERVERS_HEADERS'
     # the key of the process's ModalEndpoints in Env.get_resource_pool_info()
     _REGISTRY_KEY: ClassVar[str] = 'modal-endpoints'
+    # serializes the first _load() of the process; Env's resource pool lock stays free during it
+    _load_lock: ClassVar[threading.Lock] = threading.Lock()
 
     # keyed by the UDF's path in the pixeltable.udf setting
     server_urls: dict[str, str]
@@ -160,7 +163,15 @@ class ModalEndpoints:
     @classmethod
     def get(cls) -> Self:
         """Return the process's endpoints, loaded at the first call."""
-        return Env.get().get_resource_pool_info(cls._REGISTRY_KEY, cls._load)
+        env = Env.get()
+        endpoints: Self | None = env.get_resource_pool_info(cls._REGISTRY_KEY, None)
+        if endpoints is None:
+            with cls._load_lock:
+                endpoints = env.get_resource_pool_info(cls._REGISTRY_KEY, None)
+                if endpoints is None:
+                    loaded = cls._load()
+                    endpoints = env.get_resource_pool_info(cls._REGISTRY_KEY, lambda: loaded)
+        return endpoints
 
     @classmethod
     def _load(cls) -> Self:
@@ -226,7 +237,8 @@ class ModalServerClient:
 
     setting_path: str
     timeout: httpx.Timeout
-    url: str
+    # set by connect()
+    url: str | None
     # clear if the last GET or POST found no running container
     container_running: asyncio.Event
     # the POSTs in flight, each with its send time (time.monotonic())
@@ -239,22 +251,31 @@ class ModalServerClient:
     def __init__(self, setting_path: str, timeout_seconds: int) -> None:
         self.setting_path = setting_path
         self.timeout = httpx.Timeout(timeout_seconds, connect=_CONNECT_SECONDS)
-        url = ModalEndpoints.get().server_urls.get(setting_path)
-        if url is None:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_CONFIGURATION,
-                f'{setting_path!r} is in the pixeltable.udf setting, but the database has no Modal Server for it. '
-                'Run `pxt db update` to deploy it.',
-            )
-        self.url = url
+        self.url = None
         self.container_running = asyncio.Event()
         self.container_running.set()
         self.posts = {}
         self.num_active_calls = 0
         self.monitor = None
 
+    async def connect(self) -> None:
+        """Look up the Server's URL."""
+        if self.url is not None:
+            return
+        # the first lookup of a local database's endpoints calls the control plane and hashes the project
+        endpoints = await asyncio.to_thread(ModalEndpoints.get)
+        url = endpoints.server_urls.get(self.setting_path)
+        if url is None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{self.setting_path!r} is in the pixeltable.udf setting, but the database has no Modal Server for '
+                'it. Run `pxt db update` to deploy it.',
+            )
+        self.url = url
+
     async def call(self, call_args: FnCallArgs) -> UdfCallResponse:
         """Run call_args on the Server."""
+        assert self.url is not None
         time_zone = Env.get().default_time_zone
         assert time_zone is not None
         request_body = UdfCallRequest(
