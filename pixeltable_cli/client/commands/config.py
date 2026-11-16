@@ -20,9 +20,9 @@ Notes:
   Source 'unset' means neither supplies the value; pixeltable falls back to its own default.
   Credential values (api_key, api_token, api_secret, auth_token) show '<redacted>' when set;
   use the source field to tell set from unset for sensitive keys.
-  The daemon resolves values from the environment it was started with, so credentials in your shell
-  aren't visible to the daemon if it wasn't started with them;  run `pxt daemon restart` to apply your current
-  environment variables."""
+  The daemon resolves values from the environment it was started with. `pxt config` lists the variables
+  that your shell sets differently. A command that reads catalog metadata, such as `pxt ls`, leaves the daemon
+  running; any other command restarts the daemon with your environment before it runs."""
 
 
 def _report_env_differences(resp: models.ConfigResponse) -> None:
@@ -37,7 +37,7 @@ def _report_env_differences(resp: models.ConfigResponse) -> None:
     if len(differing) > 0:
         print(f'  set to a different value in the daemon: {", ".join(differing)}')
     if len(missing) > 0 or len(differing) > 0:
-        print('  run `pxt daemon restart` to pick up your environment')
+        print('  the next command that needs your environment restarts the daemon with it')
 
 
 def run(argv: list[str]) -> None:

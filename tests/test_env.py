@@ -356,6 +356,19 @@ class TestHasLocalDb:
         assert result.stdout.splitlines()[-1] == 'False'
         assert not (home / 'pgdata').exists()
 
+    def test_install_id(self, uses_db: None) -> None:
+        """A database keeps its install id, and a database created anew gets its own."""
+        skip_test_if_not_local()
+        dbname = aux_db_name('install_id')
+        _reset_env(reinit=True, db_name=dbname)
+        install_id = Env.get().install_id
+        assert len(install_id) == 32
+        int(install_id, 16)
+        _reset_env(reinit=False, db_name=dbname)
+        assert Env.get().install_id == install_id
+        _reset_env(reinit=True, db_name=dbname)
+        assert Env.get().install_id != install_id
+
 
 class TestEnsureConnected:
     def test_failed_connect_starts_over(self, uses_db: None, fault_injection: None) -> None:

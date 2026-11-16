@@ -143,6 +143,7 @@ class Env:
     _tmp_dir: Path | None  # any tmp files, in one TempStore directory per process
     _services_dir: Path | None  # registry of local services
     _sa_engine: sql.engine.base.Engine | None
+    _install_id: str | None  # SystemInfoMd.install_id of the connected database
     _pgdata_dir: Path | None
     _db_name: str | None
     _db_server: pixeltable_pgserver.PostgresServer | None  # set only when running in local environment
@@ -221,6 +222,7 @@ class Env:
         self._tmp_dir = None  # any tmp files
         self._services_dir = None
         self._sa_engine = None
+        self._install_id = None
         self._pgdata_dir = None
         self._db_name = None
         self._db_server = None
@@ -585,11 +587,16 @@ class Env:
         self.console_logger.info(f'Connected to Pixeltable database at: {redacted_db_url}')
         fault_injection.process_fault(FaultLocation.ENV_SET_UP_DB_BEFORE_UPGRADE)
         self._upgrade_metadata()
+        from pixeltable import metadata
+
+        # after the upgrade, which adds install_id to the metadata of an older version
+        self._install_id = metadata.install_id(self._sa_engine)
 
     def _disconnect(self) -> None:
         if self._sa_engine is not None:
             self._sa_engine.dispose()
         self._sa_engine = None
+        self._install_id = None
         self._dbms = None
         self._db_url = None
         self._db_name = None
@@ -1181,6 +1188,11 @@ class Env:
     def engine(self) -> sql.engine.base.Engine:
         assert self._db_connected
         return self._sa_engine
+
+    @property
+    def install_id(self) -> str:
+        assert self._db_connected
+        return self._install_id
 
     def _clean_up(self) -> None:
         """

@@ -272,23 +272,29 @@ class TestService:
         assert listing['type'] == 'array'
         assert 'ServiceInstance' in listing['$defs']
 
-    def test_config_must_agree(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
-        """A service inherits the daemon's config values, so a caller resolving them differently cannot deploy."""
+    def test_differing_config(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
+        """A service inherits the daemon's config values, so a caller with other values restarts the daemon first."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         app, target = apps('basic.py'), db_root.make_catalog_path('app')
         cli('schema', 'update', app, target)
         differing = {'OPENAI_API_KEY': 'sk-not-the-one-the-daemon-has'}
 
-        # the plan and the service are both refused, and the refusal names the variable and the remedy
-        for args in (('diff', app, target), ('update', app, target, '-f')):
-            r = cli('service', *args, env_overrides=differing, check=False)
-            assert r.returncode == 1, r.stdout
-            assert 'OPENAI_API_KEY' in r.stderr
-            assert 'pxt daemon restart' in r.stderr
-        assert get_services(cli, target) == {}, 'a refused update started something'
+        pid = cli('daemon', 'status', '--json').json['pid']
 
-        # the same commands run for a caller whose environment the daemon shares
+        # the plan restarts the daemon with the caller's value; rc 2 is 'changes pending'
+        r = cli('service', 'diff', app, target, env_overrides=differing, check=False)
+        assert r.returncode == 2, r.stderr
+        restarted_pid = cli('daemon', 'status', '--json').json['pid']
+        assert restarted_pid != pid
+
+        # the update runs on that daemon
+        cli('service', 'update', app, target, '-f', env_overrides=differing)
+        assert cli('daemon', 'status', '--json').json['pid'] == restarted_pid
+        running = cli('service', 'list', target, '--json', env_overrides=differing).json
+        assert [s['name'] for s in running] == ['ingest']
+
+        # the same commands run for a caller without the variable
         deploy(cli, app, target)
         assert_serving(cli, app, target, 'ingest')
 

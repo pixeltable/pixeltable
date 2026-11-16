@@ -93,7 +93,7 @@ def local_database() -> LocalDatabase:
     """Return the install's local database, which this call starts if it isn't running."""
     env = Env.get()
     env.ensure_connected()
-    return LocalDatabase(install_id=metadata.install_id(env.engine), name=LOCAL_DB_NAME)
+    return LocalDatabase(install_id=env.install_id, name=LOCAL_DB_NAME)
 
 
 def local_db_uri() -> str:
