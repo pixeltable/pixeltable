@@ -2814,19 +2814,6 @@ class TestTable:
             t.insert(new_rows)
         assert 'Missing' in str(exc_info.value)
 
-        # The insert source validation should happen before the (potentially expensive) plan is executed.
-        bad_rows = [rows[0].copy() for _ in range(2500)]
-        del bad_rows[1500]['c2']
-        row_count = t.count()
-        if db_root.id == 'local':
-            fault = ExceptionFault(RuntimeError('Insert plan ran before source validation'))
-            get_runtime().fault_manager.inject_fault(FaultLocation.EXEC_ROW_DATA_BEFORE_READ, fault)
-        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'Missing required column\(s\) \(c2\)'):
-            t.insert(bad_rows)
-        assert t.count() == row_count
-        if db_root.id == 'local':
-            fault.assert_count(0)
-
         # incompatible schema
         for (col_name, col_type), value_col_name in zip(
             schema.items(), ['c2', 'c3', 'c5', 'c5', 'c6', 'c9', 'c2', 'c2', 'c2']
@@ -2848,6 +2835,20 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             t.insert(c1=None)
         assert 'expected non-None' in str(exc_info.value)
+
+        # The insert source validation should happen before the (potentially expensive) plan is executed.
+        bad_rows = [{'c1': f'row {i}'} for i in range(2500)]
+        del bad_rows[1500]['c1']
+        row_count = t.count()
+        if db_root.id == 'local':
+            fault = ExceptionFault(RuntimeError('Insert plan ran before source validation'))
+            get_runtime().fault_manager.inject_fault(FaultLocation.EXEC_ROW_DATA_BEFORE_READ, fault)
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match=r'Missing required column\(s\) \(c1\) in row \{\}'):
+            t.insert(bad_rows)
+        assert t.count() == row_count
+        if db_root.id == 'local':
+            fault.assert_count(0)
+            get_runtime().fault_manager.remove_fault(FaultLocation.EXEC_ROW_DATA_BEFORE_READ)
 
         # wrong array shape
         pxt.drop_table(tbl_name, if_not_exists='ignore')
