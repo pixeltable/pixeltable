@@ -20,8 +20,8 @@ _LOOPBACK = '127.0.0.1'
 
 
 def _write_pidfile(port: int) -> None:
-    """Record our PID and creation time. The bound listen socket is the actual single-daemon mutex; the
-    pidfile is only bookkeeping for tools like `pxt daemon status`."""
+    """Record our PID and creation time, which ensure_running() and pxt daemon stop use to find a hung daemon. The
+    bound listen socket, not the pidfile, is the single-daemon mutex."""
     path = pidfile_path(port)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:

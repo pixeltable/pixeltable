@@ -3,7 +3,6 @@ pidfile, tail the log on failed startup), the stdlib HTTP client (get/post), and
 helpers. Kept to the
 stdlib plus psutil, so importing this on every `pxt` invocation stays cheap."""
 
-import contextlib
 import http.client
 import json
 import os
@@ -24,6 +23,7 @@ import psutil
 import pydantic
 
 from pixeltable_cli import types
+from pixeltable_cli.process import find_process, terminate_and_wait
 from pixeltable_cli.utils import (
     _IDENTITY_KEYS,
     _resolve_pixeltable_home,
@@ -71,17 +71,18 @@ def session_is_live(session: str) -> bool:
 
 
 def process_key(proc: psutil.Process) -> str:
-    """proc's pid and creation time, which together identify it even after the OS reissues the pid."""
+    """Return proc's pid and creation time as a key that still identifies proc after the OS reuses its pid."""
     return f'{proc.pid}:{proc.create_time()}'
 
 
 def _process_with_key(key: str) -> psutil.Process | None:
-    """The running process that key, a process_key() value, identifies, or None."""
-    pid, _, _ = key.partition(':')
+    """Return the running process with this process_key() value, or None."""
+    pid, sep, started_at = key.partition(':')
+    if sep == '':
+        return None  # a pid alone, from before keys recorded the creation time, identifies no process
     try:
-        proc = psutil.Process(int(pid))
-        return proc if process_key(proc) == key else None
-    except (ValueError, psutil.Error, OSError):
+        return find_process(int(pid), float(started_at))
+    except ValueError:
         return None
 
 
@@ -99,7 +100,7 @@ def _daemon_log_path() -> str:
 
 
 def read_pidfile() -> psutil.Process | None:
-    """The daemon the pidfile records, or None if the file is missing or unusable or that daemon is gone."""
+    """Return the daemon that wrote the pidfile, or None if the file is missing or unusable or that daemon is gone."""
     try:
         with open(pidfile_path(), encoding='utf-8') as f:
             return _process_with_key(f.read().strip())
@@ -239,28 +240,8 @@ def wait_for_health(timeout: float = _STARTUP_HEALTH_TIMEOUT_SECS) -> dict[str, 
 _STARTUP_GRACE_PERIOD_SECS = 10.0
 
 
-def kill_and_wait(proc: psutil.Process, timeout: float = 5.0) -> None:
-    """Terminate proc, wait up to timeout seconds for it to exit, then kill it. It never signals a process that
-    received proc.pid after the creation of proc."""
-    # Wait on the process itself (not /health) so a hung-but-alive daemon that still holds the
-    # listen socket is detected and killed; otherwise the next spawn would fail with
-    # 'address already in use' because we returned early on the health probe.
-    # On Windows terminate() is already TerminateProcess, so the kill() fallback is a no-op there.
-    try:
-        proc.terminate()
-    except (psutil.Error, OSError):
-        return
-    deadline = time.time() + timeout
-    try:
-        while time.time() < deadline:
-            if not proc.is_running():
-                return
-            time.sleep(0.1)
-        proc.kill()
-    except (psutil.Error, OSError):
-        # gone or exiting: on Linux, psutil re-raises FileNotFoundError when /proc/<pid>/stat is gone before
-        # /proc/<pid>, as during an exit
-        pass
+# how long a stopped daemon gets to exit before it is killed: the next daemon needs its port
+DAEMON_STOP_TIMEOUT_SECS = 5.0
 
 
 class DaemonBusyError(RuntimeError):
@@ -297,8 +278,9 @@ def _restart_if_mismatched(health: dict[str, Any]) -> None:
     # Refuse to target the process if its pid doesn't look real
     if not isinstance(reported_pid, int) or isinstance(reported_pid, bool) or reported_pid <= 0:
         raise RuntimeError(f'daemon on port {get_port()} reported an invalid pid ({reported_pid!r}); not restarting it')
-    with contextlib.suppress(psutil.NoSuchProcess, OSError):  # a daemon already gone needs no kill
-        kill_and_wait(psutil.Process(reported_pid))
+    daemon = find_process(reported_pid, None)
+    if daemon is not None:
+        terminate_and_wait(daemon, DAEMON_STOP_TIMEOUT_SECS)
     spawn_detached()
     new_health = wait_for_health()
     # Cross-verify: the new responder must have a fresh PID and an identity that matches the client's.
@@ -322,9 +304,7 @@ def ensure_running() -> str:
     health = fetch_health()
     if health is None:
         # Nothing is answering /api/health. Either no daemon is up, or one we started bound the
-        # port and then wedged before serving health. The pidfile records the daemon's pid and
-        # creation time, so a pid that the OS has since given to another process doesn't pass for
-        # the daemon.
+        # port and then wedged before serving health.
         daemon = read_pidfile()
         if daemon is not None:
             # It may just be slow to answer, so give it a grace window before concluding it is hung;
@@ -332,7 +312,7 @@ def ensure_running() -> str:
             # answered right away.
             health = _await_health(_STARTUP_GRACE_PERIOD_SECS)
             if health is None:
-                kill_and_wait(daemon)
+                terminate_and_wait(daemon, DAEMON_STOP_TIMEOUT_SECS)
         if health is None:
             spawn_detached()
             # the daemon we spawn defers to one that already holds the port, so the responder is not

@@ -1,5 +1,6 @@
-"""Liveness of a process we started, as far as its pid can tell us."""
+"""Finding, probing and stopping processes by pid. Stdlib plus psutil, so the pxt client imports it cheaply."""
 
+import contextlib
 import sys
 
 import psutil
@@ -72,3 +73,36 @@ def pid_alive(pid: int) -> bool:
         return False
     except (psutil.Error, OSError):
         return True  # the process exists, but this one cannot read its state
+
+
+def find_process(pid: int, started_at: float | None) -> psutil.Process | None:
+    """Return the live process with pid and creation time started_at, or None.
+
+    A pid alone does not identify a process: the OS reuses the pid of an exited process. A record written without a
+    creation time has started_at None, which matches any live process with pid.
+    """
+    if not pid_alive(pid):
+        return None
+    try:
+        proc = psutil.Process(pid)
+        return proc if started_at is None or proc.create_time() == started_at else None
+    except (psutil.Error, OSError):
+        return None
+
+
+def terminate_and_wait(proc: psutil.Process, timeout: float) -> None:
+    """Terminate proc, wait up to timeout seconds for it to exit, then kill it.
+
+    psutil never signals a process that reused proc.pid after the creation of proc, and wait() reaps proc if it is a
+    child of this process.
+    """
+    try:
+        proc.terminate()
+        proc.wait(timeout)
+    except psutil.TimeoutExpired:
+        with contextlib.suppress(psutil.Error, OSError):
+            proc.kill()
+    except (psutil.Error, OSError):
+        # gone or exiting: on Linux, psutil re-raises FileNotFoundError when /proc/<pid>/stat is gone before
+        # /proc/<pid>, as during an exit
+        pass

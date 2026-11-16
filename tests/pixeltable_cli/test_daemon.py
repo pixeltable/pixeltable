@@ -19,7 +19,7 @@ from typing import Any, Iterator
 import psutil
 import pytest
 
-from pixeltable_cli.client.utils import kill_and_wait, process_key
+from pixeltable_cli.client.utils import process_key
 from pixeltable_cli.server import http_server
 from pixeltable_cli.utils import pidfile_path, working_dirs_path
 
@@ -71,7 +71,7 @@ def _replacement_pid(port: int, cwd: pathlib.Path, env_overrides: dict[str, str]
     health = _pxt_health(port, cwd=cwd, env_overrides=env_overrides)
     assert health['pid'] != pid
     assert psutil.pid_exists(health['pid'])
-    # unlike pid_exists(), is_running() compares creation times, so a pid that the OS reissued reads as gone
+    # unlike pid_exists(), is_running() compares creation times, so a reused pid reads as gone
     assert not daemon.is_running()
     return health['pid']
 
@@ -293,15 +293,6 @@ class TestDaemon:
             with contextlib.suppress(psutil.NoSuchProcess):
                 daemon.resume()
 
-    def test_kill_and_wait_spares_recycled_pid(self) -> None:
-        """kill_and_wait() spares a process that inherited the pid of its target."""
-        with bystander_process() as bystander:
-            daemon = psutil.Process(bystander.pid)
-            # an earlier creation time, as if the daemon had exited and the OS had given its pid to the bystander
-            daemon._ident = (daemon.pid, daemon._ident[1] - 100)  # type: ignore[attr-defined]
-            kill_and_wait(daemon)
-            assert bystander.poll() is None
-
     def test_keep_briefly_unresponsive_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
         """A daemon that misses a health probe but answers within the client's grace period keeps serving, and
         keeps what it holds for its clients, such as their working directories."""
@@ -363,10 +354,10 @@ class TestDaemon:
 
         assert _pxt_health(daemon_port, cwd=project)['project_root'] == str(project)
 
-    def test_stop_spares_process_that_inherited_pidfile_pid(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
-        """With no daemon answering, pxt daemon stop leaves alone a process that inherited the pid in the pidfile."""
+    def test_stop_reused_pidfile_pid(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+        """With no daemon answering, pxt daemon stop spares a process that reused the pidfile's pid."""
         with bystander_process() as bystander:
-            # the pidfile of a daemon created before the bystander, as if the OS had given its pid to the bystander
+            # the pidfile of a daemon created before the bystander, as if the bystander had reused its pid
             earlier = psutil.Process(bystander.pid).create_time() - 100
             pathlib.Path(pidfile_path(daemon_port)).write_text(f'{bystander.pid}:{earlier}', encoding='utf-8')
 
@@ -375,7 +366,7 @@ class TestDaemon:
             assert r.stderr == 'pxt: no daemon running\n'
             assert bystander.poll() is None
 
-    def test_stop_kills_unresponsive_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
+    def test_stop_hung_daemon(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
         """With the daemon not answering, pxt daemon stop kills the daemon in the pidfile."""
         project = tmp_path / 'project'
         _create_pxt_project(project)

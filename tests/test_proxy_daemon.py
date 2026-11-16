@@ -1072,25 +1072,23 @@ class TestProxyDaemon:
         return error['message']
 
     @pytest.mark.parametrize(('creation_time_offset', 'live'), [(0.0, True), (None, True), (-100.0, False)])
-    def test_port_lock_matches_its_daemon_by_creation_time(
-        self, init_env: None, creation_time_offset: float | None, live: bool
-    ) -> None:
+    def test_port_lock_creation_time(self, init_env: None, creation_time_offset: float | None, live: bool) -> None:
         """A port.lock that records an earlier creation time than the process with its pid has is stale: that daemon
-        is gone and the OS gave its pid to another process. One that records none, from an older daemon, goes by the
-        pid alone."""
+        is gone and another process reused its pid. One that records none, from an older daemon, goes by the pid
+        alone."""
         db = 'port_lock_test'
         proxy_daemon.create(db)
         try:
             with bystander_process() as bystander:
                 info: dict[str, Any] = {'port': 1, 'pid': bystander.pid}
                 if creation_time_offset is not None:
-                    info['started_at'] = psutil.Process(bystander.pid).create_time() + creation_time_offset
+                    info['process_started_at'] = psutil.Process(bystander.pid).create_time() + creation_time_offset
                 (proxy_daemon.proxy_home(db) / 'port.lock').write_text(json.dumps(info))
                 assert proxy_daemon.read_port_lock(db) == (info if live else None)
         finally:
             shutil.rmtree(proxy_daemon.proxy_home(db))
 
-    def test_stop_spares_a_process_that_inherited_the_daemons_pid(self, init_env: None) -> None:
+    def test_stop_reused_port_lock_pid(self, init_env: None) -> None:
         """stop() removes a stale port.lock without signaling the process that now has its pid."""
         db = 'port_lock_test'
         proxy_daemon.create(db)
@@ -1098,7 +1096,7 @@ class TestProxyDaemon:
         try:
             with bystander_process() as bystander:
                 started_at = psutil.Process(bystander.pid).create_time()
-                lock.write_text(json.dumps({'port': 1, 'pid': bystander.pid, 'started_at': started_at - 100}))
+                lock.write_text(json.dumps({'port': 1, 'pid': bystander.pid, 'process_started_at': started_at - 100}))
                 proxy_daemon.stop(db)
                 assert not lock.exists()
                 assert bystander.poll() is None
