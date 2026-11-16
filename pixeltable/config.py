@@ -1029,6 +1029,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
     'imagen': {'rate_limits': 'Per-model rate limits for Imagen API requests'},
     'groq': {'api_key': 'Groq API key', 'rate_limit': 'Rate limit for Groq API requests'},
     'jina': {'api_key': 'Jina AI API key', 'rate_limit': 'Rate limit for Jina AI API requests'},
+    'keenable': {'api_key': 'Keenable API key', 'rate_limit': 'Rate limit for Keenable API requests'},
     'mistral': {'api_key': 'Mistral API key', 'rate_limit': 'Rate limit for Mistral API requests'},
     'modal': {
         'proxy_key': 'Modal proxy token ID, for the calls to the UDFs in pixeltable.udf',

@@ -447,6 +447,10 @@
           <outline text="udf|pixeltable.functions.jina.embeddings" />
           <outline text="udf|pixeltable.functions.jina.rerank" />
         </outline>
+        <outline text="module|pixeltable.functions.keenable">
+          <outline text="udf|pixeltable.functions.keenable.search" />
+          <outline text="udf|pixeltable.functions.keenable.fetch" />
+        </outline>
         <outline text="module|pixeltable.functions.llama_cpp">
           <outline text="udf|pixeltable.functions.llama_cpp.create_chat_completion" />
         </outline>
