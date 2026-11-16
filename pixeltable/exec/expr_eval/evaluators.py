@@ -192,7 +192,6 @@ class FnCallEvaluator(Evaluator):
                     self.dispatcher.register_task(task)
 
         elif self.fn.run_in_thread:
-            # create one task per call
             for item in rows_call_args:
                 task = asyncio.create_task(self.eval_in_thread(item))
                 self.dispatcher.register_task(task)
@@ -280,7 +279,6 @@ class FnCallEvaluator(Evaluator):
         assert len(call_args.rows) == 1
         assert not call_args.row.has_val[self.fn_call.slot_idx]
         assert not call_args.row.has_exc(self.fn_call.slot_idx)
-        # check for cancellation before starting something potentially long-running
         if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
             return
 

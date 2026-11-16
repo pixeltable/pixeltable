@@ -251,7 +251,6 @@ class CallableFunction(Function):
         assert callable(py_fn)
         sig = Signature.from_dict(md['signature'])
         batch_size = md['batch_size']
-        # a missing entry means that the UDF runs inline
         run_in_thread = md.get('run_in_thread', False)
         return CallableFunction([sig], [py_fn], self_name=name, batch_size=batch_size, run_in_thread=run_in_thread)
 

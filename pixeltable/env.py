@@ -401,7 +401,6 @@ class Env:
                 f'pixeltable/cpu_pool_size must be a positive integer, got {cpu_pool_size}',
             )
         if cpu_pool_size is None:
-            # os.cpu_count() returns None on a platform that does not report its number of CPUs
             num_cpus = os.cpu_count()
             cpu_pool_size = 4 if num_cpus is None else num_cpus
         # the executor starts a thread only when a job needs one
