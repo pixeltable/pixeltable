@@ -18,7 +18,7 @@ from pixeltable.utils.progress_reporter import ProgressReporter
 
 from ..data_row_batch import DataRowBatch
 from ..exec_node import ExecNode
-from .evaluators import FnCallEvaluator, NestedRowList, ThreadPoolFnCallEvaluator
+from .evaluators import FnCallEvaluator, NestedRowList
 from .interfaces import ExprEvalCtx, Scheduler
 from .row_buffer import RowBuffer
 from .schedulers import SCHEDULERS
@@ -141,7 +141,7 @@ class ExprEvalNode(ExecNode):
         """
         Fetches another batch from our input or sets input_complete to True if there are no more batches.
 
-        - decodes the images of the batch that UDF calls take as arguments
+        - decodes the stored images of the batch that eval_ctx.all_exprs read
         - stores the batch in current_input_batch, if not already set, or next_input_batch
         - updates row_pos_map, if needed
         """
@@ -151,7 +151,7 @@ class ExprEvalNode(ExecNode):
             if self.progress_reporter is not None:
                 # make sure our progress reporter shows up before we run anything long
                 self.progress_reporter.update(0)
-            await self._decode_image_args(batch)
+            await self._decode_images(batch)
             assert self.next_input_batch is None
             if self.current_input_batch is None:
                 self.current_input_batch = batch
@@ -174,20 +174,20 @@ class ExprEvalNode(ExecNode):
             self.error = exc
             self.exc_event.set()
 
-    async def _decode_image_args(self, batch: DataRowBatch) -> None:
-        """Decode the stored images of the batch that UDF calls take as arguments; the decodes run on Env.cpu_pool.
+    async def _decode_images(self, batch: DataRowBatch) -> None:
+        """Decode the stored images of the batch in eval_ctx.image_decode_slot_idxs; the decodes run on Env.cpu_pool.
 
-        A slot that holds a file path and no value would otherwise get decoded on the event loop when the first UDF
-        call reads it.
+        A slot that has a file path and no value would otherwise get decoded on the event loop when the first expr
+        reads it.
         """
-        if len(self.eval_ctx.image_arg_slot_idxs) == 0:
+        if len(self.eval_ctx.image_decode_slot_idxs) == 0:
             return
         loop = asyncio.get_running_loop()
         # carry the ambient instrumentation span onto the worker threads so load spans nest correctly
         hooks_ctx = telemetry.capture_context()
         pending: list[tuple[exprs.DataRow, int, asyncio.Future[PIL.Image.Image]]] = []
         for row in batch.rows:
-            for slot_idx in self.eval_ctx.image_arg_slot_idxs:
+            for slot_idx in self.eval_ctx.image_decode_slot_idxs:
                 path = row.file_paths[slot_idx]
                 if not row.has_val[slot_idx] or row.vals[slot_idx] is not None or path is None:
                     continue
@@ -199,8 +199,8 @@ class ExprEvalNode(ExecNode):
             try:
                 row.vals[slot_idx] = await fut
             except Exception:
-                # The slot stays without a value. The UDF call that reads it repeats the decode and reports the error
-                # for its own cell.
+                # The slot stays without a value. The expr that reads it repeats the decode and reports the error for
+                # its own cell.
                 pass
 
     @classmethod
@@ -420,8 +420,6 @@ class ExprEvalNode(ExecNode):
             # a failed batched call arrives here once with the whole batch's rows, but is a single invocation
             num_calls = 1 if evaluator.batch_size is not None else len(rows)
             telemetry_schemas.udf_errors.add(num_calls, udf=evaluator.fn.display_name, udf_path=evaluator.fn.self_path)
-        elif isinstance(evaluator, ThreadPoolFnCallEvaluator):
-            telemetry_schemas.udf_errors.add(len(rows), udf=evaluator.fn.display_name, udf_path=evaluator.fn.self_path)
         tbl = self.row_builder.tbl
         telemetry_schemas.cells_errors.add(
             len(rows), table=tbl.name if tbl is not None else None, table_id=str(tbl.id) if tbl is not None else None

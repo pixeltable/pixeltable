@@ -159,8 +159,6 @@ class Env:
     _resource_pool_info: dict[str, Any]
     _resource_pool_lock: threading.Lock
     _cpu_pool: concurrent.futures.ThreadPoolExecutor | None
-    _cpu_pool_size: int
-    _cpu_pool_lock: threading.Lock
     _dbms: Dbms | None
 
     @classmethod
@@ -222,7 +220,6 @@ class Env:
         self._resource_pool_info = {}
         self._resource_pool_lock = threading.Lock()
         self._cpu_pool = None
-        self._cpu_pool_lock = threading.Lock()
         self._dbms = None
 
         # Maps a table's id to the catalog uri it belongs to ('' for the in-process catalog). Populated whenever
@@ -407,7 +404,8 @@ class Env:
             # os.cpu_count() returns None on a platform that does not report its number of CPUs
             num_cpus = os.cpu_count()
             cpu_pool_size = 4 if num_cpus is None else num_cpus
-        self._cpu_pool_size = cpu_pool_size
+        # the executor starts a thread only when a job needs one
+        self._cpu_pool = concurrent.futures.ThreadPoolExecutor(max_workers=cpu_pool_size, thread_name_prefix='pxt-cpu')
 
         self._cloud_org = config.get_string_value('org', section='pxtcloud')
         self._cloud_db = config.get_string_value('db', section='pxtcloud')
@@ -1048,13 +1046,7 @@ class Env:
         A job on this pool must not access the catalog, a DataRow or the database. It takes Python values and
         returns Python values.
         """
-        # the lock only guards the creation of the pool
-        if self._cpu_pool is None:
-            with self._cpu_pool_lock:
-                if self._cpu_pool is None:
-                    self._cpu_pool = concurrent.futures.ThreadPoolExecutor(
-                        max_workers=self._cpu_pool_size, thread_name_prefix='pxt-cpu'
-                    )
+        assert self._cpu_pool is not None
         return self._cpu_pool
 
     @property

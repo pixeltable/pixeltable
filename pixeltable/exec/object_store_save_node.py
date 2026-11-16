@@ -337,8 +337,8 @@ class ObjectStoreSaveNode(ExecNode):
                 scheduled.add(index)
 
         encode_results = await asyncio.gather(*(fut for _, _, fut in pending), return_exceptions=True)
-        num_failed = sum(isinstance(result, BaseException) for result in encode_results)
-        if num_failed > 0 and not self.ctx.ignore_errors:
+        has_failed_encode = any(isinstance(result, BaseException) for result in encode_results)
+        if has_failed_encode and not self.ctx.ignore_errors:
             # the first failed encode stops the operation, so the files of the other encodes are never stored
             for result in encode_results:
                 if not isinstance(result, BaseException):
@@ -368,11 +368,7 @@ class ObjectStoreSaveNode(ExecNode):
     def __encode_media_value(
         cls, val: bytes | PIL.Image.Image, tbl_id: UUID, col_id: int, tbl_version: int, format: str | None
     ) -> tuple[Path, str]:
-        """Encode one value into the TempStore.
-
-        Runs on a worker thread, so it takes the value and the ids of its column and reads neither the catalog nor a
-        DataRow.
-        """
+        """Encode val into the TempStore and return the path and url of its file; runs on a worker thread."""
         with telemetry.span('pixeltable.media.encode', level=telemetry.DEBUG):
             if isinstance(val, PIL.Image.Image):
                 try:

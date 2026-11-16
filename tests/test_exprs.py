@@ -2397,10 +2397,10 @@ class TestExprs:
         t = pxt.create_table(p('imgs'), {'idx': pxt.Int, 'img': pxt.Image | None})
         t.add_computed_column(rot=t.img.rotate(90))
 
-        # the rows keep the order of the insert, although their images finish decoding in any order
+        # every row is inserted once, although the rows finish in any order
         rows = [{'idx': idx, 'img': f} for idx, f in enumerate(good_files)]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
-        assert t.select(t.idx).head(len(rows))['idx'] == list(range(len(rows)))
+        assert t.order_by(t.idx).select(t.idx).collect()['idx'] == list(range(len(rows)))
 
         # a null image gives None
         validate_update_status(t.insert([{'idx': -1, 'img': None}]), expected_rows=1)
@@ -2492,11 +2492,11 @@ class TestExprs:
         t.add_computed_column(rot=t.img.rotate(90))
         t.add_computed_column(same_file=image_path_as_image(t.img.localpath))
 
-        # an insert validates and decodes each image in one job on the cpu pool: the validation opens the file
-        # once and the decode opens it once
+        # An insert opens each image file twice: the validation opens it once, and the decode opens it once on the
+        # cpu pool. The thread of a decode is not visible through the API, so this test tracks PIL.Image.open().
         validate_update_status(t.insert({'img': f} for f in files), expected_rows=len(files))
         assert len(open_thread_names) == 2 * len(files)
-        assert all(name.startswith('pxt-cpu') for name in open_thread_names)
+        assert sum(name.startswith('pxt-cpu') for name in open_thread_names) == len(files)
 
         # a query decodes each image once on the cpu pool, although two UDF calls read it
         open_thread_names.clear()

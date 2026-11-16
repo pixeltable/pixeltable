@@ -288,6 +288,19 @@ class TestFunction:
         res = t.where(t.c1 == 2).select(threaded_msg=t.threaded.errormsg, inline_msg=t.inline.errormsg).collect()
         assert res['threaded_msg'] == res['inline_msg'] == ['boom 2']
 
+        # with on_error='abort', a failing run_in_thread UDF fails the query
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='encountered exception ValueError:\nboom 2'):
+            t.select(out=threaded_raise_on_2(t.c1)).collect()
+
+        # a run_in_thread UDF computes a column of a view, reads a snapshot and maps the elements of a json list
+        v = pxt.create_view(p('errors_view'), t, additional_columns={'out': udf_threaded(t.c1)})
+        assert v.order_by(v.c1).select(v.out).collect()['out'] == [1, 2, 3, 4]
+        snap = pxt.create_snapshot(p('errors_snap'), t)
+        assert snap.order_by(snap.c1).select(out=udf_threaded(snap.c1)).collect()['out'] == [1, 2, 3, 4]
+        t_json = pxt.create_table(p('json'), {'c1': pxt.Json})
+        validate_update_status(t_json.insert([{'c1': [1, 2, 3]}]), expected_rows=1)
+        assert t_json.select(out=pxtf.map(t_json.c1['*'], lambda x: udf_threaded(x))).collect()['out'] == [[2, 3, 4]]
+
         # a computed column with a run_in_thread UDF still computes after a catalog reload
         path = p('reload')
         t = pxt.create_table(path, {'c1': pxt.Int})

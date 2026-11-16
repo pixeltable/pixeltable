@@ -290,8 +290,8 @@ class DataRow:
             if self.vals[index] is None:
                 self.vals[index] = image_utils.load(self.file_paths[index])
         elif isinstance(self.vals[index], PIL.Image.Image):
-            # An image that the user or a UDF created with PIL.Image.open() is not decoded yet. It is decoded here,
-            # on the thread that owns the row, so that two UDF calls on pool threads do not decode it at the same time.
+            # An image from PIL.Image.open() is not decoded yet, and two threads must not decode it at the same time.
+            # Decode it before any reader gets it.
             self.vals[index].load()
 
         return self.vals[index]
