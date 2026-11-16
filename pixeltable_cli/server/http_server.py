@@ -200,8 +200,7 @@ class _DaemonHandler(BaseHTTPRequestHandler):
             self._send_json(
                 {
                     'detail': f'configuration has changed since the daemon started:\n{_changed_settings(changed)}\n\n'
-                    'The daemon reads configuration once at startup. '
-                    'Run `pxt daemon restart` to pick up the new configuration.',
+                    'The daemon reads configuration once at startup.',
                     'error_code': 'STALE_CONFIG',
                 },
                 http.HTTPStatus.CONFLICT,
@@ -231,8 +230,7 @@ class _DaemonHandler(BaseHTTPRequestHandler):
             {
                 'detail': 'the daemon started with a different environment:\n'
                 + '\n'.join(detail)
-                + '\n\nThe daemon reads the environment once at startup. '
-                'Run `pxt daemon restart` to pick up your environment.',
+                + '\n\nThe daemon reads the environment once at startup.',
                 'error_code': 'STALE_CONFIG',
             },
             http.HTTPStatus.CONFLICT,

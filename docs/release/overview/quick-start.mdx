@@ -94,7 +94,7 @@ You'll install Pixeltable, write one file, create its table, start its service a
 
     `my_app`, the last argument, is a catalog directory, and `pxt schema update` creates it along with the `docs` table. It isn't a folder on disk.
 
-    The first `pxt` command that needs the catalog starts the Pixeltable daemon, a background process that runs the local database. It keeps running after you close the terminal, and it reads your environment once, when it starts. If you export an API key later, the next `pxt` command that needs it restarts the daemon. The data lives in Pixeltable's home directory, outside `my-app`. [Infrastructure](/howto/deployment/infrastructure) has the layout.
+    The first `pxt` command that needs the catalog starts the Pixeltable daemon, a background process that runs the local database. It keeps running after you close the terminal, and it reads your environment once, when it starts. If you export an API key later, the next `pxt` command that reads or changes table data restarts the daemon with it. The data lives in Pixeltable's home directory, outside `my-app`. [Infrastructure](/howto/deployment/infrastructure) has the layout.
   </Step>
   <Step title="Start the service">
     ```bash

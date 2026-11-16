@@ -21,8 +21,9 @@ Notes:
   Credential values (api_key, api_token, api_secret, auth_token) show '<redacted>' when set;
   use the source field to tell set from unset for sensitive keys.
   The daemon resolves values from the environment it was started with. `pxt config` lists the variables
-  that your shell sets differently. A command that reads catalog metadata, such as `pxt ls`, leaves the daemon
-  running; any other command restarts the daemon with your environment before it runs."""
+  whose values differ between your shell and the daemon. The next command that reads or changes table data
+  restarts the daemon with your environment, once the daemon is idle. `pxt config`, `pxt ls` and
+  `pxt describe` leave the daemon as it is."""
 
 
 def _report_env_differences(resp: models.ConfigResponse) -> None:
@@ -37,7 +38,7 @@ def _report_env_differences(resp: models.ConfigResponse) -> None:
     if len(differing) > 0:
         print(f'  set to a different value in the daemon: {", ".join(differing)}')
     if len(missing) > 0 or len(differing) > 0:
-        print('  the next command that needs your environment restarts the daemon with it')
+        print('  the next command that reads or changes table data restarts the daemon with your environment')
 
 
 def run(argv: list[str]) -> None:

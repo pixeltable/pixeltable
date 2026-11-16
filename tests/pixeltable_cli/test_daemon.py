@@ -219,7 +219,7 @@ class TestDaemon:
 
     def test_replace_daemon_after_config_change(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
         """A command after an edit of the project's config file replaces an idle daemon and runs with the new
-        config; it does not replace a daemon that is serving a request."""
+        config. It does not replace a daemon that is serving a request, and says what changed."""
         project = tmp_path / 'project'
         _create_pxt_project(project)
         config_file = project / 'pixeltable.toml'
@@ -249,10 +249,23 @@ class TestDaemon:
             error = json.loads(r.stdout)
             assert error['error_code'] == 'DAEMON_BUSY'
             assert 'pxt daemon restart -f' in error['message']
+            # the message says which setting changed, and in which file
+            assert 'time_zone' in error['message']
+            assert str(config_file) in error['message']
             assert psutil.pid_exists(pid)
 
         assert _pxt(daemon_port, project, {}, *check).returncode == 0
-        _replacement_pid(daemon_port, project, {}, pid)
+        pid = _replacement_pid(daemon_port, project, {}, pid)
+
+        # the same for a caller whose environment differs from the daemon's
+        with _busy_daemon(daemon_port, project, {}):
+            r = _pxt(daemon_port, project, {'OPENAI_API_KEY': 'sk-pxt-test-aaaa'}, *check)
+            assert r.returncode == 1
+            error = json.loads(r.stdout)
+            assert error['error_code'] == 'DAEMON_BUSY'
+            assert 'OPENAI_API_KEY' in error['message']
+            assert 'sk-pxt-test-aaaa' not in error['message']
+            assert psutil.pid_exists(pid)
 
     def test_service_without_fastapi(self, daemon_port: int, tmp_path: pathlib.Path) -> None:
         """Without fastapi, pxt schema update succeeds, and pxt service update prints the install command."""

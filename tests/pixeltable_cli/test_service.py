@@ -79,6 +79,7 @@ from .conftest import (
     BackgroundPxt,
     PxtRunner,
     assert_in_agreement,
+    daemon_pid,
     db_diff,
     db_update,
     disposable_db,
@@ -280,17 +281,17 @@ class TestService:
         cli('schema', 'update', app, target)
         differing = {'OPENAI_API_KEY': 'sk-not-the-one-the-daemon-has'}
 
-        pid = cli('daemon', 'status', '--json').json['pid']
+        pid = daemon_pid(cli)
 
         # the plan restarts the daemon with the caller's value; rc 2 is 'changes pending'
         r = cli('service', 'diff', app, target, env_overrides=differing, check=False)
         assert r.returncode == 2, r.stderr
-        restarted_pid = cli('daemon', 'status', '--json').json['pid']
+        restarted_pid = daemon_pid(cli)
         assert restarted_pid != pid
 
         # the update runs on that daemon
         cli('service', 'update', app, target, '-f', env_overrides=differing)
-        assert cli('daemon', 'status', '--json').json['pid'] == restarted_pid
+        assert daemon_pid(cli) == restarted_pid
         running = cli('service', 'list', target, '--json', env_overrides=differing).json
         assert [s['name'] for s in running] == ['ingest']
 

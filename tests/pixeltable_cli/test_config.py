@@ -17,7 +17,7 @@ import pixeltable as pxt
 from pixeltable_cli.utils import PROJECT_CONFIG_FILE
 
 from ..utils import DatabaseRoot, skip_test_if_not_installed
-from .conftest import PxtRunner
+from .conftest import PxtRunner, daemon_pid
 
 pytestmark = pytest.mark.db_roots('local', reason='the daemon under test is the one serving the in-process catalog')
 
@@ -47,7 +47,10 @@ _SLOW_SCHEMA_SRC = dedent(
 
 @pytest.fixture(autouse=True)
 def daemon_serving_the_test_process_values(cli: PxtRunner) -> Iterator[None]:
-    """Leave behind a daemon serving with the values of this process's environment."""
+    """Leave behind a daemon serving with the values of this process's environment.
+
+    A later test's commands set none of this test's values, so they would run on a daemon that still has them.
+    """
     yield
     cli('daemon', 'stop', '-f', check=False)
     cli('daemon', 'start')
@@ -58,10 +61,6 @@ def make_table(target: str) -> None:
     pxt.create_dir(target)
     t = pxt.create_table(f'{target}/docs', {'title': pxt.String})
     t.insert([{'title': 'hello'}])
-
-
-def daemon_pid(cli: PxtRunner) -> int:
-    return cli('daemon', 'status', '--json').json['pid']
 
 
 class TestConfig:
@@ -107,7 +106,6 @@ class TestConfig:
 
         cli('daemon', 'restart', env_overrides=first)
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=first).stdout
-
         first_pid = daemon_pid(cli)
 
         assert 'set to a different value in the daemon' in cli('config', env_overrides=second).stdout

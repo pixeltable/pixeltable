@@ -495,11 +495,15 @@ def _send(method: str, path: str, body: dict[str, Any] | None, params: dict[str,
     except RequestFailedError as e:
         if e.error_code != 'STALE_CONFIG':
             raise
+        stale_config = e.detail
     # the daemon answers STALE_CONFIG before it runs the request, so the request runs once
     health = fetch_health()
     if health is not None:
         with _daemon_failures():
-            _replace_daemon(health)
+            try:
+                _replace_daemon(health)
+            except DaemonBusyError as busy:
+                raise DaemonBusyError(f'{stale_config}\n\n{busy}') from None
     return _send_once(method, path, body, params)
 
 
