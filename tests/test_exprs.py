@@ -572,7 +572,11 @@ class TestExprs:
             assert row['stored_mod'] == expected, row
             assert row['sql_mod'] == expected, row
             assert row['error_type'] == ('ZeroDivisionError' if python_error else None), row
-            assert row['error_msg'] == ('integer modulo by zero' if python_error else None), row
+            if python_error:
+                # Python's zero-division message varies by version.
+                assert 'by zero' in row['error_msg'], row
+            else:
+                assert row['error_msg'] is None, row
         non_null_results = sum(row['a'] is not None and row['b'] not in (None, 0) for row in rows)
         assert t.where(t.a % t.b == t.stored_mod).count() == non_null_results
         assert t.where(t.a % t.b == None).count() == len(rows) - non_null_results
