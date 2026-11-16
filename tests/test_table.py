@@ -3741,6 +3741,7 @@ class TestTable:
         # an insert that stops at the first unsaveable image also removes the files of the images it did save
         with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match=msg):
             t.insert(rows)
+        check_temp_store_count(t, tmp_count, db_root)
         status = t.insert(rows, on_error='ignore')
         assert status.num_rows == 4
         assert status.num_excs == 12

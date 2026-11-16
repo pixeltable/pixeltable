@@ -314,11 +314,11 @@ class ObjectStoreSaveNode(ExecNode):
             self.__add_ready_row(row, row_idx)
         return row_to_do
 
-    async def __encode_input_batch(self, input_batch: DataRowBatch) -> None:
-        """Encode the batch's in-memory media values into the TempStore; encode jobs run on Env.cpu_pool."""
+    async def __save_media_to_temp(self, input_batch: DataRowBatch) -> None:
+        """Save the in-memory media values of the batch to TempStore files. The jobs run on Env.cpu_pool."""
         loop = asyncio.get_running_loop()
         pending: list[tuple[exprs.DataRow, exprs.ColumnSlotIdx, asyncio.Future[tuple[Path, str]]]] = []
-        # carry the ambient instrumentation span onto the worker threads so encode spans nest correctly
+        # carry the ambient instrumentation span onto the worker threads, so that the encode spans nest under it
         hooks_ctx = telemetry.capture_context()
         for row in input_batch:
             scheduled: set[int] = set()  # columns can share a slot (eg, btree index value cols): encode once
@@ -326,11 +326,9 @@ class ObjectStoreSaveNode(ExecNode):
                 col, index = info
                 if index in scheduled or not row.prepare_col_val_for_save(index, col):
                     continue
-                val = row.vals[index]
-                format = image_utils.default_format(val) if isinstance(val, PIL.Image.Image) else None
                 # the ids are read on this thread, because a worker thread must not access catalog state
                 encode_fn = functools.partial(
-                    self.__encode_media_value, val, col.tbl_handle.id, col.id, col.get_tbl().version, format
+                    self.__encode_media_value, row.vals[index], col.tbl_handle.id, col.id, col.get_tbl().version
                 )
                 thread_fn = functools.partial(telemetry.run_in_context, hooks_ctx, encode_fn)
                 pending.append((row, info, loop.run_in_executor(Env.get().cpu_pool, thread_fn)))
@@ -344,7 +342,8 @@ class ObjectStoreSaveNode(ExecNode):
                 if not isinstance(result, BaseException):
                     TempStore.delete_media_file(result[0])
 
-        # the failed encodes are recorded first, because an error also marks the columns computed from the failed one
+        # record all errors first: RowBuilder.set_exc() also sets the error on the dependent slots, which the next
+        # loop skips
         for (row, info, _), result in zip(pending, encode_results, strict=True):
             if isinstance(result, Exception):
                 self.__handle_save_error(row, info, result)
@@ -366,11 +365,13 @@ class ObjectStoreSaveNode(ExecNode):
 
     @classmethod
     def __encode_media_value(
-        cls, val: bytes | PIL.Image.Image, tbl_id: UUID, col_id: int, tbl_version: int, format: str | None
+        cls, val: bytes | PIL.Image.Image, tbl_id: UUID, col_id: int, tbl_version: int
     ) -> tuple[Path, str]:
-        """Encode val into the TempStore and return the path and url of its file; runs on a worker thread."""
+        """Encode val into the TempStore and return the path and url of its file. Runs on a worker thread."""
         with telemetry.span('pixeltable.media.encode', level=telemetry.DEBUG):
+            format: str | None = None
             if isinstance(val, PIL.Image.Image):
+                format = image_utils.default_format(val)
                 try:
                     val = image_utils.to_bytes(val, format)
                 except Exception as e:
@@ -379,7 +380,7 @@ class ObjectStoreSaveNode(ExecNode):
 
     async def __process_input_batch(self, input_batch: DataRowBatch, executor: futures.ThreadPoolExecutor) -> None:
         """Process a batch of input rows, submitting temporary files for upload"""
-        await self.__encode_input_batch(input_batch)
+        await self.__save_media_to_temp(input_batch)
         work_to_do: list[ObjectStoreSaveNode.WorkItem] = []
 
         for row in input_batch:

@@ -141,7 +141,7 @@ class ExprEvalNode(ExecNode):
         """
         Fetches another batch from our input or sets input_complete to True if there are no more batches.
 
-        - decodes the stored images of the batch that eval_ctx.all_exprs read
+        - decodes the stored images in the slots eval_ctx.image_decode_slot_idxs
         - stores the batch in current_input_batch, if not already set, or next_input_batch
         - updates row_pos_map, if needed
         """
@@ -175,7 +175,7 @@ class ExprEvalNode(ExecNode):
             self.exc_event.set()
 
     async def _decode_images(self, batch: DataRowBatch) -> None:
-        """Decode the stored images of the batch in eval_ctx.image_decode_slot_idxs; the decodes run on Env.cpu_pool.
+        """Decode, on Env.cpu_pool, the stored images in the slots eval_ctx.image_decode_slot_idxs of every row.
 
         A slot that has a file path and no value would otherwise get decoded on the event loop when the first expr
         reads it.
@@ -183,7 +183,7 @@ class ExprEvalNode(ExecNode):
         if len(self.eval_ctx.image_decode_slot_idxs) == 0:
             return
         loop = asyncio.get_running_loop()
-        # carry the ambient instrumentation span onto the worker threads so load spans nest correctly
+        # carry the ambient instrumentation span onto the worker threads, so that the load spans nest under it
         hooks_ctx = telemetry.capture_context()
         pending: list[tuple[exprs.DataRow, int, asyncio.Future[PIL.Image.Image]]] = []
         for row in batch.rows:
@@ -428,7 +428,8 @@ class ExprEvalNode(ExecNode):
         if not self.ctx.ignore_errors:
             dependency_idxs = [e.slot_idx for e in exec_ctx.row_builder.unique_exprs[slot_with_exc].dependencies()]
             first_row = rows[0]
-            input_vals = [first_row[idx] for idx in dependency_idxs]
+            # read vals directly: DataRow.__getitem__() decodes a stored image, and a failed decode would raise here
+            input_vals = [first_row.vals[idx] for idx in dependency_idxs]
             e = exec_ctx.row_builder.unique_exprs[slot_with_exc]
             self.error = excs.ExprEvalError(e, f'expression {e}', first_row.get_exc(e.slot_idx), exc_tb, input_vals, 0)
             self.exc_event.set()

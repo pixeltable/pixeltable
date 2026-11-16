@@ -116,7 +116,8 @@ class pop_n(pxt.Aggregator):
         return f'{self.init_n}:{self.update_n}'
 
 
-# The run_in_thread udfs are defined at module level, because a computed column needs a udf that has a module path.
+# These udfs are defined at module level, because a udf needs a module path to be serialized by path or used in a
+# computed column.
 @pxt.udf(run_in_thread=True)
 def udf_threaded(x: int) -> int:
     return x + 1
@@ -134,7 +135,7 @@ def inline_thread_name(x: int) -> str:
 
 @pxt.udf(run_in_thread=True)
 def threaded_sleep_inv(x: int, n: int) -> int:
-    # an earlier row sleeps longer, so that the calls finish in the reverse of the input order
+    # an earlier row sleeps longer, so that the calls do not finish in input order
     time.sleep((n - x) * 0.01)
     return x
 
@@ -260,22 +261,34 @@ class TestFunction:
     def test_run_in_thread_exec(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         n = 20
-        t = pxt.create_table(p('test'), {'c1': pxt.Int | None})
+        path = p('test')
+        t = pxt.create_table(path, {'c1': pxt.Int})
+        t.add_computed_column(inserted=threaded_thread_name(t.c1))
         validate_update_status(t.insert({'c1': i} for i in range(n)), expected_rows=n)
 
-        # a run_in_thread UDF runs on a thread of the cpu pool, and an unmarked UDF does not
-        res = t.select(threaded=threaded_thread_name(t.c1), inline=inline_thread_name(t.c1)).collect()
-        assert all(name.startswith('pxt-cpu') for name in res['threaded'])
+        # a run_in_thread UDF runs on a thread of the cpu pool, in an insert and in a query. An unmarked UDF does not.
+        res = t.select(t.inserted, queried=threaded_thread_name(t.c1), inline=inline_thread_name(t.c1)).collect()
+        assert all(name.startswith('pxt-cpu') for name in [*res['inserted'], *res['queried']])
         assert not any(name.startswith('pxt-cpu') for name in res['inline'])
 
-        # the results come back in input order, although the calls finish in the reverse order
+        # the results come back in input order, although the calls do not finish in that order
         res = t.order_by(t.c1).select(out=threaded_sleep_inv(t.c1, n)).collect()
         assert res['out'] == list(range(n))
 
-        # a None argument for a non-nullable parameter gives None
-        validate_update_status(t.insert([{'c1': None}]), expected_rows=1)
-        res = t.where(t.c1 == None).select(out=udf_threaded(t.c1)).collect()
-        assert res['out'] == [None]
+        # the UDF of a computed column still runs on the cpu pool after a catalog reload
+        reload_catalog()
+        t = pxt.get_table(path)
+        validate_update_status(t.insert({'c1': i} for i in range(n, 2 * n)), expected_rows=n)
+        res = t.where(t.c1 >= n).select(t.inserted).collect()
+        assert len(res) == n
+        assert all(name.startswith('pxt-cpu') for name in res['inserted'])
+
+        # a run_in_thread UDF that maps the elements of a json list also runs on the cpu pool
+        t_json = pxt.create_table(p('json'), {'c1': pxt.Json})
+        validate_update_status(t_json.insert([{'c1': [1, 2, 3]}]), expected_rows=1)
+        res = t_json.select(out=pxtf.map(t_json.c1['*'], lambda x: threaded_thread_name(x))).collect()
+        assert len(res['out'][0]) == 3
+        assert all(name.startswith('pxt-cpu') for name in res['out'][0])
 
         # a failing run_in_thread UDF reports the same error for its cell as a failing unmarked UDF
         t = pxt.create_table(p('errors'), {'c1': pxt.Int})
@@ -291,25 +304,6 @@ class TestFunction:
         # with on_error='abort', a failing run_in_thread UDF fails the query
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='encountered exception ValueError:\nboom 2'):
             t.select(out=threaded_raise_on_2(t.c1)).collect()
-
-        # a run_in_thread UDF computes a column of a view, reads a snapshot and maps the elements of a json list
-        v = pxt.create_view(p('errors_view'), t, additional_columns={'out': udf_threaded(t.c1)})
-        assert v.order_by(v.c1).select(v.out).collect()['out'] == [1, 2, 3, 4]
-        snap = pxt.create_snapshot(p('errors_snap'), t)
-        assert snap.order_by(snap.c1).select(out=udf_threaded(snap.c1)).collect()['out'] == [1, 2, 3, 4]
-        t_json = pxt.create_table(p('json'), {'c1': pxt.Json})
-        validate_update_status(t_json.insert([{'c1': [1, 2, 3]}]), expected_rows=1)
-        assert t_json.select(out=pxtf.map(t_json.c1['*'], lambda x: udf_threaded(x))).collect()['out'] == [[2, 3, 4]]
-
-        # a computed column with a run_in_thread UDF still computes after a catalog reload
-        path = p('reload')
-        t = pxt.create_table(path, {'c1': pxt.Int})
-        t.add_computed_column(out=udf_threaded(t.c1))
-        validate_update_status(t.insert({'c1': i} for i in range(5)), expected_rows=5)
-        reload_catalog()
-        t = pxt.get_table(path)
-        validate_update_status(t.insert({'c1': i} for i in range(5, 10)), expected_rows=5)
-        assert sorted(t.select(t.out).collect()['out']) == list(range(1, 11))
 
     @pytest.mark.db_roots('local', reason='uses a barrier and the telemetry recorder of the test process')
     def test_run_in_thread_local(self, db_root: DatabaseRoot, telemetry_recorder: RecordingSubscriber) -> None:

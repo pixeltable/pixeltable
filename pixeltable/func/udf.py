@@ -50,14 +50,22 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
     """A decorator to create a Function from a function definition.
 
     With `run_in_thread=True`, a synchronous UDF runs on a shared thread pool, so that CPU-bound work in libraries
-    that release the GIL (such as Pillow, NumPy or ffmpeg) runs on several cores at once. Such a UDF must not modify
-    its arguments, because other expressions may share them. It must also not call Pixeltable, because the calling
-    query holds the catalog locks while it waits for the UDF.
+    that release the GIL (such as Pillow or NumPy), or work that waits for a subprocess, runs on several cores at
+    once. `run_in_thread` cannot be combined with `batch_size` or `resource_pool`. Such a UDF must not modify
+    its arguments, because other expressions may share them. It must also not read or write tables. The UDF runs in
+    a transaction of its own, and it waits forever for a table that the calling operation has locked (for example,
+    in `add_computed_column()`).
 
     Examples:
         >>> @pxt.udf
         ... def my_function(x: int) -> int:
         ...     return x + 1
+
+        Run a CPU-bound UDF on the thread pool:
+
+        >>> @pxt.udf(run_in_thread=True)
+        ... def blur(img: PIL.Image.Image) -> PIL.Image.Image:
+        ...     return img.filter(PIL.ImageFilter.BLUR)
     """
     if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
         # Decorator invoked without parentheses: @pxt.udf

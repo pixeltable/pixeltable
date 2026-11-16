@@ -301,8 +301,8 @@ class FnCallEvaluator(Evaluator):
             self.dispatcher.dispatch_exc(call_args.rows, self.fn_call.slot_idx, exc_tb, self.eval_ctx)
 
     def _call_in_thread(self, args: list[Any], kwargs: dict[str, Any]) -> Any:
-        # udf_call() is here and not in eval_in_thread(), because in eval_in_thread() it would also measure the time
-        # the call waits in the queue of Env.cpu_pool.
+        # udf_call() wraps only the call, so that udf_latency excludes the time the job waits in the queue of
+        # Env.cpu_pool
         with telemetry_schemas.udf_call(self.fn):
             return self.scalar_py_fn(*args, **kwargs)
 

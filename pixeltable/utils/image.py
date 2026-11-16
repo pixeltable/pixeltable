@@ -1,7 +1,8 @@
 import base64
 import threading
 from io import BytesIO
-from typing import Any
+from pathlib import Path
+from typing import IO
 
 import PIL.Image
 
@@ -26,19 +27,19 @@ def default_format(img: PIL.Image.Image) -> str:
 def load(path: str) -> PIL.Image.Image:
     """Return the decoded image stored in the file at path."""
     img = PIL.Image.open(path)
-    # PIL.Image.open() reads only the file header. load() decodes the pixels on the calling thread, so that no later
-    # reader of this shared image starts the decode.
+    # PIL.Image.open() reads only the file header. load() decodes the pixels now, on the calling thread.
     img.load()
     return img
 
 
-def save(image: PIL.Image.Image, fp: Any, format: str | None = None) -> None:
-    """Save image to fp, which is a path or a file object. Without a format, Pillow derives it from the path.
+def save(image: PIL.Image.Image, fp: str | Path | IO[bytes], format: str | None = None) -> None:
+    """Save image to fp. Without a format, Pillow derives it from the path.
 
     Image.save() keeps its encoder settings on the image while it runs. Two threads that save the same image at the
-    same time would use each other's settings, so every save of an image holds the lock of that image.
+    same time would use each other's settings, so save() holds a lock per image.
     """
-    # dict.setdefault() is atomic, so two threads get the same lock
+    # The lock is stored on the image, because a PIL image is not hashable and cannot be the key of a dict of locks.
+    # dict.setdefault() is atomic, so two threads get the same lock.
     save_lock = image.__dict__.setdefault('_pxt_save_lock', threading.Lock())
     with save_lock:
         image.save(fp, format=format)

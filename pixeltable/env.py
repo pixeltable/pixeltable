@@ -1041,10 +1041,9 @@ class Env:
 
     @property
     def cpu_pool(self) -> concurrent.futures.ThreadPoolExecutor:
-        """Thread pool, shared by the whole process, for CPU-bound work that releases the GIL.
+        """Thread pool, shared by the whole process, for CPU-bound work in libraries that release the GIL.
 
-        A job on this pool must not access the catalog, a DataRow or the database. It takes Python values and
-        returns Python values.
+        A job on this pool must not access the catalog, a DataRow or the database.
         """
         assert self._cpu_pool is not None
         return self._cpu_pool

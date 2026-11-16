@@ -185,6 +185,7 @@ class ExprEvalCtx:
         self.set_gc(True)
 
     def _get_image_decode_slot_idxs(self) -> list[int]:
+        """Return the slots of the image ColumnRefs that a UDF call or a validating ColumnRef reads."""
         slot_idxs: set[int] = set()
         for expr in self.all_exprs:
             if isinstance(expr, exprs.ColumnRef):
