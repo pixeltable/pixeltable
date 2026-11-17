@@ -2220,7 +2220,7 @@ class TestVideo:
 
     @pytest.mark.db_roots('local', reason='reads Env default video encoder config')
     def test_default_video_codec(self, uses_db: None) -> None:
-        result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, check=False)
+        result = av_utils.run_ffmpeg(['-version'])
         print(f'ffmpeg -version:\n{result.stdout}')
 
         default_encoder = Env.get().default_video_encoder
@@ -2317,20 +2317,8 @@ class TestVideo:
     def test_mix_audio_duration_modes(self, uses_db: None, tmp_path: Path) -> None:
         def make_audio(duration: float, name: str) -> str:
             out = tmp_path / f'{name}.m4a'
-            subprocess.run(
-                [
-                    'ffmpeg',
-                    '-f',
-                    'lavfi',
-                    '-i',
-                    f'sine=frequency=220:duration={duration}',
-                    '-c:a',
-                    'aac',
-                    '-y',
-                    str(out),
-                ],
-                capture_output=True,
-                check=True,
+            av_utils.run_ffmpeg(
+                ['-f', 'lavfi', '-i', f'sine=frequency=220:duration={duration}', '-c:a', 'aac', '-y', str(out)]
             )
             return str(out)
 
