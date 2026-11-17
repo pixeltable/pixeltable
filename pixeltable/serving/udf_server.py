@@ -4,12 +4,10 @@ import asyncio
 import hmac
 import threading
 import time
-from pathlib import Path
 from typing import Any, Awaitable, Callable
 from zoneinfo import ZoneInfo
 
 from pixeltable import exceptions as excs, func
-from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.exec.expr_eval.modal_client import UDF_SECRET_HEADER_NAME, UdfCallRequest, UdfCallResponse
 from pixeltable.func.symbols import resolve_symbol
@@ -27,10 +25,7 @@ class UdfServer:
     secret: str
     lock: threading.Lock
 
-    def __init__(self, udf_path: str, container_id: str | None, secret: str, project_dir: Path | None = None) -> None:
-        """project_dir: the root of the unpacked project, with its config file"""
-        if project_dir is not None:
-            Config.init(reinit=True, project_root=project_dir)
+    def __init__(self, udf_path: str, container_id: str | None, secret: str) -> None:
         # initializes the Env now instead of in the first call
         Env.get()  # doesn't require a local database
         self.udf_path = udf_path

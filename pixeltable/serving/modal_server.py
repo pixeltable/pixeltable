@@ -20,6 +20,7 @@ from pathlib import Path
 
 import modal
 
+from pixeltable.config import Config
 from pixeltable.service import prepare_project
 
 from .udf_server import UdfServer
@@ -45,10 +46,7 @@ class ModalServer:
         # the container's environment pins the release, so prepare() raises if the archive is missing
         has_project = prepare_project.prepare(os.environ[DB_URI_VAR], archive_dir)
         assert has_project
-        self.server = UdfServer(
-            os.environ[UDF_PATH_VAR],
-            os.environ.get('MODAL_TASK_ID'),
-            os.environ[UDF_SECRET_VAR],
-            prepare_project.project_dir(archive_dir),
-        )
+        # the UDF reads its settings from the project's config file
+        Config.init(reinit=True, project_root=prepare_project.project_dir(archive_dir))
+        self.server = UdfServer(os.environ[UDF_PATH_VAR], os.environ.get('MODAL_TASK_ID'), os.environ[UDF_SECRET_VAR])
         self.server.start(PORT)

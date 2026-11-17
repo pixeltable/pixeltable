@@ -731,14 +731,14 @@ class Config:
         """
         is_hosted = db_config is not None and db_config.name != LOCAL_DATABASE
         # the UDF servers of the pixeltable.udf setting get this config
-        has_udf_servers = self.get_value('udf', dict) is not None
+        has_udf_setting = self.get_value('udf', dict) is not None
         result: ConfigSections = {}
         for section, options in self.__project_config.items():
             for key, (value, _) in options.items():
                 if section == 'pixeltable' and key == 'database':
                     continue  # replaced by the entry for db_config
                 if key in _SECRET_KEYS:
-                    if is_hosted or has_udf_servers:
+                    if is_hosted or has_udf_setting:
                         raise self.__project_secret_error(section, key, db_config if is_hosted else None)
                     # an edit to a local secret still changes the config, and so restarts a local service
                     result.setdefault(section, {})[key] = hashlib.sha256(str(value).encode()).hexdigest()
