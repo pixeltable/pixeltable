@@ -70,14 +70,14 @@ jobs:
             package-configs: "anthropic fireworks-ai google-genai groq jina mistralai openai replicate together"
             bedrock: true
           - python-version: "3.11"
-            package-configs: "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm spacy"
+            package-configs: "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision torchcodec transformers timm spacy"
             os: ubuntu-24.04
           - python-version: "3.11"
             package-configs: "whisperx transformers timm"
             os: ubuntu-24.04
           # The only job on a large runner, and it runs only the resource_intensive tests
           - python-version: "3.11"
-            package-configs: "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm spacy"
+            package-configs: "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision torchcodec transformers timm spacy"
             os: ubuntu-large
             resource-intensive: true
           # Test the basic pixeltable installation on other platforms.
