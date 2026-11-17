@@ -842,7 +842,12 @@ def serialize_args(args: dict[str, Any], sink: PartSink) -> dict[str, Any]:
 
 def deserialize_request(request: ProxyRequest) -> dict[str, Any]:
     """Decode request.args, recording each uploaded file's temp-path-to-original-name mapping on the request."""
-    return _deserialize(request.args, request._binary_parts, request._uploaded_names, request._remote_parts or None)
+    return deserialize_args(request, request.args)
+
+
+def deserialize_args(request: ProxyRequest, args: Any) -> Any:
+    """Decode args, a part of request.args, as deserialize_request() does."""
+    return _deserialize(args, request._binary_parts, request._uploaded_names, request._remote_parts or None)
 
 
 def encode_local_path(value: Any) -> Any:

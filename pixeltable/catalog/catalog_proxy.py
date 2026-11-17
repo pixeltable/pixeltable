@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
 from uuid import UUID
 
 from pixeltable.env import Env
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
     from .model import IndexDefinition
     from .table import Table
+    from .table_copy import CopyChunk
     from .table_metadata import TableMetadata
     from .table_path import TablePath
     from .types import TableVersionMd
@@ -223,24 +224,22 @@ class CatalogProxy(CatalogBase):
             'CatalogBase', 'drop_dir', {'path': path, 'if_not_exists': if_not_exists, 'force': force}
         )
 
-    def create_table_from_md(
-        self, path: Path, md: list[TableVersionMd], if_exists: IfExistsParam
+    def import_table(
+        self, path: Path, tbl_id: UUID, md: list[TableVersionMd], chunks: Iterable[CopyChunk], if_exists: IfExistsParam
     ) -> tuple[Table, bool]:
-        args = {'path': path, 'md': md, 'if_exists': if_exists}
-        new_md, was_created = self.client.send_request('CatalogBase', 'create_table_from_md', args)
-        return self._make_table(new_md, is_anon_snapshot=False), was_created
-
-    def load_store_rows(
-        self, tbl_id: UUID, rows_file: str, new_media: dict[str, str], prev_media: dict[str, str]
-    ) -> dict[str, str]:
         # a LocalFile is uploaded with the request
         args = {
+            'path': path,
             'tbl_id': tbl_id,
-            'rows_file': LocalFile(rows_file),
-            'new_media': {url: LocalFile(path) for url, path in new_media.items()},
-            'prev_media': prev_media,
+            'md': md,
+            'chunks': [
+                {
+                    'rows_file': LocalFile(chunk.rows_file),
+                    'media': {url: LocalFile(media_path) for url, media_path in chunk.media.items()},
+                }
+                for chunk in chunks
+            ],
+            'if_exists': if_exists,
         }
-        return self.client.send_request('CatalogBase', 'load_store_rows', args)
-
-    def finish_copy(self, tbl_id: UUID, num_rows: int) -> None:
-        self.client.send_request('CatalogBase', 'finish_copy', {'tbl_id': tbl_id, 'num_rows': num_rows})
+        new_md, was_created = self.client.send_request('CatalogBase', 'import_table', args)
+        return self._make_table(new_md, is_anon_snapshot=False), was_created

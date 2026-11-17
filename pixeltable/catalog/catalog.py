@@ -9,7 +9,7 @@ import time
 import warnings
 from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Collection, Iterator, Literal, Mapping, Sequence, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Collection, Iterable, Iterator, Literal, Mapping, Sequence, TypeVar
 from uuid import UUID, uuid4
 
 import psycopg
@@ -792,24 +792,6 @@ class Catalog(CatalogBase):
             self._refresh_path_cache(tbl=tvp, for_write=False, check_pending_ops=check_pending_ops)
         for read_key in request.read_tbl_keys:
             self._refresh_tbl_cache(key=read_key, check_pending_ops=check_pending_ops)
-
-        # A table in TableState.COPYING has only a part of its rows. Only load_store_rows() reads and writes its rows.
-        # A metadata read is accepted, and so is finalization, which completes a drop of the table.
-        tbl_ids = {key.tbl_id for key in request.tbl_keys()}
-        refuses_copying = check_pending_ops and not request.fills_copy and request.op_class is not TblOpClass.MD_READ
-        if refuses_copying and len(tbl_ids) > 0:
-            # the state is read from the store: a cached TableMd can be older than a committed finish_copy()
-            copying_tbl_q = sql.select(schema.Table.md['name'].astext).where(
-                schema.Table.id.in_(tbl_ids),
-                schema.Table.md['tbl_state'].astext == str(schema.TableState.COPYING.value),
-            )
-            copying_tbl_name = get_runtime().conn.execute(copying_tbl_q.limit(1)).scalar()
-            if copying_tbl_name is not None:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_STATE,
-                    f'Table {copying_tbl_name!r} is a copy that create_table() has not finished. It cannot be read '
-                    "or changed. If the copy failed, run create_table() again with if_exists='replace'.",
-                )
 
     def _evict_caches(self) -> None:
         # Evict LRU _tbls entries
@@ -1793,19 +1775,33 @@ class Catalog(CatalogBase):
 
         return get_tbl_fn(), is_created
 
-    def create_table_from_md(
-        self, path: Path, md: list[TableVersionMd], if_exists: IfExistsParam
+    def import_table(
+        self,
+        path: Path,
+        tbl_id: UUID,
+        md: list[TableVersionMd],
+        chunks: Iterable[table_copy.CopyChunk],
+        if_exists: IfExistsParam,
     ) -> tuple[LocalTable, bool]:
         """
-        Creates a base table at path in TableState.COPYING, with the history md of another base table and no rows.
+        Creates the base table tbl_id at path from the history md of another base table and the store rows and media
+        files of chunks. The table appears at path with all of its rows, or not at all.
 
         Returns `t, False` for an existing table `t` if `if_exists == IfExistsParam.IGNORE`, otherwise `t, True`.
         """
-        new_tbl_id = uuid4()
-        tbl_md, version_mds, schema_version_mds = table_copy.md_for_copy(md, new_tbl_id, path.name)
+        # a client sends a request again after a 5xx response, and the first request may have created the table
+        existing_copy = self.get_table_by_id(tbl_id)
+        if existing_copy is not None:
+            return existing_copy, True
+        copy_md = table_copy.md_for_copy(md, tbl_id, path.name)
+        tbl_md = copy_md[0].tbl_md
+        version_mds = [m.version_md for m in copy_md]
+        schema_version_mds = list({m.schema_version_md.schema_version: m.schema_version_md for m in copy_md}.values())
+        stored_urls: dict[str, str] = {}  # url in the rows -> url of the stored file
+        rows_files: list[str] = []
 
-        # one transaction creates the metadata and the store table, so that a failure leaves nothing behind and the
-        # new table needs no pending ops
+        # one transaction creates the metadata, the store table and the rows, so that a failure leaves nothing behind
+        # and the new table needs no pending ops
         @retry_md_write_loop(
             paths=[path] if if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE) else [],
             lock_path_subtree=True,
@@ -1821,23 +1817,40 @@ class Catalog(CatalogBase):
             current_schema_version_md = next(
                 m for m in schema_version_mds if m.schema_version == tbl_md.current_schema_version
             )
-            self.write_tbl_md(new_tbl_id, dir._id, tbl_md, current_version_md, current_schema_version_md)
+            self.write_tbl_md(tbl_id, dir._id, tbl_md, current_version_md, current_schema_version_md)
             for version_md in version_mds:
                 if version_md is not current_version_md:
-                    self.write_tbl_md(new_tbl_id, None, None, version_md, None)
+                    self.write_tbl_md(tbl_id, None, None, version_md, None)
             for schema_version_md in schema_version_mds:
                 if schema_version_md is not current_schema_version_md:
-                    self.write_tbl_md(new_tbl_id, None, None, None, schema_version_md)
-            # The value expressions reference the new table, so they resolve only once its metadata is written. A
-            # failed check rolls the writes back.
-            table_copy.check_value_exprs_are_valid(schema_version_mds, tbl_md.current_schema_version, md[0].tbl_md.name)
+                    self.write_tbl_md(tbl_id, None, None, None, schema_version_md)
             self._create_store_tbl(tbl_md)
-            return new_tbl_id, True
+            tv = self._get_tbl_version(TableVersionKey(tbl_id, None), check_pending_ops=False)
+            for rows_file in rows_files:
+                table_copy.insert_rows(tv, copy_md, rows_file, stored_urls)
+            fault_injection.process_fault(FaultLocation.CATALOG_IMPORT_TABLE_BEFORE_MD_COMMITTED)
+            return tbl_id, True
 
-        tbl_id, is_created = create_fn()
+        try:
+            # the media files are stored before the transaction, so that object store I/O does not hold a db connection
+            for chunk in chunks:
+                stored_urls.update(table_copy.place_media(copy_md, chunk.rows_file, chunk.media))
+                rows_files.append(chunk.rows_file)
+            created_tbl_id, is_created = create_fn()
+        except BaseException:
+            try:
+                # a repeated request that created the table stores its files under the same table id
+                if self.get_table_by_id(tbl_id) is None:
+                    table_copy.delete_media(copy_md)
+            except Exception:
+                _logger.warning(f'Failed to delete the media files of the failed copy {path!r}', exc_info=True)
+            raise
+        if not is_created:
+            # if_exists='ignore', and a table was created at path during the copy
+            table_copy.delete_media(copy_md)
         # finalizes the drop of a table that if_exists replaced
         self._roll_forward()
-        return self._get_tbl(tbl_id), is_created
+        return self._get_tbl(created_tbl_id), is_created
 
     def _get_tbl(self, tbl_id: UUID) -> LocalTable:
         @retry_md_read_loop(tbl_keys=[TableVersionKey(tbl_id, None)])
@@ -1848,72 +1861,6 @@ class Catalog(CatalogBase):
         if tbl is None:
             raise excs.table_was_dropped(tbl_id)
         return tbl
-
-    def _check_is_copying(self, tbl_id: UUID) -> None:
-        """Raise an error if the table tbl_id is not in TableState.COPYING."""
-        # read from the store: a cached TableMd can be older than a committed finish_copy()
-        tbl_md = self.load_tbl_md(TableVersionKey(tbl_id, None)).tbl_md
-        if tbl_md.tbl_state != schema.TableState.COPYING:
-            raise excs.RequestError(excs.ErrorCode.INVALID_STATE, f'{tbl_md.name!r} is not a copy in progress')
-
-    def load_store_rows(
-        self, tbl_id: UUID, rows_file: str, new_media: dict[str, str], prev_media: dict[str, str]
-    ) -> dict[str, str]:
-        """
-        Inserts the store rows of the Parquet file rows_file into the table tbl_id, which must be in
-        TableState.COPYING.
-
-        new_media is url -> local path of the media files that these rows are the first to reference. prev_media is
-        url -> stored url of the ones that an earlier call stored. Returns url -> stored url for new_media.
-        """
-        tbl = self._get_tbl(tbl_id)
-        # checked before the media files are stored, so that a refused call stores none
-        with self.begin_md_read_xact():
-            self._check_is_copying(tbl_id)
-        md = self.collect_tbl_history(tbl_id, None)
-        # object store I/O runs outside of a transaction, so that it does not hold a db connection
-        placed_media = table_copy.place_media(tbl._tbl_version.get(), md, rows_file, new_media)
-
-        request = LockRequest(
-            TblOpClass.DATA_WRITE, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True, fills_copy=True
-        )
-        with self._begin_xact(request):
-            # checked again under the table lock: finish_copy() may have committed since the first check
-            self._check_is_copying(tbl_id)
-            tv = tbl._tbl_version.get()
-            # A client sends a request again after a 5xx response, so an earlier call may have committed these rows.
-            # The rows of a call commit together, so the first row is enough to tell.
-            if table_copy.contains_first_row(tv, rows_file):
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_STATE,
-                    f'load_store_rows(): {tv.name!r} already has these rows; a call was repeated',
-                )
-            table_copy.insert_rows(tv, md, rows_file, prev_media | placed_media)
-        return placed_media
-
-    def finish_copy(self, tbl_id: UUID, num_rows: int) -> None:
-        """Makes the table tbl_id, which is in TableState.COPYING and must have num_rows rows, a live table."""
-        tbl = self._get_tbl(tbl_id)
-
-        @retry_md_write_loop(paths=[tbl._path()])
-        def finish_fn() -> None:
-            tbl_md = self.load_tbl_md(TableVersionKey(tbl_id, None)).tbl_md
-            if tbl_md.tbl_state != schema.TableState.COPYING:
-                # a client sends a request again after a 5xx response, and the earlier call committed
-                return
-            count_stmt = sql.select(sql.func.count()).select_from(tbl._tbl_version.get().store_tbl.sa_tbl)
-            num_stored_rows = get_runtime().conn.execute(count_stmt).scalar_one()
-            if num_stored_rows != num_rows:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_STATE,
-                    f'finish_copy(): {tbl_md.name!r} has {num_stored_rows} rows, not the {num_rows} rows of the '
-                    'copied table',
-                )
-            tbl_md.tbl_state = schema.TableState.LIVE
-            self.write_tbl_md(tbl_id, None, tbl_md, None, None)
-            self._clear_tv_cache(TableVersionKey(tbl_id, None))
-
-        finish_fn()
 
     def create_view(
         self,

@@ -2,7 +2,6 @@ import os
 import pathlib
 import shutil
 import uuid
-from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -11,12 +10,14 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable.catalog import Catalog, table_copy
-from pixeltable.catalog.catalog_proxy import CatalogProxy
+from pixeltable.catalog import table_copy
+from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
+from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps, StorageTarget
 
+from .fault_injection import ExceptionFault
 from .utils import DatabaseRoot, assert_resultset_eq, get_image_files, pxt_raises
 
 # Defined only in this process, so that a hosted database (and the local proxy daemon) cannot load it; see
@@ -30,25 +31,6 @@ if not os.environ.get('PIXELTABLE_PROXY_DAEMON') and not os.environ.get('PXTCLOU
     @pxt.udf
     def local_only_embed(s: str) -> pxt.Array[(3,), pxt.Float]:
         return np.zeros(3, dtype=np.float32)
-
-
-def _watch_calls(
-    monkeypatch: pytest.MonkeyPatch, db_root: DatabaseRoot, method: str, before: Callable[..., None] | None = None
-) -> list[tuple[Any, ...]]:
-    """Wrap `method` of the catalog class of db_root, so that `before` runs ahead of each call. A test uses it to act
-    or fail in the middle of a copy, which the public API cannot do. Returns the positional arguments of the calls."""
-    calls: list[tuple[Any, ...]] = []
-    catalog_cls = Catalog if db_root.id == 'local' else CatalogProxy
-    method_fn = getattr(catalog_cls, method)
-
-    def watched(self: Any, *args: Any, **kwargs: Any) -> Any:
-        calls.append(args)
-        if before is not None:
-            before(*args, **kwargs)
-        return method_fn(self, *args, **kwargs)
-
-    monkeypatch.setattr(catalog_cls, method, watched)
-    return calls
 
 
 class TestCopyTable:
@@ -165,9 +147,7 @@ class TestCopyTable:
             m.setattr(table_copy, '_ROW_BATCH_SIZE', 2)
             m.setattr(table_copy, '_MAX_CHUNK_ROW_BYTES', 1)
             m.setattr(table_copy, '_MAX_CHUNK_MEDIA_BYTES', 1)
-            load_calls = _watch_calls(m, db_root, 'load_store_rows')
             t2 = pxt.create_table(p('dst'), source=t)
-        assert len(load_calls) > 2
         assert_resultset_eq(media_rows(t2), media_rows(t))
         # each input file was uploaded once
         assert len(set(t2.select(t2.img.fileurl).collect()['img_fileurl'])) == 2
@@ -201,7 +181,6 @@ class TestCopyTable:
             m.setattr(ObjectOps, 'copy_object_to_local_file', download)
             # each chunk carries one object
             m.setattr(table_copy, '_MAX_CHUNK_OBJECTS', 1)
-            load_calls = _watch_calls(m, db_root, 'load_store_rows')
             t = pxt.create_table('bucket_src', {'img': pxt.Image})
             prefix = t._id.hex
             source_urls = [f's3://bucket/media/{prefix}/ab/abcd/{prefix}_1_1_{uuid.uuid4().hex}.jpg' for _ in range(2)]
@@ -212,7 +191,6 @@ class TestCopyTable:
             t2 = pxt.create_table(p('bucket_dst'), source=t)
             # the export's transaction is closed: a download must not hold its locks and snapshot
             assert sorted(downloaded) == sorted((url, False) for url in source_urls)
-            assert len(load_calls) == 2
             urls = t2.select(t2.img.fileurl).collect()['img_fileurl']
             assert other_url in urls and set(source_urls).isdisjoint(urls)
             # the copy reads its own bytes of the object
@@ -362,30 +340,32 @@ class TestCopyTable:
             pxt.create_table(p('dst'), source=t)
         assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
 
-    def test_copy_table_if_exists(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_copy_table_if_exists(self, db_root: DatabaseRoot, fault_injection: None) -> None:
         p = db_root.make_catalog_path
-        t = pxt.create_table('src', {'id': pxt.Int})
-        t.insert({'id': i} for i in range(3))
+        t = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
+        t.insert({'id': i, 'img': f} for i, f in enumerate(get_image_files()[:3]))
         pxt.create_table(p('dst'), {'other': pxt.String}).insert([{'other': 'a'}])
 
         # 'ignore' returns the existing table as it is
         t2 = pxt.create_table(p('dst'), source=t, if_exists='ignore')
         assert t2.columns() == ['other']
 
-        # 'replace' replaces the existing table when the copy starts, and a failed copy drops the incomplete copy
-        def fail(*args: Any, **kwargs: Any) -> None:
-            raise pxt.RequestError(pxt.ErrorCode.INVALID_STATE, 'injected failure')
-
-        with monkeypatch.context() as m:
-            _watch_calls(m, db_root, 'load_store_rows', before=fail)
+        if db_root.id == 'local':
+            # The transaction that creates the copy replaces the existing table, so a failed copy leaves it as it was.
+            # The failed copy deletes the media files that it stored. They belong to no table, so the test counts the
+            # files in the media directory.
+            num_media_files = sum(f.is_file() for f in Env.get().media_dir.rglob('*'))
+            fault = ExceptionFault(pxt.RequestError(pxt.ErrorCode.INVALID_STATE, 'injected failure'))
+            get_runtime().fault_manager.inject_fault(FaultLocation.CATALOG_IMPORT_TABLE_BEFORE_MD_COMMITTED, fault)
             with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='injected failure'):
                 pxt.create_table(p('dst'), source=t, if_exists='replace')
-        assert pxt.get_table(p('dst'), if_not_exists='ignore') is None
+            fault.assert_count(1)
+            assert pxt.get_table(p('dst')).collect()['other'] == ['a']
+            assert sum(f.is_file() for f in Env.get().media_dir.rglob('*')) == num_media_files
 
         # 'replace' replaces an existing table with the copy
-        pxt.create_table(p('dst'), {'other': pxt.String})
         t2 = pxt.create_table(p('dst'), source=t, if_exists='replace')
-        assert t2.columns() == ['id']
+        assert t2.columns() == ['id', 'img']
         assert sorted(t2.collect()['id']) == [0, 1, 2]
 
         if db_root.id == 'local':
@@ -393,44 +373,6 @@ class TestCopyTable:
             with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='with a copy of itself'):
                 pxt.create_table('src', source=t, if_exists='replace')
             assert t.count() == 3
-
-    def test_copy_in_progress(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
-        p = db_root.make_catalog_path
-        t = pxt.create_table('src', {'id': pxt.Int})
-        t.insert({'id': i} for i in range(2))
-        refused_msg = r'is a copy that create_table\(\) has not finished'
-
-        # while a copy is in progress, only the copy reads and writes the rows of its table, so the finished copy has
-        # just the rows of the source
-        def use_incomplete_copy(*args: Any, **kwargs: Any) -> None:
-            incomplete_copy = pxt.get_table(p('dst'))
-            with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=refused_msg):
-                incomplete_copy.insert([{'id': 100}])
-            with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=refused_msg):
-                incomplete_copy.add_column(note=pxt.String | None)
-            with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=refused_msg):
-                incomplete_copy.count()
-
-        with monkeypatch.context() as m:
-            finish_calls = _watch_calls(m, db_root, 'finish_copy', before=use_incomplete_copy)
-            t2 = pxt.create_table(p('dst'), source=t)
-        assert len(finish_calls) == 1
-        assert sorted(t2.collect()['id']) == [0, 1]
-
-        # A copy that fails and cannot drop its table, as a copy whose process is killed, leaves the incomplete copy
-        # at its path. create_table() with if_exists='replace' replaces it.
-        def fail(*args: Any, **kwargs: Any) -> None:
-            raise pxt.RequestError(pxt.ErrorCode.INVALID_STATE, 'injected failure')
-
-        with monkeypatch.context() as m:
-            _watch_calls(m, db_root, 'finish_copy', before=fail)
-            _watch_calls(m, db_root, 'drop_table', before=fail)
-            with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='injected failure'):
-                pxt.create_table(p('dst2'), source=t)
-        with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=refused_msg):
-            pxt.get_table(p('dst2')).collect()
-        t3 = pxt.create_table(p('dst2'), source=t, if_exists='replace')
-        assert sorted(t3.collect()['id']) == [0, 1]
 
     def test_create_table_like(self, db_root: DatabaseRoot, is_data_versioned: bool, local_embed: pxt.Function) -> None:
         p = db_root.make_catalog_path
