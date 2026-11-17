@@ -21,7 +21,7 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.catalog import fold_identifier, fold_mapping_keys
-from pixeltable.io.pandas import _df_check_primary_key_values, _df_row_to_pxt_row, df_infer_schema
+from pixeltable.io.pandas import _df_check_primary_key_values, _df_prepare_columns, _df_rows, df_infer_schema
 from pixeltable.utils.http import fetch_url
 from pixeltable.utils.pydantic import is_json_convertible
 
@@ -216,6 +216,7 @@ class QueryTableDataConduit(TableDataConduit):
 
 class RowDataTableDataConduit(TableDataConduit):
     raw_rows: RowData | None = None
+    valid_rows: RowData | None = None
     disable_mapping: bool = True
 
     @classmethod
@@ -248,13 +249,9 @@ class RowDataTableDataConduit(TableDataConduit):
         return self.pxt_schema
 
     def prepare_for_insert_into_table(self) -> None:
-        # Converting rows to insertable format is not needed, misnamed columns and types
-        # are errors in the incoming row format
         if self.source_column_map is None:
             self.source_column_map = {}
-        # Validate rows
-        for row in self.raw_rows or []:
-            self._translate_row(row)
+        self.valid_rows = [self._translate_row(row) for row in self.raw_rows or []]
 
     def _translate_row(self, row: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(row, dict):
@@ -289,14 +286,13 @@ class RowDataTableDataConduit(TableDataConduit):
         return output_row
 
     def rows(self) -> Iterator[dict[str, Any]]:
-        if self.raw_rows is None:
-            return
-        for row in self.raw_rows:
-            yield self._translate_row(row)
+        assert self.valid_rows is not None
+        yield from self.valid_rows
 
 
 class PandasTableDataConduit(TableDataConduit):
     pd_df: pd.DataFrame = None
+    prepared_columns: dict[str, Iterable[Any]] | None = None
 
     @classmethod
     def from_tds(cls, tds: TableDataConduit) -> PandasTableDataConduit:
@@ -336,13 +332,11 @@ class PandasTableDataConduit(TableDataConduit):
         if self.source_column_map is None:
             self.source_column_map = {}
         self.check_source_columns_are_insertable(self.pd_df.columns)
-        # Validate rows
-        for row in self.pd_df.itertuples():
-            _df_row_to_pxt_row(row, self.src_schema, self.source_column_map)
+        self.prepared_columns = _df_prepare_columns(self.pd_df, self.src_schema, self.source_column_map)
 
     def rows(self) -> Iterator[dict[str, Any]]:
-        for row in self.pd_df.itertuples():
-            yield _df_row_to_pxt_row(row, self.src_schema, self.source_column_map)
+        assert self.prepared_columns is not None
+        yield from _df_rows(self.prepared_columns, len(self.pd_df))
 
 
 class CSVTableDataConduit(TableDataConduit):
@@ -777,7 +771,7 @@ class PydanticTableDataConduit(TableDataConduit):
                 )
             try:
                 # mode='python' (the default) keeps datetimes/dates as native objects and renders nested models
-                # as dicts, so that coercing each cell in rows() yields the same values as
+                # as dicts, so that coercing each cell during preparation yields the same values as
                 # the equivalent dict input (e.g. naive timestamps get localized to the session time zone, rather
                 # than left as ISO strings).
                 dumped_row = row.model_dump()
@@ -788,7 +782,7 @@ class PydanticTableDataConduit(TableDataConduit):
             self.dumped_rows.append(fold_mapping_keys(dumped_row))
 
     def prepare_for_insert_into_table(self) -> None:
-        """Validate the Pydantic model and the rows against the table"""
+        """Validate the Pydantic model and normalize its rows against the table."""
         self._validate_pydantic_model(type(cast(Sequence[pydantic.BaseModel], self.source)[0]))
         sorted_reqd_cols = sorted(self.reqd_col_names)
         for i, raw_row in enumerate(self.dumped_rows):
@@ -799,12 +793,11 @@ class PydanticTableDataConduit(TableDataConduit):
                     raise excs.RequestError(
                         excs.ErrorCode.MISSING_REQUIRED, f'Missing required column {col_name!r} in row {i}'
                     )
-            self._convert_row(i, raw_row)
+            self.dumped_rows[i] = self._convert_row(i, raw_row)
 
     def rows(self) -> Iterator[dict[str, Any]]:
-        """Convert the Pydantic models to insertable dicts"""
-        for i, raw_row in enumerate(self.dumped_rows):
-            yield self._convert_row(i, raw_row)
+        """Yield the normalized dicts prepared from the Pydantic models."""
+        yield from self.dumped_rows
 
     def _convert_row(self, i: int, raw_row: dict[str, Any]) -> dict[str, Any]:
         # Coerce each cell to its column's stored representation, exactly as the dict path does
