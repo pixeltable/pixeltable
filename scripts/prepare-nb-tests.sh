@@ -1,18 +1,10 @@
 #!/bin/bash -e
 
-# Copies the notebooks to the target path for nbmake. The notebooks' test tiers are pytest markers: NOTEBOOK_MARKERS
-# in tests/notebook_markers.py.
+# Copies the notebooks to the target path for nbmake. The notebooks' test tiers, and `skip` for the ones CI never runs,
+# are pytest markers: NOTEBOOK_MARKERS in tests/notebook_markers.py.
 
-# Notebooks that are always skipped
-SKIP_NOTEBOOKS=(
-    llm-tool-calling                # Relies on the user separately running an MCP server
-    working-with-bfl                # [PXT-1111] Out of credits
-    working-with-fabric             # [PXT-1113] Requires Microsoft Fabric environment
-    working-with-fiftyone           # [PXT-1117] Voxel51 is currently omitted from our dev env for security reasons
-    working-with-tigris             # [PXT-1122] Hard-codes getpass() calls for credentials and bucket
-    working-with-runwayml           # [PXT-1120] RunwayML integration is very broken
-    working-with-twelvelabs         # [PXT-1119] Exceeds rate limit
-)
+# Notebooks that need a GPU or a different pip setup
+SKIP_NOTEBOOKS=()
 
 # Check if `nvidia-smi` returns success; if not, skip GPU notebooks too
 if ! nvidia-smi > /dev/null 2>&1; then

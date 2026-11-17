@@ -1,6 +1,7 @@
 # The markers of the notebooks under docs/release. tests/conftest.py adds them to the nbmake items, which CI selects
 # with the same marker expressions as the unit tests, and scripts/run-isolated-nb-tests.sh reads them without pytest
-# or pixeltable. A notebook takes the markers of the unit tests for the providers and UDFs it calls.
+# or pixeltable. A notebook takes the markers of the unit tests for the providers and UDFs it calls, or `skip` if CI
+# never runs it.
 NOTEBOOK_MARKERS: dict[str, tuple[str, ...]] = {
     # Hugging Face models and datasets
     'computed-columns': ('skip_merge_queue',),
@@ -56,4 +57,12 @@ NOTEBOOK_MARKERS: dict[str, tuple[str, ...]] = {
     'img-image-to-image': ('resource_intensive',),  # Stable Diffusion, 10 minutes
     'img-promptable-segmentation': ('resource_intensive',),  # SAM3 video segmentation, 19 minutes
     'object-detection-in-videos': ('resource_intensive',),  # YOLOX on video frames, 6 minutes
+    # Never in CI
+    'llm-tool-calling': ('skip',),  # needs an MCP server of the user's own
+    'working-with-bfl': ('skip',),  # PXT-1111: out of credits
+    'working-with-fabric': ('skip',),  # PXT-1113: needs a Microsoft Fabric environment
+    'working-with-fiftyone': ('skip',),  # PXT-1117: Voxel51 is left out of the dev environment for security reasons
+    'working-with-runwayml': ('skip',),  # PXT-1120: a broken RunwayML integration
+    'working-with-tigris': ('skip',),  # PXT-1122: getpass() calls for the credentials and bucket
+    'working-with-twelvelabs': ('skip',),  # PXT-1119: over the rate limit
 }

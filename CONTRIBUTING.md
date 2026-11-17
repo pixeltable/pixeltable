@@ -104,9 +104,9 @@ run on PRs or in the merge queue, so they need no `skip_merge_queue`. PRs have n
 skip there. The marker descriptions in `pyproject.toml` and `.github/instructions/tests.instructions.md` say which
 marker a new test takes.
 
-The notebooks under `docs/release` take the same markers, listed in `tests/notebook_markers.py`. `notebooks+`,
-`notebooks++` and `resource-intensive-notebooks` run on the same triggers as `standard+`, `standard++` and
-`resource-intensive`.
+The notebooks under `docs/release` take the same markers, or `skip` if CI never runs them, in
+`tests/notebook_markers.py`. `notebooks+`, `notebooks++` and `resource-intensive-notebooks` run on the same triggers
+as `standard+`, `standard++` and `resource-intensive`.
 
 `pip-install-tests` tests the latest release as pip installs it, on Mondays, Wednesdays and Fridays. One job runs the
 `expensive` tests and one the `expensive` notebooks, and every third Monday they also run the `very_expensive` ones. No

@@ -144,9 +144,10 @@ in `tests/notebook_markers.py` with the same markers:
 | `skip_merge_queue`, `expensive` | Paid providers other than OpenAI and Anthropic | Every scheduled run |
 | `very_expensive` | Video generation, VLM Run, Jina, Voyage AI | Weekly run |
 | `resource_intensive` | Panoptic DETR, Stable Diffusion, SAM3 video segmentation | Every scheduled run, alone on a large runner |
+| `skip` | Out of credits, a broken integration, a Microsoft Fabric environment | Nowhere; give the reason in a comment |
 
-PRs run no notebooks. `scripts/prepare-nb-tests.sh` lists the notebooks CI never runs, and skips a
-notebook whose API key is unset. `make nbtest` runs the notebooks with no marker.
+PRs run no notebooks. `scripts/prepare-nb-tests.sh` also skips a notebook whose API key is unset, and
+the ones that need a GPU or a different pip setup. `make nbtest` runs the notebooks with no marker.
 
 ## Example Notebook Structure
 
