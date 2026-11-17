@@ -24,6 +24,10 @@ export PIXELTABLE_DB="isolatednbtests"
 rm -f "$TEST_PATH"/audio-transcriptions.ipynb  # temporary workaround
 rm -f "$TEST_PATH"/img-detection-vs-segmentation.ipynb  # failing for unknown reasons (runs fine locally)
 rm -f "$TEST_PATH"/img-promptable-segmentation.ipynb  # SAM3 video segmentation exceeds the cell timeout on CPU
+if [[ "$PY_VERSION" == 3.14 ]]; then
+    # tensorflow-text and whisperx have no releases for 3.14
+    rm -f "$TEST_PATH"/embedding-indexes.ipynb "$TEST_PATH"/audio-podcast-chapters.ipynb
+fi
 
 NB_CONDA_ENV=nb-test-env
 FAILURES=0
