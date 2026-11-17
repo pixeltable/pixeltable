@@ -871,6 +871,8 @@ class Env:
         - the user might prefer a hardware-accelerated encoder (eg, h264_nvenc or h264_videotoolbox)
         - allow user override via a config option 'video_encoder'
         """
+        from pixeltable.utils.av import run_ffmpeg
+
         # look for available encoders, in this order
         candidates = [
             'libx264',  # GPL, best quality
@@ -879,8 +881,6 @@ class Env:
 
         try:
             # Get list of available encoders
-            from pixeltable.utils.av import run_ffmpeg
-
             result = run_ffmpeg(['-encoders'], timeout=10)
 
             if result.returncode == 0:
