@@ -69,13 +69,17 @@ jobs:
           - python-version: "3.11"
             package-configs: "anthropic fireworks-ai google-genai groq jina mistralai openai replicate together"
             bedrock: true
-          # transformers-based tests need to run on a larger runner.
+          - python-version: "3.11"
+            package-configs: "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm spacy"
+            os: ubuntu-24.04
+          - python-version: "3.11"
+            package-configs: "whisperx transformers timm"
+            os: ubuntu-24.04
+          # The only job on a large runner, and it runs only the resource_intensive tests
           - python-version: "3.11"
             package-configs: "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm spacy"
             os: ubuntu-large
-          - python-version: "3.11"
-            package-configs: "whisperx transformers timm"
-            os: ubuntu-large
+            resource-intensive: true
           # Test the basic pixeltable installation on other platforms.
           - python-version: "3.11"
             package-configs: ""
@@ -158,7 +162,9 @@ jobs:
           PXTTEST_CI_OS: ${{ matrix.os }}
         run: |
           MARKERS='not expensive and not very_expensive and not resource_intensive'
-          if [[ '${{ matrix.python-version }}' == '3.11' ]]; then
+          if [[ '${{ matrix.resource-intensive }}' == 'true' ]]; then
+            MARKERS='resource_intensive'
+          elif [[ '${{ matrix.python-version }}' == '3.11' ]]; then
             # Each 3.11 job has its own optional packages, so each expensive and very_expensive test runs in only one
             MARKERS='not very_expensive and not resource_intensive'
             # Every third Monday, by weeks since the Unix epoch
