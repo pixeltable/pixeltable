@@ -6,7 +6,8 @@ name: pip-install-tests
 
 on:
   schedule:
-    - cron: "19 2 * * 1,3,5"  # Monday, Wednesday, Friday at 02:19 UTC
+    - cron: "19 2 * * 1"  # Monday at 02:19 UTC; every third Monday also runs the very_expensive tests
+    - cron: "19 2 * * 3,5"  # Wednesday and Friday at 02:19 UTC
   workflow_dispatch:
     inputs:
       enable_tmate:
@@ -64,6 +65,11 @@ jobs:
           - "pixeltable-yolox"
         os: [ubuntu-24.04]
         include:
+          # The only job with the expensive tests, and every third Monday the very_expensive ones, like standard+ and
+          # standard++ in pytest.yml. It has the paid providers' packages.
+          - python-version: "3.11"
+            package-configs: "anthropic fireworks-ai google-genai groq jina mistralai openai replicate together"
+            expensive: true
           # transformers-based tests need to run on a larger runner.
           - python-version: "3.11"
             package-configs: "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm spacy"
@@ -151,7 +157,17 @@ jobs:
       - name: Run the unit tests
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
-        run: pytest -v -m 'not very_expensive and not resource_intensive' --junitxml=junit-report.xml tests
+        run: |
+          MARKERS='not expensive and not very_expensive and not resource_intensive'
+          if [[ '${{ matrix.expensive }}' == 'true' ]]; then
+            MARKERS='not very_expensive and not resource_intensive'
+            # Every third Monday, by weeks since the Unix epoch
+            if [[ '${{ github.event.schedule }}' == '19 2 * * 1' ]] && (( $(date -u +%s) / 604800 % 3 == 0 )); then
+              MARKERS='not resource_intensive'
+            fi
+          fi
+          echo "Running tests with markers: $MARKERS"
+          pytest -v -m "$MARKERS" --junitxml=junit-report.xml tests
       - name: Upload test report
         if: always()
         # Diagnostic only: a failed upload must not fail the job.
