@@ -1,0 +1,8 @@
+{
+  "name": "pxt-risk-assessment",
+  "private": true,
+  "description": "Pinned pyright for the risk-assessment check's code navigation",
+  "dependencies": {
+    "pyright": "1.1.414"
+  }
+}
