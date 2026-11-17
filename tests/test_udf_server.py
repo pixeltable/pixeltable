@@ -55,6 +55,8 @@ t.select(format('{0}', t.width)).collect()
 @pytest.fixture(scope='module')
 def udf_servers(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
     """Serves each of _SERVED_UDFS from a process of its own and points this process's Modal calls at them."""
+    # UdfServer.start() needs hypercorn, which the serve extra installs
+    pytest.importorskip('hypercorn')
     urls: dict[str, str] = {}
     servers: list[subprocess.Popen] = []
     try:
@@ -205,14 +207,14 @@ class TestUdfServer:
         with pxt_raises(
             excs.ErrorCode.INVALID_CONFIGURATION,
             match=r"'pixeltable\.functions\.image\.resize' is in the pixeltable\.udf setting, but the database has "
-            r'no Modal Server for it',
+            r'no UDF server for it',
         ):
             img_t.select(resize(img_t.img, (32, 16))).collect()
         # a query without rows makes no lookup, and the first insert fails the query
         empty_t = pxt.create_table('empty_tbl', {'img': pxt.Image})
         assert len(empty_t.select(resize(empty_t.img, (32, 16))).collect()) == 0
         empty_t.add_computed_column(small=resize(empty_t.img, (32, 16)))
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'no Modal Server for it'):
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'no UDF server for it'):
             empty_t.insert([{'img': get_image_files()[0]}])
 
         # a server refuses a call that lacks its secret

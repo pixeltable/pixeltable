@@ -65,25 +65,30 @@ class UdfServer:
         """Answer a POST with the result of run() on its body."""
         if scope['type'] != 'http':
             return
-        request_body = bytearray()
-        while True:
-            message = await receive()
-            request_body += message.get('body', b'')
-            if not message.get('more_body', False):
-                break
+        # the checks come before reading the body, so a caller without the secret can't make the server buffer one
         if scope['method'] != 'POST':
             status, body = 404, b''
         elif not self._is_authorized(scope):
             status, body = 401, b''
         else:
+            request_body = await self._read_body(receive)
             try:
-                status, body = 200, await asyncio.to_thread(self.run, bytes(request_body))
+                status, body = 200, await asyncio.to_thread(self.run, request_body)
             except Exception as exc:
                 status, body = 500, f'{type(exc).__name__}: {exc}'.encode()
         await send(
             {'type': 'http.response.start', 'status': status, 'headers': [(b'content-length', str(len(body)).encode())]}
         )
         await send({'type': 'http.response.body', 'body': body})
+
+    async def _read_body(self, receive: Callable[[], Awaitable[dict[str, Any]]]) -> bytes:
+        """Read the request body from the ASGI messages of receive()."""
+        request_body = bytearray()
+        while True:
+            message = await receive()
+            request_body += message.get('body', b'')
+            if not message.get('more_body', False):
+                return bytes(request_body)
 
     def _is_authorized(self, scope: dict[str, Any]) -> bool:
         """Whether the request with this ASGI scope has self.secret in its UDF_SECRET_HEADER_NAME header."""

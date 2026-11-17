@@ -268,7 +268,7 @@ class ModalServerClient:
         if url is None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
-                f'{self.setting_path!r} is in the pixeltable.udf setting, but the database has no Modal Server for '
+                f'{self.setting_path!r} is in the pixeltable.udf setting, but the database has no UDF server for '
                 'it. Run `pxt db update` to deploy it.',
             )
         self.url = url
@@ -321,7 +321,8 @@ class ModalServerClient:
         if response.status_code != 200:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR,
-                f'Modal call of {self.setting_path} failed with status {response.status_code}: {response.text}',
+                f'The call to the UDF server of {self.setting_path} failed with status {response.status_code}: '
+                f'{response.text}',
             )
         result = UdfCallResponse.decode(response.content)
         _logger.debug(
@@ -353,14 +354,14 @@ class ModalServerClient:
         except httpx.ReadTimeout as exc:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_TIMEOUT,
-                f'Modal call of {self.setting_path} got no response within {self.timeout.read}s (timeout_seconds in '
-                'the pixeltable.udf setting)',
+                f'The call to the UDF server of {self.setting_path} got no response within {self.timeout.read}s '
+                '(timeout_seconds in the pixeltable.udf setting)',
             ) from exc
         except httpx.TransportError as exc:
             # other transport errors, such as RemoteProtocolError, can also come after the UDF ran, so the call isn't
             # sent again
             raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_ERROR, f'Modal call of {self.setting_path} failed: {exc!r}'
+                excs.ErrorCode.PROVIDER_ERROR, f'The call to the UDF server of {self.setting_path} failed: {exc!r}'
             ) from exc
 
         # Modal answers 503 only when the Server has no running container; with every container busy, it queues the
@@ -406,5 +407,5 @@ class ModalServerClient:
         except TimeoutError:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR,
-                f'No Modal container of {self.setting_path} was ready within {_CONTAINER_WAIT_SECONDS}s',
+                f'The UDF server of {self.setting_path} had no container ready within {_CONTAINER_WAIT_SECONDS}s',
             ) from None

@@ -409,7 +409,7 @@ class DbChangeOp(ChangeOp):
 
     @classmethod
     def config(cls, changes: list[str], *, has_pods: bool = True) -> DbChangeOp:
-        """The project config changed; the pods read the new settings when they restart.
+        """The project config changed.
 
         has_pods: False for a local database, whose update deploys its UDF servers again and restarts nothing.
         """
