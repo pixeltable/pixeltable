@@ -2368,7 +2368,7 @@ class FastAPIRouter(fastapi.APIRouter):
             path=path,
             route_type=route_type,
             defined_path=defined_path,
-            inputs=pk_col_names + input_col_names,
+            inputs=pk_col_names + [n for n in input_col_names if n not in uploadfile_inputs],
             outputs=output_col_names,
             uploadfile_inputs=uploadfile_inputs,
             background=background,
