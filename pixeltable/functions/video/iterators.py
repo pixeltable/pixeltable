@@ -516,8 +516,8 @@ def video_splitter(
                     target_duration = None  # the rest of the video
 
                 segment_path = str(TempStore.create_path(extension='.mp4'))
-                cmd = av_utils.ffmpeg_clip_cmd(video, segment_path, start_time, target_duration)
-                _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                cmd = av_utils.ffmpeg_clip_output_args(video, segment_path, start_time, target_duration)
+                _ = av_utils.run_ffmpeg(cmd)
 
                 # use the actual duration
                 actual_duration = av_utils.get_video_duration(segment_path)
@@ -563,7 +563,7 @@ def video_splitter(
         base_path = TempStore.create_path(extension='')
         # Use ffmpeg -f segment for accurate segmentation with re-encoding
         output_pattern = f'{base_path}_segment_%04d.mp4'
-        cmd = av_utils.ffmpeg_segment_cmd(
+        cmd = av_utils.ffmpeg_segment_args(
             video,
             output_pattern,
             segment_duration=duration,
@@ -572,7 +572,7 @@ def video_splitter(
             video_encoder_args=video_encoder_args,
         )
         try:
-            _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            _ = av_utils.run_ffmpeg(cmd)
             output_paths = sorted(glob.glob(f'{base_path}_segment_*.mp4'))
             # TODO: is this actually an error?
             # if len(output_paths) == 0:
