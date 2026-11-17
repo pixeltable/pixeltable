@@ -250,7 +250,8 @@ def to_int(self: float) -> int:
 def _(self: sql.ColumnElement) -> sql.ColumnElement | None:
     if isinstance(self.type, sql.Integer):
         return sql.cast(self, sql.BigInteger)
-    if isinstance(self.type, sql.Float):
+    # sql.Numeric includes sql.Float
+    if isinstance(self.type, sql.Numeric):
         return sql.cast(sql.func.trunc(self), sql.BigInteger)
     if isinstance(self.type, sql.Boolean):
         # Postgres casts a boolean only to integer

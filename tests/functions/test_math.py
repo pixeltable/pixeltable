@@ -170,6 +170,19 @@ class TestMath:
             assert t.delete(where=where).num_rows == num_rows, where
         assert t.count() == 0
 
+        t = pxt.create_table('json_tbl', {'id': pxt.Int, 'j': pxt.Json})
+        t.insert({'id': row_id, 'j': j} for row_id, j in enumerate([[1.0, 2.0], [0.5, 0.25], [2.5, 5.0], [7.5, 8.5]]))
+        filters = [
+            (pxtf.math.to_int(pxtf.json.sum(t.j)) == 3, 0),
+            (pxtf.math.to_int(pxtf.json.max(t.j)) == 5, 2),
+            (pxtf.math.to_int(pxtf.json.min(t.j)) == 7, 3),
+            (pxtf.math.to_int(pxtf.json.mean(t.j)) == 0, 1),
+        ]
+        for where, row_id in filters:
+            assert t.where(where).select(t.id).collect()['id'] == [row_id], where
+            assert t.delete(where=where).num_rows == 1, where
+        assert t.count() == 0
+
         # values without an Int equivalent
         t = pxt.create_table('errors_tbl', {'id': pxt.Int, 'x': pxt.Float})
         t.add_computed_column(out=t.x.to_int())
