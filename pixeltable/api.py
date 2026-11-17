@@ -14,7 +14,7 @@ from typing_extensions import TypeForm
 
 import pixeltable.metadata.schema as md_schema
 from pixeltable import Query, catalog, exceptions as excs, exprs, func, telemetry, telemetry_schemas, type_system as ts
-from pixeltable.catalog import DirEntry, TablePath, table_copy
+from pixeltable.catalog import DirEntry, TablePath
 from pixeltable.catalog.globals import OnErrorParam, fold_identifier
 from pixeltable.config import Config
 from pixeltable.env import Env
@@ -91,7 +91,8 @@ def create_table(
     source format and/or schema can be specified directly via the `source_format` and `schema_overrides` parameters.
 
     If `source` is a table, then the new table is a copy of that table with its columns, computed columns, indexes,
-    rows and versions. `path` can be in the same database or in a hosted one. The copy keeps the stored values, so
+    rows and versions. A local table can be copied to the same database or to a hosted one. A hosted table can be
+    copied only within its own database. The copy keeps the stored values, so
     that computed columns and embedding indexes are not computed again. The copy stores its own media files: the
     local media files of the table and the media files that it stored in a bucket are copied. Any other media URL
     stays as it is. To copy only the rows of a table, pass a query such as `tbl.select()` as `source`.
@@ -107,9 +108,9 @@ def create_table(
         path: Pixeltable path (qualified name) of the table, such as `'my_table'` or `'my_dir/my_subdir/my_table'`.
         schema: Schema for the new table, mapping column names to Pixeltable types. A bare type such as
             `pxt.Int` declares a non-nullable column; use `pxt.Int | None` to allow nulls.
-        source: A data source (file, URL, Table, Query, or list of rows) to import from. A Table must be a local
-            base table. A Query of another database is not supported.
-        schema_source: A local base table whose schema the new table takes.
+        source: A data source (file, URL, Table, Query, or list of rows) to import from. A Table must be a base
+            table that is local or in the database of `path`. A Query of another database is not supported.
+        schema_source: A base table whose schema the new table takes. It must be local or in the database of `path`.
         source_format: Must be used in conjunction with a `source`.
             If specified, then the given format will be used to read the source data. (Otherwise,
             Pixeltable will attempt to infer the format from the source data.)
@@ -252,11 +253,19 @@ def create_table(
     if src_tbl is not None:
         assert isinstance(src_tbl, catalog.Table)
         src_tbl_arg = 'source' if is_copy else 'schema_source'
-        if not src_tbl._path().is_local or not isinstance(src_tbl, catalog.InsertableTable):
-            error_msg = f'`{src_tbl_arg}` must be a local base table, not {src_tbl._display_str()}'
+        if not isinstance(src_tbl, (catalog.InsertableTable, catalog.InsertableTableProxy)):
+            error_msg = f'`{src_tbl_arg}` must be a base table, not {src_tbl._display_str()}'
             if is_copy:
                 error_msg += '. To copy only its rows, pass a query such as `tbl.select()` as `source`.'
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, error_msg)
+        # the database of a hosted table runs the copy, and it can create the new table only in itself
+        src_catalog_uri = src_tbl._tbl_path.catalog_uri
+        if not src_catalog_uri.is_local and src_catalog_uri != path_obj.catalog_uri:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'`{src_tbl_arg}` must be a local table or a table of the database of {path!r}, not '
+                f'{src_tbl._display_str()}',
+            )
         # the new table takes these settings from src_tbl, so that passing one is an error
         is_arg_given = {
             'source_format': source_format is not None,
@@ -314,13 +323,9 @@ def create_table(
     except (TypeError, ValueError) as err:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable') from err
 
-    cat = get_runtime().get_catalog(path_obj)
     if src_tbl is not None:
-        assert isinstance(src_tbl, catalog.InsertableTable)
-        if is_copy:
-            tbl, was_created = table_copy.copy_table(src_tbl, cat, path_obj, if_exists_)
-        else:
-            tbl, was_created = table_copy.create_table_like(src_tbl, cat, path_obj, if_exists_)
+        assert isinstance(src_tbl, (catalog.InsertableTable, catalog.InsertableTableProxy))
+        tbl, was_created = src_tbl._copy(path_obj, with_rows=is_copy, if_exists=if_exists_)
     else:
         # canonicalize/validate the schema once here, so both local and delegated catalogs receive the same
         # mapping and report the same errors
@@ -335,15 +340,19 @@ def create_table(
                 )
             schema[folded_pk_col] = {**schema[folded_pk_col], 'primary_key': True}
 
-        tbl, was_created = cat.create_table(
-            path_obj,
-            schema,
-            if_exists=if_exists_,
-            comment=comment,
-            custom_metadata=custom_metadata,
-            media_validation=media_validation_,
-            has_default_idxs=has_default_idxs,
-            is_data_versioned=_is_data_versioned,
+        tbl, was_created = (
+            get_runtime()
+            .get_catalog(path_obj)
+            .create_table(
+                path_obj,
+                schema,
+                if_exists=if_exists_,
+                comment=comment,
+                custom_metadata=custom_metadata,
+                media_validation=media_validation_,
+                has_default_idxs=has_default_idxs,
+                is_data_versioned=_is_data_versioned,
+            )
         )
 
     telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(tbl._id)))

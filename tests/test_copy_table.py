@@ -91,9 +91,13 @@ class TestCopyTable:
         assert list(t2.select(t2.id, score=sim2).order_by(sim2, asc=False).collect()) == list(
             t.select(t.id, score=sim).order_by(sim, asc=False).collect()
         )
+        # a copy of a table of the destination's database, which that database runs
+        t3 = pxt.create_table(p('dst2'), source=t2)
+        assert_resultset_eq(rows(t3), src_rows, compare_col_names=True)
+        assert media_urls(t2).isdisjoint(media_urls(t3))
 
         if is_data_versioned:
-            assert t2.get_versions() == src_versions
+            assert t2.get_versions() == t3.get_versions() == src_versions
             for version in (v['version'] for v in src_versions):
                 src_version = pxt.get_table(f'src:{version}')
                 dst_version = pxt.get_table(f'{p("dst")}:{version}')
@@ -222,21 +226,26 @@ class TestCopyTable:
         t = pxt.create_table('src', {'id': pxt.Int, 'img': pxt.Image})
         pxt.create_view('view', t)
         pxt.create_table(p('existing'), {'id': pxt.Int})
+        pxt.create_view(p('existing_view'), pxt.get_table(p('existing')))
 
-        # a view, as source and as schema_source
+        # a view of each database, as source and as schema_source
         for like_arg in ('source', 'schema_source'):
-            kwargs = {like_arg: pxt.get_table('view')}
-            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'`{like_arg}` must be a local base table'):
-                pxt.create_table(p('dst'), **kwargs)
+            for view_path in ('view', p('existing_view')):
+                kwargs = {like_arg: pxt.get_table(view_path)}
+                with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'`{like_arg}` must be a base table'):
+                    pxt.create_table(p('dst'), **kwargs)
         # the error for a view as source gives the way to copy only its rows
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'pass a query such as `tbl.select\(\)`'):
             pxt.create_table(p('dst'), source=pxt.get_table('view'))
         if is_other_db:
-            # a hosted table, as source and as schema_source
+            # a hosted table into another database, as source and as schema_source
             for like_arg in ('source', 'schema_source'):
                 kwargs = {like_arg: pxt.get_table(p('existing'))}
-                with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=f'`{like_arg}` must be a local base table'):
-                    pxt.create_table(p('dst'), **kwargs)
+                with pxt_raises(
+                    pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                    match=f'`{like_arg}` must be a local table or a table of the database of',
+                ):
+                    pxt.create_table('dst', **kwargs)
             # a query of another database, refused before anything is created (PXT-1718)
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='from a query of another database'):
                 pxt.create_table(p('dst'), source=t.select(t.id))
@@ -256,7 +265,6 @@ class TestCopyTable:
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
             pxt.create_table(p('existing'), source=t)
         # 'ignore' refuses a view at the path
-        pxt.create_view(p('existing_view'), pxt.get_table(p('existing')))
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists and is not a table'):
             pxt.create_table(p('existing_view'), schema_source=t, if_exists='ignore')
         with pxt_raises(pxt.ErrorCode.DIRECTORY_NOT_FOUND, match='does not exist'):
@@ -416,6 +424,8 @@ class TestCopyTable:
 
         t2 = pxt.create_table(p('dst'), schema_source=t)
         assert schema_md(t2) == schema_md(t)
+        # a table of the destination's database, which that database runs
+        assert schema_md(pxt.create_table(p('dst2'), schema_source=t2)) == schema_md(t)
         assert t2.count() == 0
         assert len(t2.get_versions()) == 1
         # the new table computes its computed columns and indexes its rows

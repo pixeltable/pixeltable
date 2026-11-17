@@ -26,6 +26,7 @@ from pixeltable._version import __version__
 from pixeltable.catalog import (
     Catalog,
     InsertableTable,
+    LocalTable,
     Path,
     ProhibitedWriteError,
     TablePathKey,
@@ -48,7 +49,6 @@ from .proxy_protocol import PROTOCOL_VERSION, ProxyRequest, protocol_mismatch_me
 _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from pixeltable.catalog import LocalTable
     from pixeltable.catalog.types import TableVersionMd
     from pixeltable.catalog.update_status import UpdateStatus
 
@@ -665,6 +665,17 @@ def _get_path(request: ProxyRequest, tbl: LocalTable) -> Any:
     return tbl._path()
 
 
+def _copy(request: ProxyRequest, tbl: LocalTable) -> tuple[list, bool]:
+    # only an InsertableTableProxy dispatches '_copy', so a non-InsertableTable here is an internal error
+    assert isinstance(tbl, InsertableTable), tbl
+    new_tbl, was_created = tbl._copy(**proxy_protocol.deserialize_request(request))
+    assert isinstance(new_tbl, LocalTable), new_tbl
+    cat = get_runtime().catalog
+    with cat.begin_md_read_xact():
+        md = cat.read_md_for_export(new_tbl)
+    return md, was_created
+
+
 def _describe(request: ProxyRequest, tbl: LocalTable) -> Any:
     # rebase the title onto the client's catalog so it shows the table's full pxt:// path
     args = proxy_protocol.deserialize_request(request)
@@ -775,6 +786,7 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'alter_column'): _alter_column,
     ('Table', 'get_metadata'): _get_metadata,
     ('Table', '_path'): _get_path,
+    ('Table', '_copy'): _copy,
     ('Table', 'describe'): _describe,
     ('Table', '_column_description'): _column_description,
     ('Table', 'list_views'): _list_views,

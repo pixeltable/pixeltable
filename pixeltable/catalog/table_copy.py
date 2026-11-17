@@ -35,13 +35,13 @@ from pixeltable.utils.object_stores import ObjectOps, ObjectPath, ObjectStoreBas
 
 from .column import Column
 from .globals import IfExistsParam, IfNotExistsParam
-from .insertable_table import InsertableTable
 from .model.definition import BtreeIndex, EmbeddingIndex, IndexDefinition
 from .table_version import TableVersion
 from .types import TableVersionKey, TableVersionMd
 
 if TYPE_CHECKING:
     from .catalog_base import CatalogBase
+    from .insertable_table import InsertableTable
     from .path import Path
     from .table import Table
 
