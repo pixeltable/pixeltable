@@ -308,6 +308,8 @@ class TestDbWithoutUri:
             if path == '/api/receipts':
                 return {'receipts': [settled.model_dump(mode='json')]}
             posts.append((path, body))
+            if path == '/api/db/local':
+                return {'db_uri': uri}
             if path == '/api/db/diff':
                 return types.DbPlan.from_ops(uri, types.DbState.AVAILABLE, []).model_dump(mode='json')
             return {'receipt': settled.model_dump(mode='json'), 'report': report}
@@ -330,11 +332,16 @@ class TestDbWithoutUri:
         code, out, _ = run('status', '--json')
         assert code == 0 and json.loads(out) == report and posts == []
 
-        for verb in ('diff', 'update'):
-            code, out, _ = run(verb, '--json')
+        # only an update without --dry-run sends the POST that creates the local database
+        for argv, posts_before_diff in (
+            (('diff',), []),
+            (('update', '--dry-run'), []),
+            (('update',), [('/api/db/local', {})]),
+        ):
+            code, out, _ = run(*argv, '--json')
             assert code == utils.EXIT_IN_AGREEMENT
             assert json.loads(out)['db_uri'] == uri
-            assert posts == [('/api/db/diff', {'db_uri': uri})]
+            assert posts == [*posts_before_diff, ('/api/db/diff', {'db_uri': uri})]
 
         code, out, _ = run('retry', '--no-wait', '--json')
         assert code == 0 and json.loads(out) == report

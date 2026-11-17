@@ -63,7 +63,7 @@ from pixeltable.service.management_protocol import (
 )
 from pixeltable_cli.types import DbPlan, DbState, GenerationReceipt, ReceiptError, ReceiptOutcome, ResourcePhase
 
-from ..utils import pxt_raises
+from ..utils import pxt_raises, run_in_new_process
 
 _DB_URI = 'pxt://acme:main'
 _UDF_URLS = {'pixeltable.functions.video.clip': 'https://udf.example.com/clip'}
@@ -321,6 +321,39 @@ class TestDbSubmission:
             local_db_uri()
         monkeypatch.delenv('PIXELTABLE_DB_URI')
         Config.init(reinit=True, project_root=project)
+
+    def test_no_local_db(self, tmp_path: Path) -> None:
+        """On an install without a local database, local_db_uri(), an update of another install's local database,
+        and create_local_db() in a project without a pixeltable.udf setting fail without creating the database."""
+        home = tmp_path / 'home'
+        code = """
+            from pixeltable import exceptions as excs
+            from pixeltable.service import db
+            errors = []
+            for request in (
+                db.local_db_uri,
+                lambda: db.db_update('pxt://acme:local-main-000000000000'),
+                db.create_local_db,
+            ):
+                try:
+                    request()
+                except excs.RequestError as e:
+                    errors.append(str(e))
+            print(json.dumps(errors))
+        """
+        env: dict[str, str | None] = {
+            'PIXELTABLE_HOME': str(home),
+            'PIXELTABLE_PGDATA': str(home / 'pgdata'),
+            'PIXELTABLE_DB_CONNECT_STR': None,
+        }
+        no_local_db, other_install, no_udf_setting = run_in_new_process(code, env, cwd=tmp_path)
+        assert no_local_db.startswith('This install has no local database.')
+        assert 'is not the local database of this install' in other_install
+        assert no_udf_setting.startswith('The local database has nothing to deploy')
+        # the removed pixeltable.db_uri setting is refused first
+        errors = run_in_new_process(code, {**env, 'PIXELTABLE_DB_URI': _DB_URI}, cwd=tmp_path)
+        assert 'pixeltable.db_uri setting is no longer supported' in errors[2]
+        assert not (home / 'pgdata').exists()
 
     def test_upload_network_failure(self, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A failed upload is retried once, then reported as a pixeltable error rather than a raw traceback."""

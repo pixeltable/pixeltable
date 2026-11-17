@@ -1117,6 +1117,12 @@ def local_db(_req: Request) -> dict[str, str]:
     return {'db_uri': db.local_db_uri()}
 
 
+@router.post('/api/db/local')
+def create_local_db(_req: Request) -> dict[str, str]:
+    db.create_local_db()
+    return {'db_uri': db.local_db_uri()}
+
+
 @router.get('/api/db')
 def get_db(req: Request) -> dict[str, Any]:
     """The database's report; with missing_ok, an empty one for a database that does not exist."""

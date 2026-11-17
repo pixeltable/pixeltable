@@ -308,7 +308,11 @@ def _diff(args: argparse.Namespace) -> None:
 
 
 def _update(args: argparse.Namespace) -> None:
-    db_uri = _db_uri(args, 'pxt db update')
+    if args.db_uri is None and not args.dry_run:
+        # the POST creates the local database if it doesn't exist
+        db_uri = post_request('/api/db/local', {})['db_uri']
+    else:
+        db_uri = _db_uri(args, 'pxt db update')
     entry_added_to = _add_config_entry(args, db_uri)
     body: dict[str, Any] = {'db_uri': db_uri}
     plan = DbPlan.model_validate(post_request('/api/db/diff', body))

@@ -357,6 +357,11 @@ class TestHasLocalDb:
         assert result.stdout.splitlines()[-1] == 'False'
         assert not (home / 'pgdata').exists()
 
+        # a data directory without a cluster
+        (home / 'pgdata').mkdir(parents=True)
+        result = subprocess.run([sys.executable, '-c', script], env=env, capture_output=True, text=True, check=True)
+        assert result.stdout.splitlines()[-1] == 'False'
+
 
 class TestEnsureConnected:
     def test_failed_connect_starts_over(self, uses_db: None, fault_injection: None) -> None:

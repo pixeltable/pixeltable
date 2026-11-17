@@ -90,7 +90,7 @@ class LocalDatabase:
 
 
 def local_database() -> LocalDatabase:
-    """Return the install's local database, which this call starts if it isn't running."""
+    """Return the install's local database, which this call starts, and creates if it doesn't exist."""
     env = Env.get()
     env.ensure_connected()
     return LocalDatabase(install_id=env.install_id, name=LOCAL_DB_NAME)
@@ -101,6 +101,29 @@ def local_db_uri() -> str:
 
     The database belongs to the organization of the configured credential.
     """
+    _check_db_uri_setting()
+    if not Env.get().has_local_db():
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_STATE,
+            'This install has no local database. Pass the uri of a hosted database (pxt://org:db), or run '
+            '`pxt db update` to create the local database and deploy its UDF servers.',
+        )
+    return f'pxt://{_local_db_org()}:{local_database().cloud_db_name()}'
+
+
+def create_local_db() -> None:
+    """Create the local database for an update of its UDF servers, unless the install has one.
+
+    Raises an error, and creates nothing, if the update would deploy nothing.
+    """
+    _check_db_uri_setting()
+    _check_local_udf_setting()
+    # starts Postgres, and runs initdb if the install has no cluster
+    Env.get().ensure_connected()
+
+
+def _check_db_uri_setting() -> None:
+    """Raise an error if the config still has the removed pixeltable.db_uri setting."""
     # TODO: remove this check one release after the one that dropped the pixeltable.db_uri setting
     stale_db_uri = Config.get().get_string_value('db_uri')
     if stale_db_uri is not None:
@@ -109,7 +132,6 @@ def local_db_uri() -> str:
             'The pixeltable.db_uri setting is no longer supported, and a command without a uri acts on the local '
             f'database. Remove the setting, and pass the uri to act on the hosted database: {stale_db_uri}',
         )
-    return f'pxt://{_local_db_org()}:{local_database().cloud_db_name()}'
 
 
 def _local_db_org() -> str:
@@ -505,8 +527,8 @@ def _as_local_database(db_path: catalog.Path) -> LocalDatabase | None:
     # a name without the prefix belongs to a hosted database; local_database() would start the local one
     if not db_path.db.startswith(LOCAL_DB_CLOUD_NAME_PREFIX):
         return None
-    local = local_database()
-    if db_path.db != local.cloud_db_name():
+    local = local_database() if Env.get().has_local_db() else None
+    if local is None or db_path.db != local.cloud_db_name():
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
             f'{db_path.uri_str} is not the local database of this install: the prefix {LOCAL_DB_CLOUD_NAME_PREFIX!r} '
@@ -516,11 +538,19 @@ def _as_local_database(db_path: catalog.Path) -> LocalDatabase | None:
 
 
 def _check_udf_setting(db_path: catalog.Path) -> None:
-    """Raise an error for an invalid pixeltable.udf setting, or for an empty one if db_path is the local database.
+    """Raise an error for an invalid pixeltable.udf setting, or for an empty one if db_path is the local database."""
+    if _as_local_database(db_path) is None:
+        Env.get().udf_configs()  # raises for an invalid setting
+    else:
+        _check_local_udf_setting()
 
-    An update of a local database deploys the UDF servers of that setting, and nothing else.
+
+def _check_local_udf_setting() -> None:
+    """Raise an error for an invalid or empty pixeltable.udf setting.
+
+    An update of the local database deploys the UDF servers of that setting, and nothing else.
     """
-    if len(Env.get().udf_configs()) == 0 and _as_local_database(db_path) is not None:
+    if len(Env.get().udf_configs()) == 0:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
             'The local database has nothing to deploy: the project has no pixeltable.udf setting. '

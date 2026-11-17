@@ -345,7 +345,8 @@ class Env:
         config = Config.get()
         if self._db_connected or config.get_string_value('DB_CONNECT_STR') is not None:
             return True
-        return self._configured_pgdata_dir(config).is_dir()
+        # initdb writes PG_VERSION; a data directory without it has no cluster
+        return (self._configured_pgdata_dir(config) / 'PG_VERSION').is_file()
 
     def _configured_pgdata_dir(self, config: Config) -> Path:
         return Path(config.lookup_env('pixeltable', 'pgdata', str(config.home / 'pgdata')))
