@@ -18,8 +18,7 @@ from .tool_utils import run_tool_invocations_test
 pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
-@pytest.mark.remote_api
-@pytest.mark.very_expensive
+@pytest.mark.skip_merge_queue
 @rerun_on_network_error()
 class TestAnthropic:
     def test_messages(self, uses_db: None) -> None:
@@ -60,9 +59,9 @@ class TestAnthropic:
         )
         assert len(reply['content'][0]['text']) > 0
 
-        # a message without content reaches the API, which rejects it
+        # a message without content reaches the API, which rejects it; text inherits the error from output
         status = t.insert(input=None, on_error='ignore')
-        assert status.num_excs == 2
+        assert status.num_excs == 3
         res = t.where(t.input == None).select(t.output.errormsg, t.output2.errormsg).collect()[0]
         assert all('messages.0.content: Input should be a valid array' in msg for msg in res.values())
 
