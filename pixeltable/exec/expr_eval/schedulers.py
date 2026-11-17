@@ -521,8 +521,8 @@ class ModalScheduler(Scheduler):
         return resource_pool.startswith(cls._POOL_PREFIX)
 
     async def _main_loop(self) -> None:
+        # connect() looks up the Server's URL at the first call, do that only once we have something to work on
         item = await self.queue.get()
-        # connect() looks up the Server's URL at the first call, do that only once we have something to work on;
         # an exception in connect() fails the query, while _exec() turns the exception of a call into errors of that
         # call's rows
         await self.client.connect()

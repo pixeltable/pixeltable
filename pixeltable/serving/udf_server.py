@@ -17,7 +17,7 @@ from pixeltable.utils.local_store import TempStore
 class UdfServer:
     """Runs one UDF's calls, one at a time."""
 
-    udf_path: str
+    setting_path: str  # udf's path as used in the config setting for which this server is created
     overloads: list[func.CallableFunction]
     # the provider's ID of the container that runs this server
     container_id: str | None
@@ -25,11 +25,11 @@ class UdfServer:
     secret: str
     lock: threading.Lock
 
-    def __init__(self, udf_path: str, container_id: str | None, secret: str) -> None:
+    def __init__(self, setting_path: str, container_id: str | None, secret: str) -> None:
         # initializes the Env now instead of in the first call
         Env.get()  # doesn't require a local database
-        self.udf_path = udf_path
-        fn = resolve_symbol(udf_path)
+        self.setting_path = setting_path
+        fn = resolve_symbol(setting_path)
         assert isinstance(fn, func.CallableFunction)
         self.overloads = fn._resolved_fns
         self.container_id = container_id
@@ -104,7 +104,7 @@ class UdfServer:
                 if fn is None:
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_STATE,
-                        f"The server's version of {self.udf_path!r} has no signature {request.signature}",
+                        f"The server's version of {self.setting_path!r} has no signature {request.signature}",
                     )
                 start = time.monotonic()
                 values: list[Any] | None = None

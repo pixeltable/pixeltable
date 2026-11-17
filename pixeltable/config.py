@@ -594,6 +594,12 @@ class Config:
                         f'Cannot configure {db.name!r} in {self.__config_file}: a hosted database is configured in '
                         f"its project. Move the [[pixeltable.database]] entry to the project's {PROJECT_CONFIG_FILE}.",
                     )
+            if 'udf' in config_dict.get('pixeltable', {}):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f"Cannot set 'pixeltable.udf' in {self.__config_file}: UDF servers belong to a project. Move it "
+                    f"to the project's {PROJECT_CONFIG_FILE}.",
+                )
             return self.__add_path(config_dict, self.__config_file)
 
         else:

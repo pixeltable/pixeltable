@@ -575,8 +575,8 @@ class TestConfig:
 
     @pytest.mark.db_roots('local', reason="a proxy catalog's daemon evaluates its queries with its own config")
     def test_udf_setting(self, uses_db: None, project_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """pixeltable.udf comes from a config file only, and a query that calls a UDF reports an invalid entry
-        together with its file."""
+        """pixeltable.udf comes from the project config file only, and a query that calls a UDF reports an invalid
+        entry together with its file."""
         t = pxt.create_table('tbl', {'x': pxt.Int})
         t.insert([{'x': 1}])
         config_file = project_env / 'pixeltable.toml'
@@ -641,6 +641,21 @@ class TestConfig:
                 reinit=True,
                 project_root=project_env,
             )
+
+        # nor does the home config, which every project of the installation reads
+        home_config = project_env.parent / 'home-config.toml'
+        home_config.write_text(entry('pixeltable.functions.video.clip'), encoding='utf-8')
+        original_home_config = os.environ.get('PIXELTABLE_CONFIG')
+        monkeypatch.setenv('PIXELTABLE_CONFIG', str(home_config))
+        with pxt_raises(
+            excs.ErrorCode.INVALID_CONFIGURATION, match=r"Cannot set 'pixeltable\.udf' in .*home-config\.toml"
+        ):
+            Config.init(reinit=True, project_root=project_env)
+        if original_home_config is None:
+            monkeypatch.delenv('PIXELTABLE_CONFIG')
+        else:
+            monkeypatch.setenv('PIXELTABLE_CONFIG', original_home_config)
+        Config.init(reinit=True, project_root=project_env)
 
     def test_create_project_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         home = tmp_path / 'home.toml'

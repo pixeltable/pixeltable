@@ -184,6 +184,7 @@ def local_db_udf_servers() -> GetUdfServersResponse:
 def db_diff(db_uri: str) -> DbPlan:
     """Diff the database at db_uri with the corresponding DatabaseConfig in the project configuration."""
     db_path = _validated_db_uri(db_uri)
+    _check_local_db_uri(db_path)
     _check_udf_setting(db_path)
     return _plan(db_path, _db_target(_get_db_config(db_path)))[0]
 
@@ -257,6 +258,7 @@ def db_update(
     Returns the submitted plan, with its receipt.
     """
     db_path = _validated_db_uri(db_uri)
+    _check_local_db_uri(db_path)
     _check_udf_setting(db_path)
     config = _get_db_config(db_path)
     target = _db_target(config)
@@ -294,8 +296,9 @@ def db_build_image(db_uri: str, *, wait: bool = True) -> tuple[list[DbChangeOp],
     if the control plane does not hold it already.
     """
     db_path = _validated_db_uri(db_uri)
+    _check_local_db_uri(db_path)
     # a local database has no pods to restart
-    requires_restart = _as_local_database(db_path) is None
+    requires_restart = not _is_local_db(db_path)
     config = _get_db_config(db_path)
     target = _db_target(config)
     prepared = _prepare(db_path, target, blob=None)
@@ -370,9 +373,7 @@ def _plan(db_path: catalog.Path, target: DatabaseTarget) -> tuple[DbPlan, Prepar
             db_path.uri_str,
             None if current is None else current.state,
             create_db_update_ops(
-                target,
-                None if current is None else current.resources,
-                requires_restart=_as_local_database(db_path) is None,
+                target, None if current is None else current.resources, requires_restart=not _is_local_db(db_path)
             ),
         )
     plan.generation = prepared.generations.database or 0
@@ -526,38 +527,39 @@ def _local_db_config() -> DatabaseConfig:
     return DatabaseConfig() if config is None else config
 
 
-def _as_local_database(db_path: catalog.Path) -> LocalDatabase | None:
-    """Return the local database if db_path is local_db_uri(), and None for a hosted database.
-
-    Raises an error for the name of another install's local database.
-    """
+def _is_local_db(db_path: catalog.Path) -> bool:
     assert db_path.db is not None
-    # a name without the prefix belongs to a hosted database; local_database() would start the local one
-    if not db_path.db.startswith(LOCAL_DB_CLOUD_NAME_PREFIX):
-        return None
-    local = local_database() if Env.get().has_local_db() else None
-    if local is None or db_path.db != local.cloud_db_name():
+    # the control plane reserves the prefix for local databases
+    return db_path.db.startswith(LOCAL_DB_CLOUD_NAME_PREFIX)
+
+
+def _check_local_db_uri(db_path: catalog.Path) -> None:
+    """Raise an error if db_path is a local database other than local_db_uri()."""
+    if not _is_local_db(db_path):
+        return
+    local_uri = local_db_uri()
+    if db_path.uri_str != local_uri:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            f'{db_path.uri_str} is not the local database of this install: the prefix {LOCAL_DB_CLOUD_NAME_PREFIX!r} '
-            'is reserved for local databases.',
+            f'{db_path.uri_str} is not the local database of this install ({local_uri}): the prefix '
+            f'{LOCAL_DB_CLOUD_NAME_PREFIX!r} is reserved for local databases.',
         )
-    return local
 
 
 def _check_udf_setting(db_path: catalog.Path) -> None:
     """Raise an error for an invalid pixeltable.udf setting, or for an empty one if db_path is the local database."""
-    if _as_local_database(db_path) is None:
-        Env.get().udf_configs()  # raises for an invalid setting
-    else:
+    if _is_local_db(db_path):
         _check_local_udf_setting()
+    else:
+        Env.get().udf_configs()  # raises for an invalid setting
 
 
 def _check_local_udf_setting() -> None:
-    """Raise an error for an invalid or empty pixeltable.udf setting.
+    """Raise an error if there is no project, or if its pixeltable.udf setting is invalid or empty.
 
     An update of the local database deploys the UDF servers of that setting, and nothing else.
     """
+    _validated_project_root()
     if len(Env.get().udf_configs()) == 0:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
@@ -567,7 +569,7 @@ def _check_local_udf_setting() -> None:
 
 
 def _get_db_config(db_uri: catalog.Path) -> DatabaseConfig:
-    if _as_local_database(db_uri) is not None:
+    if _is_local_db(db_uri):
         return _local_db_config()
     config = Config.get().get_database_config(db_uri)
     if config is None:
