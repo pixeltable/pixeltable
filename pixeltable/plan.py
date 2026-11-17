@@ -1291,11 +1291,10 @@ class Planner:
         combined_ordering = cls._create_combined_ordering(analyzer, verify_agg=is_python_agg)
         cls._verify_join_clauses(analyzer)
 
-        # materialized with SQL table scans (ie, single-table SELECT statements):
+        # materialized in SQL, by the SqlScanNode or SqlJoinNode:
         # - Select list subexprs that aren't aggregates. In a grouping aggregation, only the args of aggregate and
         # window function calls; the rest of the analyzer's select list is aggregate output, which is not allowed to be
         # materialized in the inner scan.
-        # - join clause subexprs
         # - subexprs of Where clause conjuncts that can't be run in SQL
         # - all grouping exprs
         # - all stratify exprs
@@ -1330,25 +1329,28 @@ class Planner:
         # don't round-trip cleanly through SQL parameter binding)
         sql_exprs = exprs.ExprSet(e for e in candidates if not isinstance(e, exprs.Literal))
 
-        # create table scans; each scan produces subexprs of (sql_exprs + join clauses)
-        join_exprs = exprs.ExprSet(
-            join_clause.join_predicate
-            for join_clause in analyzer.from_clause.join_clauses
-            if join_clause.join_predicate is not None
-        )
-        scan_target_exprs = sql_exprs | join_exprs
-        tbl_scan_plans: list[exec.SqlScanNode] = []
         plan: exec.ExecNode
-        for tbl in analyzer.from_clause.tvps:
-            # materialize all subexprs of scan_target_exprs that are bound by tbl
+        tbl = analyzer.from_clause.tvps[-1]
+        if len(analyzer.from_clause.join_clauses) > 0:
+            # SqlJoinNode does not apply these arguments
+            assert len(columns) == 0
+            assert len(created_at_current_version) == 0 and len(deleted_at_current_version) == 0
+            assert exclude_deleted_at_current_version is None
+            plan = exec.SqlJoinNode(
+                row_builder,
+                tbls=analyzer.from_clause.tvps,
+                join_clauses=analyzer.from_clause.join_clauses,
+                select_list=sql_exprs,
+                cell_md_col_refs=cls._cell_md_col_refs(sql_exprs),
+            )
+        else:
             tbl_scan_exprs = exprs.ExprSet(
                 exprs.Expr.list_subexprs(
-                    scan_target_exprs,
+                    sql_exprs,
                     filter=lambda e: e.is_bound_by([tbl]) and not isinstance(e, exprs.Literal),
                     traverse_matches=False,
                 )
             )
-
             plan = exec.SqlScanNode(
                 tbl,
                 row_builder,
@@ -1360,17 +1362,6 @@ class Planner:
                 deleted_at_current_version=deleted_at_current_version,
                 exclude_deleted_at_current_version=exclude_deleted_at_current_version,
             )
-            tbl_scan_plans.append(plan)
-
-        if len(analyzer.from_clause.join_clauses) > 0:
-            plan = exec.SqlJoinNode(
-                row_builder,
-                inputs=tbl_scan_plans,
-                join_clauses=analyzer.from_clause.join_clauses,
-                select_list=sql_exprs,
-            )
-        else:
-            plan = tbl_scan_plans[0]
 
         if analyzer.sql_where_clause is not None:
             plan.set_where(analyzer.sql_where_clause)
