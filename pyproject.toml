@@ -160,7 +160,7 @@ dev = [
     "notebook>=7.5.6",
     "black>=26.3.1",
     "pixeltable-doctools @ git+https://github.com/pixeltable/pixeltable-doctools",
-    "preshed>=3.0.15",  # Older versions lack 3.15 wheels (spaCy excludes 3.0.14); sdist builds break spaCy
+    "preshed>=3.0.15",
     "pycocotools>=2.0.10",
     "ipykernel>=6.27.1,<7",
     "tabulate>=0.9",
@@ -183,7 +183,7 @@ dev = [
     "replicate>=1.0.7",
     "google-genai>=2.22",
     "groq>=1.7",
-    "spacy>=3.8.17,<3.9",  # The first spaCy with 3.15 wheels
+    "spacy>=3.8.17,<3.9",
     "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
     "sentencepiece>=0.2.0",
     "tiktoken>=0.10",
@@ -218,7 +218,7 @@ dev = [
     "ipywidgets>=8.0.0",
     "mdformat>=1.0.0",
     "nbqa>=1.9.1",
-    "snowflake-sqlalchemy>=2",  # 1.x caps snowflake-connector-python below 5; 5.2 is the first with 3.15 wheels
+    "snowflake-sqlalchemy>=2",
     # fastapi powers `pxt service` (user-defined services); the pxt daemon itself is stdlib-only
     "fastapi[standard]>=0.120.0,!=0.137.0,!=0.137.1",
     "modal>=1.6",
