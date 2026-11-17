@@ -371,7 +371,7 @@ def _get_table_by_id(request: ProxyRequest) -> list | None:
     return load()
 
 
-def _create_table_from_md(request: ProxyRequest) -> list:
+def _create_table_from_md(request: ProxyRequest) -> tuple[list, bool]:
     # md is written as received, so it must be of this database's metadata version
     if request.schema_version != MD_SCHEMA_VERSION:
         raise excs.RequestError(
@@ -381,13 +381,10 @@ def _create_table_from_md(request: ProxyRequest) -> list:
         )
     kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
-    tbl = cat.create_table_from_md(**kwargs)
-
-    @retry_md_read_loop(tbl_keys=[TableVersionKey(tbl._id, None)])
-    def load() -> list:
-        return cat.read_md_for_export(tbl)
-
-    return load()
+    tbl, was_created = cat.create_table_from_md(**kwargs)
+    with cat.begin_md_read_xact():
+        md = cat.read_md_for_export(tbl)
+    return md, was_created
 
 
 def _get_table_paths_md(request: ProxyRequest) -> list:

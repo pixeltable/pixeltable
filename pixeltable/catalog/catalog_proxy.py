@@ -223,9 +223,12 @@ class CatalogProxy(CatalogBase):
             'CatalogBase', 'drop_dir', {'path': path, 'if_not_exists': if_not_exists, 'force': force}
         )
 
-    def create_table_from_md(self, path: Path, md: list[TableVersionMd]) -> Table:
-        new_md = self.client.send_request('CatalogBase', 'create_table_from_md', {'path': path, 'md': md})
-        return self._make_table(new_md, is_anon_snapshot=False)
+    def create_table_from_md(
+        self, path: Path, md: list[TableVersionMd], if_exists: IfExistsParam
+    ) -> tuple[Table, bool]:
+        args = {'path': path, 'md': md, 'if_exists': if_exists}
+        new_md, was_created = self.client.send_request('CatalogBase', 'create_table_from_md', args)
+        return self._make_table(new_md, is_anon_snapshot=False), was_created
 
     def load_store_rows(
         self, tbl_id: UUID, rows_file: str, new_media: dict[str, str], prev_media: dict[str, str]
@@ -239,6 +242,5 @@ class CatalogProxy(CatalogBase):
         }
         return self.client.send_request('CatalogBase', 'load_store_rows', args)
 
-    def finish_copy(self, tbl_id: UUID, num_rows: int, dest_path: Path, if_exists: IfExistsParam) -> bool:
-        args = {'tbl_id': tbl_id, 'num_rows': num_rows, 'dest_path': dest_path, 'if_exists': if_exists}
-        return self.client.send_request('CatalogBase', 'finish_copy', args)
+    def finish_copy(self, tbl_id: UUID, num_rows: int) -> None:
+        self.client.send_request('CatalogBase', 'finish_copy', {'tbl_id': tbl_id, 'num_rows': num_rows})

@@ -1126,8 +1126,8 @@ class TestTable:
         assert list(t2.columns()) == list(query2.schema.keys())
         assert_resultset_eq(t2.order_by(t2.c2mod).collect(), query2.order_by(t.c2mod).collect())
 
-        # Create from table directly
-        t3 = pxt.create_table(p('test3'), source=t)
+        # Create from the rows of a table
+        t3 = pxt.create_table(p('test3'), source=t.select())
         assert list(t3.columns()) == list(t.columns())
         assert_resultset_eq(t3.order_by(t3.c2).collect(), t.order_by(t.c2).collect())
 
@@ -1192,7 +1192,7 @@ class TestTable:
         assert len(t1.collect()) == 2 * len(query1.collect())
 
         # Insert from table directly
-        t2 = pxt.create_table(p('test2'), source=t)
+        t2 = pxt.create_table(p('test2'), source=t.select())
         t2.insert(t)
         assert len(t2.collect()) == 2 * len(t.collect())
 

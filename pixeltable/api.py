@@ -90,10 +90,11 @@ def create_table(
     contents of the specified data, and the data will be imported from the specified source into the new table. The
     source format and/or schema can be specified directly via the `source_format` and `schema_overrides` parameters.
 
-    If `source` is a local base table and `path` is in a hosted database, then the new table is a copy of that table
-    with all of its rows and versions. The copy keeps the stored values, so that computed columns and embedding
-    indexes are not computed again. The local media files of the table and the media files that it stored in a bucket
-    are uploaded to the database. Any other media URL stays as it is.
+    If `source` is a table, then the new table is a copy of that table with its columns, computed columns, indexes,
+    rows and versions. `path` can be in the same database or in a hosted one. The copy keeps the stored values, so
+    that computed columns and embedding indexes are not computed again. The copy stores its own media files: the
+    local media files of the table and the media files that it stored in a bucket are copied. Any other media URL
+    stays as it is. To copy only the rows of a table, pass a query such as `tbl.select()` as `source`.
 
     If `schema_source` is provided, then an empty table will be created with the columns, computed columns, primary
     key, indexes and settings of that table, as `CREATE TABLE ... LIKE` does in SQL.
@@ -106,9 +107,8 @@ def create_table(
         path: Pixeltable path (qualified name) of the table, such as `'my_table'` or `'my_dir/my_subdir/my_table'`.
         schema: Schema for the new table, mapping column names to Pixeltable types. A bare type such as
             `pxt.Int` declares a non-nullable column; use `pxt.Int | None` to allow nulls.
-        source: A data source (file, URL, Table, Query, or list of rows) to import from. A Table of another database
-            must be a local base table, and `path` must be in a hosted database. A Query of another database is not
-            supported.
+        source: A data source (file, URL, Table, Query, or list of rows) to import from. A Table must be a local
+            base table. A Query of another database is not supported.
         schema_source: A local base table whose schema the new table takes.
         source_format: Must be used in conjunction with a `source`.
             If specified, then the given format will be used to read the source data. (Otherwise,
@@ -191,11 +191,19 @@ def create_table(
         ...     if_exists='replace',
         ... )
 
-        Copy a local table, with its rows and history, into a hosted database:
+        Copy a table, with its computed columns, indexes, rows and history:
+
+        >>> t = pxt.create_table('films_copy', source=pxt.get_table('films'))
+
+        Copy a local table into a hosted database:
 
         >>> t = pxt.create_table(
         ...     'pxt://my-org:my-db/films', source=pxt.get_table('films')
         ... )
+
+        Create a table from only the rows of another table:
+
+        >>> t = pxt.create_table('films_rows', source=pxt.get_table('films').select())
 
         Create an empty table in a hosted database with the schema of a local table:
 
@@ -238,17 +246,17 @@ def create_table(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'Cannot create {path!r} from a query of another database. Pass a base table as `source` to copy it.',
         )
-    is_copy = isinstance(source, catalog.Table) and source._path().catalog_uri != path_obj.catalog_uri
+    is_copy = isinstance(source, catalog.Table)
     # the table that gives the new table its columns, indexes and settings
     src_tbl = source if is_copy else schema_source
     if src_tbl is not None:
         assert isinstance(src_tbl, catalog.Table)
         src_tbl_arg = 'source' if is_copy else 'schema_source'
         if not src_tbl._path().is_local or not isinstance(src_tbl, catalog.InsertableTable):
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'`{src_tbl_arg}` must be a local base table, not {src_tbl._display_str()}',
-            )
+            error_msg = f'`{src_tbl_arg}` must be a local base table, not {src_tbl._display_str()}'
+            if is_copy:
+                error_msg += '. To copy only its rows, pass a query such as `tbl.select()` as `source`.'
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, error_msg)
         args_from_src_tbl = {
             'source_format': source_format,
             'schema_overrides': schema_overrides,
@@ -263,6 +271,8 @@ def create_table(
             given_args.append('media_validation')
         if has_default_idxs:
             given_args.append('has_default_idxs')
+        if not _is_data_versioned:
+            given_args.append('_is_data_versioned')
         if len(given_args) > 0:
             given_args_str = ', '.join(f'`{name}`' for name in given_args)
             raise excs.RequestError(
@@ -311,8 +321,11 @@ def create_table(
     cat = get_runtime().get_catalog(path_obj)
     if src_tbl is not None:
         assert isinstance(src_tbl, catalog.InsertableTable)
-        create_from_tbl = table_copy.copy_table if is_copy else table_copy.create_table_like
-        tbl, was_created = create_from_tbl(src_tbl, cat, path_obj, if_exists_)
+        if is_copy:
+            assert isinstance(cat, (catalog.Catalog, catalog.CatalogProxy))
+            tbl, was_created = table_copy.copy_table(src_tbl, cat, path_obj, if_exists_)
+        else:
+            tbl, was_created = table_copy.create_table_like(src_tbl, cat, path_obj, if_exists_)
     else:
         # canonicalize/validate the schema once here, so both local and delegated catalogs receive the same
         # mapping and report the same errors

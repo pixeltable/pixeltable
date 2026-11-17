@@ -1,17 +1,9 @@
-"""Copy a local base table, with its full version history and stored values, into a hosted catalog.
+"""Copy a local base table, with its version history and stored values, to a path in the same database or in a hosted
+one.
 
-The copy is physical: the table's metadata records and the rows of its store table travel as stored, so no computed
-value or embedding is computed again. The destination gives the table a new id, and each local media file that a row
-references is uploaded and rewritten to the destination's media store.
-
-copy_table() runs in the source process. It exports the table into chunks (a Parquet file of store rows, plus the
-local media files those rows are the first to reference) and drives the copy through three operations of the
-destination catalog: create_table_from_md(), load_store_rows() for each chunk, and finish_copy(). A failed copy drops
-the table that it created.
-
-The destination catalog owns the transactions, the locks and the metadata of those operations. This module owns what
-they share with the export: the Parquet encoding of store rows (md_for_copy(), holds_first_row(), insert_rows()) and
-the storage of the uploaded media files (place_media()).
+copy_table() exports the table into chunks of store rows and media files, and loads them through
+create_table_from_md(), load_store_rows() and finish_copy() of the destination catalog. No computed value or embedding
+is computed again.
 
 create_table_like() creates an empty table with the columns, indexes and settings of another table.
 """
@@ -51,7 +43,9 @@ from .model.definition import BtreeIndex, EmbeddingIndex, IndexDefinition
 from .types import TableVersionKey, TableVersionMd
 
 if TYPE_CHECKING:
+    from .catalog import Catalog
     from .catalog_base import CatalogBase
+    from .catalog_proxy import CatalogProxy
     from .path import Path
     from .table import Table
     from .table_version import TableVersion
@@ -73,7 +67,7 @@ _MAX_LISTED_FILES = 5
 
 @dataclasses.dataclass(frozen=True)
 class _StoreColumn:
-    """A stored column of a table. A dropped column is included: its store column still holds older row versions."""
+    """A stored column of a table. A dropped column is included: its store column still has older row versions."""
 
     col_id: int
     is_media: bool
@@ -140,10 +134,7 @@ def _nested_values(md: Any) -> Iterator[Any]:
 def md_for_copy(
     md: list[TableVersionMd], tbl_id: uuid.UUID, name: str
 ) -> tuple[schema.TableMd, list[schema.VersionMd], list[schema.SchemaVersionMd]]:
-    """The metadata records of a copy, with id tbl_id and named name, of the base table whose history is md.
-
-    The copy is in TableState.COPYING.
-    """
+    """The metadata records of a copy in TableState.COPYING, with id tbl_id and named name, of the table history md."""
     src_md = md[0].tbl_md
     if src_md.view_md is not None:
         raise excs.RequestError(
@@ -176,11 +167,13 @@ def md_for_copy(
     tbl_md.tbl_state = schema.TableState.COPYING
     for col_md in tbl_md.column_md.values():
         if (
-            isinstance(col_md.destination, str)
+            Env.get().is_proxy_daemon
+            and isinstance(col_md.destination, str)
             and ObjectPath.parse_object_storage_addr(col_md.destination, False).storage_target
             == StorageTarget.LOCAL_STORE
         ):
-            # the source's local directory doesn't exist here; the column falls back to the default destination
+            # A proxy daemon receives the metadata of a table of another machine, whose local directory doesn't exist
+            # here. The column falls back to the default destination.
             col_md.destination = None
     schema_version_mds = {m.schema_version_md.schema_version: m.schema_version_md for m in copy_md}
     return tbl_md, [m.version_md for m in copy_md], list(schema_version_mds.values())
@@ -189,11 +182,8 @@ def md_for_copy(
 def check_value_exprs_are_valid(
     schema_version_mds: list[schema.SchemaVersionMd], current_schema_version: int, src_name: str
 ) -> None:
-    """Raise an error if this database cannot evaluate a computed column in schema_version_mds, the schema versions of
-    a copy of the table src_name.
-
-    A dropped computed column stays in the schema versions that had it, and a revert of the copy restores it.
-    """
+    """Raise an error if this database cannot evaluate a computed column in schema_version_mds, dropped ones included:
+    a revert of the copy restores them."""
     for schema_version_md in schema_version_mds:
         for col in schema_version_md.columns.values():
             if col.value_expr is None:
@@ -229,11 +219,8 @@ def check_value_exprs_are_valid(
 
 
 def _arrow_type(sa_type: sql.types.TypeEngine) -> pa.DataType:
-    """The Arrow type that carries a store column of type sa_type.
-
-    utils/arrow.py maps Pixeltable column types. A store table also has columns with no Pixeltable type (rowid, v_min,
-    v_max, cellmd and index values), so this maps the SQL types.
-    """
+    """The Arrow type of a store column of type sa_type. A store table has columns with no Pixeltable type (rowid,
+    v_min, v_max, cellmd and index values), so this maps the SQL types."""
     if isinstance(sa_type, JSONB):
         # json text: the value of a JSONB column has no fixed Arrow type
         return pa.string()
@@ -286,8 +273,7 @@ def _from_arrow_value(val: Any, sa_type: sql.types.TypeEngine) -> Any:
 
 @dataclasses.dataclass
 class _Chunk:
-    """The part of a table export that one load_store_rows() call loads: store rows, and the media files that they
-    reference."""
+    """The store rows and media files of a table export that one load_store_rows() call loads."""
 
     rows_file: FsPath
     num_rows: int = 0
@@ -303,8 +289,8 @@ class _Chunk:
 
 
 class _TableExport:
-    """Writes the store rows of a table into chunks and collects the media files that they reference and that the copy
-    must store itself: local files, and objects that the source table stores under its table prefix."""
+    """Writes the store rows of a table into chunks, with the media files that the copy must store itself: local
+    files, and objects under the table prefix of the source table."""
 
     md: list[TableVersionMd]
     chunks: list[_Chunk]
@@ -416,14 +402,9 @@ class _TableExport:
         self._writer = None
 
 
-def _referenced_tbl_ids(expr: exprs.Expr) -> set[uuid.UUID]:
-    """The ids of the tables that expr references, including through a @pxt.query at any depth."""
-    return exprs.Expr.list_tbl_ids(expr.subexprs()) | _queried_tbl_ids(expr)
-
-
 def _queried_tbl_ids(expr: exprs.Expr) -> set[uuid.UUID]:
     """The ids of the tables that the @pxt.query calls in expr read, at any depth."""
-    # referenced_tbl_keys() holds the FROM tables, which a template such as t.limit(n) reads with no ColumnRef. It
+    # referenced_tbl_keys() contains the FROM tables, which a template such as t.limit(n) reads with no ColumnRef. It
     # visits only the clause roots, so the subexprs of each clause are visited as well, for a @pxt.query that a clause
     # calls.
     ids: set[uuid.UUID] = set()
@@ -433,33 +414,13 @@ def _queried_tbl_ids(expr: exprs.Expr) -> set[uuid.UUID]:
             assert template_query is not None
             ids |= {key.tbl_id for key in template_query.referenced_tbl_keys()}
             for clause_expr in template_query._component_exprs():
-                ids |= _referenced_tbl_ids(clause_expr)
+                ids |= exprs.Expr.list_tbl_ids(clause_expr.subexprs()) | _queried_tbl_ids(clause_expr)
     return ids
 
 
-def _check_no_other_tbl_refs(tbl: InsertableTable, tv: TableVersion) -> None:
-    """Refuse tbl if a computed column of it references another table, which another database cannot resolve."""
-    for col in tv.cols_by_id.values():
-        if col.value_expr is None:
-            continue
-        other_ids = _referenced_tbl_ids(col.value_expr) - {tbl._id}
-        if len(other_ids) > 0:
-            other_id = next(iter(other_ids))
-            other = get_runtime().catalog.get_table_by_id(other_id)
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Cannot copy {tbl._display_str()}: the computed column {col.name!r} references '
-                f'{other._display_str() if other is not None else other_id}; only a table whose computed '
-                'columns reference no other table can be copied to another database',
-            )
-
-
-def _check_no_other_tbl_refs_in_history(tbl: InsertableTable, md: list[TableVersionMd]) -> None:
-    """Refuse a copy of tbl, whose history is md, if a computed column of any schema version references another table,
-    which another database cannot resolve.
-
-    A dropped computed column stays in the schema versions that had it, and a revert of the copy restores it.
-    """
+def _check_no_other_tbl_refs(tbl: InsertableTable, md: list[TableVersionMd]) -> None:
+    """Refuse tbl if a computed column in md, a list of its versions, references another table. A dropped column
+    counts: a revert of a copy restores it."""
     cat = get_runtime().catalog
     looked_up_ids = {tbl._id}
     for version_md in md:
@@ -486,14 +447,16 @@ def _check_no_other_tbl_refs_in_history(tbl: InsertableTable, md: list[TableVers
                     )
 
 
-def _export_table(tbl: InsertableTable, tmp_dir: FsPath) -> _TableExport:
+def _export_table(tbl: InsertableTable, tmp_dir: FsPath, is_other_db: bool) -> _TableExport:
+    """Export tbl into tmp_dir, for a copy in another database if is_other_db."""
     cat = get_runtime().catalog
     # a single transaction (REPEATABLE READ) makes the metadata and the rows a snapshot of the same table state
     with cat.begin_data_read_xact(tbl_keys=[TableVersionKey(tbl._id, None)]) as conn:
         # collect_tbl_history() starts a transaction of its own, and the history must come from this one
         md = cat._collect_tbl_history(tbl._id, None)
         tv = tbl._tbl_version.get()
-        _check_no_other_tbl_refs_in_history(tbl, md)
+        if is_other_db:
+            _check_no_other_tbl_refs(tbl, md)
         store = tv.store_tbl
         export = _TableExport(md, store.sa_tbl, tmp_dir)
         # ordering by version means that the first row to reference a media file is from the earliest version that
@@ -508,23 +471,25 @@ def _export_table(tbl: InsertableTable, tmp_dir: FsPath) -> _TableExport:
 
 
 def copy_table(
-    tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path, if_exists: IfExistsParam
+    tbl: InsertableTable, dest_catalog: Catalog | CatalogProxy, dest_path: Path, if_exists: IfExistsParam
 ) -> tuple[Table, bool]:
-    """Copy the local base table tbl to dest_path in dest_catalog, the catalog of another database.
-
-    Returns (table, was_created).
-    """
-    # 'error' and 'ignore' are decided before the export, so that no rows are copied for nothing. finish_copy() does
-    # the 'replace'.
+    """Copy the local base table tbl to dest_path in dest_catalog, the catalog of the same database or a hosted one."""
+    # 'error' and 'ignore' are decided before the export, so that no rows are copied for nothing.
+    # create_table_from_md() does the 'replace'.
     existing = dest_catalog.get_table(dest_path, IfNotExistsParam.IGNORE)
     if existing is not None and if_exists == IfExistsParam.IGNORE:
         return existing, False
     if existing is not None and if_exists == IfExistsParam.ERROR:
         raise excs.AlreadyExistsError(excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {dest_path!r} already exists.')
+    if existing is not None and existing._id == tbl._id:
+        # the 'replace' would drop tbl and its media files before the copy loads them
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'Cannot replace {tbl._display_str()} with a copy of itself'
+        )
     tmp_dir = TempStore.create_path()
     tmp_dir.mkdir(parents=True)
     try:
-        export = _export_table(tbl, tmp_dir)
+        export = _export_table(tbl, tmp_dir, is_other_db=dest_path.catalog_uri != tbl._path().catalog_uri)
         if len(export.missing_files) > 0:
             listed = '\n'.join(f'  {url}' for url in export.missing_files)
             raise excs.NotFoundError(
@@ -533,14 +498,11 @@ def copy_table(
                 f'including:\n{listed}',
             )
 
-        # the copy is filled under a temporary name, so that dest_path only ever names a complete copy
-        tmp_path = dest_path.parent.append(f'{dest_path.name}_copy_{uuid.uuid4().hex[:8]}')
-        # a failed copy drops tmp_path, so it must not name a table that this copy didn't create
-        if dest_catalog.get_table(tmp_path, IfNotExistsParam.IGNORE) is not None:
-            raise excs.AlreadyExistsError(excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {tmp_path!r} already exists.')
+        copy, was_created = dest_catalog.create_table_from_md(dest_path, export.md, if_exists)
+        if not was_created:
+            # if_exists='ignore', and a table was created at dest_path during the export
+            return copy, False
         try:
-            # inside the try: the destination may have created the table even if its response is lost
-            copy = dest_catalog.create_table_from_md(tmp_path, export.md)
             uploaded: dict[str, str] = {}  # source url -> its url in the destination
             for i, chunk in enumerate(export.chunks):
                 _logger.debug(f'Copying rows chunk {i + 1}/{len(export.chunks)} ({chunk.num_rows} rows)')
@@ -553,37 +515,38 @@ def copy_table(
                 )
                 uploaded.update(stored_media)
                 for path in downloads.values():
-                    FsPath(path).unlink()
-            is_moved = dest_catalog.finish_copy(copy._id, export.num_rows, dest_path, if_exists)
+                    # a destination in this database moves the downloaded file into its media store
+                    FsPath(path).unlink(missing_ok=True)
+            dest_catalog.finish_copy(copy._id, export.num_rows)
         except BaseException as e:
             try:
-                dest_catalog.drop_table(tmp_path, IfNotExistsParam.IGNORE, force=False)
+                # Another create_table() can replace the incomplete copy, which also makes this copy fail. The table
+                # at dest_path is dropped only if it is still the incomplete copy.
+                tbl_at_dest_path = dest_catalog.get_table(dest_path, IfNotExistsParam.IGNORE)
+                if tbl_at_dest_path is not None and tbl_at_dest_path._id == copy._id:
+                    dest_catalog.drop_table(dest_path, IfNotExistsParam.IGNORE, force=False)
             except Exception:
-                _logger.warning(f'Failed to drop the incomplete copy {tmp_path!r}', exc_info=True)
-                e.add_note(f'The incomplete copy {tmp_path!r} remains; drop it with pxt.drop_table().')
+                _logger.warning(f'Failed to drop the incomplete copy {dest_path!r}', exc_info=True)
+                e.add_note(f'The incomplete copy {dest_path!r} remains; drop it with pxt.drop_table().')
             raise
-        if not is_moved:
-            # if_exists='ignore', and a table was created at dest_path during the copy
-            dest_catalog.drop_table(tmp_path, IfNotExistsParam.IGNORE, force=False)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+    # the handle that create_table_from_md() returned has the metadata of the copy in progress
     result_tbl = dest_catalog.get_table(dest_path, IfNotExistsParam.ERROR)
     assert result_tbl is not None
-    return result_tbl, is_moved
+    return result_tbl, True
 
 
 def create_table_like(
     tbl: InsertableTable, dest_catalog: CatalogBase, dest_path: Path, if_exists: IfExistsParam
 ) -> tuple[Table, bool]:
     """Create an empty table at dest_path in dest_catalog with the columns, indexes and settings of the local base table
-    tbl, as CREATE TABLE ... LIKE does in SQL.
-
-    Returns (table, was_created).
-    """
+    tbl, as CREATE TABLE ... LIKE does in SQL."""
     tv = tbl._tbl_version.get()
     is_other_db = dest_path.catalog_uri != tbl._path().catalog_uri
     if is_other_db:
-        _check_no_other_tbl_refs(tbl, tv)
+        # only the current version is checked: the new table takes no history
+        _check_no_other_tbl_refs(tbl, get_runtime().catalog.collect_tbl_history(tbl._id, 1))
 
     columns: dict[str, ColumnSpec] = {}
     for col in tv.cols_by_name.values():
@@ -671,8 +634,8 @@ def _download(url: str, tmp_dir: FsPath) -> str:
     return str(path)
 
 
-def holds_first_row(tv: TableVersion, rows_file: str) -> bool:
-    """Whether the store table of tv holds the first row of the Parquet file rows_file."""
+def contains_first_row(tv: TableVersion, rows_file: str) -> bool:
+    """Whether the store table of tv contains the first row of the Parquet file rows_file."""
     sa_tbl = tv.store_tbl.sa_tbl
     key_cols = [col.name for col in tv.store_tbl.pk_columns()]
     first_rows = next(iter(_iter_rows(rows_file, key_cols)), [])
@@ -698,13 +661,8 @@ def _media_destination(tv: TableVersion, col: _StoreColumn) -> str | None:
 def place_media(
     tv: TableVersion, md: list[TableVersionMd], rows_file: str, new_media: dict[str, str]
 ) -> dict[str, str]:
-    """Store the media files new_media (url -> local path) in the media store of tv, whose history is md.
-
-    Each file is stored under the column and version of the first row in rows_file that references it.
-
-    Returns:
-        url -> the url of the stored file, for each url in new_media
-    """
+    """Store the media files new_media (url -> local path) in the media store of tv, each under the column and version
+    of the first row in rows_file that references it. Returns url -> stored url."""
     cols = _store_columns(md)
     media_cols = [col for col in cols if col.is_media]
     cellmd_cols = [col for col in cols if col.stores_cellmd]
@@ -757,7 +715,7 @@ def place_media(
 
 
 def _local_media_dirs(tv: TableVersion, cols: list[_StoreColumn]) -> list[FsPath]:
-    """The local directories, resolved, that hold the stored media files of tv."""
+    """The local directories, resolved, that contain the stored media files of tv."""
     dests = {_media_destination(tv, col) for col in cols if col.is_media} | {Env.get().cell_materialization_dest}
     addrs = [ObjectPath.parse_object_storage_addr(dest or str(Env.get().media_dir), False) for dest in dests]
     return [
@@ -769,7 +727,8 @@ def _local_media_dirs(tv: TableVersion, cols: list[_StoreColumn]) -> list[FsPath
 
 def _check_stored_url(tv: TableVersion, url: str, local_media_dirs: list[FsPath]) -> str:
     # A query reads the local file that a cell gives. Without this check, a row could give any file of this machine,
-    # such as a credential file, and a query would return its content.
+    # such as a credential file, and a query would return its content. A copy within one database passes the check as
+    # well: the export sends every local file that a row references, so each local url is replaced with a stored one.
     path = parse_local_file_path(url)
     if path is not None and not any(d in path.resolve().parents for d in local_media_dirs):
         raise excs.RequestError(
@@ -780,12 +739,7 @@ def _check_stored_url(tv: TableVersion, url: str, local_media_dirs: list[FsPath]
 
 def insert_rows(tv: TableVersion, md: list[TableVersionMd], rows_file: str, media_urls: dict[str, str]) -> None:
     """Insert the store rows in rows_file into the store table of tv, whose history is md. A media url that is a key
-    of media_urls is replaced with its value.
-
-    In a data-versioned table, every row must be a row of tv's history: its rowid below tv's next rowid and its v_min
-    at most tv's version, so that a later insert does not reuse its rowid. Every local media url that the rows end up
-    with must name a file in a media directory of tv.
-    """
+    of media_urls is replaced with its value."""
     sa_tbl = tv.store_tbl.sa_tbl
     file_cols = pq.ParquetFile(rows_file).schema_arrow.names
     if set(file_cols) != set(sa_tbl.columns.keys()):
@@ -802,6 +756,7 @@ def insert_rows(tv: TableVersion, md: list[TableVersionMd], rows_file: str, medi
     for rows in _iter_rows(rows_file):
         store_rows: list[dict[str, Any]] = []
         for row in rows:
+            # a row beyond tv's history is refused, so that a later insert does not reuse its rowid
             if tv.is_data_versioned and (row['rowid'] >= tv.next_row_id or row['v_min'] > tv.version):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
