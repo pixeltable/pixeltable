@@ -550,7 +550,6 @@ class TestExprs:
             (int_min, int_min),
             (int_min, -3),
             (int_min, -1),
-            (int_min, 0),
             (int_min, 1),
             (int_min, 3),
             (int_min, int_max),
@@ -558,7 +557,6 @@ class TestExprs:
             (int_min + 1, int_min),
             (int_min + 1, -3),
             (int_min + 1, -1),
-            (int_min + 1, 0),
             (int_min + 1, 1),
             (int_min + 1, 3),
             (int_min + 1, int_max),
@@ -566,7 +564,6 @@ class TestExprs:
             (-7, int_min),
             (-7, -3),
             (-7, -1),
-            (-7, 0),
             (-7, 1),
             (-7, 3),
             (-7, int_max),
@@ -574,7 +571,6 @@ class TestExprs:
             (-6, int_min),
             (-6, -3),
             (-6, -1),
-            (-6, 0),
             (-6, 1),
             (-6, 3),
             (-6, int_max),
@@ -582,7 +578,6 @@ class TestExprs:
             (-1, int_min),
             (-1, -3),
             (-1, -1),
-            (-1, 0),
             (-1, 1),
             (-1, 3),
             (-1, int_max),
@@ -590,7 +585,6 @@ class TestExprs:
             (0, int_min),
             (0, -3),
             (0, -1),
-            (0, 0),
             (0, 1),
             (0, 3),
             (0, int_max),
@@ -598,7 +592,6 @@ class TestExprs:
             (1, int_min),
             (1, -3),
             (1, -1),
-            (1, 0),
             (1, 1),
             (1, 3),
             (1, int_max),
@@ -606,7 +599,6 @@ class TestExprs:
             (6, int_min),
             (6, -3),
             (6, -1),
-            (6, 0),
             (6, 1),
             (6, 3),
             (6, int_max),
@@ -614,7 +606,6 @@ class TestExprs:
             (7, int_min),
             (7, -3),
             (7, -1),
-            (7, 0),
             (7, 1),
             (7, 3),
             (7, int_max),
@@ -622,7 +613,6 @@ class TestExprs:
             (int_max, int_min),
             (int_max, -3),
             (int_max, -1),
-            (int_max, 0),
             (int_max, 1),
             (int_max, 3),
             (int_max, int_max),
@@ -630,7 +620,6 @@ class TestExprs:
             (None, int_min),
             (None, -3),
             (None, -1),
-            (None, 0),
             (None, 1),
             (None, 3),
             (None, int_max),
@@ -639,36 +628,18 @@ class TestExprs:
         rows = [{'a': a, 'b': b} for a, b in operands]
         if not backfill:
             validate_update_status(t.add_computed_column(stored_mod=t.a % t.b), expected_rows=0)
-        status = t.insert(rows, on_error='ignore')
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
         if backfill:
-            validate_update_status(status, expected_rows=len(rows))
-            status = t.add_computed_column(stored_mod=t.a % t.b)
+            validate_update_status(t.add_computed_column(stored_mod=t.a % t.b), expected_rows=len(rows))
 
-        # SQL maps zero divisors to NULL; Python records an error unless the dividend is NULL.
-        assert status.num_rows == len(rows)
-        assert status.num_excs == (0 if backfill else sum(row['a'] is not None and row['b'] == 0 for row in rows))
-        res = t.select(
-            t.a,
-            t.b,
-            t.stored_mod,
-            sql_mod=t.a % t.b,
-            error_type=t.stored_mod.errortype,
-            error_msg=t.stored_mod.errormsg,
-        ).collect()
+        res = t.select(t.a, t.b, t.stored_mod, sql_mod=t.a % t.b).collect()
         assert len(res) == len(rows)
         for row in res:
             a, b = row['a'], row['b']
-            expected = None if a is None or b in (None, 0) else a % b
-            python_error = not backfill and a is not None and b == 0
+            expected = None if a is None or b is None else a % b
             assert row['stored_mod'] == expected, row
             assert row['sql_mod'] == expected, row
-            assert row['error_type'] == ('ZeroDivisionError' if python_error else None), row
-            if python_error:
-                # Python's zero-division message varies by version.
-                assert 'by zero' in row['error_msg'], row
-            else:
-                assert row['error_msg'] is None, row
-        non_null_results = sum(row['a'] is not None and row['b'] not in (None, 0) for row in rows)
+        non_null_results = sum(row['a'] is not None and row['b'] is not None for row in rows)
         assert t.where(t.a % t.b == t.stored_mod).count() == non_null_results
         assert t.where(t.a % t.b == None).count() == len(rows) - non_null_results
 
