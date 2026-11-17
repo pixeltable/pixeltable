@@ -7,6 +7,7 @@ import gc
 import json
 import logging
 import math
+import operator
 import os
 import re
 import uuid
@@ -623,6 +624,67 @@ class TestExprs:
                 assert results['le'] == [a <= b for a, b in zip(a_results, b_results)], f'{a_expr} <= {b_expr}'
                 assert results['gt'] == [a > b for a, b in zip(a_results, b_results)], f'{a_expr} > {b_expr}'
                 assert results['ge'] == [a >= b for a, b in zip(a_results, b_results)], f'{a_expr} >= {b_expr}'
+
+    def test_computed_col_comparison(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        """Comparisons on computed columns give the same results as Python comparisons on the column values."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(
+            p('cmp_tbl'),
+            {'k': pxt.Int, 'n': pxt.Int, 's': pxt.String},
+            primary_key='k',
+            _is_data_versioned=is_data_versioned,
+        )
+        t.add_computed_column(n2=t.n * 2, stored=False)
+        t.add_computed_column(up=t.s.upper(), stored=False)
+        t.add_computed_column(big=t.n > 2, stored=False)
+        t.add_computed_column(low=t.n < 3)
+        validate_update_status(t.insert({'k': i, 'n': i, 's': 'abcde'[i]} for i in range(5)), expected_rows=5)
+
+        # where() on an unstored column, with the constant on either side
+        ops = (operator.eq, operator.ne, operator.lt, operator.le, operator.gt, operator.ge)
+        for col, const in ((t.n2, 4), (t.up, 'C'), (t.big, True)):
+            vals = t.select(t.k, v=col).order_by(t.k).collect()
+            for op in ops:
+                res = t.where(op(col, const)).select(t.k).order_by(t.k).collect()
+                assert res['k'] == [k for k, v in zip(vals['k'], vals['v']) if op(v, const)], (
+                    f'{col} {op.__name__} {const}'
+                )
+                res = t.where(op(const, col)).select(t.k).order_by(t.k).collect()
+                assert res['k'] == [k for k, v in zip(vals['k'], vals['v']) if op(const, v)], (
+                    f'{const} {op.__name__} {col}'
+                )
+
+        # where() with a query parameter
+        @pxt.query
+        def n2_above(x: int) -> pxt.Query:
+            return t.where(t.n2 > x).select(t.k).order_by(t.k)
+
+        assert pxt.eval_udf(n2_above, 4) == [3, 4]
+
+        # where() of a join
+        # TODO: remove t.n2 from select() [PXT-1733]
+        other = pxt.create_table(p('cmp_other'), {'k': pxt.Int}, _is_data_versioned=is_data_versioned)
+        validate_update_status(other.insert({'k': i} for i in range(3)), expected_rows=3)
+        res = t.join(other, on=t.k == other.k).where(t.n2 > 2).select(t.k, t.n2).order_by(t.k).collect()
+        assert res['k'] == [2]
+        assert res['n2'] == [4]
+
+        # update() of the input of a stored comparison column
+        validate_update_status(t.where(t.k == 0).update({'n': 7}), expected_rows=1)
+        validate_update_status(t.update({'n': t.n - 1}), expected_rows=5)
+        res = t.select(t.n, t.low).order_by(t.k).collect()
+        assert res['n'] == [6, 0, 1, 2, 3]
+        assert res['low'] == [n < 3 for n in res['n']]
+
+        if is_data_versioned:
+            # insert() into the base of a view with a comparison on a view column
+            # TODO: run for operational tables [PXT-1101]
+            v = pxt.create_view(p('cmp_view'), t, additional_columns={'n3': t.n * 3})
+            v.add_computed_column(big3=v.n3 > 6)
+            validate_update_status(t.insert([{'k': 5, 'n': 5, 's': 'f'}]), expected_rows=2)
+            res = v.select(v.n3, v.big3).order_by(v.k).collect()
+            assert res['n3'] == [18, 0, 3, 6, 9, 15]
+            assert res['big3'] == [n3 > 6 for n3 in res['n3']]
 
     def test_inline_dict(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
