@@ -255,6 +255,10 @@ class TestCopyTable:
 
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists'):
             pxt.create_table(p('existing'), source=t)
+        # 'ignore' refuses a view at the path
+        pxt.create_view(p('existing_view'), pxt.get_table(p('existing')))
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='already exists and is not a table'):
+            pxt.create_table(p('existing_view'), schema_source=t, if_exists='ignore')
         with pxt_raises(pxt.ErrorCode.DIRECTORY_NOT_FOUND, match='does not exist'):
             pxt.create_table(p('no_dir/dst'), source=t)
 
