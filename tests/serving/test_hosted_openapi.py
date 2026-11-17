@@ -2,7 +2,7 @@ from tests.utils import skip_test_if_not_installed
 
 
 class TestHostedOpenapi:
-    def test_gateway_security_only_on_hosted_schema(self) -> None:
+    def test_gateway_security_only_on_hosted_schema(self, init_env: None) -> None:
         skip_test_if_not_installed('fastapi')
         import fastapi
         from fastapi.security import HTTPBasic

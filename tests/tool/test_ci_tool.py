@@ -3,11 +3,13 @@ import pytest
 from tool.ci_tool import (
     ALTERNATIVE_PLATFORMS,
     BASIC_PLATFORMS,
+    DEFAULT_MARKERS,
+    EXPENSIVE_MARKERS,
     EXPENSIVE_PLATFORMS,
-    EXPENSIVE_PYTEST,
     MAIN_PLATFORM,
+    RESOURCE_INTENSIVE_MARKERS,
     TRIGGERS,
-    VERY_EXPENSIVE_PYTEST,
+    VERY_EXPENSIVE_MARKERS,
     build_configs,
 )
 
@@ -27,7 +29,7 @@ class TestBuildConfigs:
         assert sum(cfg.test_category == 'lint' for cfg in configs) == 1
         assert any(cfg.test_category == 'py' and cfg.os == MAIN_PLATFORM for cfg in configs)
 
-    @pytest.mark.parametrize('trigger', TRIGGERS)
+    @pytest.mark.parametrize('trigger', FULL_TRIGGERS)
     def test_basic_platforms_get_a_full_install(self, trigger: str) -> None:
         configs = build_configs(trigger, force_all=False, has_aws_credentials=False)
         full_install = {cfg.os for cfg in configs if cfg.test_category == 'py' and cfg.uv_options == ''}
@@ -44,19 +46,27 @@ class TestBuildConfigs:
         names = [cfg.display_name for cfg in build_configs(trigger, force_all=True, has_aws_credentials=True)]
         assert len(names) == len(set(names)), sorted(names)
 
-    def test_schedule_matches_forced_dispatch(self) -> None:
-        assert build_configs('schedule', force_all=False, has_aws_credentials=False) == build_configs(
-            'workflow_dispatch', force_all=True, has_aws_credentials=False
+    @pytest.mark.parametrize('force_all', [False, True])
+    def test_dispatch_matches_schedule(self, force_all: bool) -> None:
+        assert build_configs('schedule', force_all=force_all, has_aws_credentials=False) == build_configs(
+            'workflow_dispatch', force_all=force_all, has_aws_credentials=False
         )
 
-    @pytest.mark.parametrize('trigger', FULL_TRIGGERS)
-    def test_expensive_tests_run_exactly_once(self, trigger: str) -> None:
-        for force_all in (False, True):
-            configs = build_configs(trigger, force_all=force_all, has_aws_credentials=False)
-            expensive = [cfg for cfg in configs if cfg.pytest_options in (EXPENSIVE_PYTEST, VERY_EXPENSIVE_PYTEST)]
-            assert len(expensive) == 1, [cfg.display_name for cfg in expensive]
-            if force_all or trigger == 'schedule':
-                assert expensive[0].pytest_options == VERY_EXPENSIVE_PYTEST
+    @pytest.mark.parametrize(
+        ('trigger', 'force_all', 'tiered'),
+        [
+            ('pull_request', False, ()),
+            ('merge_group', False, (EXPENSIVE_MARKERS,)),
+            ('schedule', False, (EXPENSIVE_MARKERS, RESOURCE_INTENSIVE_MARKERS)),
+            ('schedule', True, (VERY_EXPENSIVE_MARKERS, RESOURCE_INTENSIVE_MARKERS)),
+        ],
+    )
+    def test_markers_by_trigger(self, trigger: str, force_all: bool, tiered: tuple[str, ...]) -> None:
+        suffix = ' and not skip_merge_queue' if trigger in ('pull_request', 'merge_group') else ''
+        configs = build_configs(trigger, force_all=force_all, has_aws_credentials=True)
+        markers = [cfg.pytest_markers for cfg in configs if cfg.test_category == 'py']
+        assert sorted(m for m in markers if m != DEFAULT_MARKERS + suffix) == sorted(m + suffix for m in tiered)
+        assert DEFAULT_MARKERS + suffix in markers
 
     def test_unknown_trigger_is_rejected(self) -> None:
         with pytest.raises(AssertionError):
