@@ -65,7 +65,7 @@ jobs:
         os: [ubuntu-24.04]
         include:
           # The only job with TestBedrock, which needs only core dependencies and AWS credentials and so would run in
-          # every job, and every third Monday with the very_expensive tests, like standard++ in pytest.yml
+          # every 3.11 job, and every third Monday with the very_expensive tests, like standard++ in pytest.yml
           - python-version: "3.11"
             package-configs: "anthropic fireworks-ai google-genai groq jina mistralai openai replicate together"
             very-expensive: true
@@ -157,7 +157,11 @@ jobs:
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
         run: |
-          MARKERS='not very_expensive and not resource_intensive'
+          MARKERS='not expensive and not very_expensive and not resource_intensive'
+          if [[ '${{ matrix.python-version }}' == '3.11' ]]; then
+            # Each 3.11 job has its own optional packages, so each expensive test runs in only one of them
+            MARKERS='not very_expensive and not resource_intensive'
+          fi
           DESELECT='--deselect=tests/functions/test_bedrock.py::TestBedrock'
           if [[ '${{ matrix.very-expensive }}' == 'true' ]]; then
             DESELECT=''
