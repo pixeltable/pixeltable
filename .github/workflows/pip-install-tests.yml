@@ -6,7 +6,7 @@ name: pip-install-tests
 
 on:
   schedule:
-    - cron: "19 2 * * 1,3,5"  # Monday, Wednesday, Friday at 02:19 UTC
+    - cron: "19 2 * * 1,3,5"  # Monday, Wednesday, Friday at 02:19 UTC; every third Monday also very_expensive
   workflow_dispatch:
     inputs:
       enable_tmate:
@@ -64,6 +64,11 @@ jobs:
           - "pixeltable-yolox"
         os: [ubuntu-24.04]
         include:
+          # The only job with TestBedrock, which needs only core dependencies and AWS credentials and so would run in
+          # every 3.11 job
+          - python-version: "3.11"
+            package-configs: "anthropic fireworks-ai google-genai groq jina mistralai openai replicate together"
+            bedrock: true
           # transformers-based tests need to run on a larger runner.
           - python-version: "3.11"
             package-configs: "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm spacy"
@@ -151,7 +156,23 @@ jobs:
       - name: Run the unit tests
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
-        run: pytest -v -m 'not very_expensive and not resource_intensive' --junitxml=junit-report.xml tests
+        run: |
+          MARKERS='not expensive and not very_expensive and not resource_intensive'
+          if [[ '${{ matrix.python-version }}' == '3.11' ]]; then
+            # Each 3.11 job has its own optional packages, so each expensive and very_expensive test runs in only one
+            MARKERS='not very_expensive and not resource_intensive'
+            # Every third Monday, by weeks since the Unix epoch
+            if [[ '${{ github.event_name }}' == 'schedule' ]] \
+                && (( $(date -u +%u) == 1 && $(date -u +%s) / 604800 % 3 == 0 )); then
+              MARKERS='not resource_intensive'
+            fi
+          fi
+          DESELECT='--deselect=tests/functions/test_bedrock.py::TestBedrock'
+          if [[ '${{ matrix.bedrock }}' == 'true' ]]; then
+            DESELECT=''
+          fi
+          echo "Running tests with markers: $MARKERS"
+          pytest -v -m "$MARKERS" $DESELECT --junitxml=junit-report.xml tests
       - name: Upload test report
         if: always()
         # Diagnostic only: a failed upload must not fail the job.
@@ -179,6 +200,11 @@ jobs:
       matrix:
         os: [ubuntu-24.04]
         python-version: ["3.11", "3.13"]
+        include:
+          # As in the tests job: the only job with the expensive notebooks, and every third Monday the very_expensive
+          # ones
+          - python-version: "3.11"
+            expensive: true
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -213,4 +239,14 @@ jobs:
           ./scripts/retry.sh 3 30 ollama pull 'qwen3:0.6b'
           ./scripts/retry.sh 3 30 ollama pull 'qwen3-embedding:0.6b'
       - name: Run isolated notebook tests
-        run: ./scripts/run-isolated-nb-tests.sh ${{ matrix.python-version }}
+        # The resource_intensive notebooks run only on a large runner, in pytest.yml
+        run: |
+          EXCLUDED='expensive very_expensive resource_intensive'
+          if [[ '${{ matrix.expensive }}' == 'true' ]]; then
+            EXCLUDED='very_expensive resource_intensive'
+            if [[ '${{ github.event_name }}' == 'schedule' ]] \
+                && (( $(date -u +%u) == 1 && $(date -u +%s) / 604800 % 3 == 0 )); then
+              EXCLUDED='resource_intensive'
+            fi
+          fi
+          ./scripts/run-isolated-nb-tests.sh ${{ matrix.python-version }} $EXCLUDED
