@@ -240,7 +240,7 @@ def create_table(
 
     telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
 
-    # a query of another database cannot be inserted, so refuse it before anything is created
+    # refuse queries from tables that aren't in our database
     if isinstance(source, Query) and source._from_clause.catalog_uri != path_obj.catalog_uri:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
