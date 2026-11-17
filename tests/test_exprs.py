@@ -2120,6 +2120,24 @@ class TestExprs:
         pd_result = df.groupby('c_int', dropna=True).agg(out=('c_int', 'sum')).reset_index().sort_values('c_int')
         assert pxt_sql_result['out'] == series_to_list(pd_result['out'])
 
+    def test_agg_multiple_batches(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        num_rows, num_groups = 2600, 1300
+        t = pxt.create_table(p('src'), {'id': pxt.Int, 'grp': pxt.Int})
+        t.insert({'id': i, 'grp': i % num_groups} for i in range(num_rows))
+
+        status = t.insert(t.order_by(t.id).select(t.id, t.grp))
+        assert status.num_rows == num_rows
+        expected = sorted([(i, i % num_groups) for i in range(num_rows)] * 2)
+        assert sorted(tuple(row.values()) for row in t.select(t.id, t.grp).collect()) == expected
+
+        agg = pxt.create_table(p('agg'), {'grp': pxt.Int, 'n': pxt.Int})
+        status = agg.insert(t.group_by(t.grp).select(t.grp, n=pxtf.count(t.id)))
+        assert status.num_rows == num_groups
+        assert sorted(tuple(row.values()) for row in agg.select(agg.grp, agg.n).collect()) == [
+            (grp, 4) for grp in range(num_groups)
+        ]
+
     def test_agg_errors(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         from pixeltable.functions import count, sum

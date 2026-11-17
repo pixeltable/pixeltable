@@ -528,6 +528,10 @@ class Planner:
         # the pre-compile copies and don't carry slot_idx).
         compiled = query._create_query_plan()
         plan: exec.ExecNode = compiled.exec_root
+        # The query result can have an arbitrary number of rows; stream it so that it isn't held in memory at once.
+        sql_node = plan.get_node(exec.SqlNode)
+        assert sql_node is not None
+        sql_node.set_stream_results(True)
         output_cols = [tbl.cols_by_name.get(col_name) for col_name in compiled.select_list_schema]
         assert all(col is not None for col in output_cols)
         plan.row_builder.set_table_output(
@@ -540,7 +544,7 @@ class Planner:
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
 
-        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=0, ignore_errors=ignore_errors))
+        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=cls._ROW_BATCH_SIZE, ignore_errors=ignore_errors))
 
         return plan
 
