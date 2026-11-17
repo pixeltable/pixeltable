@@ -1,4 +1,8 @@
-name: nightly
+name: pip-install-tests
+
+# Tests Pixeltable as pip installs it, not the source tree. `tests` installs the latest release (or the `main`
+# checkout, with `from_main`) and sets of optional packages at their latest versions; `isolated-nb-tests` runs each
+# notebook in a fresh environment with only the dependencies the notebook installs.
 
 on:
   schedule:
