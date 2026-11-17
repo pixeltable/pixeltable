@@ -25,7 +25,7 @@ export PIXELTABLE_DB="isolatednbtests"
 rm -f "$TEST_PATH"/audio-transcriptions.ipynb  # temporary workaround
 
 # The notebooks marked skip or with any of the excluded markers
-EXCLUDED_NOTEBOOKS=$(python - "${EXCLUDED_MARKERS[@]}" <<'EOF'
+EXCLUDED_NOTEBOOKS=$(python3 - "${EXCLUDED_MARKERS[@]}" <<'EOF'
 import sys
 from tests.notebook_markers import NOTEBOOK_MARKERS
 excluded = {'skip', *sys.argv[1:]}

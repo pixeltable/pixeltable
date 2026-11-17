@@ -95,15 +95,8 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
             item.add_marker(pytest.mark.skip_merge_queue)
             item.add_marker(pytest.mark.xdist_group('large_model'))
 
-    notebooks = [item for item in items if item.path.suffix == '.ipynb']
-    if notebooks:
-        # A renamed notebook would otherwise lose its markers silently
-        unknown = NOTEBOOK_MARKERS.keys() - {p.stem for p in (TESTS_DIR.parent / 'docs' / 'release').rglob('*.ipynb')}
-        if unknown:
-            raise pytest.UsageError(
-                f'NOTEBOOK_MARKERS has notebooks that are not under docs/release: {sorted(unknown)}'
-            )
-        for item in notebooks:
+    for item in items:
+        if item.path.suffix == '.ipynb':
             marker_names, reason = NOTEBOOK_MARKERS.get(item.path.stem, ((), None))
             for marker_name in marker_names:
                 item.add_marker(marker_name if reason is None else getattr(pytest.mark, marker_name)(reason=reason))

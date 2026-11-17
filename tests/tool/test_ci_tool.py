@@ -1,3 +1,5 @@
+import pathlib
+
 import pytest
 
 from tool.ci_tool import (
@@ -13,6 +15,8 @@ from tool.ci_tool import (
     VERY_EXPENSIVE_MARKERS,
     build_configs,
 )
+
+from ..notebook_markers import NOTEBOOK_MARKERS
 
 # The triggers under which a fully populated matrix is generated; 'pull_request' deliberately runs a reduced one.
 FULL_TRIGGERS = tuple(t for t in TRIGGERS if t != 'pull_request')
@@ -98,3 +102,17 @@ class TestBuildConfigs:
     def test_unknown_trigger_is_rejected(self) -> None:
         with pytest.raises(AssertionError):
             build_configs('push', force_all=False, has_aws_credentials=False)
+
+
+class TestNotebookMarkers:
+    """Checks of NOTEBOOK_MARKERS that run on PRs, which collect no notebooks"""
+
+    def test_notebooks_exist(self) -> None:
+        notebooks = {p.stem for p in (pathlib.Path(__file__).parents[2] / 'docs' / 'release').rglob('*.ipynb')}
+        unknown = NOTEBOOK_MARKERS.keys() - notebooks
+        assert not unknown, f'tests/notebook_markers.py has notebooks not under docs/release: {sorted(unknown)}'
+
+    def test_markers_exist(self) -> None:
+        markers = {name for names, _ in NOTEBOOK_MARKERS.values() for name in names}
+        unknown = markers - {'skip_merge_queue', 'expensive', 'very_expensive', 'resource_intensive', 'skip'}
+        assert not unknown, f'tests/notebook_markers.py has unknown markers: {sorted(unknown)}'
